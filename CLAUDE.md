@@ -1,4 +1,4 @@
-# EMSX 开发指南
+# EMSXView 开发指南
 
 > Last updated: 2026-03-17 | Version: 1.2
 
