@@ -1,0 +1,35 @@
+name = "knowledge-review-monthly"
+prompt = """请基于本月的 SESSION_DIGEST.md 历史记录，完成知识库的定期维护：
+
+1. **审核待办清单**
+   - 检查 SESSION_DIGEST.md 中"待办更新清单"的内容
+   - 评估每个建议项的价值
+
+2. **更新 ERROR_PATTERNS.md**
+   - 将高价值错误模式正式加入知识库
+   - 更新现有条目的出现次数和最后日期
+   - 合并相似条目
+
+3. **更新 MEMORY.md**
+   - 将重要的架构决策加入 MEMORY.md
+   - 更新"已知限制"章节
+
+4. **清理过期内容**
+   - 删除已解决的临时阻碍
+   - 标记已过时的解决方案
+
+5. **生成月度报告**
+   - 汇总本月知识库更新情况
+   - 统计知识沉淀率（会话问题 → 知识库条目的转化率）
+
+请直接读取和修改以下文件：
+- c:/Users/hrchen/Documents/EMSX/docs/SESSION_DIGEST.md
+- c:/Users/hrchen/Documents/EMSX/docs/ERROR_PATTERNS.md
+- c:/Users/hrchen/Documents/EMSX/MEMORY.md
+
+输出格式：
+- 更新 ERROR_PATTERNS.md 和 MEMORY.md
+- 在 SESSION_DIGEST.md 添加月度总结并清空上期"待办清单""""
+rrule = "FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=10;BYMINUTE=0"
+cwds = ["c:/Users/hrchen/Documents/EMSX"]
+status = "ACTIVE"

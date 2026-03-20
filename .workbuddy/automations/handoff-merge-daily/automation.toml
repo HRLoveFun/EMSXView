@@ -1,0 +1,35 @@
+name = "handoff-merge-daily"
+prompt = """请将今天捕获的会话摘要合并到 HANDOFF.md：
+
+1. 读取文件：
+   - docs/session_captures/YYYY-MM-DD/summary.md
+
+2. 如果 summary.md 存在且用户已确认：
+   - 解析内容，提取关键信息
+   - 按 HANDOFF.md 的格式重新组织：
+     * Recent Blockers (Resolved): 已解决的阻碍
+     * Open Blockers: 仍未解决的阻碍  
+     * Decisions Made: 做出的决策
+     * Next Tasks: 下一步任务
+
+3. 更新 HANDOFF.md：
+   - 在 "Current Session" 章节追加新内容
+   - 保持时间倒序排列（最新的在前面）
+   - 更新 "Session History" 时归档旧条目
+
+4. 归档处理：
+   - 将当天的捕获文件移动到 docs/session_captures/archived/YYYY-MM-DD/
+   - 保留原始记录用于追溯
+
+5. 告知用户更新完成，并提供：
+   - 本次更新的摘要
+   - HANDOFF.md 的变更概览
+
+注意：
+- 只在用户明确确认后才执行写入
+- 保留历史记录，不要删除旧内容
+- 保持 HANDOFF.md 的可读性
+"""
+rrule = "FREQ=DAILY;BYHOUR=19;BYMINUTE=0"
+cwds = ["c:/Users/hrchen/Documents/EMSX"]
+status = "ACTIVE"

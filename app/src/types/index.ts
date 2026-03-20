@@ -1,0 +1,259 @@
+// Order types
+export type OrderSide = 'BUY' | 'SELL';
+export type OrderStatus = 'NEW' | 'ASSIGN' | 'WORKING' | 'PARTIAL' | 'FILLED' | 'CANCELLED' | 'COMPLETED' | 'QUEUED' | 'SUSPENDED' | 'PENDING_CANCEL' | 'REJECTED' | 'SENT';
+export type OrderType = 'LIMIT' | 'MARKET' | 'STOP' | 'STOP_LIMIT';
+export type TimeInForce = 'DAY' | 'GTC' | 'IOC' | 'FOK';
+
+export type RouteStatus =
+  | 'SENT' | 'WORKING' | 'PARTFILLED' | 'FILLED' | 'CANCEL'
+  | 'CXLREQ' | 'CXLREJ' | 'CXLREP' | 'CXLRPRQ' | 'CXLRPRJ'
+  | 'REJECTED' | 'DONE' | 'QUEUED' | 'HOLD' | 'BUST'
+  | 'CORRECTED' | 'REPPEN' | 'ROUTE-ERR' | 'OMS-PEND'
+  | 'A-SENT' | 'ALLOCATED' | 'OA-SENT';
+
+export interface Order {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  status: OrderStatus;
+  orderType: OrderType;
+  quantity: number;
+  filledQuantity: number;
+  remainingQuantity: number;
+  price: number | null;
+  stopPrice?: number;
+  timeInForce: TimeInForce;
+  account: string;
+  portfolio: string;
+  trader: string;
+  createdAt: string;
+  updatedAt: string;
+  notes?: string;
+  exchange?: string;
+  currency: string;
+  customNote1: string;
+  customNote2: string;
+  customNote3: string;
+  customNote4: string;
+  customNote5: string;
+  traderNotes: string;
+  execInstruction: string;
+  avgPrice: number | null;
+  percentRemain: number | null;
+  percentFilled: number;
+  pctChange: number | null;
+  strategyType: string;
+  strategyPartRate: number | null;
+  broker: string;
+  adv5d: number | null;
+  dollarValueUsd: number | null;
+  fxRate: number | null;
+  arrivalPrice: number | null;
+  lastPrice: number | null;
+  dayAvgPrice: number | null;
+  mktVwap: number | null;
+  isOddLot?: boolean | null;  // JP market only: true if quantity not multiple of round lot size
+}
+
+export interface Route {
+  id: string;               // "{sequence}.{routeId}"
+  routeId: number;
+  sequence: number;          // parent order EMSX_SEQUENCE
+  status: string;
+  broker: string;
+  amount: number;
+  filled: number;
+  working: number;
+  remainBalance: number;
+  avgPrice: number | null;
+  limitPrice: number | null;
+  stopPrice: number | null;
+  lastPrice: number | null;
+  lastShares: number | null;
+  dayAvgPrice: number | null;
+  dayFill: number;
+  orderType: string;
+  tif: string;
+  handInstruction: string;
+  execInstruction: string;
+  notes: string;
+  strategyType: string;
+  strategyStyle: string;
+  strategyPartRate1: number | null;
+  exchangeDestination: string;
+  executeBroker: string;
+  isManualRoute: number;
+  routeRefId: string;
+  currencyPair: string;
+  urgencyLevel: string;
+  routeCreateDate: string;
+  routeCreateTime: string;
+  lastFillDate: string;
+  lastFillTime: string;
+  timeStamp: string;
+  routeLastUpdateTime: string;
+  fillId: number;
+  percentRemain: number | null;
+  reasonCode: string;
+  reasonDesc: string;
+  brokerStatus: string;
+  settleAmount: number | null;
+  settleDate: string;
+  commRate: number | null;
+  brokerComm: number | null;
+  userCommRate: number | null;
+  userFees: number | null;
+  miscFees: number | null;
+  userNetMoney: number | null;
+  principal: number | null;
+  routePrice: number | null;
+  // Enriched from parent order
+  ticker: string;
+  side: string;
+  portfolio: string;
+  trader: string;
+  traderUuid: number;
+  currency: string;
+  exchange: string;
+}
+
+// Filter types
+export interface OrderFilters {
+  symbol?: string;
+  side?: OrderSide | '';
+  status?: OrderStatus | '';
+  statusMulti?: OrderStatus[];
+  orderType?: OrderType | '';
+  orderTypeMulti?: OrderType[];
+  portfolio?: string;
+  trader?: string;
+  traderMulti?: string[];
+  exchange?: string;
+  currency?: string;
+  oddLot?: boolean;  // Filter for odd lot orders (JP market only: quantity not multiple of PX_ROUND_LOT_SIZE)
+}
+
+// Route modification types
+export interface CancelRouteRequest {
+  sequence: number;
+  routeId: number;
+}
+
+export interface ModifyRouteRequest {
+  sequence: number;
+  routeId: number;
+  amount?: number;
+  orderType?: string;
+  limitPrice?: number | null;
+  stopPrice?: number | null;
+  tif?: string;
+  broker?: string;
+  exchangeDestination?: string;
+  notes?: string;
+  strategyParams?: {
+    strategyName: string;
+    fields: { value: string; disabled: boolean }[];
+  };
+}
+
+export interface ModifyOrderRequest {
+  orderId: string;
+  orderType?: OrderType;
+  price?: number | null;
+  quantity?: number;
+  timeInForce?: TimeInForce;
+  stopPrice?: number | null;
+}
+
+export interface RouteOrderRequest {
+  orderId: string;
+  broker: string;
+  strategy?: string;
+  quantity: number;
+  orderType: OrderType;
+  price?: number | null;
+  stopPrice?: number | null;
+  timeInForce: TimeInForce;
+  exchangeDestination?: string;
+  notes?: string;
+}
+
+// Trader identity
+export interface TraderInfo {
+  traderName: string;
+}
+
+// Broker strategy types
+export interface BrokerStrategyField {
+  fieldName: string;
+  disable: string;
+  stringValue: string;
+}
+
+export interface BrokerStrategiesResponse {
+  broker: string;
+  assetClass: string;
+  strategies: string[];
+}
+
+export interface BrokerStrategyInfoResponse {
+  broker: string;
+  strategy: string;
+  assetClass: string;
+  fields: BrokerStrategyField[];
+}
+
+// Broker Algorithm Configuration types
+export interface StrategyParameter {
+  fieldName: string;
+  stringValue: string;
+  disable: string;
+  dataType: 'string' | 'number' | 'boolean';
+  description: string;
+}
+
+export interface StrategyConfig {
+  name: string;
+  parameters: StrategyParameter[];
+}
+
+export interface BrokerAlgorithmConfig {
+  broker: string;
+  exchange: string;
+  strategies: StrategyConfig[];
+}
+
+// Batch update types
+export type UpdateableField = 'price' | 'quantity' | 'timeInForce' | 'status';
+
+export interface BatchUpdateRequest {
+  orderIds: string[];
+  field: UpdateableField;
+  value: string | number;
+}
+
+export interface BatchUpdateResponse {
+  success: boolean;
+  updatedCount: number;
+  failedOrders?: { orderId: string; reason: string }[];
+  message?: string;
+}
+
+// API Response types
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
+// Connection status
+export type ConnectionStatus = 'connected' | 'disconnected' | 'pending';
+
+// Toast notification
+export interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  message: string;
+  duration?: number;
+}

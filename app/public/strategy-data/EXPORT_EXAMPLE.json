@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "exportedAt": "2025-03-17T10:30:00.000Z",
+  "description": "示例导出格式 - 展示从LocalStorage导出的数据结构",
+  "note": "这是示例格式，实际数据必须通过Bloomberg API获取后导出",
+  "brokers": {
+    "BMTB": {
+      "assetClasses": ["EQTY"],
+      "strategies": ["", "DMA", "TWAP", "VWAP", "POV"]
+    }
+  },
+  "strategies": {
+    "BMTB": {
+      "TWAP": {
+        "fields": [
+          {
+            "fieldName": "StartTime",
+            "stringValue": "09:30:00",
+            "disable": "0"
+          },
+          {
+            "fieldName": "EndTime",
+            "stringValue": "15:50:00",
+            "disable": "0"
+          }
+        ]
+      },
+      "VWAP": {
+        "fields": [
+          {
+            "fieldName": "MaxParticipation",
+            "stringValue": "20",
+            "disable": "0"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+name = "session-digest-weekly"
+prompt = """请分析本周项目内的会话内容（HANDOFF.md、聊天记录、日志等），完成以下任务：
+
+1. **问题分类统计**
+   - 统计各类问题数量（API错误/配置/功能开发/优化）
+   - 对比上周趋势
+
+2. **提取高频问题**
+   - 识别重复出现 ≥2 次的问题
+   - 关联已有的 ERROR_PATTERNS.md 条目
+   - 标记新的潜在错误模式
+
+3. **汇总解决方案**
+   - 记录本周验证通过的新方案
+   - 标注验证状态和是否值得入知识库
+
+4. **生成待办清单**
+   - 列出建议加入 ERROR_PATTERNS.md 的条目
+   - 列出建议加入 MEMORY.md 的决策
+   - 标注优先级
+
+5. **更新 SESSION_DIGEST.md**
+   - 更新"本期摘要"章节
+   - 保留上一期内容到"历史归档"
+
+请直接读取和修改以下文件：
+- c:/Users/hrchen/Documents/EMSX/HANDOFF.md
+- c:/Users/hrchen/Documents/EMSX/docs/ERROR_PATTERNS.md
+- c:/Users/hrchen/Documents/EMSX/docs/SESSION_DIGEST.md
+
+输出格式：直接修改 SESSION_DIGEST.md 文件，在"本期摘要"章节添加本周分析结果。"""
+rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"
+cwds = ["c:/Users/hrchen/Documents/EMSX"]
+status = "ACTIVE"
