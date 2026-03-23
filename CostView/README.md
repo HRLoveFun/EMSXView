@@ -89,5 +89,3 @@ CostView will consume data from Execution through:
 - [ ] Alert system for cost anomalies
 
 ---
-
-*This module is currently a placeholder for future development.*
