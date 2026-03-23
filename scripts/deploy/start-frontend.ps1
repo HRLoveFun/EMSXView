@@ -6,5 +6,5 @@ $env:PATH = "D:\anaconda3\Scripts;D:\anaconda3\Library\bin;" + $env:PATH
 Write-Host "Starting EMSX Frontend on http://localhost:5173 ..." -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
 
-Set-Location "C:\Users\hrchen\Documents\EMSX\app"
+Set-Location "C:\Users\hrchen\Documents\EMSX\Execution\frontend"
 npm run dev
