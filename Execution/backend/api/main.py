@@ -239,7 +239,7 @@ class Order(BaseModel):
     notes: Optional[str] = None
     avgPrice: Optional[float] = None
     currency: str = ""
-    exchange: Optional[str] = None
+    exchange: str = ""  # Changed from Optional[str] = None to ensure consistent string type
     customNote1: str = ""
     customNote2: str = ""
     customNote3: str = ""
@@ -252,6 +252,9 @@ class Order(BaseModel):
     pctChange: Optional[float] = None
     strategyType: str = ""
     strategyPartRate: Optional[float] = None
+    strategyStyle: str = ""
+    strategyStartTime: str = ""
+    strategyEndTime: str = ""
     broker: str = ""
     traderUuid: int = 0
     adv5d: Optional[float] = None
@@ -372,6 +375,15 @@ class Route(BaseModel):
     userNetMoney: Optional[float] = None
     principal: Optional[float] = None
     routePrice: Optional[float] = None
+
+    # Enriched fields from parent order (stored here for persistence)
+    ticker: str = ""  # Parent order's symbol (EMSX_TICKER)
+    side: str = ""    # Parent order's side
+    portfolio: str = ""  # Parent order's portfolio
+    trader: str = ""     # Parent order's trader
+    traderUuid: int = 0  # Parent order's trader UUID
+    currency: str = ""   # Parent order's currency
+    exchange: str = ""   # Parent order's exchange (EMSX_EXCHANGE)
 
 
 class OrderFilters(BaseModel):
@@ -665,6 +677,9 @@ class BloombergEMSXService:
         "EMSX_HAND_INSTRUCTION",
         "EMSX_STRATEGY_TYPE",
         "EMSX_STRATEGY_PART_RATE1",
+        "EMSX_STRATEGY_STYLE",
+        "EMSX_STRATEGY_START_TIME",
+        "EMSX_STRATEGY_END_TIME",
         "EMSX_PM_UUID",
         "EMSX_TRAD_UUID",
         "EMSX_BROKER",
@@ -1184,76 +1199,133 @@ class BloombergEMSXService:
                 with self._data_lock:
                     order_count = len(self._orders)
                     self._init_paint_done = True
-                logger.info(f"INIT_PAINT complete — {order_count} orders loaded")
+                logger.warning(f"INIT_PAINT complete — {order_count} orders loaded")
                 return
 
             # Parse order from message (fields come directly in the message)
             order = self._parse_order_message(msg, seq)
-            if order:
-                # EVENT_STATUS=7 (update) only contains dynamic fields.
-                # Static fields (EMSX_TICKER, EMSX_SIDE, etc.) will be empty.
-                # Merge with cached order so static fields are preserved.
-                with self._data_lock:
-                    if event_status == 7 and seq_key in self._orders:
-                        cached = self._orders[seq_key]
-                        merged = Order(
-                            id=cached.id,
-                            # Static fields: keep cached values when update is empty
-                            symbol=order.symbol or cached.symbol,
-                            side=order.side if self._msg_safe_str(msg, "EMSX_SIDE") else cached.side,
-                            orderType=order.orderType if self._msg_safe_str(msg, "EMSX_ORDER_TYPE") else cached.orderType,
-                            account=order.account or cached.account,
-                            portfolio=order.portfolio or cached.portfolio,
-                            trader=order.trader or cached.trader,
-                            exchange=order.exchange or cached.exchange,
-                            currency=order.currency if self._msg_safe_str(msg, "EMSX_CURRENCY_PAIR") else cached.currency,
-                            createdAt=cached.createdAt,
-                            # Dynamic fields: only update status if EMSX_STATUS was present in the message
-                            status=order.status if self._msg_safe_str(msg, "EMSX_STATUS") else cached.status,
-                            quantity=order.quantity if order.quantity > 0 else cached.quantity,
-                            filledQuantity=order.filledQuantity,
-                            remainingQuantity=order.remainingQuantity if order.quantity > 0 else cached.remainingQuantity,
-                            price=order.price if order.price is not None else cached.price,
-                            stopPrice=order.stopPrice or cached.stopPrice,
-                            avgPrice=order.avgPrice or cached.avgPrice,
-                            timeInForce=order.timeInForce if self._msg_safe_str(msg, "EMSX_TIF") else cached.timeInForce,
-                            updatedAt=datetime.now().isoformat(),
-                            notes=order.notes or cached.notes,
-                            customNote1=order.customNote1 or cached.customNote1,
-                            customNote2=order.customNote2 or cached.customNote2,
-                            customNote3=order.customNote3 or cached.customNote3,
-                            customNote4=order.customNote4 or cached.customNote4,
-                            customNote5=order.customNote5 or cached.customNote5,
-                            traderNotes=order.traderNotes or cached.traderNotes,
-                            execInstruction=order.execInstruction or cached.execInstruction,
-                            percentRemain=order.percentRemain if order.percentRemain is not None else cached.percentRemain,
-                            percentFilled=order.percentFilled if order.filledQuantity > 0 else cached.percentFilled,
-                            strategyType=order.strategyType or cached.strategyType,
-                            strategyPartRate=order.strategyPartRate if order.strategyPartRate is not None else cached.strategyPartRate,
-                            broker=order.broker or cached.broker,
-                            dayAvgPrice=order.dayAvgPrice if order.dayAvgPrice is not None else cached.dayAvgPrice,
-                            arrivalPrice=order.arrivalPrice if order.arrivalPrice is not None else cached.arrivalPrice,
-                            lastPrice=order.lastPrice if order.lastPrice is not None else cached.lastPrice,
-                            dollarValueUsd=order.dollarValueUsd if order.dollarValueUsd is not None else cached.dollarValueUsd,
-                            adv5d=cached.adv5d,  # preserved from market data enrichment
-                            mktVwap=cached.mktVwap,  # preserved from market data enrichment
-                            pctChange=cached.pctChange,  # preserved from market data enrichment
-                        )
-                        self._orders[seq_key] = merged
-                        logger.debug(f"Order update (7): {seq_key} {merged.symbol} -> {merged.status}")
-                    elif event_status == 7:
-                        # Update for a sequence not yet in cache (arrived before its INIT_PAINT).
-                        # Skip to avoid inserting an order with empty static fields (blank ticker).
-                        logger.debug(f"Skip update for unseen seq {seq_key} — no cached base data")
-                    else:
-                        self._orders[seq_key] = order
-                        if event_status == 4:
-                            logger.debug(f"INIT_PAINT order: {seq_key} {order.symbol} {order.side} {order.status}")
-                        elif event_status == 6:
-                            logger.debug(f"New order (6): {seq_key} {order.symbol} {order.side} {order.status}")
+            if not order:
+                logger.warning(f"Failed to parse order for seq={seq}, event_status={event_status}")
+                return
+
+            # EVENT_STATUS=7 (update) only contains dynamic fields.
+            # Static fields (EMSX_TICKER, EMSX_SIDE, etc.) will be empty.
+            # Merge with cached order so static fields are preserved.
+            with self._data_lock:
+                if event_status == 7 and seq_key in self._orders:
+                    cached = self._orders[seq_key]
+                    merged = Order(
+                        id=cached.id,
+                        # Static fields: keep cached values when update is empty
+                        symbol=order.symbol or cached.symbol,
+                        side=order.side if self._msg_safe_str(msg, "EMSX_SIDE") else cached.side,
+                        orderType=order.orderType if self._msg_safe_str(msg, "EMSX_ORDER_TYPE") else cached.orderType,
+                        account=order.account or cached.account,
+                        portfolio=order.portfolio or cached.portfolio,
+                        trader=order.trader or cached.trader,
+                        exchange=order.exchange or cached.exchange,
+                        currency=order.currency if self._msg_safe_str(msg, "EMSX_CURRENCY_PAIR") else cached.currency,
+                        createdAt=cached.createdAt,
+                        # Dynamic fields: only update status if EMSX_STATUS was present in the message
+                        status=order.status if self._msg_safe_str(msg, "EMSX_STATUS") else cached.status,
+                        quantity=order.quantity if order.quantity > 0 else cached.quantity,
+                        filledQuantity=order.filledQuantity,
+                        remainingQuantity=order.remainingQuantity if order.quantity > 0 else cached.remainingQuantity,
+                        price=order.price if order.price is not None else cached.price,
+                        stopPrice=order.stopPrice or cached.stopPrice,
+                        avgPrice=order.avgPrice or cached.avgPrice,
+                        timeInForce=order.timeInForce if self._msg_safe_str(msg, "EMSX_TIF") else cached.timeInForce,
+                        updatedAt=datetime.now().isoformat(),
+                        notes=order.notes or cached.notes,
+                        customNote1=order.customNote1 or cached.customNote1,
+                        customNote2=order.customNote2 or cached.customNote2,
+                        customNote3=order.customNote3 or cached.customNote3,
+                        customNote4=order.customNote4 or cached.customNote4,
+                        customNote5=order.customNote5 or cached.customNote5,
+                        traderNotes=order.traderNotes or cached.traderNotes,
+                        execInstruction=order.execInstruction or cached.execInstruction,
+                        percentRemain=order.percentRemain if order.percentRemain is not None else cached.percentRemain,
+                        percentFilled=order.percentFilled if order.filledQuantity > 0 else cached.percentFilled,
+                        strategyType=order.strategyType or cached.strategyType,
+                        strategyPartRate=order.strategyPartRate if order.strategyPartRate is not None else cached.strategyPartRate,
+                        strategyStyle=order.strategyStyle or cached.strategyStyle,
+                        strategyStartTime=order.strategyStartTime or cached.strategyStartTime,
+                        strategyEndTime=order.strategyEndTime or cached.strategyEndTime,
+                        broker=order.broker or cached.broker,
+                        dayAvgPrice=order.dayAvgPrice if order.dayAvgPrice is not None else cached.dayAvgPrice,
+                        arrivalPrice=order.arrivalPrice if order.arrivalPrice is not None else cached.arrivalPrice,
+                        lastPrice=order.lastPrice if order.lastPrice is not None else cached.lastPrice,
+                        dollarValueUsd=order.dollarValueUsd if order.dollarValueUsd is not None else cached.dollarValueUsd,
+                        adv5d=cached.adv5d,  # preserved from market data enrichment
+                        mktVwap=cached.mktVwap,  # preserved from market data enrichment
+                        pctChange=cached.pctChange,  # preserved from market data enrichment
+                    )
+                    self._orders[seq_key] = merged
+                    logger.debug(f"Order update (7): {seq_key} {merged.symbol} -> {merged.status}")
+                elif event_status == 7:
+                    # Update for a sequence not yet in cache (arrived before its INIT_PAINT).
+                    # Skip to avoid inserting an order with empty static fields (blank ticker).
+                    logger.debug(f"Skip update for unseen seq {seq_key} — no cached base data")
+                else:
+                    self._orders[seq_key] = order
+                    if event_status == 4:
+                        logger.debug(f"INIT_PAINT order: {seq_key} {order.symbol} {order.side} {order.status}")
+                        # Log first few orders at WARNING level for diagnostics
+                        if len(self._orders) <= 3:
+                            logger.warning(f"INIT_PAINT order #{len(self._orders)}: seq={seq_key} symbol='{order.symbol}' exchange='{order.exchange}' side={order.side}")
+                    elif event_status == 6:
+                        logger.debug(f"New order (6): {seq_key} {order.symbol} {order.side} {order.status}")
+                    # NEW: Try to enrich related routes when new order arrives
+                    self._enrich_routes_with_new_order(order)
 
         except Exception as e:
             logger.warning(f"Error processing subscription message: {e}")
+
+    def _enrich_routes_with_new_order(self, order):
+        """When a new order arrives, enrich related routes that were missing parent data.
+        
+        This handles the case where route data arrives before parent order.
+        Thread-safe: should be called within _data_lock.
+        """
+        seq_str = str(order.id)  # order.id is the sequence number
+        enriched_count = 0
+        for route_key, route in self._routes.items():
+            if str(route.sequence) == seq_str:
+                # Check if ANY enrichment field is missing (not just ticker)
+                needs_update = not route.ticker or not route.exchange or not route.side
+                if needs_update:
+                    # Update route with parent order data
+                    update_dict = route.model_dump()
+                    update_dict["ticker"] = route.ticker or order.symbol or ""
+                    update_dict["side"] = route.side or order.side or ""
+                    update_dict["portfolio"] = route.portfolio or order.portfolio or ""
+                    update_dict["trader"] = route.trader or order.trader or ""
+                    update_dict["traderUuid"] = route.traderUuid if route.traderUuid else (order.traderUuid or 0)
+                    update_dict["currency"] = route.currency or order.currency or ""
+                    update_dict["exchange"] = route.exchange or order.exchange or ""
+                    self._routes[route_key] = Route(**update_dict)
+                    enriched_count += 1
+                    logger.info(f"Delayed enrichment for route {route_key}: ticker='{update_dict['ticker']}', exchange='{update_dict['exchange']}'")
+        if enriched_count > 0:
+            logger.info(f"Enriched {enriched_count} routes for new order {seq_str}")
+
+    def _enrich_route_from_parent(self, route_key, route):
+        """Enrich a single route from its parent order in cache.
+        
+        Thread-safe: should be called within _data_lock.
+        """
+        parent = self._orders.get(str(route.sequence))
+        if parent and (not route.ticker or not route.exchange or not route.side):
+            update_dict = route.model_dump()
+            update_dict["ticker"] = route.ticker or parent.symbol or ""
+            update_dict["side"] = route.side or parent.side or ""
+            update_dict["portfolio"] = route.portfolio or parent.portfolio or ""
+            update_dict["trader"] = route.trader or parent.trader or ""
+            update_dict["traderUuid"] = route.traderUuid if route.traderUuid else (parent.traderUuid or 0)
+            update_dict["currency"] = route.currency or parent.currency or ""
+            update_dict["exchange"] = route.exchange or parent.exchange or ""
+            self._routes[route_key] = Route(**update_dict)
+            logger.debug(f"Enrich new route {route_key}: ticker='{update_dict['ticker']}', exchange='{update_dict['exchange']}'")
 
     def _process_route_message(self, msg):
         """Process a single route subscription message and update the route cache.
@@ -1306,6 +1378,17 @@ class BloombergEMSXService:
                                 update_dict[field_name] = new_val
                             elif cached_val is not None and cached_val != "" and cached_val != 0:
                                 update_dict[field_name] = cached_val
+
+                        # IMPORTANT: Always preserve enrichment fields from cache
+                        # These fields are populated from parent order and not in route messages
+                        enrichment_fields = ["ticker", "side", "portfolio", "trader", "traderUuid", "currency", "exchange"]
+                        for ef in enrichment_fields:
+                            cached_ef_val = getattr(cached, ef, None)
+                            # Use explicit comparison: empty string and 0 are valid cached values to skip,
+                            # but non-empty strings and non-zero ints must be preserved
+                            if cached_ef_val is not None and cached_ef_val != "" and cached_ef_val != 0:
+                                update_dict[ef] = cached_ef_val
+
                         # Always keep key fields
                         update_dict["id"] = route_key
                         update_dict["routeId"] = route_id
@@ -1315,11 +1398,14 @@ class BloombergEMSXService:
                         if raw_status:
                             update_dict["status"] = raw_status
                         self._routes[route_key] = Route(**update_dict)
-                        logger.debug(f"Route update (7): {route_key} -> {self._routes[route_key].status}")
+                        logger.debug(f"Route update (7): {route_key} -> {self._routes[route_key].status}, "
+                                    f"enrichment: ticker='{update_dict.get('ticker','')}', exchange='{update_dict.get('exchange','')}'")
                     elif event_status == 7:
                         logger.debug(f"Skip route update for unseen {route_key}")
                     else:
                         self._routes[route_key] = route
+                        # Immediately enrich new route from parent order if available
+                        self._enrich_route_from_parent(route_key, route)
                         if event_status == 4:
                             logger.debug(f"INIT_PAINT route: {route_key} {route.broker} {route.status}")
                         elif event_status == 6:
@@ -1361,8 +1447,11 @@ class BloombergEMSXService:
             strategy_style = self._msg_safe_str(msg, "EMSX_STRATEGY_STYLE")
             strategy_part_rate1 = self._msg_safe_float(msg, "EMSX_STRATEGY_PART_RATE1") or None
             strategy_part_rate2 = self._msg_safe_float(msg, "EMSX_STRATEGY_PART_RATE2") or None
-            strategy_start_time = self._msg_safe_str(msg, "EMSX_STRATEGY_START_TIME")
-            strategy_end_time = self._msg_safe_str(msg, "EMSX_STRATEGY_END_TIME")
+            # EMSX_STRATEGY_START_TIME / END_TIME are integers (HHMM format, e.g. 930 = 09:30)
+            strategy_start_time_raw = self._msg_safe_int(msg, "EMSX_STRATEGY_START_TIME", 0)
+            strategy_start_time = self._format_strategy_time(strategy_start_time_raw)
+            strategy_end_time_raw = self._msg_safe_int(msg, "EMSX_STRATEGY_END_TIME", 0)
+            strategy_end_time = self._format_strategy_time(strategy_end_time_raw)
 
             exchange_destination = self._msg_safe_str(msg, "EMSX_EXCHANGE_DESTINATION")
             execute_broker = self._msg_safe_str(msg, "EMSX_EXECUTE_BROKER")
@@ -1494,6 +1583,26 @@ class BloombergEMSXService:
             pass
         return default
 
+    @staticmethod
+    def _format_strategy_time(raw: int) -> str:
+        """Convert Bloomberg strategy time integer to HH:MM string.
+
+        Bloomberg encodes strategy start/end times as integers in HHMM format
+        (e.g. 930 = 09:30, 1600 = 16:00) or as seconds from midnight.
+        Returns empty string for 0 (unset).
+        """
+        if not raw or raw <= 0:
+            return ""
+        # If value looks like seconds from midnight (> 2400), convert
+        if raw > 2400:
+            h = raw // 3600
+            m = (raw % 3600) // 60
+        else:
+            # HHMM format
+            h = raw // 100
+            m = raw % 100
+        return f"{h:02d}:{m:02d}"
+
     # Mapping of Bloomberg exchange suffixes to trading currencies
     _EXCHANGE_CURRENCY_MAP = {
         "US": "USD", "UN": "USD", "UQ": "USD", "UW": "USD", "UA": "USD", "UP": "USD",
@@ -1576,6 +1685,15 @@ class BloombergEMSXService:
 
         return ""
 
+    @classmethod
+    def _derive_exchange(cls, ticker: str) -> str:
+        """Derive exchange code from Bloomberg ticker suffix (e.g., '7203 JP Equity' → 'JP')."""
+        parts = ticker.strip().split() if ticker else []
+        if len(parts) >= 2:
+            asset_types = ("EQUITY", "GOVT", "CORP", "COMDTY", "INDEX", "CURNCY", "PREF", "MTGE")
+            return parts[-2].upper() if parts[-1].upper() in asset_types else parts[-1].upper()
+        return ""
+
     def _parse_order_message(self, msg, seq: int) -> Optional[Order]:
         """Parse an OrderRouteFields subscription message into an Order."""
         try:
@@ -1622,8 +1740,11 @@ class BloombergEMSXService:
             currency_pair = self._msg_safe_str(msg, "EMSX_CURRENCY_PAIR")
             currency = self._derive_currency(currency_pair, symbol)
             logger.info(f"Order {seq}: CURRENCY_PAIR='{currency_pair}' ticker='{symbol}' -> currency='{currency}'")
-            exchange = self._msg_safe_str(msg, "EMSX_EXCHANGE") or None
-            logger.info(f"Order {seq}: EMSX_EXCHANGE='{exchange}'")
+            exchange = self._msg_safe_str(msg, "EMSX_EXCHANGE")
+            # Derive exchange from ticker suffix when Bloomberg returns empty EMSX_EXCHANGE
+            if not exchange and symbol:
+                exchange = self._derive_exchange(symbol)
+            logger.info(f"Order {seq}: EMSX_EXCHANGE='{self._msg_safe_str(msg, 'EMSX_EXCHANGE')}' -> exchange='{exchange}'")
 
             custom_note1 = self._msg_safe_str(msg, "EMSX_CUSTOM_NOTE1")
             custom_note2 = self._msg_safe_str(msg, "EMSX_CUSTOM_NOTE2")
@@ -1633,8 +1754,13 @@ class BloombergEMSXService:
             trader_notes = self._msg_safe_str(msg, "EMSX_TRADER_NOTES")
             exec_instruction = self._msg_safe_str(msg, "EMSX_EXEC_INSTRUCTION")
             strategy_type = self._msg_safe_str(msg, "EMSX_STRATEGY_TYPE")
+            strategy_style = self._msg_safe_str(msg, "EMSX_STRATEGY_STYLE")
             strategy_part_rate_raw = self._msg_safe_float(msg, "EMSX_STRATEGY_PART_RATE1")
             strategy_part_rate = strategy_part_rate_raw if strategy_part_rate_raw > 0 else None
+            strategy_start_time_raw = self._msg_safe_int(msg, "EMSX_STRATEGY_START_TIME", 0)
+            strategy_start_time = self._format_strategy_time(strategy_start_time_raw)
+            strategy_end_time_raw = self._msg_safe_int(msg, "EMSX_STRATEGY_END_TIME", 0)
+            strategy_end_time = self._format_strategy_time(strategy_end_time_raw)
             percent_remain = self._msg_safe_float(msg, "EMSX_PERCENT_REMAIN") or None
             broker = self._msg_safe_str(msg, "EMSX_BROKER")
             trader_uuid = self._msg_safe_int(msg, "EMSX_TRAD_UUID", 0)
@@ -1649,7 +1775,7 @@ class BloombergEMSXService:
             # Compute derived fields
             pct_filled = round((filled / qty) * 100, 1) if qty > 0 else 0.0
             if any([custom_note1, custom_note2, custom_note3, custom_note4, custom_note5, trader_notes, notes, exec_instruction, strategy_type]):
-                logger.debug(f"Order {seq}: STRAT='{strategy_type}' RATE={strategy_part_rate_raw} NOTES='{notes}'")
+                logger.debug(f"Order {seq}: STRAT='{strategy_type}' STYLE='{strategy_style}' RATE={strategy_part_rate_raw} TIME={strategy_start_time}-{strategy_end_time} NOTES='{notes}'")
 
             # Date: EMSX_DATE is YYYYMMDD integer, EMSX_TIME_STAMP is seconds from midnight
             emsx_date = self._msg_safe_int(msg, "EMSX_DATE")
@@ -1699,6 +1825,9 @@ class BloombergEMSXService:
                 percentFilled=pct_filled,
                 strategyType=strategy_type,
                 strategyPartRate=strategy_part_rate,
+                strategyStyle=strategy_style,
+                strategyStartTime=strategy_start_time,
+                strategyEndTime=strategy_end_time,
                 broker=broker,
                 traderUuid=trader_uuid,
                 dayAvgPrice=day_avg_price,
@@ -2247,11 +2376,19 @@ class BloombergEMSXService:
                 logger.info(f"INIT_PAINT inferred complete — {order_count} orders in cache")
             else:
                 logger.info("Waiting for EMSX INIT_PAINT to complete...")
-                for _ in range(30):
+                # INCREASED: From 30 iterations (15s) to 60 iterations (30s)
+                # This ensures we capture all orders from large order books
+                for _ in range(60):
                     await asyncio.sleep(0.5)
                     with self._data_lock:
                         has_orders = len(self._orders) > 0
+                        current_count = len(self._orders)
                     if self._init_paint_done or has_orders or self._subscription_failed:
+                        # Additional check: wait a bit more to ensure we get all orders
+                        if has_orders and not self._init_paint_done:
+                            logger.info(f"Orders arriving: {current_count} so far, waiting for more...")
+                            # Wait 2 more seconds to capture any trailing orders
+                            await asyncio.sleep(2.0)
                         break
                 with self._data_lock:
                     order_count = len(self._orders)
@@ -2259,7 +2396,7 @@ class BloombergEMSXService:
                     self._init_paint_done = True
                     logger.info(f"INIT_PAINT inferred complete — {order_count} orders in cache")
                 if not self._init_paint_done and not self._subscription_failed:
-                    logger.warning("INIT_PAINT not complete after 15s — returning partial snapshot")
+                    logger.warning("INIT_PAINT not complete after 30s — returning partial snapshot")
             if self._subscription_failed:
                 logger.warning("Subscription failed — returning stale/empty cache. Bloomberg EMSX may be reconnecting.")
                 # Reset connected so next call triggers a fresh reconnect
@@ -2298,6 +2435,9 @@ class BloombergEMSXService:
         fx_miss_count = 0
         for o in orders:
             updates: dict = {}
+            # Ensure exchange is derived from ticker if still empty
+            if not o.exchange and o.symbol:
+                updates["exchange"] = self._derive_exchange(o.symbol)
             pct = self._price_changes.get(o.symbol)
             if pct is not None:
                 updates["pctChange"] = pct
@@ -2480,24 +2620,35 @@ class BloombergEMSXService:
             r_dict = r.model_dump()
             parent = orders_snapshot.get(str(r.sequence))
             if parent:
-                r_dict["ticker"] = parent.symbol
-                r_dict["side"] = parent.side
-                r_dict["portfolio"] = parent.portfolio
-                r_dict["trader"] = parent.trader
-                r_dict["traderUuid"] = parent.traderUuid
-                r_dict["currency"] = parent.currency
-                # Use parent order's exchange only (EMSX_EXCHANGE)
-                r_dict["exchange"] = parent.exchange if parent.exchange else ""
-                logger.info(f"Enrich route {r.id}: parent seq={r.sequence}, parent.exchange='{parent.exchange}' -> route.exchange='{r_dict['exchange']}'")
+                # Use cached values on route if available, otherwise from parent
+                # This preserves values even when parent temporarily unavailable
+                r_dict["ticker"] = r.ticker or parent.symbol or ""
+                r_dict["side"] = r.side or parent.side or ""
+                r_dict["portfolio"] = r.portfolio or parent.portfolio or ""
+                r_dict["trader"] = r.trader or parent.trader or ""
+                r_dict["traderUuid"] = r.traderUuid if r.traderUuid else parent.traderUuid
+                r_dict["currency"] = r.currency or parent.currency or ""
+                # Use parent order's exchange, derive from ticker as fallback
+                r_dict["exchange"] = r.exchange or parent.exchange or self._derive_exchange(r_dict["ticker"]) or ""
+                logger.info(f"Enrich route {r.id}: parent seq={r.sequence}, "
+                           f"route.ticker='{r.ticker}'->'{r_dict['ticker']}', "
+                           f"route.exchange='{r.exchange}'->'{r_dict['exchange']}'")
             else:
-                r_dict["ticker"] = ""
-                r_dict["side"] = ""
-                r_dict["portfolio"] = ""
-                r_dict["trader"] = ""
-                r_dict["traderUuid"] = 0
-                r_dict["currency"] = ""
-                r_dict["exchange"] = ""
-                logger.warning(f"Enrich route {r.id}: no parent order found for seq={r.sequence}")
+                # Parent not in cache - use route's cached values if available
+                if r.ticker:
+                    # Route has cached enrichment data, use it
+                    logger.debug(f"Enrich route {r.id}: using cached values, ticker='{r.ticker}', exchange='{r.exchange}'")
+                else:
+                    # No cached data available - log warning
+                    logger.warning(f"Enrich route {r.id}: no parent order found for seq={r.sequence} and no cached values")
+                # Ensure all enrichment fields have at least empty string values
+                r_dict["ticker"] = r.ticker or ""
+                r_dict["side"] = r.side or ""
+                r_dict["portfolio"] = r.portfolio or ""
+                r_dict["trader"] = r.trader or ""
+                r_dict["traderUuid"] = r.traderUuid or 0
+                r_dict["currency"] = r.currency or ""
+                r_dict["exchange"] = r.exchange or ""
             enriched.append(r_dict)
         return enriched
 
@@ -3045,6 +3196,28 @@ async def get_connection_status(user: dict = Depends(verify_token)):
         data={"status": bb_status.status},
         message=f"Bloomberg is {bb_status.status}"
     )
+
+
+@app.get("/api/orders/status", response_model=ApiResponse, tags=["Orders"])
+async def get_orders_status(user: dict = Depends(verify_token)):
+    """
+    Get order subscription status
+    
+    Returns:
+    - init_paint_done: Whether INIT_PAINT is complete
+    - order_count: Number of orders in cache
+    - subscription_failed: Whether subscription failed
+    - is_connected: Connection status
+    """
+    status = {
+        "init_paint_done": bloomberg_service._init_paint_done,
+        "order_count": len(bloomberg_service._orders),
+        "route_count": len(bloomberg_service._routes),
+        "subscription_failed": bloomberg_service._subscription_failed,
+        "is_connected": bloomberg_service.connected
+    }
+    return ApiResponse(success=True, data=status, message="Order subscription status")
+
 
 @app.get("/api/orders", response_model=ApiResponse, tags=["Orders"])
 async def get_orders(

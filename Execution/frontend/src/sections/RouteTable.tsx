@@ -58,7 +58,7 @@ interface GroupConfig {
   secondary: RouteGroupByValue;
 }
 
-const TOTAL_COLS = 21; // Added Actions column
+const TOTAL_COLS = 22; // Added Actions column + Strat Params column
 
 export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, onModifyRoute, onRefresh }: RouteTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'sequence', direction: 'desc' });
@@ -132,7 +132,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
     }
     if (tickerFilter) {
       const t = tickerFilter.toUpperCase();
-      result = result.filter(r => r.ticker.toUpperCase().includes(t));
+      result = result.filter(r => (r.ticker || '').toUpperCase().includes(t));
     }
     return result;
   }, [routes, statusFilter, statusFilterMode, brokerFilter, traderFilter, tickerFilter]);
@@ -238,6 +238,17 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
 
 
   const hasActiveFilters = statusFilter.length > 0 || brokerFilter.length > 0 || traderFilter.length > 0 || !!tickerFilter;
+
+  const getRouteStrategyDetail = (route: Route) => {
+    if (!route.strategyType) return '';
+    const parts: string[] = [];
+    if (route.strategyPartRate1 != null) parts.push(`Rate: ${route.strategyPartRate1}%`);
+    if (route.strategyPartRate2 != null) parts.push(`Rate2: ${route.strategyPartRate2}%`);
+    if (route.strategyStyle) parts.push(`Style: ${route.strategyStyle}`);
+    if (route.strategyStartTime) parts.push(`Start: ${route.strategyStartTime}`);
+    if (route.strategyEndTime) parts.push(`End: ${route.strategyEndTime}`);
+    return parts.join(' | ');
+  };
 
   // Get unique values from current routes for filters
   const availableStatuses = useMemo(() => {
@@ -453,9 +464,9 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
         {/* Route# */}
         <td className="px-2 font-mono text-xs">{route.routeId}</td>
         {/* Ticker */}
-        <td className="px-2 font-semibold">{route.ticker}</td>
+        <td className="px-2 font-semibold">{route.ticker || '-'}</td>
         {/* Exchange */}
-        <td className="px-2 text-xs">{route.exchange || ''}</td>
+        <td className="px-2 text-xs">{route.exchange || '-'}</td>
         {/* Side */}
         <td className={`px-2 font-semibold ${getSideClass(route.side)}`}>{route.side}</td>
         {/* Status */}
@@ -483,7 +494,9 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
         {/* Trader */}
         <td className="px-2 text-xs">{route.trader}</td>
         {/* Strategy */}
-        <td className="px-2 text-xs">{route.strategyType}</td>
+        <td className="px-2 text-xs" title={getRouteStrategyDetail(route)}>{route.strategyType}</td>
+        {/* Strat Params */}
+        <td className="px-2 text-xs text-muted-foreground truncate max-w-[120px]" title={getRouteStrategyDetail(route)}>{getRouteStrategyDetail(route)}</td>
         {/* Notes */}
         <td className="px-2 text-xs text-muted-foreground truncate max-w-[120px]" title={route.notes}>{route.notes}</td>
         {/* Reason */}
@@ -643,6 +656,10 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
                 {/* Strategy */}
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('strategyType')}>
                   <div className="flex items-center gap-1">Strategy{getSortIcon('strategyType')}</div>
+                </th>
+                {/* Strat Params */}
+                <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('strategyPartRate1')}>
+                  <div className="flex items-center gap-1">Strat Params{getSortIcon('strategyPartRate1')}</div>
                 </th>
                 {/* Notes */}
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('notes')}>

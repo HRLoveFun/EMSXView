@@ -1,0 +1,19 @@
+# CostView Fill Data Pipeline Dependencies
+
+# Core
+colorama>=0.4.6
+python-dateutil>=2.8.2
+numpy>=1.24.0
+
+# Bloomberg API
+blpapi>=3.21.0
+
+# Data Processing
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# Bloomberg Data (optional, for BDIB and EUR composite ticker)
+# xbbg>=0.7.0
+
+# Environment
+python-dotenv>=0.19.0

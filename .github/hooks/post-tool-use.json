@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "windows": "python scripts/hooks/log-change.py",
+        "linux": "python3 scripts/hooks/log-change.py",
+        "osx": "python3 scripts/hooks/log-change.py",
+        "timeout": 5
+      }
+    ]
+  }
+}

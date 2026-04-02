@@ -148,6 +148,16 @@ export const apiService = {
     return apiFetch<Order[]>('/api/orders/refresh');
   },
 
+  async getOrdersStatus(): Promise<ApiResponse<{
+    init_paint_done: boolean;
+    order_count: number;
+    route_count: number;
+    subscription_failed: boolean;
+    is_connected: boolean;
+  }>> {
+    return apiFetch('/api/orders/status');
+  },
+
   async getRoutes(): Promise<ApiResponse<Route[]>> {
     return apiFetch<Route[]>('/api/routes');
   },

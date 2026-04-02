@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, Fragment } from 'react';
+import { useState, useCallback, useMemo, useEffect, Fragment } from 'react';
 import {
   ArrowUpDown,
   ArrowUp,
@@ -47,7 +47,7 @@ interface SortConfig {
   direction: SortDirection;
 }
 
-const TOTAL_COLS = 24; // 23 data columns + 1 actions column
+const TOTAL_COLS = 26; // 25 data columns + 1 actions column
 
 export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChange, isLoading, filters, onFilterChange, onModifyOrder, onRouteOrder, currentTrader }: OrderTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'createdAt', direction: 'desc' });
@@ -261,15 +261,20 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
 
   const getPmNote = (order: Order) => {
     const parts: string[] = [];
-    if (order.strategyPartRate != null && order.strategyType) {
-      parts.push(`${order.strategyPartRate.toFixed(0)} % @${order.strategyType}`);
-    } else if (order.strategyType) {
-      parts.push(`@${order.strategyType}`);
-    }
     if (order.notes) parts.push(order.notes);
     if (parts.length > 0) return parts.join('');
     return order.execInstruction || order.customNote1 || order.customNote2
       || order.customNote3 || order.customNote4 || order.customNote5 || '';
+  };
+
+  const getStrategyDetail = (order: Order) => {
+    if (!order.strategyType) return '';
+    const parts: string[] = [];
+    if (order.strategyPartRate != null) parts.push(`Rate: ${order.strategyPartRate.toFixed(0)}%`);
+    if (order.strategyStyle) parts.push(`Style: ${order.strategyStyle}`);
+    if (order.strategyStartTime) parts.push(`Start: ${order.strategyStartTime}`);
+    if (order.strategyEndTime) parts.push(`End: ${order.strategyEndTime}`);
+    return parts.join(' | ');
   };
 
   // ─── Filter helpers ─────────────────────────────────────────────────────────
@@ -292,6 +297,18 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
       return v !== '' && v !== undefined && v !== null;
     });
   }, [filters]);
+
+  const activeFilterCount = useMemo(() => {
+    return Object.entries(filters).filter(([, v]) => {
+      if (Array.isArray(v)) return v.length > 0;
+      return v !== '' && v !== undefined && v !== null;
+    }).length;
+  }, [filters]);
+
+  // Debug: Log order counts
+  useEffect(() => {
+    console.log(`[OrderTable] allOrders: ${allOrders.length}, orders: ${orders.length}, activeFilters: ${activeFilterCount}`);
+  }, [allOrders.length, orders.length, activeFilterCount]);
 
   const textFilterPopover = (key: 'symbol' | 'portfolio' | 'exchange' | 'currency', placeholder: string) => {
     const active = !!(filters[key]);
@@ -436,6 +453,16 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
               ))}
             </SelectContent>
           </Select>
+          {/* Order count indicator */}
+          <span className="ml-4 text-xs">
+            Showing <span className="font-semibold text-foreground">{orders.length}</span>
+            {allOrders.length !== orders.length && (
+              <span> of <span className="font-semibold text-foreground">{allOrders.length}</span></span>
+            )} orders
+            {activeFilterCount > 0 && (
+              <span className="text-primary ml-1">({activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active)</span>
+            )}
+          </span>
           {hasActiveFilters && (
             <button
               onClick={() => onFilterChange({})}
@@ -513,6 +540,12 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors text-right" onClick={() => handleSort('fxRate')}>
                   <div className="flex items-center justify-end gap-1">FX Rate{getSortIcon('fxRate')}</div>
+                </th>
+                <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('strategyType')}>
+                  <div className="flex items-center gap-1">Strategy{getSortIcon('strategyType')}</div>
+                </th>
+                <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('strategyPartRate')}>
+                  <div className="flex items-center gap-1">Strat Params{getSortIcon('strategyPartRate')}</div>
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('notes')}>
                   <div className="flex items-center gap-1">PM Note{getSortIcon('notes')}</div>
@@ -614,6 +647,8 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                       <td className="text-xs">{order.exchange || ''}</td>
                       <td className="text-xs">{order.currency || ''}</td>
                       <td className="text-right font-mono-numbers text-xs text-muted-foreground">{order.fxRate != null ? order.fxRate.toFixed(4) : ''}</td>
+                      <td className="text-xs font-medium">{order.strategyType || ''}</td>
+                      <td className="text-xs text-muted-foreground truncate max-w-[120px]" title={getStrategyDetail(order)}>{getStrategyDetail(order)}</td>
                       <td className="text-xs truncate max-w-[180px]" title={getPmNote(order)}>{getPmNote(order)}</td>
                   <td className="text-muted-foreground text-xs">{formatDate(order.createdAt)}</td>
                 </tr>

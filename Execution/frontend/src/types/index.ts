@@ -29,7 +29,7 @@ export interface Order {
   createdAt: string;
   updatedAt: string;
   notes?: string;
-  exchange?: string;
+  exchange: string;
   currency: string;
   customNote1: string;
   customNote2: string;
@@ -44,6 +44,9 @@ export interface Order {
   pctChange: number | null;
   strategyType: string;
   strategyPartRate: number | null;
+  strategyStyle: string;
+  strategyStartTime: string;
+  strategyEndTime: string;
   broker: string;
   adv5d: number | null;
   dollarValueUsd: number | null;
@@ -80,6 +83,9 @@ export interface Route {
   strategyType: string;
   strategyStyle: string;
   strategyPartRate1: number | null;
+  strategyPartRate2: number | null;
+  strategyStartTime: string;
+  strategyEndTime: string;
   exchangeDestination: string;
   executeBroker: string;
   isManualRoute: number;

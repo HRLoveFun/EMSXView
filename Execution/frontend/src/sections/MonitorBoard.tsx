@@ -28,7 +28,7 @@ import {
 import type { Order, OrderStatus } from '@/types';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const TOTAL_COLS = 23; // Order ID, Ticker, Side, Status, Type, Qty, %Filled, Limit Px, Avg Px, Arr Px, Last Px, Ivl VWAP, $Value, %Change, ADV 5D, Portfolio, Trader, Exchange, Ccy, FX Rate, PM Note, Created, Flags
+const TOTAL_COLS = 25; // Order ID, Ticker, Side, Status, Type, Qty, %Filled, Limit Px, Avg Px, Arr Px, Last Px, Ivl VWAP, $Value, %Change, ADV 5D, Portfolio, Trader, Exchange, Ccy, FX Rate, Strategy, Strat Params, PM Note, Created, Flags
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 function getStatusBadge(status: OrderStatus) {
@@ -260,15 +260,20 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
 
   const getPmNote = (order: Order) => {
     const parts: string[] = [];
-    if (order.strategyPartRate != null && order.strategyType) {
-      parts.push(`${order.strategyPartRate.toFixed(0)} % @${order.strategyType}`);
-    } else if (order.strategyType) {
-      parts.push(`@${order.strategyType}`);
-    }
     if (order.notes) parts.push(order.notes);
     if (parts.length > 0) return parts.join('');
     return order.execInstruction || order.customNote1 || order.customNote2
       || order.customNote3 || order.customNote4 || order.customNote5 || '';
+  };
+
+  const getStrategyDetail = (order: Order) => {
+    if (!order.strategyType) return '';
+    const parts: string[] = [];
+    if (order.strategyPartRate != null) parts.push(`Rate: ${order.strategyPartRate.toFixed(0)}%`);
+    if (order.strategyStyle) parts.push(`Style: ${order.strategyStyle}`);
+    if (order.strategyStartTime) parts.push(`Start: ${order.strategyStartTime}`);
+    if (order.strategyEndTime) parts.push(`End: ${order.strategyEndTime}`);
+    return parts.join(' | ');
   };
 
   // ── Order row renderer ────────────────────────────────────────────────────
@@ -328,6 +333,8 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
           <td className="px-2 py-1.5">{order.exchange || ''}</td>
           <td className="px-2 py-1.5">{order.currency}</td>
           <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{order.fxRate != null ? order.fxRate.toFixed(4) : ''}</td>
+          <td className="px-2 py-1.5 text-xs font-medium">{order.strategyType || ''}</td>
+          <td className="px-2 py-1.5 text-xs text-muted-foreground truncate max-w-[120px]" title={getStrategyDetail(order)}>{getStrategyDetail(order)}</td>
           <td className="px-2 py-1.5 text-xs truncate max-w-[150px]" title={getPmNote(order)}>{getPmNote(order)}</td>
           <td className="px-2 py-1.5 text-muted-foreground text-xs whitespace-nowrap">{formatDate(order.createdAt)}</td>
           <td className="px-2 py-1.5">
@@ -446,6 +453,8 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
               <ColHeader label="Exchange"  field="exchange" />
               <ColHeader label="Ccy"       field="currency" />
               <ColHeader label="FX Rate"   field="fxRate" className="text-right" />
+              <ColHeader label="Strategy"  field="strategyType" />
+              <ColHeader label="Strat Params" field="strategyPartRate" />
               <ColHeader label="PM Note"   field="notes" />
               <ColHeader label="Created"   field="createdAt" />
               <th className="px-2 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">

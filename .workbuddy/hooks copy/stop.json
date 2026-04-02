@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "windows": "python scripts/hooks/session-summary.py",
+        "linux": "python3 scripts/hooks/session-summary.py",
+        "osx": "python3 scripts/hooks/session-summary.py",
+        "timeout": 10
+      }
+    ]
+  }
+}

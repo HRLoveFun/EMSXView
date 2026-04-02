@@ -1,0 +1,392 @@
+# EMSX Trading Tool - Service Management Guide
+
+## Quick Start
+
+### Option 1: Interactive Menu (Recommended)
+```batch
+# From project root
+cd c:\Users\hrchen\Documents\EMSX
+start-services.bat
+```
+
+This will show an interactive menu:
+```
+[1] Start Services (Backend + Frontend)
+[2] Stop Services
+[3] Restart Services
+[4] Check Status
+[5] View Logs
+[6] Exit
+```
+
+### Option 2: Individual Commands
+```batch
+# Start all services
+cd scripts
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start
+
+# Stop all services
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" stop
+
+# Restart all services
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" restart
+
+# Check status
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" status
+```
+
+### Option 3: Quick Batch Files
+```batch
+# Start services
+scripts\start-all.bat
+
+# Stop services
+scripts\stop-all.bat
+
+# Restart services
+scripts\restart-all.bat
+
+# Check status
+scripts\check-status.bat
+```
+
+## Service Architecture
+
+### Backend Service
+- **Port**: 3000
+- **Process**: Python (uvicorn)
+- **Entry Point**: `Execution/backend/api/start_server.py`
+- **Health Check**: http://localhost:3000/api/health
+- **Startup Time**: ~3 seconds
+
+### Frontend Service
+- **Port**: 5173 (dev) / 80 (prod)
+- **Process**: Node.js (Vite)
+- **Entry Point**: `Execution/frontend/` (npm run dev)
+- **Startup Time**: ~5 seconds
+
+## Synchronized Startup Process
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Service Startup Flow                      │
+└─────────────────────────────────────────────────────────────┘
+
+1. Check port availability
+   ├── Port 3000 (backend) - must be free
+   └── Port 5173 (frontend) - must be free
+
+2. Start Backend
+   ├── Launch Python process
+   ├── Wait 3 seconds for initialization
+   └── Health check (GET /api/health)
+
+3. Start Frontend (only if backend is healthy)
+   ├── Launch Node.js process
+   ├── Wait 5 seconds for initialization
+   └── Verify port is listening
+
+4. Startup Complete
+   ├── Backend: http://localhost:3000
+   └── Frontend: http://localhost:5173
+```
+
+## Synchronized Shutdown Process
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Service Shutdown Flow                      │
+└─────────────────────────────────────────────────────────────┘
+
+1. Stop Frontend First
+   ├── Send SIGTERM to Node processes
+   ├── Wait for graceful shutdown (2 seconds)
+   └── Force kill if still running
+
+2. Stop Backend
+   ├── Send SIGTERM to Python processes
+   ├── Wait for graceful shutdown (2 seconds)
+   └── Force kill if still running
+
+3. Port Cleanup
+   ├── Verify port 3000 is released
+   └── Verify port 5173 is released
+
+4. Shutdown Complete
+```
+
+## Port Conflict Resolution
+
+### Detecting Port Conflicts
+The service manager automatically detects port conflicts:
+
+```powershell
+# Check what's using port 3000
+netstat -ano | findstr :3000
+
+# Check what's using port 5173
+netstat -ano | findstr :5173
+```
+
+### Resolving Port Conflicts
+
+#### Option 1: Automatic (via service manager)
+```powershell
+# The service manager will attempt to kill processes using these ports
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" stop
+```
+
+#### Option 2: Manual Kill
+```powershell
+# Find PID using port
+$port = 3000
+$proc = Get-NetTCPConnection -LocalPort $port | Select-Object -First 1
+Stop-Process -Id $proc.OwningProcess -Force
+```
+
+#### Option 3: Force Kill All
+```powershell
+# Kill all Python and Node processes
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" kill
+```
+
+## Environment Configuration
+
+### Development Mode (Default)
+```powershell
+# Uses:
+# - Backend: port 3000
+# - Frontend: port 5173 (Vite dev server)
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environment dev
+```
+
+### Production Mode
+```powershell
+# Uses:
+# - Backend: port 3000
+# - Frontend: port 80 (built files)
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environment prod
+```
+
+## Health Checks
+
+### Backend Health Endpoint
+```bash
+# Check backend health
+curl http://localhost:3000/api/health
+
+# Expected response:
+{
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "bloomberg_connected": true/false,
+    "orders_cached": 123,
+    "routes_cached": 45
+  }
+}
+```
+
+### Frontend Health
+```bash
+# Check frontend is serving
+curl http://localhost:5173
+
+# Should return HTML content
+```
+
+## Logging
+
+### Log Locations
+- **Backend Logs**: `logs/backend-YYYYMMDD-HHMMSS.log`
+- **Frontend Logs**: `logs/frontend-YYYYMMDD-HHMMSS.log`
+
+### Viewing Logs
+```powershell
+# View recent backend logs
+Get-Content logs\backend-*.log -Tail 50
+
+# View recent frontend logs
+Get-Content logs\frontend-*.log -Tail 50
+
+# View all logs via service manager
+powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
+```
+
+## Troubleshooting
+
+### Issue: Backend fails to start
+**Symptoms**: Port 3000 not responding
+
+**Solutions**:
+1. Check if port is already in use:
+   ```powershell
+   netstat -ano | findstr :3000
+   ```
+
+2. Kill existing process:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "service-manager.ps1" stop
+   ```
+
+3. Check Python dependencies:
+   ```bash
+   cd Execution/backend/api
+   pip install -r requirements.txt
+   ```
+
+### Issue: Frontend fails to start
+**Symptoms**: Port 5173 not responding
+
+**Solutions**:
+1. Install Node dependencies:
+   ```bash
+   cd Execution/frontend
+   npm install
+   ```
+
+2. Check for port conflicts:
+   ```powershell
+   netstat -ano | findstr :5173
+   ```
+
+### Issue: Frontend can't connect to backend
+**Symptoms**: Frontend shows connection errors
+
+**Solutions**:
+1. Verify backend is running:
+   ```bash
+   curl http://localhost:3000/api/health
+   ```
+
+2. Check CORS configuration in backend `.env`:
+   ```
+   ALLOWED_ORIGINS=http://localhost:5173,http://localhost:80
+   ```
+
+3. Restart both services:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "service-manager.ps1" restart
+   ```
+
+### Issue: Services start but stop immediately
+**Symptoms**: Processes start then exit
+
+**Solutions**:
+1. Check backend logs for errors:
+   ```bash
+   cat logs/backend-*.log
+   ```
+
+2. Verify Bloomberg connection (if required):
+   ```bash
+   # Check BLOOMBERG_HOST in .env
+   ```
+
+3. Run backend manually to see errors:
+   ```bash
+   cd Execution/backend/api
+   python start_server.py
+   ```
+
+## Advanced Usage
+
+### Custom Startup Delay
+Edit `scripts/service-manager.ps1`:
+```powershell
+$Config = @{
+    Backend = @{
+        StartupDelay = 5  # Increase if backend is slow
+    }
+    Frontend = @{
+        StartupDelay = 10  # Increase if frontend is slow
+    }
+}
+```
+
+### Custom Ports
+Edit `Execution/backend/.env`:
+```
+API_PORT=3001  # Change from default 3000
+```
+
+Edit `Execution/frontend/vite.config.ts`:
+```typescript
+server: {
+    port: 5174,  // Change from default 5173
+}
+```
+
+Then update `scripts/service-manager.ps1`:
+```powershell
+$Config = @{
+    Backend = @{
+        Port = 3001
+    }
+    Frontend = @{
+        DevPort = 5174
+    }
+}
+```
+
+### Windows Service Installation
+To run as Windows Service (auto-start on boot):
+
+1. Install NSSM (Non-Sucking Service Manager)
+2. Create service:
+   ```batch
+   nssm install EMSXBackend "python" "C:\Users\hrchen\Documents\EMSX\Execution\backend\api\start_server.py"
+   nssm install EMSXFrontend "node" "C:\Users\hrchen\Documents\EMSX\Execution\frontend\node_modules\vite\bin\vite.js"
+   ```
+
+## Script Reference
+
+### service-manager.ps1
+Main PowerShell script with comprehensive service management.
+
+**Parameters**:
+- `Action`: start, stop, restart, status, logs, kill
+- `Environment`: dev, prod
+- `VerboseOutput`: Switch for detailed output
+
+**Examples**:
+```powershell
+# Start in production mode with verbose output
+.\service-manager.ps1 start -Environment prod -VerboseOutput
+
+# Force kill all related processes
+.\service-manager.ps1 kill
+
+# Show recent logs
+.\service-manager.ps1 logs
+```
+
+### Batch Files
+- `start-all.bat`: Quick start both services
+- `stop-all.bat`: Quick stop both services
+- `restart-all.bat`: Quick restart both services
+- `check-status.bat`: Quick status check
+
+### start-services.bat
+Interactive menu-based launcher with ASCII art header.
+
+## Best Practices
+
+1. **Always use service manager**: Don't start services manually to ensure proper synchronization
+
+2. **Check status before restart**: Use `status` action to verify current state
+
+3. **Monitor logs**: Check logs when issues occur
+
+4. **Graceful shutdown**: Always use `stop` action rather than killing processes manually
+
+5. **Port cleanup**: If services crash, use `kill` action to clean up ports
+
+6. **Environment consistency**: Use same environment (dev/prod) for both services
+
+## Support
+
+For issues or questions:
+1. Check logs in `logs/` directory
+2. Verify configuration in `.env` files
+3. Run status check: `scripts\check-status.bat`

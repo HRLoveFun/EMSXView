@@ -77,7 +77,7 @@ export function CancelRouteDialog({
               </div>
               <div>
                 <span className="text-muted-foreground">Ticker:</span>
-                <div className="font-semibold">{route.ticker}</div>
+                <div className="font-semibold">{route.ticker || '-'}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Status:</span>

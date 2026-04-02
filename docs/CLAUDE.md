@@ -50,7 +50,7 @@ cd Execution/frontend && npm run dev
 | 数据源 | EMSX API (Bloomberg EMSX API) |
 | 端口配置 | 后端: `3000` / 前端: `5173` |
 
-**API 文档**: `docs/reference/EMSX API Developer's Guide.md` — 所有 EMSX API 调用的唯一权威来源
+**API 函数**: https://github.com/HRLoveFun/Bloomberg-EMSX-API-Code-Examples — 所有 EMSX API 调用的唯一权威来源
 
 **目标**: 生产级订单执行自动化 (Level 1) → 量化交易 (Level 2)
 
