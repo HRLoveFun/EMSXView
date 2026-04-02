@@ -7,10 +7,12 @@ description: "Use when decomposing tasks, creating implementation plans, definin
 
 When receiving a new task:
 1. **Parse requirements**: What is the expected outcome? What are the constraints?
-2. **Identify affected files**: Which modules, files, and functions need changes?
-3. **Decompose into sub-tasks**: Each sub-task should be independently verifiable and produce a working state
-4. **Order by dependencies**: If sub-task B depends on sub-task A's output, A must come first
-5. **Estimate effort**: Reference similar past tasks in `.github/knowledge/iteration-log.md` for calibration
+2. **Check delivery context**: If the task is part of the execution-platform roadmap, read `docs/EXECUTION_PLATFORM_WBS.md` and `.workbuddy/plans/execution-platform-status.yaml` first.
+3. **Identify affected files**: Which modules, files, and functions need changes?
+4. **Decompose into sub-tasks**: Each sub-task should be independently verifiable and produce a working state.
+5. **Order by dependencies**: If sub-task B depends on sub-task A's output, A must come first.
+6. **Estimate effort**: Reference similar past tasks in `.github/knowledge/iteration-log.md` for calibration.
+7. **Assign sprint metadata**: Use phase/sprint/issue IDs whenever the work belongs to the execution-platform program.
 
 ## Checkpoint Definition
 
@@ -22,6 +24,7 @@ After each sub-task, verify:
 - [ ] No regressions in unrelated tests
 - [ ] Performance thresholds met (if applicable)
 - [ ] Security/static analysis clean (if applicable)
+- [ ] Workflow artifacts updated (WBS/ledger/risk register if scope changed)
 
 ## Implementation Plan Format
 
@@ -32,6 +35,7 @@ After each sub-task, verify:
 - Changes: {brief description of changes}
 - Checkpoint: {what to verify}
 - Depends on: {none or previous sub-task}
+- Sprint Key: {optional phase/sprint/issue ID}
 
 ### Sub-task 2: {name}
 ...
@@ -46,9 +50,12 @@ If a checkpoint fails:
 4. **Re-validate** — re-run the failed checkpoint after the fix
 5. **Update plan** — adjust remaining sub-tasks if the fix changed assumptions
 6. **Log** — record the failure and adjustment in `.github/knowledge/iteration-log.md`
+7. **Update risk state** — if the failure introduces a recurring blocker, update `.workbuddy/plans/execution-platform-risk-register.yaml`
 
 ## EMSX-Specific Patterns
 
 - Backend changes require restart — include "restart backend" as a sub-task after Python edits
 - Bloomberg field additions require coordinated changes across 3-5 files — decompose as: subscription → backend model → parser → frontend type → UI column
-- Frontend type changes must match backend model — verify types/index.ts after backend model changes
+- Frontend type changes must match backend model — verify `types/index.ts` after backend model changes
+- Structural refactors must update `.github/knowledge/architecture-decisions.md`
+- Execution-platform sprint work should refresh managed status sections via `scripts/workflow/sync_execution_status.py`

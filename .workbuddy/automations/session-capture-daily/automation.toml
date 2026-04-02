@@ -2,30 +2,33 @@ name = "session-capture-daily"
 prompt = """请执行以下任务来自动化会话信息的捕获：
 
 1. 检查今天的会话记录来源：
-   - 读取 docs/session_captures/ 目录下已有的临时捕获文件
-   - 分析 HANDOFF.md 最近的更新内容
-   - 识别当天的工作主题
+   - 读取 `.workbuddy/plans/execution-platform-status.yaml`
+   - 读取 `.workbuddy/plans/execution-platform-risk-register.yaml`
+   - 读取 `.workbuddy/knowledge/metrics.md` 中的执行平台交付跟踪区块
+   - 读取 `docs/generated/execution-platform-handoff.md`（如果存在）
+   - 读取 `docs/HANDOFF.md` 最近的更新内容
 
-2. 基于以上信息，生成当天的会话摘要，包含以下维度：
-   - **解决的问题**: 当天完成的主要任务和解决方案
-   - **遇到的阻碍**: 当天遇到但可能已解决或未解决的卡点
-   - **做出的决策**: 重要的架构或设计决策
-   - **下一步计划**: 待办事项或下一步行动
+2. 基于以上信息，生成当天的会话摘要，至少覆盖以下维度：
+   - **当前 Phase / Sprint**: 当前交付阶段与冲刺编号
+   - **已完成事项**: 当天完成的主要任务和交付物
+   - **进行中事项**: 当前仍在推进的 issue 或工作流步骤
+   - **阻碍与风险**: 今日仍未关闭的 blocker、风险、依赖
+   - **做出的决策**: 重要的架构或流程决策
+   - **下一步计划**: 下一步待办事项或建议动作
 
 3. 生成捕获文件：
-   - 文件路径: docs/session_captures/YYYY-MM-DD/summary.md
-   - 格式参考 HANDOFF.md 的风格
+   - 文件路径: `docs/session_captures/YYYY-MM-DD/summary.md`
+   - 摘要中必须引用 sprint key、issue key、风险 ID（如适用）
    - 包含待确认标记，供用户审核
 
 4. 输出摘要给用户确认，询问：
    - 是否需要调整或补充？
-   - 是否确认保存到 HANDOFF.md？
+   - 是否确认保存到 `HANDOFF.md`？
 
 注意：
-- 不要直接修改 HANDOFF.md，先生成摘要供用户确认
+- 不要直接修改 `HANDOFF.md`，先生成摘要供用户确认
 - 保持简洁，聚焦于值得跨会话保留的信息
-- 如果当天没有实质性进展，生成简单摘要即可
-"""
+- 如果当天没有实质性进展，也要记录当前 sprint 状态与 blocker"""
 rrule = "FREQ=DAILY;BYHOUR=18;BYMINUTE=0"
 cwds = ["c:/Users/hrchen/Documents/EMSX"]
 status = "ACTIVE"

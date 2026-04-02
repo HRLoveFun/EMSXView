@@ -52,3 +52,13 @@
 - **Decision**: Docker Compose with multi-stage builds, Nginx reverse proxy, optional Prometheus/Grafana monitoring profile
 - **Consequences**: Easy single-command deployment; Bloomberg connectivity requires `host.docker.internal`; monitoring optional via `--profile monitoring`
 - **Review Date**: 2026-06-01
+
+---
+
+## Decision: Workflow-Ledger Governance for Execution Platform Delivery
+
+- **Date**: 2026-04-02
+- **Context**: The execution-platform roadmap spans multiple phases, repositories, and automation layers; session-to-session continuity and machine-readable progress tracking are required before large refactors begin.
+- **Decision**: Use `docs/EXECUTION_PLATFORM_WBS.md` as the human-readable source plan and `.workbuddy/plans/execution-platform-status.yaml` + `.workbuddy/plans/execution-platform-risk-register.yaml` as the authoritative machine-readable delivery ledger for sprint state, issue dependencies, checkpoints, and risks.
+- **Consequences**: Delivery state becomes auditable and automation-friendly; issue/PR workflows can enforce sprint metadata; some duplication now exists between narrative plan docs and machine-readable ledgers and must be kept synchronized.
+- **Review Date**: 2026-05-01

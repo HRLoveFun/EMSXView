@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-04-02T09:13:20.301558+00:00",
+  "current_phase": "P0",
+  "current_sprint": "P0-S0",
+  "program_status": "in_progress",
+  "issue_counts": {
+    "completed": 3,
+    "in_progress": 1
+  },
+  "checkpoint_counts": {
+    "passed": 7
+  },
+  "open_risks": 4,
+  "critical_open_risks": 0,
+  "high_open_risks": 2,
+  "current_issues": [
+    {
+      "id": "P0-S0-01",
+      "title": "Create machine-readable sprint ledger",
+      "status": "completed",
+      "owner": "unassigned",
+      "dependencies": [],
+      "files": [
+        "c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-status.yaml",
+        "c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-risk-register.yaml"
+      ],
+      "checkpoints": [
+        {
+          "id": "ledger-schema",
+          "title": "Ledger validates",
+          "status": "passed"
+        },
+        {
+          "id": "ids-unique",
+          "title": "Phase/sprint/issue IDs are unique",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "P0-S0-02",
+      "title": "Wire issue and PR workflow templates",
+      "status": "completed",
+      "owner": "unassigned",
+      "dependencies": [
+        "P0-S0-01"
+      ],
+      "files": [
+        "c:/Users/hrchen/Documents/EMSX/.github/ISSUE_TEMPLATE/execution-platform-task.yml",
+        "c:/Users/hrchen/Documents/EMSX/.github/PULL_REQUEST_TEMPLATE/execution-platform.md",
+        "c:/Users/hrchen/Documents/EMSX/.github/instructions/task-planning.instructions.md",
+        "c:/Users/hrchen/Documents/EMSX/.github/knowledge/architecture-decisions.md"
+      ],
+      "checkpoints": [
+        {
+          "id": "template-coverage",
+          "title": "Templates capture sprint metadata and dependencies",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "P0-S0-03",
+      "title": "Add CI and progress workflows",
+      "status": "in_progress",
+      "owner": "unassigned",
+      "dependencies": [
+        "P0-S0-01",
+        "P0-S0-02"
+      ],
+      "files": [
+        "c:/Users/hrchen/Documents/EMSX/.github/workflows/execution-platform-ci.yml",
+        "c:/Users/hrchen/Documents/EMSX/.github/workflows/execution-platform-progress.yml",
+        "c:/Users/hrchen/Documents/EMSX/scripts/workflow/validate_phase_gate.py",
+        "c:/Users/hrchen/Documents/EMSX/scripts/workflow/sync_execution_status.py",
+        "c:/Users/hrchen/Documents/EMSX/scripts/workflow/generate_handoff_snapshot.py"
+      ],
+      "checkpoints": [
+        {
+          "id": "workflow-yaml",
+          "title": "Workflow YAML is structurally valid",
+          "status": "passed"
+        },
+        {
+          "id": "script-syntax",
+          "title": "Workflow scripts execute without syntax errors",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "P0-S0-04",
+      "title": "Add automated progress and handoff updates",
+      "status": "completed",
+      "owner": "unassigned",
+      "dependencies": [
+        "P0-S0-01",
+        "P0-S0-03"
+      ],
+      "files": [
+        "c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/metrics.md",
+        "c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/iteration-log.md",
+        "c:/Users/hrchen/Documents/EMSX/.workbuddy/automations/session-capture-daily/automation.toml",
+        "c:/Users/hrchen/Documents/EMSX/.workbuddy/automations/handoff-merge-daily/automation.toml"
+      ],
+      "checkpoints": [
+        {
+          "id": "metrics-sync",
+          "title": "Managed metrics section can be updated by script",
+          "status": "passed"
+        },
+        {
+          "id": "handoff-snapshot",
+          "title": "Handoff snapshot generation works",
+          "status": "passed"
+        }
+      ]
+    }
+  ],
+  "current_sprint_goal": "Create persistent planning, QA, progress, and handoff workflow artifacts."
+}

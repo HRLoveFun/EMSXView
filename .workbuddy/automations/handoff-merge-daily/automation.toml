@@ -1,35 +1,35 @@
 name = "handoff-merge-daily"
-prompt = """请将今天捕获的会话摘要合并到 HANDOFF.md：
+prompt = """请将今天捕获的会话摘要和执行平台快照合并到 HANDOFF.md：
 
 1. 读取文件：
-   - docs/session_captures/YYYY-MM-DD/summary.md
+   - `docs/session_captures/YYYY-MM-DD/summary.md`
+   - `docs/generated/execution-platform-handoff.md`（如果存在）
+   - `.workbuddy/plans/execution-platform-status.yaml`
+   - `.workbuddy/plans/execution-platform-risk-register.yaml`
 
-2. 如果 summary.md 存在且用户已确认：
+2. 如果 `summary.md` 存在且用户已确认：
    - 解析内容，提取关键信息
-   - 按 HANDOFF.md 的格式重新组织：
-     * Recent Blockers (Resolved): 已解决的阻碍
-     * Open Blockers: 仍未解决的阻碍  
-     * Decisions Made: 做出的决策
-     * Next Tasks: 下一步任务
+   - 将 sprint 状态、已完成事项、阻碍、风险、决策、下一步任务按 `HANDOFF.md` 格式重组
+   - 如果存在执行平台快照，将其作为当天交付状态的事实来源之一
 
-3. 更新 HANDOFF.md：
+3. 更新 `HANDOFF.md`：
    - 在 "Current Session" 章节追加新内容
    - 保持时间倒序排列（最新的在前面）
-   - 更新 "Session History" 时归档旧条目
+   - 将当前 Phase / Sprint、主要 blocker、下一步任务写清楚
 
 4. 归档处理：
-   - 将当天的捕获文件移动到 docs/session_captures/archived/YYYY-MM-DD/
+   - 将当天的捕获文件移动到 `docs/session_captures/archived/YYYY-MM-DD/`
    - 保留原始记录用于追溯
 
 5. 告知用户更新完成，并提供：
-   - 本次更新的摘要
-   - HANDOFF.md 的变更概览
+   - 本次更新摘要
+   - `HANDOFF.md` 的变更概览
+   - 当前 sprint 是否可以关闭
 
 注意：
 - 只在用户明确确认后才执行写入
 - 保留历史记录，不要删除旧内容
-- 保持 HANDOFF.md 的可读性
-"""
+- 如果风险寄存器存在高优先级 open/watch 风险，提醒用户不要关闭当前 sprint"""
 rrule = "FREQ=DAILY;BYHOUR=19;BYMINUTE=0"
 cwds = ["c:/Users/hrchen/Documents/EMSX"]
 status = "ACTIVE"
