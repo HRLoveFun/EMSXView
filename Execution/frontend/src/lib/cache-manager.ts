@@ -207,10 +207,11 @@ export class CacheManager<T> {
     if (isBrowser()) {
       try {
         localStorage.removeItem(fullKey);
-      } catch (e) {
+      } catch {
         // Ignore errors
       }
     }
+
   }
 }
 
@@ -307,10 +308,11 @@ export function clearAllCaches(): void {
     keysToRemove.forEach(key => {
       try {
         localStorage.removeItem(key);
-      } catch (e) {
+      } catch {
         // Ignore errors
       }
     });
+
   }
 }
 

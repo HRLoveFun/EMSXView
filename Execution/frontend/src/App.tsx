@@ -210,7 +210,7 @@ function App() {
       try {
         await fetchOrdersAndRoutes();
         consecutiveErrors = 0; // Reset error count on success
-      } catch (err) {
+      } catch {
         // Silently ignore polling errors but track them
         consecutiveErrors++;
         if (consecutiveErrors === MAX_CONSECUTIVE_ERRORS) {
