@@ -12,12 +12,12 @@
 
 <!-- execution-platform:iteration:start -->
 _Managed by `scripts/workflow/sync_execution_status.py`. Do not edit inside this block manually._
-- **Last Sync**: 2026-04-02T09:52:27.820962+00:00
-- **Active Sprint**: `P0-S0`
-- **Sprint Goal**: Create persistent planning, QA, progress, and handoff workflow artifacts.
+- **Last Sync**: 2026-04-02T10:00:08.521967+00:00
+- **Active Sprint**: `P1-S1`
+- **Sprint Goal**: Introduce durable backend persistence without breaking the current API surface.
 - **Tracked Issues**:
-  - `P0-S0-01` — Create machine-readable sprint ledger (completed)
-  - `P0-S0-02` — Wire issue and PR workflow templates (completed)
-  - `P0-S0-03` — Add CI and progress workflows (completed)
-  - `P0-S0-04` — Add automated progress and handoff updates (completed)
+  - `P1-S1-01` — Add backend persistence dependencies and container services (completed)
+  - `P1-S1-02` — Create database session and schema bootstrap (todo)
+  - `P1-S1-03` — Persist order/route/audit projections (todo)
+  - `P1-S1-04` — Add repository abstraction under current API handlers (todo)
 <!-- execution-platform:iteration:end -->

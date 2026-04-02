@@ -1,120 +1,124 @@
 {
-  "generated_at": "2026-04-02T09:52:27.820962+00:00",
-  "current_phase": "P0",
-  "current_sprint": "P0-S0",
+  "generated_at": "2026-04-02T10:00:08.521967+00:00",
+  "current_phase": "P1",
+  "current_sprint": "P1-S1",
   "program_status": "in_progress",
   "issue_counts": {
-    "completed": 4
+    "completed": 5,
+    "todo": 3
   },
   "checkpoint_counts": {
-    "passed": 7
+    "passed": 9,
+    "todo": 6
   },
-  "open_risks": 4,
+  "open_risks": 3,
   "critical_open_risks": 0,
   "high_open_risks": 2,
   "current_issues": [
     {
-      "id": "P0-S0-01",
-      "title": "Create machine-readable sprint ledger",
+      "id": "P1-S1-01",
+      "title": "Add backend persistence dependencies and container services",
       "status": "completed",
       "owner": "unassigned",
       "dependencies": [],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-status.yaml",
-        "c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-risk-register.yaml"
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/docker-compose.yml",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/requirements.txt",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/Dockerfile",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/.env.example"
       ],
       "checkpoints": [
         {
-          "id": "ledger-schema",
-          "title": "Ledger validates",
+          "id": "postgres-service",
+          "title": "Postgres service is defined in docker-compose",
           "status": "passed"
         },
         {
-          "id": "ids-unique",
-          "title": "Phase/sprint/issue IDs are unique",
+          "id": "backend-db-deps",
+          "title": "Backend image includes persistence dependencies",
           "status": "passed"
         }
       ]
     },
     {
-      "id": "P0-S0-02",
-      "title": "Wire issue and PR workflow templates",
-      "status": "completed",
+      "id": "P1-S1-02",
+      "title": "Create database session and schema bootstrap",
+      "status": "todo",
       "owner": "unassigned",
       "dependencies": [
-        "P0-S0-01"
+        "P1-S1-01"
       ],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/.github/ISSUE_TEMPLATE/execution-platform-task.yml",
-        "c:/Users/hrchen/Documents/EMSX/.github/PULL_REQUEST_TEMPLATE/execution-platform.md",
-        "c:/Users/hrchen/Documents/EMSX/.github/instructions/task-planning.instructions.md",
-        "c:/Users/hrchen/Documents/EMSX/.github/knowledge/architecture-decisions.md"
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/db.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/models/execution_state.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/migrations/001_init_execution_schema.sql",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_db_bootstrap.py"
       ],
       "checkpoints": [
         {
-          "id": "template-coverage",
-          "title": "Templates capture sprint metadata and dependencies",
-          "status": "passed"
+          "id": "db-session-factory",
+          "title": "DB session factory and connectivity probe available",
+          "status": "todo"
+        },
+        {
+          "id": "schema-bootstrap",
+          "title": "Initial schema bootstrap artifact exists",
+          "status": "todo"
         }
       ]
     },
     {
-      "id": "P0-S0-03",
-      "title": "Add CI and progress workflows",
-      "status": "completed",
+      "id": "P1-S1-03",
+      "title": "Persist order/route/audit projections",
+      "status": "todo",
       "owner": "unassigned",
       "dependencies": [
-        "P0-S0-01",
-        "P0-S0-02"
+        "P1-S1-02"
       ],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/.github/workflows/execution-platform-ci.yml",
-        "c:/Users/hrchen/Documents/EMSX/.github/workflows/execution-platform-progress.yml",
-        "c:/Users/hrchen/Documents/EMSX/scripts/workflow/validate_phase_gate.py",
-        "c:/Users/hrchen/Documents/EMSX/scripts/workflow/sync_execution_status.py",
-        "c:/Users/hrchen/Documents/EMSX/scripts/workflow/generate_handoff_snapshot.py"
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/orders.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/routes.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/audit.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_projection_repositories.py"
       ],
       "checkpoints": [
         {
-          "id": "workflow-yaml",
-          "title": "Workflow YAML is structurally valid",
-          "status": "passed"
+          "id": "projection-upsert",
+          "title": "Order/route projections support upsert and query",
+          "status": "todo"
         },
         {
-          "id": "script-syntax",
-          "title": "Workflow scripts execute without syntax errors",
-          "status": "passed"
+          "id": "audit-persist",
+          "title": "Audit events persist command metadata",
+          "status": "todo"
         }
       ]
     },
     {
-      "id": "P0-S0-04",
-      "title": "Add automated progress and handoff updates",
-      "status": "completed",
+      "id": "P1-S1-04",
+      "title": "Add repository abstraction under current API handlers",
+      "status": "todo",
       "owner": "unassigned",
       "dependencies": [
-        "P0-S0-01",
-        "P0-S0-03"
+        "P1-S1-03"
       ],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/metrics.md",
-        "c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/iteration-log.md",
-        "c:/Users/hrchen/Documents/EMSX/.workbuddy/automations/session-capture-daily/automation.toml",
-        "c:/Users/hrchen/Documents/EMSX/.workbuddy/automations/handoff-merge-daily/automation.toml"
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/main.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py"
       ],
       "checkpoints": [
         {
-          "id": "metrics-sync",
-          "title": "Managed metrics section can be updated by script",
-          "status": "passed"
+          "id": "repository-read-path",
+          "title": "Handlers can read from repository abstraction",
+          "status": "todo"
         },
         {
-          "id": "handoff-snapshot",
-          "title": "Handoff snapshot generation works",
-          "status": "passed"
+          "id": "inmemory-fallback",
+          "title": "In-memory fallback remains available during rollout",
+          "status": "todo"
         }
       ]
     }
   ],
-  "current_sprint_goal": "Create persistent planning, QA, progress, and handoff workflow artifacts."
+  "current_sprint_goal": "Introduce durable backend persistence without breaking the current API surface."
 }

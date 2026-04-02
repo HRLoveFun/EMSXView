@@ -18,7 +18,7 @@
       "id": "R-002",
       "title": "Plan drift between WBS document and machine-readable ledger",
       "severity": "medium",
-      "status": "open",
+      "status": "mitigated",
       "owner": "unassigned",
       "linked_sprints": ["P0-S0"],
       "description": "The Markdown WBS and the delivery ledger can diverge if sprint/issue changes are only recorded in one source.",

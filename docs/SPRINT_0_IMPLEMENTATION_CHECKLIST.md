@@ -5,6 +5,13 @@
 **Primary Sprint Key**: `P0-S0`
 **Goal**: Create the persistent planning, tracking, CI, and handoff artifacts required before Phase 1 work begins
 
+## Sprint 0 Closure Conclusion (2026-04-02)
+
+- `P0-S0-01` ~ `P0-S0-04` 已在台账中标记为 `completed`
+- `execution-platform-ci` 当前三项检查均为通过状态（plan / backend / frontend）
+- 冲刺状态已从 `P0-S0` 切换到 `P1-S1`
+- 当前进入 Phase 1 首任务执行：`P1-S1-01`
+
 ---
 
 ## 1. Sprint 0 outcome

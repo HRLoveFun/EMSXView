@@ -2,11 +2,11 @@
   "program": {
     "name": "EMSX Execution Platform",
     "source_document": "docs/EXECUTION_PLATFORM_WBS.md",
-    "current_phase": "P0",
-    "current_sprint": "P0-S0",
+    "current_phase": "P1",
+    "current_sprint": "P1-S1",
     "status": "in_progress",
     "last_synced_at": "2026-04-02T09:11:46.855601+00:00",
-    "updated_by": "Sprint 0 bootstrap"
+    "updated_by": "Sprint 0 closure + P1-S1 bootstrap"
   },
   "status_values": ["planned", "todo", "in_progress", "blocked", "completed", "cancelled"],
   "checkpoint_status_values": ["todo", "in_progress", "passed", "failed", "waived"],
@@ -14,13 +14,13 @@
     {
       "id": "P0",
       "name": "Workflow Foundation",
-      "status": "in_progress",
-      "current": true,
+      "status": "completed",
+      "current": false,
       "sprints": [
         {
           "id": "P0-S0",
           "name": "Sprint 0 - Workflow Foundation",
-          "status": "in_progress",
+          "status": "completed",
           "goal": "Create persistent planning, QA, progress, and handoff workflow artifacts.",
           "issues": [
             {
@@ -96,10 +96,83 @@
     {
       "id": "P1",
       "name": "Durable Execution Core",
-      "status": "planned",
-      "current": false,
+      "status": "in_progress",
+      "current": true,
       "sprints": [
-        {"id": "P1-S1", "name": "Sprint 1 - Persistent storage foundation", "status": "planned", "issues": []},
+        {
+          "id": "P1-S1",
+          "name": "Sprint 1 - Persistent storage foundation",
+          "status": "in_progress",
+          "goal": "Introduce durable backend persistence without breaking the current API surface.",
+          "issues": [
+            {
+              "id": "P1-S1-01",
+              "title": "Add backend persistence dependencies and container services",
+              "status": "completed",
+              "owner": "unassigned",
+              "dependencies": [],
+              "files": [
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/docker-compose.yml",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/requirements.txt",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/Dockerfile",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/.env.example"
+              ],
+              "checkpoints": [
+                {"id": "postgres-service", "title": "Postgres service is defined in docker-compose", "status": "passed"},
+                {"id": "backend-db-deps", "title": "Backend image includes persistence dependencies", "status": "passed"}
+              ]
+            },
+            {
+              "id": "P1-S1-02",
+              "title": "Create database session and schema bootstrap",
+              "status": "todo",
+              "owner": "unassigned",
+              "dependencies": ["P1-S1-01"],
+              "files": [
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/db.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/models/execution_state.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/migrations/001_init_execution_schema.sql",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_db_bootstrap.py"
+              ],
+              "checkpoints": [
+                {"id": "db-session-factory", "title": "DB session factory and connectivity probe available", "status": "todo"},
+                {"id": "schema-bootstrap", "title": "Initial schema bootstrap artifact exists", "status": "todo"}
+              ]
+            },
+            {
+              "id": "P1-S1-03",
+              "title": "Persist order/route/audit projections",
+              "status": "todo",
+              "owner": "unassigned",
+              "dependencies": ["P1-S1-02"],
+              "files": [
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/orders.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/routes.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/audit.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_projection_repositories.py"
+              ],
+              "checkpoints": [
+                {"id": "projection-upsert", "title": "Order/route projections support upsert and query", "status": "todo"},
+                {"id": "audit-persist", "title": "Audit events persist command metadata", "status": "todo"}
+              ]
+            },
+            {
+              "id": "P1-S1-04",
+              "title": "Add repository abstraction under current API handlers",
+              "status": "todo",
+              "owner": "unassigned",
+              "dependencies": ["P1-S1-03"],
+              "files": [
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/main.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py"
+              ],
+              "checkpoints": [
+                {"id": "repository-read-path", "title": "Handlers can read from repository abstraction", "status": "todo"},
+                {"id": "inmemory-fallback", "title": "In-memory fallback remains available during rollout", "status": "todo"}
+              ]
+            }
+          ]
+        },
         {"id": "P1-S2", "name": "Sprint 2 - Realtime projections and stream-based UI path", "status": "planned", "issues": []}
       ]
     },

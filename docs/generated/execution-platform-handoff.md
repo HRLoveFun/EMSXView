@@ -1,29 +1,29 @@
 # Execution Platform Handoff Snapshot
 
-**Generated**: 2026-04-02T09:52:28.330466+00:00
-**Current Phase**: `P0` - Workflow Foundation
-**Current Sprint**: `P0-S0` - Sprint 0 - Workflow Foundation
+**Generated**: 2026-04-02T10:00:09.003602+00:00
+**Current Phase**: `P1` - Durable Execution Core
+**Current Sprint**: `P1-S1` - Sprint 1 - Persistent storage foundation
 
 ## Sprint Goal
 
-Create persistent planning, QA, progress, and handoff workflow artifacts.
+Introduce durable backend persistence without breaking the current API surface.
 
 ## Issue Status
 
 | Issue | Status | Depends On | Files |
 |---|---|---|---|
-| `P0-S0-01` | completed | — | 2 |
-| `P0-S0-02` | completed | P0-S0-01 | 4 |
-| `P0-S0-03` | completed | P0-S0-01, P0-S0-02 | 5 |
-| `P0-S0-04` | completed | P0-S0-01, P0-S0-03 | 4 |
+| `P1-S1-01` | completed | — | 4 |
+| `P1-S1-02` | todo | P1-S1-01 | 4 |
+| `P1-S1-03` | todo | P1-S1-02 | 4 |
+| `P1-S1-04` | todo | P1-S1-03 | 2 |
 
 ## Active Sprint Risks
 
 | Risk | Severity | Status | Mitigation |
 |---|---|---|---|
 | `R-001` | high | open | Update Dockerfile in Sprint 1 to copy package directories, repositories, models, and migration assets. |
-| `R-002` | medium | open | Use validate/sync scripts in CI and require sprint-key metadata in issue and PR templates. |
 | `R-003` | medium | watch | Start Sprint 0 CI with plan validation, Python syntax, and frontend checks; add deeper backend test gates incrementally as modules are isolated. |
+| `R-004` | high | open | Use dual-write and fallback-read patterns during Sprint 1 and demote localStorage/file stores only after backend ownership is stable. |
 
 ## Next Actions
 

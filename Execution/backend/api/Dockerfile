@@ -50,9 +50,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Set working directory
 WORKDIR /app
 
-# Copy application code
-COPY main.py .
-COPY auth.py .
+# Copy application code (include future modular backend files)
+COPY . /app
+
 
 # Create logs directory
 RUN mkdir -p logs && chown -R emsx:emsx logs

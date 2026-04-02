@@ -35,6 +35,8 @@ services:
       - ALLOWED_ORIGINS=http://localhost,http://localhost:80,http://127.0.0.1:80
       - ENABLE_REALTIME=${ENABLE_REALTIME:-true}
       - ENABLE_AUDIT_LOG=${ENABLE_AUDIT_LOG:-true}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://emsx:emsx@postgres:5432/emsx}
+      - DATABASE_MIGRATION_URL=${DATABASE_MIGRATION_URL:-postgresql+psycopg://emsx:emsx@postgres:5432/emsx}
 
     expose:
       - "3000"
@@ -56,11 +58,49 @@ services:
       retries: 3
       start_period: 15s
 
+    depends_on:
+      postgres:
+        condition: service_healthy
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
+
+  # ============================================================
+  # Postgres - durable execution persistence (Sprint 1)
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: emsx-postgres
+    restart: unless-stopped
+
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-emsx}
+      - POSTGRES_USER=${POSTGRES_USER:-emsx}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-emsx}
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    networks:
+      - emsx-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-emsx} -d ${POSTGRES_DB:-emsx}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
   # ============================================================
   # Frontend - React/Vite app built with Node, served via Nginx
@@ -186,7 +226,10 @@ volumes:
     driver: local
   redis-data:
     driver: local
+  postgres-data:
+    driver: local
   prometheus-data:
     driver: local
   grafana-data:
     driver: local
+
