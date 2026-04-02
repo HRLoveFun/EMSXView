@@ -35,7 +35,7 @@ import {
 } from '@/components/route-modify-dialogs';
 import type { Route, CancelRouteRequest, ModifyRouteRequest } from '@/types';
 
-type SortField = keyof Route | 'ticker' | 'side' | null;
+type SortField = keyof Route | null;
 type SortDirection = 'asc' | 'desc';
 type GroupLevel = 'primary' | 'secondary';
 
@@ -135,13 +135,14 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
       result = result.filter(r => (r.ticker || '').toUpperCase().includes(t));
     }
     return result;
-  }, [routes, statusFilter, statusFilterMode, brokerFilter, traderFilter, tickerFilter]);
+  }, [routes, statusFilter, statusFilterMode, brokerFilter, brokerFilterMode, traderFilter, traderFilterMode, tickerFilter]);
 
   const sortedRoutes = useMemo(() => {
     if (!sortConfig.field) return filteredRoutes;
     return [...filteredRoutes].sort((a, b) => {
-      const aValue = (a as any)[sortConfig.field!];
-      const bValue = (b as any)[sortConfig.field!];
+      const field = sortConfig.field as keyof Route;
+      const aValue = a[field];
+      const bValue = b[field];
       const aNull = aValue === undefined || aValue === null || aValue === '';
       const bNull = bValue === undefined || bValue === null || bValue === '';
       if (aNull && bNull) return 0;
@@ -167,8 +168,8 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
     const groups: Record<string, { routes: Route[]; subGroups: Record<string, Route[]> | null }> = {};
     
     for (const route of sortedRoutes) {
-      const primaryKey = primary !== 'none' 
-        ? (String((route as any)[primary] || '(empty)'))
+      const primaryKey = primary !== 'none'
+        ? String(route[primary as keyof Route] || '(empty)')
         : '_all';
       
       if (!groups[primaryKey]) {
@@ -176,7 +177,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
       }
       
       if (secondary !== 'none' && primary !== 'none') {
-        const secondaryKey = String((route as any)[secondary] || '(empty)');
+        const secondaryKey = String(route[secondary as keyof Route] || '(empty)');
         if (!groups[primaryKey].subGroups![secondaryKey]) {
           groups[primaryKey].subGroups![secondaryKey] = [];
         }

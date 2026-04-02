@@ -60,6 +60,15 @@ function App() {
     setAllOrders([]);
   }, []);
 
+  const addToast = useCallback((type: Toast['type'], message: string) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, type, message }]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
   // Fetch trader info with caching (low frequency)
   const fetchTraderInfo = useCallback(async (forceRefresh = false) => {
     try {
@@ -138,7 +147,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [handleLogout, fetchTraderInfo]);
+  }, [handleLogout, fetchTraderInfo, addToast]);
 
   // Client-side filtering — instant, no network calls
   const filteredOrders = useMemo(() => {
@@ -304,17 +313,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchTraderInfo]);
-
-  // Toast helper - must be defined before use
-  const addToast = useCallback((type: Toast['type'], message: string) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, type, message }]);
-  }, []);
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
+  }, [fetchTraderInfo, addToast]);
 
   // Handle batch update
   const handleBatchUpdate = useCallback(async (request: BatchUpdateRequest) => {
