@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-04-02T10:06:58.668502+00:00",
+  "generated_at": "2026-04-02T10:09:10.502374+00:00",
   "current_phase": "P1",
   "current_sprint": "P1-S1",
   "program_status": "in_progress",
   "issue_counts": {
-    "completed": 6,
-    "todo": 2
+    "completed": 7,
+    "todo": 1
   },
   "checkpoint_counts": {
-    "passed": 11,
-    "todo": 4
+    "passed": 13,
+    "todo": 2
   },
   "open_risks": 3,
   "critical_open_risks": 0,
@@ -70,7 +70,7 @@
     {
       "id": "P1-S1-03",
       "title": "Persist order/route/audit projections",
-      "status": "todo",
+      "status": "completed",
       "owner": "unassigned",
       "dependencies": [
         "P1-S1-02"
@@ -85,12 +85,12 @@
         {
           "id": "projection-upsert",
           "title": "Order/route projections support upsert and query",
-          "status": "todo"
+          "status": "passed"
         },
         {
           "id": "audit-persist",
           "title": "Audit events persist command metadata",
-          "status": "todo"
+          "status": "passed"
         }
       ]
     },

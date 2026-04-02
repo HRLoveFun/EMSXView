@@ -142,7 +142,7 @@
             {
               "id": "P1-S1-03",
               "title": "Persist order/route/audit projections",
-              "status": "todo",
+              "status": "completed",
               "owner": "unassigned",
               "dependencies": ["P1-S1-02"],
               "files": [
@@ -152,8 +152,8 @@
                 "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_projection_repositories.py"
               ],
               "checkpoints": [
-                {"id": "projection-upsert", "title": "Order/route projections support upsert and query", "status": "todo"},
-                {"id": "audit-persist", "title": "Audit events persist command metadata", "status": "todo"}
+                {"id": "projection-upsert", "title": "Order/route projections support upsert and query", "status": "passed"},
+                {"id": "audit-persist", "title": "Audit events persist command metadata", "status": "passed"}
               ]
             },
             {
