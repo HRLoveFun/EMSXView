@@ -1,15 +1,13 @@
 {
-  "generated_at": "2026-04-02T10:09:10.502374+00:00",
+  "generated_at": "2026-04-02T10:22:07.114401+00:00",
   "current_phase": "P1",
   "current_sprint": "P1-S1",
   "program_status": "in_progress",
   "issue_counts": {
-    "completed": 7,
-    "todo": 1
+    "completed": 8
   },
   "checkpoint_counts": {
-    "passed": 13,
-    "todo": 2
+    "passed": 15
   },
   "open_risks": 3,
   "critical_open_risks": 0,
@@ -97,25 +95,27 @@
     {
       "id": "P1-S1-04",
       "title": "Add repository abstraction under current API handlers",
-      "status": "todo",
+      "status": "completed",
       "owner": "unassigned",
       "dependencies": [
         "P1-S1-03"
       ],
       "files": [
         "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/main.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py"
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/service_provider.py",
+        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_service_provider.py"
       ],
       "checkpoints": [
         {
           "id": "repository-read-path",
           "title": "Handlers can read from repository abstraction",
-          "status": "todo"
+          "status": "passed"
         },
         {
           "id": "inmemory-fallback",
           "title": "In-memory fallback remains available during rollout",
-          "status": "todo"
+          "status": "passed"
         }
       ]
     }

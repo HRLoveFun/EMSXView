@@ -5,8 +5,8 @@
     "current_phase": "P1",
     "current_sprint": "P1-S1",
     "status": "in_progress",
-    "last_synced_at": "2026-04-02T09:11:46.855601+00:00",
-    "updated_by": "Sprint 0 closure + P1-S1 bootstrap"
+    "last_synced_at": "2026-04-02T10:20:40.000000+00:00",
+    "updated_by": "P1-S1-04 completed — repository abstraction with in-memory fallback"
   },
   "status_values": ["planned", "todo", "in_progress", "blocked", "completed", "cancelled"],
   "checkpoint_status_values": ["todo", "in_progress", "passed", "failed", "waived"],
@@ -102,7 +102,7 @@
         {
           "id": "P1-S1",
           "name": "Sprint 1 - Persistent storage foundation",
-          "status": "in_progress",
+          "status": "completed",
           "goal": "Introduce durable backend persistence without breaking the current API surface.",
           "issues": [
             {
@@ -159,16 +159,18 @@
             {
               "id": "P1-S1-04",
               "title": "Add repository abstraction under current API handlers",
-              "status": "todo",
+              "status": "completed",
               "owner": "unassigned",
               "dependencies": ["P1-S1-03"],
               "files": [
                 "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/main.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py"
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/service_provider.py",
+                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_service_provider.py"
               ],
               "checkpoints": [
-                {"id": "repository-read-path", "title": "Handlers can read from repository abstraction", "status": "todo"},
-                {"id": "inmemory-fallback", "title": "In-memory fallback remains available during rollout", "status": "todo"}
+                {"id": "repository-read-path", "title": "Handlers can read from repository abstraction", "status": "passed"},
+                {"id": "inmemory-fallback", "title": "In-memory fallback remains available during rollout", "status": "passed"}
               ]
             }
           ]

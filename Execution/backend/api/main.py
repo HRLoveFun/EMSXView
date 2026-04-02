@@ -44,6 +44,7 @@ import uvicorn
 
 from auth import AuthManager
 from db import check_database_connection, dispose_engine, initialize_database
+from service_provider import RepositoryProvider
 
 
 # Bloomberg API
@@ -168,6 +169,12 @@ class Settings:
     # Development mode - bypass authentication (DO NOT USE IN PRODUCTION)
     BYPASS_AUTH: bool = os.getenv("BYPASS_AUTH", "false").lower() == "true"
 
+    # Persistence — when True, order/route projections are written through
+    # to PostgreSQL and the DB read-path is used for warm-start on restart.
+    # When False (default during rollout), the in-memory Bloomberg subscription
+    # cache remains the sole data source.
+    ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"
+
 def _validate_settings():
     """Validate critical settings on startup."""
     # In production, JWT_SECRET must be set to a secure value
@@ -184,9 +191,13 @@ def _validate_settings():
     
     logger.info(f"Settings validated: BYPASS_AUTH={settings.BYPASS_AUTH}, JWT_SECRET set={bool(settings.JWT_SECRET)}")
     logger.info(f"Odd lot detection enabled for markets: {settings.ODD_LOT_MARKETS}")
+    logger.info(f"DB persistence: ENABLE_DB_PERSISTENCE={settings.ENABLE_DB_PERSISTENCE}")
 
 settings = Settings()
 _validate_settings()
+
+# Repository provider — gates DB read/write behind ENABLE_DB_PERSISTENCE
+repo_provider = RepositoryProvider(enabled=settings.ENABLE_DB_PERSISTENCE)
 
 # ============================================================================
 # Data Models
@@ -1285,6 +1296,11 @@ class BloombergEMSXService:
                     # NEW: Try to enrich related routes when new order arrives
                     self._enrich_routes_with_new_order(order)
 
+            # DB write-through (fire-and-forget from background thread)
+            final_order = self._orders.get(seq_key)
+            if final_order and repo_provider.is_active:
+                self._schedule_persist_order(final_order)
+
         except Exception as e:
             logger.warning(f"Error processing subscription message: {e}")
 
@@ -1333,6 +1349,44 @@ class BloombergEMSXService:
             update_dict["exchange"] = route.exchange or parent.exchange or ""
             self._routes[route_key] = Route(**update_dict)
             logger.debug(f"Enrich new route {route_key}: ticker='{update_dict['ticker']}', exchange='{update_dict['exchange']}'")
+
+    # ------------------------------------------------------------------
+    #  DB write-through helpers (called from background thread)
+    # ------------------------------------------------------------------
+
+    def _schedule_persist_order(self, order: Order) -> None:
+        """Schedule an async DB upsert from the synchronous subscription thread."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return
+        asyncio.run_coroutine_threadsafe(
+            repo_provider.persist_order(
+                sequence=int(order.id),
+                order_id=order.id,
+                status=order.status,
+                trader=order.trader,
+                payload=order.model_dump(),
+            ),
+            loop,
+        )
+
+    def _schedule_persist_route(self, route: Route) -> None:
+        """Schedule an async DB upsert from the synchronous subscription thread."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return
+        asyncio.run_coroutine_threadsafe(
+            repo_provider.persist_route(
+                sequence=route.sequence,
+                route_id=route.routeId,
+                status=route.status,
+                broker=route.broker,
+                payload=route.model_dump(),
+            ),
+            loop,
+        )
 
     def _process_route_message(self, msg):
         """Process a single route subscription message and update the route cache.
@@ -1417,6 +1471,11 @@ class BloombergEMSXService:
                             logger.debug(f"INIT_PAINT route: {route_key} {route.broker} {route.status}")
                         elif event_status == 6:
                             logger.debug(f"New route (6): {route_key} {route.broker} {route.status}")
+
+                # DB write-through for routes (fire-and-forget)
+                final_route = self._routes.get(route_key)
+                if final_route and repo_provider.is_active:
+                    self._schedule_persist_route(final_route)
 
         except Exception as e:
             logger.warning(f"Error processing route message: {e}")
@@ -3101,9 +3160,19 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
     return AuthManager.verify_token(credentials.credentials)
 
 def audit_log(action: str, user: str, details: dict):
-    """Log trading action for audit"""
+    """Log trading action for audit — with optional DB persistence."""
     if settings.ENABLE_AUDIT_LOG:
         logger.info(f"AUDIT: {action} | User: {user} | Details: {json.dumps(details)}")
+    if repo_provider.is_active:
+        asyncio.ensure_future(
+            repo_provider.persist_audit_event(
+                action=action,
+                actor=user,
+                endpoint=action,
+                result="ok",
+                payload_summary=json.dumps(details)[:500] if details else None,
+            )
+        )
 
 # ============================================================================
 # FastAPI Application
@@ -3123,8 +3192,10 @@ async def lifespan(app: FastAPI):
     db_ready, db_message = await initialize_database()
     if db_ready:
         logger.info("Database schema bootstrap completed")
+        repo_provider.mark_db_ready(True)
     else:
         logger.warning("Database schema bootstrap failed: %s", db_message)
+        repo_provider.mark_db_ready(False)
 
     # Try to connect to Bloomberg
     connected = await bloomberg_service.connect()
