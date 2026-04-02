@@ -12,12 +12,12 @@
 
 <!-- execution-platform:iteration:start -->
 _Managed by `scripts/workflow/sync_execution_status.py`. Do not edit inside this block manually._
-- **Last Sync**: 2026-04-02T09:13:20.301558+00:00
+- **Last Sync**: 2026-04-02T09:52:27.820962+00:00
 - **Active Sprint**: `P0-S0`
 - **Sprint Goal**: Create persistent planning, QA, progress, and handoff workflow artifacts.
 - **Tracked Issues**:
   - `P0-S0-01` — Create machine-readable sprint ledger (completed)
   - `P0-S0-02` — Wire issue and PR workflow templates (completed)
-  - `P0-S0-03` — Add CI and progress workflows (in_progress)
+  - `P0-S0-03` — Add CI and progress workflows (completed)
   - `P0-S0-04` — Add automated progress and handoff updates (completed)
 <!-- execution-platform:iteration:end -->

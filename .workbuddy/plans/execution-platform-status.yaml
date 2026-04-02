@@ -57,7 +57,7 @@
             {
               "id": "P0-S0-03",
               "title": "Add CI and progress workflows",
-              "status": "in_progress",
+              "status": "completed",
               "owner": "unassigned",
               "dependencies": ["P0-S0-01", "P0-S0-02"],
               "files": [
