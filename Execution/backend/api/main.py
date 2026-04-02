@@ -43,6 +43,8 @@ from jose import jwt
 import uvicorn
 
 from auth import AuthManager
+from db import check_database_connection, dispose_engine, initialize_database
+
 
 # Bloomberg API
 import blpapi
@@ -134,8 +136,13 @@ class Settings:
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", "3000"))
     API_WORKERS: int = int(os.getenv("API_WORKERS", "1"))
+
+    # Database Configuration
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://emsx:emsx@postgres:5432/emsx")
+    DATABASE_MIGRATION_URL: str = os.getenv("DATABASE_MIGRATION_URL", "postgresql+psycopg://emsx:emsx@postgres:5432/emsx")
     
     # Security - JWT_SECRET must be set in production
+
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))  # 8 hours
@@ -3110,8 +3117,15 @@ async def lifespan(app: FastAPI):
     logger.info("EMSX Trading API Starting...")
     logger.info(f"Version: 1.0.0")
     logger.info(f"Bloomberg: {settings.BLOOMBERG_HOST}:{settings.BLOOMBERG_PORT}")
+    logger.info(f"Database: {settings.DATABASE_URL}")
     logger.info("=" * 60)
-    
+
+    db_ready, db_message = await initialize_database()
+    if db_ready:
+        logger.info("Database schema bootstrap completed")
+    else:
+        logger.warning("Database schema bootstrap failed: %s", db_message)
+
     # Try to connect to Bloomberg
     connected = await bloomberg_service.connect()
     if not connected:
@@ -3122,6 +3136,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down EMSX Trading API...")
     bloomberg_service.disconnect()
+    await dispose_engine()
+
 
 app = FastAPI(
     title="EMSX Trading API",
@@ -3158,11 +3174,23 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     bb_status = bloomberg_service.get_status()
+    db_connected, db_message = await check_database_connection()
+
+    healthy = bb_status.status == "connected" and db_connected
+    data = {
+        "bloomberg": bb_status.model_dump(),
+        "database": {
+            "status": "connected" if db_connected else "disconnected",
+            "message": db_message,
+        },
+    }
+
     return ApiResponse(
-        success=bb_status.status == "connected",
-        data=bb_status.model_dump(),
-        message="Service is healthy" if bb_status.status == "connected" else bb_status.message
+        success=healthy,
+        data=data,
+        message="Service is healthy" if healthy else f"bloomberg={bb_status.status}, database={'connected' if db_connected else 'disconnected'}"
     )
+
 
 
 @app.post("/api/auth/login", response_model=ApiResponse, tags=["Auth"])

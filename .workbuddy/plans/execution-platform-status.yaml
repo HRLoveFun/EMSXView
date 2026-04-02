@@ -125,7 +125,7 @@
             {
               "id": "P1-S1-02",
               "title": "Create database session and schema bootstrap",
-              "status": "todo",
+              "status": "completed",
               "owner": "unassigned",
               "dependencies": ["P1-S1-01"],
               "files": [
@@ -135,8 +135,8 @@
                 "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_db_bootstrap.py"
               ],
               "checkpoints": [
-                {"id": "db-session-factory", "title": "DB session factory and connectivity probe available", "status": "todo"},
-                {"id": "schema-bootstrap", "title": "Initial schema bootstrap artifact exists", "status": "todo"}
+                {"id": "db-session-factory", "title": "DB session factory and connectivity probe available", "status": "passed"},
+                {"id": "schema-bootstrap", "title": "Initial schema bootstrap artifact exists", "status": "passed"}
               ]
             },
             {
