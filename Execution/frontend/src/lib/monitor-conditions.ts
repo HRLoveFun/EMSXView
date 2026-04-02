@@ -143,7 +143,8 @@ export const CONDITION_DEFS: ConditionDef[] = [
     groupLabel: () => 'Odd Lot (JP)',
     color: 'text-blue-700',
     bgColor: 'bg-blue-100',
-    test: (o: Order, _t: number) => {
+    test: (o: Order, threshold: number) => {
+      void threshold;
       // isOddLot is computed by backend based on PX_ROUND_LOT_SIZE
       // Only applies to Japan market (JP exchange)
       return o.isOddLot === true;

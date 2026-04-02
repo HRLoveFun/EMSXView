@@ -74,11 +74,6 @@ interface CacheStatus {
   lastLoaded: string | null;
 }
 
-interface ApiCacheStatus {
-  brokerStrategiesCached: number;
-  strategyInfoCached: number;
-}
-
 const FREQUENCY_OPTIONS = [
   { value: 'realtime', label: 'Real-time' },
   { value: '5s', label: '5 seconds' },
@@ -138,7 +133,6 @@ export function SettingsBoard() {
   // Strategy Data Manager state
   const [isStrategyManagerOpen, setIsStrategyManagerOpen] = useState(false);
   const [fileStatus, setFileStatus] = useState<CacheStatus | null>(null);
-  const [_apiStatus, _setApiStatus] = useState<ApiCacheStatus | null>(null);
   const [brokers, setBrokers] = useState<string[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [strategyMessage, setStrategyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);

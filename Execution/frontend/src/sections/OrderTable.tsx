@@ -291,6 +291,15 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
     onFilterChange({ ...filters, [key]: value });
   }, [filters, onFilterChange]);
 
+  const updateMultiFilter = useCallback((key: 'statusMulti' | 'orderTypeMulti' | 'traderMulti', value: string[]) => {
+    onFilterChange({ ...filters, [key]: value });
+  }, [filters, onFilterChange]);
+
+  const updateSideFilter = useCallback((value: OrderSide | '') => {
+    onFilterChange({ ...filters, side: value });
+  }, [filters, onFilterChange]);
+
+
   const hasActiveFilters = useMemo(() => {
     return Object.entries(filters).some(([, v]) => {
       if (Array.isArray(v)) return v.length > 0;
@@ -365,7 +374,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
         <PopoverContent className="w-44 p-1" align="start" side="bottom">
           <div
             className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-accent rounded"
-            onMouseDown={e => { e.preventDefault(); updateFilter(key, [] as any); }}
+            onMouseDown={e => { e.preventDefault(); updateMultiFilter(key, []); }}
           >
             <Checkbox checked={selected.length === 0} tabIndex={-1} className="pointer-events-none h-3.5 w-3.5" />
             <span className="text-xs font-medium text-muted-foreground">All</span>
@@ -381,7 +390,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                   const next = selected.includes(opt.value)
                     ? selected.filter(v => v !== opt.value)
                     : [...selected, opt.value];
-                  updateFilter(key, next as any);
+                  updateMultiFilter(key, next);
                 }}
               >
                 <Checkbox checked={selected.includes(opt.value)} tabIndex={-1} className="pointer-events-none h-3.5 w-3.5" />
@@ -411,7 +420,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
             <div
               key={v || 'all'}
               className={`px-2 py-1 text-xs cursor-pointer rounded hover:bg-accent ${(filters.side || '') === v ? 'font-semibold text-primary' : ''}`}
-              onMouseDown={e => { e.preventDefault(); updateFilter('side', v as any); }}
+              onMouseDown={e => { e.preventDefault(); updateSideFilter(v); }}
             >
               {label}
             </div>
