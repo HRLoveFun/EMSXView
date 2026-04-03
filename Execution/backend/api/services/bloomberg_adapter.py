@@ -22,7 +22,7 @@ from fastapi import HTTPException
 import blpapi
 from blpapi import SessionOptions, Session, Service, Request, Message, Event
 
-from models import (
+from schemas import (
     Order, Route, OrderFilters, ConnectionStatus,
     BatchUpdateRequest, BatchUpdateResponse,
     CancelRouteRequest, ModifyRouteRequest, RouteOrderRequest,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Dict, Callable
 
-from models import Order, OrderFilters
+from schemas import Order, OrderFilters
 
 logger = logging.getLogger("main")
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any
 
-from models import (
+from schemas import (
     Order, OrderFilters, ConnectionStatus,
     BatchUpdateRequest, BatchUpdateResponse,
     CancelRouteRequest, ModifyRouteRequest, RouteOrderRequest,

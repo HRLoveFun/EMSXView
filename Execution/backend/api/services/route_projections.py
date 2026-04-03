@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import List, Dict, Callable
 
-from models import Order, Route
+from schemas import Order, Route
 
 logger = logging.getLogger("main")
 

@@ -3,10 +3,10 @@
     "name": "EMSX Execution Platform",
     "source_document": "docs/EXECUTION_PLATFORM_WBS.md",
     "current_phase": "P2",
-    "current_sprint": "P2-S3",
+    "current_sprint": "P2-S4",
     "status": "in_progress",
-    "last_synced_at": "2026-04-03T02:00:00.000000+00:00",
-    "updated_by": "autopilot: P1-S2 sprint gate passed, P1 complete, advancing to P2-S3"
+    "last_synced_at": "2026-04-03T04:00:00.000000+00:00",
+    "updated_by": "autopilot: P2-S4 complete — router split + auth + config + 22 tests passing"
   },
   "status_values": ["planned", "todo", "in_progress", "blocked", "completed", "cancelled"],
   "checkpoint_status_values": ["todo", "in_progress", "passed", "failed", "waived"],
@@ -312,7 +312,78 @@
             ]
           }
         ]},
-        {"id": "P2-S4", "name": "Sprint 4 - Router split, auth policy, and config control plane foundation", "status": "planned", "issues": []}
+        {"id": "P2-S4", "name": "Sprint 4 - Router split, auth policy, and config control plane foundation", "status": "completed", "goal": "Separate API routing concerns and unify auth/policy/config handling.", "issues": [
+          {
+            "id": "P2-S4-01",
+            "title": "Split HTTP routers by domain",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": [],
+            "files": [
+              "Execution/backend/api/routers/__init__.py",
+              "Execution/backend/api/routers/orders.py",
+              "Execution/backend/api/routers/routes.py",
+              "Execution/backend/api/routers/auth.py",
+              "Execution/backend/api/routers/broker.py",
+              "Execution/backend/api/routers/connection.py",
+              "Execution/backend/api/routers/debug.py",
+              "Execution/backend/api/routers/realtime.py",
+              "Execution/backend/api/config.py",
+              "Execution/backend/api/deps.py",
+              "Execution/backend/api/schemas.py",
+              "Execution/backend/api/main.py"
+            ],
+            "checkpoints": [
+              {"id": "routers-composed", "title": "Domain routers exist and are composed in app bootstrap", "status": "passed"},
+              {"id": "main-reduced-further", "title": "main.py reduced to app bootstrap + middleware + lifespan only (351 lines, 91% reduction)", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P2-S4-02",
+            "title": "Normalize session/auth/policy context",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P2-S4-01"],
+            "files": [
+              "Execution/backend/api/services/auth_service.py",
+              "Execution/backend/api/deps.py"
+            ],
+            "checkpoints": [
+              {"id": "auth-service", "title": "Auth service encapsulates bypass, JWT, and policy checks", "status": "passed"},
+              {"id": "auth-testable", "title": "Auth modes are explicit and testable", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P2-S4-03",
+            "title": "Move broker/algo config toward server-owned model",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P2-S4-01"],
+            "files": [
+              "Execution/backend/api/services/config_service.py",
+              "Execution/backend/api/routers/broker.py"
+            ],
+            "checkpoints": [
+              {"id": "config-service", "title": "Backend stores versioned config records", "status": "passed"},
+              {"id": "config-api", "title": "Frontend settings read through typed APIs first", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P2-S4-04",
+            "title": "Add configuration and auth regression tests",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P2-S4-02", "P2-S4-03"],
+            "files": [
+              "Execution/backend/api/tests/test_auth_policy.py",
+              "Execution/backend/api/tests/test_config_service.py"
+            ],
+            "checkpoints": [
+              {"id": "auth-tests", "title": "Auth and policy matrix tests written and passing (12/12)", "status": "passed"},
+              {"id": "config-tests", "title": "Config versioning and retrieval tests written and passing (10/10)", "status": "passed"}
+            ]
+          }
+        ]}
       ]
     },
     {
