@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Toolbar } from './sections/Toolbar';
 import { MonitorBoard } from './sections/MonitorBoard';
 import { LazyOrderBoard } from './sections/LazyOrderBoard';
@@ -9,6 +9,9 @@ import { apiService, tokenService } from './services/api';
 import type { ModifyOrderRequest, RouteOrderRequest } from './types';
 import { loadConditions, saveConditions, matchesAnyCondition, type MonitorConditions } from './lib/monitor-conditions';
 import { createCache, CACHE_CONFIGS, getOrFetch, clearAllCaches } from './lib/cache-manager';
+import { createRealtimeClient, type RealtimeClient } from './services/realtime';
+import { useOrdersStream } from './hooks/use-orders-stream';
+import { useRoutesStream } from './hooks/use-routes-stream';
 import type { Order, Route, OrderFilters, BatchUpdateRequest, Toast, CancelRouteRequest, ModifyRouteRequest, TraderInfo } from './types';
 import './App.css';
 
@@ -30,14 +33,49 @@ function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [currentFilters, setCurrentFilters] = useState<OrderFilters>({});
   const [monitorConditions, setMonitorConditions] = useState<MonitorConditions>(loadConditions);
+  const [streamConnected, setStreamConnected] = useState(false);
+
+  // ─── Realtime client ─────────────────────────────────────────────────────
+  const rtClientRef = useRef<RealtimeClient | null>(null);
+
+  useEffect(() => {
+    // Build WS URL from current page location (works behind proxy)
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsBase = import.meta.env.VITE_API_URL
+      ? import.meta.env.VITE_API_URL.replace(/^http/, 'ws')
+      : `${proto}//${window.location.host}`;
+    const client = createRealtimeClient({ url: `${wsBase}/ws/orders` });
+    rtClientRef.current = client;
+
+    client.onStatus((s) => setStreamConnected(s === 'connected'));
+    client.connect();
+
+    return () => { client.disconnect(); };
+  }, []);
+
+  // Stream hooks — merge deltas into local state
+  const { orders: streamOrders } = useOrdersStream({
+    client: rtClientRef.current,
+    initialOrders: allOrders,
+    enabled: streamConnected,
+  });
+  const { routes: streamRoutes } = useRoutesStream({
+    client: rtClientRef.current,
+    initialRoutes: allRoutes,
+    enabled: streamConnected,
+  });
+
+  // When stream is connected, use stream-driven state
+  const effectiveOrders = streamConnected ? streamOrders : allOrders;
+  const effectiveRoutes = streamConnected ? streamRoutes : allRoutes;
 
   // Persist monitor conditions to localStorage
   useEffect(() => { saveConditions(monitorConditions); }, [monitorConditions]);
 
   // Monitor alert count (uses configurable conditions)
   const monitorCount = useMemo(
-    () => allOrders.filter(o => matchesAnyCondition(o, monitorConditions)).length,
-    [allOrders, monitorConditions],
+    () => effectiveOrders.filter(o => matchesAnyCondition(o, monitorConditions)).length,
+    [effectiveOrders, monitorConditions],
   );
 
   // Get order count based on active tab (per UI description)
@@ -48,9 +86,9 @@ function App() {
       case 'execution':
         return filteredOrders.length;
       case 'settings':
-        return allOrders.length;
+        return effectiveOrders.length;
       default:
-        return allOrders.length;
+        return effectiveOrders.length;
     }
   };
 
@@ -151,7 +189,7 @@ function App() {
 
   // Client-side filtering — instant, no network calls
   const filteredOrders = useMemo(() => {
-    let result = allOrders;
+    let result = effectiveOrders;
     const f = currentFilters;
     if (f.symbol) {
       const sym = f.symbol.toUpperCase();
@@ -180,7 +218,7 @@ function App() {
       result = result.filter(o => o.currency.toUpperCase().includes(cur));
     }
     return result;
-  }, [allOrders, currentFilters]);
+  }, [effectiveOrders, currentFilters]);
 
   // Initial load after login - fetch all data including cached low-frequency data
   useEffect(() => {
@@ -192,9 +230,11 @@ function App() {
     }
   }, [isAuthenticated, fetchOrders, fetchTraderInfo]);
 
-  // High-frequency polling: orders and routes only (2s interval)
+  // High-frequency polling: orders and routes only — FALLBACK when stream disconnected
   useEffect(() => {
     if (!isAuthenticated) return;
+    // Skip polling entirely when stream is providing data
+    if (streamConnected) return;
     
     let active = true;
     let consecutiveErrors = 0;
@@ -254,7 +294,7 @@ function App() {
       clearTimeout(timer); 
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isAuthenticated, fetchOrdersAndRoutes]);
+  }, [isAuthenticated, streamConnected, fetchOrdersAndRoutes]);
 
   // Low-frequency polling: trader info (30s interval, only if cache expired)
   useEffect(() => {
@@ -470,21 +510,21 @@ function App() {
         {activeTab === 'monitor' ? (
           <div className="space-y-4">
             <MonitorBoard
-              allOrders={allOrders}
+              allOrders={effectiveOrders}
               isLoading={isLoading}
               conditions={monitorConditions}
               onConditionsChange={setMonitorConditions}
             />
             <LazyOrderBoard
-              allOrders={allOrders}
+              allOrders={effectiveOrders}
               isLoading={isLoading}
             />
           </div>
         ) : activeTab === 'execution' ? (
           <ExecutionBoard
             orders={filteredOrders}
-            allOrders={allOrders}
-            routes={allRoutes}
+            allOrders={effectiveOrders}
+            routes={effectiveRoutes}
             selectedOrders={selectedOrders}
             onSelectionChange={handleSelectionChange}
             isLoading={isLoading}

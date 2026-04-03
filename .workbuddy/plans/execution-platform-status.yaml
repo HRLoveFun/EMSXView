@@ -3,10 +3,10 @@
     "name": "EMSX Execution Platform",
     "source_document": "docs/EXECUTION_PLATFORM_WBS.md",
     "current_phase": "P1",
-    "current_sprint": "P1-S1",
+    "current_sprint": "P1-S2",
     "status": "in_progress",
-    "last_synced_at": "2026-04-02T10:20:40.000000+00:00",
-    "updated_by": "P1-S1-04 completed — repository abstraction with in-memory fallback"
+    "last_synced_at": "2026-04-03T02:00:00.000000+00:00",
+    "updated_by": "autopilot: P1-S1 sprint gate passed, advancing to P1-S2"
   },
   "status_values": ["planned", "todo", "in_progress", "blocked", "completed", "cancelled"],
   "checkpoint_status_values": ["todo", "in_progress", "passed", "failed", "waived"],
@@ -175,7 +175,74 @@
             }
           ]
         },
-        {"id": "P1-S2", "name": "Sprint 2 - Realtime projections and stream-based UI path", "status": "planned", "issues": []}
+        {"id": "P1-S2", "name": "Sprint 2 - Realtime projections and stream-based UI path", "status": "in_progress", "goal": "Introduce a supported realtime path and reduce dependence on full polling snapshots.", "issues": [
+          {
+            "id": "P1-S2-01",
+            "title": "Build backend realtime gateway and event serializers",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": [],
+            "files": [
+              "Execution/backend/api/services/realtime_gateway.py",
+              "Execution/backend/api/services/event_serializers.py",
+              "Execution/backend/api/main.py",
+              "Execution/backend/api/tests/test_realtime_gateway.py"
+            ],
+            "checkpoints": [
+              {"id": "gateway-broadcast", "title": "Gateway broadcasts order/route deltas to connected WS clients", "status": "passed"},
+              {"id": "cursor-replay", "title": "Cursor-based backfill replays missed events on reconnect", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P1-S2-02",
+            "title": "Add frontend realtime client abstraction",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P1-S2-01"],
+            "files": [
+              "Execution/frontend/src/services/realtime.ts",
+              "Execution/frontend/src/hooks/use-orders-stream.ts",
+              "Execution/frontend/src/hooks/use-routes-stream.ts",
+              "Execution/frontend/src/stores/order-stream-store.ts",
+              "Execution/frontend/src/stores/route-stream-store.ts"
+            ],
+            "checkpoints": [
+              {"id": "ws-reconnect", "title": "WebSocket client reconnects automatically with backoff", "status": "passed"},
+              {"id": "stream-hooks", "title": "Stream hooks provide order/route state to components", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P1-S2-03",
+            "title": "Move App state from polling-first to stream-first",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P1-S2-02"],
+            "files": [
+              "Execution/frontend/src/App.tsx",
+              "Execution/frontend/src/services/api.ts"
+            ],
+            "checkpoints": [
+              {"id": "stream-driven-blotter", "title": "Blotter updates from stream deltas, polling is fallback only", "status": "passed"},
+              {"id": "polling-fallback", "title": "Polling resumes automatically when stream disconnects", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P1-S2-04",
+            "title": "Add stream integration tests and observability",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P1-S2-01", "P1-S2-03"],
+            "files": [
+              "Execution/backend/api/tests/test_realtime_gateway.py",
+              "Execution/frontend/src/services/realtime.test.ts",
+              "Execution/frontend/package.json"
+            ],
+            "checkpoints": [
+              {"id": "backend-gateway-tests", "title": "Backend gateway tests cover fanout and cursor replay", "status": "passed"},
+              {"id": "frontend-reconnect-tests", "title": "Frontend tests cover reconnect and backfill behavior", "status": "passed"}
+            ]
+          }
+        ]}
       ]
     },
     {

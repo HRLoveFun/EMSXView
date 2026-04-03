@@ -45,6 +45,7 @@ import uvicorn
 from auth import AuthManager
 from db import check_database_connection, dispose_engine, initialize_database
 from service_provider import RepositoryProvider
+from services.realtime_gateway import realtime_gw
 
 
 # Bloomberg API
@@ -1370,6 +1371,11 @@ class BloombergEMSXService:
             ),
             loop,
         )
+        # Broadcast order delta to realtime clients
+        asyncio.run_coroutine_threadsafe(
+            realtime_gw.broadcast_order(order.model_dump(), event_type="update"),
+            loop,
+        )
 
     def _schedule_persist_route(self, route: Route) -> None:
         """Schedule an async DB upsert from the synchronous subscription thread."""
@@ -1385,6 +1391,11 @@ class BloombergEMSXService:
                 broker=route.broker,
                 payload=route.model_dump(),
             ),
+            loop,
+        )
+        # Broadcast route delta to realtime clients
+        asyncio.run_coroutine_threadsafe(
+            realtime_gw.broadcast_route(route.model_dump(), event_type="update"),
             loop,
         )
 
@@ -3884,53 +3895,67 @@ async def query_round_lot(ticker: str, user: dict = Depends(verify_token)):
 # ============================================================================
 
 class ConnectionManager:
-    """WebSocket connection manager"""
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-    
+    """Legacy WebSocket connection manager — kept for backward compat; delegates to realtime_gw."""
+    @property
+    def active_connections(self) -> list:
+        return realtime_gw._connections
+
     async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"WebSocket client connected. Total: {len(self.active_connections)}")
-    
+        await realtime_gw.connect(websocket)
+
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            logger.info(f"WebSocket client disconnected. Total: {len(self.active_connections)}")
-    
+        realtime_gw.disconnect(websocket)
+
     async def broadcast(self, message: dict):
-        """Broadcast message to all connected clients"""
-        disconnected = []
-        for connection in self.active_connections:
+        """Broadcast message to all connected clients via gateway."""
+        import json as _json
+        payload = _json.dumps(message)
+        dead = []
+        for conn in realtime_gw._connections:
             try:
-                await connection.send_json(message)
+                await conn.send_text(payload)
             except Exception:
-                disconnected.append(connection)
-        
-        # Clean up disconnected clients
-        for conn in disconnected:
-            self.disconnect(conn)
+                dead.append(conn)
+        for conn in dead:
+            realtime_gw.disconnect(conn)
 
 manager = ConnectionManager()
 
 @app.websocket("/ws/orders")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time order updates"""
-    await manager.connect(websocket)
+    """WebSocket endpoint for real-time order/route updates.
+    
+    Supports:
+    - ping/pong keep-alive
+    - cursor-based backfill: send {"action": "replay", "cursor": N}
+    - stats: send {"action": "stats"}
+    """
+    await realtime_gw.connect(websocket)
     try:
+        # Send current cursor so client knows where it is
+        await websocket.send_json({
+            "type": "connected",
+            "cursor": realtime_gw.latest_cursor,
+            "timestamp": datetime.now().isoformat(),
+        })
         while True:
-            # Keep connection alive and handle client messages
             data = await websocket.receive_text()
             message = json.loads(data)
+            action = message.get("action", "")
             
-            if message.get("action") == "ping":
+            if action == "ping":
                 await websocket.send_json({"type": "pong", "timestamp": datetime.now().isoformat()})
-            
+            elif action == "replay":
+                since = int(message.get("cursor", 0))
+                count = await realtime_gw.replay_since(websocket, since)
+                await websocket.send_json({"type": "replay_done", "replayed": count, "cursor": realtime_gw.latest_cursor})
+            elif action == "stats":
+                await websocket.send_json({"type": "stats", **realtime_gw.stats()})
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        realtime_gw.disconnect(websocket)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
+        realtime_gw.disconnect(websocket)
 
 # ============================================================================
 # Error Handlers
