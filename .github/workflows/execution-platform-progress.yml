@@ -33,6 +33,10 @@ jobs:
       - name: Generate handoff snapshot
         run: python scripts/workflow/generate_handoff_snapshot.py --output docs/generated/execution-platform-handoff.md
 
+      - name: Autopilot dry-run (post-merge)
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        run: python scripts/workflow/auto_runner.py --mode dry-run --max-steps 1
+
       - name: Upload progress artifacts
         uses: actions/upload-artifact@v4
         with:

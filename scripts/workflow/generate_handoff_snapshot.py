@@ -95,12 +95,36 @@ def main() -> int:
         "",
         "## Next Actions",
         "",
-        "1. Complete any `in_progress` issue in the current sprint.",
-        "2. Validate the plan ledger with `validate_phase_gate.py --mode plan`.",
-        "3. Run `sync_execution_status.py` to refresh metrics and iteration-log sections.",
-        "4. Use the Sprint 0 checklist to confirm sprint exit criteria before Phase 1 work starts.",
-        "",
-        "## Source Files",
+    ])
+
+    # Dynamic next actions from current sprint issues
+    action_num = 0
+    todo_issues = [i for i in issues if i.get("status") == "todo"]
+    in_progress_issues = [i for i in issues if i.get("status") == "in_progress"]
+    blocked_issues = [i for i in issues if i.get("status") == "blocked"]
+
+    for issue in in_progress_issues:
+        action_num += 1
+        lines.append(f"{action_num}. Continue work on `{issue.get('id')}` — {issue.get('title')} (in_progress).")
+
+    for issue in blocked_issues:
+        action_num += 1
+        lines.append(f"{action_num}. Unblock `{issue.get('id')}` — {issue.get('title')} (blocked).")
+
+    for issue in todo_issues:
+        action_num += 1
+        lines.append(f"{action_num}. Start `{issue.get('id')}` — {issue.get('title')} (todo).")
+
+    if not in_progress_issues and not todo_issues and not blocked_issues:
+        action_num += 1
+        lines.append(f"{action_num}. All issues in the current sprint are completed. Proceed to sprint gate validation.")
+
+    action_num += 1
+    lines.append(f"{action_num}. Validate the plan ledger with `validate_phase_gate.py --mode plan`.")
+    action_num += 1
+    lines.append(f"{action_num}. Run `sync_execution_status.py` to refresh metrics and iteration-log sections.")
+
+    lines.extend([
         "",
         f"- `{args.status_file.as_posix()}`",
         f"- `{args.risk_file.as_posix()}`",

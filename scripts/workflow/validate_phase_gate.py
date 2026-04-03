@@ -132,12 +132,28 @@ def validate_sprint_gate(status_data: dict[str, Any], risk_data: dict[str, Any],
     return errors
 
 
+def classify_error(msg: str) -> str:
+    """Map a validation error message to an error code."""
+    if "missing id" in msg.lower() or "duplicate" in msg.lower() or "invalid status" in msg.lower():
+        return "E_SCHEMA"
+    if "depends on missing" in msg.lower():
+        return "E_DEPENDENCY"
+    if "unresolved high/critical risks" in msg.lower():
+        return "E_RISK_BLOCKING"
+    if "incomplete issues" in msg.lower():
+        return "E_DEPENDENCY"
+    if "not found" in msg.lower():
+        return "E_SCHEMA"
+    return "E_UNKNOWN"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate execution-platform plan and sprint gates.")
     parser.add_argument("--status-file", type=Path, default=DEFAULT_STATUS)
     parser.add_argument("--risk-file", type=Path, default=DEFAULT_RISKS)
     parser.add_argument("--mode", choices=["plan", "sprint"], default="plan")
     parser.add_argument("--sprint-id", default=None)
+    parser.add_argument("--output-json", type=Path, default=None, help="Write structured errors to JSON file")
     args = parser.parse_args()
 
     status_data = load_yaml_like_json(args.status_file)
@@ -147,6 +163,16 @@ def main() -> int:
     if args.mode == "sprint":
         sprint_id = args.sprint_id or status_data.get("program", {}).get("current_sprint")
         errors.extend(validate_sprint_gate(status_data, risk_data, sprint_id))
+
+    if args.output_json:
+        structured = [
+            {"code": classify_error(e), "message": e} for e in errors
+        ]
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        args.output_json.write_text(
+            json.dumps({"mode": args.mode, "ok": len(errors) == 0, "errors": structured}, indent=2),
+            encoding="utf-8",
+        )
 
     if errors:
         for error in errors:

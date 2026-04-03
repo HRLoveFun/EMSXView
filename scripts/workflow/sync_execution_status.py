@@ -135,6 +135,56 @@ def replace_or_append_block(path: Path, start_marker: str, end_marker: str, head
     path.write_text(new_text, encoding="utf-8")
 
 
+def apply_status_overrides(status_data: dict[str, Any], issue_overrides: list[str], checkpoint_overrides: list[str]) -> list[str]:
+    """Apply --set-issue-status and --set-checkpoint-status overrides to ledger data in-place.
+
+    issue_overrides: ["ISSUE_ID=STATUS", ...]
+    checkpoint_overrides: ["ISSUE_ID:CP_ID=STATUS", ...]
+    Returns list of warning messages for unresolved IDs.
+    """
+    warnings: list[str] = []
+
+    for override in issue_overrides:
+        if "=" not in override:
+            warnings.append(f"Invalid format (expected ISSUE_ID=STATUS): {override}")
+            continue
+        issue_id, status = override.split("=", 1)
+        found = False
+        for phase in status_data.get("phases", []):
+            for sprint in phase.get("sprints", []):
+                for issue in sprint.get("issues", []):
+                    if issue.get("id") == issue_id:
+                        issue["status"] = status
+                        found = True
+                        break
+        if not found:
+            warnings.append(f"Issue not found: {issue_id}")
+
+    for override in checkpoint_overrides:
+        if "=" not in override:
+            warnings.append(f"Invalid format (expected ISSUE_ID:CP_ID=STATUS): {override}")
+            continue
+        key, status = override.split("=", 1)
+        if ":" not in key:
+            warnings.append(f"Invalid format (expected ISSUE_ID:CP_ID): {key}")
+            continue
+        issue_id, cp_id = key.split(":", 1)
+        found = False
+        for phase in status_data.get("phases", []):
+            for sprint in phase.get("sprints", []):
+                for issue in sprint.get("issues", []):
+                    if issue.get("id") == issue_id:
+                        for cp in issue.get("checkpoints", []):
+                            if cp.get("id") == cp_id:
+                                cp["status"] = status
+                                found = True
+                                break
+        if not found:
+            warnings.append(f"Checkpoint not found: {issue_id}:{cp_id}")
+
+    return warnings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync execution-platform delivery status into knowledge artifacts.")
     parser.add_argument("--status-file", type=Path, default=DEFAULT_STATUS)
@@ -143,10 +193,24 @@ def main() -> int:
     parser.add_argument("--iteration-log", type=Path, default=DEFAULT_ITERATION)
     parser.add_argument("--output-json", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--set-issue-status", action="append", default=[], metavar="ISSUE_ID=STATUS",
+                        help="Set issue status before syncing (repeatable)")
+    parser.add_argument("--set-checkpoint-status", action="append", default=[], metavar="ISSUE_ID:CP_ID=STATUS",
+                        help="Set checkpoint status before syncing (repeatable)")
     args = parser.parse_args()
 
     status_data = load_yaml_like_json(args.status_file)
     risk_data = load_yaml_like_json(args.risk_file)
+
+    # Apply write-back overrides
+    if args.set_issue_status or args.set_checkpoint_status:
+        warnings = apply_status_overrides(status_data, args.set_issue_status, args.set_checkpoint_status)
+        for w in warnings:
+            print(f"WARNING: {w}")
+        if not args.dry_run:
+            from datetime import datetime as _dt, timezone as _tz
+            status_data.setdefault("program", {})["last_synced_at"] = _dt.now(_tz.utc).isoformat()
+            args.status_file.write_text(json.dumps(status_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     snapshot = build_snapshot(status_data, risk_data)
 
     if args.output_json:
