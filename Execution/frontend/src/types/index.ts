@@ -56,6 +56,11 @@ export interface Order {
   dayAvgPrice: number | null;
   mktVwap: number | null;
   isOddLot?: boolean | null;  // JP market only: true if quantity not multiple of round lot size
+  // Parent-child execution context (populated when an algorithmic parent exists)
+  parentExecutionId?: number | null;
+  scheduleType?: ScheduleType | null;
+  scheduleStatus?: ExecutionStatus | null;
+  childRouteCount?: number | null;
 }
 
 export interface Route {
@@ -121,6 +126,12 @@ export interface Route {
   traderUuid: number;
   currency: string;
   exchange: string;
+  // Parent-child execution context (populated when route is part of an algorithmic parent)
+  parentExecutionId?: number | null;
+  sliceIndex?: number | null;
+  sliceStatus?: SliceStatus | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
 }
 
 // Filter types
@@ -182,6 +193,10 @@ export interface RouteOrderRequest {
   timeInForce: TimeInForce;
   exchangeDestination?: string;
   notes?: string;
+  strategyParams?: {
+    strategyName: string;
+    fields: { value: string; disabled: boolean }[];
+  };
 }
 
 // Trader identity
@@ -255,6 +270,49 @@ export interface ApiResponse<T> {
 
 // Connection status
 export type ConnectionStatus = 'connected' | 'disconnected' | 'pending';
+
+// Parent-child execution types
+export type ScheduleType = 'TWAP' | 'VWAP' | 'POV' | 'IS' | 'MANUAL';
+export type ExecutionStatus = 'PENDING' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+export type SliceStatus = 'PENDING' | 'SENT' | 'WORKING' | 'FILLED' | 'CANCELLED' | 'FAILED';
+
+export interface ParentExecution {
+  id: number;
+  sequence: number;
+  orderId: string;
+  trader: string;
+  scheduleType: ScheduleType;
+  targetQuantity: number;
+  filledQuantity: number;
+  startTime: string | null;
+  endTime: string | null;
+  participationRate: number | null;
+  urgency: string | null;
+  benchmarkPrice: number | null;
+  broker: string | null;
+  strategyParams: Record<string, unknown> | null;
+  status: ExecutionStatus;
+  createdAt: string;
+  updatedAt: string;
+  slices: ChildSlice[];
+}
+
+export interface ChildSlice {
+  id: number;
+  parentId: number;
+  sequence: number;
+  routeId: number | null;
+  sliceIndex: number;
+  plannedQuantity: number;
+  filledQuantity: number;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  limitPrice: number | null;
+  strategyParams: Record<string, unknown> | null;
+  status: SliceStatus;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // Toast notification
 export interface Toast {

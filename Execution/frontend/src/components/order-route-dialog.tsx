@@ -44,6 +44,7 @@ export interface RouteOrderData {
   timeInForce: TimeInForce;
   exchangeDestination?: string;
   notes?: string;
+  strategyFieldValues?: Record<string, string>;
 }
 
 const orderTypeOptions: { value: OrderType; label: string }[] = [

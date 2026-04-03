@@ -2237,6 +2237,23 @@ class BloombergEMSXService:
             if request_data.notes:
                 request.set("EMSX_NOTES", request_data.notes)
 
+            # Strategy params — same handling as modify_route
+            if request_data.strategyParams:
+                strategy_name = request_data.strategyParams.get("strategyName", "")
+                fields_data = request_data.strategyParams.get("fields", [])
+                if strategy_name and isinstance(fields_data, list):
+                    strategy = request.getElement("EMSX_STRATEGY_PARAMS")
+                    strategy.setElement("EMSX_STRATEGY_NAME", strategy_name)
+
+                    indicator = strategy.getElement("EMSX_STRATEGY_FIELD_INDICATORS")
+                    data = strategy.getElement("EMSX_STRATEGY_FIELDS")
+
+                    for field_entry in fields_data:
+                        value = field_entry.get("value", "")
+                        disabled = field_entry.get("disabled", False)
+                        data.appendElement().setElement("EMSX_FIELD_DATA", str(value) if not disabled else "")
+                        indicator.appendElement().setElement("EMSX_FIELD_INDICATOR", 1 if disabled else 0)
+
             messages = await self._send_request_async(request)
             
             route_id = None

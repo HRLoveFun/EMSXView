@@ -47,7 +47,7 @@ interface SortConfig {
   direction: SortDirection;
 }
 
-const TOTAL_COLS = 26; // 25 data columns + 1 actions column
+const TOTAL_COLS = 28; // 27 data columns + 1 actions column
 
 export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChange, isLoading, filters, onFilterChange, onModifyOrder, onRouteOrder, currentTrader }: OrderTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'createdAt', direction: 'desc' });
@@ -241,6 +241,21 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
   const handleRouteConfirm = async (order: Order, routeData: RouteOrderData) => {
     if (!onRouteOrder) return;
     
+    // Build strategy params payload from dialog-collected field values
+    let strategyParams: RouteOrderRequest['strategyParams'] = undefined;
+    if (routeData.strategy && routeData.strategyFieldValues) {
+      const entries = Object.entries(routeData.strategyFieldValues);
+      if (entries.length > 0) {
+        strategyParams = {
+          strategyName: routeData.strategy,
+          fields: entries.map(([, value]) => ({
+            value: value ?? '',
+            disabled: false,
+          })),
+        };
+      }
+    }
+
     const request: RouteOrderRequest = {
       orderId: order.id,
       broker: routeData.broker,
@@ -252,6 +267,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
       timeInForce: routeData.timeInForce,
       exchangeDestination: routeData.exchangeDestination,
       notes: routeData.notes,
+      strategyParams,
     };
     
     await onRouteOrder(request);
@@ -556,6 +572,12 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('strategyPartRate')}>
                   <div className="flex items-center gap-1">Strat Params{getSortIcon('strategyPartRate')}</div>
                 </th>
+                <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('scheduleType')}>
+                  <div className="flex items-center gap-1">Schedule{getSortIcon('scheduleType')}</div>
+                </th>
+                <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('childRouteCount')}>
+                  <div className="flex items-center gap-1">Children{getSortIcon('childRouteCount')}</div>
+                </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('notes')}>
                   <div className="flex items-center gap-1">PM Note{getSortIcon('notes')}</div>
                 </th>
@@ -658,6 +680,8 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                       <td className="text-right font-mono-numbers text-xs text-muted-foreground">{order.fxRate != null ? order.fxRate.toFixed(4) : ''}</td>
                       <td className="text-xs font-medium">{order.strategyType || ''}</td>
                       <td className="text-xs text-muted-foreground truncate max-w-[120px]" title={getStrategyDetail(order)}>{getStrategyDetail(order)}</td>
+                      <td className="text-xs">{order.scheduleType || ''}{order.scheduleStatus ? ` (${order.scheduleStatus})` : ''}</td>
+                      <td className="text-center text-xs font-mono-numbers">{order.childRouteCount != null ? order.childRouteCount : ''}</td>
                       <td className="text-xs truncate max-w-[180px]" title={getPmNote(order)}>{getPmNote(order)}</td>
                   <td className="text-muted-foreground text-xs">{formatDate(order.createdAt)}</td>
                 </tr>

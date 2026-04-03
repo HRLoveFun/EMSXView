@@ -308,6 +308,7 @@ class RouteOrderRequest(BaseModel):
     timeInForce: str = Field(..., description="DAY, GTC, IOC, FOK")
     exchangeDestination: Optional[str] = Field(None, description="Exchange destination")
     notes: Optional[str] = Field(None, description="Route notes")
+    strategyParams: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters (same format as ModifyRouteRequest)")
 
 class ApiResponse(BaseModel):
     """Standard API response wrapper"""

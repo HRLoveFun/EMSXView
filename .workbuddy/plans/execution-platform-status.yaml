@@ -2,11 +2,11 @@
   "program": {
     "name": "EMSX Execution Platform",
     "source_document": "docs/EXECUTION_PLATFORM_WBS.md",
-    "current_phase": "P2",
-    "current_sprint": "P2-S4",
+    "current_phase": "P3",
+    "current_sprint": "P3-S6",
     "status": "in_progress",
     "last_synced_at": "2026-04-03T04:00:00.000000+00:00",
-    "updated_by": "autopilot: P2-S4 complete — router split + auth + config + 22 tests passing"
+    "updated_by": "autopilot: P3-S5 complete — parent-child models + route strategy parity + 21 tests"
   },
   "status_values": ["planned", "todo", "in_progress", "blocked", "completed", "cancelled"],
   "checkpoint_status_values": ["todo", "in_progress", "passed", "failed", "waived"],
@@ -248,8 +248,8 @@
     {
       "id": "P2",
       "name": "Modular Service Extraction",
-      "status": "in_progress",
-      "current": true,
+      "status": "completed",
+      "current": false,
       "sprints": [
         {"id": "P2-S3", "name": "Sprint 3 - Extract Bloomberg adapter and projection services", "status": "completed", "goal": "Extract Bloomberg adapter and projection services from main.py monolith, enabling testable Bloomberg operations and decoupling order/route queries.", "issues": [
           {
@@ -389,10 +389,75 @@
     {
       "id": "P3",
       "name": "Advanced Execution Engine",
-      "status": "planned",
-      "current": false,
+      "status": "in_progress",
+      "current": true,
       "sprints": [
-        {"id": "P3-S5", "name": "Sprint 5 - Parent-child order model and route strategy parity", "status": "planned", "issues": []},
+        {"id": "P3-S5", "name": "Sprint 5 - Parent-child order model and route strategy parity", "status": "completed", "goal": "Create the execution data model required for algorithmic scheduling and remove route-create/route-modify feature asymmetry.", "issues": [
+          {
+            "id": "P3-S5-01",
+            "title": "Introduce parent-child execution models",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": [],
+            "files": [
+              "Execution/backend/api/models/parent_child_orders.py",
+              "Execution/backend/api/repositories/parent_child_repository.py",
+              "Execution/backend/api/migrations/002_parent_child_execution.sql"
+            ],
+            "checkpoints": [
+              {"id": "parent-child-orm", "title": "Parent/child execution ORM entities defined and importable", "status": "passed"},
+              {"id": "parent-child-repo", "title": "Repository supports CRUD for parent objectives and child slices", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P3-S5-02",
+            "title": "Make route creation support strategy parameters",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P3-S5-01"],
+            "files": [
+              "Execution/backend/api/services/route_service.py",
+              "Execution/backend/api/schemas.py",
+              "Execution/backend/api/routers/routes.py",
+              "Execution/backend/api/services/bloomberg_adapter.py"
+            ],
+            "checkpoints": [
+              {"id": "route-strategy-parity", "title": "Route creation supports same strategy params as route modify", "status": "passed"},
+              {"id": "route-service-extracted", "title": "Route business logic in dedicated service module", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P3-S5-03",
+            "title": "Surface parent-child views in frontend",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P3-S5-01", "P3-S5-02"],
+            "files": [
+              "Execution/frontend/src/types/index.ts",
+              "Execution/frontend/src/components/order-route-dialog.tsx",
+              "Execution/frontend/src/sections/OrderTable.tsx",
+              "Execution/frontend/src/sections/RouteTable.tsx"
+            ],
+            "checkpoints": [
+              {"id": "frontend-types", "title": "Parent-child and benchmark types added to frontend", "status": "passed"},
+              {"id": "table-columns", "title": "Order and route tables display parent-child context", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P3-S5-04",
+            "title": "Add parent-child tests",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P3-S5-01", "P3-S5-02", "P3-S5-03"],
+            "files": [
+              "Execution/backend/api/tests/test_parent_child_execution.py"
+            ],
+            "checkpoints": [
+              {"id": "backend-tests", "title": "Parent-child persistence and command tests passing (21/21)", "status": "passed"},
+              {"id": "frontend-tests", "title": "Route creation dialog strategy payload tests — deferred to S6 integration", "status": "waived"}
+            ]
+          }
+        ]},
         {"id": "P3-S6", "name": "Sprint 6 - Benchmark execution scheduler", "status": "planned", "issues": []}
       ]
     },
