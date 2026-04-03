@@ -2,11 +2,11 @@
   "program": {
     "name": "EMSX Execution Platform",
     "source_document": "docs/EXECUTION_PLATFORM_WBS.md",
-    "current_phase": "P1",
-    "current_sprint": "P1-S2",
+    "current_phase": "P2",
+    "current_sprint": "P2-S3",
     "status": "in_progress",
     "last_synced_at": "2026-04-03T02:00:00.000000+00:00",
-    "updated_by": "autopilot: P1-S1 sprint gate passed, advancing to P1-S2"
+    "updated_by": "autopilot: P1-S2 sprint gate passed, P1 complete, advancing to P2-S3"
   },
   "status_values": ["planned", "todo", "in_progress", "blocked", "completed", "cancelled"],
   "checkpoint_status_values": ["todo", "in_progress", "passed", "failed", "waived"],
@@ -96,8 +96,8 @@
     {
       "id": "P1",
       "name": "Durable Execution Core",
-      "status": "in_progress",
-      "current": true,
+      "status": "completed",
+      "current": false,
       "sprints": [
         {
           "id": "P1-S1",
@@ -175,7 +175,7 @@
             }
           ]
         },
-        {"id": "P1-S2", "name": "Sprint 2 - Realtime projections and stream-based UI path", "status": "in_progress", "goal": "Introduce a supported realtime path and reduce dependence on full polling snapshots.", "issues": [
+        {"id": "P1-S2", "name": "Sprint 2 - Realtime projections and stream-based UI path", "status": "completed", "goal": "Introduce a supported realtime path and reduce dependence on full polling snapshots.", "issues": [
           {
             "id": "P1-S2-01",
             "title": "Build backend realtime gateway and event serializers",
@@ -248,10 +248,70 @@
     {
       "id": "P2",
       "name": "Modular Service Extraction",
-      "status": "planned",
-      "current": false,
+      "status": "in_progress",
+      "current": true,
       "sprints": [
-        {"id": "P2-S3", "name": "Sprint 3 - Extract Bloomberg adapter and projection services", "status": "planned", "issues": []},
+        {"id": "P2-S3", "name": "Sprint 3 - Extract Bloomberg adapter and projection services", "status": "completed", "goal": "Extract Bloomberg adapter and projection services from main.py monolith, enabling testable Bloomberg operations and decoupling order/route queries.", "issues": [
+          {
+            "id": "P2-S3-01",
+            "title": "Create Bloomberg adapter interface and extract BloombergEMSXService to dedicated module",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": [],
+            "files": [
+              "Execution/backend/api/models.py",
+              "Execution/backend/api/services/bloomberg_adapter.py",
+              "Execution/backend/api/services/bloomberg_interface.py"
+            ],
+            "checkpoints": [
+              {"id": "adapter-interface", "title": "Abstract BloombergEMSXAdapterInterface defined with all Bloomberg methods", "status": "passed"},
+              {"id": "service-extracted", "title": "Full BloombergEMSXService class extracted from main.py into bloomberg_adapter.py", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P2-S3-02",
+            "title": "Extract order projection filtering and enrichment into dedicated service",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P2-S3-01"],
+            "files": [
+              "Execution/backend/api/services/order_projections.py"
+            ],
+            "checkpoints": [
+              {"id": "order-projection-service", "title": "OrderProjectionService encapsulates all order filtering and enrichment logic", "status": "passed"},
+              {"id": "order-tests-pass", "title": "Order projection tests pass with mock Bloomberg data", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P2-S3-03",
+            "title": "Extract route projection and parent order lookup into dedicated service",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P2-S3-01"],
+            "files": [
+              "Execution/backend/api/services/route_projections.py"
+            ],
+            "checkpoints": [
+              {"id": "route-projection-service", "title": "RouteProjectionService handles route enrichment and parent lookup", "status": "passed"},
+              {"id": "orphan-handling", "title": "Orphaned routes (missing parent) handled gracefully", "status": "passed"}
+            ]
+          },
+          {
+            "id": "P2-S3-04",
+            "title": "Wire extracted services back into main.py with backward compatibility",
+            "status": "completed",
+            "owner": "unassigned",
+            "dependencies": ["P2-S3-01", "P2-S3-02", "P2-S3-03"],
+            "files": [
+              "Execution/backend/api/main.py",
+              "Execution/backend/api/services/__init__.py"
+            ],
+            "checkpoints": [
+              {"id": "main-reduced", "title": "main.py line count reduced by 1500+ lines, Bloomberg code moved to services/", "status": "passed"},
+              {"id": "api-backward-compat", "title": "All HTTP endpoints produce identical JSON responses to pre-extraction version", "status": "passed"}
+            ]
+          }
+        ]},
         {"id": "P2-S4", "name": "Sprint 4 - Router split, auth policy, and config control plane foundation", "status": "planned", "issues": []}
       ]
     },
