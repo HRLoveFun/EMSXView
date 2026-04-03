@@ -1,124 +1,126 @@
 {
-  "generated_at": "2026-04-03T01:40:06.163604+00:00",
-  "current_phase": "P1",
-  "current_sprint": "P1-S1",
+  "generated_at": "2026-04-03T04:21:45.609203+00:00",
+  "current_phase": "P3",
+  "current_sprint": "P3-S6",
   "program_status": "in_progress",
   "issue_counts": {
-    "completed": 8
+    "completed": 28
   },
   "checkpoint_counts": {
-    "passed": 15
+    "passed": 55,
+    "waived": 1
   },
-  "open_risks": 3,
+  "open_risks": 2,
   "critical_open_risks": 0,
-  "high_open_risks": 2,
+  "high_open_risks": 0,
   "current_issues": [
     {
-      "id": "P1-S1-01",
-      "title": "Add backend persistence dependencies and container services",
+      "id": "P3-S6-01",
+      "title": "Build benchmark scheduling engine",
       "status": "completed",
       "owner": "unassigned",
       "dependencies": [],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/docker-compose.yml",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/requirements.txt",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/Dockerfile",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/.env.example"
+        "Execution/backend/api/services/benchmark_engine.py"
       ],
       "checkpoints": [
         {
-          "id": "postgres-service",
-          "title": "Postgres service is defined in docker-compose",
+          "id": "twap-schedule",
+          "title": "TWAP scheduler generates uniform time-sliced child orders",
           "status": "passed"
         },
         {
-          "id": "backend-db-deps",
-          "title": "Backend image includes persistence dependencies",
+          "id": "vwap-schedule",
+          "title": "VWAP scheduler generates volume-profiled child orders",
+          "status": "passed"
+        },
+        {
+          "id": "pov-schedule",
+          "title": "POV scheduler generates participation-rate child orders",
           "status": "passed"
         }
       ]
     },
     {
-      "id": "P1-S1-02",
-      "title": "Create database session and schema bootstrap",
+      "id": "P3-S6-02",
+      "title": "Add runtime scheduler orchestration and pause/resume controls",
       "status": "completed",
       "owner": "unassigned",
       "dependencies": [
-        "P1-S1-01"
+        "P3-S6-01"
       ],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/db.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/models/execution_state.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/migrations/001_init_execution_schema.sql",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_db_bootstrap.py"
+        "Execution/backend/api/services/algo_scheduler.py",
+        "Execution/backend/api/routers/orders.py"
       ],
       "checkpoints": [
         {
-          "id": "db-session-factory",
-          "title": "DB session factory and connectivity probe available",
+          "id": "scheduler-lifecycle",
+          "title": "Parents can be started, paused, resumed, and cancelled",
           "status": "passed"
         },
         {
-          "id": "schema-bootstrap",
-          "title": "Initial schema bootstrap artifact exists",
+          "id": "no-orphan-slices",
+          "title": "Lifecycle transitions do not leave orphan child slices",
           "status": "passed"
         }
       ]
     },
     {
-      "id": "P1-S1-03",
-      "title": "Persist order/route/audit projections",
+      "id": "P3-S6-03",
+      "title": "Add frontend controls for algorithmic execution launch and monitoring",
       "status": "completed",
       "owner": "unassigned",
       "dependencies": [
-        "P1-S1-02"
+        "P3-S6-01",
+        "P3-S6-02"
       ],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/orders.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/routes.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/audit.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_projection_repositories.py"
+        "Execution/frontend/src/components/algo-launch-dialog.tsx",
+        "Execution/frontend/src/sections/ExecutionBoard.tsx",
+        "Execution/frontend/src/sections/RouteTable.tsx",
+        "Execution/frontend/src/types/index.ts"
       ],
       "checkpoints": [
         {
-          "id": "projection-upsert",
-          "title": "Order/route projections support upsert and query",
+          "id": "algo-launch-ui",
+          "title": "Traders can launch benchmark executions from UI",
           "status": "passed"
         },
         {
-          "id": "audit-persist",
-          "title": "Audit events persist command metadata",
+          "id": "algo-monitor-ui",
+          "title": "Traders can observe drift/progress in real time",
           "status": "passed"
         }
       ]
     },
     {
-      "id": "P1-S1-04",
-      "title": "Add repository abstraction under current API handlers",
+      "id": "P3-S6-04",
+      "title": "Add benchmark engine tests and performance baselines",
       "status": "completed",
       "owner": "unassigned",
       "dependencies": [
-        "P1-S1-03"
+        "P3-S6-01",
+        "P3-S6-02"
       ],
       "files": [
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/main.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/service_provider.py",
-        "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_service_provider.py"
+        "Execution/backend/api/tests/test_benchmark_engine.py",
+        "Execution/backend/api/tests/test_algo_scheduler.py",
+        "Execution/frontend/src/components/algo-launch-dialog.test.tsx"
       ],
       "checkpoints": [
         {
-          "id": "repository-read-path",
-          "title": "Handlers can read from repository abstraction",
+          "id": "golden-schedule-tests",
+          "title": "Deterministic golden tests for TWAP/VWAP/POV schedules",
           "status": "passed"
         },
         {
-          "id": "inmemory-fallback",
-          "title": "In-memory fallback remains available during rollout",
+          "id": "perf-baselines",
+          "title": "Performance thresholds defined and enforced",
           "status": "passed"
         }
       ]
     }
   ],
-  "current_sprint_goal": "Introduce durable backend persistence without breaking the current API surface."
+  "current_sprint_goal": "Deliver the first algorithmic scheduling engine for TWAP, VWAP, and participation-based execution."
 }

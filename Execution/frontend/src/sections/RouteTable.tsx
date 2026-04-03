@@ -58,7 +58,7 @@ interface GroupConfig {
   secondary: RouteGroupByValue;
 }
 
-const TOTAL_COLS = 24; // 22 data columns + Slice + Slice Status columns
+const TOTAL_COLS = 25; // 22 data columns + Slice + Slice Status + Schedule columns
 
 export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, onModifyRoute, onRefresh }: RouteTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'sequence', direction: 'desc' });
@@ -502,6 +502,12 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
         <td className="px-2 text-center text-xs font-mono-numbers">{route.sliceIndex != null ? `#${route.sliceIndex}` : ''}</td>
         {/* Slice Status */}
         <td className="px-2 text-xs">{route.sliceStatus || ''}</td>
+        {/* Schedule */}
+        <td className="px-2 text-xs text-muted-foreground font-mono-numbers">
+          {route.scheduledStart ? new Date(route.scheduledStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+          {route.scheduledStart && route.scheduledEnd ? '–' : ''}
+          {route.scheduledEnd ? new Date(route.scheduledEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+        </td>
         {/* Notes */}
         <td className="px-2 text-xs text-muted-foreground truncate max-w-[120px]" title={route.notes}>{route.notes}</td>
         {/* Reason */}
@@ -673,6 +679,10 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
                 {/* Slice Status */}
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('sliceStatus')}>
                   <div className="flex items-center gap-1">Slice Status{getSortIcon('sliceStatus')}</div>
+                </th>
+                {/* Schedule */}
+                <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('scheduledStart')}>
+                  <div className="flex items-center gap-1">Schedule{getSortIcon('scheduledStart')}</div>
                 </th>
                 {/* Notes */}
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('notes')}>

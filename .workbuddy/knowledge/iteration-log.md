@@ -13,12 +13,12 @@
 
 <!-- execution-platform:iteration:start -->
 _Managed by `scripts/workflow/sync_execution_status.py`. Do not edit inside this block manually._
-- **Last Sync**: 2026-04-03T01:40:06.163604+00:00
-- **Active Sprint**: `P1-S1`
-- **Sprint Goal**: Introduce durable backend persistence without breaking the current API surface.
+- **Last Sync**: 2026-04-03T04:21:45.609203+00:00
+- **Active Sprint**: `P3-S6`
+- **Sprint Goal**: Deliver the first algorithmic scheduling engine for TWAP, VWAP, and participation-based execution.
 - **Tracked Issues**:
-  - `P1-S1-01` — Add backend persistence dependencies and container services (completed)
-  - `P1-S1-02` — Create database session and schema bootstrap (completed)
-  - `P1-S1-03` — Persist order/route/audit projections (completed)
-  - `P1-S1-04` — Add repository abstraction under current API handlers (completed)
+  - `P3-S6-01` — Build benchmark scheduling engine (completed)
+  - `P3-S6-02` — Add runtime scheduler orchestration and pause/resume controls (completed)
+  - `P3-S6-03` — Add frontend controls for algorithmic execution launch and monitoring (completed)
+  - `P3-S6-04` — Add benchmark engine tests and performance baselines (completed)
 <!-- execution-platform:iteration:end -->

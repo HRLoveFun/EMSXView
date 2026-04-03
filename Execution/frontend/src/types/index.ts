@@ -321,3 +321,48 @@ export interface Toast {
   message: string;
   duration?: number;
 }
+
+// Benchmark execution control types
+export type SchedulerCommand = 'PAUSE' | 'RESUME' | 'CANCEL';
+
+export interface CreateParentExecutionRequest {
+  orderId: string;
+  scheduleType: ScheduleType;
+  targetQuantity: number;
+  numSlices: number;
+  startTime: string;
+  endTime: string;
+  participationRate?: number | null;
+  volumeProfile?: number[] | null;
+  broker?: string;
+  urgency?: string;
+  strategyParams?: Record<string, unknown>;
+}
+
+export interface ParentExecutionCommandRequest {
+  command: SchedulerCommand;
+}
+
+export interface SchedulerStateResponse {
+  parentId: number;
+  status: ExecutionStatus;
+  isRunning: boolean;
+  currentSliceIndex: number;
+  totalSlices: number;
+  slicesSent: number;
+  slicesFilled: number;
+  slicesCancelled: number;
+  targetQuantity: number;
+  filledQuantity: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActiveExecutionSummary {
+  parentId: number;
+  orderId: string;
+  scheduleType: ScheduleType;
+  targetQuantity: number;
+  status: ExecutionStatus;
+  trader: string;
+}

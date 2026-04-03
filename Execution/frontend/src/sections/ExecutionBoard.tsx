@@ -1,9 +1,15 @@
-import { useState } from 'react';
-import { ListOrdered, GitBranch } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { ListOrdered, GitBranch, Play } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
-import type { Order, Route, OrderFilters, BatchUpdateRequest, CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest, RouteOrderRequest } from '@/types';
+import { AlgoLaunchDialog } from '@/components/algo-launch-dialog';
+import type {
+  Order, Route, OrderFilters, BatchUpdateRequest,
+  CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,
+  RouteOrderRequest, CreateParentExecutionRequest,
+  SchedulerStateResponse, ActiveExecutionSummary,
+} from '@/types';
 
 interface ExecutionBoardProps {
   orders: Order[];
@@ -22,6 +28,7 @@ interface ExecutionBoardProps {
   onModifyOrder?: (request: ModifyOrderRequest) => Promise<void>;
   onRouteOrder?: (request: RouteOrderRequest) => Promise<void>;
   onRefresh?: () => Promise<void>;
+  onLaunchExecution?: (request: CreateParentExecutionRequest) => Promise<void>;
 }
 
 type ExecutionTab = 'orders' | 'routes';
@@ -43,8 +50,25 @@ export function ExecutionBoard({
   onModifyOrder,
   onRouteOrder,
   onRefresh,
+  onLaunchExecution,
 }: ExecutionBoardProps) {
   const [activeTab, setActiveTab] = useState<ExecutionTab>('orders');
+  const [algoLaunchOrder, setAlgoLaunchOrder] = useState<Order | null>(null);
+  const [isAlgoDialogOpen, setIsAlgoDialogOpen] = useState(false);
+
+  const handleLaunchAlgo = useCallback((order: Order) => {
+    setAlgoLaunchOrder(order);
+    setIsAlgoDialogOpen(true);
+  }, []);
+
+  const handleAlgoConfirm = useCallback(async (request: CreateParentExecutionRequest) => {
+    if (onLaunchExecution) {
+      await onLaunchExecution(request);
+    }
+  }, [onLaunchExecution]);
+
+  // Count orders with active algo executions
+  const algoOrderCount = orders.filter(o => o.parentExecutionId != null).length;
 
   return (
     <div className="space-y-4">
@@ -72,6 +96,12 @@ export function ExecutionBoard({
           <GitBranch className="h-4 w-4" />
           Routes ({routes.length})
         </button>
+        {algoOrderCount > 0 && (
+          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
+            <Play className="h-3 w-3" />
+            {algoOrderCount} algo
+          </span>
+        )}
       </div>
 
       {/* Tab content */}
@@ -106,6 +136,14 @@ export function ExecutionBoard({
           onRefresh={onRefresh}
         />
       )}
+
+      {/* Algo Launch Dialog */}
+      <AlgoLaunchDialog
+        order={algoLaunchOrder}
+        open={isAlgoDialogOpen}
+        onOpenChange={setIsAlgoDialogOpen}
+        onConfirm={handleAlgoConfirm}
+      />
     </div>
   );
 }

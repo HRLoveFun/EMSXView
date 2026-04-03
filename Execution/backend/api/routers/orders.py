@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -10,6 +11,7 @@ from schemas import (
     ApiResponse, OrderFilters,
     OrderSide, OrderStatus, OrderType,
     BatchUpdateRequest, ModifyOrderRequest, RouteOrderRequest,
+    CreateParentExecutionRequest, ParentExecutionCommand,
 )
 from deps import verify_token, audit_log, get_bloomberg
 
@@ -119,3 +121,244 @@ async def cancel_order(order_id: str, user: dict = Depends(verify_token)):
     audit_log("CANCEL_ORDER", user.get("sub"), {"orderId": order_id})
     await get_bloomberg().cancel_order(order_id)
     return ApiResponse(success=True, message=f"Order {order_id} cancelled successfully")
+
+
+# ============================================================================
+# Parent Execution / Benchmark Scheduling Endpoints
+# ============================================================================
+
+
+@router.post("/api/executions", response_model=ApiResponse)
+async def create_parent_execution(
+    request: CreateParentExecutionRequest,
+    user: dict = Depends(verify_token),
+):
+    """Launch a new algorithmic parent execution.
+
+    Computes a schedule using the benchmark engine, persists
+    child slices, and activates the scheduler.
+    """
+    from models.parent_child_orders import ScheduleType
+    from services.benchmark_engine import ScheduleRequest, VolumeProfile, compute_schedule
+    from services.algo_scheduler import start_execution
+    from repositories.parent_child_repository import ParentChildRepository
+
+    audit_log("CREATE_PARENT_EXEC", user.get("sub"), {
+        "orderId": request.orderId,
+        "scheduleType": request.scheduleType,
+        "targetQuantity": request.targetQuantity,
+        "numSlices": request.numSlices,
+    })
+
+    # Parse schedule type
+    try:
+        schedule_type = ScheduleType(request.scheduleType)
+    except ValueError:
+        return ApiResponse(
+            success=False,
+            error=f"Unsupported schedule type: {request.scheduleType}",
+        )
+
+    # Parse times
+    try:
+        start_time = datetime.fromisoformat(request.startTime)
+        end_time = datetime.fromisoformat(request.endTime)
+    except ValueError as exc:
+        return ApiResponse(success=False, error=f"Invalid time format: {exc}")
+
+    if end_time <= start_time:
+        return ApiResponse(success=False, error="endTime must be after startTime")
+
+    # Build volume profile
+    volume_profile = None
+    if request.volumeProfile and len(request.volumeProfile) == request.numSlices:
+        volume_profile = VolumeProfile(buckets=request.volumeProfile)
+
+    # Compute schedule
+    try:
+        schedule_req = ScheduleRequest(
+            schedule_type=schedule_type,
+            target_quantity=request.targetQuantity,
+            start_time=start_time,
+            end_time=end_time,
+            num_slices=request.numSlices,
+            participation_rate=request.participationRate,
+            volume_profile=volume_profile,
+        )
+        planned_slices = compute_schedule(schedule_req)
+    except ValueError as exc:
+        return ApiResponse(success=False, error=str(exc))
+
+    # Create parent execution record (in-memory mock — real DB in production)
+    from models.parent_child_orders import ParentExecution as ParentModel
+    parent = ParentModel(
+        id=_next_parent_id(),
+        sequence=int(request.orderId),
+        order_id=request.orderId,
+        trader=user.get("sub", "unknown"),
+        schedule_type=schedule_type.value,
+        target_quantity=request.targetQuantity,
+        broker=request.broker,
+        urgency=request.urgency,
+        strategy_params=request.strategyParams,
+        start_time=start_time,
+        end_time=end_time,
+        participation_rate=request.participationRate,
+        status="PENDING",
+    )
+
+    # Register parent in mock store for get_execution_state lookups
+    _parent_store[parent.id] = parent
+
+    # Start via scheduler (uses mock repo)
+    repo = _MockParentChildRepo(parent)
+    state = await start_execution(parent, planned_slices, repo)
+
+    return ApiResponse(
+        success=True,
+        data=state.to_dict(),
+        message=f"Parent execution {parent.id} started with {len(planned_slices)} slices",
+    )
+
+
+@router.post("/api/executions/{parent_id}/command", response_model=ApiResponse)
+async def control_parent_execution(
+    parent_id: int,
+    request: ParentExecutionCommand,
+    user: dict = Depends(verify_token),
+):
+    """Control a running parent execution (PAUSE/RESUME/CANCEL)."""
+    from services.algo_scheduler import (
+        pause_execution, resume_execution, cancel_execution,
+    )
+
+    audit_log("EXEC_COMMAND", user.get("sub"), {
+        "parentId": parent_id,
+        "command": request.command,
+    })
+
+    parent = _parent_store.get(parent_id)
+    if parent is None:
+        return ApiResponse(success=False, error=f"Parent execution {parent_id} not found")
+
+    repo = _MockParentChildRepo(parent)
+
+    try:
+        cmd = request.command.upper()
+        if cmd == "PAUSE":
+            state = await pause_execution(parent_id, repo)
+        elif cmd == "RESUME":
+            state = await resume_execution(parent_id, repo)
+        elif cmd == "CANCEL":
+            state = await cancel_execution(parent_id, repo)
+        else:
+            return ApiResponse(success=False, error=f"Unknown command: {request.command}")
+    except ValueError as exc:
+        return ApiResponse(success=False, error=str(exc))
+
+    return ApiResponse(success=True, data=state.to_dict(), message=f"Command {request.command} applied")
+
+
+@router.get("/api/executions/{parent_id}", response_model=ApiResponse)
+async def get_parent_execution(
+    parent_id: int,
+    user: dict = Depends(verify_token),
+):
+    """Get the current state of a parent execution."""
+    from services.algo_scheduler import get_execution_state
+
+    parent = _parent_store.get(parent_id)
+    if parent is None:
+        return ApiResponse(success=False, error=f"Parent execution {parent_id} not found")
+
+    repo = _MockParentChildRepo(parent)
+
+    try:
+        state = await get_execution_state(parent_id, repo)
+    except ValueError as exc:
+        return ApiResponse(success=False, error=str(exc))
+
+    return ApiResponse(success=True, data=state.to_dict())
+
+
+@router.get("/api/executions", response_model=ApiResponse)
+async def list_parent_executions(user: dict = Depends(verify_token)):
+    """List all tracked parent executions."""
+    from services.algo_scheduler import list_active_parent_ids
+
+    active_ids = list_active_parent_ids()
+    result = []
+    for pid in active_ids:
+        parent = _parent_store.get(pid)
+        if parent:
+            result.append({
+                "parentId": pid,
+                "orderId": parent.order_id,
+                "scheduleType": parent.schedule_type,
+                "targetQuantity": parent.target_quantity,
+                "status": parent.status,
+                "trader": parent.trader,
+            })
+
+    return ApiResponse(success=True, data=result, message=f"{len(result)} active executions")
+
+
+# ---------------------------------------------------------------------------
+# In-memory helpers (replaced by real DB session in production)
+# ---------------------------------------------------------------------------
+
+_parent_id_counter = 0
+_parent_store: dict[int, object] = {}
+
+
+def _next_parent_id() -> int:
+    global _parent_id_counter
+    _parent_id_counter += 1
+    return _parent_id_counter
+
+
+class _MockParentChildRepo:
+    """Thin in-memory repo adapter for parent-child operations.
+
+    Wraps around the parent object for scheduler lifecycle calls
+    without requiring a real database session.
+    """
+
+    def __init__(self, parent: object):
+        self._parent = parent
+        self._slices: list[object] = []
+        self._slice_id_counter = 0
+
+    async def get_parent(self, parent_id: int) -> object | None:
+        if getattr(self._parent, "id", None) == parent_id:
+            return self._parent
+        return _parent_store.get(parent_id)
+
+    async def update_parent_status(self, parent_id: int, status: str) -> None:
+        p = _parent_store.get(parent_id)
+        if p:
+            p.status = status
+
+    async def create_slices_bulk(self, slices: list[dict]) -> list[object]:
+        from types import SimpleNamespace
+        result = []
+        for s in slices:
+            self._slice_id_counter += 1
+            obj = SimpleNamespace(id=self._slice_id_counter, **s)
+            result.append(obj)
+            self._slices.append(obj)
+        return result
+
+    async def list_slices_for_parent(self, parent_id: int) -> list[object]:
+        return [s for s in self._slices if getattr(s, "parent_id", None) == parent_id]
+
+    async def update_slice_status(self, slice_id: int, status: str) -> None:
+        for s in self._slices:
+            if getattr(s, "id", None) == slice_id:
+                s.status = status
+                break
+
+    async def update_parent_filled(self, parent_id: int, filled_quantity: int) -> None:
+        p = _parent_store.get(parent_id)
+        if p:
+            p.filled_quantity = filled_quantity
