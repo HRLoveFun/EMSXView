@@ -117,6 +117,11 @@ vwap: Dict[str, List[str]] = {
     "EQ-SCOTIA": ["VWAP"],
     "EQ-TD": ["VWAP"],
     "EQ-WFC": ["VWAP"],
+
+    "EQ-CICC": ["VWAP"],
+    "EQ-ICBCI": ["VWAP"],
+    "EQ-BOCI": ["VWAP"],
+    "EQ-ABCI": ["VWAP"],
 }
 
 twap: Dict[str, List[str]] = {
@@ -163,7 +168,7 @@ close: Dict[str, List[str]] = {
     "EQ-MIZUHO": ["TgtClose"],
     "EQ-ML": ["QMOC_APEU", "QMOC"],
     "EQ-MS": ["CLOSE"],
-    "EQ-NOMURA": ["Custom"],
+    "EQ-NOMURA": ["Custom", "TARGETCLS"],
     "EQ-UBS": ["CUSTOM2", "AT CLOSE"],
     "EQ-SEB": ["TGTCLOSE"],
     "EQ-SG": ["CLOSE"],
@@ -173,6 +178,13 @@ close: Dict[str, List[str]] = {
     "EQ-SCOTIA": ["MOCDirect", "SmrtClose"],
     "EQ-TD": ["CLOSE"],
     "EQ-WFC": ["CLOSE"],
+
+
+    "EQ-CICC": ["CLOSETGT"],
+    "EQ-ICBCI": ["CLOSE"],
+    "EQ-BOCI": ["TARGETCLO"],
+    "EQ-ABCI": ["CLOSE"],
+
 }
 
 pov: Dict[str, List[str]] = {

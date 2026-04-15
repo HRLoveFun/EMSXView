@@ -1,0 +1,88 @@
+%%{init: {'themeVariables': {'fontFamily': 'Noto Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, SimHei, Arial, sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    actor O as Operator(User/Job)
+    participant CLI as __main__.py / daily_update.py
+    participant FF as FillFetch
+    participant BF as BloombergFillFetcher
+    participant RAW as RawFillsDB
+    participant PL as FinancialPipeline
+    participant ING as fill_ingestion
+    participant PROC as fill_processor
+    participant A10 as fill_aggregator
+    participant PDB as ProcessedFillsDB
+    participant OUT as downstream_interface
+
+    Note over O,OUT: T0 触发 run_daily_pipeline 或 python -m src --pipeline
+
+    O->>CLI: 启动任务
+    activate CLI
+
+    CLI->>FF: determine_fetch_range()
+    activate FF
+
+    alt 无可抓取日期
+        FF-->>CLI: Nothing to fetch
+    else 存在抓取区间
+        loop 每个交易日
+            FF->>BF: fetch_fills(date)
+            activate BF
+            BF->>BF: 事件循环(PARTIAL_RESPONSE/RESPONSE)
+            BF-->>FF: raw fills
+            deactivate BF
+
+            FF->>RAW: upsert_raw_api_data()
+            activate RAW
+            RAW-->>FF: 写入成功/去重结果
+            deactivate RAW
+
+            FF->>RAW: add_fetch_log_record()/upsert_order_fetch_log()
+            activate RAW
+            RAW-->>FF: 审计记录完成
+            deactivate RAW
+        end
+        FF-->>CLI: fetch summary
+    end
+    deactivate FF
+
+    Note over CLI,OUT: T1 进入处理流水线
+
+    CLI->>PL: run_incremental()/run_full_pipeline()
+    activate PL
+
+    PL->>ING: process_raw_fills_for_date(date)
+    activate ING
+    ING->>RAW: get_fills_for_date()
+    RAW-->>ING: raw dataframe
+    ING->>PROC: process_fills(cleaned_df)
+    activate PROC
+    PROC-->>ING: enriched fills(算法/币种/时间戳)
+    deactivate PROC
+    ING->>PDB: upsert_processed_fills()/upsert_route_registry()
+    activate PDB
+    PDB-->>ING: processed 写入成功
+    deactivate PDB
+    ING-->>PL: processed summary
+    deactivate ING
+
+    PL->>A10: generate_agg_fills_10s(processed)
+    activate A10
+    A10-->>PL: agg_10s dataframe
+    deactivate A10
+
+    PL->>PDB: upsert_agg_fills_10s()
+    activate PDB
+    PDB-->>PL: agg 写入成功
+    deactivate PDB
+
+    PL->>OUT: write_manifest(updated_dates)
+    activate OUT
+    OUT-->>PL: manifest 完成
+    deactivate OUT
+
+    PL-->>CLI: pipeline summary
+    deactivate PL
+
+    CLI-->>O: 控制台/日志/DB 输出
+    deactivate CLI
+    Note over O,OUT: T2 日更完成

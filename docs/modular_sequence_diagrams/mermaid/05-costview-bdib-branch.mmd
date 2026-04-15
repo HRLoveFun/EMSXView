@@ -1,0 +1,59 @@
+%%{init: {'themeVariables': {'fontFamily': 'Noto Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, SimHei, Arial, sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    actor O as Operator
+    participant PL as FinancialPipeline
+    participant BD as bdib_fetcher
+    participant RB as raw_bdib.db
+    participant PRB as processed_raw_bdib.db
+    participant INT as fill_bdib_integrated
+    participant FB as fill_bdib.db
+
+    Note over O,FB: T0 显式开启 BDIB 分支(--bdib)
+    Note right of O: 三层架构: raw_bdib → processed_raw_bdib → fill_bdib
+
+    O->>PL: run_full_pipeline(skip_bdib=false)
+    activate PL
+
+    alt BDIB 模块不可用或无待处理日期
+        PL-->>O: 跳过BDIB并记录summary
+    else 可执行
+        loop 每个目标日期
+            PL->>BD: fetch_bdib_for_fills/get_bdib_for_date
+            activate BD
+            Note over BD: 批参数请求(batch=True)
+            Note over BD: 仅返回 Bloomberg 原始列(OHLC/volume/num_trds/value)
+            BD-->>PL: intraday bars (raw)
+            deactivate BD
+
+            Note over RB,PRB: Phase A: raw → raw_bdib.db (Bloomberg原生数据)
+            PL->>RB: upsert raw bars (10 native cols)
+            activate RB
+            RB-->>PL: raw_bdib 已落库
+            deactivate RB
+
+            Note over PRB: Phase B: raw → processed_raw_bdib.db (添加派生字段)
+            PL->>PRB: compute_derived_fields + upsert
+            activate PRB
+            Note over PRB: 计算 vwap / fluctuation / log_chg_pct_10s
+            PRB-->>PL: processed_raw_bdib 已落库
+            deactivate PRB
+
+            Note over INT,FB: Phase C: fills + processed_raw_bdib → fill_bdib.db (TCA)
+            PL->>INT: integrate_fills_bdib_for_date
+            activate INT
+            Note over INT: left join on [equ_ticker, date, mkt_timestamp]
+            Note over INT: 计算 cum_slippage / tracking_error / info_ratio / volume_pct
+            INT-->>PL: tca enriched data
+            deactivate INT
+
+            PL->>FB: upsert fill-bdib data
+            activate FB
+            FB-->>PL: fill_bdib 写入完成
+            deactivate FB
+        end
+        PL-->>O: BDIB summary (3-layer counts)
+    end
+
+    deactivate PL
+    Note over O,FB: T1 BDIB 分支结束

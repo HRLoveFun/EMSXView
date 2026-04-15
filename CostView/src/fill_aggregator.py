@@ -1,16 +1,19 @@
 """
-Fill Aggregator — 10-second and 1-minute aggregation of processed EMSX fills.
+Fill Aggregator — route-level 10-second aggregation of processed fills.
 
-Adapted from D:\\Evaluation\\src\\trading_data_processing\\fill.py:
-  - _generate_agg_processed_fills()  → generate_agg_fills_10s()
-  - 1-minute version                 → generate_agg_fills_1min()
+Aggregation level changed from order-level to route-level:
+    Old: GROUP BY (OrderId, mkt_timestamp)
+    New: GROUP BY (OrderId, RouteId, mkt_timestamp)
 
-All functions use EMSX column names:
-  - OrderId (not "Order Number")
-  - FillShares (not "Exec Last Fill")
-  - FillPrice (not "Exec Last Fill Px")
-  - StrategyType (not "Strategy Type")
-  - route_as_of_time (lowercase derived column)
+This enables per-route TCA analysis when combined with BDIB market data.
+
+Active function:
+    generate_agg_fills_10s() — used by pipeline.py run_aggregate()
+
+Deprecated functions (not called by current pipeline):
+    generate_agg_fills_1min() — 1-minute aggregation disabled in v3 to reduce
+        storage overhead. Function body retained for future re-enablement or
+        manual ad-hoc use via processed_fills_db.upsert_agg_fills_1min().
 """
 
 from __future__ import annotations
@@ -33,16 +36,15 @@ def _unique_or_mult(x: pd.Series):
 
 
 def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
-    """Generate 10-second aggregated fills.
+    """Generate route-level 10-second aggregated fills.
 
-    Groups by (OrderId, mkt_timestamp), computes VWAP for FillPrice,
+    Groups by (OrderId, RouteId, mkt_timestamp), computes VWAP for FillPrice,
     sums FillShares, applies unique_or_mult for categorical columns,
-    and fills missing 10s intervals with 0 fills.
+    and fills missing 10s intervals with 0 fills per (OrderId, RouteId).
     """
     if processed_df.empty:
         return pd.DataFrame()
 
-    # Aggregation rules for EMSX columns
     agg_rules: Dict[str, any] = {}
 
     unique_cols = [
@@ -50,36 +52,38 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
         "order_as_of_date", "route_as_of_time",
         "Broker", "StrategyType", "algo", "TraderName",
         "ccy_ticker", "is_closing_auction",
-        "RouteShares",
+        "RouteShares", "ExecType", "DateTimeOfFill",
     ]
     for col in unique_cols:
         if col in processed_df.columns:
             agg_rules[col] = _unique_or_mult
 
-    # Sum for fill quantity
     if "FillShares" in processed_df.columns:
         agg_rules["FillShares"] = "sum"
 
-    # Group by OrderId and mkt_timestamp
-    res = processed_df.groupby(["OrderId", "mkt_timestamp"]).agg(agg_rules)
+    # Route-level groupby: (OrderId, RouteId, mkt_timestamp)
+    res = processed_df.groupby(["OrderId", "RouteId", "mkt_timestamp"]).agg(agg_rules)
     res = res.reset_index()
 
     # VWAP for FillPrice
     if "FillPrice" in processed_df.columns and "FillShares" in processed_df.columns:
         processed_df = processed_df.copy()
-        processed_df["_exec_val"] = processed_df["FillPrice"].astype(float) * processed_df["FillShares"].astype(float)
+        processed_df["_exec_val"] = (
+            processed_df["FillPrice"].astype(float)
+            * processed_df["FillShares"].astype(float)
+        )
 
-        g_sum = processed_df.groupby(["OrderId", "mkt_timestamp"])[
+        g_sum = processed_df.groupby(["OrderId", "RouteId", "mkt_timestamp"])[
             ["_exec_val", "FillShares"]
         ].sum()
 
         vwap_series = g_sum["_exec_val"] / g_sum["FillShares"].replace(0, np.nan)
         vwap_df = vwap_series.reset_index(name="FillPrice")
 
-        res = pd.merge(res, vwap_df, on=["OrderId", "mkt_timestamp"], how="left")
+        res = pd.merge(res, vwap_df, on=["OrderId", "RouteId", "mkt_timestamp"], how="left")
 
-    # Fill missing 10-second intervals within each order's trading range
-    if "OrderId" in res.columns and "mkt_timestamp" in res.columns:
+    # Fill missing 10-second intervals per (OrderId, RouteId)
+    if all(c in res.columns for c in ["OrderId", "RouteId", "mkt_timestamp"]):
         mkt_ts = pd.to_datetime(
             res["mkt_timestamp"].astype(str), format="%H:%M:%S", errors="coerce"
         )
@@ -87,23 +91,24 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
             res = res.copy()
             res["_mkt_ts"] = mkt_ts
 
-            def _complete_intervals(order_df: pd.DataFrame) -> pd.DataFrame:
-                order_df = order_df.sort_values("_mkt_ts")
-                valid_ts = order_df["_mkt_ts"].dropna()
+            def _complete_route_intervals(route_df: pd.DataFrame) -> pd.DataFrame:
+                """Complete 10s intervals for a single (OrderId, RouteId) group."""
+                route_df = route_df.sort_values("_mkt_ts")
+                valid_ts = route_df["_mkt_ts"].dropna()
                 if valid_ts.empty:
-                    return order_df.drop(columns=["_mkt_ts"], errors="ignore")
+                    return route_df.drop(columns=["_mkt_ts"], errors="ignore")
 
                 full_idx = pd.date_range(
                     start=valid_ts.min(), end=valid_ts.max(), freq="10s"
                 )
-                original_idx = order_df["_mkt_ts"].tolist()
+                original_idx = route_df["_mkt_ts"].tolist()
                 inserted_mask = ~full_idx.isin(original_idx)
 
-                expanded = order_df.set_index("_mkt_ts").reindex(full_idx)
+                expanded = route_df.set_index("_mkt_ts").reindex(full_idx)
                 expanded.index.name = "_mkt_ts"
                 expanded = expanded.reset_index()
 
-                # Forward-fill categorical columns, keep fill columns 0 for inserted rows
+                # Forward-fill categorical columns
                 cols_to_ffill = [
                     c for c in expanded.columns
                     if c not in {"FillShares", "FillPrice", "mkt_timestamp"}
@@ -123,8 +128,8 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
                 return expanded.drop(columns=["_mkt_ts"], errors="ignore")
 
             res = (
-                res.groupby("OrderId", group_keys=False)[res.columns]
-                .apply(_complete_intervals)
+                res.groupby(["OrderId", "RouteId"], group_keys=False)[res.columns]
+                .apply(_complete_route_intervals)
             )
 
     # Ensure string columns don't have mixed types
@@ -135,14 +140,14 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
             except Exception:
                 pass
 
-    logger.info(f"Generated 10s aggregation: {len(res)} rows")
+    logger.info(f"Generated route-level 10s aggregation: {len(res)} rows")
     return res
 
 
 def generate_agg_fills_1min(agg_10s_df: pd.DataFrame) -> pd.DataFrame:
-    """Generate 1-minute aggregated fills from 10-second aggregated fills.
+    """Generate route-level 1-minute aggregated fills from 10-second data.
 
-    Floors mkt_timestamp to 1min, then applies similar VWAP/sum aggregation.
+    Floors mkt_timestamp to 1min, then aggregates by (OrderId, RouteId, mkt_timestamp_1min).
     """
     if agg_10s_df.empty:
         return pd.DataFrame()
@@ -155,14 +160,13 @@ def generate_agg_fills_1min(agg_10s_df: pd.DataFrame) -> pd.DataFrame:
     )
     df["mkt_timestamp_1min"] = mkt_ts.dt.floor("1min").dt.strftime("%H:%M:%S")
 
-    # Aggregation rules
     agg_rules: Dict[str, any] = {}
     unique_cols = [
         "Ticker", "equ_ticker", "Exchange", "Amount", "Side", "Currency", "region",
         "order_as_of_date", "route_as_of_time",
         "Broker", "StrategyType", "algo", "TraderName",
         "ccy_ticker", "is_closing_auction",
-        "RouteShares",
+        "RouteShares", "ExecType", "DateTimeOfFill",
     ]
     for col in unique_cols:
         if col in df.columns:
@@ -171,21 +175,22 @@ def generate_agg_fills_1min(agg_10s_df: pd.DataFrame) -> pd.DataFrame:
     if "FillShares" in df.columns:
         agg_rules["FillShares"] = "sum"
 
-    res = df.groupby(["OrderId", "mkt_timestamp_1min"]).agg(agg_rules)
+    # Route-level groupby
+    res = df.groupby(["OrderId", "RouteId", "mkt_timestamp_1min"]).agg(agg_rules)
     res = res.reset_index()
 
     # VWAP for FillPrice
     if "FillPrice" in df.columns and "FillShares" in df.columns:
         df["_exec_val"] = df["FillPrice"].astype(float) * df["FillShares"].astype(float)
-        g_sum = df.groupby(["OrderId", "mkt_timestamp_1min"])[
+        g_sum = df.groupby(["OrderId", "RouteId", "mkt_timestamp_1min"])[
             ["_exec_val", "FillShares"]
         ].sum()
         vwap_series = g_sum["_exec_val"] / g_sum["FillShares"].replace(0, np.nan)
         vwap_df = vwap_series.reset_index(name="FillPrice")
-        res = pd.merge(res, vwap_df, on=["OrderId", "mkt_timestamp_1min"], how="left")
+        res = pd.merge(res, vwap_df, on=["OrderId", "RouteId", "mkt_timestamp_1min"], how="left")
 
     # Add mkt_timestamp as alias for 1min
     res["mkt_timestamp"] = res["mkt_timestamp_1min"]
 
-    logger.info(f"Generated 1min aggregation: {len(res)} rows")
+    logger.info(f"Generated route-level 1min aggregation: {len(res)} rows")
     return res

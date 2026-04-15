@@ -1,0 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+:root {
+  --mermaid-font-family: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'SimHei', Arial, sans-serif;
+}
+
+body,
+.mermaid,
+.mermaid svg,
+.mermaid text,
+.mermaid .label,
+.mermaid .messageText,
+.mermaid .noteText {
+  font-family: var(--mermaid-font-family) !important;
+}

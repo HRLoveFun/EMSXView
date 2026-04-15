@@ -190,12 +190,11 @@ def add_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
 # ── Route Market Timestamp ───────────────────────────────────────────────────
 
 def add_route_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Add route_mkt_timestamp by applying exchange-NY time delta to route_as_of_time.
+    """Add route_mkt_timestamp by applying 10-second floor to route_as_of_time.
 
     EMSX derived columns:
       - exchange_exec_time (local exchange time)
-      - exec_time (NY time)
-      - route_as_of_time (NY time)
+      - route_as_of_time (local exchange time)
     """
     df = df.copy()
 
@@ -210,15 +209,10 @@ def add_route_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
             )
         return dt_series.dt.hour * 3600 + dt_series.dt.minute * 60 + dt_series.dt.second
 
-    et_sec = _to_seconds(df["exchange_exec_time"])
-    ext_sec = _to_seconds(df["exec_time"])
     rt_sec = _to_seconds(df["route_as_of_time"])
 
-    delta = et_sec - ext_sec
-    new_rt_total = (rt_sec + delta) % 86400
-
     # Round to 10-second intervals
-    new_rt_total = (new_rt_total // 10) * 10
+    new_rt_total = (rt_sec // 10) * 10
 
     hours = (new_rt_total // 3600).fillna(0).astype(int)
     minutes = ((new_rt_total % 3600) // 60).fillna(0).astype(int)
@@ -235,7 +229,7 @@ def add_route_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
         time_strs, format="%H:%M:%S", errors="coerce"
     ).dt.time
 
-    mask_nan = et_sec.isna() | ext_sec.isna() | rt_sec.isna()
+    mask_nan = rt_sec.isna()
     df.loc[mask_nan, "route_mkt_timestamp"] = None
 
     return df
@@ -245,6 +239,9 @@ def add_route_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def process_fills(df: pd.DataFrame) -> pd.DataFrame:
     """Apply all transformation steps to a cleaned EMSX fills DataFrame.
+
+    Expects input that has already been through clean_emsx_fills()
+    (i.e. DFD filtered, exchange times derived, columns normalized).
 
     Pipeline:
         1. add_algo_column
@@ -269,5 +266,23 @@ def process_fills(df: pd.DataFrame) -> pd.DataFrame:
         .pipe(add_route_mkt_timestamp_columns)
     )
 
-    logger.info(f"Processed {len(processed)} fills → added algo/ccy/ticker/timestamp columns")
+    logger.info(f"Processed {len(processed)} fills -> added algo/ccy/ticker/timestamp columns")
     return processed
+
+
+def process_raw_fills(df: pd.DataFrame) -> pd.DataFrame:
+    """Full pipeline: clean then process.
+
+    Convenience function that runs clean_emsx_fills() + process_fills()
+    in sequence. Use when the input has NOT been pre-cleaned.
+
+    Args:
+        df: Raw EMSX DataFrame or List[Dict].
+
+    Returns:
+        Processed DataFrame ready for storage in processed_fills table.
+    """
+    from .fill_cleaner import clean_emsx_fills
+
+    cleaned = clean_emsx_fills(df)
+    return process_fills(cleaned)

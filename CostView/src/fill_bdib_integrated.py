@@ -29,6 +29,7 @@ def integrate_fills_bdib_for_date(
     bdib_data: Optional[pd.DataFrame] = None,
     fx_rates: Optional[pd.DataFrame] = None,
     daily_equity_data: Optional[Dict[str, pd.DataFrame]] = None,
+    ticker_exchange_map: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     """Integrate aggregated fills with BDIB market data for a single date.
 
@@ -45,6 +46,8 @@ def integrate_fills_bdib_for_date(
         bdib_data: Pre-fetched BDIB data (or None to fetch on demand)
         fx_rates: FX rates DataFrame (long format: ccy_ticker, Order As of Date, fx_rate)
         daily_equity_data: Dict with keys 'chg_pct_1d', 'bid_ask_spread' → DataFrames
+        ticker_exchange_map: equ_ticker -> Exchange mapping from ticker_repository
+
 
     Returns:
         Integrated DataFrame with all TCA metrics
@@ -65,11 +68,17 @@ def integrate_fills_bdib_for_date(
     if bdib_data is None:
         # Fetch on demand for all tickers in this date's fills
         tickers = df_fills["equ_ticker"].dropna().unique().tolist() if "equ_ticker" in df_fills.columns else []
+        exchange_map = ticker_exchange_map or {}
         bdib_list = []
         for ticker in tickers:
-            df_bdib = fetch_bdib_for_ticker_date(ticker, date_str)
+            df_bdib = fetch_bdib_for_ticker_date(
+                ticker,
+                date_str,
+                exchange=exchange_map.get(str(ticker)),
+            )
             if df_bdib is not None and not df_bdib.empty:
                 bdib_list.append(df_bdib)
+
         bdib_data = pd.concat(bdib_list, ignore_index=True) if bdib_list else pd.DataFrame()
 
     if not bdib_data.empty:

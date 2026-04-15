@@ -1,0 +1,71 @@
+%%{init: {'themeVariables': {'fontFamily': 'Noto Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, SimHei, Arial, sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as RouteDialog/RouteActionMenu
+    participant APP as App Handler
+    participant API as ApiService
+    participant R as Orders/Routes Router
+    participant SVC as BloombergEMSXService
+    participant EMSX as Bloomberg EMSX
+
+    Note over U,EMSX: T0 用户发起路由或路由变更
+
+    U->>UI: 提交路由参数(券商/数量/价格/策略)
+    activate UI
+
+    alt 参数/权限不满足
+        UI-->>U: 阻断并提示(状态/交易员/数量限制)
+    else 通过校验
+        UI->>APP: onRouteOrder / onModifyRoute / onCancelRoute
+        activate APP
+
+        alt 新建路由
+            APP->>API: routeOrder()
+            activate API
+            API->>R: POST /api/orders/route
+        else 修改路由
+            APP->>API: modifyRoute()
+            activate API
+            API->>R: POST /api/routes/modify
+        else 取消路由
+            APP->>API: cancelRoute()
+            activate API
+            API->>R: POST /api/routes/cancel
+        end
+
+        activate R
+        R->>SVC: route_order / modify_route / cancel_route
+        activate SVC
+
+        alt route_order
+            SVC->>SVC: 校验 parent 状态/remaining/trader
+            SVC->>EMSX: RouteEx(+策略参数)
+        else modify_route
+            SVC->>EMSX: ModifyRouteEx
+        else cancel_route
+            SVC->>EMSX: CancelRouteEx
+        end
+        activate EMSX
+        EMSX-->>SVC: 执行结果
+        deactivate EMSX
+
+        SVC-->>R: success/error
+        R-->>API: ApiResponse
+        API-->>APP: result
+        APP-->>UI: toast + onRefresh
+
+        Note over APP: T1 统一刷新订单+路由
+        APP->>API: fetchOrders()
+        API->>R: GET /api/orders + /api/routes
+        R-->>API: refreshed
+        API-->>APP: refreshed
+
+        deactivate SVC
+        deactivate R
+        deactivate API
+        deactivate APP
+    end
+
+    deactivate UI
+    Note over U,EMSX: T2 路由状态回显完成

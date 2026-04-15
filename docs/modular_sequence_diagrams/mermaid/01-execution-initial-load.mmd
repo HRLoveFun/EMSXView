@@ -1,0 +1,86 @@
+%%{init: {'themeVariables': {'fontFamily': 'Noto Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, SimHei, Arial, sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant FE as Frontend(App/ExecutionBoard)
+    participant API as ApiService(api.ts)
+    participant BE as FastAPI Routers
+    participant SVC as BloombergEMSXService
+    participant EMSX as Bloomberg EMSX
+    participant WS as Realtime Gateway(WebSocket)
+
+    Note over U,WS: T0 用户进入 Execution 页面
+
+    U->>FE: 打开 Execution 标签页
+    activate FE
+
+    Note over FE: T1 触发初始加载
+    par 初始数据加载
+        FE->>API: getOrders()
+        activate API
+        API->>BE: GET /api/orders
+        activate BE
+        BE->>SVC: get_orders(filters)
+        activate SVC
+        SVC->>EMSX: 读取订单缓存/补充字段
+        activate EMSX
+        EMSX-->>SVC: 订单数据
+        deactivate EMSX
+        SVC-->>BE: order list
+        deactivate SVC
+        BE-->>API: ApiResponse<Order[]>
+        deactivate BE
+        API-->>FE: orders
+        deactivate API
+    and 路由数据加载
+        FE->>API: getRoutes()
+        activate API
+        API->>BE: GET /api/routes
+        activate BE
+        BE->>SVC: get_routes(filters)
+        activate SVC
+        SVC->>EMSX: 读取路由缓存/补充字段
+        activate EMSX
+        EMSX-->>SVC: 路由数据
+        deactivate EMSX
+        SVC-->>BE: route list
+        deactivate SVC
+        BE-->>API: ApiResponse<Route[]>
+        deactivate BE
+        API-->>FE: routes
+        deactivate API
+    and 交易员信息
+        FE->>API: getTraderInfo()
+        activate API
+        API->>BE: GET /api/trader-info
+        activate BE
+        BE->>SVC: get_terminal_trader_name()
+        activate SVC
+        SVC-->>BE: trader
+        deactivate SVC
+        BE-->>API: ApiResponse<trader>
+        deactivate BE
+        API-->>FE: trader
+        deactivate API
+    end
+
+    Note over FE: T2 订单表/路由表渲染完成
+
+    opt 实时流开启
+        FE->>WS: 建立 WS 连接 (/api/realtime/ws)
+        activate WS
+        WS-->>FE: snapshot + cursor
+        alt WS 中断
+            FE-->>FE: 启动轮询退避(2s~5s)
+            FE->>API: fetchOrdersAndRoutes()
+            API->>BE: GET /api/orders + /api/routes
+            BE-->>API: 最新数据
+            API-->>FE: 刷新界面
+        else WS 正常
+            WS-->>FE: 增量事件(order/route updates)
+        end
+        deactivate WS
+    end
+
+    deactivate FE
+    Note over U,WS: T3 用户看到最新执行状态

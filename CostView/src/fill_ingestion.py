@@ -1,8 +1,19 @@
 """
-Fill Ingestion — wire FillFetch output into the raw fills SQLite database.
+Fill Ingestion — bridge between raw fetched data and the processing pipeline.
 
-Reads Excel files from FillFetch, cleans them via fill_cleaner, and
-upserts into raw_fills.db with duplicate detection via hashing.
+Provides two modes:
+
+    Mode 1 (DEPRECATED): Excel -> clean -> raw_fills.db
+        ingest_excel_file() / ingest_all_excel_files()
+        Reads pre-existing FillFetch Excel output files into raw_fills.db.
+        **No longer needed** since fill_fetch.py writes directly to raw_fills.db
+        via the Bloomberg API. Kept for backward compatibility with historical
+        Excel archives.
+
+    Mode 2 (ACTIVE): raw_fills.db -> clean -> process -> processed_fills.db
+        process_raw_fills_for_date()
+        LAYER 1 entry point: reads raw_fills from DB, runs cleaning + enrichment,
+        upserts to processed_fills.db with a fixed 27-column schema.
 """
 
 from __future__ import annotations
@@ -14,28 +25,29 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from .fill_cleaner import clean_emsx_fills
+from .fill_processor import process_fills
 from .processing_config import ProcessingConfig as Config
 from .raw_fills_db import RawFillsDB, compute_fills_hash
 
 logger = logging.getLogger(__name__)
 
 
+# -- Legacy: Excel -> raw_fills.db (kept for backward compatibility) --
+
+
 def ingest_excel_file(
     file_path: Path,
     db: Optional[RawFillsDB] = None,
 ) -> Dict[str, Any]:
-    """Ingest a single FillFetch Excel file into raw_fills.db.
+    """Ingest a single FillFetch Excel file into raw_fills.db (legacy).
 
     Steps:
-        1. Read Excel → List[Dict]
+        1. Read Excel -> List[Dict]
         2. Compute hash for duplicate detection
         3. Check ingestion_log for prior ingestion with same date + hash
         4. Clean via clean_emsx_fills()
         5. Upsert into raw_fills table
         6. Record in ingestion_log
-
-    Returns:
-        Result dict with status, row counts, and any errors.
     """
     file_path = Path(file_path)
     result: Dict[str, Any] = {
@@ -55,7 +67,6 @@ def ingest_excel_file(
         db = RawFillsDB()
 
     try:
-        # 1. Read Excel
         df_raw = pd.read_excel(file_path, engine="openpyxl")
         fills = df_raw.to_dict(orient="records")
         result["total_rows"] = len(fills)
@@ -66,27 +77,19 @@ def ingest_excel_file(
             logger.info(f"Empty file: {file_path.name}")
             return result
 
-        # 2. Compute hash
         hash_value = compute_fills_hash(fills)
-
-        # 3. Extract source date from filename (fills_YYYYMMDD.xlsx)
         source_date = _extract_date_from_filename(file_path.name)
 
-        # 4. Check for duplicate ingestion
         if source_date and db.check_ingestion_duplicate(source_date, hash_value):
             result["success"] = True
             result["skipped"] = True
             logger.info(f"Duplicate detected for {file_path.name} (date={source_date}), skipping")
             return result
 
-        # 5. Clean
         cleaned_df = clean_emsx_fills(fills)
-
-        # 6. Upsert
         new_count = db.upsert_fills(cleaned_df)
         result["new_rows"] = new_count
 
-        # 7. Record ingestion
         if source_date:
             db.add_ingestion_record(
                 source_date=source_date,
@@ -113,11 +116,7 @@ def ingest_all_excel_files(
     excel_dir: Optional[Path] = None,
     db: Optional[RawFillsDB] = None,
 ) -> List[Dict[str, Any]]:
-    """Ingest all FillFetch Excel files from the data directory.
-
-    Scans for fills_*.xlsx files and ingests them incrementally.
-    Already-ingested files (same date + hash) are skipped.
-    """
+    """Ingest all FillFetch Excel files from the data directory (legacy)."""
     excel_dir = Path(excel_dir or Config.RAW_EXCEL_DIR)
     if db is None:
         db = RawFillsDB()
@@ -133,7 +132,6 @@ def ingest_all_excel_files(
         result = ingest_excel_file(file_path, db=db)
         results.append(result)
 
-    # Summary
     ingested = sum(1 for r in results if r["success"] and not r["skipped"])
     skipped = sum(1 for r in results if r["skipped"])
     failed = sum(1 for r in results if not r["success"])
@@ -146,10 +144,103 @@ def ingest_all_excel_files(
     return results
 
 
+# -- New: raw_fills.db -> clean -> process -> processed_fills.db (LAYER 1) --
+
+
+def process_raw_fills_for_date(
+    date_str: str,
+    raw_db: Optional[RawFillsDB] = None,
+    proc_db=None,
+) -> Dict[str, Any]:
+    """Process raw fills for a single date: clean -> enrich -> upsert processed.
+
+    This is the LAYER 1 (Cleaning & Filtering) entry point:
+        1. Read raw fills from raw_fills.db (by source_date or order_as_of_date)
+        2. clean_emsx_fills() — filter DFD, derive times, normalize
+        3. process_fills() — add algo/ccy/ticker/mkt_timestamp
+        4. Split data into route_registry and processed_fills, then upsert
+        5. Update ticker-date mapping
+
+    Args:
+        date_str: Date in YYYYMMDD format.
+        raw_db: RawFillsDB instance (created if None).
+        proc_db: ProcessedFillsDB instance (created if None).
+
+    Returns:
+        Dict with 'rows_processed', 'success', 'error'.
+    """
+    result: Dict[str, Any] = {
+        "date": date_str,
+        "success": False,
+        "rows_processed": 0,
+        "error": None,
+    }
+
+    if raw_db is None:
+        raw_db = RawFillsDB()
+    if proc_db is None:
+        from .processed_fills_db import ProcessedFillsDB
+        proc_db = ProcessedFillsDB()
+
+    try:
+        # 1. Read raw fills
+        raw_df = raw_db.get_fills_for_date(date_str)
+        if raw_df.empty:
+            logger.info(f"  No raw fills for {date_str}, skipping")
+            result["success"] = True
+            return result
+
+        # 2. Clean (filter DFD, derive times, normalize)
+        cleaned_df = clean_emsx_fills(raw_df)
+        if cleaned_df.empty:
+            logger.info(f"  All fills filtered for {date_str}")
+            result["success"] = True
+            return result
+
+        # 3. Process (add algo/ccy/ticker/mkt_timestamp)
+        processed_df = process_fills(cleaned_df)
+        if processed_df.empty:
+            logger.warning(f"  Processing produced empty result for {date_str}")
+            result["success"] = True
+            return result
+
+        # 4. Split into processed_fills fact table and route_registry dimension table, then upsert
+        # Calculate route summaries for dimension table
+        route_reg_df = processed_df.groupby(["OrderId", "RouteId"]).agg(
+            equ_ticker=("equ_ticker", "first"),
+            Exchange=("Exchange", "first"),
+            ccy_ticker=("ccy_ticker", "first"),
+            Side=("Side", "first"),
+            count_fill=("FillId", "count"),
+            count_broker=("Broker", "nunique"),
+            count_algo=("algo", "nunique"),
+            count_trader=("TraderName", "nunique"),
+        ).reset_index()
+        
+        proc_db.upsert_route_registry(route_reg_df)
+        proc_db.upsert_processed_fills(processed_df)
+        proc_db.update_ticker_date_mapping(processed_df)
+        proc_db.update_ticker_registries(processed_df)
+
+        # 5. Mark as processed
+        proc_db.mark_date_processed(
+            date_str, stage="processed", row_count=len(processed_df)
+        )
+
+        result["rows_processed"] = len(processed_df)
+        result["success"] = True
+        logger.info(f"  Processed {date_str}: {len(processed_df)} rows")
+
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error(f"  Error processing {date_str}: {e}")
+
+    return result
+
+
 def _extract_date_from_filename(filename: str) -> Optional[str]:
     """Extract YYYYMMDD date string from a fills_YYYYMMDD.xlsx filename."""
-    # Expected format: fills_YYYYMMDD.xlsx
-    stem = Path(filename).stem  # fills_YYYYMMDD
+    stem = Path(filename).stem
     parts = stem.split("_")
     if len(parts) >= 2:
         date_part = parts[-1]

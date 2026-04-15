@@ -1,8 +1,10 @@
 """
-EMSX Fill Data Schema.
+EMSX Fill Data Schema — Single source of truth for column definitions.
 
-Defines the EMSX raw fill column schema, column derivation rules,
-deduplication keys, and EMSX-to-Evaluation column name references.
+Dependency direction:
+    schema.py  <--  fill_fetch.py  (fetch layer uses schema)
+    schema.py  <--  fill_cleaner.py (cleaning layer uses schema)
+    schema.py  <--  raw_fills_db.py (storage layer uses schema)
 """
 
 from __future__ import annotations
@@ -10,8 +12,9 @@ from __future__ import annotations
 from typing import Dict, List
 
 
-# ── Active EMSX Fill Columns (from FILL_FIELD_EXTRACTORS in fill_fetch.py) ──
+# ── Raw fill columns (authoritative list) ──────────────────────────────────
 # These are the columns fetched from Bloomberg EMSX History API.
+# fill_fetch.py FILL_FIELD_EXTRACTORS must keep keys in sync with this list.
 
 EMSX_FILL_COLUMNS: List[str] = [
     "OrderId",
@@ -23,8 +26,6 @@ EMSX_FILL_COLUMNS: List[str] = [
     "Side",
     "Amount",
     "NyOrderCreateAsOfDateTime",
-    "OrderInstruction",
-    "IsLeg",
     "Type",
     "LimitPrice",
     "Broker",
@@ -35,9 +36,6 @@ EMSX_FILL_COLUMNS: List[str] = [
     "RouteId",
     "NyTranCreateAsOfDateTime",
     "RouteShares",
-    "RouteExecutionInstruction",
-    "RouteHandlingInstruction",
-    "RouteNotes",
     "FillId",
     "ExecType",
     "DateTimeOfFill",
@@ -51,107 +49,150 @@ EMSX_FILL_COLUMNS: List[str] = [
 
 
 # ── Derived columns (added during cleaning) ────────────────────────────────
-# These are computed from the raw EMSX columns.
 
 DERIVED_COLUMNS: List[str] = [
-    "order_as_of_date",       # YYYYMMDD, from NyOrderCreateAsOfDateTime
-    "order_as_of_time",       # HH:MM:SS, from NyOrderCreateAsOfDateTime
-    "exec_date",              # YYYYMMDD, from DateTimeOfFill (NY time, then local exchange)
-    "exec_time",              # HH:MM:SS, from DateTimeOfFill (NY time)
-    "exchange_exec_time",     # HH:MM:SS, from DateTimeOfFill → local exchange time
-    "route_as_of_time",       # HH:MM:SS, from NyTranCreateAsOfDateTime
+    "order_as_of_date",       # YYYYMMDD, from DateTimeOfFill -> local exchange date
+    "order_as_of_time",       # HH:MM:SS, from NyOrderCreateAsOfDateTime -> local exchange time
+    "exchange_exec_time",     # HH:MM:SS, from DateTimeOfFill -> local exchange time
+    "route_as_of_time",       # HH:MM:SS, from NyTranCreateAsOfDateTime -> local exchange time
     "local_fill_datetime",    # Full local datetime string, from DateTimeOfFill
 ]
 
 
-# ── Deduplication key ──────────────────────────────────────────────────────
-# Each fill in EMSX is uniquely identified by (OrderId, FillId).
+# ── All columns stored in raw_fills DB ─────────────────────────────────────
 
-EMSX_DEDUP_KEY: List[str] = ["OrderId", "FillId"]
+ALL_RAW_COLUMNS: List[str] = EMSX_FILL_COLUMNS + DERIVED_COLUMNS
 
 
-# ── Processing-added columns (added during fill processing) ────────────────
-# These are computed from the cleaned data during transformation.
+# ── Metadata columns (added by fetch layer) ────────────────────────────────
 
-PROCESSING_COLUMNS: List[str] = [
-    "algo",                   # Algorithm classification (vwap/twap/pov/close/other)
-    "ccy_ticker",             # Bloomberg currency ticker (e.g. "USDJPY Curncy")
-    "region",                 # Geographic region (APAC/EMEA/NSA)
-    "equ_ticker",             # Bloomberg equity ticker (e.g. "7203 JP Equity")
-    "mkt_timestamp",          # Market timestamp, 10-second floor (HH:MM:SS)
-    "is_closing_auction",     # Whether fill is during closing auction
-    "route_mkt_timestamp",    # Route adjusted market timestamp
+RAW_METADATA_COLUMNS: List[str] = [
+    "source_date",            # YYYYMMDD, the date the API was called for
+    "fetched_at",             # ISO timestamp, when the data was fetched
 ]
 
 
-# ── EMSX column → Evaluation column reference ──────────────────────────────
-# For documentation only. Processing functions use EMSX column names directly.
-# This mapping documents the semantic equivalence for cross-referencing.
+# ── processed_fills table (Schema V2) ──────────────────────────────────────
+# Stored in PROCESSED_FILLS_DB. Fact table containing dynamic attributes.
+# Join with route_registry for static attributes and aggregate summaries.
 
-EMSX_TO_EVALUATION_MAP: Dict[str, str] = {
-    # EMSX Column             Evaluation Column
-    "OrderId":                "Order Number",
-    "Ticker":                 "Ticker",
-    "Exchange":               "Exchange",
-    "SecurityName":           "Security Name",
-    "Currency":               "Currency",
-    "Side":                   "Side",
-    "Amount":                 "Amount",
-    "Broker":                 "Broker",
-    "StrategyType":           "Strategy Type",
-    "TraderName":             "Trader Name",
-    "FillPrice":              "Exec Last Fill Px",
-    "FillShares":             "Exec Last Fill",
-    "ExecType":               "Exec Type",
-    "LastMarket":             "Last Market",
-    "Liquidity":              "Liquidity",
-    "RouteShares":            "Routed Amount",
-    # Derived columns
-    "order_as_of_date":       "Order As of Date",
-    "exec_date":              "Exec Date",
-    "exec_time":              "Exec Time",
-    "exchange_exec_time":     "Exchange Exec Time",
-    "route_as_of_time":       "Route As of Time",
+PROCESSED_COLUMNS: List[str] = [
+    # Primary key
+    "FillId",
+    # Foreign keys to route_registry
+    "OrderId",
+    "RouteId",
+    # Partition & time keys
+    "mkt_timestamp",
+    "order_as_of_date",
+    "local_fill_datetime",
+    "exchange_exec_time",
+    "route_as_of_time",
+    "DateTimeOfFill",
+    # Dynamic context fields
+    "Broker",
+    "StrategyType",
+    "algo",
+    "TraderName",
+    "Exchange",
+    "Amount",
+    "RouteShares",
+    "is_closing_auction",
+    "ExecType",
+    "region",
+    # Numeric columns
+    "FillPrice",
+    "FillShares",
+]
+
+# ── route_registry table (Schema V2) ───────────────────────────────────────
+# Dimension table containing static order/route attributes and summaries.
+
+ROUTE_REGISTRY_COLUMNS: List[str] = [
+    "OrderId",
+    "RouteId",
+    "equ_ticker",
+    "Exchange",
+    "ccy_ticker",
+    "Side",
+    "count_fill",
+    "count_broker",
+    "count_algo",
+    "count_trader",
+]
+
+# ── Column type map for processed_fills and agg tables ─────────────────────
+# Only columns listed here use non-TEXT types; all others default to TEXT.
+
+COLUMN_TYPE_MAP: Dict[str, str] = {
+    "FillPrice": "REAL",
+    "FillShares": "REAL",
+    "Amount": "REAL",
+    "RouteShares": "REAL",
+    "is_closing_auction": "INTEGER",
+    "count_fill": "INTEGER",
+    "count_broker": "INTEGER",
+    "count_algo": "INTEGER",
+    "count_trader": "INTEGER",
 }
 
 
-# ── Columns only in Evaluation (not in EMSX) ──────────────────────────────
-# These columns exist in Evaluation raw fills but do NOT have EMSX equivalents.
-# They are NOT fabricated; processing functions are adapted to work without them.
+# ── Aggregation table columns (route-level, ~23 columns) ──────────────────
+# agg_fills_10s (ACTIVE) and agg_fills_1min (DEPRECATED in v3) share this schema.
 
-EVALUATION_ONLY_COLUMNS: List[str] = [
-    "Order Type",
-    "Tran Type",
-    "Tran Account",
-    "Order Entry Time",
-    "Fill Amount",           # Cumulative fill amount (EMSX only has per-fill FillShares)
-    "Average Price",         # Avg fill price (can be computed from fills)
-    "Day Avg Price",         # Day-level average
-    "Exec Avg Price",        # Execution average
-    "Exec Seq Number",
-    "Exec Prev Seq Number",
+AGG_COLUMNS: List[str] = [
+    # Primary key
+    "OrderId",
+    "RouteId",
+    "mkt_timestamp",
+    "order_as_of_date",
+    # _unique_or_mult columns
+    "Ticker",
+    "equ_ticker",
+    "Exchange",
+    "Amount",
+    "Side",
+    "Currency",
+    "region",
+    "Broker",
+    "StrategyType",
+    "algo",
+    "TraderName",
+    "ccy_ticker",
+    "is_closing_auction",
+    "RouteShares",
+    "route_as_of_time",
+    "ExecType",
+    "DateTimeOfFill",
+    # Numeric columns
+    "FillPrice",
+    "FillShares",
 ]
 
+# 1min aggregation table uses mkt_timestamp_1min instead of mkt_timestamp
 
-# ── Columns only in EMSX (not in Evaluation) ──────────────────────────────
-# These EMSX-specific columns are preserved in storage but not used by
-# Evaluation-derived processing functions.
-
-EMSX_ONLY_COLUMNS: List[str] = [
-    "Account",
-    "NyOrderCreateAsOfDateTime",
-    "OrderInstruction",
-    "IsLeg",
-    "Type",
-    "LimitPrice",
-    "StopPrice",
-    "TraderUuid",
+AGG_1MIN_COLUMNS: List[str] = [
+    "OrderId",
     "RouteId",
-    "NyTranCreateAsOfDateTime",
-    "RouteExecutionInstruction",
-    "RouteHandlingInstruction",
-    "RouteNotes",
-    "FillId",
-    "LastCapacity",
-    "LocalExchangeSymbol",
+    "mkt_timestamp_1min",
+    "order_as_of_date",
+    "Ticker",
+    "equ_ticker",
+    "Exchange",
+    "Amount",
+    "Side",
+    "Currency",
+    "region",
+    "Broker",
+    "StrategyType",
+    "algo",
+    "TraderName",
+    "ccy_ticker",
+    "is_closing_auction",
+    "RouteShares",
+    "route_as_of_time",
+    "ExecType",
+    "DateTimeOfFill",
+    "FillPrice",
+    "FillShares",
 ]

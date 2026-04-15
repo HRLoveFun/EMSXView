@@ -28,7 +28,9 @@ class ProcessingConfig:
     # SECTION 2: RAW DATA
     # ═══════════════════════════════════════════════════════════════════════
 
-    # Excel files from FillFetch (existing location)
+    # [DEPRECATED] Excel files from legacy FillFetch output.
+    # No longer used since fill_fetch.py writes directly to raw_fills.db via Bloomberg API.
+    # Directory reference kept for backward-compat of ingest_excel_file().
     RAW_EXCEL_DIR: Path = DATA_DIR / "fills"
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -43,6 +45,18 @@ class ProcessingConfig:
 
     # Processed fills database — transformed fills + aggregations + order labels
     PROCESSED_FILLS_DB: Path = DATA_DIR / "processed_fills.db"
+
+    # ── BDIB data pipeline (3-layer architecture, matches D:\\Evaluation convention) ──
+    #
+    # Layer 1: raw_bdib — Bloomberg-native OHLC/volume/num_trds/value only
+    RAW_BDIB_DB: Path = DATA_DIR / "raw_bdib.db"
+    # Layer 2: processed_raw_bdib — raw_bdib + derived (vwap, fluctuation, log_chg_pct_10s)
+    PROCESSED_RAW_BDIB_DB: Path = DATA_DIR / "processed_raw_bdib.db"
+    # Layer 3: fill_bdib — fills + processed_bdib integration + TCA metrics
+    FILL_BDIB_DB: Path = DATA_DIR / "fill_bdib.db"
+    # Legacy alias for fill_bdib.db (backward compatibility)
+    PROCESSED_BDIB_DB: Path = DATA_DIR / "fill_bdib.db"
+
 
     # ═══════════════════════════════════════════════════════════════════════
     # SECTION 4: DATE & TIME FORMATS
@@ -70,8 +84,14 @@ class ProcessingConfig:
     # SECTION 5: PROCESSING PARAMETERS
     # ═══════════════════════════════════════════════════════════════════════
 
-    CHUNKSIZE: int = 100_000                            # Rows per chunk
-    BATCH_SIZE: int = 1_000                             # Batch size for API calls
+    # [UNUSED] These legacy config values are kept for reference only.
+    # They are NOT referenced anywhere in the current codebase.
+    # Actual batch sizes are controlled per-module:
+    #   - fill_fetch.py:       date batching via --batch-size flag (parallel mode only)
+    #   - fill_processor.py:   EUR ticker resolution chunk_size=100 (xbbg blp.bdp)
+    #   - raw_fills_db.py:     executememany (full day per transaction)
+    CHUNKSIZE: int = 100_000                            # [UNUSED] Legacy row-chunk size
+    BATCH_SIZE: int = 1_000                              # [UNUSED] Legacy API batch size
     FLOAT_TYPE: type = np.float32
     INT_TYPE: type = np.int32
 
@@ -81,15 +101,65 @@ class ProcessingConfig:
 
     # Tables in RAW_FILLS_DB
     RAW_FILLS_TABLE: str = "raw_fills"
-    INGESTION_LOG_TABLE: str = "ingestion_log"
+    INGESTION_LOG_TABLE: str = "ingestion_log"          # deprecated, kept for compat
+    FETCH_LOG_TABLE: str = "fetch_log"                  # unified fetch tracking
 
     # Tables in PROCESSED_FILLS_DB
     PROCESSED_FILLS_TABLE: str = "processed_fills"
+    AGG_10S_TABLE: str = "agg_fills_10s"                # route-level 10s aggregation
+    AGG_1MIN_TABLE: str = "agg_fills_1min"              # route-level 1min aggregation
+
+    # Tables in RAW_BDIB_DB / PROCESSED_RAW_BDIB_DB / FILL_BDIB_DB (3-layer BDIB pipeline)
+    RAW_BDIB_TABLE: str = "raw_bdib"
+    PROCESSED_RAW_BDIB_TABLE: str = "processed_raw_bdib"      # Layer 2: raw + derived
+    FILL_BDIB_TABLE: str = "fill_bdib"                       # Layer 3: fills + BDIB + TCA
+    PROCESSED_BDIB_TABLE: str = "fill_bdib"                   # legacy alias → fill_bdib_table
+
+    # Legacy table names (deprecated, kept for migration)
     AGG_PROCESSED_FILLS_TABLE: str = "agg_processed_fills"
     PROCESSED_FILLS_1MIN_TABLE: str = "processed_fills_1min"
     ORDER_LABEL_TABLE: str = "order_label"
     PROCESSING_LOG_TABLE: str = "processing_log"
     TICKER_DATE_MAPPING_TABLE: str = "ticker_date_mapping"
+
+    # Tables for downstream ticker registries (Phase 4)
+    EQU_TICKER_REGISTRY_TABLE: str = "equ_ticker_registry"
+    CCY_TICKER_REGISTRY_TABLE: str = "ccy_ticker_registry"
+
+    # Table for order-level fetch tracking (Phase 2B)
+    ORDER_FETCH_LOG_TABLE: str = "order_fetch_log"
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SECTION 6a: CLEANING PARAMETERS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # ExecType values to filter OUT (not actual fills)
+    EXECTYPE_FILTER_OUT: set = {"DFD"}  # Done For Day
+
+    # First-run lookback days (calendar days, not trading days)
+    FIRST_RUN_LOOKBACK_DAYS: int = 60
+
+    # Raw BDIB ticker filter whitelist by exchange code (from ticker_repository).
+    # Example: ["US", "JP", "LN"]
+    BDID_EXCHANGE: list[str] = ["AU", "AV", "BB", "FH", "FP", "GA", "GR", "ID", "IJ", "IM", "IN", "JP", "KS", "LN", "MK", 'NA', "NO", "PL", "SJ", "SM", "SP", "SS", "SW", "US"]
+
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SECTION 6b: LOGGING PARAMETERS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    LOG_FILE: Path = LOGGING_DIR / "fillfetch.log"
+    LOG_DEBUG_FILE: Path = LOGGING_DIR / "fillfetch_debug.log"
+    LOG_RETENTION_DAYS: int = 30
+    LOG_DEBUG_RETENTION_DAYS: int = 7
+    LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SECTION 6c: DOWNSTREAM INTERFACE
+    # ═══════════════════════════════════════════════════════════════════════
+
+    MARKET_FETCH_MANIFEST: Path = DATA_DIR / "market_fetch_manifest.json"
 
     # ═══════════════════════════════════════════════════════════════════════
     # SECTION 7: UTILITY METHODS
@@ -97,11 +167,17 @@ class ProcessingConfig:
 
     @classmethod
     def initialize_directories(cls) -> None:
-        """Create all required directories if they don't exist."""
+        """Create all required directories if they don't exist.
+
+        Note: RAW_EXCEL_DIR (data/fills/) is intentionally excluded here
+        since Excel-based ingest has been deprecated. The directory will only
+        be created on-demand if ingest_excel_file() or ingest_all_excel_files()
+        is explicitly called.
+        """
         directories = [
             cls.DATA_DIR,
-            cls.RAW_EXCEL_DIR,
             cls.LOGGING_DIR,
+            # RAW_EXCEL_DIR intentionally omitted — DEPRECATED, create on-demand only
         ]
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
