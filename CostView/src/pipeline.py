@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 import abc
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -161,12 +163,34 @@ class ProcessRawFillsStage(BaseStage):
         logger.info(f"Processing {len(target_dates)} dates: {target_dates}")
         
         total_processed = 0
-        for date_str in target_dates:
-            result = process_raw_fills_for_date(date_str, raw_db=context.raw_db, proc_db=context.proc_db)
-            if result["success"]:
-                total_processed += result["rows_processed"]
-            else:
-                logger.error(f"  Failed to process {date_str}: {result.get('error')}")
+        max_workers = min(Config.MAX_PARALLEL_DATES, len(target_dates))
+
+        def _process_date(date_str: str) -> dict:
+            """Process a single date with its own DB connections."""
+            local_raw = RawFillsDB()
+            local_proc = ProcessedFillsDB()
+            return process_raw_fills_for_date(date_str, raw_db=local_raw, proc_db=local_proc)
+
+        if max_workers <= 1:
+            for date_str in target_dates:
+                result = process_raw_fills_for_date(date_str, raw_db=context.raw_db, proc_db=context.proc_db)
+                if result["success"]:
+                    total_processed += result["rows_processed"]
+                else:
+                    logger.error(f"  Failed to process {date_str}: {result.get('error')}")
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_date = {executor.submit(_process_date, d): d for d in target_dates}
+                for future in as_completed(future_to_date):
+                    date_str = future_to_date[future]
+                    try:
+                        result = future.result()
+                        if result["success"]:
+                            total_processed += result["rows_processed"]
+                        else:
+                            logger.error(f"  Failed to process {date_str}: {result.get('error')}")
+                    except Exception as exc:
+                        logger.error(f"  Exception processing {date_str}: {exc}")
 
         context.summary["processing"] = {"rows_processed": total_processed}
         return True
@@ -196,26 +220,76 @@ class AggregateFillsStage(BaseStage):
 
         logger.info(f"Aggregating {len(target_dates)} dates")
         
-        for date_str in target_dates:
+        max_workers = min(Config.MAX_PARALLEL_DATES, len(target_dates))
+        aggregate_write_lock = threading.Lock()
+
+        def _aggregate_date(date_str: str) -> tuple[str, int]:
+            """Aggregate a single date with its own DB connection."""
+            local_proc = ProcessedFillsDB()
+            processed_df = local_proc.get_processed_fills_for_date(
+                date_str,
+                use_legacy_view=True,
+            )
+            if processed_df.empty:
+                return date_str, 0
+
+            agg_10s = generate_agg_fills_10s(processed_df)
+            write_conn = local_proc._get_conn()
             try:
-                # Use legacy compatibility view so equ_ticker/ccy_ticker from
-                # route_registry are present for downstream BDIB integration.
-                processed_df = context.proc_db.get_processed_fills_for_date(
-                    date_str,
-                    use_legacy_view=True,
-                )
-                if processed_df.empty:
-                    continue
+                with aggregate_write_lock:
+                    if not agg_10s.empty:
+                        local_proc.upsert_agg_fills_10s(agg_10s, conn=write_conn)
+                    local_proc.mark_date_processed(
+                        date_str,
+                        stage="aggregated",
+                        row_count=len(agg_10s),
+                        conn=write_conn,
+                    )
+                    write_conn.commit()
+            finally:
+                write_conn.close()
 
-                agg_10s = generate_agg_fills_10s(processed_df)
-                if not agg_10s.empty:
-                    context.proc_db.upsert_agg_fills_10s(agg_10s)
+            return date_str, len(agg_10s)
 
-                context.proc_db.mark_date_processed(date_str, stage="aggregated", row_count=len(agg_10s))
-                logger.info(f"  Aggregated {date_str}: {len(agg_10s)} 10s rows")
+        if max_workers <= 1:
+            for date_str in target_dates:
+                try:
+                    processed_df = context.proc_db.get_processed_fills_for_date(
+                        date_str,
+                        use_legacy_view=True,
+                    )
+                    if processed_df.empty:
+                        continue
 
-            except Exception as e:
-                logger.error(f"  Error aggregating date {date_str}: {e}")
+                    agg_10s = generate_agg_fills_10s(processed_df)
+                    write_conn = context.proc_db._get_conn()
+                    try:
+                        if not agg_10s.empty:
+                            context.proc_db.upsert_agg_fills_10s(agg_10s, conn=write_conn)
+                        context.proc_db.mark_date_processed(
+                            date_str,
+                            stage="aggregated",
+                            row_count=len(agg_10s),
+                            conn=write_conn,
+                        )
+                        write_conn.commit()
+                    finally:
+                        write_conn.close()
+
+                    logger.info(f"  Aggregated {date_str}: {len(agg_10s)} 10s rows")
+
+                except Exception as e:
+                    logger.error(f"  Error aggregating date {date_str}: {e}")
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_date = {executor.submit(_aggregate_date, d): d for d in target_dates}
+                for future in as_completed(future_to_date):
+                    date_str = future_to_date[future]
+                    try:
+                        date_str, count = future.result()
+                        logger.info(f"  Aggregated {date_str}: {count} 10s rows")
+                    except Exception as exc:
+                        logger.error(f"  Error aggregating date {date_str}: {exc}")
 
         context.summary["aggregation"] = {"completed": True, "dates": len(target_dates)}
         return True
@@ -231,7 +305,20 @@ class GenerateOrderLabelsStage(BaseStage):
             context.proc_db = ProcessedFillsDB()
 
         if context.target_dates:
-            dfs = [context.proc_db.get_processed_fills_for_date(d) for d in context.target_dates]
+            target_label_dates = context.target_dates
+        else:
+            # Optimisation: only regenerate labels for dates processed in the current run
+            # instead of reading the entire processed_fills table.
+            processing_info = context.summary.get("processing", {})
+            aggregation_info = context.summary.get("aggregation", {})
+            if processing_info.get("rows_processed", 0) > 0:
+                # Use the dates S2 actually processed (available from get_processed_dates)
+                target_label_dates = context.proc_db.get_processed_dates(stage="processed")
+            else:
+                target_label_dates = None
+
+        if target_label_dates:
+            dfs = [context.proc_db.get_processed_fills_for_date(d) for d in target_label_dates]
             processed_fills = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
         else:
             processed_fills = context.proc_db.get_all_processed_fills()
@@ -264,6 +351,16 @@ class IntegrateBDIBStage(BaseStage):
         while candidate.weekday() >= 5:
             candidate -= timedelta(days=1)
         return candidate
+
+    @classmethod
+    def _get_latest_safe_bdib_date(cls, now: Optional[datetime] = None) -> date:
+        ref_dt = now or datetime.now()
+        safe_date = cls._get_previous_weekday(ref_dt.date())
+
+        if safe_date == ref_dt.date() - timedelta(days=1) and ref_dt.hour < Config.BDIB_LATEST_READY_HOUR_LOCAL:
+            safe_date = cls._get_previous_weekday(safe_date)
+
+        return safe_date
 
     @staticmethod
     def _expand_weekdays(start: date, end: date) -> List[str]:
@@ -298,35 +395,70 @@ class IntegrateBDIBStage(BaseStage):
         if context.proc_bdib_db is None:
             context.proc_bdib_db = FillBDIBDB()
 
-        if context.target_dates:
-            target_dates = sorted({str(d) for d in context.target_dates if str(d)})
-        else:
-            prev_weekday = self._get_previous_weekday()
-            latest_raw_bdib_date = context.raw_bdib_db.get_latest_order_as_of_date()
+        # ── Determine target dates with proper incremental filtering per layer ──
+        # Each BDIB layer has its own incremental state:
+        #   Layer 1 (raw_bdib):       get_latest_order_as_of_date()
+        #   Layer 2 (processed_raw): get_latest_order_as_of_date()
+        #   Layer 3 (fill_bdib):      check via proc_db.get_processed_dates()
+        latest_safe_bdib_date = self._get_latest_safe_bdib_date()
+        latest_safe_bdib_str = latest_safe_bdib_date.strftime("%Y%m%d")
 
-            if context.force or not latest_raw_bdib_date:
-                start_dt = prev_weekday - timedelta(days=180)
-                target_dates = self._expand_weekdays(start_dt, prev_weekday)
+        if context.target_dates:
+            # Caller explicitly provided dates — use them as candidate set
+            # but still apply incremental filtering within each phase
+            all_candidate_dates = sorted({str(d) for d in context.target_dates if str(d)})
+            unsafe_dates = [d for d in all_candidate_dates if d > latest_safe_bdib_str]
+            if unsafe_dates:
                 logger.info(
-                    f"BDIB first update window: {start_dt.strftime('%Y%m%d')} -> {prev_weekday.strftime('%Y%m%d')}"
+                    f"Skipping {len(unsafe_dates)} unsafe BDIB target date(s) newer than "
+                    f"{latest_safe_bdib_str}: {unsafe_dates[:5]}"
+                )
+                all_candidate_dates = [d for d in all_candidate_dates if d <= latest_safe_bdib_str]
+            logger.info(
+                f"Caller provided {len(all_candidate_dates)} candidate date(s); "
+                f"incremental filter applied per layer"
+            )
+        else:
+            # Auto-detect: use raw_bdib's latest date as baseline
+            latest_raw = context.raw_bdib_db.get_latest_order_as_of_date()
+
+            if context.force or not latest_raw:
+                start_dt = latest_safe_bdib_date - timedelta(days=180)
+                all_candidate_dates = self._expand_weekdays(start_dt, latest_safe_bdib_date)
+                logger.info(
+                    f"BDIB first-run window: {start_dt.strftime('%Y%m%d')} -> {latest_safe_bdib_date.strftime('%Y%m%d')} "
+                    f"({len(all_candidate_dates)} dates)"
                 )
             else:
                 try:
-                    latest_dt = datetime.strptime(latest_raw_bdib_date, "%Y%m%d").date()
+                    latest_dt = datetime.strptime(latest_raw, "%Y%m%d").date()
                     start_dt = latest_dt + timedelta(days=1)
                 except ValueError:
-                    start_dt = prev_weekday - timedelta(days=180)
-                target_dates = self._expand_weekdays(start_dt, prev_weekday)
+                    start_dt = latest_safe_bdib_date - timedelta(days=180)
+                all_candidate_dates = self._expand_weekdays(start_dt, latest_safe_bdib_date)
                 logger.info(
-                    f"BDIB daily update window: {start_dt.strftime('%Y%m%d')} -> {prev_weekday.strftime('%Y%m%d')}"
+                    f"BDIB incremental window: {start_dt.strftime('%Y%m%d')} -> "
+                    f"{latest_safe_bdib_date.strftime('%Y%m%d')} ({len(all_candidate_dates)} new dates)"
                 )
 
-        if not target_dates:
+        if not all_candidate_dates:
             logger.info("No dates for BDIB integration")
             context.summary["bdib"] = {"completed": True, "dates": 0}
             return True
 
-        logger.info(f"BDIB integration for {len(target_dates)} dates")
+        logger.info(f"BDIB integration: {len(all_candidate_dates)} candidate dates")
+
+        # ── Pre-filter: get each layer's latest processed date ──
+        latest_raw_date = context.raw_bdib_db.get_latest_order_as_of_date()
+        latest_proc_raw_date = context.processed_raw_bdib_db.get_latest_order_as_of_date()
+        # For fill_bdib, check which dates are already marked as bdib_integrated
+        try:
+            already_integrated = set(
+                context.proc_db.get_processed_dates(stage="bdib_integrated")
+                or []
+            )
+        except Exception:
+            already_integrated = set()
 
         bdid_exchange = [str(e).strip().upper() for e in Config.BDID_EXCHANGE if str(e).strip()]
         ticker_exchange_map_all = context.proc_db.get_ticker_exchange_map(exchanges=bdid_exchange)
@@ -336,7 +468,7 @@ class IntegrateBDIBStage(BaseStage):
             )
             context.summary["bdib"] = {
                 "completed": True,
-                "dates": len(target_dates),
+                "dates": len(all_candidate_dates),
                 "raw_bdib_rows": 0,
                 "processed_raw_bdib_rows": 0,
                 "fill_bdib_rows": 0,
@@ -346,9 +478,26 @@ class IntegrateBDIBStage(BaseStage):
         total_raw_bdib_rows = 0
         total_processed_raw_bdib_rows = 0
         total_fill_bdib_rows = 0
+        skipped_raw = 0
+        skipped_proc_raw = 0
+        skipped_fill = 0
 
-        for date_str in target_dates:
+        for date_str in all_candidate_dates:
             try:
+                # ── Per-layer incremental filtering ──
+                # Layer 1: raw_bdib — skip if date already exists (unless force)
+                if not context.force and latest_raw_date and date_str <= latest_raw_date:
+                    skipped_raw += 1
+                    continue
+                # Layer 2: processed_raw_bdib — skip if already processed
+                if not context.force and latest_proc_raw_date and date_str <= latest_proc_raw_date:
+                    skipped_proc_raw += 1
+                    continue
+                # Layer 3: fill_bdib — skip if already integrated (via proc_db tracking)
+                if not context.force and date_str in already_integrated:
+                    skipped_fill += 1
+                    continue
+
                 ticker_dates = {ticker: [date_str] for ticker in ticker_exchange_map_all.keys()}
                 ticker_exchange_map = ticker_exchange_map_all
 
@@ -378,6 +527,16 @@ class IntegrateBDIBStage(BaseStage):
                     )
 
                 # ── Phase C: processed_raw_bdib + agg_fills → fill_bdib (TCA) ──
+                # Requires valid BDIB data from Phase A; if Phase A returned empty,
+                # we skip integration rather than retrying with a different strategy.
+                if bdib_df.empty:
+                    total_raw_bdib_rows += raw_bdib_rows
+                    total_processed_raw_bdib_rows += proc_raw_bdib_rows
+                    logger.warning(
+                        f"  BDIB {date_str}: no data from Phase A, skipping fill-bdib integration"
+                    )
+                    continue
+
                 agg_df = context.proc_db.get_agg_fills_10s_for_date(date_str)
                 if agg_df.empty:
                     agg_df = context.proc_db.get_agg_fills_for_date(date_str)  # Fallback
@@ -391,61 +550,13 @@ class IntegrateBDIBStage(BaseStage):
                     )
                     continue
 
-                # Use enriched BDIB data for integration; fallback to fetch on demand
-                if bdib_df.empty:
-                    integrated_df = integrate_fills_bdib_for_date(
-                        agg_df,
-                        date_str,
-                        ticker_exchange_map=ticker_exchange_map,
-                    )
-                else:
-                    # Pass enriched BDIB (with derived fields) for TCA computation
-                    integrated_df = integrate_fills_bdib_for_date(
-                        agg_df,
-                        date_str,
-                        bdib_data=bdib_enriched,
-                        ticker_exchange_map=ticker_exchange_map,
-                    )
-
-                # Fallback: materialize unique BDIB bars into raw_bdib if needed
-                if raw_bdib_rows == 0 and not integrated_df.empty:
-                    bar_cols = [
-                        "equ_ticker", "order_as_of_date", "mkt_timestamp",
-                        "open", "high", "low", "close",
-                        "volume", "num_trds", "value",
-                    ]
-                    available_cols = [c for c in bar_cols if c in integrated_df.columns]
-                    if {"equ_ticker", "mkt_timestamp"}.issubset(set(available_cols)):
-                        raw_from_integrated = integrated_df[available_cols].copy()
-                        if "order_as_of_date" not in raw_from_integrated.columns:
-                            raw_from_integrated["order_as_of_date"] = date_str
-                        market_cols = [
-                            c for c in ["open", "high", "low", "close", "volume", "value"]
-                            if c in raw_from_integrated.columns
-                        ]
-                        if market_cols:
-                            raw_from_integrated = raw_from_integrated[
-                                raw_from_integrated[market_cols].notna().any(axis=1)
-                            ]
-                        if not raw_from_integrated.empty:
-                            raw_from_integrated["equ_ticker"] = raw_from_integrated["equ_ticker"].astype(str)
-                            raw_from_integrated["mkt_timestamp"] = raw_from_integrated["mkt_timestamp"].astype(str)
-                            raw_from_integrated = raw_from_integrated[
-                                raw_from_integrated["equ_ticker"].str.strip().ne("")
-                                & raw_from_integrated["equ_ticker"].str.lower().ne("none")
-                                & raw_from_integrated["equ_ticker"].str.lower().ne("nan")
-                                & raw_from_integrated["mkt_timestamp"].str.strip().ne("")
-                                & raw_from_integrated["mkt_timestamp"].str.lower().ne("none")
-                                & raw_from_integrated["mkt_timestamp"].str.lower().ne("nan")
-                            ]
-                            if not raw_from_integrated.empty:
-                                raw_from_integrated = raw_from_integrated.drop_duplicates(
-                                    subset=["equ_ticker", "order_as_of_date", "mkt_timestamp"]
-                                )
-                                raw_bdib_rows = context.raw_bdib_db.upsert_bdib_data(
-                                    raw_from_integrated,
-                                    date_str=date_str,
-                                )
+                # Pass enriched BDIB data (with derived fields) for TCA computation
+                integrated_df = integrate_fills_bdib_for_date(
+                    agg_df,
+                    date_str,
+                    bdib_data=bdib_enriched,
+                    ticker_exchange_map=ticker_exchange_map,
+                )
 
                 total_raw_bdib_rows += raw_bdib_rows
                 total_processed_raw_bdib_rows += proc_raw_bdib_rows
@@ -472,7 +583,11 @@ class IntegrateBDIBStage(BaseStage):
 
         context.summary["bdib"] = {
             "completed": True,
-            "dates": len(target_dates),
+            "candidate_dates": len(all_candidate_dates),
+            "processed_dates": len(all_candidate_dates) - skipped_raw - skipped_proc_raw - skipped_fill,
+            "skipped_raw": skipped_raw,
+            "skipped_processed_raw": skipped_proc_raw,
+            "skipped_fill": skipped_fill,
             "raw_bdib_rows": total_raw_bdib_rows,
             "processed_raw_bdib_rows": total_processed_raw_bdib_rows,
             "fill_bdib_rows": total_fill_bdib_rows,
@@ -493,6 +608,52 @@ class WriteManifestStage(BaseStage):
         except Exception as e:
             logger.warning(f"Manifest write failed: {e}")
             context.summary["manifest"] = {"error": str(e)}
+        return True
+
+
+class CalculateDailyMetricsStage(BaseStage):
+    """Stage 7: Pre-compute ADV (5d/20d) and annualized volatility into bdib_daily_summary."""
+
+    @property
+    def name(self) -> str: return "7. Calculate Daily Metrics (ADV + Volatility)"
+
+    def process(self, context: PipelineContext) -> bool:
+        try:
+            from .daily_metrics_calculator import CalculateDailyMetrics
+        except ImportError as e:
+            logger.warning(f"Skipping daily metrics calculation: {e}")
+            context.summary["daily_metrics"] = {"skipped": True, "error": str(e)}
+            return True
+
+        calc = CalculateDailyMetrics(db=context.raw_bdib_db, proc_db=context.proc_db)
+
+        # Determine which dates to (re)compute
+        if context.target_dates:
+            dates_to_process = context.target_dates
+        else:
+            if context.proc_db is None:
+                context.proc_db = ProcessedFillsDB()
+            dates_to_process = context.proc_db.get_processed_dates(stage="bdib_integrated")
+            if not dates_to_process:
+                if context.raw_bdib_db is None:
+                    context.raw_bdib_db = RawBDIBDB()
+                dates_to_process = context.raw_bdib_db.get_distinct_dates()
+
+        if not dates_to_process:
+            logger.info("No dates for daily metrics calculation")
+            context.summary["daily_metrics"] = {"rows": 0}
+            return True
+
+        total_rows = 0
+        for trade_date in dates_to_process:
+            try:
+                rows = calc.run_for_date(trade_date)
+                total_rows += rows
+            except Exception as e:
+                logger.error(f"  Error computing metrics for {trade_date}: {e}")
+
+        logger.info(f"Stage 7 complete: {total_rows} bdib_daily_summary rows upserted")
+        context.summary["daily_metrics"] = {"rows": total_rows, "dates": len(dates_to_process)}
         return True
 
 
@@ -519,7 +680,17 @@ class FinancialPipeline:
 
         Config.initialize_directories()
 
-        for stage in self._stages:
+        marker_name = str(context.config.get("stage_marker_name", "")).strip()
+        marker_start = int(context.config.get("stage_marker_start", 0))
+        marker_end = int(context.config.get("stage_marker_end", 100))
+        total_stages = max(1, len(self._stages))
+
+        for index, stage in enumerate(self._stages):
+            if marker_name:
+                stage_progress = marker_start + int(
+                    max(0, marker_end - marker_start) * (index + 1) / total_stages
+                )
+                print(f"[STAGE] {marker_name} {min(100, max(0, stage_progress))}", flush=True)
             success = stage.execute(context)
             if not success:
                 logger.error(f"Pipeline halted at stage: {stage.name}")
@@ -582,7 +753,8 @@ class PipelineFactory:
         
         if not skip_bdib:
             pipeline.add_stage(IntegrateBDIBStage())
-            
+            pipeline.add_stage(CalculateDailyMetricsStage())  # Stage 7: ADV + volatility
+
         pipeline.add_stage(WriteManifestStage())
         return pipeline
 
@@ -655,6 +827,9 @@ def run_full_pipeline(
     force: bool = False,
     skip_bdib: bool = True,
     skip_ingest: bool = True,
+    stage_marker_name: Optional[str] = None,
+    stage_marker_start: int = 0,
+    stage_marker_end: int = 100,
 ) -> Dict[str, Any]:
     """
     Run the complete pipeline using the new Object-Oriented Framework.
@@ -663,6 +838,11 @@ def run_full_pipeline(
         target_dates=dates or [],
         force=force,
         excel_dir=excel_dir,
+        config={
+            "stage_marker_name": stage_marker_name,
+            "stage_marker_start": stage_marker_start,
+            "stage_marker_end": stage_marker_end,
+        },
     )
     
     pipeline = PipelineFactory.create_daily_e2e_pipeline(
@@ -683,6 +863,9 @@ def run_full_pipeline(
 def run_incremental(
     excel_dir: Optional[Path] = None,
     skip_bdib: bool = True,
+    stage_marker_name: Optional[str] = None,
+    stage_marker_start: int = 0,
+    stage_marker_end: int = 100,
 ) -> Dict[str, Any]:
     """Run incremental pipeline - only process new/changed data."""
     return run_full_pipeline(
@@ -691,6 +874,9 @@ def run_incremental(
         force=False,
         skip_bdib=skip_bdib,
         skip_ingest=True,
+        stage_marker_name=stage_marker_name,
+        stage_marker_start=stage_marker_start,
+        stage_marker_end=stage_marker_end,
     )
 
 

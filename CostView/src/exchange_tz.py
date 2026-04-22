@@ -149,3 +149,52 @@ def get_local_date_str(dt_ny: datetime, exchange_code: str,
     if local_dt is None:
         return None
     return local_dt.strftime(fmt)
+
+
+def batch_convert_ny_to_local(
+    dt_series: "pd.Series",
+    exchange_series: "pd.Series",
+) -> "pd.Series":
+    """Vectorized NY→local timezone conversion, grouped by exchange code.
+
+    Groups rows by exchange code (typically 5–15 unique per day), performs a
+    single ZoneInfo lookup per group, and uses pandas vectorized tz_convert()
+    for bulk conversion.  Falls back to NY time for unrecognized exchanges.
+
+    Args:
+        dt_series: pd.Series of datetime64[ns] (tz-naive, assumed NY) or
+                   datetime64[ns, America/New_York].
+        exchange_series: pd.Series of exchange code strings (e.g. "JP", "LN").
+
+    Returns:
+        pd.Series of timezone-aware datetimes in each row's local exchange tz.
+        Unrecognized exchanges retain NY timezone.
+    """
+    import pandas as pd
+
+    # Ensure dt is tz-aware in NY
+    if dt_series.dt.tz is None:
+        dt_ny = dt_series.dt.tz_localize("America/New_York")
+    else:
+        dt_ny = dt_series.dt.tz_convert("America/New_York")
+
+    # Clean exchange codes
+    exch_clean = exchange_series.astype(str).str.strip().str.upper()
+
+    # Pre-allocate result with NY time as default (fallback)
+    result = dt_ny.copy()
+
+    # Group by exchange code and convert each group in bulk
+    for exch_code, group_idx in exch_clean.groupby(exch_clean).groups.items():
+        if not exch_code or exch_code in ("", "NONE", "NAN"):
+            continue
+
+        tz_name = EXCHANGE_TIMEZONE.get(exch_code)
+        if tz_name is None:
+            continue
+
+        # Vectorized tz_convert for this exchange group
+        group_dt = dt_ny.loc[group_idx]
+        result.loc[group_idx] = group_dt.dt.tz_convert(tz_name)
+
+    return result

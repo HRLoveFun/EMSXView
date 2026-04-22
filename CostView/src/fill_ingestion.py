@@ -216,16 +216,27 @@ def process_raw_fills_for_date(
             count_algo=("algo", "nunique"),
             count_trader=("TraderName", "nunique"),
         ).reset_index()
-        
-        proc_db.upsert_route_registry(route_reg_df)
-        proc_db.upsert_processed_fills(processed_df)
-        proc_db.update_ticker_date_mapping(processed_df)
-        proc_db.update_ticker_registries(processed_df)
 
-        # 5. Mark as processed
-        proc_db.mark_date_processed(
-            date_str, stage="processed", row_count=len(processed_df)
-        )
+        # Wrap all DB writes in a single transaction for atomicity:
+        # if any step fails, all changes are rolled back together.
+        txn_conn = proc_db._get_admin_conn()
+        try:
+            proc_db.upsert_route_registry(route_reg_df, conn=txn_conn)
+            proc_db.upsert_processed_fills(processed_df, conn=txn_conn)
+            proc_db.update_ticker_date_mapping(processed_df, conn=txn_conn)
+            proc_db.update_ticker_registries(processed_df, conn=txn_conn)
+
+            # 5. Mark as processed (inside same transaction)
+            proc_db.mark_date_processed(
+                date_str, stage="processed", row_count=len(processed_df),
+                conn=txn_conn,
+            )
+            txn_conn.commit()
+        except Exception:
+            txn_conn.rollback()
+            raise
+        finally:
+            txn_conn.close()
 
         result["rows_processed"] = len(processed_df)
         result["success"] = True

@@ -2,6 +2,7 @@
 # 运行方式：在 PowerShell 中执行  .\start-backend.ps1
 
 $env:PATH = "D:\anaconda3\Scripts;D:\anaconda3\Library\bin;" + $env:PATH
+$env:PYTHONPATH = "C:\Users\hrchen\Documents\EMSX"
 
 # 从 .env 文件加载配置
 $envFile = "C:\Users\hrchen\Documents\EMSX\Execution\backend\.env"

@@ -9,12 +9,15 @@ in processed_fills.db.
 from __future__ import annotations
 
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
+from .outdated_tickers import load_outdated_ticker_set, record_outdated_ticker
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)
@@ -26,6 +29,7 @@ LIST_EXHC_TZ: Set[str] = {"ID", "FH", "GA", "PL"}
 # Extend as needed for specific exchange coverage requirements.
 # Format: set of "YYYY-MM-DD" strings for non-trading days (excludes weekends).
 _BLOOMBERG_KNOWN_HOLIDAYS: Set[str] = set()
+_OUTDATED_TICKER_REASON = "cannot_find_exchange_info"
 
 
 def _is_trading_day(dt: date) -> bool:
@@ -45,6 +49,27 @@ def _is_trading_day(dt: date) -> bool:
     if iso in _BLOOMBERG_KNOWN_HOLIDAYS:
         return False
     return True
+
+
+def _get_previous_weekday(today: date) -> date:
+    candidate = today - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _latest_safe_bdib_date(now: Optional[datetime] = None) -> date:
+    ref_dt = now or datetime.now()
+    safe_date = _get_previous_weekday(ref_dt.date())
+
+    if safe_date == ref_dt.date() - timedelta(days=1) and ref_dt.hour < Config.BDIB_LATEST_READY_HOUR_LOCAL:
+        safe_date = _get_previous_weekday(safe_date)
+
+    return safe_date
+
+
+def _is_safe_bdib_query_date(dt: date, now: Optional[datetime] = None) -> bool:
+    return dt <= _latest_safe_bdib_date(now)
 
 
 def _flatten_bdib_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -122,6 +147,10 @@ def _extract_exchange_from_ticker(ticker: str) -> Optional[str]:
     return None
 
 
+def _is_outdated_ticker_error(exc: Exception) -> bool:
+    return "Cannot find exchange info" in str(exc)
+
+
 
 def fetch_bdib_for_ticker_date(
     ticker: str,
@@ -161,6 +190,13 @@ def fetch_bdib_for_ticker_date(
         logger.info(
             f"Skipping BDIB fetch for {ticker} on {date_str}: "
             f"not a valid trading day (future/weekend/holiday)"
+        )
+        return None
+
+    if not _is_safe_bdib_query_date(dt):
+        logger.info(
+            f"Skipping BDIB fetch for {ticker} on {date_str}: "
+            f"date is too close to current time and not yet in the safe BDIB window"
         )
         return None
 
@@ -250,7 +286,22 @@ def fetch_bdib_for_ticker_date(
 
         except Exception as e:
             last_exception = e
-            if attempt == max_retries - 1:
+            if _is_outdated_ticker_error(e):
+                entry = record_outdated_ticker(
+                    ticker,
+                    _OUTDATED_TICKER_REASON,
+                    detail=str(e),
+                )
+                logger.warning(
+                    f"Marked outdated ticker {ticker} after exchange-info failure; "
+                    f"hit_count={entry['hit_count']}"
+                )
+                return None
+            if attempt < max_retries - 1:
+                backoff = (attempt + 1) ** 2
+                logger.debug(f"BDIB retry {attempt+1}/{max_retries} for {ticker} on {date_str}, backoff {backoff}s")
+                time.sleep(backoff)
+            else:
                 logger.warning(f"BDIB fetch failed for {ticker} on {date_str}: {e}")
             continue
 
@@ -284,14 +335,23 @@ def fetch_bdib_for_fills(
     # Pre-filter invalid (future/weekend) dates with a warning
     valid_pairs: List[Tuple[str, str]] = []
     skipped_non_trading = 0
+    skipped_unsafe_recent = 0
+    skipped_outdated = 0
+    outdated_tickers = load_outdated_ticker_set()
     for ticker, dates in ticker_dates.items():
+        if ticker in outdated_tickers:
+            skipped_outdated += len(dates)
+            continue
         for date_str in dates:
             try:
                 dt = datetime.strptime(date_str, "%Y%m%d").date()
-                if _is_trading_day(dt):
+                if _is_trading_day(dt) and _is_safe_bdib_query_date(dt):
                     valid_pairs.append((ticker, date_str))
                 else:
-                    skipped_non_trading += 1
+                    if _is_trading_day(dt):
+                        skipped_unsafe_recent += 1
+                    else:
+                        skipped_non_trading += 1
             except ValueError:
                 logger.warning(f"Skipping invalid date format: {date_str}")
                 skipped_non_trading += 1
@@ -301,13 +361,26 @@ def fetch_bdib_for_fills(
             f"BDIB pre-filter: skipped {skipped_non_trading}/{total_pairs} "
             f"non-trading dates (future/weekend/holiday)"
         )
+    if skipped_unsafe_recent > 0:
+        logger.info(
+            f"BDIB pre-filter: skipped {skipped_unsafe_recent}/{total_pairs} "
+            f"date(s) that are too recent for stable BDIB retrieval"
+        )
+    if skipped_outdated > 0:
+        logger.info(
+            f"BDIB pre-filter: skipped {skipped_outdated}/{total_pairs} "
+            f"ticker-date pair(s) for outdated tickers"
+        )
 
     logger.info(f"Fetching BDIB data for {len(ticker_dates)} tickers, {len(valid_pairs)} valid pairs")
 
     fetched = 0
     empty_data = 0
     exchange_map = ticker_exchange_map or {}
-    for ticker, date_str in valid_pairs:
+    max_workers = min(Config.MAX_PARALLEL_TICKERS, len(valid_pairs)) if valid_pairs else 1
+
+    def _fetch_one(pair: tuple[str, str]) -> tuple[str, Optional[pd.DataFrame]]:
+        ticker, date_str = pair
         exchange = exchange_map.get(ticker)
         df = fetch_bdib_for_ticker_date(
             ticker,
@@ -315,16 +388,37 @@ def fetch_bdib_for_fills(
             interval=interval,
             exchange=exchange,
         )
-        if df is not None and not df.empty:
-            key = f"{ticker}|{date_str}"
-            results[key] = df
-            fetched += 1
-        else:
-            empty_data += 1
+        return f"{ticker}|{date_str}", df
+
+    if max_workers <= 1:
+        for ticker, date_str in valid_pairs:
+            key, df = _fetch_one((ticker, date_str))
+            if df is not None and not df.empty:
+                results[key] = df
+                fetched += 1
+            else:
+                empty_data += 1
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fetch_one, pair): pair for pair in valid_pairs}
+            for future in as_completed(futures):
+                try:
+                    key, df = future.result()
+                    if df is not None and not df.empty:
+                        results[key] = df
+                        fetched += 1
+                    else:
+                        empty_data += 1
+                except Exception as exc:
+                    pair = futures[future]
+                    logger.error(f"BDIB fetch exception for {pair[0]} on {pair[1]}: {exc}")
+                    empty_data += 1
 
     logger.info(
         f"BDIB fetch complete: {fetched} valid, {empty_data} empty, "
-        f"{skipped_non_trading} skipped (non-trading day)"
+        f"{skipped_non_trading} skipped (non-trading day), "
+        f"{skipped_unsafe_recent} skipped (too recent), "
+        f"{skipped_outdated} skipped (outdated ticker)"
     )
     return results
 

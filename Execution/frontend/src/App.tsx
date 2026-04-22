@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Suspense, lazy, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Toolbar } from './sections/Toolbar';
 import { MonitorBoard } from './sections/MonitorBoard';
 import { LazyOrderBoard } from './sections/LazyOrderBoard';
@@ -17,13 +17,15 @@ import './App.css';
 
 // Create cache instances for low-frequency data
 const traderInfoCache = createCache<TraderInfo>(CACHE_CONFIGS.TRADER_INFO);
+const CostViewModule = lazy(() => import('./modules/costview/CostViewModule'));
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 function App() {
   // Bloomberg Terminal is already authenticated locally — no login required
   const [isAuthenticated, setIsAuthenticated] = useState(true);
 
-  // State - Main tabs: monitor | execution | settings
+  // State - top-level modules plus execution sub-tabs
+  const [activeModule, setActiveModule] = useState<'execution' | 'costview'>('execution');
   const [activeTab, setActiveTab] = useState<'monitor' | 'execution' | 'settings'>('monitor');
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [allRoutes, setAllRoutes] = useState<Route[]>([]);
@@ -80,6 +82,10 @@ function App() {
 
   // Get order count based on active tab (per UI description)
   const getOrderCountForToolbar = () => {
+    if (activeModule === 'costview') {
+      return effectiveOrders.length;
+    }
+
     switch (activeTab) {
       case 'monitor':
         return monitorCount;
@@ -473,75 +479,113 @@ function App() {
       />
 
       <main className="flex-1 p-4 space-y-4">
-        {/* Tab switcher - per UI spec: [Monitor] [Execution] [Settings] */}
-        <div className="flex items-center gap-1 border-b border-border">
-          <button
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'monitor'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('monitor')}
-          >
-            Monitor
-          </button>
-          <button
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'execution'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('execution')}
-          >
-            Execution
-          </button>
-          <button
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'settings'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveTab('settings')}
-          >
-            Settings
-          </button>
-        </div>
-
-        {activeTab === 'monitor' ? (
-          <div className="space-y-4">
-            <MonitorBoard
-              allOrders={effectiveOrders}
-              isLoading={isLoading}
-              conditions={monitorConditions}
-              onConditionsChange={setMonitorConditions}
-            />
-            <LazyOrderBoard
-              allOrders={effectiveOrders}
-              isLoading={isLoading}
-            />
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
+            <button
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                activeModule === 'execution'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveModule('execution')}
+            >
+              Execution Workspace
+            </button>
+            <button
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                activeModule === 'costview'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveModule('costview')}
+            >
+              CostView
+            </button>
           </div>
-        ) : activeTab === 'execution' ? (
-          <ExecutionBoard
-            orders={filteredOrders}
-            allOrders={effectiveOrders}
-            routes={effectiveRoutes}
-            selectedOrders={selectedOrders}
-            onSelectionChange={handleSelectionChange}
-            isLoading={isLoading}
-            filters={currentFilters}
-            onFilterChange={handleFilterChange}
-            currentTrader={currentTrader}
-            onBatchUpdate={handleBatchUpdate}
-            onClearSelection={handleClearSelection}
-            onCancelRoute={handleCancelRoute}
-            onModifyRoute={handleModifyRoute}
-            onModifyOrder={handleModifyOrder}
-            onRouteOrder={handleRouteOrder}
-            onRefresh={fetchOrders}
-          />
-        ) : (
-          <SettingsBoard />
-        )}
+
+          {activeModule === 'execution' ? (
+            <>
+              <div className="flex items-center gap-1 border-b border-border">
+                <button
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                    activeTab === 'monitor'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => setActiveTab('monitor')}
+                >
+                  Monitor
+                </button>
+                <button
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                    activeTab === 'execution'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => setActiveTab('execution')}
+                >
+                  Execution
+                </button>
+                <button
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                    activeTab === 'settings'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => setActiveTab('settings')}
+                >
+                  Settings
+                </button>
+              </div>
+
+              {activeTab === 'monitor' ? (
+                <div className="space-y-4">
+                  <MonitorBoard
+                    allOrders={effectiveOrders}
+                    isLoading={isLoading}
+                    conditions={monitorConditions}
+                    onConditionsChange={setMonitorConditions}
+                  />
+                  <LazyOrderBoard
+                    allOrders={effectiveOrders}
+                    isLoading={isLoading}
+                  />
+                </div>
+              ) : activeTab === 'execution' ? (
+                <ExecutionBoard
+                  orders={filteredOrders}
+                  allOrders={effectiveOrders}
+                  routes={effectiveRoutes}
+                  selectedOrders={selectedOrders}
+                  onSelectionChange={handleSelectionChange}
+                  isLoading={isLoading}
+                  filters={currentFilters}
+                  onFilterChange={handleFilterChange}
+                  currentTrader={currentTrader}
+                  onBatchUpdate={handleBatchUpdate}
+                  onClearSelection={handleClearSelection}
+                  onCancelRoute={handleCancelRoute}
+                  onModifyRoute={handleModifyRoute}
+                  onModifyOrder={handleModifyOrder}
+                  onRouteOrder={handleRouteOrder}
+                  onRefresh={fetchOrders}
+                />
+              ) : (
+                <SettingsBoard />
+              )}
+            </>
+          ) : (
+            <Suspense
+              fallback={
+                <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                  Loading CostView module…
+                </div>
+              }
+            >
+              <CostViewModule />
+            </Suspense>
+          )}
+        </div>
       </main>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />

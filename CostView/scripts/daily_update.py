@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import logging.handlers
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -46,7 +47,6 @@ def _setup_logging() -> None:
     root.addHandler(console)
 
     if Config.LOG_FILE.parent.exists():
-        import logging.handlers
         fh = logging.handlers.TimedRotatingFileHandler(
             str(Config.LOG_FILE),
             when="midnight",
@@ -70,8 +70,12 @@ def run_daily_pipeline() -> dict:
         "status": "unknown",
     }
 
+    # ── Stage marker: Initialization ──
+    print("[STAGE] initialization 50")
+
     try:
         # Stage A: Auto-fetch new fills
+        print("[STAGE] fill_fetch 10")
         from src.fill_fetch import FillFetch
 
         logger.info("=" * 60)
@@ -80,29 +84,41 @@ def run_daily_pipeline() -> dict:
 
         fetcher = FillFetch()
         try:
+            print("[STAGE] fill_fetch 30")
             fetch_range = fetcher.determine_fetch_range()
             if fetch_range is None:
                 logger.info("Already up-to-date. Nothing to fetch.")
                 summary["fetch"] = {"status": "up-to-date"}
+                print("[STAGE] fill_fetch 100")
             else:
                 start, end = fetch_range
                 logger.info(f"Auto-fetch: {start} -> {end}")
+                print("[STAGE] fill_fetch 60")
                 fetch_result = fetcher.fetch_range_aggregated(start, end)
                 summary["fetch"] = fetch_result
+                print("[STAGE] fill_fetch 100")
         finally:
             fetcher.close()
 
-        # Stage B: Run incremental pipeline
+        # Stage B: Run incremental pipeline (with BDIB integration enabled)
+        print("[STAGE] processing 10")
         from src.pipeline import run_incremental
 
         logger.info("=" * 60)
-        logger.info("DAILY UPDATE: Running incremental pipeline")
+        logger.info("DAILY UPDATE: Running incremental pipeline (BDIB enabled)")
         logger.info("=" * 60)
 
-        pipeline_result = run_incremental()
+        print("[STAGE] processing 50")
+        pipeline_result = run_incremental(
+            skip_bdib=False,
+            stage_marker_name="processing",
+            stage_marker_start=55,
+            stage_marker_end=95,
+        )
         summary["pipeline"] = pipeline_result
 
         # Stage C: Write downstream manifest
+        print("[STAGE] completion 20")
         try:
             from src.downstream_interface import write_manifest
             write_manifest()
@@ -111,6 +127,7 @@ def run_daily_pipeline() -> dict:
             logger.warning(f"Manifest write skipped: {e}")
 
         summary["status"] = "success"
+        print("[STAGE] completion 100")
         logger.info(f"DAILY UPDATE complete: {json.dumps(summary, indent=2, default=str)}")
 
     except Exception as e:

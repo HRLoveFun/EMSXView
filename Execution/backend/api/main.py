@@ -267,11 +267,12 @@ async def lifespan(app: FastAPI):
         logger.warning("Database schema bootstrap failed: %s", db_message)
         repo_provider.mark_db_ready(False)
 
-    # Try to connect to Bloomberg
-    connected = await bloomberg_service.connect()
-    if not connected:
-        logger.warning("Could not connect to Bloomberg on startup - will retry on first request")
-    
+    # Start Bloomberg connection in background so the server is ready to accept
+    # HTTP requests immediately (Bloomberg session.start() + openService() are
+    # synchronous SDK calls that can take 30-120s during BPIPE initialisation).
+    asyncio.create_task(bloomberg_service.connect())
+    logger.info("Bloomberg connection started in background")
+
     yield
     
     # Shutdown
@@ -316,6 +317,18 @@ app.include_router(routes_router)
 app.include_router(broker_router)
 app.include_router(debug_router)
 app.include_router(realtime_router)
+
+# CostView TCA 路由 — 可选模块，不影响 ExecutionView 核心启动
+# MarketView / ExecutionView / CostView 是三个独立模块，任一模块
+# 的异常不应导致其他模块无法启动。
+try:
+    from routers.costview import router as costview_router
+    app.include_router(costview_router)
+except Exception as _costview_err:  # noqa: BLE001
+    import logging as _log
+    _log.getLogger("main").warning(
+        "CostView TCA router 未加载（ExecutionView 不受影响）: %s", _costview_err
+    )
 
 # ============================================================================
 # Error Handlers

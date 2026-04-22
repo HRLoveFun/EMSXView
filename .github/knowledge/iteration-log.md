@@ -22,3 +22,42 @@
 | 2026-04-08 11:01 | session | Stop | Session ended | — | auto |
 | 2026-04-08 14:46 | session | Stop | Session ended | — | auto |
 | 2026-04-08 15:15 | session | Stop | Session ended | — | auto |
+| 2026-04-15 16:09 | session | Stop | Session ended | — | auto |
+| 2026-04-15 | architecture | Deep review | CostView pipeline architecture optimization Phases 1-4: (P1) PK migration safety + transaction atomicity + BDIB source tracking; (P2) Vectorized derive_exchange_times + eliminated upsert full-table scan; (P3) Date-level parallel S2/S3 + ticker-level parallel S5 + retry backoff; (P4) Explicit loop for route intervals + schema whitelist + view idempotency + order labels incremental | All 23 tests pass, 10 files modified, zero schema-breaking changes | — |
+| 2026-04-15 16:35 | session | Stop | Session ended | — | auto |
+| 2026-04-21 13:01 | session | Stop | Session ended | — | auto |
+| 2026-04-21 | feat | TCA implementation | Phase 0-6 TCA module: enabled BDIB pipeline stages (daily_update.py), added bdib_daily_summary schema (raw_bdib_db.py), created daily_metrics_calculator.py (Stage 7), backfill_bdib_history.py, tca_query_service.py (parameterized multi-DB queries, OWASP-compliant), test_tca_query_service.py, routers/costview.py (3 FastAPI endpoints), registered in main.py, updated scheduler to 09:00, frontend: tca-api.ts + TcaFilterPanel + TcaOrderTable + TcaRouteTable + PriceDynamicChart + VolumeDynamicChart + TCAPage + App.tsx TCA tab | All TypeScript 0 errors, all Python files compile, 16/16 todos completed |
+| 2026-04-21 13:17 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:26 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:28 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:31 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:39 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:40 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:44 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:46 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:48 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:53 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:58 | session | Stop | Session ended | — | auto |
+| 2026-04-21 | error | launch-emsx.vbs startup failure | Diagnosed false negative in VBS readiness probe, replaced `MSXML2.XMLHTTP.6.0` with `MSXML2.ServerXMLHTTP.6.0`, fixed stop-script hint, and re-ran launcher from a clean 3000/5173 state | `launch-emsx.vbs` exits 0 and successfully brings up Execution frontend (HTTP 200 on :5173) and backend health endpoint on :3000 | — |
+| 2026-04-21 16:12 | session | Stop | Session ended | — | auto |
+| 2026-04-21 16:13 | session | Stop | Session ended | — | auto |
+| 2026-04-21 16:39 | session | Stop | Session ended | — | auto |
+| 2026-04-21 16:46 | session | Stop | Session ended | — | auto |
+| 2026-04-21 17:12 | task | User requested CostView frontend implementation with shared shell, exports, and configurable threshold alerts | Implemented a lazy-loaded CostView module in Execution/frontend with Overview/Analysis/Configure views, local threshold/config persistence, export flows, and threshold unit tests; validated with frontend build and tests | CostView is now integrated into the main frontend shell and verified by successful npm run build and npm test | manual |
+| 2026-04-21 17:14 | session | Stop | Session ended | — | auto |
+| 2026-04-21 17:14 | session | Stop | Session ended | — | auto |
+| 2026-04-22 09:37 | task | User requested CostView chunk splitting, export/filter consistency, and investigation of update status stuck at Started | Split CostView into lazy-loaded analysis/config/export/chart chunks, changed warning-only flows to page/export from one full backend-filtered result set, and extended backend/frontend update status with ordered progress and last activity metadata | CostView build output now shows smaller module chunks, warning-only pagination/export are aligned, and pipeline status surfaces stage/activity rather than a generic Started polling message | manual |
+| 2026-04-22 09:38 | session | Stop | Session ended | — | auto |
+| 2026-04-22 09:38 | session | Stop | Session ended | — | auto |
+| 2026-04-22 09:45 | error | User requested one-pass fix for pipeline `database is locked` failures and BDIB near-real-time warnings | Added SQLite busy-timeout configuration, serialized Stage 3 aggregate writes into guarded transactions, introduced a safe BDIB cutoff window in both the pipeline and fetch layer, and added targeted regression tests | Focused Python tests passed; Stage 3 now avoids concurrent write races on `processed_fills.db`, and morning pipeline runs will skip unsafe latest BDIB dates instead of flooding logs with near-real-time warnings | manual |
+| 2026-04-22 09:46 | session | Stop | Session ended | — | auto |
+| 2026-04-22 10:03 | session | Stop | Session ended | — | auto |
+| 2026-04-22 10:21 | session | Stop | Session ended | — | auto |
+| 2026-04-22 10:55 | session | Stop | Session ended | — | auto |
+| 2026-04-22 11:15 | task | user requested outdated ticker tombstones plus Stage 7 Bloomberg daily-field switch | Implemented persistent outdated ticker tombstones for Stage 5/6, switched Stage 7 daily summary sourcing to Bloomberg daily history (`PX_VOLUME`, `VOLATILITY_30D`, `PX_LAST`), expanded `bdib_daily_summary` with `daily_close` and `intraday_volatility`, and updated query semantics to keep `intraday_volatility` on the original local-bar calculation path. | Focused validation passed with `CostView.test_pipeline_guards` (9 tests). Stage 5/6 now skip tombstoned equity tickers and Stage 7 stores Bloomberg daily volatility separately from the preserved intraday-volatility metric. | manual |
+| 2026-04-22 11:15 | session | Stop | Session ended | — | auto |
+| 2026-04-22 11:34 | task | user reported CostView Refresh analysis error and Overview update status stuck at Processing 50% | Fixed TCA order aggregation to ignore missing route metrics, added granular processing-stage markers through the daily pipeline, restarted services manually after the service-manager TIME_WAIT false positive, and verified the live API paths for analyze and update-status. | `POST /api/tca/analyze` no longer throws the NoneType aggregation error, and a live update job advanced to `processing 61 / overall 72` instead of staying at `processing 50`. Focused regression suite passed (11 tests). | manual |
+| 2026-04-22 11:35 | session | Stop | Session ended | — | auto |
+| 2026-04-22 11:35 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:43 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:47 | session | Stop | Session ended | — | auto |

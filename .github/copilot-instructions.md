@@ -1,3 +1,9 @@
+# 语言设置 / Language Setting
+
+所有 AI 回复（解释、分析、建议、问题描述等）**必须使用简体中文**，代码、变量名、文件路径、命令等技术内容除外。
+
+---
+
 # EMSX Trading Platform — Iterative Update Guidelines
 
 ## Core Principle

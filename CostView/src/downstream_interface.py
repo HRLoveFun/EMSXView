@@ -21,10 +21,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .database_access import AccessTier
+from .outdated_tickers import load_outdated_ticker_set
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)
+
+
+def _filter_outdated_equ_tickers(tickers: List[str]) -> List[str]:
+    outdated = load_outdated_ticker_set()
+    if not outdated:
+        return tickers
+    return [ticker for ticker in tickers if ticker not in outdated]
 
 
 def get_active_tickers(
@@ -48,7 +56,7 @@ def get_active_tickers(
     if ticker_type in ("equ", "all"):
         equ_df = proc_db.get_equ_ticker_registry()
         if not equ_df.empty:
-            tickers.extend(equ_df["equ_ticker"].tolist())
+            tickers.extend(_filter_outdated_equ_tickers(equ_df["equ_ticker"].tolist()))
 
     if ticker_type in ("ccy", "all"):
         ccy_df = proc_db.get_ccy_ticker_registry()
@@ -76,8 +84,9 @@ def get_tickers_for_date(
     result: Dict[str, List[str]] = {"equ": [], "ccy": []}
 
     equ_map = proc_db.get_ticker_dates("equ_ticker")
+    outdated = load_outdated_ticker_set()
     for ticker, dates in equ_map.items():
-        if date_str in dates:
+        if ticker not in outdated and date_str in dates:
             result["equ"].append(ticker)
 
     ccy_map = proc_db.get_ticker_dates("ccy_ticker")
@@ -105,10 +114,13 @@ def get_unfetched_ticker_dates(
         proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
 
     all_pairs: List[Tuple[str, str]] = []
+    outdated = load_outdated_ticker_set()
 
     for ticker_type in ("equ_ticker", "ccy_ticker"):
         ticker_map = proc_db.get_ticker_dates(ticker_type)
         for ticker, dates in ticker_map.items():
+            if ticker_type == "equ_ticker" and ticker in outdated:
+                continue
             for date_str in dates:
                 pair = (ticker, date_str)
                 if pair not in fetched_set:

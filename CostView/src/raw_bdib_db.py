@@ -80,6 +80,7 @@ class RawBDIBDB:
                     num_trds         REAL,
                     value            REAL,
                     fetched_at       TEXT DEFAULT (datetime('now')),
+                    source           TEXT DEFAULT 'bloomberg',
                     PRIMARY KEY (equ_ticker, order_as_of_date, mkt_timestamp)
                 )
             """)
@@ -89,6 +90,55 @@ class RawBDIBDB:
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_raw_bdib_ticker ON {Config.RAW_BDIB_TABLE} (equ_ticker)"
             )
+
+            # Schema migration: add source column if missing (for existing DBs)
+            cursor = conn.execute(f"PRAGMA table_info({Config.RAW_BDIB_TABLE})")
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            if "source" not in existing_cols:
+                conn.execute(
+                    f"ALTER TABLE {Config.RAW_BDIB_TABLE} ADD COLUMN source TEXT DEFAULT 'bloomberg'"
+                )
+                logger.info("raw_bdib migration: added 'source' column")
+
+            # bdib_daily_summary: per-ticker, per-date aggregated metrics for TCA
+            # Stores Bloomberg daily fields plus locally-computed intraday carry-over metrics.
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {Config.BDIB_DAILY_SUMMARY_TABLE} (
+                    equ_ticker        TEXT NOT NULL,
+                    trade_date        TEXT NOT NULL,
+                    total_volume      REAL,
+                    daily_vwap        REAL,
+                    daily_close       REAL,
+                    daily_volatility  REAL,
+                    intraday_volatility REAL,
+                    adv_5d            REAL,
+                    adv_20d           REAL,
+                    computed_at       TEXT DEFAULT (datetime('now')),
+                    PRIMARY KEY (equ_ticker, trade_date)
+                )
+            """)
+            summary_info = conn.execute(
+                f"PRAGMA table_info({Config.BDIB_DAILY_SUMMARY_TABLE})"
+            ).fetchall()
+            summary_existing_cols = {row[1] for row in summary_info}
+            for col_name, col_type in (
+                ("daily_close", "REAL"),
+                ("intraday_volatility", "REAL"),
+            ):
+                if col_name not in summary_existing_cols:
+                    conn.execute(
+                        f"ALTER TABLE {Config.BDIB_DAILY_SUMMARY_TABLE} "
+                        f"ADD COLUMN {col_name} {col_type}"
+                    )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_daily_summary_ticker "
+                f"ON {Config.BDIB_DAILY_SUMMARY_TABLE} (equ_ticker)"
+            )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_daily_summary_date "
+                f"ON {Config.BDIB_DAILY_SUMMARY_TABLE} (trade_date)"
+            )
+
             conn.commit()
         finally:
             conn.close()
@@ -118,12 +168,16 @@ class RawBDIBDB:
 
         # Only write Bloomberg-native columns — drop any derived fields that may be present
         cols = RAW_BDIB_COLUMNS.copy()
+        # Include source column if present in input (e.g. fallback-derived data)
+        if "source" in work.columns:
+            cols.append("source")
         for col in cols:
             if col not in work.columns:
                 work[col] = None
 
-        # Ensure no extra columns leak into raw store
-        work = work[[c for c in RAW_BDIB_COLUMNS if c in work.columns]]
+        # Ensure no extra columns leak into raw store (keep source if present)
+        allowed = set(RAW_BDIB_COLUMNS) | {"source"}
+        work = work[[c for c in cols if c in work.columns and c in allowed]]
 
         conn = self._get_conn()
         try:
@@ -159,5 +213,123 @@ class RawBDIBDB:
             )
             value = cursor.fetchone()[0]
             return str(value) if value else None
+        finally:
+            conn.close()
+
+    # ── bdib_daily_summary CRUD ──────────────────────────────────────────────
+
+    def upsert_daily_summary(self, rows: list[dict]) -> int:
+        """Upsert pre-computed daily metrics into bdib_daily_summary.
+
+        Each row dict must have: equ_ticker, trade_date.
+        Optional: total_volume, daily_vwap, daily_close, daily_volatility,
+        intraday_volatility, adv_5d, adv_20d.
+        """
+        if not rows:
+            return 0
+        cols = [
+            "equ_ticker",
+            "trade_date",
+            "total_volume",
+            "daily_vwap",
+            "daily_close",
+            "daily_volatility",
+            "intraday_volatility",
+            "adv_5d",
+            "adv_20d",
+        ]
+        sql = (
+            f"INSERT OR REPLACE INTO {Config.BDIB_DAILY_SUMMARY_TABLE} "
+            f"({', '.join(cols)}) VALUES ({', '.join(['?'] * len(cols))})"
+        )
+        params = [
+            tuple(r.get(c) for c in cols)
+            for r in rows
+        ]
+        conn = self._get_conn()
+        try:
+            conn.executemany(sql, params)
+            conn.commit()
+            return len(params)
+        finally:
+            conn.close()
+
+    def get_daily_summary(
+        self,
+        equ_ticker: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Fetch bdib_daily_summary rows for a ticker over a date range."""
+        conditions = ["equ_ticker = ?"]
+        params: list = [equ_ticker]
+        if start_date:
+            conditions.append("trade_date >= ?")
+            params.append(start_date)
+        if end_date:
+            conditions.append("trade_date <= ?")
+            params.append(end_date)
+        where = " AND ".join(conditions)
+        conn = self._get_conn()
+        try:
+            df = pd.read_sql_query(
+                f"SELECT * FROM {Config.BDIB_DAILY_SUMMARY_TABLE} WHERE {where} ORDER BY trade_date",
+                conn._conn,
+                params=params,
+            )
+            return df
+        finally:
+            conn.close()
+
+    def get_bdib_bars_for_date(
+        self, equ_ticker: str, trade_date: str
+    ) -> pd.DataFrame:
+        """Fetch all 10s bars for a given ticker and date from raw_bdib."""
+        conn = self._get_conn()
+        try:
+            df = pd.read_sql_query(
+                f"SELECT * FROM {Config.RAW_BDIB_TABLE} "
+                "WHERE equ_ticker = ? AND order_as_of_date = ? "
+                "ORDER BY mkt_timestamp",
+                conn._conn,
+                params=[equ_ticker, trade_date],
+            )
+            return df
+        finally:
+            conn.close()
+
+    def get_bdib_bars_for_tickers_and_dates(
+        self,
+        equ_tickers: list[str],
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        """Fetch raw BDIB bars for multiple tickers over a date range."""
+        if not equ_tickers:
+            return pd.DataFrame()
+        placeholders = ",".join(["?"] * len(equ_tickers))
+        conn = self._get_conn()
+        try:
+            df = pd.read_sql_query(
+                f"SELECT * FROM {Config.RAW_BDIB_TABLE} "
+                f"WHERE equ_ticker IN ({placeholders}) "
+                "AND order_as_of_date >= ? AND order_as_of_date <= ? "
+                "ORDER BY equ_ticker, order_as_of_date, mkt_timestamp",
+                conn._conn,
+                params=[*equ_tickers, start_date, end_date],
+            )
+            return df
+        finally:
+            conn.close()
+
+    def get_distinct_dates(self) -> list[str]:
+        """Return all distinct order_as_of_date values in raw_bdib, sorted."""
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                f"SELECT DISTINCT order_as_of_date FROM {Config.RAW_BDIB_TABLE} "
+                "ORDER BY order_as_of_date"
+            )
+            return [row[0] for row in cursor.fetchall()]
         finally:
             conn.close()

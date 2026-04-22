@@ -2,11 +2,11 @@
 Windows Task Scheduler Installer — register CostView daily update as a scheduled task.
 
 Creates a Windows Scheduled Task that runs the daily_update.py script
-at a configurable time (default: 18:00) every weekday.
+at a configurable time (default: 09:00) every weekday.
 
 Usage:
-    python install_scheduler.py                     # Install with defaults
-    python install_scheduler.py --time 17:30        # Custom time
+    python install_scheduler.py                     # Install with defaults (09:00)
+    python install_scheduler.py --time 08:30        # Custom time
     python install_scheduler.py --uninstall         # Remove the task
     python install_scheduler.py --status            # Check task status
 """
@@ -30,7 +30,7 @@ def _find_python() -> str:
     return sys.executable
 
 
-def install_task(run_time: str = "18:00") -> bool:
+def install_task(run_time: str = "09:00") -> bool:
     """Register the daily update task with Windows Task Scheduler.
 
     Args:
@@ -106,8 +106,8 @@ def main():
         description="Install/manage CostView daily update scheduled task"
     )
     parser.add_argument(
-        "--time", type=str, default="18:00",
-        help="Daily run time (HH:MM, default: 18:00)",
+        "--time", type=str, default="09:00",
+        help="Daily run time (HH:MM, default: 09:00)",
     )
     parser.add_argument(
         "--uninstall", action="store_true",

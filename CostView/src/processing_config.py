@@ -111,6 +111,7 @@ class ProcessingConfig:
 
     # Tables in RAW_BDIB_DB / PROCESSED_RAW_BDIB_DB / FILL_BDIB_DB (3-layer BDIB pipeline)
     RAW_BDIB_TABLE: str = "raw_bdib"
+    BDIB_DAILY_SUMMARY_TABLE: str = "bdib_daily_summary"     # Bloomberg daily summary + intraday carry-over metrics
     PROCESSED_RAW_BDIB_TABLE: str = "processed_raw_bdib"      # Layer 2: raw + derived
     FILL_BDIB_TABLE: str = "fill_bdib"                       # Layer 3: fills + BDIB + TCA
     PROCESSED_BDIB_TABLE: str = "fill_bdib"                   # legacy alias → fill_bdib_table
@@ -143,6 +144,26 @@ class ProcessingConfig:
     # Example: ["US", "JP", "LN"]
     BDID_EXCHANGE: list[str] = ["AU", "AV", "BB", "FH", "FP", "GA", "GR", "ID", "IJ", "IM", "IN", "JP", "KS", "LN", "MK", 'NA', "NO", "PL", "SJ", "SM", "SP", "SS", "SW", "US"]
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # SECTION 6a2: PARALLELIZATION PARAMETERS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # Max threads for date-level parallelism in S2 (ProcessRawFills) and S3 (AggregateFills).
+    # Each thread uses its own DB connection. Set to 1 to disable parallelism.
+    MAX_PARALLEL_DATES: int = 4
+
+    # Max threads for ticker-level parallelism in S5 (IntegrateBDIB).
+    # Bloomberg API session limit is ~3 concurrent requests.
+    MAX_PARALLEL_TICKERS: int = 3
+
+    # SQLite busy handling for concurrent pipeline stages.
+    SQLITE_CONNECT_TIMEOUT_SEC: int = 30
+    SQLITE_BUSY_TIMEOUT_MS: int = 30_000
+
+    # Latest prior trading day becomes eligible for BDIB fetches only after this
+    # local hour on the following calendar day. Before that, the pipeline uses
+    # the previous safe trading day to avoid xbbg near-real-time warnings.
+    BDIB_LATEST_READY_HOUR_LOCAL: int = 18
 
     # ═══════════════════════════════════════════════════════════════════════
     # SECTION 6b: LOGGING PARAMETERS
@@ -160,6 +181,7 @@ class ProcessingConfig:
     # ═══════════════════════════════════════════════════════════════════════
 
     MARKET_FETCH_MANIFEST: Path = DATA_DIR / "market_fetch_manifest.json"
+    OUTDATED_TICKERS_FILE: Path = DATA_DIR / "outdated_tickers.json"
 
     # ═══════════════════════════════════════════════════════════════════════
     # SECTION 7: UTILITY METHODS

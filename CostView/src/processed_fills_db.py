@@ -57,15 +57,23 @@ class ProcessedFillsDB:
 
     def _get_conn(self) -> AccessControlledConnection:
         """Return an access-controlled SQLite connection."""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(
+            str(self.db_path),
+            timeout=Config.SQLITE_CONNECT_TIMEOUT_SEC,
+        )
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA busy_timeout={Config.SQLITE_BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA foreign_keys=ON")
         return AccessControlledConnection(conn, self._access_tier)
 
     def _get_admin_conn(self) -> sqlite3.Connection:
         """Return a raw connection for schema init (always admin)."""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(
+            str(self.db_path),
+            timeout=Config.SQLITE_CONNECT_TIMEOUT_SEC,
+        )
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA busy_timeout={Config.SQLITE_BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
@@ -151,10 +159,10 @@ class ProcessedFillsDB:
             """)
 
             # -- v_processed_fills_legacy: Compatibility view --
-            # Recreate every init so definition updates are applied.
-            conn.execute("DROP VIEW IF EXISTS v_processed_fills_legacy")
+            # Use IF NOT EXISTS to avoid DROP+CREATE race under concurrent access.
+            # To update the view definition, manually DROP first or bump schema version.
             conn.execute(f"""
-                CREATE VIEW v_processed_fills_legacy AS
+                CREATE VIEW IF NOT EXISTS v_processed_fills_legacy AS
                 SELECT 
                     r.OrderId,
                     p.FillId,
@@ -333,10 +341,36 @@ class ProcessedFillsDB:
 
         old_table = Config.PROCESSED_FILLS_TABLE
         new_table = f"{old_table}_new"
+        backup_table = f"{old_table}_backup"
 
         # Compatibility view depends on processed_fills; drop before table swap.
         conn.execute("DROP VIEW IF EXISTS v_processed_fills_legacy")
         conn.execute(f"DROP TABLE IF EXISTS {new_table}")
+
+        # ── Pre-migration conflict detection ──
+        conflict_cursor = conn.execute(
+            f"""SELECT OrderId, FillId, COUNT(*) as cnt
+                FROM {old_table}
+                GROUP BY OrderId, FillId
+                HAVING COUNT(*) > 1"""
+        )
+        conflicts = conflict_cursor.fetchall()
+        if conflicts:
+            logger.warning(
+                f"processed_fills PK migration: {len(conflicts)} (OrderId,FillId) "
+                f"pairs have multiple variants — INSERT OR REPLACE will keep "
+                f"the last-encountered row per new PK"
+            )
+
+        # ── Backup old table before destructive migration ──
+        conn.execute(f"DROP TABLE IF EXISTS {backup_table}")
+        conn.execute(
+            f"CREATE TABLE {backup_table} AS SELECT * FROM {old_table}"
+        )
+        backup_count = conn.execute(
+            f"SELECT COUNT(*) FROM {backup_table}"
+        ).fetchone()[0]
+        logger.info(f"processed_fills PK migration: backed up {backup_count} rows to {backup_table}")
 
         proc_cols = self._build_column_defs(PROCESSED_COLUMNS, COLUMN_TYPE_MAP)
         conn.execute(f"""
@@ -351,7 +385,7 @@ class ProcessedFillsDB:
         if copy_cols:
             cols = ", ".join(f"[{c}]" for c in copy_cols)
             conn.execute(
-                f"INSERT OR IGNORE INTO {new_table} ({cols}) SELECT {cols} FROM {old_table}"
+                f"INSERT OR REPLACE INTO {new_table} ({cols}) SELECT {cols} FROM {old_table}"
             )
 
         conn.execute(f"DROP TABLE {old_table}")
@@ -367,10 +401,12 @@ class ProcessedFillsDB:
         key_columns: List[str],
         expected_columns: List[str],
         type_map: Dict[str, str],
+        conn: Optional[sqlite3.Connection] = None,
     ) -> int:
         """Insert or replace using a fixed column set (no dynamic ALTER TABLE).
 
         Only writes columns present in expected_columns. Others are silently dropped.
+        If conn is provided, uses it without commit/close (caller manages transaction).
         """
         if df.empty:
             return 0
@@ -381,7 +417,9 @@ class ProcessedFillsDB:
             logger.warning(f"No expected columns found in DataFrame for {table_name}")
             return 0
 
-        conn = self._get_conn()
+        own_conn = conn is None
+        if own_conn:
+            conn = self._get_conn()
         try:
             placeholders = ", ".join(["?"] * len(insert_cols))
             col_names = ", ".join(f"[{c}]" for c in insert_cols)
@@ -402,33 +440,43 @@ class ProcessedFillsDB:
                 rows.append(tuple(values))
 
             conn.executemany(sql, rows)
-            conn.commit()
+            if own_conn:
+                conn.commit()
             return len(rows)
         finally:
-            conn.close()
+            if own_conn:
+                conn.close()
 
     # -- Processed Fills Fact Table (Schema V2) ---
 
-    def upsert_processed_fills(self, df: pd.DataFrame) -> int:
-        """Insert or replace processed fill records (Fact table)."""
+    def upsert_processed_fills(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Insert or replace processed fill records (Fact table).
+
+        If conn is provided, uses it without commit/close (caller manages transaction).
+        """
         count = self._upsert_fixed_schema(
             df, Config.PROCESSED_FILLS_TABLE,
             key_columns=["FillId"],
             expected_columns=PROCESSED_COLUMNS,
             type_map=COLUMN_TYPE_MAP,
+            conn=conn,
         )
         logger.info(f"Upserted {count} processed fills (Fact table schema)")
         return count
 
     # -- Route Registry Dimension Table (Schema V2) ---
 
-    def upsert_route_registry(self, df: pd.DataFrame) -> int:
-        """Insert or replace route registry records."""
+    def upsert_route_registry(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Insert or replace route registry records.
+
+        If conn is provided, uses it without commit/close (caller manages transaction).
+        """
         count = self._upsert_fixed_schema(
             df, "route_registry",
             key_columns=["OrderId", "RouteId"],
             expected_columns=ROUTE_REGISTRY_COLUMNS,
             type_map=COLUMN_TYPE_MAP,
+            conn=conn,
         )
         logger.info(f"Upserted {count} route registry records")
         return count
@@ -476,17 +524,28 @@ class ProcessedFillsDB:
 
     # -- Aggregated Fills (route-level, fixed schema) ---
 
-    def upsert_agg_fills_10s(self, df: pd.DataFrame) -> int:
+    def upsert_agg_fills_10s(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
         """Insert or replace route-level 10-second aggregated fills."""
-        count = self._upsert_fixed_schema(
-            df, Config.AGG_10S_TABLE,
-            key_columns=["OrderId", "RouteId", "mkt_timestamp", "order_as_of_date"],
-            expected_columns=AGG_COLUMNS,
-            type_map=COLUMN_TYPE_MAP,
-        )
-        self.update_ticker_repository(df)
-        logger.info(f"Upserted {count} route-level agg fills (10s)")
-        return count
+        own_conn = conn is None
+        if own_conn:
+            conn = self._get_conn()
+
+        try:
+            count = self._upsert_fixed_schema(
+                df, Config.AGG_10S_TABLE,
+                key_columns=["OrderId", "RouteId", "mkt_timestamp", "order_as_of_date"],
+                expected_columns=AGG_COLUMNS,
+                type_map=COLUMN_TYPE_MAP,
+                conn=conn,
+            )
+            self.update_ticker_repository(df, conn=conn)
+            if own_conn:
+                conn.commit()
+            logger.info(f"Upserted {count} route-level agg fills (10s)")
+            return count
+        finally:
+            if own_conn:
+                conn.close()
 
     def upsert_agg_fills_1min(self, df: pd.DataFrame) -> int:
         """[DEPRECATED v3] Insert or replace route-level 1-minute aggregated fills.
@@ -535,10 +594,26 @@ class ProcessedFillsDB:
         df: pd.DataFrame,
         table_name: str,
         key_columns: List[str],
+        allowed_columns: Optional[set] = None,
     ) -> int:
-        """Legacy dynamic-schema upsert (kept for backward compatibility)."""
+        """Legacy dynamic-schema upsert (kept for backward compatibility).
+        
+        If allowed_columns is provided, any DataFrame column not in the set
+        is silently dropped (with a WARNING log) instead of being auto-added
+        to the table via ALTER TABLE.
+        """
         if df.empty:
             return 0
+
+        if allowed_columns is not None:
+            full_allowed = allowed_columns | set(key_columns)
+            unknown = set(df.columns) - full_allowed
+            if unknown:
+                logger.warning(
+                    f"_upsert_df_to_table({table_name}): dropping {len(unknown)} "
+                    f"unknown columns not in whitelist: {sorted(unknown)}"
+                )
+                df = df[[c for c in df.columns if c in full_allowed]]
 
         conn = self._get_conn()
         try:
@@ -645,9 +720,14 @@ class ProcessedFillsDB:
 
     # -- Processing Log ---
 
-    def mark_date_processed(self, date_str: str, stage: str = "processed", row_count: int = 0) -> None:
-        """Record that a date has been processed at a given stage."""
-        conn = self._get_conn()
+    def mark_date_processed(self, date_str: str, stage: str = "processed", row_count: int = 0, conn: Optional[sqlite3.Connection] = None) -> None:
+        """Record that a date has been processed at a given stage.
+
+        If conn is provided, uses it without commit/close (caller manages transaction).
+        """
+        own_conn = conn is None
+        if own_conn:
+            conn = self._get_conn()
         try:
             conn.execute(
                 f"""INSERT OR REPLACE INTO {Config.PROCESSING_LOG_TABLE}
@@ -655,9 +735,11 @@ class ProcessedFillsDB:
                     VALUES (?, ?, ?)""",
                 (date_str, row_count, stage),
             )
-            conn.commit()
+            if own_conn:
+                conn.commit()
         finally:
-            conn.close()
+            if own_conn:
+                conn.close()
 
     def get_processed_dates(self, stage: str = "processed") -> List[str]:
         """Get all dates that have been processed at a given stage."""
@@ -681,12 +763,17 @@ class ProcessedFillsDB:
 
     # -- Ticker-Date Mapping ---
 
-    def update_ticker_date_mapping(self, df: pd.DataFrame) -> None:
-        """Update ticker->date mapping from processed fills DataFrame."""
+    def update_ticker_date_mapping(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> None:
+        """Update ticker->date mapping from processed fills DataFrame.
+
+        If conn is provided, uses it without commit/close (caller manages transaction).
+        """
         if df.empty:
             return
 
-        conn = self._get_conn()
+        own_conn = conn is None
+        if own_conn:
+            conn = self._get_conn()
         try:
             records = []
 
@@ -708,10 +795,12 @@ class ProcessedFillsDB:
                         (ticker, ticker_type, order_as_of_date) VALUES (?, ?, ?)""",
                     records,
                 )
-                conn.commit()
+                if own_conn:
+                    conn.commit()
                 logger.debug(f"Updated ticker-date mapping: {len(records)} entries")
         finally:
-            conn.close()
+            if own_conn:
+                conn.close()
 
     def get_ticker_dates(self, ticker_type: str = "equ_ticker") -> Dict[str, List[str]]:
         """Get ticker->dates mapping."""
@@ -731,7 +820,7 @@ class ProcessedFillsDB:
         finally:
             conn.close()
 
-    def update_ticker_repository(self, df: pd.DataFrame) -> None:
+    def update_ticker_repository(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> None:
         """Upsert equ_ticker -> Exchange mapping from aggregated fills."""
         if df.empty or "equ_ticker" not in df.columns or "Exchange" not in df.columns:
             return
@@ -755,7 +844,9 @@ class ProcessedFillsDB:
 
         pairs = list(work.drop_duplicates(subset=["equ_ticker"])[["equ_ticker", "Exchange"]].itertuples(index=False, name=None))
 
-        conn = self._get_conn()
+        own_conn = conn is None
+        if own_conn:
+            conn = self._get_conn()
         try:
             conn.executemany(
                 """
@@ -767,9 +858,11 @@ class ProcessedFillsDB:
                 """,
                 pairs,
             )
-            conn.commit()
+            if own_conn:
+                conn.commit()
         finally:
-            conn.close()
+            if own_conn:
+                conn.close()
 
     def get_ticker_exchange_map(
         self,
@@ -812,16 +905,19 @@ class ProcessedFillsDB:
 
     # -- Ticker Registry (Phase 4A) ---
 
-    def update_ticker_registries(self, df: pd.DataFrame) -> None:
+    def update_ticker_registries(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> None:
         """Update equ_ticker_registry and ccy_ticker_registry from processed fills.
 
         Computes first_seen_date, last_seen_date, and order_count per ticker.
         Uses INSERT OR REPLACE with MIN/MAX logic for date tracking.
+        If conn is provided, uses it without commit/close (caller manages transaction).
         """
         if df.empty:
             return
 
-        conn = self._get_conn()
+        own_conn = conn is None
+        if own_conn:
+            conn = self._get_conn()
         try:
             # Equity ticker registry
             if "equ_ticker" in df.columns and "order_as_of_date" in df.columns:
@@ -871,10 +967,12 @@ class ProcessedFillsDB:
                          str(row["last_date"]), int(row["order_count"])),
                     )
 
-            conn.commit()
+            if own_conn:
+                conn.commit()
             logger.debug("Updated ticker registries")
         finally:
-            conn.close()
+            if own_conn:
+                conn.close()
 
     def get_equ_ticker_registry(self) -> pd.DataFrame:
         """Get all equity tickers from the registry."""

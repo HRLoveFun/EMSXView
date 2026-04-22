@@ -113,6 +113,13 @@ class ProcessedRawBDIBDB:
             return 0
 
         work = df.copy()
+
+        # Rename Bloomberg-native column names to match our schema
+        rename_map = {"Order As of Date": "order_as_of_date"}
+        for old_name, new_name in rename_map.items():
+            if old_name in work.columns:
+                work.rename(columns={old_name: new_name}, inplace=True)
+
         for col in PROCESSED_RAW_BDIB_COLUMNS:
             if col not in work.columns:
                 work[col] = None

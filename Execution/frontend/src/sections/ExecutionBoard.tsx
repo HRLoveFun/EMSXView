@@ -8,7 +8,6 @@ import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
   CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,
   RouteOrderRequest, CreateParentExecutionRequest,
-  SchedulerStateResponse, ActiveExecutionSummary,
 } from '@/types';
 
 interface ExecutionBoardProps {
@@ -53,13 +52,8 @@ export function ExecutionBoard({
   onLaunchExecution,
 }: ExecutionBoardProps) {
   const [activeTab, setActiveTab] = useState<ExecutionTab>('orders');
-  const [algoLaunchOrder, setAlgoLaunchOrder] = useState<Order | null>(null);
+  const [algoLaunchOrder] = useState<Order | null>(null);
   const [isAlgoDialogOpen, setIsAlgoDialogOpen] = useState(false);
-
-  const handleLaunchAlgo = useCallback((order: Order) => {
-    setAlgoLaunchOrder(order);
-    setIsAlgoDialogOpen(true);
-  }, []);
 
   const handleAlgoConfirm = useCallback(async (request: CreateParentExecutionRequest) => {
     if (onLaunchExecution) {

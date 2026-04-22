@@ -236,16 +236,44 @@ class RawFillsDB:
         """Recreate raw_fills table with new triple-column PK.
 
         Since SQLite doesn't support ALTER TABLE on PRIMARY KEY, we must:
-            1. Create new table with correct PK
-            2. Copy data from old to new (INSERT OR IGNORE)
-            3. Drop old table, rename new
+            1. Pre-check for conflicting rows (same OrderId+FillId, different RouteId)
+            2. Backup old table before destructive migration
+            3. Create new table with correct PK
+            4. Copy data (INSERT OR REPLACE to keep latest RouteId per fetched_at)
+            5. Drop old table, rename new
         """
         old_table = Config.RAW_FILLS_TABLE
         new_table = f"{old_table}_new"
+        backup_table = f"{old_table}_backup"
 
         logger.info("Rebuilding raw_fills table with PK=(OrderId,RouteId,FillId)")
 
         try:
+            # ── Pre-migration conflict detection ──
+            conflict_cursor = conn.execute(
+                f"""SELECT OrderId, FillId, COUNT(*) as cnt
+                    FROM {old_table}
+                    GROUP BY OrderId, FillId
+                    HAVING COUNT(*) > 1"""
+            )
+            conflicts = conflict_cursor.fetchall()
+            if conflicts:
+                logger.warning(
+                    f"PK migration: {len(conflicts)} (OrderId,FillId) pairs have "
+                    f"multiple RouteId variants — INSERT OR REPLACE will keep the "
+                    f"last-encountered row per new PK"
+                )
+
+            # ── Backup old table before destructive migration ──
+            conn.execute(f"DROP TABLE IF EXISTS {backup_table}")
+            conn.execute(
+                f"CREATE TABLE {backup_table} AS SELECT * FROM {old_table}"
+            )
+            backup_count = conn.execute(
+                f"SELECT COUNT(*) FROM {backup_table}"
+            ).fetchone()[0]
+            logger.info(f"PK migration: backed up {backup_count} rows to {backup_table}")
+
             # Build new schema dynamically but safely: use only col names/types,
             # strip all inline constraints (PK, defaults) to avoid parse issues.
             old_cols = conn.execute(f"PRAGMA table_info({old_table})").fetchall()
@@ -273,7 +301,7 @@ class RawFillsDB:
             conn.execute(create_sql)
 
             row_count = conn.execute(
-                f"INSERT OR IGNORE INTO {new_table} SELECT {col_names_str} FROM {old_table}"
+                f"INSERT OR REPLACE INTO {new_table} SELECT {col_names_str} FROM {old_table}"
             ).rowcount
             logger.info(f"Copied {row_count} rows to new table")
 
@@ -285,6 +313,68 @@ class RawFillsDB:
         except Exception as e:
             logger.error(f"PK migration failed: {e}")
             raise
+
+    # ── Business-level dedup constants ──────────────────────────────────────
+    # Columns used to detect duplicate fills at the business level.
+    # Two rows are considered the SAME FILL if ALL these columns match.
+    # When duplicates exist, we keep the row with the HIGHEST FillId (latest).
+    _BIZ_DEDUP_COLUMNS: List[str] = list(EMSX_FILL_COLUMNS)  # 28 EMSX original cols
+
+    @staticmethod
+    def _dedup_fills_by_business(
+        fills: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Remove business-duplicate rows from incoming fill data.
+
+        Bloomberg sometimes returns multiple records with identical 28 EMSX
+        fields but different FillIds (e.g., late correction that carries no
+        actual field changes). Without this filter, they would all be stored
+        due to the triple-column PK (OrderId, RouteId, FillId).
+
+        Strategy: group by all 28 EMSX columns; within each group keep the
+        row with the largest FillId (most recent version from Bloomberg).
+
+        Args:
+            fills: Raw Bloomberg API output (List[Dict] with EMSX keys).
+
+        Returns:
+            Deduplicated list (same format as input, shorter or equal length).
+        """
+        if len(fills) <= 1:
+            return fills
+
+        df = pd.DataFrame(fills)
+        biz_cols = RawFillsDB._BIZ_DEDUP_COLUMNS
+
+        # Only use columns that actually exist in the DataFrame
+        valid_cols = [c for c in biz_cols if c in df.columns]
+        if not valid_cols:
+            return fills
+
+        before = len(df)
+
+        # Sort by FillId descending so that drop_duplicates keeps the latest
+        if "FillId" in df.columns and df["FillId"].notna().any():
+            try:
+                df = df.sort_values(
+                    "FillId",
+                    ascending=False,
+                    na_position="last",
+                    kind="mergesort",
+                )
+            except Exception:
+                pass
+
+        df = df.drop_duplicates(subset=valid_cols, keep="first")
+        after = len(df)
+
+        if after < before:
+            logger.debug(
+                f"Business-level dedup: {before} -> {after} rows "
+                f"({before - after} redundant rows removed)"
+            )
+
+        return df.to_dict("records")
 
     # ═══════════════════════════════════════════════════════════════════════
     # RAW API DATA UPSERT (new: direct from Bloomberg API output)
@@ -305,6 +395,14 @@ class RawFillsDB:
         Returns:
             Number of rows upserted.
         """
+        if not fills:
+            return 0
+
+        # [PLAN-A] Business-level dedup: remove rows where all 28 EMSX
+        # columns match but FillId differs. Keeps only the latest (max FillId).
+        # This prevents Bloomberg duplicate records from creating redundant rows.
+        fills = self._dedup_fills_by_business(fills)
+
         if not fills:
             return 0
 
@@ -374,6 +472,10 @@ class RawFillsDB:
             for fills, source_date in batch_items:
                 if not fills:
                     continue
+                # [PLAN-A] Business-level dedup per day
+                fills = self._dedup_fills_by_business(fills)
+                if not fills:
+                    continue
                 for f in fills:
                     row = []
                     for col in EMSX_FILL_COLUMNS:
@@ -403,14 +505,13 @@ class RawFillsDB:
         """Insert or replace cleaned fill records. Returns count of new rows.
 
         Uses INSERT OR REPLACE on (OrderId, RouteId, FillId) primary key.
+        Computes new-row count via SQL changes() delta instead of full-table scan.
         """
         if df.empty:
             return 0
 
         conn = self._get_conn()
         try:
-            existing_keys = self._get_existing_keys(conn)
-
             all_columns = ALL_RAW_COLUMNS + ["source_date", "ingested_at"]
             insert_columns = [c for c in all_columns if c in df.columns]
 
@@ -422,11 +523,18 @@ class RawFillsDB:
                 ({col_names}) VALUES ({placeholders})
             """
 
+            # Get row count before upsert for new-row calculation
+            count_before = conn.execute(
+                f"SELECT COUNT(*) FROM {Config.RAW_FILLS_TABLE}"
+            ).fetchone()[0]
+
+            # Build rows using itertuples (much faster than iterrows)
+            col_indices = {col: i for i, col in enumerate(insert_columns)}
             rows = []
-            for _, row in df.iterrows():
+            for tup in df[insert_columns].itertuples(index=False, name=None):
                 values = []
-                for col in insert_columns:
-                    val = row.get(col)
+                for i, col in enumerate(insert_columns):
+                    val = tup[i]
                     if pd.isna(val) or val is None:
                         values.append(None)
                     else:
@@ -436,17 +544,12 @@ class RawFillsDB:
             conn.executemany(sql, rows)
             conn.commit()
 
-            new_keys = set()
-            for _, row in df.iterrows():
-                key = (
-                    str(row.get("OrderId", "")),
-                    str(row.get("RouteId", "")),
-                    str(row.get("FillId", "")),
-                )
-                if key not in existing_keys:
-                    new_keys.add(key)
+            # Count after upsert — delta is the number of genuinely new rows
+            count_after = conn.execute(
+                f"SELECT COUNT(*) FROM {Config.RAW_FILLS_TABLE}"
+            ).fetchone()[0]
+            new_count = count_after - count_before
 
-            new_count = len(new_keys)
             logger.info(
                 f"Upserted {len(rows)} fills into raw_fills "
                 f"({new_count} new, {len(rows) - new_count} updated)"
@@ -455,12 +558,7 @@ class RawFillsDB:
         finally:
             conn.close()
 
-    def _get_existing_keys(self, conn: sqlite3.Connection) -> Set[tuple]:
-        """Get all existing (OrderId, RouteId, FillId) triples."""
-        cursor = conn.execute(
-            f"SELECT OrderId, RouteId, FillId FROM {Config.RAW_FILLS_TABLE}"
-        )
-        return {(str(r[0]), str(r[1]), str(r[2])) for r in cursor.fetchall()}
+    # _get_existing_keys() removed — no longer needed after upsert_fills optimization
 
     # ═══════════════════════════════════════════════════════════════════════
     # QUERY INTERFACE

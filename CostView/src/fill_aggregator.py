@@ -127,10 +127,13 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
 
                 return expanded.drop(columns=["_mkt_ts"], errors="ignore")
 
-            res = (
-                res.groupby(["OrderId", "RouteId"], group_keys=False)[res.columns]
-                .apply(_complete_route_intervals)
-            )
+            completed_parts = []
+            for (oid, rid), group_df in res.groupby(["OrderId", "RouteId"], sort=False):
+                completed_parts.append(_complete_route_intervals(group_df))
+            if completed_parts:
+                res = pd.concat(completed_parts, ignore_index=True)
+            else:
+                res = res.drop(columns=["_mkt_ts"], errors="ignore")
 
     # Ensure string columns don't have mixed types
     for col in res.columns:

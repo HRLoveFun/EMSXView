@@ -16,7 +16,8 @@ Const POLL_INTERVAL   = 1000      ' 每 1 秒检测一次
 Const BACKEND_TIMEOUT   = 60000   ' 后端最多等 60 秒
 Const FRONTEND_TIMEOUT  = 120000  ' 前端最多等 120 秒
 Const EMSX_ROOT        = "C:\Users\hrchen\Documents\EMSX"
-Const ERROR_PAGE_PATH  = EMSX_ROOT & "\logs\startup-error.html"
+Dim ERROR_PAGE_PATH
+ERROR_PAGE_PATH  = EMSX_ROOT & "\logs\startup-error.html"
 
 ' ---- 启动后端（完全隐藏窗口）----
 WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass " & _
@@ -159,7 +160,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses)
         logHint & _
         "  <h2>快速修复</h2>" & vbCrLf & _
         "  <ul>" & vbCrLf & _
-        "    <li>打开 PowerShell，运行 <code>cd " & EMSX_ROOT & "\scripts\deploy</code> 然后 <code>.\stop-all.ps1</code> 停止残留进程</li>" & vbCrLf & _
+        "    <li>打开 PowerShell，运行 <code>cd " & EMSX_ROOT & "\scripts</code> 然后 <code>.\stop-all.bat</code> 停止残留进程</li>" & vbCrLf & _
         "    <li>用 <code>start-services.bat</code> 可见窗口模式启动，查看具体报错</li>" & vbCrLf & _
         "  </ul>" & vbCrLf & _
         "  <div class='actions'>" & vbCrLf & _
@@ -179,10 +180,10 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses)
     End If
 
     ' 写入文件
-    Dim f
-    Set f = fso.CreateTextFile(ERROR_PAGE_PATH, True)
-    f.Write html
-    f.Close
+    Dim htmlFile
+    Set htmlFile = fso.CreateTextFile(ERROR_PAGE_PATH, True)
+    htmlFile.Write html
+    htmlFile.Close
 
     ' 在浏览器中打开
     WshShell.Run "file:///" & Replace(ERROR_PAGE_PATH, "\", "/")
@@ -224,7 +225,13 @@ End Function
 Function IsPortOpen(port)
     On Error Resume Next
     Dim http
-    Set http = CreateObject("MSXML2.XMLHTTP.6.0")
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    If Err.Number <> 0 Then
+        IsPortOpen = False
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
     http.Open "GET", "http://localhost:" & port & "/", False
     http.setTimeouts 500, 500, 500, 500
     http.send
@@ -232,6 +239,7 @@ Function IsPortOpen(port)
         IsPortOpen = (http.Status > 0)
     Else
         IsPortOpen = False
+        Err.Clear
     End If
     On Error GoTo 0
     Set http = Nothing
