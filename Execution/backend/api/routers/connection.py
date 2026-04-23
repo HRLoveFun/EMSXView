@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from schemas import ApiResponse
 from deps import verify_token, get_bloomberg
+from config import settings
 from db import check_database_connection
 
 router = APIRouter(tags=["Connection"])
@@ -26,15 +27,21 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     bb_status = get_bloomberg().get_status()
-    db_connected, db_message = await check_database_connection()
+    if settings.ENABLE_DB_PERSISTENCE:
+        db_connected, db_message = await check_database_connection()
+        db_status = "connected" if db_connected else "disconnected"
+    else:
+        db_connected = True
+        db_message = "DB persistence disabled"
+        db_status = "disabled"
     healthy = bb_status.status == "connected" and db_connected
     return ApiResponse(
         success=healthy,
         data={
             "bloomberg": bb_status.model_dump(),
-            "database": {"status": "connected" if db_connected else "disconnected", "message": db_message},
+            "database": {"status": db_status, "message": db_message},
         },
-        message="Service is healthy" if healthy else f"bloomberg={bb_status.status}, database={'connected' if db_connected else 'disconnected'}",
+        message="Service is healthy" if healthy else f"bloomberg={bb_status.status}, database={db_status}",
     )
 
 

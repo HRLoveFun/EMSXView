@@ -127,7 +127,7 @@ export function TcaOrderTable({ config, report, selectedOrderId, onPageChange, o
                     </td>
                     <td className="px-3 py-3 text-right">{fmtPercent(order.volume_pct_interval, 2)}</td>
                     <td className="px-3 py-3 text-right">{fmtPercent(order.volume_pct_adv20, 2)}</td>
-                    <td className="px-3 py-3 text-right">{fmtPercent(order.intraday_volatility, 2)}</td>
+                    <td className="px-3 py-3 text-right">{fmtPercent(order.daily_volatility, 2)}</td>
                     <td className="px-3 py-3 text-right">{fmtPercent(order.price_movement_pct, 2)}</td>
                   </tr>
                   {isExpanded ? (

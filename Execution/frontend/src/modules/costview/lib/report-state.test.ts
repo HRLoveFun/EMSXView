@@ -19,6 +19,7 @@ function createOrder(orderId: string, trackingErrorBps: number, fillPct = 95): T
     volume_pct_interval: 5,
     volume_pct_adv5: 1,
     volume_pct_adv20: 1,
+    daily_volatility: 12,
     intraday_volatility: 1,
     price_movement_pct: 0.3,
     data_quality_warning: false,

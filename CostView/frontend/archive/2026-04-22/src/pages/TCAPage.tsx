@@ -1,4 +1,6 @@
 /**
+ * Legacy prototype page.
+ *
  * TCAPage — main TCA analysis page.
  *
  * Layout:

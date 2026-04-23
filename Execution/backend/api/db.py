@@ -8,8 +8,6 @@ from typing import AsyncIterator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-logger = logging.getLogger(__name__)
-
 DEFAULT_DATABASE_URL = "postgresql+asyncpg://emsx:emsx@postgres:5432/emsx"
 
 _engine: AsyncEngine | None = None
@@ -56,7 +54,6 @@ async def check_database_connection() -> tuple[bool, str]:
             await conn.execute(text("SELECT 1"))
         return True, "connected"
     except Exception as exc:  # pragma: no cover - runtime environment dependent
-        logger.warning("Database connectivity check failed: %s", exc)
         return False, str(exc)
 
 
@@ -69,7 +66,6 @@ async def initialize_database() -> tuple[bool, str]:
             await conn.run_sync(Base.metadata.create_all)
         return True, "schema initialized"
     except Exception as exc:  # pragma: no cover - runtime environment dependent
-        logger.warning("Database schema bootstrap failed: %s", exc)
         return False, str(exc)
 
 

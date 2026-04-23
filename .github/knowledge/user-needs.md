@@ -37,3 +37,29 @@
 - **Proposed Automation**: A hook or instruction that reminds to restart backend after Python file edits in `Execution/backend/`
 - **Status**: Identified
 - **Date**: 2026-04-02
+
+
+---
+
+## Need: Backend runtime warning triage
+
+- **Frequency**: Medium
+- **Impact**: High
+- **Effort**: TBD
+- **Current Solution**: Manual backend restart, log inspection, targeted code patching, and ad hoc smoke tests after warnings appear in startup/runtime logs.
+- **Proposed Automation**: Add startup/runtime regression guards for optional dependencies and known Bloomberg log signatures, plus focused tests that validate health endpoint semantics and refdata warning classification.
+- **Status**: Identified
+- **Date**: 2026-04-22
+
+
+---
+
+## Need: Architecture documentation alignment
+
+- **Frequency**: Medium
+- **Impact**: High
+- **Effort**: TBD
+- **Current Solution**: Manual review of docs against live code structure, then ad hoc rewrites and archival when old paths or obsolete module boundaries are discovered.
+- **Proposed Automation**: Maintain a docs root index plus archive policy, add lightweight checks for stale path patterns like app/ and emsx-backend/ in active docs, and require core docs updates when architecture-facing files or entrypoints change.
+- **Status**: Identified
+- **Date**: 2026-04-22

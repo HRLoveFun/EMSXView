@@ -6,7 +6,7 @@
 
 ## Architecture Overview
 
-The EMSX Trading Platform is organized into three core modules that cover the complete trade lifecycle:
+The EMSX Trading Platform is evolving toward one frontend shell, three business modules, and one logical data domain that covers the full trade lifecycle:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -24,12 +24,19 @@ The EMSX Trading Platform is organized into three core modules that cover the co
 │           │                       │                       │                │
 │           ▼                       ▼                       ▼                │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                     Shared Infrastructure                            │   │
-│  │  docs/ · scripts/ · config/ · tests/ · data/                        │   │
+│  │        Shared frontend shell + logical data/infrastructure          │   │
+│  │  Execution/frontend · CostView/src · docs/ · scripts/ · data/      │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Current implementation status:
+
+- `Execution/frontend` is the active platform shell and currently mounts `Execution`, `CostView`, and a `MarketView` anchor.
+- `Execution/backend/api` is the active backend assembly layer with routers/services/repositories, not a single all-in-one runtime file anymore.
+- `CostView/src` is the active post-trade data and analytics domain. Its canonical UI now lives in the frontend shell under `Execution/frontend/src/modules/costview/`.
+- `MarketView/` is still an early module contract, but the shell anchor now exists for incremental build-out.
 
 ## Module Descriptions
 
@@ -44,7 +51,7 @@ Provides market data analysis, instrument screening, and trade decision support.
 - Market impact estimation
 - Optimal timing recommendations
 
-**Status:** 🟡 Placeholder - Ready for development
+**Status:** 🟡 Shell anchor in place - domain capabilities pending
 
 ---
 
@@ -65,7 +72,7 @@ The core trading execution engine with Bloomberg EMSX API integration.
 - JWT authentication
 - Bloomberg EMSX API integration
 
-**Status:** 🟢 Production Ready
+**Status:** 🟢 Production-ready core module inside the active frontend shell
 
 ---
 
@@ -80,7 +87,7 @@ Transaction cost analysis, performance reporting, and execution quality metrics.
 - Performance reporting dashboards
 - Cost attribution analysis
 
-**Status:** 🟡 Placeholder - Ready for development
+**Status:** 🟢 Active post-trade module - data pipeline in `CostView/`, UI integrated into the frontend shell
 
 ---
 
@@ -88,46 +95,25 @@ Transaction cost analysis, performance reporting, and execution quality metrics.
 
 ```
 EMSX/
-├── README.md                 # This file
-├── MIGRATION.md              # Migration guide from old structure
-│
-├── MarketView/               # Pre-trade analysis module
-│   └── README.md
-│
-├── Execution/                # Order execution module (existing code)
-│   ├── README.md
-│   ├── frontend/             # React application
-│   │   ├── src/
-│   │   ├── public/
-│   │   ├── package.json
-│   │   └── Dockerfile
-│   └── backend/              # FastAPI application
-│       ├── api/              # Python backend code
-│       ├── config/           # Nginx, Prometheus configs
-│       ├── docker-compose.yml
-│       └── .env.example
-│
-├── CostView/                 # Post-trade analysis module
-│   └── README.md
-│
-├── docs/                     # Consolidated documentation
-│   ├── ERROR_PATTERNS.md
-│   ├── USER_GUIDE.md
-│   ├── FRONTEND_UI_DESCRIPTION.md
-│   ├── reference/            # API references
-│   └── features/             # Feature specifications
-│
-├── scripts/                  # Utility and deployment scripts
-│   ├── deploy/               # Deployment scripts
-│   └── diagnose/             # Diagnostic tools
-│
-├── config/                   # Shared configuration files
-│
-├── tests/                    # Test suites
-│
-├── data/                     # Reference data
-│
-└── archive/                  # Archived documentation
+├── README.md
+├── MarketView/                           # Pre-trade module contract and docs
+├── Execution/
+│   ├── frontend/                         # Active React shell for platform modules
+│   │   └── src/
+│   │       └── modules/
+│   │           ├── marketview/
+│   │           └── costview/
+│   └── backend/
+│       └── api/                          # Active FastAPI routers/services/repositories
+├── CostView/
+│   ├── src/                              # Active post-trade data pipeline and query services
+│   ├── scripts/
+│   ├── data/
+│   └── frontend/                         # Legacy prototype UI, pending archive/consolidation
+├── docs/
+├── scripts/
+├── data/
+└── logs/
 ```
 
 ## Quick Start

@@ -13,6 +13,7 @@ import pandas as pd
 
 from CostView.src.bdib_fetcher import _is_safe_bdib_query_date
 from CostView.src.daily_metrics_calculator import CalculateDailyMetrics
+from CostView.src.exchange_tz import batch_convert_ny_to_local
 from CostView.src.outdated_tickers import load_outdated_ticker_records, record_outdated_ticker
 from CostView.src.pipeline import BaseStage, FinancialPipeline, IntegrateBDIBStage, PipelineContext
 from CostView.src.processed_fills_db import ProcessedFillsDB
@@ -22,6 +23,14 @@ from CostView.src.tca_query_service import TcaQueryService
 
 
 class PipelineGuardTests(unittest.TestCase):
+    def test_batch_exchange_time_conversion_preserves_local_wall_clock(self) -> None:
+        converted = batch_convert_ny_to_local(
+            pd.Series(pd.to_datetime(["2026-04-20T01:00:14-04:00"])),
+            pd.Series(["NZ"]),
+        )
+
+        self.assertEqual(converted.dt.strftime("%Y-%m-%d %H:%M:%S").iloc[0], "2026-04-20 15:00:14")
+
     def test_bdib_latest_safe_date_moves_after_cutoff(self) -> None:
         morning = datetime(2026, 4, 22, 9, 26)
         evening = datetime(2026, 4, 22, 18, 30)

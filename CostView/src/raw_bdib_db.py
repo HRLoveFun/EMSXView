@@ -281,6 +281,48 @@ class RawBDIBDB:
         finally:
             conn.close()
 
+    def get_latest_daily_summary(
+        self,
+        limit: int = 25,
+        trade_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Return the latest available daily-summary rows for MarketView snapshots."""
+        conn = self._get_conn()
+        try:
+            resolved_trade_date = trade_date
+            if not resolved_trade_date:
+                cursor = conn.execute(
+                    f"SELECT MAX(trade_date) FROM {Config.BDIB_DAILY_SUMMARY_TABLE}"
+                )
+                resolved_trade_date = cursor.fetchone()[0]
+
+            if not resolved_trade_date:
+                return pd.DataFrame(
+                    columns=[
+                        "equ_ticker",
+                        "trade_date",
+                        "total_volume",
+                        "daily_close",
+                        "daily_volatility",
+                        "intraday_volatility",
+                        "adv_5d",
+                        "adv_20d",
+                    ]
+                )
+
+            return pd.read_sql_query(
+                f"SELECT equ_ticker, trade_date, total_volume, daily_close, daily_volatility, "
+                f"intraday_volatility, adv_5d, adv_20d "
+                f"FROM {Config.BDIB_DAILY_SUMMARY_TABLE} "
+                "WHERE trade_date = ? "
+                "ORDER BY COALESCE(total_volume, 0) DESC, equ_ticker ASC "
+                "LIMIT ?",
+                conn._conn,
+                params=[resolved_trade_date, limit],
+            )
+        finally:
+            conn.close()
+
     def get_bdib_bars_for_date(
         self, equ_ticker: str, trade_date: str
     ) -> pd.DataFrame:

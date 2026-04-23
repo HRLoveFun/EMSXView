@@ -33,6 +33,7 @@ class OrderStatus(str, enum.Enum):
     REJECTED = "REJECTED"
     COMPLETED = "COMPLETED"
     QUEUED = "QUEUED"
+    SENT = "SENT"
     SUSPENDED = "SUSPENDED"
 
 class OrderType(str, enum.Enum):

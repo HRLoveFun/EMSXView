@@ -167,8 +167,9 @@ def batch_convert_ny_to_local(
         exchange_series: pd.Series of exchange code strings (e.g. "JP", "LN").
 
     Returns:
-        pd.Series of timezone-aware datetimes in each row's local exchange tz.
-        Unrecognized exchanges retain NY timezone.
+        pd.Series of tz-naive datetimes whose wall-clock values are already in
+        each row's local exchange timezone. Returning naive local times avoids
+        pandas coercing mixed timezones back into one shared timezone dtype.
     """
     import pandas as pd
 
@@ -181,8 +182,8 @@ def batch_convert_ny_to_local(
     # Clean exchange codes
     exch_clean = exchange_series.astype(str).str.strip().str.upper()
 
-    # Pre-allocate result with NY time as default (fallback)
-    result = dt_ny.copy()
+    # Pre-allocate naive local wall-clock times using NY as the fallback.
+    result = dt_ny.dt.tz_localize(None).copy()
 
     # Group by exchange code and convert each group in bulk
     for exch_code, group_idx in exch_clean.groupby(exch_clean).groups.items():
@@ -193,8 +194,10 @@ def batch_convert_ny_to_local(
         if tz_name is None:
             continue
 
-        # Vectorized tz_convert for this exchange group
+        # Convert to the exchange timezone, then drop tz info while preserving
+        # the local wall-clock time so downstream string formatting remains
+        # correct for mixed-exchange batches.
         group_dt = dt_ny.loc[group_idx]
-        result.loc[group_idx] = group_dt.dt.tz_convert(tz_name)
+        result.loc[group_idx] = group_dt.dt.tz_convert(tz_name).dt.tz_localize(None)
 
     return result

@@ -18,6 +18,7 @@ import './App.css';
 // Create cache instances for low-frequency data
 const traderInfoCache = createCache<TraderInfo>(CACHE_CONFIGS.TRADER_INFO);
 const CostViewModule = lazy(() => import('./modules/costview/CostViewModule'));
+const MarketViewModule = lazy(() => import('./modules/marketview/MarketViewModule'));
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 function App() {
@@ -25,7 +26,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(true);
 
   // State - top-level modules plus execution sub-tabs
-  const [activeModule, setActiveModule] = useState<'execution' | 'costview'>('execution');
+  const [activeModule, setActiveModule] = useState<'marketview' | 'execution' | 'costview'>('execution');
   const [activeTab, setActiveTab] = useState<'monitor' | 'execution' | 'settings'>('monitor');
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [allRoutes, setAllRoutes] = useState<Route[]>([]);
@@ -82,6 +83,10 @@ function App() {
 
   // Get order count based on active tab (per UI description)
   const getOrderCountForToolbar = () => {
+    if (activeModule === 'marketview') {
+      return 0;
+    }
+
     if (activeModule === 'costview') {
       return effectiveOrders.length;
     }
@@ -483,6 +488,16 @@ function App() {
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
             <button
               className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                activeModule === 'marketview'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveModule('marketview')}
+            >
+              MarketView
+            </button>
+            <button
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 activeModule === 'execution'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -503,7 +518,17 @@ function App() {
             </button>
           </div>
 
-          {activeModule === 'execution' ? (
+          {activeModule === 'marketview' ? (
+            <Suspense
+              fallback={
+                <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                  Loading MarketView module...
+                </div>
+              }
+            >
+              <MarketViewModule />
+            </Suspense>
+          ) : activeModule === 'execution' ? (
             <>
               <div className="flex items-center gap-1 border-b border-border">
                 <button
@@ -578,7 +603,7 @@ function App() {
             <Suspense
               fallback={
                 <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                  Loading CostView module…
+                  Loading CostView module...
                 </div>
               }
             >

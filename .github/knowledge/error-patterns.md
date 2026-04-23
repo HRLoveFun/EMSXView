@@ -137,3 +137,87 @@
 - **Date**: 2026-04-22
 - **Files**: CostView/src/tca_query_service.py, CostView/test_pipeline_guards.py
 - **Lessons**: Cross-route order summaries must treat missing route metrics as missing data, not as arithmetic inputs. Any averaging layer over partially populated TCA metrics should explicitly filter `None`/`NaN` before aggregation.
+
+
+---
+
+## Pattern: CostView Analysis local-time drift and null market metrics
+
+- **Signature**: CostView Analysis tab shows route Time in NY time instead of local exchange time; order/route VWAP, Tracking Error, Vol % Interval, and Price Move return null for rows that should use local bar alignment; Vol % ADV20 is unrealistically large because it is computed from daily market volume instead of order filled volume.
+- **Root Cause**: Two query-path issues compounded the display failure: 1) `batch_convert_ny_to_local()` returned a mixed-timezone pandas Series that was coerced back to the source timezone, so stored `exchange_exec_time` and related route windows stayed in NY time for non-US exchanges; 2) `tca_query_service.py` compared `raw_bdib.mkt_timestamp` as if it contained `date + time`, but the live DB stores time-only strings. Separately, `volume_pct_adv20` used `total_volume / adv_20d` instead of order filled volume / ADV, and the order table's `Volatility` column still bound to `intraday_volatility` rather than Stage 7 `daily_volatility`.
+- **Resolution**:
+1. Change `CostView/src/exchange_tz.py` `batch_convert_ny_to_local()` to return tz-naive local wall-clock datetimes so mixed exchanges preserve their local time values. 2. In `CostView/src/tca_query_service.py`, derive route `start_time`/`end_time` from `DateTimeOfFill + Exchange` instead of trusting stored `exchange_exec_time` only. 3. Compare `raw_bdib.mkt_timestamp` via `substr(mkt_timestamp, -8)` so both time-only and datetime-formatted rows work. 4. Compute `volume_pct_adv5/20` from order filled volume, not from market `total_volume`. 5. Add `daily_volatility` to the order summary and bind the Analysis order-table `Volatility` column to it while keeping `intraday_volatility` for detailed intraday views. 6. Add a raw_bdib-based fallback in `tca_query_service.py` for missing route benchmark / tracking / volume metrics when bar data exists but legacy fill_bdib rows were built with bad local-time alignment. 7. Validate with `pytest CostView/tests/test_tca_query_service.py CostView/test_pipeline_guards.py` and `npm run build` in `Execution/frontend`.
+- **Status**: Resolved
+- **Date**: 2026-04-22
+- **Files**: CostView/src/exchange_tz.py, CostView/src/tca_query_service.py, Execution/backend/api/routers/costview.py, Execution/frontend/src/modules/costview/types.ts, Execution/frontend/src/modules/costview/components/TcaOrderTable.tsx, CostView/tests/test_tca_query_service.py, CostView/test_pipeline_guards.py
+- **Lessons**: When one pipeline step stores exchange-local wall-clock time for multiple markets, never keep a mixed-timezone pandas Series in a single tz-aware dtype. For SQLite market-bar tables, verify the real on-disk timestamp shape before building comparisons. In TCA, ADV-based participation must use order volume, not market volume, and UI labels must stay aligned with the agreed business semantic (`daily_volatility` vs `intraday_volatility`).
+
+
+---
+
+## Pattern: EMSX SENT status enum mismatch
+
+- **Signature**: FastAPI backend logs 'Error parsing order message' with Pydantic enum validation for status input_value='SENT' even though Bloomberg STATUS_MAP already maps SENT/A-SENT to 'SENT'.
+- **Root Cause**: Execution/backend/api/services/bloomberg_adapter.py can emit status='SENT', but Execution/backend/api/schemas.py OrderStatus enum omitted SENT, so Order model validation rejected otherwise valid Bloomberg updates.
+- **Resolution**:
+1. Add SENT = 'SENT' to Execution/backend/api/schemas.py OrderStatus.
+2. Keep STATUS_MAP in bloomberg_adapter.py aligned with OrderStatus values.
+3. Add a regression test that OrderStatus('SENT') parses successfully.
+4. Restart backend and confirm startup logs no longer show the SENT validation warning.
+- **Status**: Resolved
+- **Date**: 2026-04-22
+- **Files**: Execution/backend/api/schemas.py, Execution/backend/api/services/bloomberg_adapter.py, Execution/backend/api/tests/test_bloomberg_adapter_refdata.py
+- **Lessons**: When Bloomberg status normalization changes, update downstream enums in the same change; otherwise runtime warnings only appear on live order paints.
+
+
+---
+
+## Pattern: FX refdata duplicate correlation id
+
+- **Signature**: Backend logs 'Failed to send FX refdata request: Duplicate correlation id' repeatedly after Bloomberg refdata responses.
+- **Root Cause**: The mktdata event loop cleared _fx_refdata_pending and _crncy_refdata_pending on any RESPONSE event, even when the completed response belonged to a different refdata request type. That allowed a new FX sendRequest attempt while the original FX correlation id was still active.
+- **Resolution**:
+1. In Execution/backend/api/services/bloomberg_adapter.py, collect correlation ids seen in each refdata RESPONSE event.
+2. Clear pending flags only for matching request types via a helper such as _mark_refdata_response_complete().
+3. Add a regression test proving a CRNCY response does not clear FX pending.
+4. Restart backend and verify the duplicate correlation warning disappears from startup logs.
+- **Status**: Resolved
+- **Date**: 2026-04-22
+- **Files**: Execution/backend/api/services/bloomberg_adapter.py, Execution/backend/api/tests/test_bloomberg_adapter_refdata.py
+- **Lessons**: Pending flags for Bloomberg requests must be tied to the exact correlation id or request family; global cleanup on shared sessions is unsafe.
+
+
+---
+
+## Pattern: Optional DB bootstrap hits Docker host on local startup
+
+- **Signature**: Backend startup logs 'Database schema bootstrap failed: [Errno 11001] getaddrinfo failed' when DATABASE_URL defaults to postgresql+asyncpg://...@postgres:5432/... on a non-Docker local run.
+- **Root Cause**: Execution/backend/api/main.py always attempted initialize_database() during lifespan startup even when ENABLE_DB_PERSISTENCE was false. On local Windows runs, the default DATABASE_URL host 'postgres' is unresolved, so the optional persistence probe emitted a misleading startup warning.
+- **Resolution**:
+1. Gate schema bootstrap behind settings.ENABLE_DB_PERSISTENCE in Execution/backend/api/main.py.
+2. When persistence is disabled, mark the repository provider as not ready and log an INFO message that bootstrap is skipped.
+3. Update /api/health to report database status as 'disabled' with message 'DB persistence disabled' instead of probing the database.
+4. Keep real bootstrap failures as warnings only when persistence is enabled.
+5. Validate with pytest on connection/db tests and confirm startup logs no longer show getaddrinfo warnings.
+- **Status**: Resolved
+- **Date**: 2026-04-22
+- **Files**: Execution/backend/api/main.py, Execution/backend/api/routers/connection.py, Execution/backend/api/db.py, Execution/backend/api/tests/test_connection_router.py
+- **Lessons**: Optional infrastructure should not be probed like a hard dependency. Health and startup semantics must agree on whether a subsystem is disabled versus disconnected.
+
+
+---
+
+## Pattern: FX scaled direct quote warning noise
+
+- **Signature**: Backend repeatedly logs warnings like 'FX KRW: direct=... vs inverse=... (ratio=100.00x) — using inverse' or 'FX IDR: ... (ratio=999.69x) — using inverse' every FX refresh cycle.
+- **Root Cause**: Some Bloomberg direct FX pairs are quoted in scaled units (for example per 100 or per 1000 local currency units). The code intentionally preferred the inverse USD{ccy} quote, but still compared the raw direct quote to the inverse quote and emitted a WARNING on every refresh even for known stable scale differences.
+- **Resolution**:
+1. Keep inverse quotes authoritative when both direct and inverse are present.
+2. Detect power-of-ten scaling differences (10x/100x/1000x/10000x) between direct and inverse quotes in Execution/backend/api/services/bloomberg_adapter.py.
+3. When the scaled direct quote normalizes within the discrepancy threshold, log a one-time INFO message per currency instead of a repeated WARNING.
+4. Preserve WARNING level only for non-scaled discrepancies that still exceed the threshold after normalization.
+5. Add regression tests covering scaled and unscaled discrepancy handling and verify startup/runtime logs no longer show repeated KRW/IDR warnings at WARNING level.
+- **Status**: Resolved
+- **Date**: 2026-04-22
+- **Files**: Execution/backend/api/services/bloomberg_adapter.py, Execution/backend/api/tests/test_bloomberg_adapter_refdata.py
+- **Lessons**: Diagnostic logging should encode known market-data quote conventions; otherwise expected behavior becomes chronic warning noise that hides real issues.

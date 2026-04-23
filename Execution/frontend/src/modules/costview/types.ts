@@ -117,6 +117,7 @@ export interface TcaOrderSummary {
   volume_pct_interval: number | null;
   volume_pct_adv5: number | null;
   volume_pct_adv20: number | null;
+  daily_volatility: number | null;
   intraday_volatility: number | null;
   price_movement_pct: number | null;
   data_quality_warning: boolean;

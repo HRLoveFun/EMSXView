@@ -18,6 +18,7 @@ function createOrder(overrides: Partial<TcaOrderSummary> = {}): TcaOrderSummary 
     volume_pct_interval: 8,
     volume_pct_adv5: 2,
     volume_pct_adv20: 2,
+    daily_volatility: 12,
     intraday_volatility: 1.5,
     price_movement_pct: 0.4,
     data_quality_warning: false,

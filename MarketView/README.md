@@ -9,6 +9,56 @@
 
 The **MarketView** module provides pre-trade analysis capabilities to help traders make informed decisions before executing orders. This module is designed to be built incrementally as the platform evolves.
 
+Current architecture note:
+
+- The canonical frontend shell now exposes a MarketView anchor at `Execution/frontend/src/modules/marketview/MarketViewModule.tsx`.
+- `MarketView/` remains the domain contract and documentation home for pre-trade capabilities.
+- New MarketView functionality should plug into the shared frontend shell and shared logical data domain rather than introducing a second standalone UI by default.
+
+## Phase 1 Delivery Plan
+
+The first real MarketView slice is intentionally narrow:
+
+1. Expose a read-only pre-trade market snapshot in the shared frontend shell.
+2. Use the logical data-domain adapter layer instead of a direct deep import from the MarketView UI.
+3. Start with stable day-level metrics that already exist in the CostView pipeline.
+
+### First data boundary
+
+The first MarketView data boundary is the latest `bdib_daily_summary` snapshot.
+
+Current fields:
+
+- `equ_ticker`
+- `trade_date`
+- `daily_close`
+- `daily_volatility`
+- `intraday_volatility`
+- `total_volume`
+- `adv_5d`
+- `adv_20d`
+
+### Why these fields first
+
+- They are directly useful for pre-trade liquidity and volatility checks.
+- They already exist in the live pipeline, so we can ship a real module without inventing a parallel data path.
+- They are stable day-level data, which is a safer first step than introducing intraday streaming into MarketView immediately.
+
+### How the data is obtained
+
+1. Bloomberg daily history is fetched by CostView Stage 7 through `CostView/src/daily_metrics_calculator.py`.
+2. The pipeline stores the derived daily summary in `bdib_daily_summary` inside the raw BDIB SQLite store.
+3. `platform_data/adapters.py` exposes this through `MarketReferenceDataAdapter`.
+4. `Execution/backend/api/routers/marketview.py` serves the snapshot at `/api/marketview/snapshot`.
+5. `Execution/frontend/src/modules/marketview/MarketViewModule.tsx` renders the snapshot in the shared shell.
+
+### Next increments
+
+- Add symbol filtering and sort controls.
+- Add liquidity warning thresholds on top of ADV and total volume.
+- Add hand-off hooks so selected instruments can feed Execution workflows.
+- Only after that, evaluate whether MarketView needs live streaming or richer order-aware pre-trade context.
+
 ## Planned Features
 
 ### Market Data Integration
@@ -66,4 +116,4 @@ MarketView will feed data into the Execution module through:
 
 ---
 
-*This module is currently a placeholder for future development.*
+*This module is still early-stage, but the shell integration point now exists for incremental implementation.*

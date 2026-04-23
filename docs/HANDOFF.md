@@ -1,84 +1,53 @@
 # Session Handoff Log
 
-> Track blockers, decisions, and next steps across Claude sessions.
-> Update at end of each session. Keep entries concise.
+> 当前工作面 handoff。只保留仍影响后续开发与排障的状态，不再堆积历史会话流水。
 
 ---
 
-## Current Session (2026-03-17)
+## Current Session (2026-04-22)
 
 ### Status
-✅ Fixed Bloomberg session-sharing race condition, order status mapping, and broker algorithm refresh
 
-### Recent Blockers (Resolved)
-| Date | Issue | Resolution |
-|------|-------|------------|
-| 2026-03-17 | Bloomberg session sharing — request/response endpoints all timeout (30s+) | Created dedicated `_request_session` for all request/response operations ([ERR-009]) |
-| 2026-03-17 | EMSX_STATUS "SENT"/"A-SENT" unmapped → orders show as "NEW" | Extended STATUS_MAP with SENT, A-SENT, ROUTED, ACTIVE, PENDING, PEND-NEW ([ERR-010]) |
-| 2026-03-17 | Broker algorithms refresh produces empty configs | Fixed exchange_map to use actual Bloomberg IDs (EQ-GS, EQ-CITI, etc.) + removed strategy_configs guard |
-| 2026-03-17 | `useBrokerAlgorithms` hook `isLoading` permanently stuck | Added `isLoading: false` to `refreshData` catch block ([ERR-008]) |
-| 2026-03-17 | Broker-algorithms refresh blocks entire backend | Wrapped `_send_request()` with `run_in_executor` → `_send_request_async()` ([ERR-007]) |
-| 2026-03-17 | Route Order Panel dropdowns unresponsive | Added on-demand strategy fetching via `cachedApiService` + fallback broker list |
-| 2026-02-24 | EMSX_CURRENCY field invalid | Removed from subscription; GUIDE field mismatch identified |
-| 2026-02-24 | EMSX API not enabled in EMSS | Fallback service failed; requires Bloomberg terminal config |
+- 已完成文档主干收口：docs 根目录只保留当前有效的运行、架构、数据域和 handoff 文档。
+- 已完成平台结构对齐：单前端壳、三业务模块、一个逻辑数据域入口。
+- 已完成运行面告警治理：SENT 状态解析、FX duplicate correlation id、可选数据库 bootstrap 告警、FX 缩放报价噪音。
+- MarketView 当前只保留日级市场快照基线，后续扩展已暂停。
+
+### Current Runtime State
+
+- 前端正式入口：Execution/frontend/src/App.tsx
+- 后端正式入口：Execution/backend/api/main.py
+- CostView 分析与管线：CostView/src/
+- 逻辑数据域入口：platform_data/
+- /api/health 当前会在 ENABLE_DB_PERSISTENCE=false 时返回 database.status=disabled
 
 ### Open Blockers
+
 | Priority | Issue | Context | Next Step |
-|----------|-------|---------|-----------|
-| 🔴 High | Bloomberg EMSX API disabled | `Error: Not enabled for EMSX API in EMSS` | Contact IT to enable EMSX API on terminal |
-| 🟡 Med | Field validation needed | EMSX_CURRENCY invalid per logs | Cross-reference GUIDE for correct field names |
+|---|---|---|---|
+| 🟡 Medium | 无效证券订阅仍存在 | TVSLIN/P Pfd 仍会触发 market data subscription failure WARNING | 清点订阅源并在生成或订阅前剔除无效证券 |
+| 🟡 Medium | 仍有少量跨域直接导入 | 共享数据入口已建立，但调用方迁移未完成 | 继续把跨域访问逐步迁到 platform_data/ |
+| 🟢 Low | 本地 PostgreSQL 持久化未启用 | 当前 Windows 本地运行模式下 DB persistence 是可选能力 | 仅在需要 warm-start / projection persistence 时再配置 DATABASE_URL 与 ENABLE_DB_PERSISTENCE |
 
-### Next Tasks (Prioritized)
-1. **Enable EMSX API** — Coordinate with IT department for terminal configuration
-2. **Field audit** — Validate all subscription fields against GUIDE Section 5.2
-3. **Route automation** — Implement `http://bstapp:50036/Trading/AutoRoute` integration
-4. **Testing framework** — Add pytest for order validation logic
+### Next Tasks
 
-### In Progress
-- None
+1. 处理 TVSLIN/P Pfd 无效订阅源。
+2. 继续减少跨域深层导入，优先迁到 platform_data/。
+3. 继续清理遗留原型与剩余过时文档。
+4. 评估 INIT_PAINT 类 WARNING 是否应降级或收敛。
 
-### Decisions Made This Session
-- Bloomberg Session 隔离架构：`self.session`（订阅）、`self._request_session`（请求）、`self._mktdata_session`（市场数据）— 三个独立 session 防止 `nextEvent()` 竞争
-- `_send_request_async()` via `run_in_executor` adopted as standard pattern for all Bloomberg API calls in async handlers
-- On-demand strategy fetching pattern adopted: hook provides cached data, dialog falls back to direct API call
-- Three-tier loading maintained: localStorage → backend stored JSON → live Bloomberg refresh
-- STATUS_MAP 扩展包含 SENT/A-SENT/ROUTED/ACTIVE/PENDING/PEND-NEW，前端同步添加 SENT badge
+### Recently Completed
 
----
+- 重写 docs/PROJECT_STRUCTURE.md 以匹配当前仓库结构。
+- 新增 docs/DATA_DOMAIN.md，明确逻辑数据域与适配层边界。
+- 归档 CostView 旧前端原型源码并明确降级状态。
+- 新增 /api/marketview/snapshot 与 MarketView 壳内真实快照展示。
+- 修复 SENT 枚举缺项与 FX duplicate correlation id。
+- 调整数据库可选启动语义与 FX 缩放报价告警级别。
 
-## Session History
+### Quick Checks
 
-### 2026-03-17 — Session Sharing Fix + Status Mapping + Broker Algorithm Refresh
-- Fixed Bloomberg session sharing race condition: dedicated `_request_session` for all request/response (ERR-009)
-- Fixed EMSX_STATUS mapping: SENT, A-SENT, ROUTED, ACTIVE now correctly mapped (ERR-010)
-- Fixed broker algorithm refresh: updated exchange_map, removed strategy_configs guard → 95 configs (was 0)
-- Fixed SettingsBoard tree data to reset when configs empty
-- Files modified: `main.py`, `types/index.ts`, `OrderTable.tsx`, `MonitorBoard.tsx`, `SettingsBoard.tsx`
-
-### 2026-03-17 — Critical Bug Fixes (UI + Backend Async)
-- Fixed `useBrokerAlgorithms` hook `isLoading` never resetting on error (ERR-008)
-- Fixed Route Order Panel with on-demand strategy fetching + broker fallback
-- Fixed backend event loop blocking by wrapping all `_send_request()` calls with `run_in_executor` (ERR-007)
-- Files modified: `use-broker-algorithms.ts`, `order-route-dialog.tsx`, `main.py`
-
-### 2026-03-16 — Configuration Audit
-- Created backend FastAPI with Bloomberg blpapi integration
-- Built React frontend with shadcn/ui components
-- Identified EMSX API connectivity issues
-- Documented field metadata in `emsx_field_metadata.csv`
-
-### Earlier Sessions
-- Project initialization
-- EMSX API Guide documentation conversion
-
----
-
-## Quick Reference
-
-**Backend**: `http://localhost:3000`
-**Frontend**: `http://localhost:5173`
-**Health Check**: `GET http://localhost:3000/api/health`
-**Logs**: `logs/emsx_api.log`
-
-**Internal Tools**:
-- AutoRoute: `http://bstapp:50036/Trading/AutoRoute`
+- 健康检查：GET http://localhost:3000/api/health
+- 市场快照：GET http://localhost:3000/api/marketview/snapshot?limit=3
+- 后端日志：logs/emsx_api.log
+- 聚焦后端测试目录：Execution/backend/api/tests/

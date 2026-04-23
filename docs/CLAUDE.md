@@ -1,188 +1,121 @@
-# EMSXView 开发指南
+# EMSX 开发指南
 
-> Last updated: 2026-03-17 | Version: 1.2
+> Last updated: 2026-04-22 | Version: 2.0
 
-## Table of Contents
+## 1. 快速启动
 
-- [Quick Start](#quick-start)
-- [Project Context](#project-context)
-- [Verification Checklist](#verification-checklist)
-- [Common Tasks](#common-tasks)
-- [Error Handling](#error-handling)
-- [Session Handoff](#session-handoff)
-- [Documentation](#documentation)
+推荐入口：
 
----
+- 仓库根目录运行 start-services.bat
+- 或使用 scripts 下的 start-all.bat / restart-all.bat / check-status.bat
 
-## Quick Start
+按模块单独启动：
 
-### 运行开发服务器
+```powershell
+# 后端
+Set-Location Execution/backend/api
+python start_server.py
 
-**前置要求**:
-
-```Windows powershell
-# 后端 (端口 3000)
-.\scripts\deploy\start-backend.ps1
-
-# 或跨平台命令:
-cd Execution/backend/api && python -m uvicorn main:app --port 3000
-
-# 前端 (端口 5173)
-cd Execution/frontend && npm run dev
+# 前端
+Set-Location Execution/frontend
+npm run dev
 ```
 
-### 构建与检查
+常用检查：
 
-| 命令 | 说明 |
-|------|------|
-| `npm run build` | 前端构建 |
-| `npm run lint` | 前端代码检查 |
-| `python -m py_compile Execution/backend/api/main.py` | Python 语法检查 |
+- 健康检查：http://localhost:3000/api/health
+- 市场快照基线：http://localhost:3000/api/marketview/snapshot?limit=3
+- 前端开发服务：http://localhost:5173
 
----
+## 2. 当前工程事实
 
-## Project Context
+当前仓库不是“三套独立应用”，而是：
 
-| 项目 | 技术栈 |
-|------|--------|
-| 后端 | Python (FastAPI) + blpapi |
-| 前端 | React + TypeScript (Vite) + shadcn/ui |
-| 数据源 | EMSX API (Bloomberg EMSX API) |
-| 端口配置 | 后端: `3000` / 前端: `5173` |
+- 一个正式前端壳：Execution/frontend/src/App.tsx
+- 三个业务模块：MarketView、Execution、CostView
+- 一个逻辑数据域入口：platform_data/
 
-**API 函数**: https://github.com/HRLoveFun/Bloomberg-EMSX-API-Code-Examples — 所有 EMSX API 调用的唯一权威来源
+当前权威实现面：
 
-**目标**: 生产级订单执行自动化 (Level 1) → 量化交易 (Level 2)
+- 前端壳：Execution/frontend/
+- 后端装配层：Execution/backend/api/
+- CostView 分析与管线：CostView/src/
+- 共享数据适配层：platform_data/
 
----
+重要运行语义：
 
-## Verification Checklist
+- Python 后端改动后必须重启后端。
+- ENABLE_DB_PERSISTENCE=false 时，数据库被视为可选能力；/api/health 会返回 database=disabled。
+- Bloomberg 相关字段如果不在订阅列表中，就不会收到。
+- Bloomberg 字段类型必须与解析器类型一致。
 
-> 完成任务后请手动勾选 ✓
+## 3. 验证清单
 
-- [ ] 代码遵循 GUIDE 中的 EMSX API 调用规范
-- [ ] 前端变更: `npm run lint` 通过
-- [ ] 后端变更: `python -m py_compile` 通过
-- [ ] API 测试: `http://localhost:3000/api/` 正常响应
-- [ ] 新代码包含基本错误处理 (try/except, catch)
-- [ ] 前端: 浏览器控制台无报错
-- [ ] 后端: 终端日志无异常
+前端改动：
 
----
+- 在 Execution/frontend 运行 npm run build
 
-## Common Tasks
+后端改动：
 
-### 添加 EMSX API 字段
+- 优先运行受影响切面的 pytest，而不是只做全量语法检查
+- 如修改了运行时行为，重启后端并做一次接口 smoke test
 
-1. 在 GUIDE 中查找精确字段名
-2. 在 `Execution/backend/api/main.py` 的 `SUBSCRIPTION_FIELDS` 列表中添加
-3. 在 `Execution/frontend/src/types/index.ts` 的 `OrderField` 类型中添加
-4. 如需显示，更新对应 UI 组件
-5. 测试: 访问 `/api/orders` 验证字段存在
+文档改动：
 
-### 修改订单表格 UI
+- 更新 docs/README.md 中的文档分层或入口说明
+- 如改变架构表述，同时检查 docs/PROJECT_STRUCTURE.md、docs/DATA_DOMAIN.md、docs/MEMORY.md
+- 如改变当前运行状态或阻塞面，同时检查 docs/HANDOFF.md
 
-1. 编辑 `Execution/frontend/src/sections/OrderTable.tsx`
-2. 运行 `npm run lint` 检查类型错误
-3. 访问 `http://localhost:5173` 验证
+## 4. 常见任务入口
 
-### 调试 Bloomberg 连接
+### 添加或调整后端能力
 
-> 根据 `.env` 文件中的实际配置替换 host 和端口，默认端口为 8194
+优先检查这些位置：
 
-1. 检查日志: `Execution/backend/logs/emsx_api.log` (首次运行后端时自动创建目录)
-2. 确认 `.env` 中 `BLOOMBERG_HOST` 和 `BLOOMBERG_PORT` 配置正确
-3. 测试连通性:
-   ```powershell
-   # 测试端口连通性 (替换为 .env 中的实际端口)
-   telnet localhost 8194
-   
-   # 若 telnet 不可用（如 Windows 默认未安装），使用Python命令
-   python -c "import socket; s=socket.socket(); s.connect(('localhost', 8194)); print('Connected')"
-   ```
-4. 健康检查: 访问 `http://localhost:3000/api/health`
+- 路由：Execution/backend/api/routers/
+- 服务：Execution/backend/api/services/
+- 数据契约：Execution/backend/api/schemas.py
+- 共享适配：platform_data/
 
----
+### 调整跨域数据访问
 
-## Error Handling
+优先走 platform_data/，不要默认新增深层直接导入。
 
-遇到错误时，按以下顺序查找解决方案:
+典型顺序：
 
-1. **`docs/ERROR_PATTERNS.md`** — 使用错误关键词搜索
-2. **`HANDOFF.md`** — 检查 "Open Blockers" 章节
-3. **`MEMORY.md`** — 了解相关设计决策
+1. 在 platform_data/adapters.py 增加或扩展适配器
+2. 修改调用方路由或服务
+3. 补对应测试
+4. 同步前端类型或展示
 
-### 记录新错误模式
+### 调试 Bloomberg 运行时问题
 
-如果解决了满足以下条件的问题:
-- 同一错误出现 ≥2 次
-- 解决耗时 >30 分钟
-- 涉及外部依赖 (EMSX API、网络、配置)
-- 解决方案非直觉性
+优先查看：
 
-请按 `docs/ERROR_PATTERNS.md` 中的模板格式添加条目（模板包含: 错误现象、原因分析、解决方案、预防措施、相关代码）。
+- logs/emsx_api.log 及其轮转文件
+- .github/knowledge/error-patterns.md
+- docs/HANDOFF.md 中的当前运行状态
 
----
+## 5. 当前文档地图
 
-## Session Handoff
+优先阅读顺序：
 
-> 文档位置: 根目录 (`HANDOFF.md`、`MEMORY.md`) 或 `docs/` 目录
+1. docs/README.md：文档入口与分类
+2. docs/PROJECT_STRUCTURE.md：当前仓库结构与权威实现面
+3. docs/DATA_DOMAIN.md：逻辑数据域边界
+4. docs/MEMORY.md：稳定架构记忆与工作约束
+5. docs/HANDOFF.md：当前阻塞、运行状态、下一步
 
-| 文档 | 用途 |
-|------|------|
-| `HANDOFF.md` | 当前待办事项、阻碍、下一步 |
-| `MEMORY.md` | 架构决策、技术选型记录 |
-| `docs/ERROR_PATTERNS.md` | 常见错误与解决方案 |
-| `docs/SESSION_DIGEST.md` | 每周会话总结与趋势 |
-| `docs/KNOWLEDGE_WORKFLOW.md` | 完整知识管理流程 |
+知识库位置：
 
----
+- 架构决策：.github/knowledge/architecture-decisions.md
+- 错误模式：.github/knowledge/error-patterns.md
+- 用户需求：.github/knowledge/user-needs.md
+- 迭代日志：.github/knowledge/iteration-log.md
 
-## Documentation
+## 6. 工作约束
 
-### 知识体系层级 (信息流向)
-
-> 原始会话记录 (HANDOFF.md) → 每周提炼 (SESSION_DIGEST.md) → 结构化知识 (ERROR_PATTERNS.md / MEMORY.md)
-
-```
-HANDOFF.md (当前会话)
-        ↓
-docs/SESSION_DIGEST.md (每周整理)
-        ↓
-docs/ERROR_PATTERNS.md + MEMORY.md (结构化知识)
-```
-
-### 何时查阅
-
-| 场景 | 查阅文档 |
-|------|----------|
-| 遇到具体报错 | `docs/ERROR_PATTERNS.md` |
-| 了解架构决策 | `MEMORY.md` |
-| 了解本周工作 | `docs/SESSION_DIGEST.md` |
-| 查看当前阻碍 | `HANDOFF.md` |
-| 学习完整知识管理流程 | `docs/KNOWLEDGE_WORKFLOW.md` |
-
----
-
-## 自动化 (内部使用)
-
-> 以下功能由 workbuddy 驱动，仅供内部开发团队使用。workbuddy 配置见 `.workbuddy/` 目录。
-
-### 定时任务
-
-| 时间 | 任务 | 说明 |
-|------|------|------|
-| 每日 18:00 | session-capture-daily | 生成当天会话摘要 |
-| 每日 19:00 | handoff-merge-daily | 合并到 HANDOFF.md |
-| 每周一 09:00 | session-digest-weekly | 生成周报 (cron 触发) |
-| 每月 1 日 10:00 | knowledge-review-monthly | 月度审核 (cron 触发) |
-
-### 启用/暂停
-
-编辑 `.workbuddy/automations/*/automation.toml` 中的 `status` 字段:
-- `status = "ACTIVE"` 启用
-- `status = "PAUSED"` 暂停
-
-### 日志目录
-
-首次运行后端时自动创建: `Execution/backend/logs/`
+- 不要把 CostView/frontend 当成正式前端入口。
+- 不要再用 app/ 或 emsx-backend/ 作为当前结构描述。
+- 新的专题总结类文档如果只对应一次性问题或已完成阶段，应放入 docs/archive/ 而不是长期留在 docs 根目录。
+- 长期有效的文档才留在 docs 根目录：运行指南、架构说明、数据边界、当前 handoff、持续维护的计划文档。

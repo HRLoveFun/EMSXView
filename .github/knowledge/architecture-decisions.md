@@ -4,7 +4,7 @@
 
 ---
 
-## Decision: Single-File Backend (main.py)
+## Decision: Single-File Backend (main.py) [Superseded]
 
 - **Date**: 2026-03 (initial design)
 - **Context**: Fast iteration during early development; Bloomberg blpapi requires specific session lifecycle management; all EMSX operations are tightly coupled
@@ -12,6 +12,7 @@
 - **Consequences**: Easy to search and understand data flow; difficult to test in isolation; merge conflicts likely with multiple contributors; IDE performance degrades
 - **Technical Debt**: HIGH — file exceeds 3000-line threshold; contains models, routes, Bloomberg session management, and business logic in one file
 - **Review Date**: 2026-04-16 (next major feature)
+- **Status**: Superseded on 2026-04-03 by router/service/schema extraction. `Execution/backend/api/main.py` now acts primarily as the application assembly entry point while business logic lives in routers, services, repositories, and schemas.
 
 ---
 
@@ -92,3 +93,33 @@
 - **Decision**: Integrate CostView as a lazy-loaded top-level module inside `Execution/frontend/src/App.tsx`, keep the existing monitor/execution/settings tabs under the Execution workspace, and persist CostView filters/config/export defaults in browser localStorage. Implement Excel export without an external runtime dependency by generating an Excel-compatible multi-sheet XML workbook.
 - **Consequences**: Incremental integration avoids destabilizing the current execution workflow and keeps bundle impact isolated behind lazy loading; CostView state remains browser-local and not shareable by URL; the new CostView chunk is still sizable and may need further code splitting if the module expands.
 - **Review Date**: 2026-05-15
+
+---
+
+## Decision: Single Frontend Shell with Three Business Modules and One Logical Data Domain
+
+- **Date**: 2026-04-22
+- **Context**: The repository evolved faster than the top-level architecture docs. In practice, `Execution/frontend` had already become the active platform shell, CostView had been integrated into that shell, MarketView still existed as a domain placeholder, and data responsibilities were split between Execution operational persistence and CostView analytical storage. The target architecture needed to be aligned without a big-bang rewrite.
+- **Decision**: Treat `MarketView`, `Execution`, and `CostView` as three business modules mounted from one canonical frontend shell in `Execution/frontend/src/App.tsx`. Treat the "one data module" target as a logical data domain with explicit subdomains and contracts, not as an immediate migration to one physical package or one database. The active CostView UI remains `Execution/frontend/src/modules/costview/`; `CostView/frontend/` is downgraded to legacy prototype status pending archival or deletion.
+- **Consequences**: The user-facing entry point stays unified while business-domain boundaries become clearer. Future MarketView work has a defined shell anchor. Data-layer alignment can proceed incrementally through contracts and adapters instead of forcing premature storage consolidation. Documentation must now consistently reflect that the frontend shell is canonical and that duplicate UI surfaces are non-authoritative.
+- **Review Date**: 2026-05-22
+
+---
+
+## Decision: Logical Data Domain Uses Adapter Entry, Not Forced Storage Unification
+
+- **Date**: 2026-04-22
+- **Context**: Execution operational persistence and CostView analytical storage serve different workloads and lifecycles. The architecture needed one coherent data story without collapsing PostgreSQL, in-memory caches, and SQLite analytical stores into a single premature storage model. Cross-domain integration had also started to rely on direct deep imports.
+- **Decision**: Introduce a shared adapter entry under `platform_data/` as the canonical access layer for logical platform data. Keep Execution operational data owned by `RepositoryProvider` and CostView analytical data owned by `TcaQueryService`, but surface them through `ExecutionOperationalDataAdapter` and `CostViewAnalyticsAdapter`. Migrate callers incrementally instead of rewriting storage.
+- **Consequences**: The platform now has a concrete code-level entry point for shared data access while preserving domain ownership. Cross-domain code can standardize on adapters over time. Some legacy direct imports will remain temporarily and should be reduced incrementally rather than removed all at once.
+- **Review Date**: 2026-05-22
+
+---
+
+## Decision: MarketView Starts with Daily Market Snapshot, Not Realtime Stream
+
+- **Date**: 2026-04-22
+- **Context**: MarketView needed its first real data boundary, but the repository did not yet have a dedicated pre-trade data service. The existing CostView pipeline already produced stable day-level market metrics in `bdib_daily_summary`, including close, volatility, and ADV fields that are directly relevant to pre-trade analysis.
+- **Decision**: Use the latest `bdib_daily_summary` snapshot as MarketView phase-1 data. Surface it through `platform_data` via `MarketReferenceDataAdapter`, expose it with `Execution/backend/api/routers/marketview.py`, and render it in the frontend shell before attempting realtime market streams or order-aware pre-trade recommendation logic.
+- **Consequences**: MarketView becomes operational with real data quickly and without adding a second market-data ingestion path. The initial scope stays read-only and day-level, which reduces risk. Realtime streaming and richer pre-trade workflows remain future increments once the shell boundary and adapter path are proven.
+- **Review Date**: 2026-05-22

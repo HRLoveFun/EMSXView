@@ -250,6 +250,8 @@ class BloombergEMSXService:
         self._market_data_lock = threading.Lock()  # protect subscription management
 
         # FX rate refresh via //blp/refdata (every 5 minutes)
+        self._fx_discrepancy_threshold = 0.02
+        self._fx_scaled_quote_logged: set[str] = set()
         self._fx_refresh_interval = 300  # refresh FX rates every 5 minutes (was: 3600)
         self._fx_last_refresh: Optional[datetime] = None
         self._fx_refdata_pending = False
@@ -1418,6 +1420,7 @@ class BloombergEMSXService:
 
                 elif etype in (blpapi.Event.PARTIAL_RESPONSE, blpapi.Event.RESPONSE):
                     # Handle //blp/refdata responses (FX rate + CRNCY queries + Round Lot)
+                    completed_refdata_cids: set[str] = set()
                     for msg in event:
                         try:
                             cid = msg.correlationIds()[0] if msg.correlationIds() else None
@@ -1428,11 +1431,12 @@ class BloombergEMSXService:
                                 self._process_round_lot_refdata_response(msg)
                             else:
                                 self._process_fx_refdata_response(msg)
+                            if cid_val:
+                                completed_refdata_cids.add(cid_val)
                         except Exception as e:
                             logger.debug(f"Error processing refdata response: {e}")
                     if etype == blpapi.Event.RESPONSE:
-                        self._fx_refdata_pending = False
-                        self._crncy_refdata_pending = False
+                        self._mark_refdata_response_complete(completed_refdata_cids)
 
                 elif etype == blpapi.Event.SESSION_STATUS:
                     for msg in event:
@@ -1581,6 +1585,71 @@ class BloombergEMSXService:
         except Exception as e:
             logger.warning(f"Failed to send FX refdata request: {e}")
 
+    def _mark_refdata_response_complete(self, correlation_values: set[str]) -> None:
+        """Clear only the pending flags that match the completed refdata response.
+
+        Different //blp/refdata request types share the same mktdata session. If we
+        clear all pending flags on every RESPONSE event, an unrelated CRNCY or round-
+        lot response can make FX look idle before its own request completes, which in
+        turn causes duplicate sendRequest attempts with the still-active FX CID.
+        """
+        if "__fx_refdata__" in correlation_values:
+            self._fx_refdata_pending = False
+        if "__crncy_refdata__" in correlation_values:
+            self._crncy_refdata_pending = False
+        if "__round_lot_refdata__" in correlation_values:
+            self._round_lot_refdata_pending = False
+
+    def _normalize_scaled_fx_direct_rate(
+        self,
+        direct_rate: float,
+        inverse_rate: float,
+    ) -> tuple[Optional[float], Optional[int]]:
+        if direct_rate <= 0 or inverse_rate <= 0:
+            return None, None
+
+        for scale_factor in (10, 100, 1000, 10000):
+            normalized_rate = direct_rate / scale_factor
+            normalized_gap = abs((normalized_rate / inverse_rate) - 1.0)
+            if normalized_gap <= self._fx_discrepancy_threshold:
+                return normalized_rate, scale_factor
+
+            normalized_rate = direct_rate * scale_factor
+            normalized_gap = abs((normalized_rate / inverse_rate) - 1.0)
+            if normalized_gap <= self._fx_discrepancy_threshold:
+                return normalized_rate, -scale_factor
+
+        return None, None
+
+    def _log_fx_rate_discrepancy(self, ccy: str, direct_rate: float, inverse_rate: float) -> None:
+        if direct_rate <= 0 or inverse_rate <= 0:
+            return
+
+        ratio = direct_rate / inverse_rate
+        if abs(ratio - 1.0) <= self._fx_discrepancy_threshold:
+            return
+
+        normalized_rate, scale_factor = self._normalize_scaled_fx_direct_rate(direct_rate, inverse_rate)
+        if scale_factor is not None:
+            if ccy not in self._fx_scaled_quote_logged:
+                if scale_factor > 0:
+                    logger.info(
+                        f"FX {ccy}: direct quote appears scaled by {scale_factor}x "
+                        f"(normalized direct={normalized_rate:.6f}, inverse={inverse_rate:.6f}) — using inverse"
+                    )
+                else:
+                    logger.info(
+                        f"FX {ccy}: direct quote appears scaled by 1/{abs(scale_factor)}x "
+                        f"(normalized direct={normalized_rate:.6f}, inverse={inverse_rate:.6f}) — using inverse"
+                    )
+                self._fx_scaled_quote_logged.add(ccy)
+            return
+
+        logger.warning(
+            f"FX {ccy}: direct={direct_rate:.6f} vs inverse={inverse_rate:.6f} "
+            f"(ratio={ratio:.2f}x) — using inverse"
+        )
+
     def _maybe_query_ticker_currencies(self, sess):
         """Query //blp/refdata CRNCY field for new tickers to get authoritative trading currency."""
         if not self._refdata_service_available or self._crncy_refdata_pending:
@@ -1654,10 +1723,7 @@ class BloombergEMSXService:
                 updated += 1
                 # Log discrepancies between direct and inverse
                 if ccy in direct_rates and ccy in inverse_rates:
-                    d, inv = direct_rates[ccy], inverse_rates[ccy]
-                    ratio = d / inv if inv > 0 else 0
-                    if abs(ratio - 1.0) > 0.02:  # >2% discrepancy
-                        logger.warning(f"FX {ccy}: direct={d:.6f} vs inverse={inv:.6f} (ratio={ratio:.2f}x) — using inverse")
+                    self._log_fx_rate_discrepancy(ccy, direct_rates[ccy], inverse_rates[ccy])
             
             if updated:
                 logger.info(f"FX rates updated: {updated} currencies — {dict(sorted(self._fx_rates.items()))}")

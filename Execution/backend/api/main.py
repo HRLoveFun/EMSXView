@@ -259,12 +259,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"Database: {settings.DATABASE_URL}")
     logger.info("=" * 60)
 
-    db_ready, db_message = await initialize_database()
-    if db_ready:
-        logger.info("Database schema bootstrap completed")
-        repo_provider.mark_db_ready(True)
+    if settings.ENABLE_DB_PERSISTENCE:
+        db_ready, db_message = await initialize_database()
+        if db_ready:
+            logger.info("Database schema bootstrap completed")
+            repo_provider.mark_db_ready(True)
+        else:
+            logger.warning("Database schema bootstrap failed: %s", db_message)
+            repo_provider.mark_db_ready(False)
     else:
-        logger.warning("Database schema bootstrap failed: %s", db_message)
+        logger.info("Database persistence disabled; skipping schema bootstrap")
         repo_provider.mark_db_ready(False)
 
     # Start Bloomberg connection in background so the server is ready to accept
@@ -303,6 +307,7 @@ app.add_middleware(
 # ============================================================================
 
 from routers.connection import router as connection_router
+from routers.marketview import router as marketview_router
 from routers.auth import router as auth_router
 from routers.orders import router as orders_router
 from routers.routes import router as routes_router
@@ -311,6 +316,7 @@ from routers.debug import router as debug_router
 from routers.realtime import router as realtime_router
 
 app.include_router(connection_router)
+app.include_router(marketview_router)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)

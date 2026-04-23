@@ -57,7 +57,7 @@ scripts\check-status.bat
 - **Process**: Python (uvicorn)
 - **Entry Point**: `Execution/backend/api/start_server.py`
 - **Health Check**: http://localhost:3000/api/health
-- **Startup Time**: ~3 seconds
+- **Startup Time**: 通常几秒，但 Bloomberg 初始化和首轮订阅可能更久
 
 ### Frontend Service
 - **Port**: 5173 (dev) / 80 (prod)
@@ -179,13 +179,21 @@ curl http://localhost:3000/api/health
 {
   "success": true,
   "data": {
-    "status": "healthy",
-    "bloomberg_connected": true/false,
-    "orders_cached": 123,
-    "routes_cached": 45
+      "bloomberg": {
+         "status": "connected"
+      },
+      "database": {
+         "status": "disabled|connected|disconnected",
+         "message": "DB persistence disabled|connected|<error>"
+      }
   }
 }
 ```
+
+说明：
+
+- 当 ENABLE_DB_PERSISTENCE=false 时，database.status 为 disabled，这是正常状态。
+- 当前健康检查的核心含义是“服务可用 + Bloomberg 连接状态可见”，不是“本地必须连上 PostgreSQL”。
 
 ### Frontend Health
 ```bash
@@ -198,16 +206,14 @@ curl http://localhost:5173
 ## Logging
 
 ### Log Locations
-- **Backend Logs**: `logs/backend-YYYYMMDD-HHMMSS.log`
-- **Frontend Logs**: `logs/frontend-YYYYMMDD-HHMMSS.log`
+- **Backend Structured Logs**: `logs/emsx_api.log` 及其轮转文件
+- **Frontend Dev Output**: Vite 终端输出
+- **Service Wrapper Output**: 由 service-manager 或启动终端承接，不保证单独生成固定文件名
 
 ### Viewing Logs
 ```powershell
 # View recent backend logs
-Get-Content logs\backend-*.log -Tail 50
-
-# View recent frontend logs
-Get-Content logs\frontend-*.log -Tail 50
+Get-Content logs\emsx_api.log -Tail 50
 
 # View all logs via service manager
 powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs

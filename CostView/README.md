@@ -7,7 +7,14 @@
 
 ## Overview
 
-The **CostView** module provides comprehensive post-trade analysis capabilities to evaluate execution performance and calculate transaction costs. This module is designed to be built incrementally as the platform evolves.
+The **CostView** module provides comprehensive post-trade analysis capabilities to evaluate execution performance and calculate transaction costs.
+
+Current architecture note:
+
+- The active CostView data and analytics implementation lives under `CostView/src/`.
+- The canonical CostView UI now lives inside the shared frontend shell at `Execution/frontend/src/modules/costview/`.
+- `Execution/backend/api/routers/costview.py` is the current bridge between the platform backend and the CostView analysis/query layer.
+- `CostView/frontend/src/` is a legacy prototype surface and should not be treated as the primary UI entry point.
 
 ---
 

@@ -114,6 +114,7 @@ def _make_raw_bdib_db(path: str) -> None:
             equ_ticker TEXT, trade_date TEXT,
             total_volume REAL, daily_vwap REAL, daily_volatility REAL,
             adv_5d REAL, adv_20d REAL, computed_at TEXT,
+            daily_close REAL, intraday_volatility REAL,
             PRIMARY KEY (equ_ticker, trade_date)
         );
 
@@ -123,7 +124,7 @@ def _make_raw_bdib_db(path: str) -> None:
             ('AAPL US Equity','20260418','20260418 10:10:00',50.1,51.0,50.0,50.5,700000.0,700,35350000.0,datetime('now'),'bloomberg');
 
         INSERT INTO bdib_daily_summary VALUES
-            ('AAPL US Equity','20260418',5000000.0,50.1,0.20,4800000.0,4600000.0,datetime('now'));
+            ('AAPL US Equity','20260418',5000000.0,50.1,0.20,4800000.0,4600000.0,datetime('now'),50.5,1.25);
     """)
     conn.commit()
     conn.close()
@@ -402,6 +403,110 @@ class TestBuildTcaReport:
         # ADV values come from bdib_daily_summary fixture
         assert order.volume_pct_adv5 is not None
         assert order.volume_pct_adv20 is not None
+
+    def test_report_uses_filled_volume_for_adv_percentages(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        report = svc.build_tca_report(
+            TcaFilters(start_date="20260418", end_date="20260418", order_ids=["O1"])
+        )
+
+        order = report.orders[0]
+        assert order.volume_pct_adv20 == pytest.approx(1000.0 / 4600000.0 * 100.0)
+
+    def test_report_uses_daily_volatility_for_order_summary(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        report = svc.build_tca_report(
+            TcaFilters(start_date="20260418", end_date="20260418", order_ids=["O1"])
+        )
+
+        assert report.orders[0].daily_volatility == pytest.approx(0.20)
+
+    def test_matching_routes_derives_local_exchange_times_from_datetime(self, tmp_dbs):
+        proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
+        conn = sqlite3.connect(proc)
+        try:
+            conn.execute(
+                "UPDATE processed_fills SET Exchange = ?, DateTimeOfFill = ?, exchange_exec_time = ? WHERE OrderId = ? AND RouteId = ? AND FillId = ?",
+                ("NZ", "2026-04-18T01:00:00-04:00", "01:00:00", "O1", "R1", "F1"),
+            )
+            conn.execute(
+                "UPDATE processed_fills SET Exchange = ?, DateTimeOfFill = ?, exchange_exec_time = ? WHERE OrderId = ? AND RouteId = ? AND FillId = ?",
+                ("NZ", "2026-04-18T01:10:00-04:00", "01:10:00", "O1", "R1", "F2"),
+            )
+            conn.execute(
+                "UPDATE route_registry SET Exchange = ?, equ_ticker = ? WHERE OrderId = ? AND RouteId = ?",
+                ("NZ", "AIA NZ Equity", "O1", "R1"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        svc = _make_service(tmp_dbs)
+        rows, total = svc._get_matching_routes(
+            TcaFilters(start_date="20260418", end_date="20260418", order_ids=["O1"])
+        )
+
+        assert total == 1
+        assert rows[0]["start_time"] == "15:00:00"
+        assert rows[0]["end_time"] == "15:10:00"
+
+    def test_market_context_supports_time_only_bdib_timestamps(self, tmp_path: Path):
+        raw_bdib = str(tmp_path / "raw_bdib.db")
+        _make_raw_bdib_db(raw_bdib)
+
+        conn = sqlite3.connect(raw_bdib)
+        try:
+            conn.execute("DELETE FROM raw_bdib")
+            conn.executemany(
+                "INSERT INTO raw_bdib VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                [
+                    ("AAPL US Equity", "20260418", "09:59:50", 49.5, 50.0, 49.0, 49.8, 500000.0, 500, 24900000.0, "now", "bloomberg"),
+                    ("AAPL US Equity", "20260418", "10:00:00", 50.0, 50.5, 49.8, 50.1, 600000.0, 600, 30060000.0, "now", "bloomberg"),
+                    ("AAPL US Equity", "20260418", "10:10:00", 50.1, 51.0, 50.0, 50.5, 700000.0, 700, 35350000.0, "now", "bloomberg"),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        svc = TcaQueryService(raw_bdib_db_path=raw_bdib)
+        market_ctx = svc._get_market_context(
+            {("AAPL US Equity", "20260418")},
+            [{"equ_ticker": "AAPL US Equity", "order_as_of_date": "20260418", "start_time": "10:00:00", "end_time": "10:10:00"}],
+            {},
+        )
+
+        row = market_ctx[("AAPL US Equity", "20260418")]
+        assert row["before_interval_close"] == pytest.approx(49.8)
+        assert row["interval_close"] == pytest.approx(50.5)
+        assert row["price_movement_pct"] == pytest.approx((50.5 / 49.8 - 1.0) * 100.0)
+
+    def test_report_falls_back_to_raw_bdib_for_missing_route_market_metrics(self, tmp_dbs):
+        proc, bdib, raw_bdib, raw_fills = tmp_dbs
+        conn = sqlite3.connect(bdib)
+        try:
+            conn.execute(
+                "UPDATE fill_bdib SET cum_vwap = NULL, cum_tracking_error = NULL, cum_volume_pct = NULL WHERE OrderId = ? AND RouteId = ?",
+                ("O1", "R1"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        svc = TcaQueryService(
+            proc_fills_db_path=proc,
+            fill_bdib_db_path=bdib,
+            raw_bdib_db_path=raw_bdib,
+            raw_fills_db_path=raw_fills,
+        )
+        report = svc.build_tca_report(
+            TcaFilters(start_date="20260418", end_date="20260418", order_ids=["O1"])
+        )
+
+        route = report.orders[0].routes[0]
+        assert route.interval_vwap == pytest.approx((30060000.0 + 35350000.0) / (600000.0 + 700000.0))
+        assert route.volume_pct_interval == pytest.approx(1000.0 / (600000.0 + 700000.0) * 100.0)
+        assert route.tracking_error_bps is not None
 
     def test_report_filters_reflected(self, tmp_dbs):
         svc = _make_service(tmp_dbs)

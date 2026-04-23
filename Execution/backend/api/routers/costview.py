@@ -35,10 +35,11 @@ _COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from CostView.src.tca_query_service import TcaFilters, TcaQueryService, TcaReport
+from platform_data import TcaFilters, TcaReport, build_platform_data_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
+platform_data = build_platform_data_access()
 
 # ── In-memory job registry (process-lifetime only) ───────────────────────────
 _jobs: dict[str, dict[str, Any]] = {}
@@ -146,8 +147,7 @@ async def analyze_tca(request: TcaAnalyzeRequest):
     )
 
     try:
-        svc = TcaQueryService()
-        report = svc.build_tca_report(filters)
+        report = platform_data.analytics.build_tca_report(filters)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
@@ -413,6 +413,7 @@ def _serialize_report(report: TcaReport) -> dict:
                 "volume_pct_interval": o.volume_pct_interval,
                 "volume_pct_adv5": o.volume_pct_adv5,
                 "volume_pct_adv20": o.volume_pct_adv20,
+                "daily_volatility": o.daily_volatility,
                 "intraday_volatility": o.intraday_volatility,
                 "price_movement_pct": o.price_movement_pct,
                 "data_quality_warning": o.data_quality_warning,
