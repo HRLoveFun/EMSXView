@@ -28,10 +28,10 @@ You are an **Error Resolution Specialist** for the EMSX Trading Platform. Your j
 
 ## EMSX-Specific Knowledge
 
-- Backend: `Execution/backend/api/main.py` (~3695 lines) — FastAPI + blpapi
-- Frontend: `Execution/frontend/src/` — React + TypeScript
+- Backend: `ExecutionView/backend/api/main.py` (~3695 lines) — FastAPI + blpapi
+- Frontend: `ExecutionView/frontend/src/` — React + TypeScript
 - CostView: `CostView/src/` — Python pipeline with SQLite
-- Logs: `logs/emsx_api.log`, `Execution/backend/logs/emsx_api.log`
+- Logs: `logs/emsx_api.log`, `ExecutionView/backend/logs/emsx_api.log`
 - Bloomberg fields must be in ORDER_FIELDS/ROUTE_FIELDS to be received
 - Field types: str → `_msg_safe_str`, int → `_msg_safe_int`, float → `_msg_safe_float`
 

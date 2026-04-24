@@ -72,7 +72,7 @@ POST /api/routes/modify   → Modify route
 WS   /ws                  → WebSocket for real-time updates
 ```
 
-**TypeScript Types** (`Execution/frontend/src/types/index.ts`):
+**TypeScript Types** (`ExecutionView/frontend/src/types/index.ts`):
 - `Order`, `Route`, `EMSXMessage`, `ConnectionStatus`
 - Keep in sync with Pydantic models in `main.py`
 
@@ -88,7 +88,7 @@ API_PORT=3000
 JWT_SECRET=<generate>
 ```
 
-**File Location**: `Execution/backend/.env` (gitignored)
+**File Location**: `ExecutionView/backend/.env` (gitignored)
 
 ---
 
@@ -100,8 +100,8 @@ JWT_SECRET=<generate>
 - **Type Safety**: Pydantic models for all request/response schemas
 
 ### TypeScript Frontend
-- **API Client**: `Execution/frontend/src/services/api.ts` — axios wrapper with auto-mock fallback
-- **Formatting**: `Execution/frontend/src/lib/format-utils.ts` — currency, number, date formatters
+- **API Client**: `ExecutionView/frontend/src/services/api.ts` — axios wrapper with auto-mock fallback
+- **Formatting**: `ExecutionView/frontend/src/lib/format-utils.ts` — currency, number, date formatters
 - **Styling**: Tailwind + `class-variance-authority` for component variants
 
 ### EMSX API Patterns

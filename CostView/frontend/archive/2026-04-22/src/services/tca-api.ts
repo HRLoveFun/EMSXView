@@ -2,7 +2,7 @@
  * TCA API service — typed wrappers for CostView TCA endpoints.
  *
  * All requests go through the same API base URL as the rest of the
- * Execution frontend (VITE_API_URL or Vite dev-server proxy).
+ * ExecutionView frontend (VITE_API_URL or Vite dev-server proxy).
  *
  * Data constraint: the backend ONLY reads from fill/bdib SQLite databases;
  * no external API calls are made.

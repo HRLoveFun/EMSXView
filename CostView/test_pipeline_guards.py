@@ -20,6 +20,7 @@ from CostView.src.processed_fills_db import ProcessedFillsDB
 from CostView.src.processing_config import ProcessingConfig as Config
 from CostView.src.raw_bdib_db import RawBDIBDB
 from CostView.src.tca_query_service import TcaQueryService
+from platform_data import MarketReferenceDataAdapter
 
 
 class PipelineGuardTests(unittest.TestCase):
@@ -61,6 +62,24 @@ class PipelineGuardTests(unittest.TestCase):
                 conn.close()
 
         self.assertEqual(busy_timeout, Config.SQLITE_BUSY_TIMEOUT_MS)
+
+    def test_processed_fills_db_initializes_execution_history_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db = ProcessedFillsDB(db_path=f"{tmp_dir}/processed_fills.db")
+            conn = db._get_conn()
+            try:
+                table_names = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+            finally:
+                conn.close()
+
+        self.assertIn(Config.ORDER_HISTORY_TABLE, table_names)
+        self.assertIn(Config.ROUTE_HISTORY_TABLE, table_names)
+        self.assertIn(Config.ROUTE_EVENT_HISTORY_TABLE, table_names)
 
     def test_outdated_ticker_record_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -367,6 +386,173 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertIn("[STAGE] processing 68", output)
         self.assertIn("[STAGE] processing 81", output)
         self.assertIn("[STAGE] processing 95", output)
+
+
+class MarketViewIntradayFeatureTests(unittest.TestCase):
+    def _build_db_with_bars(self, tmp_dir: str) -> RawBDIBDB:
+        db = RawBDIBDB(db_path=f"{tmp_dir}/raw_bdib.db")
+        bars = []
+        # Build 2 tickers x 60 bars each at 10:00:00..10:09:50 with increasing close
+        for ticker_idx, ticker in enumerate(["AAPL US Equity", "MSFT US Equity"]):
+            base_close = 100.0 + ticker_idx * 50.0
+            for bar_idx in range(60):
+                total_seconds = 10 * 3600 + bar_idx * 10
+                hh, rem = divmod(total_seconds, 3600)
+                mm, ss = divmod(rem, 60)
+                bars.append(
+                    {
+                        "equ_ticker": ticker,
+                        "order_as_of_date": "20260421",
+                        "mkt_timestamp": f"{hh:02d}:{mm:02d}:{ss:02d}",
+                        "open": base_close + bar_idx * 0.05,
+                        "high": base_close + bar_idx * 0.05 + 0.05,
+                        "low": base_close + bar_idx * 0.05 - 0.05,
+                        "close": base_close + bar_idx * 0.1,
+                        "volume": 100.0 + bar_idx,
+                        "num_trds": 10.0,
+                        "value": 0.0,
+                    }
+                )
+        db.upsert_bdib_data(pd.DataFrame(bars))
+        db.upsert_daily_summary(
+            [
+                {
+                    "equ_ticker": "AAPL US Equity",
+                    "trade_date": "20260421",
+                    "total_volume": 9500.0,
+                    "daily_vwap": 105.0,
+                    "daily_close": 200.0,
+                    "daily_volatility": 24.0,
+                    "intraday_volatility": 1.5,
+                    "adv_5d": 8500.0,
+                    "adv_20d": 8000.0,
+                },
+                {
+                    "equ_ticker": "MSFT US Equity",
+                    "trade_date": "20260421",
+                    "total_volume": 9800.0,
+                    "daily_vwap": 155.0,
+                    "daily_close": 260.0,
+                    "daily_volatility": 20.0,
+                    "intraday_volatility": 1.2,
+                    "adv_5d": 9200.0,
+                    "adv_20d": 9000.0,
+                },
+            ]
+        )
+        return db
+
+    def test_raw_bdib_pool_batch_query_returns_only_requested_tickers_and_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db = self._build_db_with_bars(tmp_dir)
+            # Insert bars for another date to ensure date filter works
+            db.upsert_bdib_data(
+                pd.DataFrame(
+                    [
+                        {
+                            "equ_ticker": "AAPL US Equity",
+                            "order_as_of_date": "20260420",
+                            "mkt_timestamp": "09:30:00",
+                            "close": 199.0,
+                            "volume": 5.0,
+                        }
+                    ]
+                )
+            )
+
+            result = db.get_bdib_bars_for_pool_on_date(
+                ["AAPL US Equity", "MSFT US Equity"],
+                "20260421",
+            )
+
+        self.assertEqual(set(result["equ_ticker"].unique()), {"AAPL US Equity", "MSFT US Equity"})
+        self.assertEqual(set(result["order_as_of_date"].unique()), {"20260421"})
+        self.assertEqual(len(result), 120)
+
+    def test_intraday_feature_adapter_produces_bucketed_features(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db = self._build_db_with_bars(tmp_dir)
+            adapter = MarketReferenceDataAdapter(daily_summary_db_factory=lambda: db)
+
+            snapshot = adapter.get_intraday_features(
+                equ_tickers=["AAPL US Equity", "MSFT US Equity", "MISSING US Equity"],
+                trade_date="20260421",
+                bucket_minutes=5,
+            )
+
+        self.assertEqual(snapshot.trade_date, "20260421")
+        self.assertEqual(snapshot.bucket_minutes, 5)
+        self.assertEqual(snapshot.ticker_count, 2)
+        self.assertEqual(snapshot.missing_tickers, ["MISSING US Equity"])
+
+        aapl = next(t for t in snapshot.tickers if t.equ_ticker == "AAPL US Equity")
+        self.assertEqual(aapl.bar_count, 60)
+        self.assertEqual(aapl.first_bar_time, "10:00")
+        self.assertEqual(aapl.last_bar_time, "10:09")
+        # 60 bars / 5-min bucket at 10s interval → 2 buckets
+        self.assertEqual(len(aapl.buckets), 2)
+        self.assertEqual(aapl.buckets[0].bucket_start, "10:00")
+        self.assertEqual(aapl.buckets[0].bucket_end, "10:05")
+        # cumulative volume of last bucket must equal total volume
+        self.assertAlmostEqual(
+            aapl.buckets[-1].cumulative_volume,
+            aapl.total_volume,
+        )
+        # cumulative pct at end ≈ 100%
+        self.assertAlmostEqual(aapl.buckets[-1].cumulative_volume_pct, 100.0, places=4)
+        # volume_vs_adv20 uses daily_summary adv_20d
+        self.assertAlmostEqual(aapl.adv_20d, 8000.0)
+        self.assertAlmostEqual(
+            aapl.volume_vs_adv20_pct,
+            aapl.total_volume / 8000.0 * 100.0,
+            places=4,
+        )
+        # open/close 10-min windows cover the whole session here so share ≈ 100%
+        self.assertIsNotNone(aapl.open_window_share_pct)
+        self.assertGreater(aapl.open_window_share_pct, 99.0)
+        # realized vol is a non-negative percent or None
+        for bucket in aapl.buckets:
+            if bucket.realized_vol_annualized is not None:
+                self.assertGreaterEqual(bucket.realized_vol_annualized, 0.0)
+
+    def test_intraday_feature_adapter_rejects_bad_bucket_and_too_many_tickers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db = RawBDIBDB(db_path=f"{tmp_dir}/raw_bdib.db")
+            adapter = MarketReferenceDataAdapter(daily_summary_db_factory=lambda: db)
+
+            with self.assertRaises(ValueError):
+                adapter.get_intraday_features(
+                    equ_tickers=["AAPL US Equity"],
+                    trade_date="20260421",
+                    bucket_minutes=7,
+                )
+
+            with self.assertRaises(ValueError):
+                adapter.get_intraday_features(
+                    equ_tickers=[],
+                    trade_date="20260421",
+                )
+
+            too_many = [f"T{i} US Equity" for i in range(26)]
+            with self.assertRaises(ValueError):
+                adapter.get_intraday_features(
+                    equ_tickers=too_many,
+                    trade_date="20260421",
+                )
+
+    def test_intraday_feature_adapter_handles_missing_trade_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db = RawBDIBDB(db_path=f"{tmp_dir}/raw_bdib.db")
+            adapter = MarketReferenceDataAdapter(daily_summary_db_factory=lambda: db)
+
+            snapshot = adapter.get_intraday_features(
+                equ_tickers=["AAPL US Equity"],
+                trade_date=None,
+            )
+
+        self.assertIsNone(snapshot.trade_date)
+        self.assertEqual(snapshot.ticker_count, 0)
+        self.assertEqual(snapshot.missing_tickers, ["AAPL US Equity"])
 
 
 if __name__ == '__main__':

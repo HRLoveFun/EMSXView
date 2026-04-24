@@ -11,6 +11,7 @@ import type {
   ModifyOrderRequest,
   RouteOrderRequest,
   TraderInfo,
+  StartupStatusSnapshot,
   BrokerStrategiesResponse,
   BrokerStrategyInfoResponse,
 } from '@/types';
@@ -135,10 +136,14 @@ export const apiService = {
     });
   },
 
+  async getStartupStatus(): Promise<ApiResponse<StartupStatusSnapshot>> {
+    return apiFetch<StartupStatusSnapshot>('/api/startup-status');
+  },
+
   async checkConnection(): Promise<ApiResponse<{ status: 'connected' | 'disconnected' }>> {
-    const result = await apiFetch<{ status: string }>('/api/connection');
+    const result = await apiFetch<StartupStatusSnapshot>('/api/startup-status');
     if (result.success && result.data) {
-      const s = result.data.status === 'connected' ? 'connected' : 'disconnected';
+      const s = result.data.bloomberg.status === 'connected' ? 'connected' : 'disconnected';
       return { success: true, data: { status: s } };
     }
     return { success: true, data: { status: 'disconnected' } };
@@ -196,6 +201,11 @@ export const apiService = {
     });
   },
 
+  async getAssetClass(ticker: string): Promise<ApiResponse<{ ticker: string; assetClass: string }>> {
+    const params = new URLSearchParams({ ticker });
+    return apiFetch<{ ticker: string; assetClass: string }>(`/api/asset-class?${params}`);
+  },
+
   async getBrokers(assetClass: string = 'EQTY'): Promise<ApiResponse<{ brokers: string[] }>> {
     const params = new URLSearchParams({ assetClass });
     return apiFetch<{ brokers: string[] }>(`/api/brokers?${params}`);
@@ -250,6 +260,7 @@ export const apiService = {
 // Cache instances for broker strategies
 const brokerStrategiesCache = new Map<string, ReturnType<typeof createCache<BrokerStrategiesResponse>>>();
 const strategyInfoCache = new Map<string, ReturnType<typeof createCache<BrokerStrategyInfoResponse>>>();
+const assetClassCache = new Map<string, string>();
 
 function getBrokerStrategiesCacheKey(broker: string, assetClass: string): string {
   return `${broker}_${assetClass}`;
@@ -260,6 +271,20 @@ function getStrategyInfoCacheKey(broker: string, strategy: string, assetClass: s
 }
 
 export const cachedApiService = {
+  async resolveAssetClass(ticker?: string, fallback: string = 'EQTY'): Promise<string> {
+    const normalizedTicker = ticker?.trim();
+    if (!normalizedTicker) return fallback;
+
+    const cacheKey = normalizedTicker.toUpperCase();
+    const cached = assetClassCache.get(cacheKey);
+    if (cached) return cached;
+
+    const res = await apiService.getAssetClass(normalizedTicker);
+    const assetClass = res.success && res.data?.assetClass ? res.data.assetClass : fallback;
+    assetClassCache.set(cacheKey, assetClass);
+    return assetClass;
+  },
+
   /**
    * Get broker strategies with caching and file fallback
    * @param broker - Broker code
@@ -423,6 +448,7 @@ export const cachedApiService = {
   clearBrokerStrategyCaches(): void {
     brokerStrategiesCache.clear();
     strategyInfoCache.clear();
+    assetClassCache.clear();
   },
 
   /**

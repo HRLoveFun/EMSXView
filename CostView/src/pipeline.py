@@ -163,6 +163,9 @@ class ProcessRawFillsStage(BaseStage):
         logger.info(f"Processing {len(target_dates)} dates: {target_dates}")
         
         total_processed = 0
+        total_order_history = 0
+        total_route_history = 0
+        total_route_events = 0
         max_workers = min(Config.MAX_PARALLEL_DATES, len(target_dates))
 
         def _process_date(date_str: str) -> dict:
@@ -176,6 +179,9 @@ class ProcessRawFillsStage(BaseStage):
                 result = process_raw_fills_for_date(date_str, raw_db=context.raw_db, proc_db=context.proc_db)
                 if result["success"]:
                     total_processed += result["rows_processed"]
+                    total_order_history += result.get("order_history_rows", 0)
+                    total_route_history += result.get("route_history_rows", 0)
+                    total_route_events += result.get("route_event_rows", 0)
                 else:
                     logger.error(f"  Failed to process {date_str}: {result.get('error')}")
         else:
@@ -187,12 +193,20 @@ class ProcessRawFillsStage(BaseStage):
                         result = future.result()
                         if result["success"]:
                             total_processed += result["rows_processed"]
+                            total_order_history += result.get("order_history_rows", 0)
+                            total_route_history += result.get("route_history_rows", 0)
+                            total_route_events += result.get("route_event_rows", 0)
                         else:
                             logger.error(f"  Failed to process {date_str}: {result.get('error')}")
                     except Exception as exc:
                         logger.error(f"  Exception processing {date_str}: {exc}")
 
-        context.summary["processing"] = {"rows_processed": total_processed}
+        context.summary["processing"] = {
+            "rows_processed": total_processed,
+            "order_history_rows": total_order_history,
+            "route_history_rows": total_route_history,
+            "route_event_rows": total_route_events,
+        }
         return True
 
 

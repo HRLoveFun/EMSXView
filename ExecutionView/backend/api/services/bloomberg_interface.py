@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Any
 
 from schemas import (
-    Order, OrderFilters, ConnectionStatus,
+    Order, OrderFilters, ConnectionStatus, StartupStatus,
     BatchUpdateRequest, BatchUpdateResponse,
     CancelRouteRequest, ModifyRouteRequest, RouteOrderRequest,
 )
@@ -31,6 +31,10 @@ class BloombergEMSXAdapterInterface(ABC):
     @abstractmethod
     def get_status(self) -> ConnectionStatus:
         """Return current connection status."""
+
+    @abstractmethod
+    def get_startup_status(self) -> StartupStatus:
+        """Return composite backend/Bloomberg/subscription startup state."""
 
     @abstractmethod
     async def get_orders(self, filters: Optional[OrderFilters] = None) -> List[Order]:

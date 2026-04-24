@@ -1,4 +1,4 @@
-export type CostViewModuleTab = 'overview' | 'analysis' | 'configure';
+export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'configure';
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 export type ExportScope = 'current-page' | 'all-filtered' | 'selected-order';
@@ -154,4 +154,69 @@ export interface UpdateStatusResponse {
   stage: StageInfo | null;
   overall_progress: number;  // 0-100 across all stages
   last_activity_at: string | null;
+}
+
+// ── Scorecard contracts ────────────────────────────────────────────────────
+
+export type ScorecardCohort =
+  | 'broker'
+  | 'strategy'
+  | 'broker_strategy'
+  | 'asset_class'
+  | 'time_of_day'
+  | 'liquidity_adv20'
+  | 'volatility';
+
+export interface ScorecardRequestPayload {
+  cohort: ScorecardCohort;
+  filters: TcaFilterPayload;
+  min_sample_size?: number;
+  max_orders?: number;
+}
+
+export interface ScorecardCohortMetrics {
+  cohort_key: string;
+  cohort_label: string;
+  sample_size: number;
+  order_count: number;
+  avg_tracking_error_bps: number | null;
+  median_tracking_error_bps: number | null;
+  p95_tracking_error_bps: number | null;
+  stddev_tracking_error_bps: number | null;
+  avg_fill_pct: number | null;
+  avg_volume_pct_interval: number | null;
+  avg_volume_pct_adv20: number | null;
+  avg_daily_volatility: number | null;
+  avg_intraday_volatility: number | null;
+  avg_price_movement_pct: number | null;
+  data_quality_ratio: number;
+  sample_size_warning: boolean;
+  anomaly_flags: string[];
+}
+
+export interface ScorecardReport {
+  filters: {
+    cohort: ScorecardCohort;
+    order_ids: string[] | null;
+    algo: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    broker: string | null;
+    symbol: string | null;
+    min_sample_size: number;
+    max_orders: number;
+  };
+  cohort: ScorecardCohort;
+  min_sample_size: number;
+  total_orders_considered: number;
+  total_orders_capped: boolean;
+  cohorts: ScorecardCohortMetrics[];
+  generated_at: string;
+  data_source_warning: string | null;
+}
+
+export interface ScorecardFormState {
+  cohort: ScorecardCohort;
+  minSampleSize: number;
+  maxOrders: number;
 }

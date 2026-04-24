@@ -82,8 +82,15 @@ export function RouteOrderDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [onDemandStrategies, setOnDemandStrategies] = useState<string[]>([]);
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
+  const [assetClass, setAssetClass] = useState('EQTY');
   
   const { configs, isLoading: isLoadingBrokers, getStrategiesForBroker, getParametersForStrategy } = useBrokerAlgorithms();
+
+  const getStrategyFieldValues = (broker: string, strategy: string): Record<string, string> | undefined => {
+    const params = broker && strategy ? getParametersForStrategy(broker, strategy) : [];
+    if (params.length === 0) return undefined;
+    return Object.fromEntries(params.map((param) => [param.fieldName, param.stringValue || '']));
+  };
 
   // Get unique brokers from configs
   const availableBrokers = configs
@@ -99,6 +106,23 @@ export function RouteOrderDialog({
 
   // On-demand strategy fetching when broker is selected but hook has no strategies
   useEffect(() => {
+    let cancelled = false;
+
+    if (!open || !order?.symbol) {
+      setAssetClass('EQTY');
+      return;
+    }
+
+    cachedApiService.resolveAssetClass(order.symbol, 'EQTY').then((resolvedAssetClass) => {
+      if (!cancelled) setAssetClass(resolvedAssetClass || 'EQTY');
+    }).catch(() => {
+      if (!cancelled) setAssetClass('EQTY');
+    });
+
+    return () => { cancelled = true; };
+  }, [open, order?.symbol]);
+
+  useEffect(() => {
     if (!routeData.broker) {
       setOnDemandStrategies([]);
       return;
@@ -111,7 +135,7 @@ export function RouteOrderDialog({
     // Fetch strategies on-demand from API
     let cancelled = false;
     setIsLoadingStrategies(true);
-    cachedApiService.getBrokerStrategies(routeData.broker).then(res => {
+    cachedApiService.getBrokerStrategies(routeData.broker, assetClass).then(res => {
       if (!cancelled && res.success && res.data?.strategies) {
         setOnDemandStrategies(res.data.strategies);
       }
@@ -119,7 +143,7 @@ export function RouteOrderDialog({
       if (!cancelled) setIsLoadingStrategies(false);
     });
     return () => { cancelled = true; };
-  }, [routeData.broker, getStrategiesForBroker]);
+  }, [routeData.broker, assetClass, getStrategiesForBroker]);
 
   // Get parameters for selected strategy
   const strategyParams = routeData.broker && routeData.strategy
@@ -139,6 +163,7 @@ export function RouteOrderDialog({
         timeInForce: order.timeInForce,
         exchangeDestination: order.exchange || '',
         notes: '',
+        strategyFieldValues: undefined,
       });
       setError('');
     }
@@ -246,7 +271,7 @@ export function RouteOrderDialog({
                 <Label htmlFor="broker">Broker *</Label>
                 <Select
                   value={routeData.broker}
-                  onValueChange={(v) => setRouteData({ ...routeData, broker: v, strategy: '' })}
+                  onValueChange={(v) => setRouteData({ ...routeData, broker: v, strategy: '', strategyFieldValues: undefined })}
                 >
                   <SelectTrigger id="broker">
                     <SelectValue placeholder="Select broker" />
@@ -272,7 +297,11 @@ export function RouteOrderDialog({
                 <Label htmlFor="strategy">Strategy</Label>
                 <Select
                   value={routeData.strategy}
-                  onValueChange={(v) => setRouteData({ ...routeData, strategy: v })}
+                  onValueChange={(v) => setRouteData({
+                    ...routeData,
+                    strategy: v,
+                    strategyFieldValues: getStrategyFieldValues(routeData.broker, v),
+                  })}
                   disabled={!routeData.broker || (availableStrategies.length === 0 && !isLoadingStrategies)}
                 >
                   <SelectTrigger id="strategy">

@@ -1,25 +1,68 @@
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, Gauge } from 'lucide-react';
-import { fetchMarketSnapshot } from './services/api';
-import type { MarketSnapshotPayload } from './types';
+import { Activity, AlertTriangle, ArrowUpDown, Gauge } from 'lucide-react';
+
+import { buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
+import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
+import { useHandoffContracts } from '../../hooks/use-handoff-contracts';
+import type {
+  IntradayBucketMinutes,
+  IntradayFeatureSnapshot,
+  IntradayTickerFeatures,
+  MarketAlertSeverity,
+  MarketSnapshotPayload,
+  MarketSnapshotRequest,
+} from './types';
 
 const capabilityCards = [
   {
-    title: 'Market Snapshot',
-    description: '读取 Stage 7 生成的日级市场快照，优先给盘前模块提供收盘价、ADV 和波动率边界。',
+    title: 'Stock Pools',
+    description: '股票池定义统一挂在 MarketView contract 上，由同一条日级 snapshot 路径驱动，而不是散落在页面本地状态。',
     icon: Activity,
   },
   {
-    title: 'Liquidity Checks',
-    description: '下一步把候选交易标的与 ADV/日成交量边界连接起来，形成盘前流动性快速筛查。',
+    title: 'Risk Filters',
+    description: '按 ADV、日成交量、日波动率和盘中波动率做盘前筛选，并直接暴露流动性与波动率告警等级。',
     icon: Gauge,
   },
   {
-    title: 'Execution Hand-Off',
-    description: '后续在这里把盘前筛查结果通过共享契约传给 Execution，而不是页面间硬编码传值。',
-    icon: BarChart3,
+    title: 'Candidate Hand-Off',
+    description: '候选 payload 已经有清晰 contract，可在不引入推荐模型的前提下 handoff 到 ExecutionView。',
+    icon: ArrowUpDown,
   },
 ];
+
+const DEFAULT_QUERY: MarketSnapshotRequest = {
+  limit: 40,
+  pool_id: 'all',
+  liquidity_alert: 'all',
+  volatility_alert: 'all',
+  sort_by: 'total_volume',
+  sort_direction: 'desc',
+};
+
+const SORT_OPTIONS: Array<{ value: NonNullable<MarketSnapshotRequest['sort_by']>; label: string }> = [
+  { value: 'total_volume', label: 'Total Volume' },
+  { value: 'adv_20d', label: 'ADV 20D' },
+  { value: 'adv_5d', label: 'ADV 5D' },
+  { value: 'daily_volatility', label: 'Daily Volatility' },
+  { value: 'intraday_volatility', label: 'Intraday Volatility' },
+  { value: 'volume_vs_adv20_pct', label: 'Volume / ADV20' },
+  { value: 'equ_ticker', label: 'Ticker' },
+  { value: 'liquidity_alert', label: 'Liquidity Alert' },
+  { value: 'volatility_alert', label: 'Volatility Alert' },
+];
+
+const ALERT_FILTER_OPTIONS = [
+  { value: 'all', label: 'All rows' },
+  { value: 'warning', label: 'Warning+' },
+  { value: 'critical', label: 'Critical only' },
+] as const;
+
+type NumericQueryKey =
+  | 'min_adv_20d'
+  | 'min_total_volume'
+  | 'min_daily_volatility'
+  | 'min_intraday_volatility';
 
 function fmtNumber(value: number | null | undefined, digits = 2): string {
   if (value == null) return '—';
@@ -37,10 +80,62 @@ function fmtCompact(value: number | null | undefined): string {
   }).format(value);
 }
 
+function fmtPercent(value: number | null | undefined, digits = 1): string {
+  if (value == null) return '—';
+  return `${value.toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  })}%`;
+}
+
+function getSeverityTone(severity: MarketAlertSeverity): string {
+  switch (severity) {
+    case 'critical':
+      return 'border-red-500/30 bg-red-500/10 text-red-700';
+    case 'warning':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-700';
+    case 'normal':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700';
+    default:
+      return 'border-border bg-muted/30 text-muted-foreground';
+  }
+}
+
+function getSeverityText(severity: MarketAlertSeverity): string {
+  switch (severity) {
+    case 'critical':
+      return 'Critical';
+    case 'warning':
+      return 'Warning';
+    case 'normal':
+      return 'Normal';
+    default:
+      return 'N/A';
+  }
+}
+
+function renderSeverityBadge(label: string, severity: MarketAlertSeverity) {
+  return (
+    <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-medium ${getSeverityTone(severity)}`}>
+      {label}: {getSeverityText(severity)}
+    </span>
+  );
+}
+
 export default function MarketViewModule() {
+  const [query, setQuery] = useState<MarketSnapshotRequest>(DEFAULT_QUERY);
   const [snapshot, setSnapshot] = useState<MarketSnapshotPayload | null>(null);
+  const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [drillTicker, setDrillTicker] = useState<string | null>(null);
+  const { publishMarketCandidatesAction, activeCandidateHandoff } = useHandoffContracts();
+  const [publishStatus, setPublishStatus] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [drillBucketMinutes, setDrillBucketMinutes] = useState<IntradayBucketMinutes>(30);
+  const [drillSnapshot, setDrillSnapshot] = useState<IntradayFeatureSnapshot | null>(null);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillError, setDrillError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,13 +144,13 @@ export default function MarketViewModule() {
       setIsLoading(true);
       setError(null);
       try {
-        const nextSnapshot = await fetchMarketSnapshot(12);
+        const nextSnapshot = await fetchMarketSnapshot(query);
         if (!cancelled) {
           setSnapshot(nextSnapshot);
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : 'Failed to load market snapshot');
+          setError(nextError instanceof Error ? nextError.message : 'Failed to load MarketView workstation');
           setSnapshot(null);
         }
       } finally {
@@ -69,7 +164,106 @@ export default function MarketViewModule() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [
+    query.limit,
+    query.pool_id,
+    query.min_adv_20d,
+    query.min_total_volume,
+    query.min_daily_volatility,
+    query.min_intraday_volatility,
+    query.liquidity_alert,
+    query.volatility_alert,
+    query.sort_by,
+    query.sort_direction,
+    query.trade_date,
+  ]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      setSelectedTickers([]);
+      return;
+    }
+
+    setSelectedTickers((current) =>
+      current.filter((ticker) => snapshot.rows.some((row) => row.equ_ticker === ticker)),
+    );
+  }, [snapshot]);
+
+  useEffect(() => {
+    if (!drillTicker || !snapshot?.trade_date) {
+      setDrillSnapshot(null);
+      setDrillError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDrillLoading(true);
+    setDrillError(null);
+
+    fetchIntradayFeatures({
+      tickers: [drillTicker],
+      trade_date: snapshot.trade_date,
+      bucket_minutes: drillBucketMinutes,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setDrillSnapshot(result);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setDrillError(err instanceof Error ? err.message : 'Failed to load intraday features');
+          setDrillSnapshot(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDrillLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [drillTicker, drillBucketMinutes, snapshot?.trade_date]);
+
+  function updateQuery<K extends keyof MarketSnapshotRequest>(key: K, value: MarketSnapshotRequest[K]): void {
+    setQuery((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  function updateNumericQuery(key: NumericQueryKey, rawValue: string): void {
+    setQuery((current) => ({
+      ...current,
+      [key]: rawValue.trim() === '' ? undefined : Number(rawValue),
+    }));
+  }
+
+  function handlePoolChange(poolId: string): void {
+    const nextPool = snapshot?.available_pools.find((pool) => pool.pool_id === poolId);
+    setQuery((current) => ({
+      ...current,
+      pool_id: poolId,
+      sort_by: nextPool?.default_sort_by ?? current.sort_by ?? 'total_volume',
+      sort_direction: nextPool?.default_sort_direction ?? current.sort_direction ?? 'desc',
+    }));
+  }
+
+  function toggleTicker(ticker: string): void {
+    setSelectedTickers((current) =>
+      current.includes(ticker)
+        ? current.filter((item) => item !== ticker)
+        : [...current, ticker],
+    );
+  }
+
+  const rows = snapshot?.rows ?? [];
+  const criticalCount = countRowsWithSeverity(rows, 'critical');
+  const warningCount = countRowsWithSeverity(rows, 'warning');
+  const handoffPayload = snapshot ? buildMarketCandidatePayload(snapshot, selectedTickers) : null;
+  const activePool = snapshot?.available_pools.find((pool) => pool.pool_id === snapshot.active_pool_id) ?? null;
 
   return (
     <section className="space-y-6 rounded-2xl border bg-card p-6 shadow-sm">
@@ -80,7 +274,7 @@ export default function MarketViewModule() {
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">Pre-trade workspace</h2>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            这里已经接上第一批真实数据边界：来自统一逻辑数据域中的市场参考数据快照。当前模块先提供盘前收盘价、波动率和 ADV 视图，后续再叠加候选订单和风险检查。
+            这里继续使用同一条日级快照路径，但不再只是固定表格。MarketView 现在以股票池为入口，把筛选、排序、流动性和波动率告警，以及后续 handoff 的候选 contract 放到一个盘前工作台里。
           </p>
         </div>
       </div>
@@ -95,57 +289,388 @@ export default function MarketViewModule() {
         ))}
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-4">
+        <article className="rounded-2xl border border-border/70 bg-background/70 p-5">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Visible rows</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">{snapshot?.row_count ?? 0}</div>
+          <p className="mt-2 text-sm text-muted-foreground">当前股票池经过筛选和排序后的候选数。</p>
+        </article>
+        <article className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
+          <div className="text-xs uppercase tracking-[0.2em] text-red-700/80">Critical alerts</div>
+          <div className="mt-3 text-3xl font-semibold text-red-700">{criticalCount}</div>
+          <p className="mt-2 text-sm text-red-700/80">任一维度达到 critical 的标的数。</p>
+        </article>
+        <article className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+          <div className="text-xs uppercase tracking-[0.2em] text-amber-700/80">Warning alerts</div>
+          <div className="mt-3 text-3xl font-semibold text-amber-700">{warningCount}</div>
+          <p className="mt-2 text-sm text-amber-700/80">至少有一个 warning，但未到 critical 的盘前关注标的。</p>
+        </article>
+        <article className="rounded-2xl border border-border/70 bg-background/70 p-5">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Hand-off candidates</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">{handoffPayload?.row_count ?? 0}</div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {selectedTickers.length ? '已按显式勾选范围生成 handoff payload。' : '未勾选时默认使用当前筛选结果。'}
+          </p>
+          <button
+            type="button"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-primary/60 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isPublishing || !handoffPayload || handoffPayload.row_count === 0}
+            onClick={async () => {
+              if (!handoffPayload) return;
+              setIsPublishing(true);
+              setPublishStatus(null);
+              try {
+                const result = await publishMarketCandidatesAction({
+                  pool_id: handoffPayload.pool_id,
+                  tickers: selectedTickers.length ? selectedTickers : undefined,
+                });
+                setPublishStatus(
+                  `已送达 ExecutionView：${result.candidate_payload.row_count} 个标的 (trace_id=${result.metadata.trace_id.slice(0, 12)}…)`,
+                );
+              } catch (err) {
+                setPublishStatus(err instanceof Error ? `发送失败：${err.message}` : '发送失败');
+              } finally {
+                setIsPublishing(false);
+              }
+            }}
+          >
+            {isPublishing ? '发送中…' : 'Send to ExecutionView →'}
+          </button>
+          {publishStatus && (
+            <p className="mt-2 text-xs text-muted-foreground">{publishStatus}</p>
+          )}
+          {activeCandidateHandoff && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              上一次 handoff: {activeCandidateHandoff.candidate_payload.row_count} 个候选，
+              {new Date(activeCandidateHandoff.metadata.generated_at).toLocaleString()}
+            </p>
+          )}
+        </article>
+      </div>
+
       <div className="rounded-2xl border border-border/70 bg-background/70 p-5">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">Latest market snapshot</p>
+            <p className="text-sm font-medium text-foreground">Stock-pool workstation</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              数据源是 `bdib_daily_summary` 的最新交易日快照，通过 `platform_data` 适配层暴露给 MarketView。
+              数据源仍然是 `bdib_daily_summary` 的最新交易日快照，通过 `platform_data` 适配层暴露给 MarketView。这里的所有过滤和告警都基于日级数据，不代表实时行情。
             </p>
           </div>
-          <div className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
-            {snapshot?.trade_date ? `Trade Date ${snapshot.trade_date}` : 'No snapshot date'}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <div className="rounded-full border border-border px-3 py-1">
+              {snapshot?.trade_date ? `Trade Date ${snapshot.trade_date}` : 'No snapshot date'}
+            </div>
+            <div className="rounded-full border border-border px-3 py-1">{activePool?.label ?? 'Stock pool'}</div>
+            <div className="rounded-full border border-border px-3 py-1">{rows.length} rows</div>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {(snapshot?.available_pools ?? []).map((pool) => {
+              const isActive = (query.pool_id ?? 'all') === pool.pool_id;
+              return (
+                <button
+                  key={pool.pool_id}
+                  type="button"
+                  onClick={() => handlePoolChange(pool.pool_id)}
+                  className={`rounded-full border px-3 py-1.5 text-sm transition ${
+                    isActive
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {pool.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            {activePool?.description
+              ?? 'Pools are loaded from the backend adapter so MarketView keeps a single ownership boundary.'}
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Limit</span>
+              <select
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                value={query.limit ?? 40}
+                onChange={(event) => updateQuery('limit', Number(event.target.value))}
+              >
+                {[20, 40, 60, 100].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Min ADV 20D</span>
+              <input
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                type="number"
+                min="0"
+                step="1000000"
+                value={query.min_adv_20d ?? ''}
+                onChange={(event) => updateNumericQuery('min_adv_20d', event.target.value)}
+                placeholder="e.g. 10000000"
+              />
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Min Total Volume</span>
+              <input
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                type="number"
+                min="0"
+                step="1000000"
+                value={query.min_total_volume ?? ''}
+                onChange={(event) => updateNumericQuery('min_total_volume', event.target.value)}
+                placeholder="e.g. 5000000"
+              />
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Min Daily Vol</span>
+              <input
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                type="number"
+                min="0"
+                step="0.1"
+                value={query.min_daily_volatility ?? ''}
+                onChange={(event) => updateNumericQuery('min_daily_volatility', event.target.value)}
+                placeholder="e.g. 25"
+              />
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Min Intraday Vol</span>
+              <input
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                type="number"
+                min="0"
+                step="0.1"
+                value={query.min_intraday_volatility ?? ''}
+                onChange={(event) => updateNumericQuery('min_intraday_volatility', event.target.value)}
+                placeholder="e.g. 2.5"
+              />
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Liquidity alert</span>
+              <select
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                value={query.liquidity_alert ?? 'all'}
+                onChange={(event) => updateQuery('liquidity_alert', event.target.value as MarketSnapshotRequest['liquidity_alert'])}
+              >
+                {ALERT_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Volatility alert</span>
+              <select
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                value={query.volatility_alert ?? 'all'}
+                onChange={(event) => updateQuery('volatility_alert', event.target.value as MarketSnapshotRequest['volatility_alert'])}
+              >
+                {ALERT_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Sort by</span>
+              <select
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                value={query.sort_by ?? 'total_volume'}
+                onChange={(event) => updateQuery('sort_by', event.target.value as MarketSnapshotRequest['sort_by'])}
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Direction</span>
+              <select
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground"
+                value={query.sort_direction ?? 'desc'}
+                onChange={(event) => updateQuery('sort_direction', event.target.value as MarketSnapshotRequest['sort_direction'])}
+              >
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </label>
+
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => setQuery(DEFAULT_QUERY)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-muted-foreground transition hover:text-foreground"
+              >
+                Reset filters
+              </button>
+            </div>
           </div>
         </div>
 
         {isLoading ? (
           <div className="mt-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-            Loading market snapshot...
+            Loading MarketView workstation...
           </div>
         ) : error ? (
           <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-sm text-red-700">
             {error}
           </div>
         ) : snapshot && snapshot.rows.length ? (
-          <div className="mt-4 overflow-hidden rounded-xl border border-border">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-sm">
-                <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-3 text-left font-medium">Ticker</th>
-                    <th className="px-3 py-3 text-right font-medium">Close</th>
-                    <th className="px-3 py-3 text-right font-medium">Daily Vol</th>
-                    <th className="px-3 py-3 text-right font-medium">Intraday Vol</th>
-                    <th className="px-3 py-3 text-right font-medium">Total Vol</th>
-                    <th className="px-3 py-3 text-right font-medium">ADV 5D</th>
-                    <th className="px-3 py-3 text-right font-medium">ADV 20D</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.rows.map((row) => (
-                    <tr key={`${row.equ_ticker}-${row.trade_date}`} className="border-t border-border/60">
-                      <td className="px-3 py-3 font-medium text-foreground">{row.equ_ticker}</td>
-                      <td className="px-3 py-3 text-right">{fmtNumber(row.daily_close, 2)}</td>
-                      <td className="px-3 py-3 text-right">{fmtNumber(row.daily_volatility, 2)}%</td>
-                      <td className="px-3 py-3 text-right">{fmtNumber(row.intraday_volatility, 2)}%</td>
-                      <td className="px-3 py-3 text-right">{fmtCompact(row.total_volume)}</td>
-                      <td className="px-3 py-3 text-right">{fmtCompact(row.adv_5d)}</td>
-                      <td className="px-3 py-3 text-right">{fmtCompact(row.adv_20d)}</td>
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
+            <div className="overflow-hidden rounded-xl border border-border">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-3 text-sm">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <AlertTriangle className="h-4 w-4" />
+                  每一行都来自最新日级 snapshot，不含实时盘口。
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTickers(rows.map((row) => row.equ_ticker))}
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition hover:text-foreground"
+                  >
+                    Select visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTickers([])}
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition hover:text-foreground"
+                  >
+                    Use filtered universe
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1180px] text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-3 text-left font-medium">Pick</th>
+                      <th className="px-3 py-3 text-left font-medium">Ticker</th>
+                      <th className="px-3 py-3 text-right font-medium">Close</th>
+                      <th className="px-3 py-3 text-right font-medium">Total Vol</th>
+                      <th className="px-3 py-3 text-right font-medium">ADV 20D</th>
+                      <th className="px-3 py-3 text-right font-medium">Vol / ADV20</th>
+                      <th className="px-3 py-3 text-right font-medium">Daily Vol</th>
+                      <th className="px-3 py-3 text-right font-medium">Intraday Vol</th>
+                      <th className="px-3 py-3 text-left font-medium">Liquidity</th>
+                      <th className="px-3 py-3 text-left font-medium">Volatility</th>
+                      <th className="px-3 py-3 text-left font-medium">Risk notes</th>
+                      <th className="px-3 py-3 text-right font-medium">Drill</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const isSelected = selectedTickers.includes(row.equ_ticker);
+                      return (
+                        <tr key={`${row.equ_ticker}-${row.trade_date}`} className="border-t border-border/60 align-top">
+                          <td className="px-3 py-3">
+                            <input
+                              aria-label={`Select ${row.equ_ticker}`}
+                              checked={isSelected}
+                              className="h-4 w-4 rounded border-border"
+                              type="checkbox"
+                              onChange={() => toggleTicker(row.equ_ticker)}
+                            />
+                          </td>
+                          <td className="px-3 py-3 font-medium text-foreground">{row.equ_ticker}</td>
+                          <td className="px-3 py-3 text-right">{fmtNumber(row.daily_close, 2)}</td>
+                          <td className="px-3 py-3 text-right">{fmtCompact(row.total_volume)}</td>
+                          <td className="px-3 py-3 text-right">{fmtCompact(row.adv_20d)}</td>
+                          <td className="px-3 py-3 text-right">{fmtPercent(row.volume_vs_adv20_pct, 1)}</td>
+                          <td className="px-3 py-3 text-right">{fmtPercent(row.daily_volatility, 1)}</td>
+                          <td className="px-3 py-3 text-right">{fmtPercent(row.intraday_volatility, 1)}</td>
+                          <td className="px-3 py-3">{renderSeverityBadge('Liquidity', row.liquidity_alert)}</td>
+                          <td className="px-3 py-3">{renderSeverityBadge('Volatility', row.volatility_alert)}</td>
+                          <td className="px-3 py-3 text-xs leading-5 text-muted-foreground">
+                            {row.alerts.length ? (
+                              row.alerts.map((alert) => (
+                                <div key={`${row.equ_ticker}-${alert.code}`} className="rounded-lg border border-border/60 bg-background/80 px-2 py-1">
+                                  <div className="font-medium text-foreground">{getSeverityText(alert.severity)}</div>
+                                  <div>{alert.message}</div>
+                                </div>
+                              ))
+                            ) : (
+                              <span>Within current thresholds.</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDrillTicker((current) => (current === row.equ_ticker ? null : row.equ_ticker))
+                              }
+                              className={`rounded-full border px-3 py-1 text-xs transition ${
+                                drillTicker === row.equ_ticker
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-border text-muted-foreground hover:text-foreground'
+                              }`}
+                            >
+                              {drillTicker === row.equ_ticker ? 'Hide' : 'Intraday'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            <aside className="space-y-4 rounded-xl border border-border bg-background/90 p-4">
+              <div>
+                <p className="text-sm font-medium text-foreground">ExecutionView hand-off preview</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  这就是预留给 ExecutionView 的候选 payload contract。未勾选时使用当前筛选结果；勾选后只带显式候选标的。
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-4 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Payload source</span>
+                  <span className="font-medium text-foreground">{handoffPayload?.source ?? 'N/A'}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Handoff target</span>
+                  <span className="font-medium text-foreground">{handoffPayload?.handoff_target ?? 'N/A'}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Candidate count</span>
+                  <span className="font-medium text-foreground">{handoffPayload?.row_count ?? 0}</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-all text-xs leading-5 text-muted-foreground">
+                  {handoffPayload ? JSON.stringify(handoffPayload, null, 2) : 'No candidate payload available.'}
+                </pre>
+              </div>
+
+              <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                当前 contract 只承载日级候选和风险标签，不推导执行建议，也不把 snapshot 误当成实时行情流。
+              </div>
+            </aside>
           </div>
         ) : (
           <div className="mt-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
@@ -153,6 +678,175 @@ export default function MarketViewModule() {
           </div>
         )}
       </div>
+
+      {drillTicker ? (
+        <IntradayFeaturePanel
+          ticker={drillTicker}
+          bucketMinutes={drillBucketMinutes}
+          onBucketMinutesChange={setDrillBucketMinutes}
+          snapshot={drillSnapshot}
+          loading={drillLoading}
+          error={drillError}
+          onClose={() => setDrillTicker(null)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+const INTRADAY_BUCKET_CHOICES: IntradayBucketMinutes[] = [5, 10, 15, 30, 60];
+
+interface IntradayFeaturePanelProps {
+  ticker: string;
+  bucketMinutes: IntradayBucketMinutes;
+  onBucketMinutesChange: (value: IntradayBucketMinutes) => void;
+  snapshot: IntradayFeatureSnapshot | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}
+
+function IntradayFeaturePanel({
+  ticker,
+  bucketMinutes,
+  onBucketMinutesChange,
+  snapshot,
+  loading,
+  error,
+  onClose,
+}: IntradayFeaturePanelProps) {
+  const tickerFeatures: IntradayTickerFeatures | undefined = snapshot?.tickers.find(
+    (entry) => entry.equ_ticker === ticker,
+  );
+  const isMissing = snapshot?.missing_tickers.includes(ticker);
+
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background/70 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Intraday feature drill-down</div>
+          <h3 className="mt-1 text-lg font-semibold text-foreground">{ticker}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            来自 raw BDIB 的交易所本地时间窗口特征；不是实时行情流，仅用于盘前复盘。
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">
+            Bucket (min)
+            <select
+              className="ml-2 rounded-xl border border-border bg-background px-2 py-1 text-sm text-foreground"
+              value={bucketMinutes}
+              onChange={(event) => onBucketMinutesChange(Number(event.target.value) as IntradayBucketMinutes)}
+            >
+              {INTRADAY_BUCKET_CHOICES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition hover:text-foreground"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+          Loading intraday features...
+        </div>
+      ) : error ? (
+        <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-700">
+          {error}
+        </div>
+      ) : isMissing || !tickerFeatures ? (
+        <div className="mt-4 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+          No intraday bars available for {ticker} on {snapshot?.trade_date ?? 'the selected date'}.
+        </div>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+            <SummaryCard label="Bars" value={String(tickerFeatures.bar_count)} />
+            <SummaryCard label="Session" value={`${tickerFeatures.first_bar_time ?? '—'} → ${tickerFeatures.last_bar_time ?? '—'}`} />
+            <SummaryCard label="Day VWAP" value={fmtNumber(tickerFeatures.daily_vwap, 2)} />
+            <SummaryCard label="Day Close" value={fmtNumber(tickerFeatures.daily_close, 2)} />
+            <SummaryCard label="Total Volume" value={fmtCompact(tickerFeatures.total_volume)} />
+            <SummaryCard label="ADV 20D" value={fmtCompact(tickerFeatures.adv_20d)} />
+            <SummaryCard label="Vol / ADV20" value={fmtPercent(tickerFeatures.volume_vs_adv20_pct, 1)} />
+            <SummaryCard label="Intraday Vol" value={fmtPercent(tickerFeatures.intraday_volatility, 1)} />
+            <SummaryCard
+              label="Open 10m share"
+              value={`${fmtCompact(tickerFeatures.open_window_volume)} · ${fmtPercent(tickerFeatures.open_window_share_pct, 1)}`}
+            />
+            <SummaryCard
+              label="Open 10m VWAP"
+              value={fmtNumber(tickerFeatures.open_window_vwap, 2)}
+            />
+            <SummaryCard
+              label="Close 10m share"
+              value={`${fmtCompact(tickerFeatures.close_window_volume)} · ${fmtPercent(tickerFeatures.close_window_share_pct, 1)}`}
+            />
+            <SummaryCard
+              label="Close 10m VWAP"
+              value={fmtNumber(tickerFeatures.close_window_vwap, 2)}
+            />
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border">
+            <div className="border-b border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              Volume curve · {bucketMinutes}-minute buckets ({tickerFeatures.buckets.length} rows)
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[960px] text-sm">
+                <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Window</th>
+                    <th className="px-3 py-2 text-right font-medium">Bars</th>
+                    <th className="px-3 py-2 text-right font-medium">Volume</th>
+                    <th className="px-3 py-2 text-right font-medium">Cum %</th>
+                    <th className="px-3 py-2 text-right font-medium">Vol/ADV20</th>
+                    <th className="px-3 py-2 text-right font-medium">VWAP</th>
+                    <th className="px-3 py-2 text-right font-medium">Close</th>
+                    <th className="px-3 py-2 text-right font-medium">Realized Vol</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickerFeatures.buckets.map((bucket) => (
+                    <tr
+                      key={`${bucket.bucket_start}-${bucket.bucket_end}`}
+                      className="border-t border-border/60"
+                    >
+                      <td className="px-3 py-2 font-medium text-foreground">
+                        {bucket.bucket_start} – {bucket.bucket_end}
+                      </td>
+                      <td className="px-3 py-2 text-right">{bucket.bar_count}</td>
+                      <td className="px-3 py-2 text-right">{fmtCompact(bucket.volume)}</td>
+                      <td className="px-3 py-2 text-right">{fmtPercent(bucket.cumulative_volume_pct, 1)}</td>
+                      <td className="px-3 py-2 text-right">{fmtPercent(bucket.volume_vs_adv20_pct, 1)}</td>
+                      <td className="px-3 py-2 text-right">{fmtNumber(bucket.vwap, 2)}</td>
+                      <td className="px-3 py-2 text-right">{fmtNumber(bucket.close, 2)}</td>
+                      <td className="px-3 py-2 text-right">{fmtPercent(bucket.realized_vol_annualized, 1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-background px-4 py-3">
+      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
+    </div>
   );
 }

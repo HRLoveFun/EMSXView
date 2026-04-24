@@ -3,6 +3,7 @@ import type {
   CostViewConfig,
   CostViewMetricKey,
   ExportDefaults,
+  ScorecardCohortMetrics,
   TcaOrderSummary,
   ThresholdRule,
 } from '../types';
@@ -197,4 +198,53 @@ export function averageMetric(
   if (!values.length) return null;
 
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/**
+ * Evaluate a cohort against the same threshold rules applied to individual
+ * orders. The scorecard uses average metrics per cohort, so we reuse the
+ * detail-view thresholds to keep alert semantics consistent across views.
+ */
+export function evaluateCohortSeverity(
+  cohort: ScorecardCohortMetrics,
+  config: CostViewConfig,
+): AlertSeverity {
+  if (cohort.sample_size_warning) {
+    // Cohort below sample-size floor — never auto-escalate to critical based
+    // on unstable averages. Surface as warning instead.
+    return 'warning';
+  }
+  const severities: AlertSeverity[] = [
+    evaluateThreshold(config.rules.tracking_error_bps, cohort.avg_tracking_error_bps ?? null),
+    evaluateThreshold(config.rules.fill_pct, cohort.avg_fill_pct ?? null),
+    evaluateThreshold(config.rules.volume_pct_adv20, cohort.avg_volume_pct_adv20 ?? null),
+    evaluateThreshold(config.rules.volume_pct_interval, cohort.avg_volume_pct_interval ?? null),
+    evaluateThreshold(config.rules.intraday_volatility, cohort.avg_intraday_volatility ?? null),
+    evaluateThreshold(config.rules.price_movement_pct, cohort.avg_price_movement_pct ?? null),
+  ];
+  if (severities.includes('critical')) return 'critical';
+  if (severities.includes('warning')) return 'warning';
+  if (severities.includes('normal')) return 'normal';
+  return 'none';
+}
+
+export function formatAnomalyFlag(flag: string): string {
+  switch (flag) {
+    case 'sample_size':
+      return 'Small sample';
+    case 'high_tracking_error':
+      return 'High tracking error';
+    case 'elevated_tracking_error':
+      return 'Elevated tracking error';
+    case 'tail_tracking_error':
+      return 'Heavy tail (P95)';
+    case 'low_fill_rate':
+      return 'Low fill rate';
+    case 'high_participation':
+      return 'High ADV participation';
+    case 'data_quality':
+      return 'Data quality risk';
+    default:
+      return flag.replaceAll('_', ' ');
+  }
 }

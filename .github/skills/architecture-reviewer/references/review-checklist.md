@@ -12,14 +12,14 @@
 
 ## EMSX-Specific Review Items
 
-### Backend (`Execution/backend/api/main.py`)
+### Backend (`ExecutionView/backend/api/main.py`)
 - [ ] **Decomposition candidates**: Bloomberg session management, order/route models, route enrichment, broker algorithm cache, WebSocket handlers
 - [ ] **Session isolation**: Are subscription, request, and market data sessions properly isolated?
 - [ ] **Error boundaries**: Do Bloomberg API failures propagate cleanly to API responses?
 - [ ] **Field consistency**: Do ORDER_FIELDS and ROUTE_FIELDS match what the frontend expects?
 - [ ] **Audit logging**: Is ENABLE_AUDIT_LOG covering all state-changing operations?
 
-### Frontend (`Execution/frontend/src/`)
+### Frontend (`ExecutionView/frontend/src/`)
 - [ ] **Component size**: Are table sections (OrderTable, RouteTable, MonitorBoard) growing too large?
 - [ ] **Type safety**: Does `types/index.ts` match all backend response fields?
 - [ ] **Cache invalidation**: Does `cachedApiService` TTL cause stale data issues?

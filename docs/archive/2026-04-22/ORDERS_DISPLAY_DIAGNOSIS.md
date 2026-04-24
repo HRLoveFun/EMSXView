@@ -1,4 +1,4 @@
-# Execution Orders 表格显示问题 - 诊断与修复报告
+# ExecutionView Orders 表格显示问题 - 诊断与修复报告
 
 ## 问题描述
 execution-orders 表格无法正常显示前部分订单，部分历史订单缺失。
@@ -6,7 +6,7 @@ execution-orders 表格无法正常显示前部分订单，部分历史订单缺
 ## 根本原因分析
 
 ### 1. INIT_PAINT 超时时间过短 (严重)
-**位置:** `Execution/backend/api/main.py:2339`
+**位置:** `ExecutionView/backend/api/main.py:2339`
 
 **问题:**
 - 原超时时间为 15 秒 (30 x 0.5s)
@@ -19,7 +19,7 @@ Bloomberg 官方示例 (EMSXSubscriptions.py) 显示：
 - 大订单簿可能需要 20-30 秒完成传输
 
 ### 2. 竞态条件 (严重)
-**位置:** `Execution/frontend/src/App.tsx:186-248`
+**位置:** `ExecutionView/frontend/src/App.tsx:186-248`
 
 **问题:**
 - 前端每 2 秒轮询一次
@@ -27,7 +27,7 @@ Bloomberg 官方示例 (EMSXSubscriptions.py) 显示：
 - 没有机制等待 INIT_PAINT 完成后再显示
 
 ### 3. 过滤条件不可见 (中等)
-**位置:** `Execution/frontend/src/sections/OrderTable.tsx`
+**位置:** `ExecutionView/frontend/src/sections/OrderTable.tsx`
 
 **问题:**
 - 用户可能无意中应用了过滤条件
@@ -52,7 +52,7 @@ for _ in range(60):  # 30秒
     # 额外等待 2 秒确保捕获尾随订单
 ```
 
-**文件:** `Execution/backend/api/main.py:2339-2351`
+**文件:** `ExecutionView/backend/api/main.py:2339-2351`
 
 ### 修复 2: 添加订单状态 API
 ```python
@@ -67,7 +67,7 @@ async def get_orders_status():
     }
 ```
 
-**文件:** `Execution/backend/api/main.py:3162-3184`
+**文件:** `ExecutionView/backend/api/main.py:3162-3184`
 
 ### 修复 3: 前端添加过滤指示器
 ```typescript
@@ -81,7 +81,7 @@ Showing {orders.length} of {allOrders.length} orders
 [OrderTable] allOrders: X, orders: Y, activeFilters: Z
 ```
 
-**文件:** `Execution/frontend/src/sections/OrderTable.tsx`
+**文件:** `ExecutionView/frontend/src/sections/OrderTable.tsx`
 
 ### 修复 4: 前端 API 服务方法
 ```typescript
@@ -94,15 +94,15 @@ async getOrdersStatus(): Promise<ApiResponse<{
 }>>
 ```
 
-**文件:** `Execution/frontend/src/services/api.ts:151-159`
+**文件:** `ExecutionView/frontend/src/services/api.ts:151-159`
 
 ## 修改文件列表
 
 | 文件 | 修改类型 | 说明 |
 |------|----------|------|
-| `Execution/backend/api/main.py` | 修改+新增 | 增加超时，添加状态API |
-| `Execution/frontend/src/services/api.ts` | 新增 | getOrdersStatus 方法 |
-| `Execution/frontend/src/sections/OrderTable.tsx` | 修改 | 过滤指示器，调试日志 |
+| `ExecutionView/backend/api/main.py` | 修改+新增 | 增加超时，添加状态API |
+| `ExecutionView/frontend/src/services/api.ts` | 新增 | getOrdersStatus 方法 |
+| `ExecutionView/frontend/src/sections/OrderTable.tsx` | 修改 | 过滤指示器，调试日志 |
 
 ## 验证测试
 

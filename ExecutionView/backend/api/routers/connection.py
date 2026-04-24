@@ -52,6 +52,13 @@ async def get_connection_status(user: dict = Depends(verify_token)):
     return ApiResponse(success=True, data={"status": bb_status.status}, message=f"Bloomberg is {bb_status.status}")
 
 
+@router.get("/api/startup-status", response_model=ApiResponse)
+async def get_startup_status(user: dict = Depends(verify_token)):
+    """Get layered startup status for backend, Bloomberg, and EMSX subscriptions."""
+    status = get_bloomberg().get_startup_status()
+    return ApiResponse(success=True, data=status.model_dump(), message=status.message)
+
+
 @router.post("/api/connection/reconnect", response_model=ApiResponse)
 async def reconnect_bloomberg(user: dict = Depends(verify_token)):
     """Force reconnection to Bloomberg."""

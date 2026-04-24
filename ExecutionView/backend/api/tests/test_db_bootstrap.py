@@ -1,4 +1,9 @@
 from pathlib import Path
+import sys
+
+API_ROOT = Path(__file__).resolve().parents[1]
+if str(API_ROOT) not in sys.path:
+    sys.path.insert(0, str(API_ROOT))
 
 from db import DEFAULT_DATABASE_URL, create_engine, get_database_url
 from models.execution_state import Base

@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { Route } from '@/types';
 
 // Route statuses that allow modification
-const MODIFIABLE_STATUSES = ['SENT', 'WORKING', 'PARTFILL', 'QUEUED', 'HOLD'];
+const MODIFIABLE_STATUSES = ['SENT', 'WORKING', 'PARTFILLED', 'PARTFILL', 'QUEUED', 'HOLD'];
 
 interface RouteActionMenuProps {
   route: Route;

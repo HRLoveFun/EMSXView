@@ -37,8 +37,37 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom'],
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return undefined;
+            }
+            if (id.includes('node_modules/@radix-ui/')) {
+              return 'vendor-radix';
+            }
+            if (id.includes('node_modules/lucide-react/')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('node_modules/recharts/')) {
+              return 'vendor-charts';
+            }
+            if (
+              id.includes('node_modules/class-variance-authority/')
+              || id.includes('node_modules/clsx/')
+              || id.includes('node_modules/tailwind-merge/')
+              || id.includes('node_modules/cmdk/')
+              || id.includes('node_modules/embla-carousel-react/')
+              || id.includes('node_modules/input-otp/')
+              || id.includes('node_modules/next-themes/')
+              || id.includes('node_modules/react-day-picker/')
+              || id.includes('node_modules/react-hook-form/')
+              || id.includes('node_modules/react-resizable-panels/')
+              || id.includes('node_modules/sonner/')
+              || id.includes('node_modules/vaul/')
+              || id.includes('node_modules/zod/')
+            ) {
+              return 'vendor-ui';
+            }
+            return 'vendor-misc';
           },
         },
       },

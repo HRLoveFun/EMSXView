@@ -4,6 +4,7 @@ import type {
   CostViewFilterFormState,
   CostViewModuleTab,
   CostViewViewState,
+  ScorecardFormState,
 } from '../types';
 import { createDefaultCostViewConfig } from './thresholds';
 
@@ -11,6 +12,7 @@ const COSTVIEW_CONFIG_KEY = 'emsx_costview_config_v1';
 const COSTVIEW_FILTERS_KEY = 'emsx_costview_filters_v1';
 const COSTVIEW_VIEW_KEY = 'emsx_costview_view_v1';
 const COSTVIEW_EXPORT_KEY = 'emsx_costview_export_v1';
+const COSTVIEW_SCORECARD_KEY = 'emsx_costview_scorecard_v1';
 
 export const DEFAULT_FILTER_FORM_STATE: CostViewFilterFormState = {
   orderIds: '',
@@ -115,4 +117,26 @@ export function loadCostViewExportState(): CostViewExportState {
 export function saveCostViewExportState(state: CostViewExportState): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(COSTVIEW_EXPORT_KEY, JSON.stringify(state));
+}
+
+export const DEFAULT_SCORECARD_FORM_STATE: ScorecardFormState = {
+  cohort: 'broker_strategy',
+  minSampleSize: 10,
+  maxOrders: 2000,
+};
+
+export function loadCostViewScorecardForm(): ScorecardFormState {
+  if (typeof window === 'undefined') return DEFAULT_SCORECARD_FORM_STATE;
+  return {
+    ...DEFAULT_SCORECARD_FORM_STATE,
+    ...safeParse<Partial<ScorecardFormState>>(
+      localStorage.getItem(COSTVIEW_SCORECARD_KEY),
+      DEFAULT_SCORECARD_FORM_STATE,
+    ),
+  };
+}
+
+export function saveCostViewScorecardForm(state: ScorecardFormState): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(COSTVIEW_SCORECARD_KEY, JSON.stringify(state));
 }

@@ -319,12 +319,161 @@ class ApiResponse(BaseModel):
     message: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
+
+class ExecutionHistoryFillRecord(BaseModel):
+    order_id: str
+    route_id: str
+    fill_id: str
+    order_as_of_date: str
+    source_date: Optional[str] = None
+    local_fill_datetime: Optional[str] = None
+    exchange_exec_time: Optional[str] = None
+    route_as_of_time: Optional[str] = None
+    ny_fill_datetime: Optional[str] = None
+    broker: Optional[str] = None
+    strategy_type: Optional[str] = None
+    algo: Optional[str] = None
+    trader_name: Optional[str] = None
+    exchange: Optional[str] = None
+    side: Optional[str] = None
+    equ_ticker: Optional[str] = None
+    ccy_ticker: Optional[str] = None
+    exec_type: Optional[str] = None
+    amount: Optional[float] = None
+    route_shares: Optional[float] = None
+    fill_price: Optional[float] = None
+    fill_shares: Optional[float] = None
+    fetched_at: Optional[str] = None
+
+
+class ExecutionHistoryKeyContract(BaseModel):
+    canonical_fact: List[str]
+    raw_lineage: List[str]
+    order_grouping: List[str]
+    route_grouping: List[str]
+
+
+class ExecutionHistorySourceContract(BaseModel):
+    owner: str
+    canonical_fact_store: str
+    canonical_fact_dataset: str
+    canonical_fact_write_entrypoint: str
+    raw_lineage_store: Optional[str] = None
+    raw_lineage_dataset: Optional[str] = None
+    raw_lineage_write_entrypoint: Optional[str] = None
+    read_entrypoint: str
+
+
+class ExecutionHistoryContractData(BaseModel):
+    keys: ExecutionHistoryKeyContract
+    source: ExecutionHistorySourceContract
+
+
+class ExecutionHistoryFillData(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    contract: Optional[ExecutionHistoryContractData] = None
+    row_count: int
+    rows: List[ExecutionHistoryFillRecord]
+
+
+class ExecutionHistoryFillResponse(BaseModel):
+    success: bool
+    data: ExecutionHistoryFillData
+    message: str = ""
+
+
+class ExecutionHistoryOrderSummaryRecord(BaseModel):
+    order_id: str
+    order_as_of_date: str
+    equ_ticker: Optional[str] = None
+    side: Optional[str] = None
+    route_count: int
+    fill_count: int
+    total_fill_shares: Optional[float] = None
+    average_fill_price: Optional[float] = None
+    first_fill_time: Optional[str] = None
+    last_fill_time: Optional[str] = None
+
+
+class ExecutionHistoryOrderSummaryData(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    contract: Optional[ExecutionHistoryContractData] = None
+    row_count: int
+    rows: List[ExecutionHistoryOrderSummaryRecord]
+
+
+class ExecutionHistoryOrderSummaryResponse(BaseModel):
+    success: bool
+    data: ExecutionHistoryOrderSummaryData
+    message: str = ""
+
+
+class ExecutionHistoryRouteSummaryRecord(BaseModel):
+    order_id: str
+    route_id: str
+    order_as_of_date: str
+    broker: Optional[str] = None
+    algo: Optional[str] = None
+    trader_name: Optional[str] = None
+    exchange: Optional[str] = None
+    side: Optional[str] = None
+    equ_ticker: Optional[str] = None
+    fill_count: int
+    total_fill_shares: Optional[float] = None
+    average_fill_price: Optional[float] = None
+    first_fill_time: Optional[str] = None
+    last_fill_time: Optional[str] = None
+
+
+class ExecutionHistoryRouteSummaryData(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    contract: Optional[ExecutionHistoryContractData] = None
+    row_count: int
+    rows: List[ExecutionHistoryRouteSummaryRecord]
+
+
+class ExecutionHistoryRouteSummaryResponse(BaseModel):
+    success: bool
+    data: ExecutionHistoryRouteSummaryData
+    message: str = ""
+
 class ConnectionStatus(BaseModel):
     """Bloomberg connection status"""
     status: Literal["connected", "disconnected", "connecting", "error"]
     message: Optional[str] = None
     lastConnected: Optional[str] = None
     uptime: Optional[int] = None  # seconds
+
+
+class BackendStartupStatus(BaseModel):
+    """Backend process readiness snapshot."""
+    httpReady: bool
+    startedAt: Optional[str] = None
+    uptime: Optional[int] = None
+
+
+class SubscriptionStartupStatus(BaseModel):
+    """EMSX subscription warmup status."""
+    ordersInitPaintDone: bool
+    routesInitPaintDone: bool
+    subscriptionFailed: bool
+    marketDataConnected: bool
+    orderCount: int
+    routeCount: int
+    ready: bool
+
+
+class StartupStatus(BaseModel):
+    """Composite startup state for frontend warmup UX."""
+    phase: Literal["backend_starting", "bloomberg_connecting", "subscriptions_warming", "ready", "error"]
+    ready: bool
+    message: Optional[str] = None
+    backend: BackendStartupStatus
+    bloomberg: ConnectionStatus
+    subscriptions: SubscriptionStartupStatus
 
 
 class LoginRequest(BaseModel):

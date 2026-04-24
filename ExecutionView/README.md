@@ -1,18 +1,18 @@
-# Execution Module
+# ExecutionView Module
 
-> **Order Execution Module**  
+> **Order ExecutionView Module**  
 > Order and route management with Bloomberg EMSX API integration
 
 ---
 
 ## Overview
 
-The **Execution** module is the core trading execution engine of the EMSX platform. It provides comprehensive order and route management capabilities through integration with the Bloomberg EMSX API.
+The **ExecutionView** module is the core trading execution engine of the EMSX platform. It provides comprehensive order and route management capabilities through integration with the Bloomberg EMSX API.
 
 ## Architecture
 
 ```
-Execution/
+ExecutionView/
 ├── frontend/              # React-based trading UI
 │   ├── src/
 │   │   ├── components/    # React components (dialogs, UI)
@@ -53,7 +53,7 @@ Execution/
 
 ### Build & Run
 ```bash
-cd Execution/frontend
+cd ExecutionView/frontend
 npm install
 npm run dev        # Development server
 npm run build      # Production build
@@ -87,7 +87,7 @@ npm run build      # Production build
 
 ### Run with Docker
 ```bash
-cd Execution/backend
+cd ExecutionView/backend
 # Configure environment
 cp .env.example .env
 # Edit .env with your settings
@@ -114,7 +114,7 @@ docker compose up -d
 - **MarketView** (future) - Market data for order enrichment
 
 ### Sends data to:
-- **CostView** (future) - Execution data for post-trade analysis
+- **CostView** (future) - ExecutionView data for post-trade analysis
 
 ---
 

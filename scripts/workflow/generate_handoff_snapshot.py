@@ -51,7 +51,7 @@ def main() -> int:
     ]
 
     lines = [
-        "# Execution Platform Handoff Snapshot",
+        "# ExecutionView Platform Handoff Snapshot",
         "",
         f"**Generated**: {generated_at}",
         f"**Current Phase**: `{phase.get('id') if phase else 'unknown'}` - {phase.get('name') if phase else 'Unknown'}",

@@ -10,7 +10,7 @@ import sys
 import os
 
 # Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api'))
 
 def test_order_model():
     """Test 1: Verify Order model has exchange as string type"""
@@ -18,7 +18,7 @@ def test_order_model():
     print("-" * 50)
     
     # Read the main.py file and check the Order model
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
@@ -36,7 +36,7 @@ def test_route_model():
     print("\nTest 2: Route model enrichment fields")
     print("-" * 50)
     
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
@@ -59,7 +59,7 @@ def test_enrichment_logic():
     print("\nTest 3: Route enrichment logic")
     print("-" * 50)
     
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
@@ -86,7 +86,7 @@ def test_frontend_defaults():
     print("\nTest 4: Frontend default value handling")
     print("-" * 50)
     
-    route_table_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'frontend', 'src', 'sections', 'RouteTable.tsx')
+    route_table_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'frontend', 'src', 'sections', 'RouteTable.tsx')
     with open(route_table_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
@@ -112,7 +112,7 @@ def test_logging():
     print("\nTest 5: Logging statements")
     print("-" * 50)
     
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
     

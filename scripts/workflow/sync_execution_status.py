@@ -222,14 +222,14 @@ def main() -> int:
             args.metrics_file,
             METRICS_START,
             METRICS_END,
-            "## Execution Platform Delivery Tracking",
+            "## ExecutionView Platform Delivery Tracking",
             build_metrics_block(snapshot),
         )
         replace_or_append_block(
             args.iteration_log,
             ITERATION_START,
             ITERATION_END,
-            "## Execution Platform Delivery Snapshot",
+            "## ExecutionView Platform Delivery Snapshot",
             build_iteration_block(snapshot),
         )
 

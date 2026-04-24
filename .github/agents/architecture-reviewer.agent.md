@@ -27,9 +27,9 @@ You are an **Architecture Reviewer** for the EMSX Trading Platform. Your job is 
 
 | Component | Location | Size | Status |
 |-----------|----------|------|--------|
-| Backend API | `Execution/backend/api/main.py` | ~3695 lines | CRITICAL — decomposition needed |
-| Frontend App | `Execution/frontend/src/App.tsx` | ~524 lines | Warning |
-| Types | `Execution/frontend/src/types/index.ts` | ~260 lines | OK |
+| Backend API | `ExecutionView/backend/api/main.py` | ~3695 lines | CRITICAL — decomposition needed |
+| Frontend App | `ExecutionView/frontend/src/App.tsx` | ~524 lines | Warning |
+| Types | `ExecutionView/frontend/src/types/index.ts` | ~260 lines | OK |
 | CostView Pipeline | `CostView/src/pipeline.py` | TBD | Needs audit |
 
 ## Health Thresholds

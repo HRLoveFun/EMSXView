@@ -1,3 +1,12 @@
+"""Operational database bootstrap for ExecutionView live execution state.
+
+This module manages the optional PostgreSQL layer used for order/route/audit
+projections and warm-start reads. It does not own fills-centric execution
+history, which remains in CostView stores behind ``platform_data.execution_history``.
+Order and route projections plus ``audit_events`` may be exported as
+read-only backfill seeds, but they are not the canonical warehouse.
+"""
+
 from __future__ import annotations
 
 import logging

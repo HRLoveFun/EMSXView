@@ -1,4 +1,6 @@
 import type {
+  ScorecardReport,
+  ScorecardRequestPayload,
   TcaAnalyzeRequest,
   TcaReport,
   TriggerUpdateResponse,
@@ -103,4 +105,19 @@ export async function fetchAllFilteredOrders(
     generated_at: generatedAt,
     orders,
   };
+}
+
+export async function fetchScorecard(payload: ScorecardRequestPayload): Promise<ScorecardReport> {
+  const response = await fetch(`${API_BASE_URL}/api/tca/scorecard`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as ScorecardReport;
 }

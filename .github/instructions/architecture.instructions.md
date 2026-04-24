@@ -1,6 +1,6 @@
 ---
 description: "Use when reviewing architecture, proposing structural changes, assessing technical debt, or planning refactoring. Covers architecture decisions and incremental improvement."
-applyTo: ["Execution/backend/api/main.py", "Execution/frontend/src/**", "CostView/src/**"]
+applyTo: ["ExecutionView/backend/api/main.py", "ExecutionView/frontend/src/**", "CostView/src/**"]
 ---
 # Architecture Review Guidelines
 
@@ -13,7 +13,7 @@ applyTo: ["Execution/backend/api/main.py", "Execution/frontend/src/**", "CostVie
 ## Code Health Indicators
 
 Flag for review when:
-- A file exceeds **500 lines** (current hotspot: `Execution/backend/api/main.py` at ~3695 lines)
+- A file exceeds **500 lines** (current hotspot: `ExecutionView/backend/api/main.py` at ~3695 lines)
 - A function exceeds **50 lines**
 - A module has more than **5 direct dependencies**
 - The same pattern is copy-pasted in **3+ places**

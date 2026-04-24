@@ -1,9 +1,13 @@
 """Tests for parent-child execution models, repository, and route service."""
 
 import asyncio
+import sys
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from models.parent_child_orders import (
     ParentExecution,
@@ -16,9 +20,13 @@ from services.route_service import (
     validate_route_request,
     validate_trader_ownership,
     build_strategy_elements,
+    build_route_request_fields,
+    build_modify_route_request_fields,
     ROUTABLE_STATUSES,
+    LIMIT_PRICE_RESET_SENTINEL,
+    STOP_PRICE_RESET_SENTINEL,
 )
-from schemas import RouteOrderRequest
+from schemas import ModifyRouteRequest, RouteOrderRequest
 from fastapi import HTTPException
 
 
@@ -201,6 +209,153 @@ class TestBuildStrategyElements:
         assert result[0]["indicator"] == 0
         assert result[1]["value"] == ""
         assert result[1]["indicator"] == 1
+
+    def test_catalog_reorders_named_fields_and_pads_missing(self):
+        result = build_strategy_elements(
+            {
+                "strategyName": "VWAP",
+                "fields": [
+                    {"fieldName": "EndTime", "value": "16:00:00", "disabled": False},
+                    {"fieldName": "StartTime", "value": "09:30:00", "disabled": False},
+                ],
+            },
+            catalog_field_names=["StartTime", "EndTime", "MaxPctVolume"],
+        )
+
+        assert result == [
+            {"value": "09:30:00", "indicator": 0},
+            {"value": "16:00:00", "indicator": 0},
+            {"value": "", "indicator": 1},
+        ]
+
+    def test_catalog_rejects_unknown_named_fields(self):
+        with pytest.raises(HTTPException) as exc:
+            build_strategy_elements(
+                {
+                    "strategyName": "VWAP",
+                    "fields": [
+                        {"fieldName": "UnknownField", "value": "x", "disabled": False},
+                    ],
+                },
+                catalog_field_names=["StartTime"],
+            )
+        assert exc.value.status_code == 400
+
+
+class TestBuildRouteRequestFields:
+    @staticmethod
+    def _normalize_order_type(order_type: str | None) -> str:
+        mapping = {
+            "LIMIT": "LMT",
+            "MARKET": "MKT",
+            "STOP": "STP",
+            "STOP_LIMIT": "STPLMT",
+            "LMT": "LMT",
+            "MKT": "MKT",
+            "STP": "STP",
+            "STPLMT": "STPLMT",
+        }
+        normalized = (order_type or "").upper()
+        return mapping.get(normalized, normalized)
+
+    def test_route_fields_include_normalized_price_and_notes(self):
+        request = RouteOrderRequest(
+            orderId="1001",
+            broker="BMTB",
+            quantity=100,
+            orderType="LIMIT",
+            price=50.5,
+            stopPrice=None,
+            timeInForce="DAY",
+            exchangeDestination="XNYS",
+            notes="hello",
+        )
+        parent_order = MagicMock()
+        parent_order.symbol = "AAPL US Equity"
+        parent_order.trader = "JDOE"
+        parent_order.status = "WORKING"
+        parent_order.remainingQuantity = 500
+
+        fields = build_route_request_fields(
+            request,
+            parent_order,
+            terminal_trader="JDOE",
+            normalize_order_type=self._normalize_order_type,
+            order_type_uses_limit_price=lambda value: value in {"LMT", "STPLMT"},
+            order_type_uses_stop_price=lambda value: value in {"STP", "STPLMT"},
+        )
+
+        assert fields["EMSX_SEQUENCE"] == 1001
+        assert fields["EMSX_ORDER_TYPE"] == "LMT"
+        assert fields["EMSX_LIMIT_PRICE"] == 50.5
+        assert fields["EMSX_EXCHANGE_DESTINATION"] == "XNYS"
+        assert fields["EMSX_NOTES"] == "hello"
+
+
+class TestBuildModifyRouteRequestFields:
+    @staticmethod
+    def _normalize_order_type(order_type: str | None) -> str:
+        mapping = {
+            "LIMIT": "LMT",
+            "MARKET": "MKT",
+            "STOP": "STP",
+            "STOP_LIMIT": "STPLMT",
+            "LMT": "LMT",
+            "MKT": "MKT",
+            "STP": "STP",
+            "STPLMT": "STPLMT",
+        }
+        normalized = (order_type or "").upper()
+        return mapping.get(normalized, normalized)
+
+    def test_modify_fields_apply_reset_sentinels(self):
+        cached_route = MagicMock()
+        cached_route.amount = 200
+        cached_route.orderType = "LMT"
+        cached_route.tif = "DAY"
+
+        request = ModifyRouteRequest(
+            sequence=1001,
+            routeId=7,
+            orderType="MARKET",
+            limitPrice=None,
+            stopPrice=None,
+        )
+
+        fields = build_modify_route_request_fields(
+            request,
+            cached_route,
+            normalize_order_type=self._normalize_order_type,
+            order_type_uses_limit_price=lambda value: value in {"LMT", "STPLMT"},
+            order_type_uses_stop_price=lambda value: value in {"STP", "STPLMT"},
+        )
+
+        assert fields["EMSX_ORDER_TYPE"] == "MKT"
+        assert fields["EMSX_LIMIT_PRICE"] == LIMIT_PRICE_RESET_SENTINEL
+        assert fields["EMSX_STOP_PRICE"] == STOP_PRICE_RESET_SENTINEL
+
+    def test_modify_fields_auto_reset_when_switching_order_type(self):
+        cached_route = MagicMock()
+        cached_route.amount = 200
+        cached_route.orderType = "STPLMT"
+        cached_route.tif = "DAY"
+
+        request = ModifyRouteRequest(
+            sequence=1001,
+            routeId=7,
+            orderType="MARKET",
+        )
+
+        fields = build_modify_route_request_fields(
+            request,
+            cached_route,
+            normalize_order_type=self._normalize_order_type,
+            order_type_uses_limit_price=lambda value: value in {"LMT", "STPLMT"},
+            order_type_uses_stop_price=lambda value: value in {"STP", "STPLMT"},
+        )
+
+        assert fields["EMSX_LIMIT_PRICE"] == LIMIT_PRICE_RESET_SENTINEL
+        assert fields["EMSX_STOP_PRICE"] == STOP_PRICE_RESET_SENTINEL
 
 
 # -----------------------------------------------------------------------

@@ -49,8 +49,8 @@ If a change causes test failures or system instability:
 - **Architecture**: See [docs/MEMORY.md](docs/MEMORY.md) for design decisions and API contracts
 - **Development Guide**: See [docs/CLAUDE.md](docs/CLAUDE.md) for common tasks and verification checklists
 - **Known Issues**: See [docs/HANDOFF.md](docs/HANDOFF.md) for open blockers and recent fixes
-- **Backend**: FastAPI + blpapi on port 3000 (`Execution/backend/api/main.py`)
-- **Frontend**: React + TypeScript + Vite on port 5173 (`Execution/frontend/src/`)
+- **Backend**: FastAPI + blpapi on port 3000 (`ExecutionView/backend/api/main.py`)
+- **Frontend**: React + TypeScript + Vite on port 5173 (`ExecutionView/frontend/src/`)
 - **CostView**: Python pipeline with SQLite databases (`CostView/src/`)
 
 ## Key Reminders

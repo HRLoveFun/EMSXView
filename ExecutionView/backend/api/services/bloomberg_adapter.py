@@ -24,6 +24,7 @@ from blpapi import SessionOptions, Session, Service, Request, Message, Event
 
 from schemas import (
     Order, Route, OrderFilters, ConnectionStatus,
+    BackendStartupStatus, SubscriptionStartupStatus, StartupStatus,
     BatchUpdateRequest, BatchUpdateResponse,
     CancelRouteRequest, ModifyRouteRequest, RouteOrderRequest,
 )
@@ -192,6 +193,12 @@ class BloombergEMSXService:
     }
 
     SIDE_MAP = {"BUY": "BUY", "SELL": "SELL", 1: "BUY", 2: "SELL"}
+    EMSX_ORDER_TYPE_MAP = {
+        "MARKET": "MKT", "MKT": "MKT",
+        "LIMIT": "LMT", "LMT": "LMT",
+        "STOP": "STP", "STP": "STP",
+        "STOP_LIMIT": "STPLMT", "STOPLIMIT": "STPLMT", "STPLMT": "STPLMT",
+    }
 
     def __init__(self):
         self.session: Optional[Session] = None
@@ -200,6 +207,7 @@ class BloombergEMSXService:
         self.connection_time: Optional[datetime] = None
         self.last_error: Optional[str] = None
         self.service: Optional[Service] = None
+        self._service_started_at: datetime = datetime.now()
 
         # Dedicated session for request/response operations (get_brokers,
         # route_order, etc.).  Bloomberg's nextEvent() is NOT thread-safe:
@@ -208,6 +216,7 @@ class BloombergEMSXService:
         # response events, making requests time out.
         self._request_session: Optional[Session] = None
         self._request_service: Optional[Service] = None
+        self._request_lock = threading.Lock()
 
         # Separate session for //blp/mktdata subscriptions (market data, FX rates)
         # Using a separate session avoids nextEvent() races with the EMSX
@@ -226,6 +235,8 @@ class BloombergEMSXService:
         # Route cache: keyed by "{EMSX_SEQUENCE}.{EMSX_ROUTE_ID}"
         self._routes: Dict[str, Route] = {}
         self._route_init_paint_done: bool = False
+        self._last_order_api_seq_num: int = 0
+        self._last_route_api_seq_num: int = 0
 
         # Terminal trader identity: computed on-demand from order cache
 
@@ -354,6 +365,8 @@ class BloombergEMSXService:
                 self._crncy_queried_tickers = set()
                 self._ticker_currencies = {}
                 self._refdata_service_available = False
+                self._last_order_api_seq_num = 0
+                self._last_route_api_seq_num = 0
 
                 # Open dedicated request session for request/response operations
                 # (avoids nextEvent race with EMSX subscription thread on main session)
@@ -522,6 +535,56 @@ class BloombergEMSXService:
             uptime=uptime,
         )
 
+    def get_startup_status(self) -> StartupStatus:
+        bloomberg = self.get_status()
+        backend_uptime = int((datetime.now() - self._service_started_at).total_seconds())
+
+        with self._data_lock:
+            if self._orders and not self._init_paint_done:
+                self._init_paint_done = True
+            if self._routes and not self._route_init_paint_done:
+                self._route_init_paint_done = True
+            subscriptions = SubscriptionStartupStatus(
+                ordersInitPaintDone=self._init_paint_done,
+                routesInitPaintDone=self._route_init_paint_done,
+                subscriptionFailed=self._subscription_failed,
+                marketDataConnected=self._mktdata_connected,
+                orderCount=len(self._orders),
+                routeCount=len(self._routes),
+                ready=(
+                    self.connected
+                    and self._init_paint_done
+                    and self._route_init_paint_done
+                    and not self._subscription_failed
+                ),
+            )
+
+        if subscriptions.subscriptionFailed:
+            phase = "error"
+            message = "Bloomberg 已连接，但 EMSX 订阅失败；请检查日志并重试。"
+        elif bloomberg.status != "connected":
+            phase = "error" if bloomberg.message else "bloomberg_connecting"
+            message = bloomberg.message or "Backend 已启动，正在连接 Bloomberg EMSX。"
+        elif subscriptions.ready:
+            phase = "ready"
+            message = "Backend、Bloomberg 与 EMSX 订阅均已就绪。"
+        else:
+            phase = "subscriptions_warming"
+            message = "Bloomberg 已连接，正在等待订单和路由 INIT_PAINT 完成。"
+
+        return StartupStatus(
+            phase=phase,
+            ready=subscriptions.ready,
+            message=message,
+            backend=BackendStartupStatus(
+                httpReady=True,
+                startedAt=self._service_started_at.isoformat(),
+                uptime=backend_uptime,
+            ),
+            bloomberg=bloomberg,
+            subscriptions=subscriptions,
+        )
+
     # ------------------------------------------------------------------
     # Subscription loop (runs in background thread)
     # ------------------------------------------------------------------
@@ -542,12 +605,16 @@ class BloombergEMSXService:
             route_topic = f"{self.active_service_name}/route?fields={route_fields_str}"
             logger.info(f"Subscribing to: {route_topic}")
 
-            sub_list = blpapi.SubscriptionList()
             order_cid = blpapi.CorrelationId(98)
             route_cid = blpapi.CorrelationId(99)
-            sub_list.add(topic=order_topic, correlationId=order_cid)
-            sub_list.add(topic=route_topic, correlationId=route_cid)
-            self.session.subscribe(sub_list)
+
+            order_sub_list = blpapi.SubscriptionList()
+            order_sub_list.add(topic=order_topic, correlationId=order_cid)
+            self.session.subscribe(order_sub_list)
+
+            route_sub_list = blpapi.SubscriptionList()
+            route_sub_list.add(topic=route_topic, correlationId=route_cid)
+            self.session.subscribe(route_sub_list)
 
             while not self._stop_event.is_set():
                 event = self.session.nextEvent(2000)  # 2-second timeout
@@ -591,6 +658,16 @@ class BloombergEMSXService:
                             self.connected = False
                             return
 
+                elif etype == blpapi.Event.ADMIN:
+                    for msg in event:
+                        mtype = str(msg.messageType())
+                        if "SlowConsumerWarningCleared" in mtype:
+                            logger.info("Bloomberg EMSX slow consumer warning cleared")
+                        elif "SlowConsumerWarning" in mtype:
+                            logger.warning("Bloomberg EMSX slow consumer warning raised")
+                        else:
+                            logger.info(f"Bloomberg EMSX ADMIN event: {mtype}")
+
                 elif etype == blpapi.Event.TIMEOUT:
                     continue  # normal timeout, keep looping
 
@@ -604,6 +681,8 @@ class BloombergEMSXService:
         Thread-safe: uses _data_lock to protect shared _orders cache.
         """
         try:
+            self._track_api_seq_num(msg, "order")
+
             # Check message fields
             event_status = self._msg_safe_int(msg, "EVENT_STATUS", -1)
             seq = self._msg_safe_int(msg, "EMSX_SEQUENCE", 0)
@@ -812,6 +891,8 @@ class BloombergEMSXService:
         Thread-safe: uses _data_lock to protect shared _routes cache.
         """
         try:
+            self._track_api_seq_num(msg, "route")
+
             event_status = self._msg_safe_int(msg, "EVENT_STATUS", -1)
             seq = self._msg_safe_int(msg, "EMSX_SEQUENCE", 0)
             route_id = self._msg_safe_int(msg, "EMSX_ROUTE_ID", 0)
@@ -1872,33 +1953,103 @@ class BloombergEMSXService:
         if not req_session or not self.connected:
             raise HTTPException(503, "Bloomberg not connected")
 
-        cid = blpapi.CorrelationId()
-        req_session.sendRequest(request, correlationId=cid)
+        with self._request_lock:
+            cid = blpapi.CorrelationId()
+            req_session.sendRequest(request, correlationId=cid)
 
-        messages: List[Message] = []
-        timeout_ms = settings.BLOOMBERG_TIMEOUT
-        deadline = datetime.now().timestamp() * 1000 + timeout_ms
+            messages: List[Message] = []
+            timeout_ms = settings.BLOOMBERG_TIMEOUT
+            deadline = datetime.now().timestamp() * 1000 + timeout_ms
 
-        while True:
-            remaining = max(0, int(deadline - datetime.now().timestamp() * 1000))
-            event = req_session.nextEvent(remaining)
-            etype = event.eventType()
+            while True:
+                remaining = max(0, int(deadline - datetime.now().timestamp() * 1000))
+                event = req_session.nextEvent(remaining)
+                etype = event.eventType()
 
-            if etype in (Event.PARTIAL_RESPONSE, Event.RESPONSE):
-                for msg in event:
-                    messages.append(msg)
-                if etype == Event.RESPONSE:
-                    break
-            elif etype == Event.TIMEOUT:
-                raise HTTPException(504, "Bloomberg request timed out")
-            # Ignore subscription events that arrive in this event loop
+                if etype in (Event.PARTIAL_RESPONSE, Event.RESPONSE):
+                    matched_response = False
+                    for msg in event:
+                        if self._message_has_correlation_id(msg, cid):
+                            messages.append(msg)
+                            matched_response = True
+                    if etype == Event.RESPONSE and matched_response:
+                        break
+                elif etype == Event.TIMEOUT:
+                    raise HTTPException(504, "Bloomberg request timed out")
+                # Ignore subscription events that arrive in this event loop
 
-        return messages
+            return messages
 
     async def _send_request_async(self, request: Request) -> List[Message]:
         """Async wrapper for _send_request — runs in thread pool to avoid blocking the event loop."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._send_request, request)
+
+    @staticmethod
+    def _message_has_correlation_id(msg: Message, cid: blpapi.CorrelationId) -> bool:
+        try:
+            target = cid.value()
+            for candidate in msg.correlationIds():
+                if candidate.value() == target:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _track_api_seq_num(self, msg: Message, stream: str) -> None:
+        api_seq_num = self._msg_safe_int(msg, "API_SEQ_NUM", 0)
+        if api_seq_num <= 0:
+            return
+
+        attr = "_last_order_api_seq_num" if stream == "order" else "_last_route_api_seq_num"
+        last_seen = getattr(self, attr, 0)
+        if last_seen and api_seq_num > last_seen + 1:
+            logger.warning(f"{stream.upper()} API_SEQ_NUM gap detected: expected {last_seen + 1}, got {api_seq_num}")
+        setattr(self, attr, api_seq_num)
+
+    def _normalize_emsx_order_type(self, order_type: Optional[str]) -> str:
+        """Translate frontend order types and EMSX aliases into canonical EMSX request values."""
+        normalized = (order_type or "").strip().upper().replace("-", "_").replace(" ", "_")
+        if not normalized:
+            return ""
+        emsx_order_type = self.EMSX_ORDER_TYPE_MAP.get(normalized)
+        if emsx_order_type:
+            return emsx_order_type
+        raise HTTPException(400, f"Unsupported order type '{order_type}'")
+
+    @staticmethod
+    def _order_type_uses_limit_price(order_type: str) -> bool:
+        return order_type in {"LMT", "STPLMT"}
+
+    @staticmethod
+    def _order_type_uses_stop_price(order_type: str) -> bool:
+        return order_type in {"STP", "STPLMT"}
+
+    def _apply_strategy_params(self, request: Request, strategy_params: Optional[Dict[str, Any]]) -> None:
+        if not strategy_params:
+            return
+
+        strategy_name = str(strategy_params.get("strategyName", "") or "").strip()
+        fields_data = strategy_params.get("fields", [])
+
+        if not strategy_name:
+            return
+        if fields_data is None:
+            fields_data = []
+        if not isinstance(fields_data, list):
+            raise HTTPException(400, "Strategy fields must be a list")
+
+        strategy = request.getElement("EMSX_STRATEGY_PARAMS")
+        strategy.setElement("EMSX_STRATEGY_NAME", strategy_name)
+
+        indicator = strategy.getElement("EMSX_STRATEGY_FIELD_INDICATORS")
+        data = strategy.getElement("EMSX_STRATEGY_FIELDS")
+
+        for field_entry in fields_data:
+            value = field_entry.get("value", "")
+            disabled = field_entry.get("disabled", False)
+            data.appendElement().setElement("EMSX_FIELD_DATA", str(value) if not disabled else "")
+            indicator.appendElement().setElement("EMSX_FIELD_INDICATOR", 1 if disabled else 0)
 
     # ------------------------------------------------------------------
     # Public API
@@ -2196,21 +2347,30 @@ class BloombergEMSXService:
                 raise HTTPException(400, "Amount is required for route modification")
 
             # Set order type (required)
-            order_type = request_data.orderType or (cached.orderType if cached else "")
+            order_type = self._normalize_emsx_order_type(request_data.orderType or (cached.orderType if cached else ""))
             if order_type:
                 request.set("EMSX_ORDER_TYPE", order_type)
             else:
                 raise HTTPException(400, "Order type is required for route modification")
+            cached_order_type = self._normalize_emsx_order_type(cached.orderType if cached else "")
 
             # Set TIF (required)
             tif = request_data.tif or (cached.tif if cached else "DAY")
             request.set("EMSX_TIF", tif)
 
             # Optional fields
-            if request_data.limitPrice is not None:
-                request.set("EMSX_LIMIT_PRICE", request_data.limitPrice)
-            if request_data.stopPrice is not None:
-                request.set("EMSX_STOP_PRICE", request_data.stopPrice)
+            limit_price_provided = "limitPrice" in request_data.model_fields_set
+            stop_price_provided = "stopPrice" in request_data.model_fields_set
+            if limit_price_provided:
+                request.set("EMSX_LIMIT_PRICE", -99999 if request_data.limitPrice is None else request_data.limitPrice)
+            elif cached_order_type and self._order_type_uses_limit_price(cached_order_type) and not self._order_type_uses_limit_price(order_type):
+                request.set("EMSX_LIMIT_PRICE", -99999)
+
+            if stop_price_provided:
+                request.set("EMSX_STOP_PRICE", -1 if request_data.stopPrice is None else request_data.stopPrice)
+            elif cached_order_type and self._order_type_uses_stop_price(cached_order_type) and not self._order_type_uses_stop_price(order_type):
+                request.set("EMSX_STOP_PRICE", -1)
+
             if request_data.broker:
                 request.set("EMSX_BROKER", request_data.broker)
             if request_data.exchangeDestination:
@@ -2218,22 +2378,7 @@ class BloombergEMSXService:
             if request_data.notes:
                 request.set("EMSX_NOTES", request_data.notes)
 
-            # Strategy params — set EMSX_STRATEGY_PARAMS with proper field indicators
-            if request_data.strategyParams:
-                strategy_name = request_data.strategyParams.get("strategyName", "")
-                fields_data = request_data.strategyParams.get("fields", [])
-                if strategy_name and isinstance(fields_data, list):
-                    strategy = request.getElement("EMSX_STRATEGY_PARAMS")
-                    strategy.setElement("EMSX_STRATEGY_NAME", strategy_name)
-
-                    indicator = strategy.getElement("EMSX_STRATEGY_FIELD_INDICATORS")
-                    data = strategy.getElement("EMSX_STRATEGY_FIELDS")
-
-                    for field_entry in fields_data:
-                        value = field_entry.get("value", "")
-                        disabled = field_entry.get("disabled", False)
-                        data.appendElement().setElement("EMSX_FIELD_DATA", str(value) if not disabled else "")
-                        indicator.appendElement().setElement("EMSX_FIELD_INDICATOR", 1 if disabled else 0)
+            self._apply_strategy_params(request, request_data.strategyParams)
 
             messages = await self._send_request_async(request)
             for msg in messages:
@@ -2289,36 +2434,22 @@ class BloombergEMSXService:
             request.set("EMSX_TICKER", parent_order.symbol)
             request.set("EMSX_BROKER", request_data.broker)
             request.set("EMSX_AMOUNT", request_data.quantity)
-            request.set("EMSX_ORDER_TYPE", request_data.orderType[:3].upper())  # LMT, MKT, STP
+            emsx_order_type = self._normalize_emsx_order_type(request_data.orderType)
+            request.set("EMSX_ORDER_TYPE", emsx_order_type)
             request.set("EMSX_TIF", request_data.timeInForce)
             request.set("EMSX_HAND_INSTRUCTION", "ANY")
             
             # Optional fields
-            if request_data.price is not None:
+            if self._order_type_uses_limit_price(emsx_order_type) and request_data.price is not None:
                 request.set("EMSX_LIMIT_PRICE", request_data.price)
-            if request_data.stopPrice is not None:
+            if self._order_type_uses_stop_price(emsx_order_type) and request_data.stopPrice is not None:
                 request.set("EMSX_STOP_PRICE", request_data.stopPrice)
             if request_data.exchangeDestination:
                 request.set("EMSX_EXCHANGE_DESTINATION", request_data.exchangeDestination)
             if request_data.notes:
                 request.set("EMSX_NOTES", request_data.notes)
 
-            # Strategy params — same handling as modify_route
-            if request_data.strategyParams:
-                strategy_name = request_data.strategyParams.get("strategyName", "")
-                fields_data = request_data.strategyParams.get("fields", [])
-                if strategy_name and isinstance(fields_data, list):
-                    strategy = request.getElement("EMSX_STRATEGY_PARAMS")
-                    strategy.setElement("EMSX_STRATEGY_NAME", strategy_name)
-
-                    indicator = strategy.getElement("EMSX_STRATEGY_FIELD_INDICATORS")
-                    data = strategy.getElement("EMSX_STRATEGY_FIELDS")
-
-                    for field_entry in fields_data:
-                        value = field_entry.get("value", "")
-                        disabled = field_entry.get("disabled", False)
-                        data.appendElement().setElement("EMSX_FIELD_DATA", str(value) if not disabled else "")
-                        indicator.appendElement().setElement("EMSX_FIELD_INDICATOR", 1 if disabled else 0)
+            self._apply_strategy_params(request, request_data.strategyParams)
 
             messages = await self._send_request_async(request)
             
@@ -2344,6 +2475,39 @@ class BloombergEMSXService:
         except Exception as e:
             logger.error(f"Error routing order {request_data.orderId}: {e}")
             raise HTTPException(500, f"Failed to route order: {str(e)}")
+
+    async def get_asset_class(self, ticker: str) -> str:
+        """Resolve EMSX asset class for a ticker.
+
+        Current production usage is still EQTY-only, so failures fall back to EQTY
+        rather than blocking broker/strategy discovery.
+        """
+        logger.info(f"Getting asset class for {ticker}")
+        if not await self.connect():
+            logger.warning(f"Bloomberg not connected - defaulting asset class to EQTY for {ticker}")
+            return "EQTY"
+
+        try:
+            request = self._req_service.createRequest("GetAssetClass")
+            request.set("EMSX_TICKER", ticker)
+
+            messages = await self._send_request_async(request)
+            for msg in messages:
+                if msg.hasElement("EMSX_ASSET_CLASS"):
+                    return self._msg_safe_str(msg, "EMSX_ASSET_CLASS", "EQTY") or "EQTY"
+                if "Error" in str(msg.messageType()):
+                    error_msg = self._msg_safe_str(msg, "ERROR_MESSAGE", "Failed to get asset class")
+                    logger.warning(f"GetAssetClass rejected for {ticker}: {error_msg} - defaulting to EQTY")
+                    return "EQTY"
+
+            logger.warning(f"GetAssetClass returned no EMSX_ASSET_CLASS for {ticker} - defaulting to EQTY")
+            return "EQTY"
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"GetAssetClass failed for {ticker}: {e} - defaulting to EQTY")
+            return "EQTY"
 
     async def get_broker_strategies(self, broker: str, asset_class: str = "EQTY") -> List[str]:
         """Get available strategies for a broker via GetBrokerStrategiesWithAssetClass."""

@@ -1,5 +1,5 @@
-name: Execution Platform Task
-description: Create an issue-sized task aligned to the EMSX Execution Platform WBS.
+name: ExecutionView Platform Task
+description: Create an issue-sized task aligned to the EMSX ExecutionView Platform WBS.
 title: "[P?-S?-??] "
 labels:
   - execution-platform

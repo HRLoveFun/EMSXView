@@ -25,6 +25,21 @@ async def get_trader_info(user: dict = Depends(verify_token)):
     return ApiResponse(success=True, data={"traderName": name}, message=f"Terminal trader: {name}")
 
 
+@router.get("/api/asset-class", response_model=ApiResponse)
+async def get_asset_class(ticker: str, user: dict = Depends(verify_token)):
+    """Resolve EMSX asset class for a ticker.
+
+    Current usage is still overwhelmingly EQTY, but this keeps the broker/
+    strategy discovery chain explicit for future FUT/OPT/multileg flows.
+    """
+    asset_class = await get_bloomberg().get_asset_class(ticker)
+    return ApiResponse(
+        success=True,
+        data={"ticker": ticker, "assetClass": asset_class},
+        message=f"Resolved asset class {asset_class} for {ticker}",
+    )
+
+
 @router.get("/api/broker-strategies", response_model=ApiResponse)
 async def get_broker_strategies(
     broker: str,
@@ -174,4 +189,65 @@ async def get_broker_algorithms_status(user: dict = Depends(verify_token)):
             "hasData": last_updated is not None,
         },
         message="Broker algorithm status retrieved",
+    )
+
+
+# ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
+
+
+@router.get("/api/broker-recommendations", response_model=ApiResponse)
+async def get_broker_recommendations(
+    assetClass: str | None = None,
+    broker: str | None = None,
+    limit: int = 20,
+    user: dict = Depends(verify_token),
+):
+    """Read pinned CostView broker/strategy recommendations.
+
+    WBS-08 contract 3: CostView → ExecutionView. CostView publishes cohort
+    scorecard conclusions via POST /api/tca/recommendations/pin; ExecutionView
+    reads them here when composing a new order/route so trader decisions stay
+    backed by post-trade evidence instead of gut feel.
+    """
+    import sys
+    from pathlib import Path
+
+    _ROOT = Path(__file__).resolve().parents[4]
+    if str(_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ROOT))
+    from platform_data import get_shared_handoff_exchange
+
+    recs = get_shared_handoff_exchange().list_cost_to_execution(
+        asset_class=assetClass,
+        broker=broker,
+        limit=max(1, min(limit, 100)),
+    )
+    serialized = [
+        {
+            "metadata": {
+                "contract_version": r.metadata.contract_version,
+                "source": r.metadata.source,
+                "handoff_target": r.metadata.handoff_target,
+                "generated_at": r.metadata.generated_at,
+                "trace_id": r.metadata.trace_id,
+                "origin_trace_id": r.metadata.origin_trace_id,
+            },
+            "cohort": r.cohort,
+            "asset_class": r.asset_class,
+            "broker": r.broker,
+            "strategy": r.strategy,
+            "urgency": r.urgency,
+            "sample_size": r.sample_size,
+            "arrival_bps": r.arrival_bps,
+            "implementation_bps": r.implementation_bps,
+            "severity": r.severity,
+            "rationale": r.rationale,
+            "source_report_trace_id": r.source_report_trace_id,
+        }
+        for r in recs
+    ]
+    return ApiResponse(
+        success=True,
+        data={"recommendations": serialized, "count": len(serialized)},
+        message=f"Fetched {len(serialized)} CostView broker/strategy recommendation(s)",
     )

@@ -336,6 +336,15 @@ except Exception as _costview_err:  # noqa: BLE001
         "CostView TCA router 未加载（ExecutionView 不受影响）: %s", _costview_err
     )
 
+try:
+    from routers.execution_history import router as execution_history_router
+    app.include_router(execution_history_router)
+except Exception as _execution_history_err:  # noqa: BLE001
+    import logging as _log
+    _log.getLogger("main").warning(
+        "Execution history router 未加载（ExecutionView 不受影响）: %s", _execution_history_err
+    )
+
 # ============================================================================
 # Error Handlers
 # ============================================================================

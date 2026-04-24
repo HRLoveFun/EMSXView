@@ -1,6 +1,6 @@
 # Sprint 0 Implementation Checklist
 
-**Scope**: Workflow foundation for the EMSX Execution Platform delivery plan
+**Scope**: Workflow foundation for the EMSX ExecutionView Platform delivery plan
 **Source Plan**: `c:/Users/hrchen/Documents/EMSX/docs/EXECUTION_PLATFORM_WBS.md`
 **Primary Sprint Key**: `P0-S0`
 **Goal**: Create the persistent planning, tracking, CI, and handoff artifacts required before Phase 1 work begins
@@ -28,7 +28,7 @@ Sprint 0 is complete only when the project has:
 
 ---
 
-## 2. Execution order
+## 2. ExecutionView order
 
 Follow this order exactly:
 

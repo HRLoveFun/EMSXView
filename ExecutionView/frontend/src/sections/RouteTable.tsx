@@ -213,6 +213,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
     switch (status) {
       case 'SENT':       return <Badge variant="outline" className="status-badge status-new gap-1"><AlertCircle className="h-3 w-3" />Sent</Badge>;
       case 'WORKING':    return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />Working</Badge>;
+      case 'PARTFILLED':
       case 'PARTFILL':   return <Badge variant="outline" className="status-badge status-partial gap-1"><MinusCircle className="h-3 w-3" />PartFill</Badge>;
       case 'FILLED':     return <Badge variant="outline" className="status-badge status-filled gap-1"><CheckCircle2 className="h-3 w-3" />Filled</Badge>;
       case 'CANCEL':     return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Cancel</Badge>;

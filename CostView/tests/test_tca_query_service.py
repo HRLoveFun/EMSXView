@@ -5,7 +5,7 @@ Tests:
 - Filter application (date, order_id, algo, broker, symbol)
 - SQL injection safety
 - Default date resolution
-- fill_bdib empty → data_source_warning
+- fill_bdib empty â†’ data_source_warning
 - fill_pct calculation
 """
 
@@ -21,7 +21,7 @@ import pytest
 from CostView.src.tca_query_service import TcaFilters, TcaQueryService
 
 
-# ─── Fixtures ────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _make_proc_fills_db(path: str) -> None:
     """Create a minimal processed_fills.db with test data."""
@@ -45,6 +45,37 @@ def _make_proc_fills_db(path: str) -> None:
             count_algo INTEGER, count_trader INTEGER,
             PRIMARY KEY (OrderId, RouteId)
         );
+        CREATE TABLE IF NOT EXISTS order_history (
+            OrderId TEXT, order_as_of_date TEXT,
+            equ_ticker TEXT, ccy_ticker TEXT, Side TEXT,
+            Broker TEXT, algo TEXT, TraderName TEXT, Exchange TEXT,
+            route_count INTEGER, fill_count INTEGER,
+            total_fill_shares REAL, order_amount REAL, average_fill_price REAL,
+            first_fill_time TEXT, last_fill_time TEXT,
+            primary_source TEXT, source_priority TEXT,
+            refresh_strategy TEXT, source_refreshed_at TEXT, source_lineage TEXT,
+            PRIMARY KEY (OrderId, order_as_of_date)
+        );
+        CREATE TABLE IF NOT EXISTS route_history (
+            OrderId TEXT, RouteId TEXT, order_as_of_date TEXT,
+            equ_ticker TEXT, ccy_ticker TEXT, Side TEXT,
+            Broker TEXT, algo TEXT, TraderName TEXT, Exchange TEXT,
+            fill_count INTEGER, total_fill_shares REAL,
+            order_amount REAL, route_shares REAL, average_fill_price REAL,
+            first_fill_time TEXT, last_fill_time TEXT,
+            primary_source TEXT, source_priority TEXT,
+            refresh_strategy TEXT, source_refreshed_at TEXT, source_lineage TEXT,
+            PRIMARY KEY (OrderId, RouteId, order_as_of_date)
+        );
+        CREATE TABLE IF NOT EXISTS route_event_history (
+            event_id TEXT PRIMARY KEY,
+            OrderId TEXT, RouteId TEXT, FillId TEXT, order_as_of_date TEXT,
+            event_timestamp TEXT, event_type TEXT, event_source TEXT,
+            event_action TEXT, ExecType TEXT, Broker TEXT, algo TEXT,
+            TraderName TEXT, Exchange TEXT, equ_ticker TEXT, ccy_ticker TEXT,
+            Side TEXT, FillPrice REAL, FillShares REAL, Amount REAL, RouteShares REAL,
+            source_refreshed_at TEXT, refresh_strategy TEXT, source_lineage TEXT
+        );
 
         INSERT INTO processed_fills VALUES
             ('F1','O1','R1','20260418 10:00:00','20260418','2026-04-18 10:00:00',
@@ -63,6 +94,19 @@ def _make_proc_fills_db(path: str) -> None:
         INSERT INTO route_registry VALUES
             ('O1','R1','AAPL US Equity','US','USD US Curncy','Buy',2,1,1,1),
             ('O2','R2','MSFT US Equity','US','USD US Curncy','Sell',1,1,1,1);
+
+        INSERT INTO order_history VALUES
+            ('O1','20260418','AAPL US Equity','USD US Curncy','Buy','BrokerA','VWAP','Trader1','US',1,2,1000.0,1000.0,50.25,'2026-04-18 10:00:00','2026-04-18 10:10:00','costview.fill-rollup','costview.fill-rollup > executionview.orders_projection','rebuild-per-processed-date','2026-04-23T12:00:00','processed_fills -> order_history'),
+            ('O2','20260418','MSFT US Equity','USD US Curncy','Sell','BrokerB','TWAP','Trader2','US',1,1,1000.0,2000.0,100.0,'2026-04-18 11:00:00','2026-04-18 11:00:00','costview.fill-rollup','costview.fill-rollup > executionview.orders_projection','rebuild-per-processed-date','2026-04-23T12:00:00','processed_fills -> order_history');
+
+        INSERT INTO route_history VALUES
+            ('O1','R1','20260418','AAPL US Equity','USD US Curncy','Buy','BrokerA','VWAP','Trader1','US',2,1000.0,1000.0,500.0,50.25,'2026-04-18 10:00:00','2026-04-18 10:10:00','costview.fill-rollup','costview.fill-rollup > executionview.routes_projection','rebuild-per-processed-date','2026-04-23T12:00:00','processed_fills -> route_history'),
+            ('O2','R2','20260418','MSFT US Equity','USD US Curncy','Sell','BrokerB','TWAP','Trader2','US',1,1000.0,2000.0,1000.0,100.0,'2026-04-18 11:00:00','2026-04-18 11:00:00','costview.fill-rollup','costview.fill-rollup > executionview.routes_projection','rebuild-per-processed-date','2026-04-23T12:00:00','processed_fills -> route_history');
+
+        INSERT INTO route_event_history VALUES
+            ('fill:O1:R1:F1:20260418','O1','R1','F1','20260418','2026-04-18 10:00:00','FILL','emsx.history:GetFills','FILL','FILL','BrokerA','VWAP','Trader1','US','AAPL US Equity','USD US Curncy','Buy',50.0,500.0,1000.0,500.0,'2026-04-23T12:00:00','append-per-fill','emsx.history:GetFills > executionview.audit_events'),
+            ('fill:O1:R1:F2:20260418','O1','R1','F2','20260418','2026-04-18 10:10:00','FILL','emsx.history:GetFills','FILL','FILL','BrokerA','VWAP','Trader1','US','AAPL US Equity','USD US Curncy','Buy',50.5,500.0,1000.0,500.0,'2026-04-23T12:00:00','append-per-fill','emsx.history:GetFills > executionview.audit_events'),
+            ('fill:O2:R2:F3:20260418','O2','R2','F3','20260418','2026-04-18 11:00:00','FILL','emsx.history:GetFills','FILL','FILL','BrokerB','TWAP','Trader2','US','MSFT US Equity','USD US Curncy','Sell',100.0,1000.0,2000.0,1000.0,'2026-04-23T12:00:00','append-per-fill','emsx.history:GetFills > executionview.audit_events');
     """)
     conn.commit()
     conn.close()
@@ -189,7 +233,7 @@ def _make_service(tmp_dbs) -> TcaQueryService:
     )
 
 
-# ─── Tests ───────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TestTcaFilters:
     def test_default_date_resolution(self):
@@ -199,7 +243,7 @@ class TestTcaFilters:
         resolved = TcaQueryService._resolve_date_defaults(filters)
         assert resolved.start_date is not None
         assert resolved.end_date is not None
-        # Resolved date should be a weekday ≤ today
+        # Resolved date should be a weekday â‰¤ today
         d = date.fromisoformat(
             f"{resolved.start_date[:4]}-{resolved.start_date[4:6]}-{resolved.start_date[6:]}"
         )
@@ -221,6 +265,25 @@ class TestTcaFilters:
 
 
 class TestGetMatchingRoutes:
+    def test_route_history_is_preferred_when_present(self, tmp_dbs):
+        proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
+        conn = sqlite3.connect(proc)
+        try:
+            conn.execute(
+                "UPDATE route_history SET Broker = ? WHERE OrderId = ? AND RouteId = ? AND order_as_of_date = ?",
+                ("HistoryBroker", "O1", "R1", "20260418"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        svc = _make_service(tmp_dbs)
+        rows, total = svc._get_matching_routes(
+            TcaFilters(start_date="20260418", end_date="20260418", broker="HistoryBroker")
+        )
+        assert total == 1
+        assert rows[0]["order_id"] == "O1"
+
     def test_date_filter(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         filters = TcaFilters(start_date="20260418", end_date="20260418")
@@ -358,14 +421,30 @@ class TestFillBdibEmpty:
 
 
 class TestFillPercentages:
+    def test_fill_pct_prefers_order_history_table(self, tmp_dbs):
+        proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
+        conn = sqlite3.connect(proc)
+        try:
+            conn.execute(
+                "UPDATE order_history SET total_fill_shares = ? WHERE OrderId = ? AND order_as_of_date = ?",
+                (900.0, "O1", "20260418"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        svc = _make_service(tmp_dbs)
+        pcts = svc._get_fill_percentages(["O1"])
+        assert pcts.get("O1") == pytest.approx(90.0)
+
     def test_fill_pct_100(self, tmp_dbs):
-        """O1 filled 1000 shares out of 1000 → 100%."""
+        """O1 filled 1000 shares out of 1000 â†’ 100%."""
         svc = _make_service(tmp_dbs)
         pcts = svc._get_fill_percentages(["O1"])
         assert pcts.get("O1") == pytest.approx(100.0)
 
     def test_fill_pct_50(self, tmp_dbs):
-        """O2 filled 1000 out of 2000 → 50%."""
+        """O2 filled 1000 out of 2000 â†’ 50%."""
         svc = _make_service(tmp_dbs)
         pcts = svc._get_fill_percentages(["O2"])
         assert pcts.get("O2") == pytest.approx(50.0)
@@ -437,6 +516,8 @@ class TestBuildTcaReport:
                 "UPDATE route_registry SET Exchange = ?, equ_ticker = ? WHERE OrderId = ? AND RouteId = ?",
                 ("NZ", "AIA NZ Equity", "O1", "R1"),
             )
+            conn.execute("DROP TABLE route_history")
+            conn.execute("DROP TABLE order_history")
             conn.commit()
         finally:
             conn.close()
@@ -514,3 +595,147 @@ class TestBuildTcaReport:
         report = svc.build_tca_report(filters)
         assert report.filters["algo"] == "VWAP"
         assert report.filters["start_date"] == "20260418"
+
+
+# --- Scorecard tests ---------------------------------------------------------
+
+from CostView.src.tca_query_service import ScorecardFilters
+
+
+class TestScorecardBucketing:
+    def test_time_of_day_buckets(self):
+        assert TcaQueryService._bucket_time_of_day("09:45:00")[0] == "open"
+        assert TcaQueryService._bucket_time_of_day("10:30:00")[0] == "mid"
+        assert TcaQueryService._bucket_time_of_day("15:30:00")[0] == "close"
+        assert TcaQueryService._bucket_time_of_day(None)[0] == "unknown"
+
+    def test_liquidity_buckets(self):
+        assert TcaQueryService._bucket_liquidity(0.4)[0] == "low"
+        assert TcaQueryService._bucket_liquidity(3.0)[0] == "mid"
+        assert TcaQueryService._bucket_liquidity(9.0)[0] == "high"
+        assert TcaQueryService._bucket_liquidity(None)[0] == "unknown"
+
+    def test_volatility_buckets(self):
+        assert TcaQueryService._bucket_volatility(1.0)[0] == "calm"
+        assert TcaQueryService._bucket_volatility(2.5)[0] == "typical"
+        assert TcaQueryService._bucket_volatility(5.0)[0] == "stressed"
+
+    def test_asset_class_derivation(self):
+        assert TcaQueryService._asset_class_from_ticker("AAPL US Equity")[0] == "equity"
+        assert TcaQueryService._asset_class_from_ticker("EURUSD Curncy")[0] == "fx"
+        assert TcaQueryService._asset_class_from_ticker(None)[0] == "unknown"
+
+
+class TestScorecardStatistics:
+    def test_safe_percentile_handles_singletons(self):
+        assert TcaQueryService._safe_percentile([5.0], 95) == 5.0
+        assert TcaQueryService._safe_percentile([], 50) is None
+
+    def test_safe_percentile_interpolates(self):
+        values = [0.0, 10.0, 20.0, 30.0, 40.0]
+        assert TcaQueryService._safe_percentile(values, 50) == pytest.approx(20.0)
+        assert TcaQueryService._safe_percentile(values, 95) == pytest.approx(38.0)
+
+    def test_safe_stddev_requires_multiple(self):
+        assert TcaQueryService._safe_stddev([5.0]) is None
+        assert TcaQueryService._safe_stddev([1.0, 3.0]) == pytest.approx(1.4142135, rel=1e-4)
+
+
+class TestBuildScorecard:
+    def test_invalid_cohort_raises(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        with pytest.raises(ValueError):
+            svc.build_scorecard(ScorecardFilters(cohort="not_a_real_cohort"))
+
+    def test_broker_strategy_cohort(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        report = svc.build_scorecard(
+            ScorecardFilters(
+                cohort="broker_strategy",
+                start_date="20260418",
+                end_date="20260418",
+                min_sample_size=1,
+            )
+        )
+        assert report.cohort == "broker_strategy"
+        assert report.total_orders_considered == 2
+        assert report.total_orders_capped is False
+        labels = {c.cohort_label for c in report.cohorts}
+        # Only O1 (BrokerA/VWAP) has fill_bdib metrics in the fixture; O2 is
+        # silently skipped because it lacks both exec_price and tracking error.
+        assert "BrokerA | VWAP" in labels
+        assert all(c.sample_size == 1 for c in report.cohorts)
+        assert all(c.sample_size_warning is False for c in report.cohorts)
+
+    def test_broker_cohort_sample_warning(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        report = svc.build_scorecard(
+            ScorecardFilters(
+                cohort="broker",
+                start_date="20260418",
+                end_date="20260418",
+                min_sample_size=5,
+            )
+        )
+        assert all(c.sample_size_warning for c in report.cohorts)
+        assert all("sample_size" in c.anomaly_flags for c in report.cohorts)
+
+    def test_strategy_cohort_stats_match_order(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        report = svc.build_scorecard(
+            ScorecardFilters(
+                cohort="strategy",
+                start_date="20260418",
+                end_date="20260418",
+                order_ids=["O1"],
+                min_sample_size=1,
+            )
+        )
+        assert len(report.cohorts) == 1
+        cohort = report.cohorts[0]
+        assert cohort.cohort_label == "VWAP"
+        assert cohort.sample_size == 1
+        # Median and avg of a single sample equal the sample value.
+        assert cohort.median_tracking_error_bps == cohort.avg_tracking_error_bps
+        # Stddev is undefined for a single sample.
+        assert cohort.stddev_tracking_error_bps is None
+
+    def test_empty_bdib_reports_warning(self, tmp_path: Path):
+        proc = str(tmp_path / "processed_fills.db")
+        bdib = str(tmp_path / "fill_bdib_empty.db")
+        raw_bdib = str(tmp_path / "raw_bdib.db")
+        raw_fills = str(tmp_path / "raw_fills.db")
+        _make_proc_fills_db(proc)
+        _make_fill_bdib_db(bdib, empty=True)
+        _make_raw_bdib_db(raw_bdib)
+        _make_raw_fills_db(raw_fills)
+        svc = TcaQueryService(
+            proc_fills_db_path=proc,
+            fill_bdib_db_path=bdib,
+            raw_bdib_db_path=raw_bdib,
+            raw_fills_db_path=raw_fills,
+        )
+        report = svc.build_scorecard(
+            ScorecardFilters(
+                cohort="broker",
+                start_date="20260418",
+                end_date="20260418",
+                min_sample_size=1,
+            )
+        )
+        assert report.data_source_warning is not None
+        assert report.cohorts == []
+
+    def test_filters_serialized_in_report(self, tmp_dbs):
+        svc = _make_service(tmp_dbs)
+        report = svc.build_scorecard(
+            ScorecardFilters(
+                cohort="broker",
+                start_date="20260418",
+                end_date="20260418",
+                min_sample_size=3,
+            )
+        )
+        assert report.filters["cohort"] == "broker"
+        assert report.filters["start_date"] == "20260418"
+        assert report.min_sample_size == 3

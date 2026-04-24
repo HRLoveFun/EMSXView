@@ -57,7 +57,7 @@ start-services.bat → Select [5]
 ```
 EMSX/
 ├── start-services.bat      # Interactive launcher
-├── Execution/
+├── ExecutionView/
 │   ├── backend/api/        # Python backend
 │   └── frontend/           # React frontend
 ├── scripts/
@@ -70,5 +70,5 @@ EMSX/
 ## Need Help?
 
 - Full documentation: `docs/SERVICE_MANAGEMENT.md`
-- API documentation: `Execution/backend/README.md`
-- Frontend docs: `Execution/frontend/README.md`
+- API documentation: `ExecutionView/backend/README.md`
+- Frontend docs: `ExecutionView/frontend/README.md`

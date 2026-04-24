@@ -25,10 +25,10 @@
 .\scripts\deploy\start-backend.ps1
 
 # 或跨平台命令:
-cd Execution/backend/api && python -m uvicorn main:app --port 3000
+cd ExecutionView/backend/api && python -m uvicorn main:app --port 3000
 
 # 前端 (端口 5173)
-cd Execution/frontend && npm run dev
+cd ExecutionView/frontend && npm run dev
 ```
 
 ### 构建与检查
@@ -37,7 +37,7 @@ cd Execution/frontend && npm run dev
 |------|------|
 | `npm run build` | 前端构建 |
 | `npm run lint` | 前端代码检查 |
-| `python -m py_compile Execution/backend/api/main.py` | Python 语法检查 |
+| `python -m py_compile ExecutionView/backend/api/main.py` | Python 语法检查 |
 
 ---
 
@@ -75,14 +75,14 @@ cd Execution/frontend && npm run dev
 ### 添加 EMSX API 字段
 
 1. 在 GUIDE 中查找精确字段名
-2. 在 `Execution/backend/api/main.py` 的 `SUBSCRIPTION_FIELDS` 列表中添加
-3. 在 `Execution/frontend/src/types/index.ts` 的 `OrderField` 类型中添加
+2. 在 `ExecutionView/backend/api/main.py` 的 `SUBSCRIPTION_FIELDS` 列表中添加
+3. 在 `ExecutionView/frontend/src/types/index.ts` 的 `OrderField` 类型中添加
 4. 如需显示，更新对应 UI 组件
 5. 测试: 访问 `/api/orders` 验证字段存在
 
 ### 修改订单表格 UI
 
-1. 编辑 `Execution/frontend/src/sections/OrderTable.tsx`
+1. 编辑 `ExecutionView/frontend/src/sections/OrderTable.tsx`
 2. 运行 `npm run lint` 检查类型错误
 3. 访问 `http://localhost:5173` 验证
 
@@ -90,7 +90,7 @@ cd Execution/frontend && npm run dev
 
 > 根据 `.env` 文件中的实际配置替换 host 和端口，默认端口为 8194
 
-1. 检查日志: `Execution/backend/logs/emsx_api.log` (首次运行后端时自动创建目录)
+1. 检查日志: `ExecutionView/backend/logs/emsx_api.log` (首次运行后端时自动创建目录)
 2. 确认 `.env` 中 `BLOOMBERG_HOST` 和 `BLOOMBERG_PORT` 配置正确
 3. 测试连通性:
    ```powershell
@@ -185,4 +185,4 @@ docs/ERROR_PATTERNS.md + MEMORY.md (结构化知识)
 
 ### 日志目录
 
-首次运行后端时自动创建: `Execution/backend/logs/`
+首次运行后端时自动创建: `ExecutionView/backend/logs/`

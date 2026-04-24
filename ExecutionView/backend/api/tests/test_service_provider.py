@@ -1,6 +1,12 @@
 """Tests for the RepositoryProvider service layer (P1-S1-04)."""
 
 import asyncio
+import sys
+from pathlib import Path
+
+API_ROOT = Path(__file__).resolve().parents[1]
+if str(API_ROOT) not in sys.path:
+    sys.path.insert(0, str(API_ROOT))
 
 from service_provider import RepositoryProvider
 
@@ -78,9 +84,24 @@ def test_load_orders_returns_empty_when_inactive():
     assert asyncio.run(prov.load_orders()) == []
 
 
+def test_load_order_snapshots_returns_empty_when_inactive():
+    prov = RepositoryProvider(enabled=False)
+    assert asyncio.run(prov.load_order_snapshots()) == []
+
+
 def test_load_routes_returns_empty_when_inactive():
     prov = RepositoryProvider(enabled=False)
     assert asyncio.run(prov.load_routes()) == []
+
+
+def test_load_route_snapshots_returns_empty_when_inactive():
+    prov = RepositoryProvider(enabled=False)
+    assert asyncio.run(prov.load_route_snapshots()) == []
+
+
+def test_load_audit_events_returns_empty_when_inactive():
+    prov = RepositoryProvider(enabled=False)
+    assert asyncio.run(prov.load_audit_events()) == []
 
 
 # ------------------------------------------------------------------

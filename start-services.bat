@@ -49,7 +49,7 @@ echo.
 
 REM Start Backend
 echo [INFO] Starting Backend on port 3000...
-start "EMSX Backend" cmd /k "cd /d "%SCRIPT_DIR%Execution\backend\api" && python start_server.py"
+start "EMSX Backend" cmd /k "cd /d "%SCRIPT_DIR%ExecutionView\backend\api" && python start_server.py"
 
 REM Wait for backend to initialize
 echo [INFO] Waiting for backend to initialize (5 seconds)...
@@ -66,7 +66,7 @@ if %errorlevel%==0 (
 REM Start Frontend
 echo.
 echo [INFO] Starting Frontend on port 5173...
-start "EMSX Frontend" cmd /k "cd /d "%SCRIPT_DIR%Execution\frontend" && npm run dev"
+start "EMSX Frontend" cmd /k "cd /d "%SCRIPT_DIR%ExecutionView\frontend" && npm run dev"
 
 REM Wait for frontend to initialize
 echo [INFO] Waiting for frontend to initialize (5 seconds)...

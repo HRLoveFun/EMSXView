@@ -504,6 +504,7 @@ export function BrokerStrategyDialog({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [cacheStatus, setCacheStatus] = useState<string>('');
+  const [assetClass, setAssetClass] = useState('EQTY');
   
   // Background preloading state
   const [preloadingProgress, setPreloadingProgress] = useState<{ current: number; total: number } | null>(null);
@@ -545,7 +546,7 @@ export function BrokerStrategyDialog({
         batch.map(async (strategy) => {
           try {
             console.log(`[BrokerStrategy] Preloading ${broker}/${strategy}...`);
-            const res = await cachedApiService.getBrokerStrategyInfo(broker, strategy, 'EQTY', false);
+            const res = await cachedApiService.getBrokerStrategyInfo(broker, strategy, assetClass, false);
             
             if (res.success) {
               loaded.add(strategy);
@@ -571,7 +572,7 @@ export function BrokerStrategyDialog({
     setPreloadedStrategies(prev => new Set([...prev, ...loaded]));
     setPreloadingProgress(null);
     console.log(`[BrokerStrategy] Preloading complete for ${broker}: ${loaded.size}/${uncachedStrategies.length} loaded`);
-  }, []);
+  }, [assetClass]);
 
   // Fetch available strategies for a broker (with caching)
   const fetchStrategies = useCallback(async (broker: string, forceRefresh = false) => {
@@ -582,7 +583,7 @@ export function BrokerStrategyDialog({
     setIsLoadingStrategies(true);
     setError('');
     try {
-      const res = await cachedApiService.getBrokerStrategies(broker, 'EQTY', forceRefresh);
+      const res = await cachedApiService.getBrokerStrategies(broker, assetClass, forceRefresh);
       console.log('[BrokerStrategy] Fetch strategies response:', { broker, success: res.success, error: res.error, message: res.message, data: res.data });
       if (res.success && res.data) {
         setStrategies(res.data.strategies);
@@ -599,7 +600,7 @@ export function BrokerStrategyDialog({
     } finally {
       setIsLoadingStrategies(false);
     }
-  }, [preloadAllStrategyParams]);
+  }, [assetClass, preloadAllStrategyParams]);
 
   // Fetch strategy parameters (with caching)
   const fetchStrategyInfo = useCallback(async (broker: string, strategy: string, forceRefresh = false) => {
@@ -616,7 +617,7 @@ export function BrokerStrategyDialog({
     console.log(`[BrokerStrategy] Strategy info cache for ${broker}/${strategy}:`, cached ? 'EXISTS' : 'NOT CACHED');
     
     try {
-      const res = await cachedApiService.getBrokerStrategyInfo(broker, strategy, 'EQTY', forceRefresh);
+      const res = await cachedApiService.getBrokerStrategyInfo(broker, strategy, assetClass, forceRefresh);
       console.log('[BrokerStrategy] Fetch strategy info response:', { broker, strategy, success: res.success, error: res.error, message: res.message, data: res.data });
       if (res.success && res.data) {
         setStrategyFields(
@@ -638,7 +639,24 @@ export function BrokerStrategyDialog({
     } finally {
       setIsLoadingFields(false);
     }
-  }, []);
+  }, [assetClass]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!open || !route?.ticker) {
+      setAssetClass('EQTY');
+      return;
+    }
+
+    cachedApiService.resolveAssetClass(route.ticker, 'EQTY').then((resolvedAssetClass) => {
+      if (!cancelled) setAssetClass(resolvedAssetClass || 'EQTY');
+    }).catch(() => {
+      if (!cancelled) setAssetClass('EQTY');
+    });
+
+    return () => { cancelled = true; };
+  }, [open, route?.ticker]);
 
   // Reset state when dialog opens/closes
   useEffect(() => {

@@ -9,9 +9,9 @@ sequenceDiagram
     participant EMSX as Bloomberg EMSX
     participant WS as Realtime Gateway(WebSocket)
 
-    Note over U,WS: T0 用户进入 Execution 页面
+    Note over U,WS: T0 用户进入 ExecutionView 页面
 
-    U->>FE: 打开 Execution 标签页
+    U->>FE: 打开 ExecutionView 标签页
     activate FE
 
     Note over FE: T1 触发初始加载

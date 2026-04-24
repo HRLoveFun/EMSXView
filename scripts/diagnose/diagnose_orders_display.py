@@ -58,7 +58,7 @@ class OrdersDisplayDiagnostician:
                 "3. Log all EVENT_STATUS types to diagnose missing orders\n"
                 "4. Consider implementing retry mechanism for incomplete INIT_PAINT"
             ),
-            code_location="Execution/backend/api/main.py:2319-2356 (get_orders)"
+            code_location="ExecutionView/backend/api/main.py:2319-2356 (get_orders)"
         ))
 
     def _check_filter_logic(self):
@@ -80,7 +80,7 @@ class OrdersDisplayDiagnostician:
                 "3. Show count: 'Showing X of Y orders' to indicate filtering\n"
                 "4. Consider highlighting active filters in UI"
             ),
-            code_location="Execution/frontend/src/App.tsx:144-174 (filteredOrders)"
+            code_location="ExecutionView/frontend/src/App.tsx:144-174 (filteredOrders)"
         ))
 
     def _check_subscription_fields(self):
@@ -101,7 +101,7 @@ class OrdersDisplayDiagnostician:
                 "3. Add defensive parsing - don't skip orders if optional fields missing\n"
                 "4. Log warning when fields are missing from message"
             ),
-            code_location="Execution/backend/api/main.py:633-720 (ORDER_FIELDS)"
+            code_location="ExecutionView/backend/api/main.py:633-720 (ORDER_FIELDS)"
         ))
 
     def _check_frontend_rendering(self):
@@ -122,7 +122,7 @@ class OrdersDisplayDiagnostician:
                 "3. Show diagnostic info: total orders, filtered count, displayed count\n"
                 "4. Add fallback for missing group-by fields"
             ),
-            code_location="Execution/frontend/src/sections/OrderTable.tsx:103-115 (groupedOrders)"
+            code_location="ExecutionView/frontend/src/sections/OrderTable.tsx:103-115 (groupedOrders)"
         ))
 
     def _check_data_update_mechanism(self):
@@ -143,7 +143,7 @@ class OrdersDisplayDiagnostician:
                 "3. Implement incremental loading with pagination\n"
                 "4. Add backend flag to indicate INIT_PAINT complete status"
             ),
-            code_location="Execution/frontend/src/App.tsx:186-248 (polling)"
+            code_location="ExecutionView/frontend/src/App.tsx:186-248 (polling)"
         ))
 
     def _check_pagination_or_limit(self):
@@ -164,7 +164,7 @@ class OrdersDisplayDiagnostician:
                 "3. Consider lazy loading for historical orders\n"
                 "4. Add order count display to monitor total"
             ),
-            code_location="Execution/frontend/src/sections/OrderTable.tsx"
+            code_location="ExecutionView/frontend/src/sections/OrderTable.tsx"
         ))
 
     def print_report(self):

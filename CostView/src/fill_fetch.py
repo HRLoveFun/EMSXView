@@ -959,6 +959,17 @@ class FillFetch:
             except Exception:
                 pass
 
+        try:
+            try:
+                from src.processed_fills_db import ProcessedFillsDB
+            except ImportError:
+                from .processed_fills_db import ProcessedFillsDB
+
+            proc_db = ProcessedFillsDB()
+            stats['execution_history'] = proc_db.get_execution_history_stats()
+        except Exception:
+            pass
+
         return stats
 
     def close(self):

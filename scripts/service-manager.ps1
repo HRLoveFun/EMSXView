@@ -49,10 +49,13 @@ $Config = @{
     ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
     Backend = @{
         Port = 3000
-        Script = "Execution\backend\api\start_server.py"
+        Script = "ExecutionView\backend\api\start_server.py"
         ProcessName = "python"
-        HealthUrl = "http://localhost:3000/health"
+        HealthUrl = "http://localhost:3000/api/health"
+        StartupStatusScript = "scripts\diagnose\check-startup-status.ps1"
+        RequestTimeoutSec = 5
         StartupDelay = 3
+        StartupPollInterval = 1
     }
     Frontend = @{
         DevPort = 5173
@@ -102,12 +105,89 @@ function Get-ProcessUsingPort {
 
 function Test-BackendHealth {
     try {
-        $response = Invoke-WebRequest -Uri $Config.Backend.HealthUrl -Method GET -TimeoutSec 2 -ErrorAction SilentlyContinue
+        $response = Invoke-WebRequest -Uri $Config.Backend.HealthUrl -Method GET -TimeoutSec $Config.Backend.RequestTimeoutSec -ErrorAction SilentlyContinue
         return $response.StatusCode -eq 200
     }
     catch {
         return $false
     }
+}
+
+function Get-BackendStartupSnapshot {
+    param(
+        [int]$MaxWaitSeconds = 0,
+        [switch]$RequireReady
+    )
+
+    $scriptPath = Join-Path $Config.ProjectRoot $Config.Backend.StartupStatusScript
+    if (-not (Test-Path $scriptPath)) {
+        return @{
+            Available = $false
+            Error = "Startup status script not found: $scriptPath"
+            Snapshot = $null
+            ExitCode = $null
+        }
+    }
+
+    $commandArgs = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $scriptPath,
+        '-BaseUrl', "http://localhost:$($Config.Backend.Port)",
+        '-TimeoutSec', [string]$Config.Backend.RequestTimeoutSec,
+        '-MaxWaitSeconds', [string]$MaxWaitSeconds,
+        '-PollIntervalSeconds', [string]$Config.Backend.StartupPollInterval,
+        '-JsonOutput'
+    )
+
+    if ($RequireReady) {
+        $commandArgs += '-RequireReady'
+    }
+
+    $output = & powershell @commandArgs 2>&1
+    $exitCode = $LASTEXITCODE
+    $rawOutput = ($output | Out-String).Trim()
+
+    if ($exitCode -ne 0) {
+        return @{
+            Available = $false
+            Error = if ($rawOutput) { $rawOutput } else { "startup-status script failed with exit code $exitCode" }
+            Snapshot = $null
+            ExitCode = $exitCode
+        }
+    }
+
+    if (-not $rawOutput) {
+        return @{
+            Available = $false
+            Error = 'startup-status script returned no output.'
+            Snapshot = $null
+            ExitCode = $exitCode
+        }
+    }
+
+    try {
+        $snapshot = $rawOutput | ConvertFrom-Json
+        return @{
+            Available = $true
+            Error = $null
+            Snapshot = $snapshot
+            ExitCode = $exitCode
+        }
+    }
+    catch {
+        return @{
+            Available = $false
+            Error = "Failed to parse startup-status output: $($_.Exception.Message)"
+            Snapshot = $null
+            ExitCode = $exitCode
+        }
+    }
+}
+
+function Test-BackendHttpReady {
+    $startupResult = Get-BackendStartupSnapshot
+    return $startupResult.Available -and [bool]$startupResult.Snapshot.httpReady
 }
 
 function Get-ServiceStatus {
@@ -117,25 +197,84 @@ function Get-ServiceStatus {
     } | Select-Object -First 1
 
     $frontendProcess = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*Execution\frontend*"
+        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*ExecutionView\frontend*"
     } | Select-Object -First 1
 
     $backendPortInUse = Test-PortInUse -Port $Config.Backend.Port
     $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
     $frontendPortInUse = Test-PortInUse -Port $frontendPort
+    $backendStartup = if ($backendPortInUse) { Get-BackendStartupSnapshot } else { $null }
 
     return @{
         Backend = @{
             Running = $null -ne $backendProcess
             PortInUse = $backendPortInUse
             Process = $backendProcess
-            Healthy = if ($backendPortInUse) { Test-BackendHealth } else { $false }
+            HttpReady = if ($backendStartup -and $backendStartup.Available) { [bool]$backendStartup.Snapshot.httpReady } else { $false }
+            Healthy = if ($backendStartup -and $backendStartup.Available) { [bool]$backendStartup.Snapshot.healthSuccess } else { $false }
+            Startup = if ($backendStartup -and $backendStartup.Available) { $backendStartup.Snapshot } else { $null }
+            StartupError = if ($backendStartup -and -not $backendStartup.Available) { $backendStartup.Error } else { $null }
         }
         Frontend = @{
             Running = $null -ne $frontendProcess
             PortInUse = $frontendPortInUse
             Process = $frontendProcess
         }
+    }
+}
+
+function Show-BackendStartupSummary {
+    param(
+        [hashtable]$BackendStatus,
+        [switch]$IncludeHealthLine
+    )
+
+    if ($IncludeHealthLine) {
+        Write-Host "  Health Check: " -NoNewline
+        if ($BackendStatus.Healthy) {
+            Write-Host "HEALTHY" -ForegroundColor Green
+        }
+        else {
+            Write-Host "NOT RESPONDING" -ForegroundColor Red
+        }
+    }
+
+    Write-Host "  HTTP Ready: " -NoNewline
+    if ($BackendStatus.HttpReady) {
+        Write-Host "READY" -ForegroundColor Green
+    }
+    else {
+        Write-Host "NOT READY" -ForegroundColor Yellow
+    }
+
+    if ($BackendStatus.Startup) {
+        Write-Host "  Startup Phase: " -NoNewline
+        if ($BackendStatus.Startup.ready) {
+            Write-Host ($BackendStatus.Startup.phase.ToUpper()) -ForegroundColor Green
+        }
+        else {
+            Write-Host ($BackendStatus.Startup.phase.ToUpper()) -ForegroundColor Yellow
+        }
+
+        Write-Host "  Bloomberg: " -NoNewline
+        if ($BackendStatus.Startup.bloombergStatus -eq 'connected') {
+            Write-Host ($BackendStatus.Startup.bloombergStatus.ToUpper()) -ForegroundColor Green
+        }
+        else {
+            Write-Host ($BackendStatus.Startup.bloombergStatus.ToUpper()) -ForegroundColor Yellow
+        }
+
+        Write-Host "  Subscriptions: " -NoNewline
+        Write-Host "ordersInit=$($BackendStatus.Startup.ordersInitPaintDone) routesInit=$($BackendStatus.Startup.routesInitPaintDone) orders=$($BackendStatus.Startup.orderCount) routes=$($BackendStatus.Startup.routeCount)" -ForegroundColor Gray
+
+        if ($BackendStatus.Startup.message) {
+            Write-Host "  Startup Message: $($BackendStatus.Startup.message)" -ForegroundColor Gray
+        }
+    }
+    elseif ($BackendStatus.StartupError) {
+        Write-Host "  Startup Status: " -NoNewline
+        Write-Host "UNAVAILABLE" -ForegroundColor Yellow
+        Write-Host "  Startup Error: $($BackendStatus.StartupError)" -ForegroundColor Gray
     }
 }
 
@@ -179,7 +318,7 @@ function Stop-FrontendService {
     Write-Status "Stopping frontend service..." "Info"
 
     $processes = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*Execution\frontend*"
+        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*ExecutionView\frontend*"
     }
 
     foreach ($proc in $processes) {
@@ -195,7 +334,7 @@ function Stop-FrontendService {
     Get-Process | Where-Object { $_.ProcessName -eq "node" } | ForEach-Object {
         try {
             $procInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)"
-            if ($procInfo.CommandLine -like "*Execution\frontend*") {
+            if ($procInfo.CommandLine -like "*ExecutionView\frontend*") {
                 Stop-Process -Id $_.Id -Force
                 Write-Status "Stopped Node process (PID: $($_.Id))" "Success"
             }
@@ -242,13 +381,21 @@ function Start-BackendService {
     Write-Status "Waiting for backend to start (up to $($Config.Backend.StartupDelay) seconds)..." "Info"
     $attempts = 0
     $started = $false
+    $startupSnapshot = $null
+    $startupError = $null
 
     while ($attempts -lt ($Config.Backend.StartupDelay * 2)) {
         Start-Sleep -Milliseconds 500
 
-        if (Test-BackendHealth) {
+        $startupResult = Get-BackendStartupSnapshot
+        if ($startupResult.Available -and [bool]$startupResult.Snapshot.httpReady) {
             $started = $true
+            $startupSnapshot = $startupResult.Snapshot
             break
+        }
+
+        if ($startupResult -and -not $startupResult.Available) {
+            $startupError = $startupResult.Error
         }
 
         if ($process.HasExited) {
@@ -260,12 +407,24 @@ function Start-BackendService {
     }
 
     if ($started) {
-        Write-Status "Backend started successfully on port $($Config.Backend.Port)" "Success"
+        Write-Status "Backend HTTP interface is available on port $($Config.Backend.Port)" "Success"
+        if ($startupSnapshot.ready) {
+            Write-Status "Backend startup phase: ready" "Success"
+        }
+        else {
+            Write-Status "Backend startup phase: $($startupSnapshot.phase)" "Warning"
+            if ($startupSnapshot.message) {
+                Write-Status $startupSnapshot.message "Info"
+            }
+        }
         return $true
     }
     else {
         Write-Status "Backend failed to start within expected time" "Warning"
         Write-Status "Process may still be starting - check logs at $logFile" "Warning"
+        if ($startupError) {
+            Write-Status $startupError "Warning"
+        }
         return $false
     }
 }
@@ -277,16 +436,16 @@ function Start-FrontendService {
 
     $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
 
-    if ($WaitForBackend -and -not (Test-BackendHealth)) {
-        Write-Status "Backend is not ready. Waiting..." "Warning"
+    if ($WaitForBackend -and -not (Test-BackendHttpReady)) {
+        Write-Status "Backend HTTP interface is not ready yet. Waiting..." "Warning"
         $attempts = 0
-        while ($attempts -lt 10 -and -not (Test-BackendHealth)) {
+        while ($attempts -lt 10 -and -not (Test-BackendHttpReady)) {
             Start-Sleep -Seconds 1
             $attempts++
         }
 
-        if (-not (Test-BackendHealth)) {
-            Write-Status "Backend is not responding. Frontend may have connection issues." "Warning"
+        if (-not (Test-BackendHttpReady)) {
+            Write-Status "Backend HTTP interface is still unavailable. Frontend may show startup gating until backend responds." "Warning"
         }
     }
 
@@ -296,7 +455,7 @@ function Start-FrontendService {
         return $false
     }
 
-    $frontendDir = Join-Path $Config.ProjectRoot "Execution\frontend"
+    $frontendDir = Join-Path $Config.ProjectRoot "ExecutionView\frontend"
     $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
     $logFile = Join-Path $logDir "frontend-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     $script = if ($Environment -eq "dev") { $Config.Frontend.DevScript } else { $Config.Frontend.ProdScript }
@@ -353,13 +512,7 @@ function Show-ServiceStatus {
         Write-Host "FREE" -ForegroundColor Gray
     }
 
-    Write-Host "  Health Check: " -NoNewline
-    if ($status.Backend.Healthy) {
-        Write-Host "HEALTHY" -ForegroundColor Green
-    }
-    else {
-        Write-Host "NOT RESPONDING" -ForegroundColor Red
-    }
+    Show-BackendStartupSummary -BackendStatus $status.Backend -IncludeHealthLine
 
     # Frontend Status
     $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
@@ -429,7 +582,14 @@ switch ($Action) {
     "start" {
         $backendStarted = Start-BackendService
         if ($backendStarted) {
-            Start-FrontendService -WaitForBackend $true
+            $frontendStarted = Start-FrontendService -WaitForBackend $true
+            $serviceStatus = Get-ServiceStatus
+            Write-Separator
+            Write-Status "Backend Startup Summary" "Info"
+            Show-BackendStartupSummary -BackendStatus $serviceStatus.Backend -IncludeHealthLine
+            if (-not $frontendStarted) {
+                Write-Status "Frontend failed to start cleanly. Backend summary shown above." "Warning"
+            }
         }
         else {
             Write-Status "Backend failed to start. Frontend will not be started." "Error"
@@ -446,7 +606,14 @@ switch ($Action) {
         Start-Sleep -Seconds 2
         $backendStarted = Start-BackendService
         if ($backendStarted) {
-            Start-FrontendService -WaitForBackend $true
+            $frontendStarted = Start-FrontendService -WaitForBackend $true
+            $serviceStatus = Get-ServiceStatus
+            Write-Separator
+            Write-Status "Backend Startup Summary" "Info"
+            Show-BackendStartupSummary -BackendStatus $serviceStatus.Backend -IncludeHealthLine
+            if (-not $frontendStarted) {
+                Write-Status "Frontend failed to start cleanly. Backend summary shown above." "Warning"
+            }
         }
     }
     "status" {

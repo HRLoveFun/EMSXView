@@ -7,7 +7,21 @@ Runs at the start of every agent session.
 
 import json
 import os
+import subprocess
 import sys
+
+# Auto-sync metrics baseline before generating context
+_SYNC_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "sync-metrics.py")
+if os.path.exists(_SYNC_SCRIPT):
+    try:
+        subprocess.run(
+            [sys.executable, _SYNC_SCRIPT],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        pass  # Fail silently so session context is never blocked
 
 KNOWLEDGE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".github", "knowledge")
 

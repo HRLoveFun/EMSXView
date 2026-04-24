@@ -16,5 +16,5 @@ if ($existingPid) {
 Write-Host "Starting EMSX Frontend on http://localhost:5173 ..." -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
 
-Set-Location "C:\Users\hrchen\Documents\EMSX\Execution\frontend"
+Set-Location "C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend"
 npm run dev

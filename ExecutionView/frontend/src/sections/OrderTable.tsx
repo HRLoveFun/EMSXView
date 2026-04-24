@@ -221,7 +221,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
   // Check if order can be routed (per EMSX API spec)
   const canRouteOrder = (order: Order): boolean => {
     // Only orders with status NEW, ASSIGN, WORKING, or PARTIAL can be routed
-    const eligibleStatuses: OrderStatus[] = ['NEW', 'ASSIGN', 'WORKING', 'PARTIAL'];
+    const eligibleStatuses: OrderStatus[] = ['NEW', 'ASSIGN', 'WORKING', 'PARTIAL', 'SENT', 'QUEUED'];
     if (!eligibleStatuses.includes(order.status)) return false;
     
     // Must have remaining quantity to route
@@ -243,17 +243,15 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
     
     // Build strategy params payload from dialog-collected field values
     let strategyParams: RouteOrderRequest['strategyParams'] = undefined;
-    if (routeData.strategy && routeData.strategyFieldValues) {
-      const entries = Object.entries(routeData.strategyFieldValues);
-      if (entries.length > 0) {
-        strategyParams = {
-          strategyName: routeData.strategy,
-          fields: entries.map(([, value]) => ({
-            value: value ?? '',
-            disabled: false,
-          })),
-        };
-      }
+    if (routeData.strategy) {
+      const entries = Object.entries(routeData.strategyFieldValues ?? {});
+      strategyParams = {
+        strategyName: routeData.strategy,
+        fields: entries.map(([, value]) => ({
+          value: value ?? '',
+          disabled: false,
+        })),
+      };
     }
 
     const request: RouteOrderRequest = {

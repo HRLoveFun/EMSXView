@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Execution Platform Autopilot Runner
+ExecutionView Platform Autopilot Runner
 
 Reads the delivery ledger, selects the next actionable issue, runs the
 verification chain, updates ledger status, and optionally waits for CI.
@@ -597,7 +597,7 @@ class AutoRunner:
         if not chain:
             # Default chain
             chain = [
-                {"id": "compile-check", "command": "python -m compileall Execution/backend/api scripts/workflow -q"},
+                {"id": "compile-check", "command": "python -m compileall ExecutionView/backend/api scripts/workflow -q"},
                 {"id": "plan-validation", "command": "python scripts/workflow/validate_phase_gate.py --mode plan"},
                 {"id": "status-sync", "command": "python scripts/workflow/sync_execution_status.py --output-json docs/generated/execution-platform-status.json"},
                 {"id": "handoff-snapshot", "command": "python scripts/workflow/generate_handoff_snapshot.py --output docs/generated/execution-platform-handoff.md"},
@@ -699,7 +699,7 @@ class AutoRunner:
 # =============================================================================
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Execution platform autopilot runner")
+    p = argparse.ArgumentParser(description="ExecutionView platform autopilot runner")
     p.add_argument("--workspace", default=".")
     p.add_argument("--status-file", default=".workbuddy/plans/execution-platform-status.yaml")
     p.add_argument("--risk-file", default=".workbuddy/plans/execution-platform-risk-register.yaml")

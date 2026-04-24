@@ -1,9 +1,9 @@
 ' ============================================================
 ' EMSX Trading Platform - One-Click Launcher (Robust Version)
 ' 双击此文件即可启动，无需任何其他操作
-' 1. 在后台启动 Python 后端，轮询 :3000 直到就绪（超时 60s）
-' 2. 在后台启动 Vite 前端，轮询 :5173 直到就绪（超时 120s）
-' 3. 确认服务就绪后自动打开浏览器
+' 1. 并行启动 Python 后端和 Vite 前端
+' 2. 前端就绪后立即打开浏览器，不再被后端 60s 等待阻塞
+' 3. 后端继续在后台等待就绪；失败时再显示诊断页面
 ' 4. 启动失败时在浏览器中显示错误诊断页面
 ' ============================================================
 
@@ -18,37 +18,39 @@ Const FRONTEND_TIMEOUT  = 120000  ' 前端最多等 120 秒
 Const EMSX_ROOT        = "C:\Users\hrchen\Documents\EMSX"
 Dim ERROR_PAGE_PATH
 ERROR_PAGE_PATH  = EMSX_ROOT & "\logs\startup-error.html"
+Dim FRONTEND_OPENED
+FRONTEND_OPENED = False
 
-' ---- 启动后端（完全隐藏窗口）----
+' ---- 并行启动后端与前端（完全隐藏窗口）----
 WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass " & _
     "-File """ & EMSX_ROOT & "\scripts\deploy\start-backend.ps1""", 0, False
+WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass " & _
+    "-File """ & EMSX_ROOT & "\scripts\deploy\start-frontend.ps1""", 0, False
 
+' ---- 前端优先就绪并打开浏览器 ----
+If Not WaitForPort(FRONTEND_PORT, FRONTEND_TIMEOUT, "Frontend") Then
+    ShowErrorPage "Frontend", FRONTEND_PORT, FRONTEND_TIMEOUT, Array( _
+        "node_modules 未安装（在 ExecutionView/frontend/ 下运行 npm install）", _
+        "端口 5173 被其他程序占用（上次运行未正确关闭）", _
+        "Node.js / npm 未安装或不在 PATH 中", _
+        "npm SSL 证书问题（运行 npm config set strict-ssl false）" _
+    ), False
+    WScript.Quit 1
+End If
+
+WshShell.Run "http://localhost:" & FRONTEND_PORT
+FRONTEND_OPENED = True
+
+' ---- 后端继续在后台等待，不阻塞前端打开 ----
 If Not WaitForPort(BACKEND_PORT, BACKEND_TIMEOUT, "Backend") Then
     ShowErrorPage "Backend", BACKEND_PORT, BACKEND_TIMEOUT, Array( _
         "Python 环境未找到（检查 D:\anaconda3\python.exe 是否存在）", _
         "端口 3000 被其他程序占用（上次运行未正确关闭）", _
-        "依赖包缺失（在 Execution/backend/ 下运行 pip install）", _
+        "依赖包缺失（在 ExecutionView/backend/ 下运行 pip install）", _
         "Bloomberg BPIPE 连接失败（检查 Terminal 是否在线）" _
-    )
+    ), FRONTEND_OPENED
     WScript.Quit 1
 End If
-
-' ---- 启动前端 Vite 服务器（完全隐藏窗口）----
-WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass " & _
-    "-File """ & EMSX_ROOT & "\scripts\deploy\start-frontend.ps1""", 0, False
-
-If Not WaitForPort(FRONTEND_PORT, FRONTEND_TIMEOUT, "Frontend") Then
-    ShowErrorPage "Frontend", FRONTEND_PORT, FRONTEND_TIMEOUT, Array( _
-        "node_modules 未安装（在 Execution/frontend/ 下运行 npm install）", _
-        "端口 5173 被其他程序占用（上次运行未正确关闭）", _
-        "Node.js / npm 未安装或不在 PATH 中", _
-        "npm SSL 证书问题（运行 npm config set strict-ssl false）" _
-    )
-    WScript.Quit 1
-End If
-
-' ---- 打开浏览器 ----
-WshShell.Run "http://localhost:" & FRONTEND_PORT
 
 Set WshShell = Nothing
 Set fso = Nothing
@@ -57,8 +59,8 @@ WScript.Quit 0
 ' ============================================================
 ' 生成错误诊断 HTML 页面并在浏览器中打开
 ' ============================================================
-Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses)
-    Dim html, ts, logHint
+Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
+    Dim html, ts, logHint, frontendHint
 
     ' 尝试读取最近日志
     logHint = ""
@@ -69,9 +71,11 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses)
         Set latestLog = Nothing
         latestDate = #1/1/1970#
         For Each f In logDir.Files
-            If DateDiff("s", latestDate, f.DateLastModified) > 0 Then
-                Set latestLog = f
-                latestDate = f.DateLastModified
+            If LCase(f.Name) <> LCase(fso.GetFileName(ERROR_PAGE_PATH)) Then
+                If DateDiff("s", latestDate, f.DateLastModified) > 0 Then
+                    Set latestLog = f
+                    latestDate = f.DateLastModified
+                End If
             End If
         Next
         If Not latestLog Is Nothing Then
@@ -107,6 +111,11 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses)
     Set oExec = WshShell.Exec("netstat -ano | findstr :" & port)
     If Not oExec.StdOut.AtEndOfStream Then
         portCheck = "  <div class='warning'>⚠ 端口 " & port & " 当前被占用:<pre>" & ServerHTMLEncode(oExec.StdOut.ReadAll()) & "</pre></div>" & vbCrLf
+    End If
+
+    frontendHint = ""
+    If frontendOpened Then
+        frontendHint = "  <div class='warning'>ℹ 前端已经打开：<code>http://localhost:" & FRONTEND_PORT & "</code>。你可以先在页面内等待 backend 就绪，同时参考此诊断页继续排查。</div>" & vbCrLf
     End If
 
     ' 生成 HTML
@@ -145,6 +154,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses)
         "  <div class='icon'>🚫</div>" & vbCrLf & _
         "  <h1>EMSX " & serviceName & " 启动失败</h1>" & vbCrLf & _
         "  <p class='subtitle'>服务在 " & (timeoutMs / 1000) & " 秒内未能就绪 (localhost:" & port & ")</p>" & vbCrLf & _
+        frontendHint & _
         portCheck & _
         "  <h2>可能的原因</h2>" & vbCrLf & _
         "  <ul>" & vbCrLf

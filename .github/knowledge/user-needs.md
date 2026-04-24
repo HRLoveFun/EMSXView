@@ -34,7 +34,7 @@
 - **Impact**: Medium — causes confusion when changes don't take effect
 - **Effort**: Low
 - **Current Solution**: Manual reminder in docs; developer must remember to restart
-- **Proposed Automation**: A hook or instruction that reminds to restart backend after Python file edits in `Execution/backend/`
+- **Proposed Automation**: A hook or instruction that reminds to restart backend after Python file edits in `ExecutionView/backend/`
 - **Status**: Identified
 - **Date**: 2026-04-02
 
@@ -63,3 +63,42 @@
 - **Proposed Automation**: Maintain a docs root index plus archive policy, add lightweight checks for stale path patterns like app/ and emsx-backend/ in active docs, and require core docs updates when architecture-facing files or entrypoints change.
 - **Status**: Identified
 - **Date**: 2026-04-22
+
+
+---
+
+## Need: EMSX route contract hardening and asset-class-aware strategy discovery
+
+- **Frequency**: Medium
+- **Impact**: High
+- **Effort**: TBD
+- **Current Solution**: Manual code archaeology against Bloomberg EMSX docs, followed by targeted backend/frontend fixes and ad hoc validation for RouteEx, ModifyRouteEx, broker strategy lookup, and session behavior.
+- **Proposed Automation**: Maintain a dedicated EMSX routing regression suite that validates RouteEx/ModifyRouteEx request construction, reset sentinels, strategy payload forwarding, asset-class discovery, and request-session correlation handling before release.
+- **Status**: Identified
+- **Date**: 2026-04-23
+
+
+---
+
+## Need: Layered startup status and early-visible frontend startup UX
+
+- **Frequency**: Medium
+- **Impact**: High
+- **Effort**: TBD
+- **Current Solution**: Manual launcher debugging, backend/ frontend code archaeology, ad hoc startup gates, and repeated live checks to distinguish HTTP readiness, Bloomberg connection, and subscription warmup.
+- **Proposed Automation**: Maintain a first-class startup-status contract with explicit phases, reuse a shared frontend startup hook/status surface, and keep launcher/frontend validation tests that assert early frontend visibility plus backend warmup transitions.
+- **Status**: Identified
+- **Date**: 2026-04-23
+
+
+---
+
+## Need: Layered startup visibility and service orchestration
+
+- **Frequency**: Very High
+- **Impact**: High
+- **Effort**: TBD
+- **Current Solution**: Launcher, service-manager, frontend startup gate, and diagnose scripts now share `/api/startup-status`, but operators still validate some transitions manually and compare multiple surfaces during start/restart flows.
+- **Proposed Automation**: Continue consolidating launcher, service-manager, and frontend startup surfaces around one phased readiness contract, reusable startup summaries, and machine-readable status outputs for orchestration and regression checks.
+- **Status**: Identified
+- **Date**: 2026-04-23

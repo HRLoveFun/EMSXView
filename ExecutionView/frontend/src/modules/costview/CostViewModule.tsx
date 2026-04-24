@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, BarChart3, Settings2 } from 'lucide-react';
+import { Activity, BarChart3, Settings2, Trophy } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_FILTER_FORM_STATE,
@@ -35,6 +35,11 @@ const LazyAnalysisView = lazy(async () => {
 const LazyConfigureView = lazy(async () => {
   const module = await import('./components/ConfigureView');
   return { default: module.ConfigureView };
+});
+
+const LazyScorecardView = lazy(async () => {
+  const module = await import('./components/ScorecardView');
+  return { default: module.ScorecardView };
 });
 
 function normalizeOrderIds(value: string): string[] | undefined {
@@ -291,9 +296,10 @@ export default function CostViewModule() {
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CostViewModuleTab)}>
-        <TabsList className="grid h-auto w-full grid-cols-3 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
+        <TabsList className="grid h-auto w-full grid-cols-4 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
           <TabsTrigger value="overview"><Activity className="h-4 w-4" />Overview</TabsTrigger>
           <TabsTrigger value="analysis"><BarChart3 className="h-4 w-4" />Analysis</TabsTrigger>
+          <TabsTrigger value="scorecard"><Trophy className="h-4 w-4" />Scorecard</TabsTrigger>
           <TabsTrigger value="configure"><Settings2 className="h-4 w-4" />Configure</TabsTrigger>
         </TabsList>
 
@@ -330,6 +336,12 @@ export default function CostViewModule() {
               onRunSearch={handleRunSearch}
               onSelectOrder={(order) => setSelectedOrderId(order?.order_id ?? null)}
             />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="scorecard" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading scorecard workspace…</div>}>
+            <LazyScorecardView config={config} analysisFilters={filterForm} />
           </Suspense>
         </TabsContent>
 

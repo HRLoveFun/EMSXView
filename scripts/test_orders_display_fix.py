@@ -15,7 +15,7 @@ def test_init_paint_timeout():
     print("Test 1: INIT_PAINT timeout increased to 30s")
     print("-" * 50)
 
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -32,7 +32,7 @@ def test_status_api():
     print("\nTest 2: Order status API endpoint")
     print("-" * 50)
 
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -59,7 +59,7 @@ def test_frontend_api():
     print("\nTest 3: Frontend API service method")
     print("-" * 50)
 
-    api_ts_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'frontend', 'src', 'services', 'api.ts')
+    api_ts_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'frontend', 'src', 'services', 'api.ts')
     with open(api_ts_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -85,7 +85,7 @@ def test_frontend_filter_indicator():
     print("\nTest 4: Frontend filter indicator")
     print("-" * 50)
 
-    order_table_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'frontend', 'src', 'sections', 'OrderTable.tsx')
+    order_table_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'frontend', 'src', 'sections', 'OrderTable.tsx')
     with open(order_table_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -113,7 +113,7 @@ def test_trailing_orders_wait():
     print("\nTest 5: Trailing orders wait logic")
     print("-" * 50)
 
-    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'Execution', 'backend', 'api', 'main.py')
+    main_py_path = os.path.join(os.path.dirname(__file__), '..', 'ExecutionView', 'backend', 'api', 'main.py')
     with open(main_py_path, 'r', encoding='utf-8') as f:
         content = f.read()
 

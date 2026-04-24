@@ -112,6 +112,69 @@ class TcaReport:
     data_source_warning: Optional[str] = None
 
 
+# ── Scorecard data structures ────────────────────────────────────────────────
+
+# Valid cohort dimensions exposed via the scorecard API.
+SCORECARD_COHORTS: tuple[str, ...] = (
+    "broker",
+    "strategy",
+    "broker_strategy",
+    "asset_class",
+    "time_of_day",
+    "liquidity_adv20",
+    "volatility",
+)
+
+
+@dataclass
+class ScorecardFilters:
+    """Filter specification for a broker/strategy scorecard query."""
+    cohort: str = "broker_strategy"          # one of SCORECARD_COHORTS
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    broker: Optional[str] = None
+    algo: Optional[str] = None
+    symbol: Optional[str] = None
+    order_ids: Optional[list[str]] = None
+    min_sample_size: int = 10                # cohorts below this flag sample_size_warning
+    max_orders: int = 2000                   # hard cap on orders inspected
+
+
+@dataclass
+class ScorecardCohortMetrics:
+    """Aggregated TCA metrics for a single cohort."""
+    cohort_key: str                          # machine-readable key (joined parts)
+    cohort_label: str                        # human-readable label for UI
+    sample_size: int                         # number of orders contributing
+    order_count: int                         # alias for sample_size (stable contract)
+    avg_tracking_error_bps: Optional[float]  # absolute tracking error mean
+    median_tracking_error_bps: Optional[float]
+    p95_tracking_error_bps: Optional[float]
+    stddev_tracking_error_bps: Optional[float]
+    avg_fill_pct: Optional[float]
+    avg_volume_pct_interval: Optional[float]
+    avg_volume_pct_adv20: Optional[float]
+    avg_daily_volatility: Optional[float]
+    avg_intraday_volatility: Optional[float]
+    avg_price_movement_pct: Optional[float]  # absolute mean
+    data_quality_ratio: float                # fraction of orders with data_quality_warning=True
+    sample_size_warning: bool                # True if sample_size < min_sample_size
+    anomaly_flags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ScorecardReport:
+    """Full scorecard output for a cohort dimension."""
+    filters: dict
+    cohort: str
+    min_sample_size: int
+    total_orders_considered: int     # raw orders pulled before cohort bucketing
+    total_orders_capped: bool        # True if we hit max_orders
+    cohorts: list[ScorecardCohortMetrics]
+    generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    data_source_warning: Optional[str] = None
+
+
 # ── Service ──────────────────────────────────────────────────────────────────
 
 class TcaQueryService:
@@ -220,6 +283,80 @@ class TcaQueryService:
             orders=orders,
         )
 
+    def build_scorecard(self, filters: ScorecardFilters) -> ScorecardReport:
+        """Build broker/strategy cohort scorecard over completed TCA orders.
+
+        Reuses ``build_tca_report`` under the hood so that cohort aggregates
+        share the same per-order metric semantics as the detail view. Orders
+        with no completed TCA metrics are silently skipped. The total number
+        of inspected orders is capped by ``filters.max_orders`` to bound
+        query cost; when the cap is hit ``total_orders_capped`` is set so
+        the frontend can warn users.
+        """
+        cohort = (filters.cohort or "broker_strategy").strip().lower()
+        if cohort not in SCORECARD_COHORTS:
+            raise ValueError(
+                f"Unsupported scorecard cohort {cohort!r}; expected one of {SCORECARD_COHORTS}"
+            )
+        min_sample = max(1, int(filters.min_sample_size or 1))
+        max_orders = max(1, int(filters.max_orders or 2000))
+
+        # Paginate through build_tca_report using the underlying TcaFilters.
+        page_size = min(500, max_orders)
+        collected: list[TcaOrderSummary] = []
+        warning: Optional[str] = None
+        capped = False
+        offset = 0
+        while True:
+            base_filters = TcaFilters(
+                order_ids=filters.order_ids,
+                algo=filters.algo,
+                start_date=filters.start_date,
+                end_date=filters.end_date,
+                broker=filters.broker,
+                symbol=filters.symbol,
+                aggregation="per_order",
+                limit=page_size,
+                offset=offset,
+            )
+            page = self.build_tca_report(base_filters)
+            if page.data_source_warning and not collected:
+                # Propagate the first-page warning so the UI can show a clear state.
+                warning = page.data_source_warning
+            collected.extend(page.orders)
+            if len(collected) >= max_orders:
+                collected = collected[:max_orders]
+                if page.total_orders > max_orders:
+                    capped = True
+                break
+            if len(collected) >= page.total_orders or not page.orders:
+                break
+            offset += page.limit
+
+        filters_dict = self._scorecard_filters_to_dict(filters)
+
+        if warning and not collected:
+            return ScorecardReport(
+                filters=filters_dict,
+                cohort=cohort,
+                min_sample_size=min_sample,
+                total_orders_considered=0,
+                total_orders_capped=False,
+                cohorts=[],
+                data_source_warning=warning,
+            )
+
+        cohorts = self._aggregate_cohorts(collected, cohort, min_sample)
+        return ScorecardReport(
+            filters=filters_dict,
+            cohort=cohort,
+            min_sample_size=min_sample,
+            total_orders_considered=len(collected),
+            total_orders_capped=capped,
+            cohorts=cohorts,
+            data_source_warning=warning,
+        )
+
     # ── Query helpers ───────────────────────────────────────────────────────
 
     def _get_matching_routes(
@@ -263,6 +400,74 @@ class TcaQueryService:
             params.append(filters.symbol)
 
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        history_conditions: list[str] = []
+        history_params: list[Any] = []
+        if filters.start_date:
+            history_conditions.append("rh.order_as_of_date >= ?")
+            history_params.append(filters.start_date)
+        if filters.end_date:
+            history_conditions.append("rh.order_as_of_date <= ?")
+            history_params.append(filters.end_date)
+        if filters.order_ids:
+            placeholders = ",".join(["?"] * len(filters.order_ids))
+            history_conditions.append(f"rh.OrderId IN ({placeholders})")
+            history_params.extend(filters.order_ids)
+        if filters.algo:
+            history_conditions.append("COALESCE(rh.algo, oh.algo) = ?")
+            history_params.append(filters.algo)
+        if filters.broker:
+            history_conditions.append("COALESCE(rh.Broker, oh.Broker) = ?")
+            history_params.append(filters.broker)
+        if filters.symbol:
+            history_conditions.append("COALESCE(rh.equ_ticker, oh.equ_ticker) = ?")
+            history_params.append(filters.symbol)
+
+        history_where_clause = (
+            "WHERE " + " AND ".join(history_conditions)
+            if history_conditions
+            else ""
+        )
+
+        conn = self._proc_fills_conn()
+        try:
+            if self._table_exists(conn, Config.ROUTE_HISTORY_TABLE) and self._table_exists(conn, Config.ORDER_HISTORY_TABLE):
+                history_sql = f"""
+                    SELECT
+                        rh.OrderId AS order_id,
+                        rh.RouteId AS route_id,
+                        rh.order_as_of_date,
+                        COALESCE(rh.equ_ticker, oh.equ_ticker) AS equ_ticker,
+                        COALESCE(rh.ccy_ticker, oh.ccy_ticker) AS ccy_ticker,
+                        COALESCE(rh.Side, oh.Side) AS side,
+                        COALESCE(rh.algo, oh.algo) AS algo,
+                        COALESCE(rh.Broker, oh.Broker) AS broker,
+                        COALESCE(rh.TraderName, oh.TraderName) AS trader_name,
+                        COALESCE(rh.Exchange, oh.Exchange) AS exchange,
+                        rh.first_fill_time AS first_fill_datetime,
+                        rh.last_fill_time AS last_fill_datetime,
+                        substr(rh.first_fill_time, -8) AS start_time,
+                        substr(rh.last_fill_time, -8) AS end_time
+                    FROM {Config.ROUTE_HISTORY_TABLE} rh
+                    LEFT JOIN {Config.ORDER_HISTORY_TABLE} oh
+                      ON rh.OrderId = oh.OrderId
+                     AND rh.order_as_of_date = oh.order_as_of_date
+                    {history_where_clause}
+                """
+
+                count_sql = f"SELECT COUNT(*) FROM ({history_sql})"
+                total = int(conn.execute(count_sql, history_params).fetchone()[0])
+
+                paged_sql = (
+                    history_sql
+                    + " ORDER BY rh.order_as_of_date DESC, rh.last_fill_time DESC, rh.OrderId LIMIT ? OFFSET ?"
+                )
+                cursor = conn.execute(paged_sql, history_params + [filters.limit, filters.offset])
+                columns = [desc[0] for desc in cursor.description]
+                rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                return rows, total
+        finally:
+            conn.close()
 
         base_sql = f"""
             SELECT
@@ -534,6 +739,32 @@ class TcaQueryService:
             return {}
 
         placeholders = ",".join(["?"] * len(order_ids))
+        proc_conn = self._proc_fills_conn()
+        try:
+            if self._table_exists(proc_conn, Config.ORDER_HISTORY_TABLE):
+                cursor = proc_conn.execute(
+                    f"SELECT OrderId, SUM(total_fill_shares), MAX(order_amount) "
+                    f"FROM {Config.ORDER_HISTORY_TABLE} "
+                    f"WHERE OrderId IN ({placeholders}) "
+                    "GROUP BY OrderId",
+                    order_ids,
+                )
+                result: dict[str, dict[str, Optional[float]]] = {}
+                for row in cursor.fetchall():
+                    oid, total_filled, amount = row
+                    filled_volume = float(total_filled) if total_filled is not None else None
+                    amount_value = float(amount) if amount is not None else None
+                    fill_pct = None
+                    if amount_value and amount_value > 0 and filled_volume is not None:
+                        fill_pct = round(filled_volume / amount_value * 100.0, 2)
+                    result[str(oid)] = {
+                        "fill_pct": fill_pct,
+                        "filled_volume": filled_volume,
+                    }
+                return result
+        finally:
+            proc_conn.close()
+
         conn = self._raw_fills_conn()
         try:
             cursor = conn.execute(
@@ -939,6 +1170,240 @@ class TcaQueryService:
             "offset": filters.offset,
         }
 
+    @staticmethod
+    def _scorecard_filters_to_dict(filters: ScorecardFilters) -> dict:
+        return {
+            "cohort": filters.cohort,
+            "order_ids": filters.order_ids,
+            "algo": filters.algo,
+            "start_date": filters.start_date,
+            "end_date": filters.end_date,
+            "broker": filters.broker,
+            "symbol": filters.symbol,
+            "min_sample_size": filters.min_sample_size,
+            "max_orders": filters.max_orders,
+        }
+
+    # ── Cohort bucketing ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _bucket_time_of_day(start_time: Optional[str]) -> tuple[str, str]:
+        """Classify order start time into Open/Mid/Close buckets."""
+        if not start_time:
+            return ("unknown", "Unknown")
+        try:
+            hh = int(str(start_time)[:2])
+            mm = int(str(start_time)[3:5])
+        except (TypeError, ValueError):
+            return ("unknown", "Unknown")
+        minutes = hh * 60 + mm
+        # 09:30–10:30 local → Open; 14:30 onward → Close; otherwise Mid
+        if minutes < 10 * 60 + 30:
+            return ("open", "Open (first hour)")
+        if minutes >= 14 * 60 + 30:
+            return ("close", "Close (last 90 min)")
+        return ("mid", "Mid-day")
+
+    @staticmethod
+    def _bucket_liquidity(volume_pct_adv20: Optional[float]) -> tuple[str, str]:
+        """Bucket participation vs. 20-day ADV."""
+        if volume_pct_adv20 is None:
+            return ("unknown", "Unknown")
+        if volume_pct_adv20 < 1.0:
+            return ("low", "Low (<1% ADV20)")
+        if volume_pct_adv20 < 5.0:
+            return ("mid", "Mid (1%-5% ADV20)")
+        return ("high", "High (>=5% ADV20)")
+
+    @staticmethod
+    def _bucket_volatility(daily_volatility: Optional[float]) -> tuple[str, str]:
+        """Bucket daily volatility in percent space.
+
+        ``daily_volatility`` is stored as an annualized volatility in percent
+        units in bdib_daily_summary (see raw_bdib_db). Thresholds follow
+        common desk heuristics of calm / typical / stressed.
+        """
+        if daily_volatility is None:
+            return ("unknown", "Unknown")
+        if daily_volatility < 1.5:
+            return ("calm", "Calm (<1.5%)")
+        if daily_volatility < 3.5:
+            return ("typical", "Typical (1.5%-3.5%)")
+        return ("stressed", "Stressed (>=3.5%)")
+
+    @staticmethod
+    def _asset_class_from_ticker(equ_ticker: Optional[str]) -> tuple[str, str]:
+        """Derive a coarse asset class label from the Bloomberg ticker suffix."""
+        if not equ_ticker:
+            return ("unknown", "Unknown")
+        token = str(equ_ticker).strip().rsplit(" ", 1)[-1].upper()
+        mapping = {
+            "EQUITY": ("equity", "Equity"),
+            "CURNCY": ("fx", "FX"),
+            "INDEX": ("index", "Index"),
+            "COMDTY": ("commodity", "Commodity"),
+            "CORP": ("fixed_income", "Fixed Income"),
+            "GOVT": ("fixed_income", "Fixed Income"),
+        }
+        return mapping.get(token, ("other", token.title() or "Other"))
+
+    @classmethod
+    def _cohort_key_and_label(
+        cls,
+        order: TcaOrderSummary,
+        cohort: str,
+    ) -> tuple[str, str]:
+        """Compute (machine_key, human_label) for the cohort of this order."""
+        broker = None
+        if order.routes:
+            # Prefer the first route's broker; TcaOrderSummary has no broker field.
+            broker = next((r.broker for r in order.routes if r.broker), None)
+        broker_label = broker or "Unknown"
+        algo_label = order.algo or "Unknown"
+
+        if cohort == "broker":
+            return (broker_label, broker_label)
+        if cohort == "strategy":
+            return (algo_label, algo_label)
+        if cohort == "broker_strategy":
+            return (f"{broker_label}|{algo_label}", f"{broker_label} | {algo_label}")
+        if cohort == "asset_class":
+            return cls._asset_class_from_ticker(order.equ_ticker)
+        if cohort == "time_of_day":
+            return cls._bucket_time_of_day(order.start_time)
+        if cohort == "liquidity_adv20":
+            return cls._bucket_liquidity(order.volume_pct_adv20)
+        if cohort == "volatility":
+            return cls._bucket_volatility(order.daily_volatility)
+        return ("unknown", "Unknown")
+
+    @classmethod
+    def _aggregate_cohorts(
+        cls,
+        orders: list[TcaOrderSummary],
+        cohort: str,
+        min_sample_size: int,
+    ) -> list[ScorecardCohortMetrics]:
+        """Group completed orders into cohorts and compute aggregate metrics."""
+        from collections import defaultdict
+
+        buckets: dict[tuple[str, str], list[TcaOrderSummary]] = defaultdict(list)
+        for order in orders:
+            # Only orders with a computed tracking error contribute to TCA stats.
+            if order.tracking_error_bps is None and order.exec_price is None:
+                continue
+            key_label = cls._cohort_key_and_label(order, cohort)
+            buckets[key_label].append(order)
+
+        results: list[ScorecardCohortMetrics] = []
+        for (key, label), group in buckets.items():
+            sample = len(group)
+            abs_tracking = [
+                abs(o.tracking_error_bps) for o in group if o.tracking_error_bps is not None
+            ]
+            avg_tracking = cls._safe_mean(abs_tracking)
+            median_tracking = cls._safe_percentile(abs_tracking, 50)
+            p95_tracking = cls._safe_percentile(abs_tracking, 95)
+            stddev_tracking = cls._safe_stddev(abs_tracking)
+
+            avg_fill = cls._safe_mean([o.fill_pct for o in group if o.fill_pct is not None])
+            avg_vol_interval = cls._safe_mean(
+                [o.volume_pct_interval for o in group if o.volume_pct_interval is not None]
+            )
+            avg_vol_adv20 = cls._safe_mean(
+                [o.volume_pct_adv20 for o in group if o.volume_pct_adv20 is not None]
+            )
+            avg_daily_vol = cls._safe_mean(
+                [o.daily_volatility for o in group if o.daily_volatility is not None]
+            )
+            avg_intraday_vol = cls._safe_mean(
+                [o.intraday_volatility for o in group if o.intraday_volatility is not None]
+            )
+            avg_price_move = cls._safe_mean(
+                [abs(o.price_movement_pct) for o in group if o.price_movement_pct is not None]
+            )
+            dq_ratio = (
+                sum(1 for o in group if o.data_quality_warning) / sample if sample else 0.0
+            )
+            sample_warn = sample < min_sample_size
+
+            flags: list[str] = []
+            if sample_warn:
+                flags.append("sample_size")
+            if avg_tracking is not None and avg_tracking >= 25:
+                flags.append("high_tracking_error")
+            elif avg_tracking is not None and avg_tracking >= 10:
+                flags.append("elevated_tracking_error")
+            if p95_tracking is not None and p95_tracking >= 50:
+                flags.append("tail_tracking_error")
+            if avg_fill is not None and avg_fill < 80:
+                flags.append("low_fill_rate")
+            if avg_vol_adv20 is not None and avg_vol_adv20 >= 10:
+                flags.append("high_participation")
+            if dq_ratio >= 0.25:
+                flags.append("data_quality")
+
+            results.append(
+                ScorecardCohortMetrics(
+                    cohort_key=key,
+                    cohort_label=label,
+                    sample_size=sample,
+                    order_count=sample,
+                    avg_tracking_error_bps=avg_tracking,
+                    median_tracking_error_bps=median_tracking,
+                    p95_tracking_error_bps=p95_tracking,
+                    stddev_tracking_error_bps=stddev_tracking,
+                    avg_fill_pct=avg_fill,
+                    avg_volume_pct_interval=avg_vol_interval,
+                    avg_volume_pct_adv20=avg_vol_adv20,
+                    avg_daily_volatility=avg_daily_vol,
+                    avg_intraday_volatility=avg_intraday_vol,
+                    avg_price_movement_pct=avg_price_move,
+                    data_quality_ratio=round(dq_ratio, 4),
+                    sample_size_warning=sample_warn,
+                    anomaly_flags=flags,
+                )
+            )
+
+        # Sort: eligible cohorts (>= min_sample) first by avg_tracking desc, then small samples.
+        def _sort_key(row: ScorecardCohortMetrics) -> tuple:
+            tracking = row.avg_tracking_error_bps if row.avg_tracking_error_bps is not None else -1.0
+            return (row.sample_size_warning, -tracking, -row.sample_size, row.cohort_label)
+
+        results.sort(key=_sort_key)
+        return results
+
+    @staticmethod
+    def _safe_mean(values: list[float]) -> Optional[float]:
+        cleaned = [float(v) for v in values if v is not None and not math.isnan(float(v))]
+        if not cleaned:
+            return None
+        return sum(cleaned) / len(cleaned)
+
+    @staticmethod
+    def _safe_stddev(values: list[float]) -> Optional[float]:
+        cleaned = [float(v) for v in values if v is not None and not math.isnan(float(v))]
+        if len(cleaned) < 2:
+            return None
+        mean = sum(cleaned) / len(cleaned)
+        variance = sum((v - mean) ** 2 for v in cleaned) / (len(cleaned) - 1)
+        return math.sqrt(variance)
+
+    @staticmethod
+    def _safe_percentile(values: list[float], pct: float) -> Optional[float]:
+        cleaned = sorted(float(v) for v in values if v is not None and not math.isnan(float(v)))
+        if not cleaned:
+            return None
+        if len(cleaned) == 1:
+            return cleaned[0]
+        rank = (pct / 100.0) * (len(cleaned) - 1)
+        lower = int(math.floor(rank))
+        upper = int(math.ceil(rank))
+        if lower == upper:
+            return cleaned[lower]
+        weight = rank - lower
+        return cleaned[lower] * (1 - weight) + cleaned[upper] * weight
+
     def _proc_fills_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._proc_fills_path)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -960,3 +1425,11 @@ class TcaQueryService:
         conn = sqlite3.connect(self._raw_fills_path)
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
+
+    @staticmethod
+    def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+        cursor = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ? LIMIT 1",
+            [table_name],
+        )
+        return cursor.fetchone() is not None

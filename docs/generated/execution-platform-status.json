@@ -21,7 +21,7 @@
       "owner": "unassigned",
       "dependencies": [],
       "files": [
-        "Execution/backend/api/services/benchmark_engine.py"
+        "ExecutionView/backend/api/services/benchmark_engine.py"
       ],
       "checkpoints": [
         {
@@ -50,8 +50,8 @@
         "P3-S6-01"
       ],
       "files": [
-        "Execution/backend/api/services/algo_scheduler.py",
-        "Execution/backend/api/routers/orders.py"
+        "ExecutionView/backend/api/services/algo_scheduler.py",
+        "ExecutionView/backend/api/routers/orders.py"
       ],
       "checkpoints": [
         {
@@ -76,10 +76,10 @@
         "P3-S6-02"
       ],
       "files": [
-        "Execution/frontend/src/components/algo-launch-dialog.tsx",
-        "Execution/frontend/src/sections/ExecutionBoard.tsx",
-        "Execution/frontend/src/sections/RouteTable.tsx",
-        "Execution/frontend/src/types/index.ts"
+        "ExecutionView/frontend/src/components/algo-launch-dialog.tsx",
+        "ExecutionView/frontend/src/sections/ExecutionBoard.tsx",
+        "ExecutionView/frontend/src/sections/RouteTable.tsx",
+        "ExecutionView/frontend/src/types/index.ts"
       ],
       "checkpoints": [
         {
@@ -104,9 +104,9 @@
         "P3-S6-02"
       ],
       "files": [
-        "Execution/backend/api/tests/test_benchmark_engine.py",
-        "Execution/backend/api/tests/test_algo_scheduler.py",
-        "Execution/frontend/src/components/algo-launch-dialog.test.tsx"
+        "ExecutionView/backend/api/tests/test_benchmark_engine.py",
+        "ExecutionView/backend/api/tests/test_algo_scheduler.py",
+        "ExecutionView/frontend/src/components/algo-launch-dialog.test.tsx"
       ],
       "checkpoints": [
         {

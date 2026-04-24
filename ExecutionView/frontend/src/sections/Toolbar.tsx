@@ -1,4 +1,3 @@
-import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Wifi, WifiOff, Activity, Database, LogOut, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,8 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ConnectionStatus } from '@/types';
-import { apiService } from '@/services/api';
+import type { ConnectionStatus, StartupStatusSnapshot } from '@/types';
 
 interface ToolbarProps {
   onRefresh: () => void;
@@ -18,42 +16,29 @@ interface ToolbarProps {
   isLoading: boolean;
   orderCount: number;
   onLogout: () => void;
+  startupStatus: StartupStatusSnapshot | null;
+  connectionStatus: ConnectionStatus;
+  checkingStartup: boolean;
 }
 
-export function Toolbar({ onRefresh, onClearCache, isLoading, orderCount, onLogout }: ToolbarProps) {
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('pending');
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [checkingConnection, setCheckingConnection] = useState(false);
-
-  const checkConnection = useCallback(async () => {
-    setCheckingConnection(true);
-    try {
-      const response = await apiService.checkConnection();
-      if (response.success && response.data) {
-        setConnectionStatus(response.data.status);
-      } else {
-        setConnectionStatus('disconnected');
-      }
-    } catch {
-      setConnectionStatus('disconnected');
-    } finally {
-      setCheckingConnection(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    checkConnection();
-    const interval = setInterval(checkConnection, 30000); // Check every 30 seconds
-    return () => clearInterval(interval);
-  }, [checkConnection]);
+export function Toolbar({
+  onRefresh,
+  onClearCache,
+  isLoading,
+  orderCount,
+  onLogout,
+  startupStatus,
+  connectionStatus,
+  checkingStartup,
+}: ToolbarProps) {
+  const lastUpdated = new Date();
 
   const handleRefresh = async () => {
     await onRefresh();
-    setLastUpdated(new Date());
   };
 
   const getConnectionIcon = () => {
-    if (checkingConnection) {
+    if (checkingStartup) {
       return <Spinner className="h-4 w-4" />;
     }
     switch (connectionStatus) {
@@ -78,13 +63,22 @@ export function Toolbar({ onRefresh, onClearCache, isLoading, orderCount, onLogo
   };
 
   const getConnectionText = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return 'Connected';
-      case 'disconnected':
-        return 'Disconnected';
+    if (!startupStatus) {
+      return 'Checking startup...';
+    }
+    switch (startupStatus.phase) {
+      case 'ready':
+        return 'Ready';
+      case 'backend_starting':
+        return 'Backend starting';
+      case 'bloomberg_connecting':
+        return 'Connecting Bloomberg';
+      case 'subscriptions_warming':
+        return 'Warming subscriptions';
+      case 'error':
+        return 'Attention needed';
       default:
-        return 'Connecting...';
+        return 'Starting...';
     }
   };
 
@@ -114,7 +108,7 @@ export function Toolbar({ onRefresh, onClearCache, isLoading, orderCount, onLogo
       </div>
       
       <div className="flex items-center gap-3">
-        <div className={`flex items-center gap-2 text-sm ${getConnectionClass()}`}>
+        <div className={`flex items-center gap-2 text-sm ${getConnectionClass()}`} title={startupStatus?.message ?? getConnectionText()}>
           {getConnectionIcon()}
           <span className="font-medium">{getConnectionText()}</span>
         </div>

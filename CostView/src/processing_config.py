@@ -108,6 +108,9 @@ class ProcessingConfig:
     PROCESSED_FILLS_TABLE: str = "processed_fills"
     AGG_10S_TABLE: str = "agg_fills_10s"                # route-level 10s aggregation
     AGG_1MIN_TABLE: str = "agg_fills_1min"              # route-level 1min aggregation
+    ORDER_HISTORY_TABLE: str = "order_history"
+    ROUTE_HISTORY_TABLE: str = "route_history"
+    ROUTE_EVENT_HISTORY_TABLE: str = "route_event_history"
 
     # Tables in RAW_BDIB_DB / PROCESSED_RAW_BDIB_DB / FILL_BDIB_DB (3-layer BDIB pipeline)
     RAW_BDIB_TABLE: str = "raw_bdib"
@@ -129,6 +132,31 @@ class ProcessingConfig:
 
     # Table for order-level fetch tracking (Phase 2B)
     ORDER_FETCH_LOG_TABLE: str = "order_fetch_log"
+
+    EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
+        "fills": (
+            "emsx.history:GetFills",
+        ),
+        "orders": (
+            "costview.fill-rollup",
+            "executionview.orders_projection",
+        ),
+        "routes": (
+            "costview.fill-rollup",
+            "executionview.routes_projection",
+        ),
+        "route_events": (
+            "emsx.history:GetFills",
+            "executionview.audit_events",
+        ),
+    }
+
+    EXECUTION_HISTORY_REFRESH_POLICY: dict[str, str] = {
+        "fills": "incremental-per-fetch",
+        "orders": "rebuild-per-processed-date;patch-from-executionview-when-available",
+        "routes": "rebuild-per-processed-date;patch-from-executionview-when-available",
+        "route_events": "append-per-fill;patch-from-executionview-audit-when-available",
+    }
 
     # ═══════════════════════════════════════════════════════════════════════
     # SECTION 6a: CLEANING PARAMETERS

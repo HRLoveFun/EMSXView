@@ -35,7 +35,10 @@ from .schema import (
     AGG_1MIN_COLUMNS,
     AGG_COLUMNS,
     COLUMN_TYPE_MAP,
+    ORDER_HISTORY_COLUMNS,
     PROCESSED_COLUMNS,
+    ROUTE_EVENT_HISTORY_COLUMNS,
+    ROUTE_HISTORY_COLUMNS,
     ROUTE_REGISTRY_COLUMNS,
 )
 
@@ -136,6 +139,58 @@ class ProcessedFillsDB:
                     {route_reg_cols},
                     PRIMARY KEY (OrderId, RouteId)
                 )
+            """)
+
+            order_history_cols = self._build_column_defs(ORDER_HISTORY_COLUMNS, COLUMN_TYPE_MAP)
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {Config.ORDER_HISTORY_TABLE} (
+                    {order_history_cols},
+                    PRIMARY KEY (OrderId, order_as_of_date)
+                )
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_order_history_date
+                ON {Config.ORDER_HISTORY_TABLE} (order_as_of_date)
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_order_history_ticker
+                ON {Config.ORDER_HISTORY_TABLE} (equ_ticker)
+            """)
+
+            route_history_cols = self._build_column_defs(ROUTE_HISTORY_COLUMNS, COLUMN_TYPE_MAP)
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {Config.ROUTE_HISTORY_TABLE} (
+                    {route_history_cols},
+                    PRIMARY KEY (OrderId, RouteId, order_as_of_date)
+                )
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_route_history_date
+                ON {Config.ROUTE_HISTORY_TABLE} (order_as_of_date)
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_route_history_ticker
+                ON {Config.ROUTE_HISTORY_TABLE} (equ_ticker)
+            """)
+
+            route_event_history_cols = self._build_column_defs(ROUTE_EVENT_HISTORY_COLUMNS, COLUMN_TYPE_MAP)
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {Config.ROUTE_EVENT_HISTORY_TABLE} (
+                    {route_event_history_cols},
+                    PRIMARY KEY (event_id)
+                )
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_route_event_history_date
+                ON {Config.ROUTE_EVENT_HISTORY_TABLE} (order_as_of_date)
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_route_event_history_route
+                ON {Config.ROUTE_EVENT_HISTORY_TABLE} (OrderId, RouteId)
+            """)
+            conn.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_route_event_history_timestamp
+                ON {Config.ROUTE_EVENT_HISTORY_TABLE} (event_timestamp)
             """)
 
             # Route registry schema migration: add missing columns (e.g. Exchange)
@@ -479,6 +534,45 @@ class ProcessedFillsDB:
             conn=conn,
         )
         logger.info(f"Upserted {count} route registry records")
+        return count
+
+    def upsert_order_history(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Insert or replace order history records."""
+        count = self._upsert_fixed_schema(
+            df,
+            Config.ORDER_HISTORY_TABLE,
+            key_columns=["OrderId", "order_as_of_date"],
+            expected_columns=ORDER_HISTORY_COLUMNS,
+            type_map=COLUMN_TYPE_MAP,
+            conn=conn,
+        )
+        logger.info(f"Upserted {count} order history records")
+        return count
+
+    def upsert_route_history(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Insert or replace route history records."""
+        count = self._upsert_fixed_schema(
+            df,
+            Config.ROUTE_HISTORY_TABLE,
+            key_columns=["OrderId", "RouteId", "order_as_of_date"],
+            expected_columns=ROUTE_HISTORY_COLUMNS,
+            type_map=COLUMN_TYPE_MAP,
+            conn=conn,
+        )
+        logger.info(f"Upserted {count} route history records")
+        return count
+
+    def upsert_route_event_history(self, df: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Insert or replace route event history records."""
+        count = self._upsert_fixed_schema(
+            df,
+            Config.ROUTE_EVENT_HISTORY_TABLE,
+            key_columns=["event_id"],
+            expected_columns=ROUTE_EVENT_HISTORY_COLUMNS,
+            type_map=COLUMN_TYPE_MAP,
+            conn=conn,
+        )
+        logger.info(f"Upserted {count} route event history records")
         return count
 
     def get_processed_fills_for_date(self, date_str: str, use_legacy_view: bool = False) -> pd.DataFrame:
@@ -1007,6 +1101,9 @@ class ProcessedFillsDB:
                 Config.PROCESSED_FILLS_TABLE,
                 Config.AGG_10S_TABLE,
                 Config.AGG_1MIN_TABLE,
+                Config.ORDER_HISTORY_TABLE,
+                Config.ROUTE_HISTORY_TABLE,
+                Config.ROUTE_EVENT_HISTORY_TABLE,
                 Config.AGG_PROCESSED_FILLS_TABLE,
                 Config.PROCESSED_FILLS_1MIN_TABLE,
                 Config.ORDER_LABEL_TABLE,
@@ -1028,5 +1125,25 @@ class ProcessedFillsDB:
                 stats["processing_stages"] = {}
 
             return stats
+        finally:
+            conn.close()
+
+    def get_execution_history_stats(self) -> Dict[str, Any]:
+        """Return row counts and source policy metadata for execution history tables."""
+        conn = self._get_conn()
+        try:
+            return {
+                "order_history_rows": conn.execute(
+                    f"SELECT COUNT(*) FROM {Config.ORDER_HISTORY_TABLE}"
+                ).fetchone()[0],
+                "route_history_rows": conn.execute(
+                    f"SELECT COUNT(*) FROM {Config.ROUTE_HISTORY_TABLE}"
+                ).fetchone()[0],
+                "route_event_history_rows": conn.execute(
+                    f"SELECT COUNT(*) FROM {Config.ROUTE_EVENT_HISTORY_TABLE}"
+                ).fetchone()[0],
+                "source_policy": dict(Config.EXECUTION_HISTORY_SOURCE_POLICY),
+                "refresh_policy": dict(Config.EXECUTION_HISTORY_REFRESH_POLICY),
+            }
         finally:
             conn.close()

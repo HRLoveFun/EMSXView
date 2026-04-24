@@ -8,8 +8,8 @@ on:
       - 'docs/EXECUTION_PLATFORM_WBS.md'
       - 'docs/SPRINT_0_IMPLEMENTATION_CHECKLIST.md'
       - 'scripts/workflow/**'
-      - 'Execution/backend/**'
-      - 'Execution/frontend/**'
+      - 'ExecutionView/backend/**'
+      - 'ExecutionView/frontend/**'
   push:
     branches:
       - main
@@ -19,8 +19,8 @@ on:
       - 'docs/EXECUTION_PLATFORM_WBS.md'
       - 'docs/SPRINT_0_IMPLEMENTATION_CHECKLIST.md'
       - 'scripts/workflow/**'
-      - 'Execution/backend/**'
-      - 'Execution/frontend/**'
+      - 'ExecutionView/backend/**'
+      - 'ExecutionView/frontend/**'
 
 permissions:
   contents: read
@@ -62,14 +62,14 @@ jobs:
           python-version: '3.11'
 
       - name: Compile backend and workflow scripts
-        run: python -m compileall Execution/backend/api scripts/workflow
+        run: python -m compileall ExecutionView/backend/api scripts/workflow
 
   frontend-check:
     needs: validate-plan
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Execution/frontend
+        working-directory: ExecutionView/frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,7 +79,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: Execution/frontend/package-lock.json
+          cache-dependency-path: ExecutionView/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci

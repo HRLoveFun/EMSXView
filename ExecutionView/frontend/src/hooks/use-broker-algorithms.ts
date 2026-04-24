@@ -14,6 +14,7 @@ import { apiService } from '@/services/api';
 // Types
 export interface BrokerAlgorithmConfig {
   broker: string;
+  assetClass: string;
   exchange: string;
   strategies: StrategyConfig[];
 }
@@ -27,6 +28,7 @@ export interface StrategyParameter {
   fieldName: string;
   stringValue: string;
   disable: string;
+  order: number;
   dataType: 'string' | 'number' | 'boolean';
   description: string;
 }
@@ -470,6 +472,7 @@ export function useBrokerAlgorithms() {
       if (storedRes.success && storedRes.data?.configs && storedRes.data.configs.length > 0) {
         const backendConfigs: BrokerAlgorithmConfig[] = storedRes.data.configs.map(c => ({
           broker: c.broker,
+          assetClass: c.assetClass || 'EQTY',
           exchange: c.exchange || getExchangeForBroker(c.broker),
           strategies: (c.strategies || []).map(s => ({
             name: s.name,
@@ -477,6 +480,7 @@ export function useBrokerAlgorithms() {
               fieldName: p.fieldName,
               stringValue: p.stringValue,
               disable: p.disable,
+              order: p.order ?? 0,
               dataType: inferDataType(p.fieldName, p.stringValue),
               description: getFieldDescription(p.fieldName),
             })),
@@ -500,6 +504,7 @@ export function useBrokerAlgorithms() {
     if (refreshRes.success && refreshRes.data?.configs) {
       return refreshRes.data.configs.map(c => ({
         broker: c.broker,
+        assetClass: c.assetClass || 'EQTY',
         exchange: c.exchange || getExchangeForBroker(c.broker),
         strategies: (c.strategies || []).map(s => ({
           name: s.name,
@@ -507,6 +512,7 @@ export function useBrokerAlgorithms() {
             fieldName: p.fieldName,
             stringValue: p.stringValue,
             disable: p.disable || '0',
+            order: p.order ?? 0,
             dataType: inferDataType(p.fieldName, p.stringValue),
             description: getFieldDescription(p.fieldName),
           })),
@@ -615,6 +621,7 @@ export function useBrokerAlgorithms() {
               if (res.success && res.data?.brokers && res.data.brokers.length > 0) {
                 const minimalConfigs: BrokerAlgorithmConfig[] = res.data.brokers.map(broker => ({
                   broker,
+                  assetClass: 'EQTY',
                   exchange: getExchangeForBroker(broker),
                   strategies: [],
                 }));

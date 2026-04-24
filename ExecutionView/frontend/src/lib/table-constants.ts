@@ -68,7 +68,7 @@ export const ORDER_TYPE_OPTIONS: { value: OType; label: string }[] = [
 ];
 
 export const ROUTE_STATUS_OPTIONS = [
-  'SENT', 'WORKING', 'PARTFILL', 'FILLED', 'CANCEL',
+  'SENT', 'WORKING', 'PARTFILLED', 'FILLED', 'CANCEL',
   'CXLREQ', 'CXLREJ', 'CXLREP', 'CXLRPRQ', 'CXLRPRJ',
   'REJECTED', 'DONE', 'QUEUED', 'HOLD', 'BUST',
   'CORRECTED', 'REPPEN', 'ROUTE-ERR', 'OMS-PEND',

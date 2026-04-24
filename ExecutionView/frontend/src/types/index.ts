@@ -270,6 +270,40 @@ export interface ApiResponse<T> {
 
 // Connection status
 export type ConnectionStatus = 'connected' | 'disconnected' | 'pending';
+export type BloombergConnectionState = 'connected' | 'disconnected' | 'connecting' | 'error';
+export type StartupPhase = 'backend_starting' | 'bloomberg_connecting' | 'subscriptions_warming' | 'ready' | 'error';
+
+export interface BackendStartupSnapshot {
+  httpReady: boolean;
+  startedAt?: string | null;
+  uptime?: number | null;
+}
+
+export interface BloombergStartupSnapshot {
+  status: BloombergConnectionState;
+  message?: string;
+  lastConnected?: string | null;
+  uptime?: number | null;
+}
+
+export interface SubscriptionStartupSnapshot {
+  ordersInitPaintDone: boolean;
+  routesInitPaintDone: boolean;
+  subscriptionFailed: boolean;
+  marketDataConnected: boolean;
+  orderCount: number;
+  routeCount: number;
+  ready: boolean;
+}
+
+export interface StartupStatusSnapshot {
+  phase: StartupPhase;
+  ready: boolean;
+  message?: string;
+  backend: BackendStartupSnapshot;
+  bloomberg: BloombergStartupSnapshot;
+  subscriptions: SubscriptionStartupSnapshot;
+}
 
 // Parent-child execution types
 export type ScheduleType = 'TWAP' | 'VWAP' | 'POV' | 'IS' | 'MANUAL';

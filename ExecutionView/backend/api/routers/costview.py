@@ -27,8 +27,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 # ── CostView sys.path setup ──────────────────────────────────────────────────
-# __file__ = .../EMSX/Execution/backend/api/routers/costview.py
-# parents:  [0]=routers  [1]=api  [2]=backend  [3]=Execution  [4]=EMSX root
+# __file__ = .../EMSX/ExecutionView/backend/api/routers/costview.py
+# parents:  [0]=routers  [1]=api  [2]=backend  [3]=ExecutionView  [4]=EMSX root
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .../EMSX
 _COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
 
@@ -36,6 +36,12 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from platform_data import TcaFilters, TcaReport, build_platform_data_access
+from platform_data.adapters import (
+    ScorecardCohortMetrics,
+    ScorecardFilters,
+    ScorecardReport,
+)
+from CostView.src.tca_query_service import SCORECARD_COHORTS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
@@ -92,6 +98,33 @@ class TcaAnalyzeRequest(BaseModel):
 
 
 class TcaAnalyzeResponse(BaseModel):
+    success: bool
+    data: Optional[dict] = None
+    message: str = ""
+
+
+class ScorecardRequest(BaseModel):
+    """Broker/strategy cohort scorecard request."""
+    cohort: str = Field(
+        default="broker_strategy",
+        description=f"Cohort dimension; one of {list(SCORECARD_COHORTS)}",
+    )
+    filters: TcaFilterPayload = Field(default_factory=TcaFilterPayload)
+    min_sample_size: int = Field(default=10, ge=1, le=1000)
+    max_orders: int = Field(default=2000, ge=1, le=10000)
+
+    @field_validator("cohort")
+    @classmethod
+    def validate_cohort(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in SCORECARD_COHORTS:
+            raise ValueError(
+                f"cohort must be one of {list(SCORECARD_COHORTS)}"
+            )
+        return v
+
+
+class ScorecardResponse(BaseModel):
     success: bool
     data: Optional[dict] = None
     message: str = ""
@@ -166,6 +199,54 @@ async def analyze_tca(request: TcaAnalyzeRequest):
         success=True,
         data=report_dict,
         message=f"TCA report: {report.total_orders} orders matched",
+    )
+
+
+@router.post("/api/tca/scorecard", response_model=ScorecardResponse)
+async def analyze_scorecard(request: ScorecardRequest):
+    """Build a broker/strategy cohort scorecard.
+
+    Aggregates per-order TCA metrics across the requested cohort dimension
+    (broker, strategy, broker_strategy, asset_class, time_of_day,
+    liquidity_adv20, or volatility). Cohorts with fewer than
+    ``min_sample_size`` orders carry a sample_size_warning so the frontend
+    can de-emphasize them rather than display unstable rankings.
+    """
+    f = request.filters
+    filters = ScorecardFilters(
+        cohort=request.cohort,
+        order_ids=f.order_ids,
+        algo=f.algo,
+        start_date=f.start_date,
+        end_date=f.end_date,
+        broker=f.broker,
+        symbol=f.symbol,
+        min_sample_size=request.min_sample_size,
+        max_orders=request.max_orders,
+    )
+    try:
+        report = platform_data.analytics.build_scorecard(filters)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"CostView database not found: {exc}. Run the data pipeline first.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error(f"Scorecard analysis failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Scorecard error: {exc}")
+
+    if report.data_source_warning and not report.cohorts:
+        raise HTTPException(status_code=503, detail=report.data_source_warning)
+
+    return ScorecardResponse(
+        success=True,
+        data=_serialize_scorecard(report),
+        message=(
+            f"Scorecard across {len(report.cohorts)} {request.cohort} cohort(s) "
+            f"({report.total_orders_considered} orders)"
+        ),
     )
 
 
@@ -249,6 +330,114 @@ async def get_update_status(job_id: str):
         stage=StageInfo(**job["stage"]) if job.get("stage") else None,
         overall_progress=job.get("overall_progress", 0),
         last_activity_at=job.get("last_activity_at"),
+    )
+
+
+# ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
+
+
+class PinRecommendationRequest(BaseModel):
+    cohort: str = Field(min_length=1, max_length=50)
+    asset_class: Optional[str] = None
+    broker: Optional[str] = None
+    strategy: Optional[str] = None
+    urgency: Optional[str] = None
+    sample_size: int = Field(ge=0, le=1_000_000)
+    arrival_bps: Optional[float] = None
+    implementation_bps: Optional[float] = None
+    severity: str = Field(default="normal")
+    rationale: str = Field(default="", max_length=500)
+    source_report_trace_id: Optional[str] = None
+
+
+class PinRecommendationResponse(BaseModel):
+    success: bool
+    data: Optional[dict] = None
+    message: str = ""
+
+
+@router.post(
+    "/api/tca/recommendations/pin",
+    response_model=PinRecommendationResponse,
+)
+async def pin_broker_strategy_recommendation(request: PinRecommendationRequest):
+    """Pin a CostView cohort conclusion as a recommendation for ExecutionView.
+
+    ExecutionView reads pinned recommendations via
+    GET /api/broker-recommendations. Keeping the publish endpoint here keeps
+    write-ownership with the analytics domain.
+    """
+    from platform_data import get_shared_handoff_exchange
+
+    rec = get_shared_handoff_exchange().publish_cost_to_execution(
+        cohort=request.cohort,
+        asset_class=request.asset_class,
+        broker=request.broker,
+        strategy=request.strategy,
+        urgency=request.urgency,
+        sample_size=request.sample_size,
+        arrival_bps=request.arrival_bps,
+        implementation_bps=request.implementation_bps,
+        severity=request.severity,
+        rationale=request.rationale,
+        source_report_trace_id=request.source_report_trace_id,
+    )
+    return PinRecommendationResponse(
+        success=True,
+        data={
+            "metadata": {
+                "contract_version": rec.metadata.contract_version,
+                "source": rec.metadata.source,
+                "handoff_target": rec.metadata.handoff_target,
+                "generated_at": rec.metadata.generated_at,
+                "trace_id": rec.metadata.trace_id,
+            },
+            "cohort": rec.cohort,
+            "broker": rec.broker,
+            "strategy": rec.strategy,
+            "severity": rec.severity,
+        },
+        message=f"Pinned recommendation (trace_id={rec.metadata.trace_id})",
+    )
+
+
+@router.get(
+    "/api/tca/handoff/post-trade/{order_id}",
+    response_model=PinRecommendationResponse,
+)
+async def get_post_trade_handoff(order_id: str):
+    """Peek the ExecutionView → CostView post-trade handoff for a given order."""
+    from platform_data import get_shared_handoff_exchange
+
+    handoff = get_shared_handoff_exchange().get_execution_to_cost(order_id)
+    if handoff is None:
+        return PinRecommendationResponse(
+            success=True,
+            data=None,
+            message=f"No post-trade handoff recorded for order {order_id}",
+        )
+    return PinRecommendationResponse(
+        success=True,
+        data={
+            "metadata": {
+                "contract_version": handoff.metadata.contract_version,
+                "source": handoff.metadata.source,
+                "handoff_target": handoff.metadata.handoff_target,
+                "generated_at": handoff.metadata.generated_at,
+                "trace_id": handoff.metadata.trace_id,
+                "origin_trace_id": handoff.metadata.origin_trace_id,
+            },
+            "order_id": handoff.order_id,
+            "parent_execution_id": handoff.parent_execution_id,
+            "broker": handoff.broker,
+            "strategy": handoff.strategy,
+            "asset_class": handoff.asset_class,
+            "urgency": handoff.urgency,
+            "route_ids": list(handoff.route_ids),
+            "strategy_params": dict(handoff.strategy_params),
+            "candidate_trace_id": handoff.candidate_trace_id,
+        },
+        message=f"Post-trade handoff trace_id={handoff.metadata.trace_id}",
     )
 
 
@@ -437,5 +626,40 @@ def _serialize_report(report: TcaReport) -> dict:
                 ],
             }
             for o in report.orders
+        ],
+    }
+
+
+def _serialize_scorecard(report: ScorecardReport) -> dict:
+    """Convert ScorecardReport dataclass tree to a JSON-safe dict."""
+    return {
+        "filters": report.filters,
+        "cohort": report.cohort,
+        "min_sample_size": report.min_sample_size,
+        "total_orders_considered": report.total_orders_considered,
+        "total_orders_capped": report.total_orders_capped,
+        "generated_at": report.generated_at,
+        "data_source_warning": report.data_source_warning,
+        "cohorts": [
+            {
+                "cohort_key": c.cohort_key,
+                "cohort_label": c.cohort_label,
+                "sample_size": c.sample_size,
+                "order_count": c.order_count,
+                "avg_tracking_error_bps": c.avg_tracking_error_bps,
+                "median_tracking_error_bps": c.median_tracking_error_bps,
+                "p95_tracking_error_bps": c.p95_tracking_error_bps,
+                "stddev_tracking_error_bps": c.stddev_tracking_error_bps,
+                "avg_fill_pct": c.avg_fill_pct,
+                "avg_volume_pct_interval": c.avg_volume_pct_interval,
+                "avg_volume_pct_adv20": c.avg_volume_pct_adv20,
+                "avg_daily_volatility": c.avg_daily_volatility,
+                "avg_intraday_volatility": c.avg_intraday_volatility,
+                "avg_price_movement_pct": c.avg_price_movement_pct,
+                "data_quality_ratio": c.data_quality_ratio,
+                "sample_size_warning": c.sample_size_warning,
+                "anomaly_flags": list(c.anomaly_flags),
+            }
+            for c in report.cohorts
         ],
     }
