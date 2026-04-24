@@ -2,12 +2,26 @@ import type { ReactNode } from 'react';
 import type { AppModule } from '../hooks/use-app-shell-state';
 import { useHandoffContracts } from '../hooks/use-handoff-contracts';
 
+// Hover-prefetch helpers — trigger the dynamic import early so that clicking
+// the tab does not block on the first network round-trip. Each import() is
+// idempotent: Vite / the browser will cache the chunk after the first call.
+const prefetchMarketView = () => {
+  void import('../modules/marketview/MarketViewModule');
+};
+const prefetchCostView = () => {
+  void import('../modules/costview/CostViewModule');
+};
+const prefetchDatabaseView = () => {
+  void import('../modules/databaseview/DatabaseViewModule');
+};
+
 interface WorkspaceModuleTabsProps {
   activeModule: AppModule;
   onModuleChange: (module: AppModule) => void;
   marketView: ReactNode;
   executionView: ReactNode;
   costView: ReactNode;
+  databaseView: ReactNode;
 }
 
 export function WorkspaceModuleTabs({
@@ -16,6 +30,7 @@ export function WorkspaceModuleTabs({
   marketView,
   executionView,
   costView,
+  databaseView,
 }: WorkspaceModuleTabsProps) {
   const { activeCandidateHandoff, recommendations } = useHandoffContracts();
   const candidateCount = activeCandidateHandoff?.candidate_payload.row_count ?? 0;
@@ -30,6 +45,8 @@ export function WorkspaceModuleTabs({
               : 'text-muted-foreground hover:bg-muted hover:text-foreground'
           }`}
           onClick={() => onModuleChange('marketview')}
+          onMouseEnter={prefetchMarketView}
+          onFocus={prefetchMarketView}
         >
           MarketView
         </button>
@@ -46,7 +63,7 @@ export function WorkspaceModuleTabs({
               : undefined
           }
         >
-          ExecutionView Workspace
+          ExecutionView
           {candidateCount > 0 && (
             <span className="ml-2 inline-flex items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-black">
               MV→EV {candidateCount}
@@ -65,8 +82,22 @@ export function WorkspaceModuleTabs({
               : 'text-muted-foreground hover:bg-muted hover:text-foreground'
           }`}
           onClick={() => onModuleChange('costview')}
+          onMouseEnter={prefetchCostView}
+          onFocus={prefetchCostView}
         >
           CostView
+        </button>
+        <button
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            activeModule === 'database'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+          onClick={() => onModuleChange('database')}
+          onMouseEnter={prefetchDatabaseView}
+          onFocus={prefetchDatabaseView}
+        >
+          Database
         </button>
       </div>
 
@@ -74,7 +105,9 @@ export function WorkspaceModuleTabs({
         ? marketView
         : activeModule === 'execution'
           ? executionView
-          : costView}
+          : activeModule === 'costview'
+            ? costView
+            : databaseView}
     </div>
   );
 }

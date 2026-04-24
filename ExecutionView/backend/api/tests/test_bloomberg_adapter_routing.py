@@ -272,6 +272,49 @@ async def test_modify_route_auto_resets_limit_when_switching_away_from_limit_typ
     assert request.fields["EMSX_LIMIT_PRICE"] == -99999
 
 
+async def test_modify_route_treats_empty_strategy_fields_as_skipped():
+    """Bloomberg rejects FIELD_INDICATOR=0 combined with empty EMSX_FIELD_DATA
+    with "Invalid Strategy Parameter". Empty enabled fields must be submitted
+    as indicator=1 (skip) so that changing a single parameter (e.g. Max%Vol)
+    does not fail because unrelated fields have no default value.
+    """
+    service = BloombergEMSXService()
+    fake_service = FakeRequestService()
+    service.connected = True
+    service._request_service = fake_service
+    service._routes = {"1001.7": make_route(order_type="LMT", limit_price=10.0, stop_price=None)}
+    service.connect = _connect_ok  # type: ignore[method-assign]
+
+    async def fake_send_request(request):
+        return [FakeMessage()]
+
+    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+
+    await service.modify_route(
+        ModifyRouteRequest(
+            sequence=1001,
+            routeId=7,
+            strategyParams={
+                "strategyName": "VWAP",
+                "fields": [
+                    {"value": "09:30:00", "disabled": False},  # StartTime
+                    {"value": "", "disabled": False},            # EndTime (empty, should be skipped)
+                    {"value": "8", "disabled": False},           # Max%Vol
+                    {"value": None, "disabled": False},          # None treated as empty → skip
+                    {"value": "foo", "disabled": True},          # Explicitly disabled
+                ],
+            },
+        )
+    )
+
+    request = fake_service.requests[0]
+    data_values = [value for _, value in request.strategy.fields.values]
+    indicator_values = [value for _, value in request.strategy.field_indicators.values]
+    assert request.strategy.strategy_name == "VWAP"
+    assert data_values == ["09:30:00", "", "8", "", ""]
+    assert indicator_values == [0, 1, 0, 1, 1]
+
+
 async def test_get_asset_class_uses_request_response_value():
     service = BloombergEMSXService()
     fake_service = FakeRequestService()

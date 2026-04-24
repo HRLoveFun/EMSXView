@@ -645,7 +645,33 @@ export function useBrokerAlgorithms() {
       }
     };
 
-    initialize();
+    // Idle-schedule initial hydration so that the first paint of the
+    // execution view is not blocked by broker/algorithm fetching.
+    // Fallback to setTimeout(0) on browsers without requestIdleCallback.
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    });
+    let idleHandle: number | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    if (ric.requestIdleCallback) {
+      idleHandle = ric.requestIdleCallback(
+        () => {
+          initialize();
+        },
+        { timeout: 1500 },
+      );
+    } else {
+      timeoutHandle = setTimeout(initialize, 0);
+    }
+    return () => {
+      if (idleHandle !== null && ric.cancelIdleCallback) {
+        ric.cancelIdleCallback(idleHandle);
+      }
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    };
   }, [refreshData, fetchFromBackendStorage]);
 
   /**

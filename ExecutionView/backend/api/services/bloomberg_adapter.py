@@ -2046,9 +2046,15 @@ class BloombergEMSXService:
         data = strategy.getElement("EMSX_STRATEGY_FIELDS")
 
         for field_entry in fields_data:
-            value = field_entry.get("value", "")
-            disabled = field_entry.get("disabled", False)
-            data.appendElement().setElement("EMSX_FIELD_DATA", str(value) if not disabled else "")
+            raw_value = field_entry.get("value", "")
+            value = "" if raw_value is None else str(raw_value).strip()
+            disabled = bool(field_entry.get("disabled", False))
+            # Bloomberg EMSX rejects fields with EMSX_FIELD_INDICATOR=0 (value set)
+            # but empty EMSX_FIELD_DATA with "Invalid Strategy Parameter". Empty
+            # enabled fields must be submitted as indicator=1 (skip).
+            if not disabled and value == "":
+                disabled = True
+            data.appendElement().setElement("EMSX_FIELD_DATA", "" if disabled else value)
             indicator.appendElement().setElement("EMSX_FIELD_INDICATOR", 1 if disabled else 0)
 
     # ------------------------------------------------------------------

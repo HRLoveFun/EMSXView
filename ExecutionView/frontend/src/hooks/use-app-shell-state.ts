@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadConditions, saveConditions, matchesAnyCondition, type MonitorConditions } from '../lib/monitor-conditions';
 import type { Order, OrderFilters, Route, StartupStatusSnapshot } from '../types';
 
-export type AppModule = 'marketview' | 'execution' | 'costview';
-export type ExecutionWorkspaceTab = 'monitor' | 'execution' | 'settings';
+export type AppModule = 'marketview' | 'execution' | 'costview' | 'database';
+export type ExecutionViewTab = 'monitor' | 'trade' | 'settings';
 
 interface UseAppShellStateParams {
   effectiveOrders: Order[];
@@ -21,7 +21,7 @@ export function useAppShellState({
   streamConnected,
 }: UseAppShellStateParams) {
   const [activeModule, setActiveModule] = useState<AppModule>('execution');
-  const [activeTab, setActiveTab] = useState<ExecutionWorkspaceTab>('monitor');
+  const [activeTab, setActiveTab] = useState<ExecutionViewTab>('monitor');
   const [currentFilters, setCurrentFilters] = useState<OrderFilters>({});
   const [monitorConditions, setMonitorConditions] = useState<MonitorConditions>(loadConditions);
 
@@ -85,14 +85,14 @@ export function useAppShellState({
       return 0;
     }
 
-    if (activeModule === 'costview') {
+    if (activeModule === 'costview' || activeModule === 'database') {
       return effectiveOrders.length;
     }
 
     switch (activeTab) {
       case 'monitor':
         return monitorCount;
-      case 'execution':
+      case 'trade':
         return filteredOrders.length;
       case 'settings':
         return effectiveOrders.length;
@@ -101,8 +101,26 @@ export function useAppShellState({
     }
   }, [activeModule, activeTab, effectiveOrders.length, filteredOrders.length, monitorCount]);
 
+  // Only block the entire shell when the backend HTTP itself is not yet
+  // reachable (or reports an error). Once HTTP is up, we let the user into
+  // the tabs immediately — Execution surfaces render skeletons while
+  // EMSX subscriptions finish INIT_PAINT, and CostView / MarketView /
+  // DatabaseView (all independent of the order stream) become usable right
+  // away. This is a major cold-start perceived-latency win.
+  const httpReady = startupStatus?.backend.httpReady ?? false;
+  const startupFailed = startupStatus?.phase === 'error';
   const shouldShowStartupGate =
-    !isBackendReady && !streamConnected && effectiveOrders.length === 0 && effectiveRoutes.length === 0;
+    (!httpReady || startupFailed)
+    && !streamConnected
+    && effectiveOrders.length === 0
+    && effectiveRoutes.length === 0;
+
+  const subscriptionsWarming =
+    httpReady
+    && !isBackendReady
+    && !streamConnected
+    && effectiveOrders.length === 0
+    && effectiveRoutes.length === 0;
 
   const footerConnectionText = useMemo(() => {
     if (startupStatus?.phase === 'ready') {
@@ -135,6 +153,7 @@ export function useAppShellState({
     filteredOrders,
     toolbarOrderCount,
     shouldShowStartupGate,
+    subscriptionsWarming,
     footerConnectionText,
     handleFilterChange,
   };

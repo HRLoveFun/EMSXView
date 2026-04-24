@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, Fragment } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, Fragment } from 'react';
 import {
   ArrowUpDown,
   ArrowUp,
@@ -15,6 +15,7 @@ import {
   Search,
   X,
   RotateCcw,
+  Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -28,11 +29,10 @@ import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue }
 import { RouteActionMenu } from '@/components/route-action-menu';
 import {
   CancelRouteDialog,
-  ModifyAmountDialog,
-  ModifyOrderTypeDialog,
-  ModifyLimitPriceDialog,
-  BrokerStrategyDialog,
 } from '@/components/route-modify-dialogs';
+import { UnifiedModifyRouteDialog } from '@/components/unified-modify-route-dialog';
+import { RateDiagnosticDialog } from '@/components/rate-diagnostic-dialog';
+import { BatchCancelDialog, BatchModifyDialog } from '@/components/batch-operation-dialogs';
 import type { Route, CancelRouteRequest, ModifyRouteRequest } from '@/types';
 
 type SortField = keyof Route | null;
@@ -58,7 +58,7 @@ interface GroupConfig {
   secondary: RouteGroupByValue;
 }
 
-const TOTAL_COLS = 25; // 22 data columns + Slice + Slice Status + Schedule columns
+const TOTAL_COLS = 26; // 1 selection + 22 data columns + Slice + Slice Status + Schedule columns
 
 export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, onModifyRoute, onRefresh }: RouteTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'sequence', direction: 'desc' });
@@ -73,13 +73,105 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
   const [traderFilterMode, setTraderFilterMode] = useState<'include' | 'exclude'>('include');
   const [tickerFilter, setTickerFilter] = useState('');
 
+  // Optimistic "replacing" set — marked immediately after a modify is submitted so the
+  // UI does not appear silently disabled during the brief window before Bloomberg pushes
+  // the CXLRPRQ/CXLREP transition. Entries are cleared automatically once the route
+  // reaches a stable status, or after a 6s safety timeout.
+  const [replacingRouteIds, setReplacingRouteIds] = useState<Set<string>>(new Set());
+  // Pending poll timers keyed by route id so we can cancel remaining polls once a
+  // stable status has been observed. Avoids redundant REST calls after the route
+  // is already settled.
+  const pollTimersRef = useRef<Map<string, number[]>>(new Map());
+
+  const cancelPollsFor = useCallback((routeId: string) => {
+    const timers = pollTimersRef.current.get(routeId);
+    if (timers) {
+      timers.forEach(id => window.clearTimeout(id));
+      pollTimersRef.current.delete(routeId);
+    }
+  }, []);
+
+  const markReplacing = useCallback((routeId: string) => {
+    setReplacingRouteIds(prev => {
+      const next = new Set(prev);
+      next.add(routeId);
+      return next;
+    });
+    // Cancel any in-flight polls from a prior modify for the same route.
+    cancelPollsFor(routeId);
+    // Active polling — Bloomberg completes CxlRprQ -> CxlRep -> WORKING in ~200ms.
+    // Schedule staged REST refreshes so the post-replace status appears within one
+    // second. Each timer is tracked so we can stop the remaining polls the moment
+    // the route reaches a stable status.
+    const timers: number[] = [];
+    [300, 900, 2000, 4000].forEach((delay) => {
+      const id = window.setTimeout(() => {
+        if (onRefresh) void onRefresh();
+      }, delay);
+      timers.push(id);
+    });
+    // Safety: drop the optimistic flag after 6s even if nothing cleared it.
+    const safetyId = window.setTimeout(() => {
+      setReplacingRouteIds(prev => {
+        if (!prev.has(routeId)) return prev;
+        const next = new Set(prev);
+        next.delete(routeId);
+        return next;
+      });
+      pollTimersRef.current.delete(routeId);
+    }, 6000);
+    timers.push(safetyId);
+    pollTimersRef.current.set(routeId, timers);
+  }, [onRefresh, cancelPollsFor]);
+
+  // Auto-clear the optimistic flag once a route reaches a stable (non-transient)
+  // status, AND cancel any remaining polls for that route.
+  useEffect(() => {
+    if (replacingRouteIds.size === 0) return;
+    const stable = new Set(['WORKING', 'PARTFILL', 'PARTFILLED', 'FILLED', 'DONE', 'CANCEL', 'REJECTED', 'CXLREJ', 'CXLRPRJ']);
+    const toClear: string[] = [];
+    for (const r of routes) {
+      if (replacingRouteIds.has(r.id) && stable.has(r.status)) toClear.push(r.id);
+    }
+    if (toClear.length === 0) return;
+    toClear.forEach(id => cancelPollsFor(id));
+    setReplacingRouteIds(prev => {
+      const next = new Set(prev);
+      toClear.forEach(id => next.delete(id));
+      return next;
+    });
+  }, [routes, replacingRouteIds, cancelPollsFor]);
+
+  // Cleanup timers on unmount to avoid leaks
+  useEffect(() => {
+    const pending = pollTimersRef.current;
+    return () => {
+      pending.forEach(timers => timers.forEach(id => window.clearTimeout(id)));
+      pending.clear();
+    };
+  }, []);
+
   // Dialog states
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [modifyAmountDialogOpen, setModifyAmountDialogOpen] = useState(false);
-  const [modifyTypeDialogOpen, setModifyTypeDialogOpen] = useState(false);
-  const [modifyLimitPriceDialogOpen, setModifyLimitPriceDialogOpen] = useState(false);
-  const [brokerStrategyDialogOpen, setBrokerStrategyDialogOpen] = useState(false);
+  const [modifyDialogOpen, setModifyDialogOpen] = useState(false);
+  const [rateDiagnosticOpen, setRateDiagnosticOpen] = useState(false);
+
+  // ---------- Batch selection ----------
+  // A set of route.id for routes the user has checked for batch operations.
+  const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set());
+  const [batchCancelOpen, setBatchCancelOpen] = useState(false);
+  const [batchModifyOpen, setBatchModifyOpen] = useState(false);
+
+  const toggleRouteSelection = useCallback((routeId: string) => {
+    setSelectedRouteIds(prev => {
+      const next = new Set(prev);
+      if (next.has(routeId)) next.delete(routeId); else next.add(routeId);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedRouteIds(new Set()), []);
 
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups(prev => {
@@ -219,8 +311,8 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
       case 'CANCEL':     return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Cancel</Badge>;
       case 'CXLREQ':     return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />CxlReq</Badge>;
       case 'CXLREJ':     return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />CxlRej</Badge>;
-      case 'CXLREP':     return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />CxlRep</Badge>;
-      case 'CXLRPRQ':    return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />CxlRprQ</Badge>;
+      case 'CXLREP':     return <Badge variant="outline" className="status-badge status-working gap-1"><Loader2 className="h-3 w-3 animate-spin" />Replacing</Badge>;
+      case 'CXLRPRQ':    return <Badge variant="outline" className="status-badge status-working gap-1"><Loader2 className="h-3 w-3 animate-spin" />Replacing</Badge>;
       case 'CXLRPRJ':    return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />CxlRprJ</Badge>;
       case 'REJECTED':   return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Rejected</Badge>;
       case 'DONE':       return <Badge variant="outline" className="status-badge status-filled gap-1"><CheckCircle2 className="h-3 w-3" />Done</Badge>;
@@ -374,91 +466,35 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
   const handleCancel = async (route: Route) => {
     if (!onCancelRoute) return;
     await onCancelRoute({ sequence: route.sequence, routeId: route.routeId });
-    if (onRefresh) await onRefresh();
-  };
-
-  const handleModifyAmount = async (route: Route, newAmount: number) => {
-    if (!onModifyRoute) return;
-    await onModifyRoute({
-      sequence: route.sequence,
-      routeId: route.routeId,
-      amount: newAmount,
-    });
-    if (onRefresh) await onRefresh();
-  };
-
-  const handleModifyType = async (
-    route: Route,
-    orderType: string,
-    limitPrice: number | null,
-    stopPrice: number | null,
-    tif: string
-  ) => {
-    if (!onModifyRoute) return;
-    await onModifyRoute({
-      sequence: route.sequence,
-      routeId: route.routeId,
-      orderType,
-      limitPrice,
-      stopPrice,
-      tif,
-    });
-    if (onRefresh) await onRefresh();
-  };
-
-  const handleModifyLimitPrice = async (route: Route, limitPrice: number | null) => {
-    if (!onModifyRoute) return;
-    await onModifyRoute({
-      sequence: route.sequence,
-      routeId: route.routeId,
-      limitPrice,
-    });
-    if (onRefresh) await onRefresh();
-  };
-
-  const handleModifyStrategy = async (
-    route: Route,
-    strategyName: string,
-    fields: { value: string; disabled: boolean }[]
-  ) => {
-    if (!onModifyRoute) return;
-    await onModifyRoute({
-      sequence: route.sequence,
-      routeId: route.routeId,
-      strategyParams: { strategyName, fields },
-    });
-    if (onRefresh) await onRefresh();
-  };
-
-  const handleChangeBrokerStrategy = async (
-    route: Route,
-    broker: string,
-    strategyName: string,
-    fields: { value: string; disabled: boolean }[]
-  ) => {
-    if (!onModifyRoute) return;
-    await onModifyRoute({
-      sequence: route.sequence,
-      routeId: route.routeId,
-      broker,
-      strategyParams: { strategyName, fields },
-    });
+    // Cancel also produces a CXLPEND transition (<~500ms). Use the same optimistic
+    // spinner + staged refresh so the final CANCEL status appears without manual refresh.
+    markReplacing(route.id);
     if (onRefresh) await onRefresh();
   };
 
   const renderRow = (route: Route) => {
+    const effectiveRoute = replacingRouteIds.has(route.id) && !['CXLRPRQ', 'CXLREP'].includes(route.status)
+      ? { ...route, status: 'CXLRPRQ' as const }
+      : route;
     return (
-      <tr key={route.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors text-xs h-8">
+      <tr key={route.id} className={`border-b border-border/50 hover:bg-muted/50 transition-colors text-xs h-8 ${selectedRouteIds.has(route.id) ? 'bg-primary/5' : ''}`}>
+        {/* Selection checkbox */}
+        <td className="px-2 text-center">
+          <input
+            type="checkbox"
+            aria-label={`Select route ${route.sequence}.${route.routeId}`}
+            checked={selectedRouteIds.has(route.id)}
+            onChange={() => toggleRouteSelection(route.id)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </td>
         {/* Actions */}
         <td className="px-2">
           <RouteActionMenu
-            route={route}
+            route={effectiveRoute}
             currentTrader={currentTrader}
             onCancel={(r) => { setSelectedRoute(r); setCancelDialogOpen(true); }}
-            onModifyAmount={(r) => { setSelectedRoute(r); setModifyAmountDialogOpen(true); }}
-            onModifyType={(r) => { setSelectedRoute(r); setModifyTypeDialogOpen(true); }}
-            onModifyLimitPrice={(r) => { setSelectedRoute(r); setModifyLimitPriceDialogOpen(true); }}
-            onBrokerStrategy={(r) => { setSelectedRoute(r); setBrokerStrategyDialogOpen(true); }}
+            onModify={(r) => { setSelectedRoute(r); setModifyDialogOpen(true); }}
           />
         </td>
         {/* Order# */}
@@ -472,7 +508,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
         {/* Side */}
         <td className={`px-2 font-semibold ${getSideClass(route.side)}`}>{route.side}</td>
         {/* Status */}
-        <td className="px-2">{getStatusBadge(route.status)}</td>
+        <td className="px-2">{getStatusBadge(effectiveRoute.status)}</td>
         {/* Type */}
         <td className="px-2 text-muted-foreground">{route.orderType}</td>
         {/* Qty */}
@@ -577,12 +613,71 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
               <RotateCcw className="h-3 w-3" />Reset filters
             </button>
           )}
+          <button
+            onClick={() => setRateDiagnosticOpen(true)}
+            className={`${hasActiveFilters ? '' : 'ml-auto'} flex items-center gap-1 text-xs px-2 py-0.5 border border-border rounded hover:bg-secondary transition-colors`}
+            title="Diagnose routes with missing strategy Rate field"
+          >
+            Diagnose Rate
+          </button>
         </div>
+
+        {/* Batch action bar — visible only when at least one route is selected */}
+        {selectedRouteIds.size > 0 && (
+          <div className="flex items-center gap-3 px-3 py-1.5 bg-primary/5 border-t border-b border-primary/20 text-xs">
+            <span className="font-semibold text-primary">
+              {selectedRouteIds.size} route{selectedRouteIds.size === 1 ? '' : 's'} selected
+            </span>
+            {hasModifyCapability && (
+              <>
+                <button
+                  onClick={() => setBatchModifyOpen(true)}
+                  className="px-2 py-0.5 rounded border border-primary/40 bg-primary/10 hover:bg-primary/20 transition-colors"
+                  title="Apply the same modification to all selected routes"
+                >
+                  Batch Modify…
+                </button>
+                <button
+                  onClick={() => setBatchCancelOpen(true)}
+                  className="px-2 py-0.5 rounded border border-destructive/40 bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
+                  title="Cancel all selected routes"
+                >
+                  Batch Cancel…
+                </button>
+              </>
+            )}
+            <button onClick={clearSelection} className="ml-auto text-muted-foreground hover:text-foreground">
+              Clear selection
+            </button>
+          </div>
+        )}
 
         <ScrollArea className="h-[calc(100vh-370px)]">
           <table className="trading-table min-w-max">
             <thead className="sticky top-0 z-10">
               <tr>
+                {/* Select-all checkbox */}
+                <th className="w-8 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible routes"
+                    checked={filteredRoutes.length > 0 && filteredRoutes.every(r => selectedRouteIds.has(r.id))}
+                    ref={(el) => {
+                      if (el) {
+                        const someSelected = filteredRoutes.some(r => selectedRouteIds.has(r.id));
+                        const allSelected = filteredRoutes.length > 0 && filteredRoutes.every(r => selectedRouteIds.has(r.id));
+                        el.indeterminate = someSelected && !allSelected;
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRouteIds(new Set(filteredRoutes.map(r => r.id)));
+                      } else {
+                        clearSelection();
+                      }
+                    }}
+                  />
+                </th>
                 {/* Actions */}
                 <th className="w-10 text-center">Actions</th>
                 {/* Order# */}
@@ -795,31 +890,40 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
             onOpenChange={setCancelDialogOpen}
             onConfirm={handleCancel}
           />
-          <ModifyAmountDialog
+          <UnifiedModifyRouteDialog
             route={selectedRoute}
-            open={modifyAmountDialogOpen}
-            onOpenChange={setModifyAmountDialogOpen}
-            onConfirm={handleModifyAmount}
-          />
-          <ModifyOrderTypeDialog
-            route={selectedRoute}
-            open={modifyTypeDialogOpen}
-            onOpenChange={setModifyTypeDialogOpen}
-            onConfirm={handleModifyType}
-          />
-          <ModifyLimitPriceDialog
-            route={selectedRoute}
-            open={modifyLimitPriceDialogOpen}
-            onOpenChange={setModifyLimitPriceDialogOpen}
-            onConfirm={handleModifyLimitPrice}
-          />
-          <BrokerStrategyDialog
-            route={selectedRoute}
-            open={brokerStrategyDialogOpen}
-            onOpenChange={setBrokerStrategyDialogOpen}
-            onConfirmStrategy={handleModifyStrategy}
-            onConfirmBroker={handleChangeBrokerStrategy}
+            open={modifyDialogOpen}
+            onOpenChange={setModifyDialogOpen}
             availableBrokers={availableBrokers}
+            onSubmit={async (req) => {
+              if (!onModifyRoute) return;
+              await onModifyRoute(req);
+              if (selectedRoute) markReplacing(selectedRoute.id);
+              if (onRefresh) await onRefresh();
+            }}
+          />
+        </>
+      )}
+      <RateDiagnosticDialog open={rateDiagnosticOpen} onOpenChange={setRateDiagnosticOpen} />
+
+      {/* Batch operation dialogs */}
+      {hasModifyCapability && (
+        <>
+          <BatchCancelDialog
+            routes={filteredRoutes.filter(r => selectedRouteIds.has(r.id))}
+            open={batchCancelOpen}
+            onOpenChange={setBatchCancelOpen}
+            onSubmit={async (req) => { if (onCancelRoute) await onCancelRoute(req); }}
+            onEachSubmitted={(r) => markReplacing(r.id)}
+            onComplete={async () => { clearSelection(); if (onRefresh) await onRefresh(); }}
+          />
+          <BatchModifyDialog
+            routes={filteredRoutes.filter(r => selectedRouteIds.has(r.id))}
+            open={batchModifyOpen}
+            onOpenChange={setBatchModifyOpen}
+            onSubmit={async (req) => { if (onModifyRoute) await onModifyRoute(req); }}
+            onEachSubmitted={(r) => markReplacing(r.id)}
+            onComplete={async () => { clearSelection(); if (onRefresh) await onRefresh(); }}
           />
         </>
       )}

@@ -17,6 +17,9 @@ import {
   FileJson,
   CheckCircle2,
   Clock,
+  SlidersHorizontal,
+  Info,
+  Building2,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -41,8 +44,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useBrokerAlgorithms } from '@/hooks/use-broker-algorithms';
 import type { StrategyParameter } from '@/types';
+import {
+  CONDITION_DEFS,
+  DEFAULT_CONDITIONS,
+  type MonitorConditions,
+  type ConditionConfig,
+  type BoolConditionConfig,
+  type ConditionId,
+} from '@/lib/monitor-conditions';
 import {
   getFileCacheStatus,
   clearFileCache,
@@ -50,6 +62,7 @@ import {
   importConfiguration,
   getAvailableBrokersFromFile,
 } from '@/services/strategy-data-service';
+import { MarketBrokerMappingSection } from '@/components/market-broker-mapping-section';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface ParameterFrequency {
@@ -92,7 +105,29 @@ const DEFAULT_FREQUENCIES: ParameterFrequency[] = [
 ];
 
 // ─── Components ──────────────────────────────────────────────────────────────
-export function SettingsBoard() {
+
+type SettingsSectionId =
+  | 'global'
+  | 'monitor-conditions'
+  | 'broker-algo'
+  | 'market-broker-mapping'
+  | 'parameter-frequency'
+  | 'data-manager'
+  | 'about';
+
+interface SettingsBoardProps {
+  monitorConditions?: MonitorConditions;
+  onMonitorConditionsChange?: (c: MonitorConditions) => void;
+  initialSection?: SettingsSectionId;
+}
+
+export function SettingsBoard({
+  monitorConditions,
+  onMonitorConditionsChange,
+  initialSection = 'global',
+}: SettingsBoardProps = {}) {
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection);
+  useEffect(() => { setActiveSection(initialSection); }, [initialSection]);
   // Global settings state
   const [monitorAlertsEnabled, setMonitorAlertsEnabled] = useState(() => {
     return localStorage.getItem('emsx_monitor_alerts_enabled') !== 'false';
@@ -370,8 +405,44 @@ export function SettingsBoard() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex gap-4 min-h-[600px]">
+      {/* ── Left Nav ────────────────────────────────────────────────────── */}
+      <nav className="w-56 shrink-0 space-y-0.5 border-r border-border pr-2">
+        <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Settings
+        </div>
+        {([
+          { id: 'global',              label: 'Global',              icon: Settings },
+          { id: 'monitor-conditions',  label: 'Monitor Conditions',  icon: SlidersHorizontal },
+          { id: 'broker-algo',         label: 'Broker & Algorithm',  icon: Database },
+          { id: 'market-broker-mapping', label: 'Market Broker Mapping', icon: Building2 },
+          { id: 'parameter-frequency', label: 'Parameter Frequency', icon: RefreshCw },
+          { id: 'data-manager',        label: 'Strategy Data',       icon: FileJson },
+          { id: 'about',               label: 'About',               icon: Info },
+        ] as const).map(item => {
+          const Icon = item.icon;
+          const isActive = activeSection === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveSection(item.id)}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-left transition-colors ${
+                isActive
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* ── Right Detail Pane ──────────────────────────────────────────── */}
+      <div className="flex-1 space-y-4 min-w-0">
       {/* Global Settings */}
+      {activeSection === 'global' && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
@@ -411,8 +482,143 @@ export function SettingsBoard() {
           </div>
         </CardContent>
       </Card>
+      )}
+
+      {/* Monitor Conditions */}
+      {activeSection === 'monitor-conditions' && (
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base">Monitor Conditions</CardTitle>
+          </div>
+          <CardDescription>
+            Configure threshold triggers that flag orders on the Monitor Board. Changes apply immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!monitorConditions || !onMonitorConditionsChange ? (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Monitor conditions wiring unavailable. (Host not passing conditions prop.)
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-2">
+                {CONDITION_DEFS.map((def) => {
+                  const cfg = monitorConditions[def.id];
+                  const isDollar = def.id === 'dollarValueLow' || def.id === 'dollarValueHigh';
+                  const isBool = def.isBool;
+                  const setField = (patch: Partial<ConditionConfig & BoolConditionConfig>) => {
+                    onMonitorConditionsChange({
+                      ...monitorConditions,
+                      [def.id]: { ...cfg, ...patch },
+                    } as MonitorConditions);
+                  };
+                  return (
+                    <div
+                      key={def.id}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-md border border-border ${
+                        cfg.enabled ? '' : 'opacity-60'
+                      }`}
+                    >
+                      <Checkbox
+                        checked={cfg.enabled}
+                        onCheckedChange={(v) => setField({ enabled: Boolean(v) })}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">{def.label} {def.unit}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Preview: {
+                            // Approximate match-count; runtime uses full routing context
+                            'runtime-evaluated on Monitor Board'
+                          }
+                        </div>
+                      </div>
+                      {isBool ? (
+                        <Select
+                          value={String((cfg as BoolConditionConfig).value)}
+                          onValueChange={(v) => setField({ value: v === 'true' })}
+                          disabled={!cfg.enabled}
+                        >
+                          <SelectTrigger className="h-8 w-24 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="true">Yes</SelectItem>
+                            <SelectItem value="false">No</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          type="number"
+                          value={(cfg as ConditionConfig).threshold}
+                          onChange={(e) => setField({ threshold: parseFloat(e.target.value) || 0 })}
+                          step={isDollar ? 1000 : 0.5}
+                          className="h-8 w-32 text-right font-mono"
+                          disabled={!cfg.enabled}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Lazy Order — runtime-evaluated condition (needs LazyContext), so rendered inline */}
+                {(() => {
+                  const lazyCfg = monitorConditions.lazy;
+                  return (
+                    <div
+                      key="lazy"
+                      className={`flex items-center gap-3 px-3 py-2 rounded-md border border-border ${
+                        lazyCfg.enabled ? '' : 'opacity-60'
+                      }`}
+                    >
+                      <Checkbox
+                        checked={lazyCfg.enabled}
+                        onCheckedChange={(v) =>
+                          onMonitorConditionsChange({
+                            ...monitorConditions,
+                            lazy: { ...lazyCfg, enabled: Boolean(v) },
+                          })
+                        }
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">Lazy Order</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Status \u2209 {'{'}WORKING, QUEUED, COMPLETED, FILLED, SUSPENDED{'}'} or idle share &gt; 0
+                        </div>
+                      </div>
+                      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-700">
+                        Lazy
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="border-t border-border pt-3 flex items-center justify-between">
+                <div className="text-xs text-muted-foreground">
+                  System rules (always on):
+                  <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 mr-1">
+                    Critical
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onMonitorConditionsChange(structuredClone(DEFAULT_CONDITIONS))}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />Reset to defaults
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+      )}
 
       {/* Broker Algorithm Configuration */}
+      {activeSection === 'broker-algo' && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -595,8 +801,15 @@ export function SettingsBoard() {
           </div>
         </CardContent>
       </Card>
+      )}
+
+      {/* Market Broker Mapping */}
+      {activeSection === 'market-broker-mapping' && (
+        <MarketBrokerMappingSection />
+      )}
 
       {/* Parameter Update Frequency */}
+      {activeSection === 'parameter-frequency' && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -664,6 +877,69 @@ export function SettingsBoard() {
           </table>
         </CardContent>
       </Card>
+      )}
+
+      {/* Data Manager (Strategy Files) */}
+      {activeSection === 'data-manager' && (
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <FileJson className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base">Strategy Data Files</CardTitle>
+          </div>
+          <CardDescription>
+            Inspect cached strategy parameter files and import/export configurations.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsStrategyManagerOpen(true)}>
+              <FileJson className="h-4 w-4 mr-2" />Open Strategy Data Manager
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-2" />Export
+            </Button>
+            <label className="inline-flex">
+              <Button variant="outline" size="sm" asChild>
+                <span>
+                  <Upload className="h-4 w-4 mr-2" />Import
+                  <input
+                    type="file"
+                    accept="application/json"
+                    className="hidden"
+                    onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                  />
+                </span>
+              </Button>
+            </label>
+            {importFile && (
+              <Button size="sm" onClick={handleImport} disabled={isStrategyLoading}>
+                Apply {importFile.name}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      {/* About */}
+      {activeSection === 'about' && (
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Info className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base">About</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex justify-between"><span className="text-muted-foreground">Version</span><span className="font-mono">EMSX Trading Tool v1.0.0</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">API Endpoint</span><span className="font-mono">{import.meta.env.VITE_API_URL || window.location.origin}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Build Mode</span><span className="font-mono">{import.meta.env.MODE}</span></div>
+        </CardContent>
+      </Card>
+      )}
+
+      </div>{/* end right-pane */}
 
       {/* Add Algorithm Dialog */}
       <Dialog open={isAddAlgoDialogOpen} onOpenChange={setIsAddAlgoDialogOpen}>

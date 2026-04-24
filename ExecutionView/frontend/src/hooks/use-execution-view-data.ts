@@ -14,7 +14,7 @@ import type {
   TraderInfo,
 } from '@/types';
 
-interface UseExecutionWorkspaceDataOptions {
+interface UseExecutionViewDataOptions {
   isAuthenticated: boolean;
   isBackendReady: boolean;
   streamConnected: boolean;
@@ -24,13 +24,13 @@ interface UseExecutionWorkspaceDataOptions {
 
 const traderInfoCache = createCache<TraderInfo>(CACHE_CONFIGS.TRADER_INFO);
 
-export function useExecutionWorkspaceData({
+export function useExecutionViewData({
   isAuthenticated,
   isBackendReady,
   streamConnected,
   onAuthenticationFailure,
   onToast,
-}: UseExecutionWorkspaceDataOptions) {
+}: UseExecutionViewDataOptions) {
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [allRoutes, setAllRoutes] = useState<Route[]>([]);
   const [currentTrader, setCurrentTrader] = useState('');

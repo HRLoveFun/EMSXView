@@ -229,6 +229,7 @@ export interface StrategyParameter {
   fieldName: string;
   stringValue: string;
   disable: string;
+  order?: number;
   dataType: 'string' | 'number' | 'boolean';
   description: string;
 }
@@ -240,6 +241,7 @@ export interface StrategyConfig {
 
 export interface BrokerAlgorithmConfig {
   broker: string;
+  assetClass?: string;
   exchange: string;
   strategies: StrategyConfig[];
 }

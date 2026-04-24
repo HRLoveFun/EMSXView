@@ -38,8 +38,22 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            // ── App module chunks (keep lazy-loaded modules in dedicated bundles) ──
+            if (id.includes('/src/modules/databaseview/')) {
+              return 'module-databaseview';
+            }
+            if (id.includes('/src/modules/costview/')) {
+              return 'module-costview';
+            }
+            if (id.includes('/src/modules/marketview/')) {
+              return 'module-marketview';
+            }
+
             if (!id.includes('node_modules')) {
               return undefined;
+            }
+            if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+              return 'vendor-react';
             }
             if (id.includes('node_modules/@radix-ui/')) {
               return 'vendor-radix';

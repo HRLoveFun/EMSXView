@@ -314,6 +314,7 @@ from routers.routes import router as routes_router
 from routers.broker import router as broker_router
 from routers.debug import router as debug_router
 from routers.realtime import router as realtime_router
+from routers.market_broker_mapping import router as market_broker_mapping_router
 
 app.include_router(connection_router)
 app.include_router(marketview_router)
@@ -323,6 +324,7 @@ app.include_router(routes_router)
 app.include_router(broker_router)
 app.include_router(debug_router)
 app.include_router(realtime_router)
+app.include_router(market_broker_mapping_router)
 
 # CostView TCA 路由 — 可选模块，不影响 ExecutionView 核心启动
 # MarketView / ExecutionView / CostView 是三个独立模块，任一模块
@@ -334,6 +336,15 @@ except Exception as _costview_err:  # noqa: BLE001
     import logging as _log
     _log.getLogger("main").warning(
         "CostView TCA router 未加载（ExecutionView 不受影响）: %s", _costview_err
+    )
+
+try:
+    from routers.database import router as database_router
+    app.include_router(database_router)
+except Exception as _database_err:  # noqa: BLE001
+    import logging as _log
+    _log.getLogger("main").warning(
+        "DatabaseView router 未加载（ExecutionView 不受影响）: %s", _database_err
     )
 
 try:

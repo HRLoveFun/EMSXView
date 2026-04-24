@@ -4,7 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { averageMetric, countAlertOrders, evaluateThreshold, getSeverityText, getSeverityTone } from '../lib/thresholds';
-import type { AlertSeverity, CostViewConfig, CostViewFilterFormState, TcaOrderSummary, TcaReport, UpdateStatusResponse } from '../types';
+import type { AlertSeverity, CostViewConfig, CostViewFilterFormState, TcaOrderSummary, TcaReport } from '../types';
 import { TcaFilterWorkbench } from './TcaFilterWorkbench';
 import { TcaOrderTable } from './TcaOrderTable';
 
@@ -25,7 +25,6 @@ interface AnalysisViewProps {
   isLoading: boolean;
   report: TcaReport | null;
   selectedOrder: TcaOrderSummary | null;
-  updateStatus: UpdateStatusResponse | null;
   onFilterChange: (next: CostViewFilterFormState) => void;
   onOpenExport: () => void;
   onPageChange: (offset: number) => void;
@@ -94,7 +93,7 @@ function createSummaryCards(report: TcaReport | null, config: CostViewConfig) {
   ] satisfies SummaryCard[];
 }
 
-export function AnalysisView({ config, error, filterForm, isLoading, report, selectedOrder, updateStatus, onFilterChange, onOpenExport, onPageChange, onRefresh, onResetFilters, onRunSearch, onSelectOrder }: AnalysisViewProps) {
+export function AnalysisView({ config, error, filterForm, isLoading, report, selectedOrder, onFilterChange, onOpenExport, onPageChange, onRefresh, onResetFilters, onRunSearch, onSelectOrder }: AnalysisViewProps) {
   const summaryCards = createSummaryCards(report, config);
 
   return (
@@ -109,13 +108,6 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, sel
           <Button variant="outline" onClick={onOpenExport}><Download className="mr-2 h-4 w-4" />Export</Button>
         </div>
       </div>
-
-      {updateStatus?.status === 'running' || updateStatus?.status === 'started' ? (
-        <Alert>
-          <AlertTitle>Pipeline update in progress</AlertTitle>
-          <AlertDescription>CostView update job {updateStatus.job_id} is {updateStatus.status}. You can keep analyzing previously loaded data while it runs.</AlertDescription>
-        </Alert>
-      ) : null}
 
       {error ? (
         <Alert variant="destructive">

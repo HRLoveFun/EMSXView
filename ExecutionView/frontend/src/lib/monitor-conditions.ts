@@ -23,6 +23,13 @@ export interface MonitorConditions {
   pctChangeSell:   ConditionConfig;
   qtyAdvRatio:     ConditionConfig;
   oddLot:          BoolConditionConfig;  // Odd lot orders (quantity < 100)
+  /**
+   * Lazy order surfacing (evaluated in MonitorBoard with LazyContext — not part
+   * of CONDITION_DEFS because it needs runtime context). When enabled, lazy
+   * orders appear as a pinned synthetic group on the Monitor Board; when
+   * disabled the synthetic group is hidden.
+   */
+  lazy:            BoolConditionConfig;
 }
 
 export type ConditionId = keyof MonitorConditions;
@@ -36,6 +43,7 @@ export const DEFAULT_CONDITIONS: MonitorConditions = {
   pctChangeSell:   { enabled: true, threshold: 4.5 },
   qtyAdvRatio:     { enabled: true, threshold: 5 },
   oddLot:          { enabled: true, value: true },  // Default: show odd lot orders
+  lazy:            { enabled: true, value: true },  // Default: show lazy orders
 };
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -54,6 +62,7 @@ export function loadConditions(): MonitorConditions {
         pctChangeSell:   { ...DEFAULT_CONDITIONS.pctChangeSell,   ...p.pctChangeSell },
         qtyAdvRatio:     { ...DEFAULT_CONDITIONS.qtyAdvRatio,     ...p.qtyAdvRatio },
         oddLot:          { ...DEFAULT_CONDITIONS.oddLot,          ...p.oddLot },
+        lazy:            { ...DEFAULT_CONDITIONS.lazy,            ...p.lazy },
       };
     }
   } catch { /* corrupted — use defaults */ }

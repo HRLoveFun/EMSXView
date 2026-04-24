@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
-import { ListOrdered, GitBranch, Play } from 'lucide-react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
 import { AlgoLaunchDialog } from '@/components/algo-launch-dialog';
+import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@/hooks/use-trade-hotkeys';
 import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
   CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,
@@ -30,8 +31,6 @@ interface ExecutionBoardProps {
   onLaunchExecution?: (request: CreateParentExecutionRequest) => Promise<void>;
 }
 
-type ExecutionTab = 'orders' | 'routes';
-
 export function ExecutionBoard({
   orders,
   allOrders,
@@ -51,7 +50,6 @@ export function ExecutionBoard({
   onRefresh,
   onLaunchExecution,
 }: ExecutionBoardProps) {
-  const [activeTab, setActiveTab] = useState<ExecutionTab>('orders');
   const [algoLaunchOrder] = useState<Order | null>(null);
   const [isAlgoDialogOpen, setIsAlgoDialogOpen] = useState(false);
 
@@ -64,43 +62,151 @@ export function ExecutionBoard({
   // Count orders with active algo executions
   const algoOrderCount = orders.filter(o => o.parentExecutionId != null).length;
 
+  // ── Order \u2192 Route linkage ─────────────────────────────────────────────
+  // When orders are selected in the top pane, filter the Route pane to routes
+  // belonging to those orders. Routes are linked to their parent via `sequence`
+  // which matches `order.id` (stringified). Clearing selection shows all routes.
+  const displayedRoutes = useMemo(() => {
+    if (selectedOrders.size === 0) return routes;
+    const sequences = new Set<string>();
+    for (const id of selectedOrders) sequences.add(String(id));
+    return routes.filter(r => sequences.has(String(r.sequence)));
+  }, [routes, selectedOrders]);
+
+  const selectedOrderCount = selectedOrders.size;
+  const isRouteFiltered = selectedOrderCount > 0;
+
+  // ── Keyboard flow ─────────────────────────────────────────────────────
+  const [activePane, setActivePane] = useState<TradePane>('orders');
+  // Cursor indices for j/k navigation in each pane
+  const [cursorOrderIdx, setCursorOrderIdx] = useState(0);
+  const [cursorRouteIdx, setCursorRouteIdx] = useState(0);
+
+  // Clamp cursor indices when underlying lists change
+  useEffect(() => {
+    if (cursorOrderIdx >= orders.length) setCursorOrderIdx(Math.max(0, orders.length - 1));
+  }, [orders.length, cursorOrderIdx]);
+  useEffect(() => {
+    if (cursorRouteIdx >= displayedRoutes.length) setCursorRouteIdx(Math.max(0, displayedRoutes.length - 1));
+  }, [displayedRoutes.length, cursorRouteIdx]);
+
+  const moveCursor = useCallback((pane: TradePane, delta: number) => {
+    if (pane === 'orders') {
+      setCursorOrderIdx(i => {
+        const n = orders.length;
+        if (n === 0) return 0;
+        return Math.max(0, Math.min(n - 1, i + delta));
+      });
+    } else if (pane === 'routes') {
+      setCursorRouteIdx(i => {
+        const n = displayedRoutes.length;
+        if (n === 0) return 0;
+        return Math.max(0, Math.min(n - 1, i + delta));
+      });
+    }
+  }, [orders.length, displayedRoutes.length]);
+
+  // When cursor moves in orders pane, single-select that order so the Route
+  // pane filters to its child routes (Bloomberg-style linkage).
+  useEffect(() => {
+    if (activePane !== 'orders') return;
+    const target = orders[cursorOrderIdx];
+    if (!target) return;
+    const next = new Set<string>([target.id]);
+    // Only push change when it would actually differ (avoid render loops)
+    if (selectedOrders.size !== 1 || !selectedOrders.has(target.id)) {
+      onSelectionChange(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursorOrderIdx, activePane]);
+
+  // Scroll cursor row into view (best-effort; rows tagged with data-cursor-row)
+  useEffect(() => {
+    const pane = activePane;
+    const idx = pane === 'orders' ? cursorOrderIdx : cursorRouteIdx;
+    const scope = pane === 'orders'
+      ? document.querySelector('[aria-label="Orders"]')
+      : document.querySelector('[aria-label="Routes"]');
+    if (!scope) return;
+    const rows = scope.querySelectorAll('tbody tr');
+    const el = rows[idx] as HTMLElement | undefined;
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activePane, cursorOrderIdx, cursorRouteIdx]);
+
+  const { cheatsheetOpen, setCheatsheetOpen } = useTradeHotkeys(
+    true,
+    activePane,
+    {
+      onCursorDown: (pane) => moveCursor(pane, 1),
+      onCursorUp:   (pane) => moveCursor(pane, -1),
+      onToggleSelect: (pane) => {
+        if (pane === 'orders') {
+          const target = orders[cursorOrderIdx];
+          if (!target) return;
+          const next = new Set(selectedOrders);
+          if (next.has(target.id)) next.delete(target.id); else next.add(target.id);
+          onSelectionChange(next);
+        }
+      },
+      onEscape: () => { if (isRouteFiltered) onClearSelection(); },
+      onFocusSearch: () => {
+        // Best-effort: focus the first visible input[aria-label*="Filter"] in the active pane
+        const scope = activePane === 'orders'
+          ? document.querySelector('[aria-label="Orders"]')
+          : document.querySelector('[aria-label="Routes"]');
+        const target = scope?.querySelector<HTMLInputElement>('input[type="text"], input:not([type])');
+        target?.focus();
+      },
+    },
+    setActivePane,
+  );
+
   return (
-    <div className="space-y-4">
-      {/* Sub-tab navigation */}
-      <div className="flex items-center gap-1 border-b border-border">
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px flex items-center gap-2 ${
-            activeTab === 'orders'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveTab('orders')}
-        >
-          <ListOrdered className="h-4 w-4" />
-          Orders ({orders.length})
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px flex items-center gap-2 ${
-            activeTab === 'routes'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => setActiveTab('routes')}
-        >
-          <GitBranch className="h-4 w-4" />
-          Routes ({routes.length})
-        </button>
+    <div className="flex flex-col gap-2 h-[calc(100vh-180px)] min-h-[560px]">
+      <HotkeyCheatsheet open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+      {/* ── Linkage status bar ───────────────────────────────────────── */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground px-1 shrink-0">
+        <span className="flex items-center gap-1"><ListOrdered className="h-3.5 w-3.5" />Orders: <span className="font-semibold text-foreground">{orders.length}</span></span>
+        <span className="text-border">|</span>
+        <span className="flex items-center gap-1">
+          <GitBranch className="h-3.5 w-3.5" />
+          Routes: <span className="font-semibold text-foreground">{displayedRoutes.length}</span>
+          {isRouteFiltered && (
+            <span className="text-[10px] text-muted-foreground">(of {routes.length}, filtered by {selectedOrderCount} selected order{selectedOrderCount === 1 ? '' : 's'})</span>
+          )}
+        </span>
+        {isRouteFiltered && (
+          <button
+            onClick={onClearSelection}
+            className="ml-2 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+            title="Esc"
+          >
+            <XIcon className="h-3 w-3" />Show all routes
+          </button>
+        )}
         {algoOrderCount > 0 && (
-          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
+          <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
             <Play className="h-3 w-3" />
             {algoOrderCount} algo
           </span>
         )}
+        <button
+          onClick={() => setCheatsheetOpen(true)}
+          className={`inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground ${algoOrderCount > 0 ? 'ml-2' : 'ml-auto'}`}
+          title="Show keyboard shortcuts (?)"
+        >
+          <Keyboard className="h-3 w-3" />Shortcuts (?)
+        </button>
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'orders' ? (
-        <>
+      {/* ── Order Pane (top — fixed 55%) ───────────────────────────────── */}
+      <section
+        aria-label="Orders"
+        className={`flex flex-col min-h-0 basis-[55%] shrink-0 space-y-2 rounded-md transition-colors overflow-hidden ${activePane === 'orders' ? 'ring-1 ring-primary/40' : ''}`}
+        onMouseDown={() => setActivePane('orders')}
+        tabIndex={-1}
+      >
+        <div className="flex-1 min-h-0 overflow-hidden">
           <OrderTable
             orders={orders}
             allOrders={allOrders}
@@ -113,23 +219,33 @@ export function ExecutionBoard({
             onRouteOrder={onRouteOrder}
             currentTrader={currentTrader}
           />
-          <BatchOperationPanel
-            selectedCount={selectedOrders.size}
-            onBatchUpdate={onBatchUpdate}
-            onClearSelection={onClearSelection}
-            isLoading={isLoading}
-          />
-        </>
-      ) : (
-        <RouteTable
-          routes={routes}
+        </div>
+        <BatchOperationPanel
+          selectedCount={selectedOrders.size}
+          onBatchUpdate={onBatchUpdate}
+          onClearSelection={onClearSelection}
           isLoading={isLoading}
-          currentTrader={currentTrader}
-          onCancelRoute={onCancelRoute}
-          onModifyRoute={onModifyRoute}
-          onRefresh={onRefresh}
         />
-      )}
+      </section>
+
+      {/* ── Route Pane (bottom — fixed 45%) ───────────────────────────── */}
+      <section
+        aria-label="Routes"
+        className={`flex flex-col min-h-0 basis-[45%] shrink-0 space-y-2 rounded-md transition-colors overflow-hidden ${activePane === 'routes' ? 'ring-1 ring-primary/40' : ''}`}
+        onMouseDown={() => setActivePane('routes')}
+        tabIndex={-1}
+      >
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <RouteTable
+            routes={displayedRoutes}
+            isLoading={isLoading}
+            currentTrader={currentTrader}
+            onCancelRoute={onCancelRoute}
+            onModifyRoute={onModifyRoute}
+            onRefresh={onRefresh}
+          />
+        </div>
+      </section>
 
       {/* Algo Launch Dialog */}
       <AlgoLaunchDialog

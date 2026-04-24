@@ -1,9 +1,8 @@
 import { Suspense, lazy, useState, useCallback, useEffect, useRef } from 'react';
 import { Toolbar } from './sections/Toolbar';
 import { MonitorBoard } from './sections/MonitorBoard';
-import { LazyOrderBoard } from './sections/LazyOrderBoard';
 import { ExecutionBoard } from './sections/ExecutionBoard';
-import { ExecutionWorkspaceTabs } from './sections/ExecutionWorkspaceTabs';
+import { ExecutionViewTabs } from './sections/ExecutionViewTabs';
 import { SettingsBoard } from './sections/SettingsBoard';
 import { ToastContainer } from './sections/ToastContainer';
 import { StartupGate } from './components/startup-gate';
@@ -12,7 +11,7 @@ import { tokenService } from './services/api';
 import { createRealtimeClient, type RealtimeClient } from './services/realtime';
 import { useAppShellState } from './hooks/use-app-shell-state';
 import { useStartupStatus } from './hooks/use-startup-status';
-import { useExecutionWorkspaceData } from './hooks/use-execution-workspace-data';
+import { useExecutionViewData } from './hooks/use-execution-view-data';
 import { useOrdersStream } from './hooks/use-orders-stream';
 import { useRoutesStream } from './hooks/use-routes-stream';
 import { HandoffContractsProvider } from './hooks/use-handoff-contracts';
@@ -21,6 +20,7 @@ import './App.css';
 
 const CostViewModule = lazy(() => import('./modules/costview/CostViewModule'));
 const MarketViewModule = lazy(() => import('./modules/marketview/MarketViewModule'));
+const DatabaseViewModule = lazy(() => import('./modules/databaseview/DatabaseViewModule'));
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 function App() {
@@ -30,6 +30,10 @@ function App() {
   // State - top-level modules plus execution sub-tabs
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<
+    'global' | 'monitor-conditions' | 'broker-algo' | 'parameter-frequency' | 'data-manager' | 'about'
+  >('global');
+  const [monitorExceptionCount, setMonitorExceptionCount] = useState(0);
 
   // ─── Realtime client ─────────────────────────────────────────────────────
   const rtClientRef = useRef<RealtimeClient | null>(null);
@@ -87,7 +91,7 @@ function App() {
     handleModifyRoute,
     handleModifyOrder,
     handleRouteOrder,
-  } = useExecutionWorkspaceData({
+  } = useExecutionViewData({
     isAuthenticated,
     isBackendReady,
     streamConnected,
@@ -122,6 +126,7 @@ function App() {
     filteredOrders,
     toolbarOrderCount,
     shouldShowStartupGate,
+    subscriptionsWarming,
     footerConnectionText,
     handleFilterChange,
   } = useAppShellState({
@@ -176,20 +181,30 @@ function App() {
               </Suspense>
             }
             executionView={
-              <ExecutionWorkspaceTabs
+              <div className="space-y-3">
+                {subscriptionsWarming ? (
+                  <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+                    Warming EMSX subscriptions — order & route streams will populate momentarily.
+                    You can explore CostView, MarketView, and Database tabs while we wait.
+                  </div>
+                ) : null}
+                <ExecutionViewTabs
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
+                monitorExceptionCount={monitorExceptionCount}
                 monitorView={
                   <div className="space-y-4">
                     <MonitorBoard
                       allOrders={effectiveOrders}
+                      allRoutes={effectiveRoutes}
                       isLoading={isLoading}
                       conditions={monitorConditions}
                       onConditionsChange={setMonitorConditions}
-                    />
-                    <LazyOrderBoard
-                      allOrders={effectiveOrders}
-                      isLoading={isLoading}
+                      onOpenConditionsSettings={() => {
+                        setSettingsInitialSection('monitor-conditions');
+                        setActiveTab('settings');
+                      }}
+                      onExceptionCountChange={setMonitorExceptionCount}
                     />
                   </div>
                 }
@@ -213,8 +228,15 @@ function App() {
                     onRefresh={fetchOrders}
                   />
                 }
-                settingsView={<SettingsBoard />}
+                settingsView={
+                  <SettingsBoard
+                    monitorConditions={monitorConditions}
+                    onMonitorConditionsChange={setMonitorConditions}
+                    initialSection={settingsInitialSection}
+                  />
+                }
               />
+              </div>
             }
             costView={
               <Suspense
@@ -224,7 +246,18 @@ function App() {
                   </div>
                 }
               >
-                <CostViewModule />
+                <CostViewModule onNavigateToDatabase={() => setActiveModule('database')} />
+              </Suspense>
+            }
+            databaseView={
+              <Suspense
+                fallback={
+                  <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                    Loading Database module...
+                  </div>
+                }
+              >
+                <DatabaseViewModule />
               </Suspense>
             }
           />

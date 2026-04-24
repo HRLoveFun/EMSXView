@@ -10,6 +10,14 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import type { BoolConditionConfig, ConditionConfig } from '@/lib/monitor-conditions';
+import {
+  HEALTH_PALETTE,
+  HEALTH_RANK,
+  getOrderHealth,
+  isLazyOrder,
+  type HealthLevel,
+  type LazyContext,
+} from '@/lib/health-palette';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -25,10 +33,10 @@ import {
   type MonitorConditions,
   type ConditionId,
 } from '@/lib/monitor-conditions';
-import type { Order, OrderStatus } from '@/types';
+import type { Order, OrderStatus, Route } from '@/types';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const TOTAL_COLS = 25; // Order ID, Ticker, Side, Status, Type, Qty, %Filled, Limit Px, Avg Px, Arr Px, Last Px, Ivl VWAP, $Value, %Change, ADV 5D, Portfolio, Trader, Exchange, Ccy, FX Rate, Strategy, Strat Params, PM Note, Created, Flags
+const TOTAL_COLS = 26; // Health strip + 25 data cols (see ColHeader list below)
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 function getStatusBadge(status: OrderStatus) {
@@ -103,13 +111,24 @@ interface CondGroup {
 // ─── Props ───────────────────────────────────────────────────────────────────
 interface MonitorBoardProps {
   allOrders: Order[];
+  allRoutes?: Route[];
   isLoading: boolean;
   conditions: MonitorConditions;
   onConditionsChange: (c: MonitorConditions) => void;
+  onOpenConditionsSettings?: () => void;
+  onExceptionCountChange?: (count: number) => void;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
-export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsChange }: MonitorBoardProps) {
+export function MonitorBoard({
+  allOrders,
+  allRoutes = [],
+  isLoading,
+  conditions,
+  onConditionsChange,
+  onOpenConditionsSettings,
+  onExceptionCountChange,
+}: MonitorBoardProps) {
   // ── Condition helpers ──────────────────────────────────────────────────────
   const toggleCondition = useCallback((id: ConditionId) => {
     onConditionsChange({ ...conditions, [id]: { ...conditions[id], enabled: !conditions[id].enabled } });
@@ -127,7 +146,11 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: null, direction: 'asc' });
   const [groupBy, setGroupBy] = useState<OrderGroupByValue>('exchange');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
-    () => new Set(CONDITION_DEFS.map(d => `c:${d.id}`)),
+    () => new Set([
+      'c:__critical__',
+      'c:__lazy__',
+      ...CONDITION_DEFS.map(d => `c:${d.id}`),
+    ]),
   );
 
   // ── Total unique alert count ──────────────────────────────────────────────
@@ -135,6 +158,44 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
     () => allOrders.filter(o => matchesAnyCondition(o, conditions)).length,
     [allOrders, conditions],
   );
+
+  // ── Lazy / critical context (shared across health resolution + synthetic groups) ──
+  const idleShareByOrderId = useMemo(() => {
+    const placedByOrderId = new Map<string, number>();
+    for (const r of allRoutes) {
+      // Route is keyed to parent order by `sequence`. We rely on a (sequence→orderId)
+      // lookup via allOrders; fall back to string match on `order.id === sequence`.
+      // Build only what's needed below; avoid O(N*M) by pre-indexing orders by id.
+      const key = String(r.sequence);
+      placedByOrderId.set(key, (placedByOrderId.get(key) ?? 0) + (r.amount ?? 0));
+    }
+    const result = new Map<string, number>();
+    for (const o of allOrders) {
+      const placed = placedByOrderId.get(o.id) ?? 0;
+      result.set(o.id, Math.max(0, o.quantity - placed));
+    }
+    return result;
+  }, [allOrders, allRoutes]);
+
+  const lazyCtx = useMemo<LazyContext>(() => ({ idleShareByOrderId }), [idleShareByOrderId]);
+
+  const criticalOrders = useMemo(
+    () => allOrders.filter(o => o.status === 'REJECTED' || o.status === 'PENDING_CANCEL'),
+    [allOrders],
+  );
+  const lazyOrders = useMemo(
+    () => allOrders.filter(o => isLazyOrder(o, lazyCtx)),
+    [allOrders, lazyCtx],
+  );
+
+  // Report exception count upward (for Tab badges). Includes critical + condition-hit.
+  useEffect(() => {
+    if (!onExceptionCountChange) return;
+    const exceptions = new Set<string>();
+    for (const o of criticalOrders) exceptions.add(o.id);
+    for (const o of allOrders) if (matchesAnyCondition(o, conditions)) exceptions.add(o.id);
+    onExceptionCountChange(exceptions.size);
+  }, [criticalOrders, allOrders, conditions, onExceptionCountChange]);
 
   // ── Sort all flagged orders once ──────────────────────────────────────────
   const sortedFlagged = useMemo(() => {
@@ -163,6 +224,42 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
   // ── Condition-first grouping with optional subgroups ──────────────────────
   const condGroups = useMemo<CondGroup[]>(() => {
     const result: CondGroup[] = [];
+
+    // ── Synthetic pinned groups (always first) ──
+    const makeSubgroups = (orders: Order[]): Subgroup[] => {
+      if (orders.length === 0) return [];
+      if (groupBy === 'none') return [{ key: '__all__', label: '', orders }];
+      const map = new Map<string, Order[]>();
+      for (const o of orders) {
+        const k = String((o as unknown as Record<string, unknown>)[groupBy] ?? '(empty)');
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(o);
+      }
+      return Array.from(map.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, orders]) => ({ key, label: `${ORDER_GROUP_BY_LABELS[groupBy]}: ${key}`, orders }));
+    };
+    if (criticalOrders.length > 0) {
+      result.push({
+        conditionId: '__critical__' as ConditionId,
+        label: `\u26a0 Critical (REJECTED / PENDING_CANCEL)`,
+        color: 'text-red-700',
+        bgColor: 'bg-red-100',
+        count: criticalOrders.length,
+        subgroups: makeSubgroups(criticalOrders),
+      });
+    }
+    if (lazyOrders.length > 0 && conditions.lazy?.enabled) {
+      result.push({
+        conditionId: '__lazy__' as ConditionId,
+        label: `Lazy Orders (status not {WORKING, QUEUED, COMPLETED, FILLED, SUSPENDED} or idle share > 0)`,
+        color: 'text-sky-700',
+        bgColor: 'bg-sky-100',
+        count: lazyOrders.length,
+        subgroups: makeSubgroups(lazyOrders),
+      });
+    }
+
     for (const def of CONDITION_DEFS) {
       const cfg = conditions[def.id];
       if (!cfg.enabled) continue;
@@ -201,7 +298,7 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
       });
     }
     return result;
-  }, [conditions, sortedFlagged, groupBy]);
+  }, [conditions, sortedFlagged, groupBy, criticalOrders, lazyOrders]);
 
   // ── Expand / collapse ─────────────────────────────────────────────────────
   const toggleKey = useCallback((key: string) => {
@@ -279,9 +376,20 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
   // ── Order row renderer ────────────────────────────────────────────────────
   const renderOrderRow = (order: Order, keyPrefix: string) => {
     const flags = getOrderFlags(order, conditions);
+    const health: HealthLevel = getOrderHealth({ order, conditions, ctx: lazyCtx });
+    const palette = HEALTH_PALETTE[health];
+    const rowTint = HEALTH_RANK[health] >= HEALTH_RANK.warning ? palette.rowClass : '';
     return (
       <TooltipProvider key={`${keyPrefix}-${order.id}`} delayDuration={200}>
-        <tr className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+        <tr className={`border-b border-border/50 hover:bg-muted/30 transition-colors ${rowTint}`}>
+          <td className="w-1 p-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className={`h-full min-h-[22px] w-1 ${palette.stripClass}`} aria-label={`Health: ${palette.label}`} />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="text-xs">Health: {palette.label}</TooltipContent>
+            </Tooltip>
+          </td>
           <td className="px-2 py-1.5 font-mono text-xs">{order.id}</td>
           <td className="px-2 py-1.5 font-mono font-medium whitespace-nowrap">{order.symbol}</td>
           <td className={`px-2 py-1.5 font-medium ${order.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{order.side}</td>
@@ -363,52 +471,43 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
         </div>
       </div>
 
-      {/* ── Condition panel ── */}
-      <div className="border-b border-border px-4 py-2.5 bg-secondary/20">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Conditions</span>
+      {/* ── Active conditions summary (readonly) ── */}
+      <div className="border-b border-border px-4 py-2 bg-secondary/20 flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Active conditions:</span>
+        {CONDITION_DEFS.filter(def => conditions[def.id].enabled).length === 0 && (
+          <span className="text-[11px] text-muted-foreground italic">(none)</span>
+        )}
+        {CONDITION_DEFS.map(def => {
+          const cfg = conditions[def.id];
+          if (!cfg.enabled) return null;
+          const label = def.isBool
+            ? def.groupLabel(0)
+            : def.groupLabel((cfg as ConditionConfig).threshold);
+          return (
+            <span
+              key={def.id}
+              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${def.bgColor} ${def.color}`}
+            >
+              {label}
+            </span>
+          );
+        })}
+        <div className="ml-auto flex items-center gap-2">
           <button
             onClick={resetConditions}
             className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            title="Reset conditions to defaults"
           >
             <RotateCcw className="h-3 w-3" />Reset
           </button>
-        </div>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-2">
-          {CONDITION_DEFS.map(def => {
-            const cfg = conditions[def.id];
-            const isDollar = def.id === 'dollarValueLow' || def.id === 'dollarValueHigh';
-            const isBool = def.isBool;
-            return (
-              <label key={def.id} className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                <Checkbox
-                  checked={cfg.enabled}
-                  onCheckedChange={() => toggleCondition(def.id)}
-                  className="h-3.5 w-3.5"
-                />
-                <span className={`whitespace-nowrap ${cfg.enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
-                  {def.label}
-                </span>
-                {isBool ? (
-                  // Boolean condition: show value indicator instead of threshold input
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${cfg.enabled ? 'bg-blue-100 text-blue-700' : 'bg-muted text-muted-foreground'}`}>
-                    {(cfg as BoolConditionConfig).value ? 'Yes' : 'No'}
-                  </span>
-                ) : (
-                  <>
-                    <ThresholdInput
-                      value={(cfg as ConditionConfig).threshold}
-                      onChange={v => updateThreshold(def.id, v)}
-                      step={isDollar ? 1000 : 0.5}
-                      className={isDollar ? 'w-28' : 'w-16'}
-                      disabled={!cfg.enabled}
-                    />
-                    {def.unit && <span className={cfg.enabled ? 'text-muted-foreground' : 'text-muted-foreground/50'}>{def.unit}</span>}
-                  </>
-                )}
-              </label>
-            );
-          })}
+          {onOpenConditionsSettings && (
+            <button
+              onClick={onOpenConditionsSettings}
+              className="text-[10px] text-primary hover:underline"
+            >
+              Edit in Settings \u2192
+            </button>
+          )}
         </div>
       </div>
 
@@ -433,6 +532,7 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
         <table className="w-full min-w-max text-xs">
           <thead className="sticky top-0 bg-card z-10 border-b border-border">
             <tr>
+              <th className="w-1 p-0" aria-label="Health" />
               <ColHeader label="Order ID" field="id" />
               <ColHeader label="Ticker"    field="symbol" />
               <ColHeader label="Side"      field="side" />
@@ -463,10 +563,10 @@ export function MonitorBoard({ allOrders, isLoading, conditions, onConditionsCha
             </tr>
           </thead>
           <tbody>
-            {isLoading && totalAlerts === 0 && (
+            {isLoading && totalAlerts === 0 && condGroups.length === 0 && (
               <tr><td colSpan={TOTAL_COLS} className="py-8 text-center text-muted-foreground">Loading…</td></tr>
             )}
-            {!isLoading && totalAlerts === 0 && (
+            {!isLoading && condGroups.length === 0 && (
               <tr><td colSpan={TOTAL_COLS} className="py-8 text-center text-muted-foreground">No orders match monitor conditions</td></tr>
             )}
 

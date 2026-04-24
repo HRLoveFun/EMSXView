@@ -13,7 +13,7 @@ import {
   saveCostViewFilters,
 } from './lib/storage';
 import { applyCostViewClientFilters, buildWarningOnlyPage } from './lib/report-state';
-import { analyzeTca, fetchAllFilteredOrders, getUpdateStatus, triggerUpdate } from './services/api';
+import { analyzeTca, fetchAllFilteredOrders } from './services/api';
 import type {
   CostViewConfig,
   CostViewFilterFormState,
@@ -22,7 +22,6 @@ import type {
   ExportScope,
   TcaFilterPayload,
   TcaReport,
-  UpdateStatusResponse,
 } from './types';
 import { ExportDialog } from './components/ExportDialog';
 import { OverviewView } from './components/OverviewView';
@@ -59,7 +58,7 @@ function formToPayload(form: CostViewFilterFormState): TcaFilterPayload {
   return payload;
 }
 
-export default function CostViewModule() {
+export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToDatabase?: () => void } = {}) {
   const [activeTab, setActiveTab] = useState<CostViewModuleTab>(() => loadCostViewViewState().activeTab);
   const [config, setConfig] = useState<CostViewConfig>(() => loadCostViewConfig());
   const [filterForm, setFilterForm] = useState<CostViewFilterFormState>(() => loadCostViewFilters());
@@ -71,18 +70,10 @@ export default function CostViewModule() {
   const [exportState, setExportState] = useState(() => loadCostViewExportState());
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [fullResultReport, setFullResultReport] = useState<TcaReport | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatusResponse | null>(null);
-  const updatePollRef = useRef<number | null>(null);
   const hasLoadedInitialRef = useRef(false);
 
   const selectedOrder = useMemo(() => report?.orders.find((order) => order.order_id === selectedOrderId) ?? null, [report, selectedOrderId]);
 
-  const clearUpdatePoll = useCallback(() => {
-    if (updatePollRef.current) {
-      window.clearTimeout(updatePollRef.current);
-      updatePollRef.current = null;
-    }
-  }, []);
 
   useEffect(() => {
     saveCostViewActiveTab(activeTab);
@@ -99,12 +90,6 @@ export default function CostViewModule() {
   useEffect(() => {
     saveCostViewExportState(exportState);
   }, [exportState]);
-
-  useEffect(() => {
-    return () => {
-      clearUpdatePoll();
-    };
-  }, [clearUpdatePoll]);
 
   useEffect(() => {
     if (!filterForm.warningOnly || !fullResultReport) {
@@ -169,56 +154,6 @@ export default function CostViewModule() {
     hasLoadedInitialRef.current = true;
     void fetchReport(filterForm, 0);
   }, [fetchReport, filterForm]);
-
-  const handlePollUpdate = useCallback(async (jobId: string) => {
-    try {
-      const status = await getUpdateStatus(jobId);
-      setUpdateStatus(status);
-      clearUpdatePoll();
-      if (status.status === 'started' || status.status === 'running') {
-        updatePollRef.current = window.setTimeout(() => {
-          void handlePollUpdate(jobId);
-        }, 2000);
-        return;
-      }
-      if (status.status === 'completed') {
-        void fetchReport(filterForm, 0);
-      }
-    } catch (pollError) {
-      setUpdateStatus((current) => ({
-        job_id: current?.job_id ?? jobId,
-        status: 'failed',
-        started_at: current?.started_at ?? new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        error: pollError instanceof Error ? pollError.message : 'Polling failed',
-        stage: current?.stage ?? null,
-        overall_progress: current?.overall_progress ?? 0,
-        last_activity_at: current?.last_activity_at ?? new Date().toISOString(),
-      }));
-    }
-  }, [clearUpdatePoll, fetchReport, filterForm]);
-
-  const handleTriggerUpdate = useCallback(async () => {
-    setError(null);
-    clearUpdatePoll();
-    try {
-      const job = await triggerUpdate();
-      // Preserve backend-returned status/stage for idempotent reconnection
-      setUpdateStatus({
-        job_id: job.job_id,
-        status: (job.status as UpdateStatusResponse['status']) || 'started',
-        started_at: new Date().toISOString(),
-        completed_at: null,
-        error: null,
-        stage: null,
-        overall_progress: 0,
-        last_activity_at: new Date().toISOString(),
-      });
-      void handlePollUpdate(job.job_id);
-    } catch (triggerError) {
-      setError(triggerError instanceof Error ? triggerError.message : 'Failed to trigger update');
-    }
-  }, [clearUpdatePoll, handlePollUpdate]);
 
   const handleOpenAnalysis = useCallback(() => {
     setActiveTab('analysis');
@@ -310,11 +245,10 @@ export default function CostViewModule() {
             exportState={exportState}
             isLoading={isLoading}
             report={report}
-            updateStatus={updateStatus}
             onGoToAnalysis={handleOpenAnalysis}
             onOpenExport={() => setExportDialogOpen(true)}
             onRefresh={() => void fetchReport(filterForm, 0)}
-            onTriggerUpdate={() => void handleTriggerUpdate()}
+            onNavigateToDatabase={onNavigateToDatabase}
           />
         </TabsContent>
 
@@ -327,7 +261,6 @@ export default function CostViewModule() {
               isLoading={isLoading}
               report={report}
               selectedOrder={selectedOrder}
-              updateStatus={updateStatus}
               onFilterChange={setFilterForm}
               onOpenExport={() => setExportDialogOpen(true)}
               onPageChange={handlePageChange}

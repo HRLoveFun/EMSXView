@@ -15,9 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import sys
-import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -43,13 +41,11 @@ from platform_data.adapters import (
 )
 from CostView.src.tca_query_service import SCORECARD_COHORTS
 
+from ._pipeline_jobs import get_job, trigger_pipeline
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
 platform_data = build_platform_data_access()
-
-# ── In-memory job registry (process-lifetime only) ───────────────────────────
-_jobs: dict[str, dict[str, Any]] = {}
-_jobs_lock = threading.Lock()
 
 
 # ── Pydantic request/response models ─────────────────────────────────────────
@@ -252,82 +248,39 @@ async def analyze_scorecard(request: ScorecardRequest):
 
 @router.post("/api/tca/trigger-update", response_model=TriggerUpdateResponse)
 async def trigger_update(request: Request):
-    """Manually trigger the CostView daily update pipeline.
+    """[DEPRECATED ALIAS] Trigger the CostView daily update pipeline.
 
-    Idempotent: if a job is already running, returns the existing job_id
-    instead of spawning a duplicate. This allows frontend reconnection
-    after a page refresh or module switch.
+    Kept for backward compatibility with the CostView frontend. New callers
+    should use ``POST /api/db/update`` (DatabaseView router). Both endpoints
+    share the same in-memory job registry, so status polling works across
+    either URL.
 
-    Restricted to requests originating from localhost to prevent
-    unauthorized pipeline execution.
+    Restricted to localhost to prevent unauthorized pipeline execution.
     """
-    # Localhost guard
     client_host = request.client.host if request.client else "unknown"
     if client_host not in ("127.0.0.1", "::1", "localhost"):
         raise HTTPException(
             status_code=403,
             detail="Trigger endpoint is restricted to localhost",
         )
-
-    # ── Idempotent check: return existing active job if any ────────────────
-    with _jobs_lock:
-        for existing_id, existing_job in _jobs.items():
-            if existing_job.get("status") in ("started", "running"):
-                logger.info(
-                    f"Returning existing active job {existing_id} "
-                    f"(status={existing_job['status']}) "
-                    "instead of spawning a new one"
-                )
-                return TriggerUpdateResponse(
-                    job_id=existing_id,
-                    status=existing_job["status"],
-                    message="Pipeline already running — returning existing job",
-                )
-
-    # No active job → create new one
-    job_id = str(uuid.uuid4())
-    with _jobs_lock:
-        _jobs[job_id] = {
-            "status": "started",
-            "started_at": datetime.now().isoformat(),
-            "completed_at": None,
-            "error": None,
-            "stage": {"name": "initialization", "label": "Initialization", "progress": 0},
-            "overall_progress": 0,
-            "last_activity_at": datetime.now().isoformat(),
-        }
-
-    # Launch subprocess in a daemon thread so the endpoint returns immediately
-    threading.Thread(
-        target=_run_pipeline_subprocess,
-        args=(job_id,),
-        daemon=True,
-    ).start()
-
-    logger.info(f"Pipeline triggered: job_id={job_id}")
-    return TriggerUpdateResponse(
-        job_id=job_id,
-        status="started",
-        message="Daily update pipeline started. Poll /api/tca/update-status/{job_id} for progress.",
-    )
+    result = trigger_pipeline(client_host)
+    return TriggerUpdateResponse(**result)
 
 
 @router.get("/api/tca/update-status/{job_id}", response_model=UpdateStatusResponse)
 async def get_update_status(job_id: str):
-    """Poll the status of a triggered pipeline job."""
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-
+    """[DEPRECATED ALIAS] Poll a pipeline job. Prefer /api/db/update-status."""
+    job = get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-
+    stage = job.get("stage")
     return UpdateStatusResponse(
         job_id=job_id,
         status=job["status"],
         started_at=job.get("started_at"),
         completed_at=job.get("completed_at"),
         error=job.get("error"),
-        stage=StageInfo(**job["stage"]) if job.get("stage") else None,
+        stage=StageInfo(**stage) if stage else None,
         overall_progress=job.get("overall_progress", 0),
         last_activity_at=job.get("last_activity_at"),
     )
@@ -442,138 +395,10 @@ async def get_post_trade_handoff(order_id: str):
 
 
 # ── Pipeline runner ────────────────────────────────────────────────────────────
-
-# ── Stage definitions (must match daily_update.py STAGE_MARKERS) ──────────────
-
-_PIPELINE_STAGES = [
-    {"name": "initialization", "label": "Initialization"},
-    {"name": "fill_fetch",     "label": "Fill Fetch"},
-    {"name": "processing",     "label": "Processing"},
-    {"name": "completion",     "label": "Completion"},
-]
-
-_STAGE_WEIGHTS = {  # relative weight for overall progress calculation
-    "initialization": 10,
-    "fill_fetch":     35,
-    "processing":     45,
-    "completion":     10,
-}
-
-_STAGE_PREFIX = "[STAGE]"  # marker prefix from daily_update.py stdout
-
-
-def _compute_progress(stage_name: str, stage_pct: int) -> int:
-    """Compute overall 0-100 progress given current stage + its internal pct."""
-    stage_names = [stage["name"] for stage in _PIPELINE_STAGES]
-    try:
-        current_index = stage_names.index(stage_name)
-    except ValueError:
-        current_index = 0
-
-    prior = sum(
-        _STAGE_WEIGHTS.get(_PIPELINE_STAGES[index]["name"], 0)
-        for index in range(current_index)
-    )
-    return min(100, prior + int(_STAGE_WEIGHTS.get(stage_name, 0) * stage_pct / 100))
-
-
-def _mark_job_activity(job_id: str) -> None:
-    if job_id in _jobs:
-        _jobs[job_id]["last_activity_at"] = datetime.now().isoformat()
-
-
-def _parse_stage_line(line: str):
-    """Parse a [STAGE] line from subprocess stdout.
-    Expected format: [STAGE] <stage_name> <progress_pct>
-    Returns (stage_name, progress_pct) or None.
-    """
-    line = line.strip()
-    if not line.startswith(_STAGE_PREFIX):
-        return None
-    parts = line[len(_STAGE_PREFIX):].strip().split()
-    if len(parts) >= 2:
-        try:
-            return parts[0], min(100, max(0, int(parts[1])))
-        except ValueError:
-            return parts[0], 0
-    elif len(parts) == 1:
-        return parts[0], 0
-    return None
-
-
-def _run_pipeline_subprocess(job_id: str) -> None:
-    """Execute daily_update.py --once as a subprocess and update job status with stage info."""
-    daily_update_script = _COSTVIEW_ROOT / "scripts" / "daily_update.py"
-
-    # Transition to running with initial stage
-    with _jobs_lock:
-        if job_id in _jobs:
-            _jobs[job_id]["status"] = "running"
-            _jobs[job_id]["stage"] = {"name": "initialization", "label": "Initialization", "progress": 0}
-            _jobs[job_id]["overall_progress"] = 0
-            _mark_job_activity(job_id)
-
-    try:
-        proc = subprocess.Popen(
-            [sys.executable, "-u", str(daily_update_script), "--once"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,     # merge into stdout — avoid pipe deadlock
-            text=True,
-        )
-
-        # Real-time line parsing for stage updates
-        while True:
-            line = proc.stdout.readline()
-            if not line and proc.poll() is not None:
-                break
-            if not line:
-                continue
-
-            parsed = _parse_stage_line(line)
-            if parsed:
-                stage_name, stage_pct = parsed
-                label = next((s["label"] for s in _PIPELINE_STAGES if s["name"] == stage_name), stage_name)
-                overall = _compute_progress(stage_name, stage_pct)
-                with _jobs_lock:
-                    if job_id in _jobs:
-                        _jobs[job_id]["stage"] = {"name": stage_name, "label": label, "progress": stage_pct}
-                        _jobs[job_id]["overall_progress"] = overall
-                        _mark_job_activity(job_id)
-            else:
-                with _jobs_lock:
-                    if job_id in _jobs:
-                        _mark_job_activity(job_id)
-
-        output, _ = proc.communicate(timeout=60)
-        status = "completed" if proc.returncode == 0 else "failed"
-        # Capture last 2KB of combined stdout+stderr for error diagnostics
-        error = None
-        if proc.returncode != 0 and output:
-            lines = output.strip().splitlines()
-            error_lines = [l for l in lines if not l.startswith(_STAGE_PREFIX)]
-            error = "\n".join(error_lines[-20:]) if error_lines else output[-2000:]
-
-    except subprocess.TimeoutExpired:
-        proc.kill() if 'proc' in dir() else None
-        status = "failed"
-        error = "Pipeline timed out after 3600 seconds"
-    except Exception as exc:
-        status = "failed"
-        error = str(exc)
-
-    with _jobs_lock:
-        if job_id in _jobs:
-            _jobs[job_id]["status"] = status
-            _jobs[job_id]["completed_at"] = datetime.now().isoformat()
-            _jobs[job_id]["error"] = error
-            _mark_job_activity(job_id)
-            if status == "completed":
-                _jobs[job_id]["overall_progress"] = 100
-                _jobs[job_id]["stage"] = {
-                    "name": "completion", "label": "Completion", "progress": 100,
-                }
-
-    logger.info(f"Pipeline job {job_id} finished: {status}")
+#
+# The pipeline job registry and subprocess runner live in
+# routers/_pipeline_jobs.py so that both /api/tca/trigger-update (this router,
+# deprecated alias) and /api/db/update (DatabaseView router) share state.
 
 
 # ── Serialization helpers ─────────────────────────────────────────────────────

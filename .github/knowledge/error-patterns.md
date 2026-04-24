@@ -38,6 +38,20 @@
 
 ---
 
+## Pattern: ModifyRouteEx rejects strategy change with "Invalid Strategy Parameter"
+
+- **Signature**: 前端 Trade 视图 "Change strategy" 中修改单个字段（如 Max % Vol = 8）提交时，弹出 `Invalid Strategy Parameter`，后端日志显示 Bloomberg 对 `ModifyRouteEx`（或 `RouteEx`）返回错误
+- **Root Cause**: `_apply_strategy_params` 会逐个将 `strategyParams.fields` 追加为 `EMSX_STRATEGY_FIELDS` + `EMSX_STRATEGY_FIELD_INDICATORS`；当字段 `disabled=false` 但 `value=""`（或 `None`）时，会发出 `EMSX_FIELD_INDICATOR=0` 搭配空 `EMSX_FIELD_DATA`。Bloomberg EMSX 要求 indicator=0 时必须带有非空数据，否则整个策略请求以 "Invalid Strategy Parameter" 拒绝。前端会把用户未显式修改过、但 Bloomberg 返回 `Disable=0` 的字段（`disabled=false`, `value=""`）一并回传，导致一次单字段修改失败。
+- **Resolution**:
+  1. 在 `ExecutionView/backend/api/services/bloomberg_adapter.py::_apply_strategy_params` 中，把 `None` 规范化为空串并 `strip()`；若 `disabled=false` 且值为空，自动降级为 `indicator=1`（跳过）+ 空数据，避免向 Bloomberg 发送非法组合。
+  2. 新增回归测试 `test_modify_route_treats_empty_strategy_fields_as_skipped`（`ExecutionView/backend/api/tests/test_bloomberg_adapter_routing.py`），覆盖空串/None/显式 disabled 场景。
+- **Status**: Resolved
+- **Date**: 2026-04-24
+- **Files**: `ExecutionView/backend/api/services/bloomberg_adapter.py`, `ExecutionView/backend/api/tests/test_bloomberg_adapter_routing.py`
+- **Lessons**: Bloomberg EMSX 的 `EMSX_FIELD_INDICATOR` 必须与 `EMSX_FIELD_DATA` 严格一致 —— indicator=0 要求非空值，否则整个 strategy 请求都会被拒绝；前端把全量字段回传时，后端必须在序列化层兜底过滤空启用字段，而不是依赖前端一定把空字段标记为 disabled。
+
+---
+
 ## Pattern: launch-emsx.vbs False Startup Failure
 
 - **Signature**: `scripts/deploy/launch-emsx.vbs` 启动后端和前端后仍返回失败或超时；服务实际已在 `3000/5173` 正常监听，但 VBS 误判为未就绪
