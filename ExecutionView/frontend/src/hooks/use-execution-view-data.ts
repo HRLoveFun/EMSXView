@@ -18,6 +18,12 @@ interface UseExecutionViewDataOptions {
   isAuthenticated: boolean;
   isBackendReady: boolean;
   streamConnected: boolean;
+  /**
+   * If true, REST fetching is permitted even when the backend is not yet
+   * marked ready. Used as a degraded-mode fallback when EMSX subscription
+   * warming has exceeded the timeout but HTTP is reachable.
+   */
+  allowFallbackFetch?: boolean;
   onAuthenticationFailure: () => void;
   onToast: (type: Toast['type'], message: string) => void;
 }
@@ -28,6 +34,7 @@ export function useExecutionViewData({
   isAuthenticated,
   isBackendReady,
   streamConnected,
+  allowFallbackFetch = false,
   onAuthenticationFailure,
   onToast,
 }: UseExecutionViewDataOptions) {
@@ -121,17 +128,19 @@ export function useExecutionViewData({
       setIsLoading(false);
       return;
     }
-    if (!isBackendReady || initialDataLoadedRef.current) {
+    const canFetch = isBackendReady || allowFallbackFetch;
+    if (!canFetch || initialDataLoadedRef.current) {
       return;
     }
 
     initialDataLoadedRef.current = true;
     fetchOrders();
     fetchTraderInfo();
-  }, [fetchOrders, fetchTraderInfo, isAuthenticated, isBackendReady]);
+  }, [allowFallbackFetch, fetchOrders, fetchTraderInfo, isAuthenticated, isBackendReady]);
 
   useEffect(() => {
-    if (!isAuthenticated || streamConnected || !isBackendReady) {
+    const canPoll = isBackendReady || allowFallbackFetch;
+    if (!isAuthenticated || streamConnected || !canPoll) {
       return;
     }
 
@@ -187,7 +196,7 @@ export function useExecutionViewData({
       clearTimeout(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchOrdersAndRoutes, isAuthenticated, isBackendReady, streamConnected]);
+  }, [allowFallbackFetch, fetchOrdersAndRoutes, isAuthenticated, isBackendReady, streamConnected]);
 
   useEffect(() => {
     if (!isAuthenticated || !isBackendReady) {

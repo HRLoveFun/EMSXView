@@ -12,9 +12,12 @@ from schemas import (
     ApiResponse, OrderFilters,
     OrderSide, OrderStatus, OrderType,
     BatchUpdateRequest, ModifyOrderRequest, RouteOrderRequest,
+    BatchRouteOrderRequest,
     CreateParentExecutionRequest, ParentExecutionCommand,
 )
 from deps import verify_token, audit_log, get_bloomberg
+from services import batch_route_service
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(tags=["Orders"])
 
@@ -94,7 +97,31 @@ async def route_order(request: RouteOrderRequest, user: dict = Depends(verify_to
         "orderId": request.orderId, "broker": request.broker,
         "quantity": request.quantity, "orderType": request.orderType,
     })
-    result = await get_bloomberg().route_order(request)
+    bloomberg = get_bloomberg()
+    # Pre-trade compliance check using the cached parent order.
+    parent_order = None
+    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+        with bloomberg._data_lock:
+            parent_order = bloomberg._orders.get(request.orderId)
+    if parent_order is not None:
+        from services import compliance_service
+        from fastapi import HTTPException
+        violations = compliance_service.check_route(
+            parent_order,
+            route_qty=request.quantity,
+            limit_price=request.price,
+            stop_price=request.stopPrice,
+            order_type=request.orderType,
+        )
+        if violations:
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Pre-trade compliance check failed",
+                    "violations": [v.model_dump() for v in violations],
+                },
+            )
+    result = await bloomberg.route_order(request)
     return ApiResponse(success=True, data=result, message=f"Route created for order {request.orderId}")
 
 
@@ -106,6 +133,42 @@ async def batch_update(request: BatchUpdateRequest, user: dict = Depends(verify_
     })
     result = await get_bloomberg().batch_update(request)
     return ApiResponse(success=result.success, data=result.model_dump(), message=result.message)
+
+
+@router.post("/api/orders/batch-route")
+async def batch_route(request: BatchRouteOrderRequest, user: dict = Depends(verify_token)):
+    """Batch-route N parent orders.
+
+    - ``dryRun=true``  -> sync JSON ``BatchOperationResult`` (validation +
+      compliance only; no blpapi calls).
+    - ``dryRun=false`` -> NDJSON stream; one ``BatchOperationItemResult`` per
+      line, plus a final ``{"summary": BatchOperationResult}`` line.
+    """
+    audit_log("BATCH_ROUTE", user.get("sub"), {
+        "itemCount": len(request.items),
+        "templateKeys": sorted(request.template.keys()),
+        "dryRun": request.dryRun,
+    })
+    bloomberg = get_bloomberg()
+    terminal_trader = (
+        bloomberg.get_terminal_trader_name()
+        if hasattr(bloomberg, "get_terminal_trader_name")
+        else None
+    )
+    if request.dryRun:
+        result = await batch_route_service.dry_run_batch_route(
+            bloomberg, request, terminal_trader=terminal_trader,
+        )
+        return ApiResponse(
+            success=True, data=result.model_dump(),
+            message=f"Dry-run: {result.succeeded} ready, {result.blocked} blocked",
+        )
+    return StreamingResponse(
+        batch_route_service.stream_batch_route(
+            bloomberg, request, terminal_trader=terminal_trader,
+        ),
+        media_type="application/x-ndjson",
+    )
 
 
 @router.get("/api/orders/refresh", response_model=ApiResponse)

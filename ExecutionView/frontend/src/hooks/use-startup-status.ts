@@ -69,6 +69,9 @@ export function useStartupStatus({
   const [isChecking, setIsChecking] = useState(false);
   const [probeId, setProbeId] = useState(0);
   const startedAtRef = useRef(Date.now());
+  // Holds a callback that, when invoked, cancels the pending poll timer and
+  // runs poll() immediately. Repopulated on every poll cycle.
+  const wakeupRef = useRef<(() => void) | null>(null);
 
   const retry = useCallback(() => {
     startedAtRef.current = Date.now();
@@ -87,6 +90,20 @@ export function useStartupStatus({
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    const scheduleNext = (delay: number) => {
+      timer = setTimeout(() => {
+        timer = null;
+        poll();
+      }, delay);
+      wakeupRef.current = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+          poll();
+        }
+      };
+    };
+
     const poll = async () => {
       const elapsedMs = Date.now() - startedAtRef.current;
       if (active) {
@@ -100,7 +117,7 @@ export function useStartupStatus({
         if (response.success && response.data) {
           setStartupStatus(response.data);
           const delay = response.data.ready ? readyPollIntervalMs : pollIntervalMs;
-          timer = setTimeout(poll, delay);
+          scheduleNext(delay);
           return;
         }
         setStartupStatus(buildSyntheticStartupStatus(elapsedMs, timeoutMs, response.error));
@@ -115,14 +132,26 @@ export function useStartupStatus({
       }
 
       if (active) {
-        timer = setTimeout(poll, pollIntervalMs);
+        scheduleNext(pollIntervalMs);
       }
     };
 
     poll();
 
+    // When the tab returns to the foreground, poll immediately rather than
+    // waiting for the next setInterval tick (which could be many seconds
+    // out after the browser throttled background timers).
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && wakeupRef.current) {
+        wakeupRef.current();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       active = false;
+      wakeupRef.current = null;
+      document.removeEventListener('visibilitychange', handleVisibility);
       if (timer) {
         clearTimeout(timer);
       }

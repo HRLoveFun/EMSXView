@@ -89,13 +89,29 @@ def test_config():
     return True
 
 
+def test_regime():
+    """Test regime layer end-to-end (uses mock fetcher, temp DBs)."""
+    print("\n=== TEST 6: Regime Layer E2E ===")
+    import unittest as _ut
+    from CostView.tests.test_regime_e2e import RegimeE2ETest
+    suite = _ut.TestLoader().loadTestsFromTestCase(RegimeE2ETest)
+    runner = _ut.TextTestRunner(verbosity=0, stream=open(Path(tempfile.gettempdir()) / "regime_test.log", "w"))
+    result = runner.run(suite)
+    if result.wasSuccessful():
+        print(f"[OK] {result.testsRun} regime sub-tests passed")
+        print("[PASS] Regime test")
+        return True
+    print(f"[FAIL] regime: {len(result.failures)} failures, {len(result.errors)} errors")
+    return False
+
+
 def run_all():
     """Run all tests."""
     print("=" * 50)
     print("FillFetch Comprehensive Test Suite")
     print("=" * 50)
     
-    tests = [test_basic, test_hash, test_dedup, test_excel, test_config]
+    tests = [test_basic, test_hash, test_dedup, test_excel, test_config, test_regime]
     passed = 0
     
     for test in tests:

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
@@ -107,13 +107,28 @@ export function ExecutionBoard({
   }, [orders.length, displayedRoutes.length]);
 
   // When cursor moves in orders pane, single-select that order so the Route
-  // pane filters to its child routes (Bloomberg-style linkage).
+  // pane filters to its child routes (Bloomberg-style linkage). Only fires
+  // on actual cursor movement (keyboard nav) — not on initial mount, and
+  // not when the user already has a multi-selection from clicking checkboxes
+  // (otherwise this effect would stomp on the user's selection on every
+  // data refresh by re-asserting the cursor's single-selection).
+  const prevCursorRef = useRef<number | null>(null);
   useEffect(() => {
     if (activePane !== 'orders') return;
+    // Skip the very first run after mount so we don't auto-select orders[0].
+    if (prevCursorRef.current === null) {
+      prevCursorRef.current = cursorOrderIdx;
+      return;
+    }
+    if (prevCursorRef.current === cursorOrderIdx) return;
+    prevCursorRef.current = cursorOrderIdx;
     const target = orders[cursorOrderIdx];
     if (!target) return;
+    // If the user has a multi-selection (>1) we don't override — they're
+    // building a batch. The cursor still moves (and Routes pane keeps using
+    // its own filter), but selection is left intact.
+    if (selectedOrders.size > 1) return;
     const next = new Set<string>([target.id]);
-    // Only push change when it would actually differ (avoid render loops)
     if (selectedOrders.size !== 1 || !selectedOrders.has(target.id)) {
       onSelectionChange(next);
     }

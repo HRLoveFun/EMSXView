@@ -56,6 +56,7 @@ export interface Order {
   dayAvgPrice: number | null;
   mktVwap: number | null;
   isOddLot?: boolean | null;  // JP market only: true if quantity not multiple of round lot size
+  roundLotSize?: number | null;  // PX_ROUND_LOT_SIZE refdata; fallback to 100 for JP markets when missing
   // Parent-child execution context (populated when an algorithmic parent exists)
   parentExecutionId?: number | null;
   scheduleType?: ScheduleType | null;
@@ -401,4 +402,68 @@ export interface ActiveExecutionSummary {
   targetQuantity: number;
   status: ExecutionStatus;
   trader: string;
+}
+
+
+// ============================================================================
+// Pre-trade Compliance & Batch Operations
+// ============================================================================
+
+export type ViolationCode =
+  | 'NOTIONAL_TOO_SMALL'
+  | 'NOTIONAL_TOO_LARGE'
+  | 'JP_ODD_LOT'
+  | 'NOTIONAL_UNKNOWN';
+
+export interface Violation {
+  code: ViolationCode;
+  message: string;
+  severity: 'BLOCK';
+  details?: Record<string, unknown> | null;
+}
+
+export interface BatchRouteOrderItem {
+  orderId: string;
+  /** Stable client-side key when one orderId yields multiple destinations
+   *  (multi-broker split). Echoed back as the result key. */
+  clientKey?: string;
+  override?: Partial<Omit<RouteOrderRequest, 'orderId'>>;
+}
+
+export interface BatchRouteOrderRequest {
+  template: Partial<Omit<RouteOrderRequest, 'orderId'>>;
+  items: BatchRouteOrderItem[];
+  dryRun?: boolean;
+}
+
+export interface BatchModifyRouteItem {
+  sequence: number;
+  routeId: number;
+  /** Stable client-side key. Defaults to `${sequence}.${routeId}`. */
+  clientKey?: string;
+  override?: Partial<Omit<ModifyRouteRequest, 'sequence' | 'routeId'>>;
+}
+
+export interface BatchModifyRouteRequest {
+  template: Partial<Omit<ModifyRouteRequest, 'sequence' | 'routeId'>>;
+  items: BatchModifyRouteItem[];
+  dryRun?: boolean;
+}
+
+export type BatchOperationItemStatus = 'SUCCESS' | 'BLOCKED' | 'FAILED';
+
+export interface BatchOperationItemResult {
+  key: string;
+  status: BatchOperationItemStatus;
+  message: string;
+  violations: Violation[];
+  routeId?: number | null;
+}
+
+export interface BatchOperationResult {
+  total: number;
+  succeeded: number;
+  blocked: number;
+  failed: number;
+  items: BatchOperationItemResult[];
 }

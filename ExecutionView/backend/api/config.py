@@ -43,6 +43,20 @@ class Settings:
     ALLOWED_TRADERS: List[str] = os.getenv("ALLOWED_TRADERS", "").split(",")
     MAX_BATCH_SIZE: int = int(os.getenv("MAX_BATCH_SIZE", "100"))
 
+    # Batch route / modify-route operations (separate from MAX_BATCH_SIZE which
+    # is used by /api/orders/batch-update for legacy reasons).
+    BATCH_ROUTE_MAX_SIZE: int = int(os.getenv("BATCH_ROUTE_MAX_SIZE", "500"))
+
+    # Concurrent in-flight EMSX submissions per batch. blpapi serialises
+    # requests internally via _request_lock, so the practical ceiling is
+    # observed empirically; see metrics.md for the live observation entry.
+    BATCH_CONCURRENCY: int = int(os.getenv("BATCH_CONCURRENCY", "5"))
+
+    # Pre-trade compliance thresholds (USD). Values failing these bounds are
+    # hard-blocked. See services/compliance_service.py.
+    USD_NOTIONAL_MIN: float = float(os.getenv("USD_NOTIONAL_MIN", "10000"))
+    USD_NOTIONAL_MAX: float = float(os.getenv("USD_NOTIONAL_MAX", "49000000"))
+
     # Odd lot detection markets
     ODD_LOT_MARKETS: List[str] = [
         m.strip().upper()

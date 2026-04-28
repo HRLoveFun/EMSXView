@@ -20,6 +20,9 @@ from typing import Dict, List
 closing_auction_times: Dict[str, str] = {
     # APAC
     "AU": "16:10:00",
+    "NZ": "16:45:00",
+    "CH": "15:00:00",
+    "HK": "16:00:00",
     "IJ": "16:00:00",
     "IN": "15:31:00",
     "JP": "15:30:00",
@@ -34,6 +37,7 @@ closing_auction_times: Dict[str, str] = {
     "SJ": "17:00:00",
     "SS": "17:30:00",
     "SW": "17:30:00",
+    "IT": "17:14:00",
     # EMEA (central/southern)
     "AV": "17:35:00",
     "BB": "17:35:00",
