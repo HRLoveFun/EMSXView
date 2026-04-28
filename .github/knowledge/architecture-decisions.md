@@ -1,4 +1,4 @@
-# Architecture Decisions Log
+﻿# Architecture Decisions Log
 
 > Auto-maintained by the iterative update mechanism. Records architectural decisions, their context, and review schedule.
 
@@ -10,13 +10,13 @@
 - **Context**: Fast iteration during early development; Bloomberg blpapi requires specific session lifecycle management; all EMSX operations are tightly coupled
 - **Decision**: Keep all backend logic in a single `main.py` file (~3695 lines) with FastAPI + blpapi
 - **Consequences**: Easy to search and understand data flow; difficult to test in isolation; merge conflicts likely with multiple contributors; IDE performance degrades
-- **Technical Debt**: HIGH — file exceeds 3000-line threshold; contains models, routes, Bloomberg session management, and business logic in one file
+- **Technical Debt**: HIGH â€” file exceeds 3000-line threshold; contains models, routes, Bloomberg session management, and business logic in one file
 - **Review Date**: 2026-04-16 (next major feature)
 - **Status**: Superseded on 2026-04-03 by router/service/schema extraction. `Execution/backend/api/main.py` now acts primarily as the application assembly entry point while business logic lives in routers, services, repositories, and schemas.
 
 ---
 
-## Decision: No Redux — React Hooks + Context
+## Decision: No Redux â€” React Hooks + Context
 
 - **Date**: 2026-03 (initial design)
 - **Context**: Application state is primarily server-driven (Bloomberg subscriptions); limited client-side state complexity
@@ -40,7 +40,7 @@
 
 - **Date**: 2026-03
 - **Context**: Raw fills come from Excel/Bloomberg in various formats; processed data needs consistent schema for aggregation
-- **Decision**: Two SQLite databases — `raw_fills.db` (TEXT columns for schema flexibility) and `processed_fills.db` (typed columns + aggregations + labels)
+- **Decision**: Two SQLite databases â€” `raw_fills.db` (TEXT columns for schema flexibility) and `processed_fills.db` (typed columns + aggregations + labels)
 - **Consequences**: Clear separation of concerns; raw data preserved for reprocessing; extra storage overhead; must maintain two schemas
 - **Review Date**: 2026-06-01
 
@@ -70,7 +70,7 @@
 
 - **Date**: 2026-04-15
 - **Context**: CostView 6-stage pipeline processed dates serially in S2/S3 and tickers serially in S5. SQLite WAL mode supports concurrent readers + single writer.
-- **Decision**: Add ThreadPoolExecutor-based parallelism with per-thread DB connections (max 4 dates, max 3 tickers). Falls back to serial when max_workers≤1. Configurable via `MAX_PARALLEL_DATES` and `MAX_PARALLEL_TICKERS` in `processing_config.py`.
+- **Decision**: Add ThreadPoolExecutor-based parallelism with per-thread DB connections (max 4 dates, max 3 tickers). Falls back to serial when max_workersâ‰¤1. Configurable via `MAX_PARALLEL_DATES` and `MAX_PARALLEL_TICKERS` in `processing_config.py`.
 - **Consequences**: Expected 2-4x speedup on multi-date runs; each thread creates its own RawFillsDB/ProcessedFillsDB instance avoiding connection sharing; requires Phase 1.2 transaction atomicity (optional `conn` param on write methods) to be in place first.
 - **Review Date**: 2026-06-01
 
@@ -79,7 +79,7 @@
 ## Decision: Vectorized Timezone Conversion via batch_convert_ny_to_local
 
 - **Date**: 2026-04-15
-- **Context**: `derive_exchange_times()` used per-row `iterrows()` + `convert_ny_to_local()` — O(N) ZoneInfo lookups. For 100k fills, this was the single largest bottleneck.
+- **Context**: `derive_exchange_times()` used per-row `iterrows()` + `convert_ny_to_local()` â€” O(N) ZoneInfo lookups. For 100k fills, this was the single largest bottleneck.
 - **Decision**: Group rows by exchange code (5-15 groups per day), do one `ZoneInfo` lookup per group, then use vectorized `pd.Series.dt.tz_convert()`. New `batch_convert_ny_to_local()` in `exchange_tz.py`.
 - **Consequences**: 10-50x expected speedup; same output format; falls back to NY timezone for unrecognized exchange codes.
 - **Review Date**: 2026-06-01
@@ -123,3 +123,24 @@
 - **Decision**: Use the latest `bdib_daily_summary` snapshot as MarketView phase-1 data. Surface it through `platform_data` via `MarketReferenceDataAdapter`, expose it with `Execution/backend/api/routers/marketview.py`, and render it in the frontend shell before attempting realtime market streams or order-aware pre-trade recommendation logic.
 - **Consequences**: MarketView becomes operational with real data quickly and without adding a second market-data ingestion path. The initial scope stays read-only and day-level, which reduces risk. Realtime streaming and richer pre-trade workflows remain future increments once the shell boundary and adapter path are proven.
 - **Review Date**: 2026-05-22
+
+---
+
+## Decision: CostView Regime Layer Schema Conventions (M1)
+
+- **Date**: 2026-04-27
+- **Context**: Adding a new analytical layer (regime classification) to CostView; need conventions reusable across future modules (attribution, research outputs).
+- **Decision**:
+  - 4-layer table prefix: `ref_` / `daily_` / `fill_` (or `event_`) / `audit_`; upper layers only read lower layers.
+  - Every non-`ref_` table carries `ingested_at TIMESTAMP NOT NULL` + `source_version TEXT NOT NULL`.
+  - Every analytical DB ships `audit_pipeline_runs` + `<module>_status` SQL view + `validate_<module>.py`.
+  - Parameterized analytical outputs (e.g. `fill_regime_labels`) include `config_version` in PK; append-only; current params resolved via `audit_<module>_config_versions.is_active=1`.
+  - DDL centralized in module-level `schema.py` with `SCHEMA_VERSION` constant; any DDL change requires bump + `migrations/vN_to_vN+1.sql`.
+  - Pragma triple on every DB: `journal_mode=WAL; foreign_keys=ON; user_version=N`.
+  - Date type: `TEXT 'YYYY-MM-DD'` for all new tables. Legacy `'YYYYMMDD'` (raw_bdib, bdib_daily_summary) is technical debt; not migrated now.
+- **Consequences**: Reproducibility (param drift preserved), recovery (audit_pipeline_runs), observability (status view), low-friction onboarding for new analytical DBs. Cost: more boilerplate per table.
+- **Codified at**: [.github/skills/schema-designer/SKILL.md](../skills/schema-designer/SKILL.md) + [.github/agents/schema-designer.agent.md](../agents/schema-designer.agent.md) + `/memories/repo/schema-design-conventions.md`.
+- **Review Date**: 2026-07-01 (after M1+M2 ship to verify principles hold)
+- **Status**: Active
+
+

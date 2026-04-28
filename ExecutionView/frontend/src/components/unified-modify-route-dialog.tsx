@@ -33,8 +33,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Route, BrokerStrategyField, ModifyRouteRequest } from '@/types';
+import type { Route, ModifyRouteRequest } from '@/types';
 import { cachedApiService, apiService } from '@/services/api';
+import { BrokerStrategyFields, useStrategyFields } from '@/components/broker-strategy-fields';
 
 /**
  * Order-type / TIF option metadata. The values come from the backend
@@ -60,22 +61,11 @@ const FALLBACK_TIF: TifOption[] = [
   { value: 'GTD', label: 'GTD' },
 ];
 
-interface StrategyFieldState {
-  fieldName: string;
-  value: string;
-  disabled: boolean;
-  defaultValue: string;
-  /** Snapshot taken when the strategy metadata loaded. */
-  originalValue: string;
-  originalDisabled: boolean;
-}
-
 interface UnifiedModifyRouteDialogProps {
   route: Route | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (request: ModifyRouteRequest) => Promise<void>;
-  availableBrokers?: string[];
 }
 
 interface DiffEntry {
@@ -98,7 +88,6 @@ export function UnifiedModifyRouteDialog({
   open,
   onOpenChange,
   onSubmit,
-  availableBrokers = [],
 }: UnifiedModifyRouteDialogProps) {
   // ----- Original baseline captured when opened -----
   const [origAmount, setOrigAmount] = useState('');
@@ -122,11 +111,14 @@ export function UnifiedModifyRouteDialog({
 
   // Strategy metadata
   const [strategies, setStrategies] = useState<string[]>([]);
-  const [strategyFields, setStrategyFields] = useState<StrategyFieldState[]>([]);
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
-  const [isLoadingFields, setIsLoadingFields] = useState(false);
   const [assetClass, setAssetClass] = useState('EQTY');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Editable strategy fields — shared between Modify Route and Route Order.
+  const strategyFieldsState = useStrategyFields(broker, strategy, assetClass);
+  const { fields: strategyFields, setFields: setStrategyFields, isLoading: isLoadingFields,
+    refresh: refreshStrategyFields, dirty: dirtyStrategyFields, toStrategyParams } = strategyFieldsState;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -170,7 +162,6 @@ export function UnifiedModifyRouteDialog({
       setOrigStrategy(s); setStrategy(s);
       setOrigNotes(n); setNotes(n);
 
-      setStrategyFields([]);
       setStrategies([]);
       setError('');
     }
@@ -254,7 +245,6 @@ export function UnifiedModifyRouteDialog({
   const dirtyBroker = broker.toUpperCase() !== origBroker.toUpperCase();
   const dirtyStrategy = strategy !== origStrategy;
   const dirtyNotes = notes !== origNotes;
-  const dirtyStrategyFields = strategyFields.some(f => f.value !== f.originalValue || f.disabled !== f.originalDisabled);
   const dirtyTypeGroup = dirtyOrderType || dirtyLimitPrice || dirtyStopPrice || dirtyTif;
   const dirtyBrokerStrategyGroup = dirtyBroker || dirtyStrategy || dirtyStrategyFields;
   const anyDirty = dirtyAmount || dirtyTypeGroup || dirtyBrokerStrategyGroup || dirtyNotes;
@@ -302,9 +292,9 @@ export function UnifiedModifyRouteDialog({
         if (!broker.trim()) throw new Error('Please enter a broker code');
         req.broker = broker.trim().toUpperCase();
       }
-      req.strategyParams = {
+      req.strategyParams = toStrategyParams(strategy) ?? {
         strategyName: strategy,
-        fields: strategyFields.map(f => ({ value: f.value, disabled: f.disabled })),
+        fields: [],
       };
     }
 
@@ -312,7 +302,7 @@ export function UnifiedModifyRouteDialog({
 
     return req;
   }, [route, dirtyAmount, dirtyTypeGroup, dirtyBrokerStrategyGroup, dirtyBroker, dirtyNotes,
-      amount, orderType, tif, limitPrice, stopPrice, broker, strategy, strategyFields, notes,
+      amount, orderType, tif, limitPrice, stopPrice, broker, strategy, toStrategyParams, notes,
       currentOrderType]);
 
   const diff = useMemo<DiffEntry[]>(() => {
@@ -425,21 +415,18 @@ export function UnifiedModifyRouteDialog({
 
             {/* Row 2: Broker (R Dest) / Strategy / Stop Price */}
             <div className="grid grid-cols-6 gap-2">
-              <FieldBlock label="R Dest (Broker)" required dirty={dirtyBroker}>
-                {availableBrokers.length > 0 ? (
-                  <Select value={broker} onValueChange={(v) => { setBroker(v.toUpperCase()); setStrategy(''); }}>
-                    <SelectTrigger className={`h-8 ${dirtyClass(dirtyBroker)}`}><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      {availableBrokers.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    value={broker}
-                    onChange={(e) => { setBroker(e.target.value.toUpperCase()); setStrategy(''); }}
-                    className={`h-8 font-mono ${dirtyClass(dirtyBroker)}`}
-                  />
-                )}
+              <FieldBlock
+                label="R Dest (Broker)"
+                required
+                dirty={false}
+                hint="Read-only — EMSX ModifyRouteEx does not support changing broker. To switch broker: Cancel this route, then Route to the new broker."
+              >
+                <Input
+                  value={broker}
+                  readOnly
+                  disabled
+                  className="h-8 font-mono opacity-70 cursor-not-allowed"
+                />
               </FieldBlock>
               <FieldBlock label="Strategy" dirty={dirtyStrategy} className="col-span-2">
                 {isLoadingStrategies ? (
@@ -478,63 +465,13 @@ export function UnifiedModifyRouteDialog({
               </FieldBlock>
             </div>
 
-            {/* Strategy parameters */}
+            {/* Strategy parameters (shared with Route Order) */}
             {strategy && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs font-medium">Strat Params</Label>
-                  <span className="text-[10px] text-muted-foreground">
-                    Toggle "Off" to skip a field (Bloomberg EMSX_FIELD_INDICATOR=1)
-                  </span>
-                </div>
-                {isLoadingFields ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Loading parameters…
-                  </div>
-                ) : strategyFields.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 max-h-56 overflow-y-auto pr-1 border border-border rounded p-2">
-                    {strategyFields.map((field, idx) => {
-                      const fieldDirty = field.value !== field.originalValue || field.disabled !== field.originalDisabled;
-                      return (
-                        <div key={field.fieldName} className="flex items-center gap-1">
-                          <label className="w-24 text-[11px] text-muted-foreground truncate" title={field.fieldName}>
-                            {field.fieldName}
-                          </label>
-                          <Input
-                            value={field.disabled ? '' : field.value}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setStrategyFields(prev => {
-                                const next = [...prev];
-                                next[idx] = { ...next[idx], value: v, disabled: false };
-                                return next;
-                              });
-                            }}
-                            disabled={field.disabled}
-                            placeholder={field.disabled ? '(off)' : ''}
-                            className={`h-6 text-xs flex-1 font-mono ${dirtyClass(fieldDirty)}`}
-                          />
-                          <button type="button" onClick={() => {
-                            setStrategyFields(prev => {
-                              const next = [...prev];
-                              next[idx] = { ...next[idx], disabled: !next[idx].disabled };
-                              return next;
-                            });
-                          }}
-                            className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                              field.disabled ? 'bg-muted text-muted-foreground border-border'
-                                             : 'bg-primary/10 text-primary border-primary/30'
-                            }`}>
-                            {field.disabled ? 'Off' : 'On'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No parameters for this strategy</p>
-                )}
-              </div>
+              <BrokerStrategyFields
+                fields={strategyFields}
+                setFields={setStrategyFields}
+                isLoading={isLoadingFields}
+              />
             )}
 
             {/* Inline diff summary — always visible when anything is dirty */}
@@ -581,16 +518,18 @@ interface FieldBlockProps {
   required?: boolean;
   dirty?: boolean;
   className?: string;
+  hint?: string;
   children: React.ReactNode;
 }
 
-function FieldBlock({ label, required, dirty, className, children }: FieldBlockProps) {
+function FieldBlock({ label, required, dirty, className, hint, children }: FieldBlockProps) {
   return (
-    <div className={`space-y-1 ${className || ''}`}>
+    <div className={`space-y-1 ${className || ''}`} title={hint}>
       <Label className={`text-[11px] ${dirty ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-muted-foreground'}`}>
         {label}{required && <span className="text-destructive">*</span>}
       </Label>
       {children}
+      {hint && <p className="text-[10px] text-muted-foreground italic leading-tight">{hint}</p>}
     </div>
   );
 }

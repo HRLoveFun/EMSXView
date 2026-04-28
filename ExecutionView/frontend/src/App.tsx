@@ -30,6 +30,10 @@ function App() {
   // State - top-level modules plus execution sub-tabs
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
+  // Track whether the WS has *ever* opened during this session. Lets the UI
+  // distinguish "never connected" (cold start) from "previously connected,
+  // currently reconnecting" (recovery).
+  const [streamEverConnected, setStreamEverConnected] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     'global' | 'monitor-conditions' | 'broker-algo' | 'parameter-frequency' | 'data-manager' | 'about'
   >('global');
@@ -55,10 +59,32 @@ function App() {
     const client = createRealtimeClient({ url: `${wsBase}/ws/orders` });
     rtClientRef.current = client;
 
-    client.onStatus((s) => setStreamConnected(s === 'connected'));
+    client.onStatus((s) => {
+      const isConnected = s === 'connected';
+      setStreamConnected(isConnected);
+      if (isConnected) {
+        setStreamEverConnected(true);
+      }
+    });
     client.connect();
 
-    return () => { client.disconnect(); };
+    // Visibility-aware reconnect: when the tab returns to foreground and we
+    // are not connected, force an immediate reconnect attempt instead of
+    // waiting for the exponential backoff timer (which may be far in the
+    // future after the browser throttled the tab in the background).
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const c = rtClientRef.current;
+      if (c && !c.connected) {
+        c.forceReconnect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      client.disconnect();
+    };
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -74,6 +100,14 @@ function App() {
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
+
+  // Degraded-mode flag: HTTP is up, but EMSX subscriptions warming has
+  // exceeded the timeout window. Allow REST polling so users see data even
+  // before INIT_PAINT completes.
+  const subscriptionsWarmingTimedOut =
+    (startupStatus?.backend.httpReady ?? false)
+    && !isBackendReady
+    && backendBootstrapElapsedSec > 60;
 
   const {
     allOrders,
@@ -95,6 +129,7 @@ function App() {
     isAuthenticated,
     isBackendReady,
     streamConnected,
+    allowFallbackFetch: subscriptionsWarmingTimedOut,
     onAuthenticationFailure: handleLogout,
     onToast: addToast,
   });
@@ -127,6 +162,7 @@ function App() {
     toolbarOrderCount,
     shouldShowStartupGate,
     subscriptionsWarming,
+    subscriptionsWarmingMode,
     footerConnectionText,
     handleFilterChange,
   } = useAppShellState({
@@ -135,6 +171,8 @@ function App() {
     startupStatus,
     isBackendReady,
     streamConnected,
+    streamEverConnected,
+    startupElapsedSeconds: backendBootstrapElapsedSec,
   });
 
   // Handle filter changes — purely client-side, instant
@@ -183,9 +221,31 @@ function App() {
             executionView={
               <div className="space-y-3">
                 {subscriptionsWarming ? (
-                  <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
-                    Warming EMSX subscriptions — order & route streams will populate momentarily.
-                    You can explore CostView, MarketView, and Database tabs while we wait.
+                  <div
+                    className={
+                      subscriptionsWarmingMode === 'timed-out'
+                        ? 'rounded-xl border border-dashed border-amber-500/50 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-300'
+                        : 'rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-xs text-muted-foreground'
+                    }
+                  >
+                    {subscriptionsWarmingMode === 'initial' && (
+                      <>
+                        Establishing EMSX subscriptions — order &amp; route streams will populate momentarily.
+                        You can explore CostView, MarketView, and Database tabs while we wait.
+                      </>
+                    )}
+                    {subscriptionsWarmingMode === 'reconnecting' && (
+                      <>
+                        Realtime stream interrupted — reconnecting and resuming order &amp; route updates.
+                      </>
+                    )}
+                    {subscriptionsWarmingMode === 'timed-out' && (
+                      <>
+                        EMSX subscription warm-up is taking longer than expected ({backendBootstrapElapsedSec}s).
+                        Falling back to REST polling so the table stays populated. Realtime updates will
+                        resume automatically once the subscription is healthy.
+                      </>
+                    )}
                   </div>
                 ) : null}
                 <ExecutionViewTabs

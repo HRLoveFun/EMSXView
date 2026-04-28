@@ -671,6 +671,145 @@ class CalculateDailyMetricsStage(BaseStage):
         return True
 
 
+class RegimeDailyFeaturesStage(BaseStage):
+    """Stage 8: build daily regime features (market_index → vol/liq/trend) for target_dates.
+
+    Reads context.config["regime"] for options:
+      - skip_fetch: bool (default False) — skip Bloomberg fetch, reuse daily_market_index
+      - config_version: str | None       — override active config
+    """
+
+    @property
+    def name(self) -> str: return "8. Regime Daily Features (vol/liq/trend)"
+
+    def process(self, context: PipelineContext) -> bool:
+        if not context.target_dates:
+            logger.info("Stage 8: no target_dates; skipping")
+            context.summary["regime_daily"] = {"skipped": True}
+            return True
+        try:
+            from .regime import liquidity_regime, market_index_loader, trend_regime, vol_regime
+            from .regime.config import ensure_default_config
+            from .regime.run_journal import run_journal
+        except ImportError as e:
+            logger.warning(f"Skipping regime daily stage: {e}")
+            context.summary["regime_daily"] = {"skipped": True, "error": str(e)}
+            return True
+
+        opts = context.config.get("regime", {}) or {}
+        skip_fetch = bool(opts.get("skip_fetch", False))
+        version = opts.get("config_version") or ensure_default_config()
+
+        # Convert legacy 'YYYYMMDD' target_dates → ISO range.
+        iso_dates = [_to_iso_safe(d) for d in context.target_dates]
+        iso_dates = [d for d in iso_dates if d]
+        if not iso_dates:
+            logger.warning("Stage 8: no convertible target_dates")
+            return True
+        start, end = min(iso_dates), max(iso_dates)
+
+        results = {}
+        if not skip_fetch:
+            with run_journal("market_index_loader", config_version=version,
+                             start=start, end=end) as rec:
+                n = market_index_loader.load_market_index(start, end)
+                rec.set_rows(n)
+                results["market_index_loader"] = n
+        for stage_name, fn in (
+            ("vol_regime", vol_regime.classify),
+            ("liquidity_regime", liquidity_regime.classify),
+            ("trend_regime", trend_regime.classify),
+        ):
+            with run_journal(stage_name, config_version=version, start=start, end=end) as rec:
+                n = fn(start, end, config_version=version)
+                rec.set_rows(n)
+                results[stage_name] = n
+
+        context.summary["regime_daily"] = {"config_version": version, **results}
+        return True
+
+
+class RegimeFillTaggerStage(BaseStage):
+    """Stage 9: tag fills with regime labels (depends on Stage 8)."""
+
+    @property
+    def name(self) -> str: return "9. Regime Fill Tagger"
+
+    def process(self, context: PipelineContext) -> bool:
+        if not context.target_dates:
+            logger.info("Stage 9: no target_dates; skipping")
+            return True
+        try:
+            from .regime import fill_regime_tagger
+            from .regime.config import ensure_default_config
+            from .regime.run_journal import run_journal
+        except ImportError as e:
+            logger.warning(f"Skipping regime tagger stage: {e}")
+            context.summary["regime_tagger"] = {"skipped": True, "error": str(e)}
+            return True
+
+        opts = context.config.get("regime", {}) or {}
+        version = opts.get("config_version") or ensure_default_config()
+
+        iso_dates = [_to_iso_safe(d) for d in context.target_dates]
+        iso_dates = [d for d in iso_dates if d]
+        if not iso_dates:
+            return True
+        start, end = min(iso_dates), max(iso_dates)
+
+        with run_journal("fill_regime_tagger", config_version=version,
+                         start=start, end=end) as rec:
+            s = fill_regime_tagger.tag_fills(start, end, config_version=version)
+            rec.set_rows(s["rows_upserted"])
+        context.summary["regime_tagger"] = s
+        return True
+
+
+class AttributionMetricsStage(BaseStage):
+    """Stage 10: per-fill attribution metrics (IS/VWAP/reversal). Depends on Stage 9."""
+
+    @property
+    def name(self) -> str: return "10. Attribution Metrics"
+
+    def process(self, context: PipelineContext) -> bool:
+        if not context.target_dates:
+            logger.info("Stage 10: no target_dates; skipping")
+            return True
+        try:
+            from .attribution.writer import run_metrics
+        except ImportError as e:
+            logger.warning(f"Skipping attribution metrics stage: {e}")
+            context.summary["attribution_metrics"] = {"skipped": True, "error": str(e)}
+            return True
+
+        opts = context.config.get("attribution", {}) or {}
+        # Future: opts["config_version"] could pin a specific config; today the
+        # writer always uses the active one.
+        _ = opts
+
+        iso_dates = [_to_iso_safe(d) for d in context.target_dates]
+        iso_dates = [d for d in iso_dates if d]
+        if not iso_dates:
+            return True
+        start, end = min(iso_dates), max(iso_dates)
+
+        s = run_metrics(start, end)
+        context.summary["attribution_metrics"] = s
+        return True
+
+
+def _to_iso_safe(d: str) -> Optional[str]:
+    """Convert 'YYYYMMDD' or 'YYYY-MM-DD' → 'YYYY-MM-DD'; None on bad input."""
+    if not d or not isinstance(d, str):
+        return None
+    s = d.strip()
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return s
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return None
+
+
 # ==========================================
 # 4. 流水线编排器 (Pipeline Orchestrator)
 # ==========================================
@@ -770,6 +909,21 @@ class PipelineFactory:
             pipeline.add_stage(CalculateDailyMetricsStage())  # Stage 7: ADV + volatility
 
         pipeline.add_stage(WriteManifestStage())
+        return pipeline
+
+    @staticmethod
+    def create_regime_classification(skip_fetch: bool = False) -> FinancialPipeline:
+        """Regime layer: market_index → vol/liq/trend → fill labels."""
+        pipeline = FinancialPipeline("行情分类与标签-Regime层")
+        pipeline.add_stage(RegimeDailyFeaturesStage())
+        pipeline.add_stage(RegimeFillTaggerStage())
+        return pipeline
+
+    @staticmethod
+    def create_attribution() -> FinancialPipeline:
+        """Attribution layer: per-fill IS/VWAP/reversal metrics."""
+        pipeline = FinancialPipeline("绩效归因-Attribution层")
+        pipeline.add_stage(AttributionMetricsStage())
         return pipeline
 
 

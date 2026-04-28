@@ -894,7 +894,6 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
             route={selectedRoute}
             open={modifyDialogOpen}
             onOpenChange={setModifyDialogOpen}
-            availableBrokers={availableBrokers}
             onSubmit={async (req) => {
               if (!onModifyRoute) return;
               await onModifyRoute(req);
@@ -921,7 +920,6 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
             routes={filteredRoutes.filter(r => selectedRouteIds.has(r.id))}
             open={batchModifyOpen}
             onOpenChange={setBatchModifyOpen}
-            onSubmit={async (req) => { if (onModifyRoute) await onModifyRoute(req); }}
             onEachSubmitted={(r) => markReplacing(r.id)}
             onComplete={async () => { clearSelection(); if (onRefresh) await onRefresh(); }}
           />

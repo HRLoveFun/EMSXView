@@ -2378,7 +2378,18 @@ class BloombergEMSXService:
                 request.set("EMSX_STOP_PRICE", -1)
 
             if request_data.broker:
-                request.set("EMSX_BROKER", request_data.broker)
+                # ModifyRouteEx does not support changing the broker — EMSX
+                # rejects the request with "Attempt to access unknown
+                # sub-element 'EMSX_BROKER'". To switch broker the caller
+                # must Cancel + Re-route (CancelRouteEx → RouteEx).
+                cached_broker = (cached.broker if cached else "") or ""
+                if request_data.broker.strip().upper() != cached_broker.strip().upper():
+                    raise HTTPException(
+                        400,
+                        "EMSX does not support changing the broker on an existing route. "
+                        "Cancel this route and create a new route to the desired broker.",
+                    )
+                # Broker unchanged — silently drop; do NOT pass EMSX_BROKER.
             if request_data.exchangeDestination:
                 request.set("EMSX_EXCHANGE_DESTINATION", request_data.exchangeDestination)
             if request_data.notes:

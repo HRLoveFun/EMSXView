@@ -155,3 +155,63 @@
 | 2026-04-24 17:44 | feat | Monitor/Trade/Settings unified iteration: lazy rule, integration, Settings layout, Trade split+linkage, keyboard flow, tab badges | Step 1: new `src/lib/health-palette.ts` (HealthLevel palette + LAZY_EXEMPT_STATUSES + isLazyOrder with dual-rule + getOrderHealth/getRouteHealth). MonitorBoard gained health-strip column, pinned Critical/Lazy synthetic groups, readonly condition chips + "Edit in Settings" link. Step 2: removed `LazyOrderBoard` tab from App.tsx, Monitor now owns lazy rendering and receives allRoutes. Step 3: `SettingsBoard` rewritten to left-nav + right-detail with sections (global, monitor-conditions, broker-algo, parameter-frequency, data-manager, about); monitor conditions editor migrated here. Step 4: `ExecutionBoard` reworked from tabbed to Bloomberg-style vertical split — Orders on top + Routes below; `displayedRoutes` filters by selectedOrders via `sequence`; linkage status bar with "Show all routes (Esc)"; Action columns confirmed leftmost in both tables. Step 5: new `hooks/use-trade-hotkeys.tsx` (J/K, Enter, Space, N/M/X, Shift+Tab, /, ?, Esc) + `HotkeyCheatsheet` overlay + active-pane ring. Step 6: `ExecutionViewTabs` accepts monitorExceptionCount/tradeExceptionCount and renders red badge; App wires onExceptionCountChange from MonitorBoard. | TS strict noEmit OK; vite build OK (4.45s, 2492 modules transformed) | manual |
 | 2026-04-24 17:44 | session | Stop | Session ended | — | auto |
 | 2026-04-24 18:37 | session | Stop | Session ended | — | auto |
+| 2026-04-27 10:19 | session | Stop | Session ended | — | auto |
+| 2026-04-27 11:16 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:14 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:24 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:50 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:54 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:04 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:13 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:30 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:52 | session | Stop | Session ended | — | auto |
+| 2026-04-27 | architecture | Schema design rules | Codified 9-principle SQLite schema conventions: 4-layer prefix (ref_/daily_/fill_/audit_), audit_pipeline_runs + status views + validate_*.py per DB, config_version PK for reproducibility, migrations framework with PRAGMA user_version. Created schema-designer skill + agent + repo memory. Added M1 progress board at /memories/repo/costview-regime-m1-progress.md | Reusable for future analytical modules (regime, attribution, research) | � |
+| 2026-04-27 16:56 | session | Stop | Session ended | — | auto |
+| 2026-04-27 17:02 | session | Stop | Session ended | — | auto |
+| 2026-04-27 17:04 | session | Stop | Session ended | — | auto |
+| 2026-04-27 | feat | CostView Regime M1 | 完成 10 步实施序列 (Steps 1-10): regime/ 子包 + schema v0→v2 migrations + 23 markets/12 events 同步 + 4 daily 计算器 (market_index_loader/vol_regime/liquidity_regime/trend_regime) + fill_regime_tagger (composite PK) + pipeline.py Stage 8/9 + scripts/backfill_regime.py CLI + run_journal.py + tests/test_regime_e2e.py (mock fetcher) + storage/regime_reader.py stub. 教训：v1 fill_regime_labels 单 PK 与 processed_fills composite PK 不匹配 → v1→v2 升级；executescript 需 autocommit。 | All 2 e2e tests pass, integrated into test_comprehensive (5/6 tests pass; test_basic preexisting failure). Bloomberg 真实拉数待生产环境验证 | — |
+| 2026-04-27 17:20 | session | Stop | Session ended | — | auto |
+| 2026-04-28 08:59 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:04 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:06 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:29 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:45 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:54 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:54 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:57 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:58 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:59 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:00 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:08 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:09 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:14 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:15 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:17 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:18 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:18 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:20 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:21 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:22 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:23 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:42 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:55 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:04 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:14 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:15 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:31 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:36 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:52 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:15 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:16 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | feat | User request: ExecutionView ?????? route/modify | Backend: compliance_service (USD<10K/>49M/JP odd-lot hard block), batch_route_service (NDJSON stream), POST /api/orders/batch-route + /api/routes/batch-modify (dryRun + stream), pre-trade compliance hook on /route + /routes/modify; Frontend: compliance-violation.tsx shared badges, BatchRouteOrderDialog (Configure?Review?Submit?Result), BatchModifyDialog ??(?? per-route ?????? dry-run?common broker+strategy ???????????NDJSON ????) | 36 new tests pass; 181/191 backend tests pass (10 pre-existing config_service event-loop failures unaffected); npx tsc --noEmit clean | � |
+| 2026-04-28 12:35 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:58 | session | Stop | Session ended | — | auto |
+| 2026-04-28 13:01 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | fix | User request: `Market Broker Mapping ??????? Route Order ??` | BatchRouteOrderDialog ?? useMarketBrokerMapping/applyMappingFilter/deriveMarketKey??? brokersForOrder(o) per-order ?? Settings ? Market Broker Mapping ?????? mapping ???? candidate broker?????(default)??? templateBroker?? currentBroker ???? | npx tsc --noEmit clean; ?? OrderTable ? RouteOrderDialog/UnifiedModifyRouteDialog ?? mapping ???? | ? |
+| 2026-04-28 13:08 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | refactor | User feedback: BatchRoute UX rework (multi-broker checklist + 3 bugfixes) | Rewrote batch-route-order-dialog.tsx (~700 lines) with multi-broker selection model: (1) top broker checklist (filtered by Market Broker Mapping union of selected orders' markets); (2) per-broker strategy + params editor (default VWAP); (3) per-order auto-allocations one column per selected broker, equal-split lot-rounded; (4) order type and price inherited per parent (no batch override); (5) Equal-split toolbar replaces % chips; (6) red ring on odd-lot or over-allocated cells (no bg color so contrast survives both themes); (7) clientKey now '\#\'. OrderTable: hardened group-checkbox handler with onPointerDown stopPropagation + local snapshot of group.orders to eliminate any cross-group selection bleed. | npx tsc --noEmit clean; backend contract unchanged (clientKey suffix opaque to server) | - |
+| 2026-04-28 13:24 | session | Stop | Session ended | — | auto |
+| 2026-04-28 13:39 | fix | User feedback: KS pre-selection + AU group bleed + missing % quick-fill | Gated ExecutionBoard cursor effect with prevCursorRef (skip initial mount, skip when multi-selection >=2) so it no longer auto-single-selects orders[0] on refresh nor stomps on user group selections. Restored % quick-fill toolbar in BatchRouteOrderDialog with applyPercentQty (multi-broker aware: pct of remaining -> equal-split across selected brokers, lot-floored). | tsc clean | - |
+| 2026-04-28 13:39 | session | Stop | Session ended | — | auto |

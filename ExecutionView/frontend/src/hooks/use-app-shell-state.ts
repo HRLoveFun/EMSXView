@@ -11,7 +11,17 @@ interface UseAppShellStateParams {
   startupStatus: StartupStatusSnapshot | null;
   isBackendReady: boolean;
   streamConnected: boolean;
+  /** True if WS has reached OPEN at least once during this session. */
+  streamEverConnected: boolean;
+  /** Seconds elapsed since the current startup probe began. */
+  startupElapsedSeconds: number;
 }
+
+/** UI mode for the subscriptions-warming notice. */
+export type SubscriptionsWarmingMode = 'initial' | 'reconnecting' | 'timed-out';
+
+/** After this many seconds with no stream + no data, surface a degraded-mode notice. */
+const SUBSCRIPTIONS_WARMING_TIMEOUT_SEC = 60;
 
 export function useAppShellState({
   effectiveOrders,
@@ -19,6 +29,8 @@ export function useAppShellState({
   startupStatus,
   isBackendReady,
   streamConnected,
+  streamEverConnected,
+  startupElapsedSeconds,
 }: UseAppShellStateParams) {
   const [activeModule, setActiveModule] = useState<AppModule>('execution');
   const [activeTab, setActiveTab] = useState<ExecutionViewTab>('monitor');
@@ -122,6 +134,15 @@ export function useAppShellState({
     && effectiveOrders.length === 0
     && effectiveRoutes.length === 0;
 
+  const subscriptionsWarmingTimedOut =
+    subscriptionsWarming && startupElapsedSeconds > SUBSCRIPTIONS_WARMING_TIMEOUT_SEC;
+
+  const subscriptionsWarmingMode: SubscriptionsWarmingMode = subscriptionsWarmingTimedOut
+    ? 'timed-out'
+    : streamEverConnected
+      ? 'reconnecting'
+      : 'initial';
+
   const footerConnectionText = useMemo(() => {
     if (startupStatus?.phase === 'ready') {
       return 'Connected to EMSX API';
@@ -154,6 +175,8 @@ export function useAppShellState({
     toolbarOrderCount,
     shouldShowStartupGate,
     subscriptionsWarming,
+    subscriptionsWarmingTimedOut,
+    subscriptionsWarmingMode,
     footerConnectionText,
     handleFilterChange,
   };

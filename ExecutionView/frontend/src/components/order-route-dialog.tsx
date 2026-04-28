@@ -22,7 +22,13 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { Order, OrderType, TimeInForce } from '@/types';
 import { useBrokerAlgorithms } from '@/hooks/use-broker-algorithms';
+import {
+  useMarketBrokerMapping,
+  deriveMarketKey,
+  applyMappingFilter,
+} from '@/hooks/use-market-broker-mapping';
 import { cachedApiService } from '@/services/api';
+import { BrokerStrategyFields, useStrategyFields } from '@/components/broker-strategy-fields';
 
 // ============================================================================
 // Route Order Dialog
@@ -44,7 +50,12 @@ export interface RouteOrderData {
   timeInForce: TimeInForce;
   exchangeDestination?: string;
   notes?: string;
-  strategyFieldValues?: Record<string, string>;
+  /** Editable strategy parameter payload (broker metadata + user overrides),
+   *  ready to forward as `RouteOrderRequest.strategyParams`. */
+  strategyParams?: {
+    strategyName: string;
+    fields: Array<{ value: string; disabled: boolean }>;
+  } | null;
 }
 
 const orderTypeOptions: { value: OrderType; label: string }[] = [
@@ -84,19 +95,26 @@ export function RouteOrderDialog({
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
   const [assetClass, setAssetClass] = useState('EQTY');
   
-  const { configs, isLoading: isLoadingBrokers, getStrategiesForBroker, getParametersForStrategy } = useBrokerAlgorithms();
+  const { configs, isLoading: isLoadingBrokers, getStrategiesForBroker } = useBrokerAlgorithms();
+  const { allowedFor: allowedBrokersFor } = useMarketBrokerMapping();
 
-  const getStrategyFieldValues = (broker: string, strategy: string): Record<string, string> | undefined => {
-    const params = broker && strategy ? getParametersForStrategy(broker, strategy) : [];
-    if (params.length === 0) return undefined;
-    return Object.fromEntries(params.map((param) => [param.fieldName, param.stringValue || '']));
-  };
+  // Editable strategy fields fetched from broker catalog (shared with Modify Route).
+  const strategyFieldsState = useStrategyFields(routeData.broker, routeData.strategy, assetClass);
 
   // Get unique brokers from configs
-  const availableBrokers = configs
+  const baseAvailableBrokers = configs
     .map(c => c.broker)
     .filter((b, i, arr) => arr.indexOf(b) === i)
     .sort();
+
+  // Restrict to brokers explicitly allowed for this order's market in
+  // Settings → Market Broker Mapping. Falls back to the full list when no
+  // row exists or the row would yield an empty intersection.
+  const orderMarket = deriveMarketKey(order?.exchange, order?.currency);
+  const availableBrokers = applyMappingFilter(
+    baseAvailableBrokers,
+    allowedBrokersFor(orderMarket),
+  );
 
   // Get strategies for selected broker — prefer hook data, fall back to on-demand API
   const hookStrategies = routeData.broker
@@ -145,11 +163,6 @@ export function RouteOrderDialog({
     return () => { cancelled = true; };
   }, [routeData.broker, assetClass, getStrategiesForBroker]);
 
-  // Get parameters for selected strategy
-  const strategyParams = routeData.broker && routeData.strategy
-    ? getParametersForStrategy(routeData.broker, routeData.strategy)
-    : [];
-
   // Reset form when order changes
   useEffect(() => {
     if (order) {
@@ -163,7 +176,6 @@ export function RouteOrderDialog({
         timeInForce: order.timeInForce,
         exchangeDestination: order.exchange || '',
         notes: '',
-        strategyFieldValues: undefined,
       });
       setError('');
     }
@@ -201,7 +213,13 @@ export function RouteOrderDialog({
 
     setIsSubmitting(true);
     try {
-      await onConfirm(order, routeData);
+      const payload: RouteOrderData = {
+        ...routeData,
+        strategyParams: routeData.strategy
+          ? strategyFieldsState.toStrategyParams(routeData.strategy)
+          : null,
+      };
+      await onConfirm(order, payload);
       onOpenChange(false);
     } finally {
       setIsSubmitting(false);
@@ -271,7 +289,7 @@ export function RouteOrderDialog({
                 <Label htmlFor="broker">Broker *</Label>
                 <Select
                   value={routeData.broker}
-                  onValueChange={(v) => setRouteData({ ...routeData, broker: v, strategy: '', strategyFieldValues: undefined })}
+                  onValueChange={(v) => setRouteData({ ...routeData, broker: v, strategy: '' })}
                 >
                   <SelectTrigger id="broker">
                     <SelectValue placeholder="Select broker" />
@@ -300,7 +318,6 @@ export function RouteOrderDialog({
                   onValueChange={(v) => setRouteData({
                     ...routeData,
                     strategy: v,
-                    strategyFieldValues: getStrategyFieldValues(routeData.broker, v),
                   })}
                   disabled={!routeData.broker || (availableStrategies.length === 0 && !isLoadingStrategies)}
                 >
@@ -328,21 +345,15 @@ export function RouteOrderDialog({
               </div>
             </div>
 
-            {/* Algorithm Parameters (read-only summary) */}
-            {strategyParams.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Algorithm Parameters</Label>
-                <div className="bg-muted/30 border rounded-md p-2 max-h-[120px] overflow-y-auto">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                    {strategyParams.map((p) => (
-                      <div key={p.fieldName} className="flex justify-between gap-2">
-                        <span className="text-muted-foreground truncate">{p.fieldName}</span>
-                        <span className="font-mono shrink-0">{p.stringValue || '—'}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+            {/* Algorithm Parameters (editable — shared with Modify Route) */}
+            {routeData.strategy && (
+              <BrokerStrategyFields
+                fields={strategyFieldsState.fields}
+                setFields={strategyFieldsState.setFields}
+                isLoading={strategyFieldsState.isLoading}
+                title="Algorithm Parameters"
+                hideWhenEmpty
+              />
             )}
 
             <div className="grid grid-cols-2 gap-4">

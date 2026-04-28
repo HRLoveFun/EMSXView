@@ -49,10 +49,19 @@ export interface RealtimeClientOptions {
 export interface RealtimeClient {
   connect(): void;
   disconnect(): void;
+  /**
+   * Force an immediate reconnection. Resets backoff and tears down any
+   * existing socket. Useful when the page returns from being hidden and
+   * the underlying WebSocket may have been silently throttled / closed
+   * by the browser without firing onclose synchronously.
+   */
+  forceReconnect(): void;
   on(entity: 'order' | 'route', handler: DeltaHandler): () => void;
   onStatus(handler: StatusHandler): () => void;
   readonly connected: boolean;
   readonly cursor: number;
+  /** True once the socket has reached OPEN at least once in this session. */
+  readonly everConnected: boolean;
 }
 
 export function createRealtimeClient(opts: RealtimeClientOptions): RealtimeClient {
@@ -65,6 +74,7 @@ export function createRealtimeClient(opts: RealtimeClientOptions): RealtimeClien
 
   let ws: WebSocket | null = null;
   let _connected = false;
+  let _everConnected = false;
   let _cursor = 0;
   let _reconnectAttempt = 0;
   let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +158,11 @@ export function createRealtimeClient(opts: RealtimeClientOptions): RealtimeClien
       _reconnectTimer = null;
     }
 
+    // Idempotency guard: if a socket is already CONNECTING or OPEN, skip.
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
     notifyStatus('connecting');
 
     try {
@@ -159,6 +174,7 @@ export function createRealtimeClient(opts: RealtimeClientOptions): RealtimeClien
 
     ws.onopen = () => {
       _connected = true;
+      _everConnected = true;
       _reconnectAttempt = 0;
       notifyStatus('connected');
       startHeartbeat();
@@ -200,6 +216,33 @@ export function createRealtimeClient(opts: RealtimeClientOptions): RealtimeClien
       notifyStatus('disconnected');
     },
 
+    forceReconnect() {
+      // Reset backoff and tear down any pending / live socket so we attempt
+      // a fresh connect immediately. Distinct from disconnect(): we keep
+      // _intentionalClose=false so onclose-driven reconnect logic still runs
+      // if the new connection itself fails.
+      _intentionalClose = false;
+      _reconnectAttempt = 0;
+      stopHeartbeat();
+      if (_reconnectTimer) {
+        clearTimeout(_reconnectTimer);
+        _reconnectTimer = null;
+      }
+      if (ws) {
+        try {
+          // Suppress reconnect from the soon-to-fire onclose; we will
+          // initiate a fresh doConnect() right after.
+          ws.onclose = null;
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+        ws = null;
+      }
+      _connected = false;
+      doConnect();
+    },
+
     on(entity: 'order' | 'route', handler: DeltaHandler) {
       const set = entity === 'order' ? orderHandlers : routeHandlers;
       set.add(handler);
@@ -217,6 +260,10 @@ export function createRealtimeClient(opts: RealtimeClientOptions): RealtimeClien
 
     get cursor() {
       return _cursor;
+    },
+
+    get everConnected() {
+      return _everConnected;
     },
   };
 }

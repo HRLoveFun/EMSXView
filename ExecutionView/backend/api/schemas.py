@@ -99,6 +99,7 @@ class Order(BaseModel):
     dayAvgPrice: Optional[float] = None
     mktVwap: Optional[float] = None
     isOddLot: Optional[bool] = None  # True if JP market and quantity not multiple of round lot size
+    roundLotSize: Optional[int] = None  # PX_ROUND_LOT_SIZE refdata; fallback to 100 for JP markets when missing
 
 
 class RouteStatus(str, enum.Enum):
@@ -534,3 +535,126 @@ class CreateParentExecutionRequest(BaseModel):
 class ParentExecutionCommand(BaseModel):
     """Control command for an active parent execution."""
     command: str = Field(..., description="PAUSE | RESUME | CANCEL")
+
+
+# ============================================================================
+# Pre-trade Compliance & Batch Operations
+# ============================================================================
+
+# Use env var directly instead of settings to avoid circular import on schemas
+_BATCH_ROUTE_MAX_SIZE = int(os.getenv("BATCH_ROUTE_MAX_SIZE", "500"))
+
+
+class Violation(BaseModel):
+    """Pre-trade compliance violation. All current violations are hard-blocking."""
+    code: Literal[
+        "NOTIONAL_TOO_SMALL",
+        "NOTIONAL_TOO_LARGE",
+        "JP_ODD_LOT",
+        "NOTIONAL_UNKNOWN",
+    ]
+    message: str
+    severity: Literal["BLOCK"] = "BLOCK"
+    # Free-form context for UI tooltips, e.g. {"notionalUsd": 12345.67, "lotSize": 100}
+    details: Optional[Dict[str, Any]] = None
+
+
+class BatchRouteOrderItem(BaseModel):
+    """Per-order entry inside a BatchRouteOrderRequest.
+
+    ``clientKey`` lets the frontend disambiguate multiple split destinations
+    for the same parent order (multi-broker split). When omitted, the result
+    key falls back to ``orderId``. Convention used by the UI:
+    ``f"{orderId}#{destinationIdx}"``.
+    """
+    orderId: str = Field(..., description="EMSX_SEQUENCE of the parent order")
+    clientKey: Optional[str] = Field(
+        None,
+        description=(
+            "Optional client-supplied unique key per item; surfaced back as "
+            "BatchOperationItemResult.key. Required when sending multiple "
+            "items with the same orderId (multi-broker split)."
+        ),
+    )
+    override: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Partial RouteOrderRequest fields that override the template for this row",
+    )
+
+
+class BatchRouteOrderRequest(BaseModel):
+    """Batch-route N parent orders against a shared template + per-row overrides."""
+    template: Dict[str, Any] = Field(
+        ...,
+        description=(
+            "Template values for RouteOrderRequest fields (broker, orderType, "
+            "timeInForce, price, stopPrice, exchangeDestination, notes, "
+            "strategyParams). orderId/quantity must be provided per item."
+        ),
+    )
+    items: List[BatchRouteOrderItem] = Field(..., min_length=1)
+    dryRun: bool = Field(False, description="If true, run compliance + validation only; do not call EMSX")
+
+    @field_validator("items")
+    @classmethod
+    def _validate_size(cls, v: List[BatchRouteOrderItem]) -> List[BatchRouteOrderItem]:
+        if len(v) > _BATCH_ROUTE_MAX_SIZE:
+            raise ValueError(
+                f"Batch size {len(v)} exceeds maximum of {_BATCH_ROUTE_MAX_SIZE}"
+            )
+        return v
+
+
+class BatchModifyRouteItem(BaseModel):
+    """Per-route entry inside a BatchModifyRouteRequest."""
+    sequence: int = Field(..., description="EMSX_SEQUENCE (parent order ID)")
+    routeId: int = Field(..., description="EMSX_ROUTE_ID")
+    clientKey: Optional[str] = Field(
+        None,
+        description="Optional client-supplied unique key; defaults to '{sequence}.{routeId}'.",
+    )
+    override: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Partial ModifyRouteRequest fields that override the template for this row",
+    )
+
+
+class BatchModifyRouteRequest(BaseModel):
+    """Batch-modify N existing routes against a shared template + per-row overrides."""
+    template: Dict[str, Any] = Field(
+        ...,
+        description=(
+            "Template values for ModifyRouteRequest fields (amount, orderType, "
+            "limitPrice, stopPrice, tif, exchangeDestination, notes, strategyParams). "
+            "sequence/routeId must be provided per item."
+        ),
+    )
+    items: List[BatchModifyRouteItem] = Field(..., min_length=1)
+    dryRun: bool = Field(False, description="If true, run compliance + validation only; do not call EMSX")
+
+    @field_validator("items")
+    @classmethod
+    def _validate_size(cls, v: List[BatchModifyRouteItem]) -> List[BatchModifyRouteItem]:
+        if len(v) > _BATCH_ROUTE_MAX_SIZE:
+            raise ValueError(
+                f"Batch size {len(v)} exceeds maximum of {_BATCH_ROUTE_MAX_SIZE}"
+            )
+        return v
+
+
+class BatchOperationItemResult(BaseModel):
+    """Per-item result for a batch route / modify-route operation."""
+    key: str = Field(..., description="orderId for batch-route, '{sequence}.{routeId}' for batch-modify")
+    status: Literal["SUCCESS", "BLOCKED", "FAILED"]
+    message: str = ""
+    violations: List[Violation] = Field(default_factory=list)
+    routeId: Optional[int] = None  # Populated for SUCCESS on batch-route
+
+
+class BatchOperationResult(BaseModel):
+    """Aggregate result for a batch route / modify-route operation."""
+    total: int
+    succeeded: int
+    blocked: int
+    failed: int
+    items: List[BatchOperationItemResult]

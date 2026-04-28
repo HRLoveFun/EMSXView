@@ -80,10 +80,13 @@ def enrich_orders(
             updates["lastPrice"] = lp
         effective_last = lp if lp is not None else o.lastPrice
 
-        # Odd-lot detection
+        # Odd-lot detection + surface the cached round-lot size to the frontend
+        # so per-row UI can validate split-allocation rounding without an extra round-trip.
+        round_lot = round_lot_sizes.get(o.symbol)
+        if round_lot is not None and round_lot > 0:
+            updates["roundLotSize"] = round_lot
         effective_exchange = updates.get("exchange", o.exchange) or ""
         if effective_exchange.upper() in odd_lot_markets:
-            round_lot = round_lot_sizes.get(o.symbol)
             if round_lot is not None and round_lot > 0:
                 updates["isOddLot"] = (o.quantity % round_lot) != 0
             else:

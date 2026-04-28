@@ -14,6 +14,10 @@ import type {
   StartupStatusSnapshot,
   BrokerStrategiesResponse,
   BrokerStrategyInfoResponse,
+  BatchRouteOrderRequest,
+  BatchModifyRouteRequest,
+  BatchOperationResult,
+  BatchOperationItemResult,
 } from '@/types';
 import { createCache, CACHE_CONFIGS, getOrFetch } from '@/lib/cache-manager';
 import {
@@ -96,6 +100,72 @@ async function apiFetch<T>(
 
     const data = JSON.parse(text);
     return data as ApiResponse<T>;
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+// NDJSON stream helper for batch endpoints.
+// Each line is either a per-item result, or a final {"summary": ...} envelope.
+async function streamNdjsonBatch(
+  path: string,
+  body: unknown,
+  onItem: (item: BatchOperationItemResult) => void,
+  onSummary: (summary: BatchOperationResult) => void,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let msg = response.statusText;
+      try { const j = JSON.parse(text); msg = j.error ?? j.detail ?? msg; } catch { /* keep statusText */ }
+      return { success: false, error: msg };
+    }
+    if (!response.body) {
+      return { success: false, error: 'Response body is empty' };
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nl = buffer.indexOf('\n');
+      while (nl >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        nl = buffer.indexOf('\n');
+        if (!line) continue;
+        try {
+          const obj = JSON.parse(line);
+          if (obj && typeof obj === 'object' && 'summary' in obj) {
+            onSummary(obj.summary as BatchOperationResult);
+          } else {
+            onItem(obj as BatchOperationItemResult);
+          }
+        } catch {
+          // ignore malformed line
+        }
+      }
+    }
+    // Flush trailing fragment
+    const tail = buffer.trim();
+    if (tail) {
+      try {
+        const obj = JSON.parse(tail);
+        if (obj && typeof obj === 'object' && 'summary' in obj) {
+          onSummary(obj.summary as BatchOperationResult);
+        } else {
+          onItem(obj as BatchOperationItemResult);
+        }
+      } catch { /* ignore */ }
+    }
+    return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Network error' };
   }
@@ -317,6 +387,37 @@ export const apiService = {
   async getBrokerStrategyInfo(broker: string, strategy: string, assetClass: string = 'EQTY'): Promise<ApiResponse<BrokerStrategyInfoResponse>> {
     const params = new URLSearchParams({ broker, strategy, assetClass });
     return apiFetch<BrokerStrategyInfoResponse>(`/api/broker-strategy-info?${params}`);
+  },
+
+  // ── Batch Route / Batch Modify (pre-trade compliance + NDJSON stream) ─────
+  async dryRunBatchRoute(request: BatchRouteOrderRequest): Promise<ApiResponse<BatchOperationResult>> {
+    return apiFetch<BatchOperationResult>('/api/orders/batch-route', {
+      method: 'POST',
+      body: JSON.stringify({ ...request, dryRun: true }),
+    });
+  },
+
+  async streamBatchRoute(
+    request: BatchRouteOrderRequest,
+    onItem: (item: BatchOperationItemResult) => void,
+    onSummary: (summary: BatchOperationResult) => void,
+  ): Promise<{ success: boolean; error?: string }> {
+    return streamNdjsonBatch('/api/orders/batch-route', { ...request, dryRun: false }, onItem, onSummary);
+  },
+
+  async dryRunBatchModifyRoutes(request: BatchModifyRouteRequest): Promise<ApiResponse<BatchOperationResult>> {
+    return apiFetch<BatchOperationResult>('/api/routes/batch-modify', {
+      method: 'POST',
+      body: JSON.stringify({ ...request, dryRun: true }),
+    });
+  },
+
+  async streamBatchModifyRoutes(
+    request: BatchModifyRouteRequest,
+    onItem: (item: BatchOperationItemResult) => void,
+    onSummary: (summary: BatchOperationResult) => void,
+  ): Promise<{ success: boolean; error?: string }> {
+    return streamNdjsonBatch('/api/routes/batch-modify', { ...request, dryRun: false }, onItem, onSummary);
   },
 };
 

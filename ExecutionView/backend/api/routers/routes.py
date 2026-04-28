@@ -5,9 +5,16 @@ from __future__ import annotations
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
-from schemas import ApiResponse, CancelRouteRequest, ModifyRouteRequest
+from schemas import (
+    ApiResponse,
+    BatchModifyRouteRequest,
+    CancelRouteRequest,
+    ModifyRouteRequest,
+)
 from deps import verify_token, audit_log, get_bloomberg
+from services import batch_route_service
 
 router = APIRouter(tags=["Routes"])
 
@@ -36,8 +43,64 @@ async def modify_route(request: ModifyRouteRequest, user: dict = Depends(verify_
         "sequence": request.sequence, "routeId": request.routeId,
         "fields": request.model_dump(exclude_none=True, exclude={"sequence", "routeId"}),
     })
-    await get_bloomberg().modify_route(request)
+    bloomberg = get_bloomberg()
+    # Pre-trade compliance check using the cached route + parent order.
+    cached_route = None
+    parent_order = None
+    if hasattr(bloomberg, "_routes") and hasattr(bloomberg, "_data_lock"):
+        key = f"{request.sequence}.{request.routeId}"
+        with bloomberg._data_lock:
+            cached_route = bloomberg._routes.get(key)
+            if cached_route is not None:
+                parent_order = bloomberg._orders.get(str(request.sequence))
+    if cached_route is not None:
+        from services import compliance_service
+        from fastapi import HTTPException
+        new_limit = request.limitPrice if "limitPrice" in request.model_fields_set else None
+        new_stop = request.stopPrice if "stopPrice" in request.model_fields_set else None
+        violations = compliance_service.check_modify(
+            cached_route, parent_order,
+            new_qty=request.amount,
+            new_limit_price=new_limit,
+            new_stop_price=new_stop,
+            new_order_type=request.orderType,
+        )
+        if violations:
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Pre-trade compliance check failed",
+                    "violations": [v.model_dump() for v in violations],
+                },
+            )
+    await bloomberg.modify_route(request)
     return ApiResponse(success=True, message=f"Route {request.routeId} modify request sent")
+
+
+@router.post("/api/routes/batch-modify")
+async def batch_modify_routes(request: BatchModifyRouteRequest, user: dict = Depends(verify_token)):
+    """Batch-modify N existing routes.
+
+    - ``dryRun=true``  -> sync JSON ``BatchOperationResult``.
+    - ``dryRun=false`` -> NDJSON stream of ``BatchOperationItemResult`` lines
+      followed by a final ``{"summary": BatchOperationResult}`` line.
+    """
+    audit_log("BATCH_MODIFY_ROUTE", user.get("sub"), {
+        "itemCount": len(request.items),
+        "templateKeys": sorted(request.template.keys()),
+        "dryRun": request.dryRun,
+    })
+    bloomberg = get_bloomberg()
+    if request.dryRun:
+        result = await batch_route_service.dry_run_batch_modify(bloomberg, request)
+        return ApiResponse(
+            success=True, data=result.model_dump(),
+            message=f"Dry-run: {result.succeeded} ready, {result.blocked} blocked",
+        )
+    return StreamingResponse(
+        batch_route_service.stream_batch_modify(bloomberg, request),
+        media_type="application/x-ndjson",
+    )
 
 
 @router.get("/api/routes/diagnose-strategy-rate", response_model=ApiResponse)

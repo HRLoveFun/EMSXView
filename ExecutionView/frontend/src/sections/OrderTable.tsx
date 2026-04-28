@@ -25,6 +25,7 @@ import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TY
 import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, RouteOrderRequest } from '@/types';
 import { OrderModifyDialog, type OrderUpdates } from '@/components/order-modify-dialog';
 import { RouteOrderDialog, type RouteOrderData } from '@/components/order-route-dialog';
+import { BatchRouteOrderDialog } from '@/components/batch-route-order-dialog';
 
 type SortField = keyof Order | null;
 type SortDirection = 'asc' | 'desc';
@@ -57,6 +58,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
   const [isModifyDialogOpen, setIsModifyDialogOpen] = useState(false);
   const [routeOrder, setRouteOrder] = useState<Order | null>(null);
   const [isRouteDialogOpen, setIsRouteDialogOpen] = useState(false);
+  const [isBatchRouteDialogOpen, setIsBatchRouteDialogOpen] = useState(false);
 
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups(prev => {
@@ -137,6 +139,18 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
       newSelected.add(orderId);
     }
     onSelectionChange(newSelected);
+  }, [selectedOrders, onSelectionChange]);
+
+  const toggleSelectGroup = useCallback((groupOrders: Order[]) => {
+    const ids = groupOrders.map(o => o.id);
+    const allInGroupSelected = ids.length > 0 && ids.every(id => selectedOrders.has(id));
+    const next = new Set(selectedOrders);
+    if (allInGroupSelected) {
+      ids.forEach(id => next.delete(id));
+    } else {
+      ids.forEach(id => next.add(id));
+    }
+    onSelectionChange(next);
   }, [selectedOrders, onSelectionChange]);
 
   const getSortIcon = (field: keyof Order) => {
@@ -240,19 +254,6 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
 
   const handleRouteConfirm = async (order: Order, routeData: RouteOrderData) => {
     if (!onRouteOrder) return;
-    
-    // Build strategy params payload from dialog-collected field values
-    let strategyParams: RouteOrderRequest['strategyParams'] = undefined;
-    if (routeData.strategy) {
-      const entries = Object.entries(routeData.strategyFieldValues ?? {});
-      strategyParams = {
-        strategyName: routeData.strategy,
-        fields: entries.map(([, value]) => ({
-          value: value ?? '',
-          disabled: false,
-        })),
-      };
-    }
 
     const request: RouteOrderRequest = {
       orderId: order.id,
@@ -265,7 +266,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
       timeInForce: routeData.timeInForce,
       exchangeDestination: routeData.exchangeDestination,
       notes: routeData.notes,
-      strategyParams,
+      strategyParams: routeData.strategyParams ?? undefined,
     };
     
     await onRouteOrder(request);
@@ -494,6 +495,14 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
               <X className="h-3 w-3" />Clear filters
             </button>
           )}
+          {selectedOrders.size > 0 && onRouteOrder && (
+            <button
+              onClick={() => setIsBatchRouteDialogOpen(true)}
+              className={`${hasActiveFilters ? '' : 'ml-auto'} flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium`}
+            >
+              <GitBranch className="h-3 w-3" />Batch Route ({selectedOrders.size})
+            </button>
+          )}
         </div>
 
         <ScrollArea className="h-[calc(100vh-370px)]">
@@ -595,7 +604,16 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                   </td>
                 </tr>
               )}
-              {groupedOrders.map(group => (
+              {groupedOrders.map(group => {
+                // Capture this group's order list in a stable local so the
+                // checkbox handler cannot accidentally pick up a sibling
+                // group's array reference (avoids any potential stale-closure
+                // selection bleed across groups).
+                const groupOrdersSnapshot = group.orders;
+                const groupAllSelected =
+                  groupOrdersSnapshot.length > 0 &&
+                  groupOrdersSnapshot.every(o => selectedOrders.has(o.id));
+                return (
                 <Fragment key={group.key}>
                   {groupBy !== 'none' && (
                     <tr
@@ -604,6 +622,18 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                     >
                       <td colSpan={TOTAL_COLS} className="px-4 py-1.5 text-xs font-semibold">
                         <div className="flex items-center gap-1.5">
+                          <span
+                            className="flex items-center"
+                            title="Select all orders in this group"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                          >
+                            <Checkbox
+                              checked={groupAllSelected}
+                              onCheckedChange={() => toggleSelectGroup(groupOrdersSnapshot)}
+                              aria-label={`Select all orders in group ${group.key}`}
+                            />
+                          </span>
                           {expandedGroups.has(group.key)
                             ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                             : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -685,7 +715,8 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                 </tr>
               ))}
             </Fragment>
-          ))}
+          );
+          })}
         </tbody>
           </table>
         </ScrollArea>
@@ -718,6 +749,13 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
         open={isRouteDialogOpen}
         onOpenChange={setIsRouteDialogOpen}
         onConfirm={handleRouteConfirm}
+      />
+
+      <BatchRouteOrderDialog
+        orders={orders.filter(o => selectedOrders.has(o.id))}
+        open={isBatchRouteDialogOpen}
+        onOpenChange={setIsBatchRouteDialogOpen}
+        onComplete={() => onSelectionChange(new Set())}
       />
     </TooltipProvider>
   );
