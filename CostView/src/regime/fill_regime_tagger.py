@@ -12,9 +12,9 @@ Notes
   'YYYY-MM-DD' (regime-layer standard) at read time.
 - market_code derived from (Exchange, Currency) via regime.market_code.derive_market_code.
   Fills with unknown market_code are SKIPPED with a warning (counted in run summary).
-- time_bucket is left NULL in M1 (config has bucket defs but the assignment
-  requires per-fill exchange-local timestamp + session config; computed at query
-  time or in a follow-up step).
+- time_bucket is computed via regime.time_bucket.assign_time_bucket using the
+  fill's exchange_exec_time (exchange-local HH:MM:SS). Only the 5 enabled
+  markets {US, AU, JP, LN, EU} are tagged; others remain NULL.
 """
 from __future__ import annotations
 
@@ -27,9 +27,11 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from CostView.src.processing_config import ProcessingConfig as PCConfig
+from CostView.src.exchange_tz import convert_ny_to_local, get_exchange_timezone
 from CostView.src.regime.config import get_active_config, get_config
 from CostView.src.regime.market_code import derive_market_code
 from CostView.src.regime.schema import REGIME_DB_PATH, connect, ensure_schema_current
+from CostView.src.regime.time_bucket import ENABLED_MARKETS, assign_time_bucket
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +137,13 @@ def tag_fills(
         ).fetchall()}
         has_currency = "Currency" in cols
         currency_col = "Currency" if has_currency else "NULL AS Currency"
+        # DateTimeOfFill is the canonical NY-time ISO string with explicit
+        # offset; this is the only timestamp safe to convert to exchange-local.
+        # `local_fill_datetime`/`exchange_exec_time` are NY-time literal strings
+        # in upstream processed_fills (misnamed historically), so we don't use
+        # them here.
         df = pd.read_sql_query(
-            f"""SELECT OrderId, RouteId, FillId, order_as_of_date, Exchange, {currency_col}
+            f"""SELECT OrderId, RouteId, FillId, order_as_of_date, Exchange, {currency_col}, DateTimeOfFill
                 FROM {PCConfig.PROCESSED_FILLS_TABLE}
                 WHERE order_as_of_date BETWEEN ? AND ?""",
             fconn,
@@ -165,10 +172,41 @@ def tag_fills(
     src_version = f"fill_regime_tagger@{version_id}"
     ingested_at = dt.datetime.now().isoformat(timespec="seconds")
     rows: List[tuple] = []
+    tod_tagged = 0
+    tod_parse_fail = 0
+    # Pre-compute local time strings only for fills whose market is TOD-enabled.
+    # Use the original Exchange code (not the folded EU market_code) to look up
+    # the IANA timezone, since EU is an aggregate not a single tz.
+    df["local_hhmmss"] = None
+    enabled_mask = df["market_code"].isin(ENABLED_MARKETS) & df["DateTimeOfFill"].notna()
+    if enabled_mask.any():
+        for idx in df.index[enabled_mask]:
+            raw = df.at[idx, "DateTimeOfFill"]
+            exch = df.at[idx, "Exchange"]
+            try:
+                # DateTimeOfFill is ISO with explicit offset (e.g. '...-04:00').
+                ny_dt = dt.datetime.fromisoformat(str(raw))
+            except (TypeError, ValueError):
+                tod_parse_fail += 1
+                continue
+            # convert_ny_to_local needs a NY-time datetime; DateTimeOfFill's
+            # offset already encodes that, so we pass it through fromisoformat
+            # and let the helper astimezone() it. Unknown exch → tz lookup
+            # returns None → bucket stays None.
+            if get_exchange_timezone(str(exch)) is None:
+                continue
+            local_dt = convert_ny_to_local(ny_dt, str(exch))
+            if local_dt is None:
+                continue
+            df.at[idx, "local_hhmmss"] = local_dt.strftime("%H:%M:%S")
+
     for _i, r in df.iterrows():
         key = (r["market_code"], r["trade_date_iso"])
         slot = regimes.get(key, {})
         macro = 1 if key in macro_flags else 0
+        tod = assign_time_bucket(r["market_code"], r.get("local_hhmmss"))
+        if tod is not None:
+            tod_tagged += 1
         rows.append((
             str(r["OrderId"]) if r["OrderId"] is not None else "",
             str(r["RouteId"]) if r["RouteId"] is not None else "",
@@ -181,7 +219,7 @@ def tag_fills(
             slot.get("liq"),
             slot.get("trend"),
             macro,
-            None,                         # time_bucket NULL in M1
+            tod,
             src_version,
             ingested_at,
         ))
@@ -216,6 +254,12 @@ def tag_fills(
     finally:
         conn.close()
 
-    summary = {"total_fills": total, "skipped_no_market": skipped, "rows_upserted": len(rows)}
+    summary = {
+        "total_fills": total,
+        "skipped_no_market": skipped,
+        "rows_upserted": len(rows),
+        "time_bucket_tagged": tod_tagged,
+        "time_bucket_parse_fail": tod_parse_fail,
+    }
     logger.info(f"fill_regime_tagger: {summary}")
     return summary

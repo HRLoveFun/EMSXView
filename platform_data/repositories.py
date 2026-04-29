@@ -151,17 +151,55 @@ def _spec_by_key(key: str) -> _DatabaseSpec:
     raise KeyError(f"Unknown database key: {key}")
 
 
-def _spec_table(spec: _DatabaseSpec, table: str) -> _TableSpec:
-    """Look up a table spec by name, raising KeyError if not registered.
+def _list_actual_tables(path: Path) -> list[str]:
+    """Return the user tables present in a SQLite file (excluding sqlite_*).
 
-    Used to validate user-supplied table names before they are interpolated
-    into SQL — only registered names are ever passed to a query string,
-    eliminating SQL-injection risk on the schema/sample endpoints.
+    Used as the source of truth for which tables exist, so the diagnostic
+    UI can surface every table without needing manual registration.
+    Returns an empty list if the file is missing or unreadable.
     """
+    if not path.exists():
+        return []
+    try:
+        with _open_ro(path) as conn:
+            rows = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+                "ORDER BY name"
+            ).fetchall()
+        return [str(r[0]) for r in rows]
+    except sqlite3.Error:
+        return []
+
+
+def _resolve_table_spec(spec: _DatabaseSpec, table: str) -> _TableSpec:
+    """Validate a table name and return spec metadata (synthesised if needed).
+
+    Validation rule: the table must exist in the actual SQLite file. This
+    keeps SQL injection impossible (only real table names are ever
+    interpolated into queries) while letting the UI inspect tables that
+    aren't manually registered in `_build_registry()`.
+    """
+    actual = set(_list_actual_tables(spec.path))
+    if table not in actual:
+        raise KeyError(
+            f"Table '{table}' does not exist in database '{spec.key}'"
+        )
     for t in spec.tables:
         if t.name == table:
             return t
-    raise KeyError(f"Table '{table}' is not registered for database '{spec.key}'")
+    # Unregistered but real table — synthesise a minimal spec.
+    return _TableSpec(
+        name=table,
+        date_column=None,
+        primary_key=None,
+        description="(unregistered table)",
+    )
+
+
+def _spec_table(spec: _DatabaseSpec, table: str) -> _TableSpec:
+    """Backwards-compatible alias for `_resolve_table_spec`."""
+    return _resolve_table_spec(spec, table)
 
 
 # ── Response dataclasses ──────────────────────────────────────────────────────
@@ -577,9 +615,30 @@ def get_summary(key: str, date_limit: int = 800) -> DatabaseSummary:
     )
     if not exists:
         return summary
+    # Build the merged table list: registered specs first (with their date
+    # columns / descriptions), then any other user table present in the
+    # SQLite file as a synthesised spec. This lets the diagnostic UI browse
+    # every real table without manual registration.
+    table_specs: list[_TableSpec] = []
+    seen: set[str] = set()
+    for t in spec.tables:
+        seen.add(t.name)
+        table_specs.append(t)
+    for name in _list_actual_tables(spec.path):
+        if name in seen:
+            continue
+        seen.add(name)
+        table_specs.append(
+            _TableSpec(
+                name=name,
+                date_column=None,
+                primary_key=None,
+                description="(unregistered table)",
+            )
+        )
     try:
         with _open_ro(spec.path) as conn:
-            for t in spec.tables:
+            for t in table_specs:
                 if not _table_exists(conn, t.name):
                     continue
                 ts = TableSummary(
@@ -618,9 +677,27 @@ _SAME_VALUE_MIN_ROWS = 20
 
 
 def list_tables(key: str) -> list[str]:
-    """Return registered table names for the given database key."""
+    """Return tables to expose for the given database key.
+
+    Combines the registered `_TableSpec` names with every user table found
+    in the actual SQLite file, so the UI can browse schemas/samples even
+    for tables that haven't been manually registered (e.g. CostView's
+    aggregate / history / registry tables in processed_fills.db).
+    """
     spec = _spec_by_key(key)
-    return [t.name for t in spec.tables]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    # Registered tables first (preserves their declared display order).
+    for t in spec.tables:
+        if t.name not in seen:
+            seen.add(t.name)
+            ordered.append(t.name)
+    # Then any other user tables present in the file.
+    for name in _list_actual_tables(spec.path):
+        if name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    return ordered
 
 
 def _coerce_cell(value: object) -> object:
@@ -928,18 +1005,43 @@ def get_integrity(key: str) -> IntegrityReport:
                     except sqlite3.Error:
                         pass
             elif spec.key == "raw_fills":
-                # Sample-based check — scan the most recent 50k rowids for
-                # missing derived order_as_of_date instead of the whole table.
+                # `order_as_of_date` is derived by the post-ingest cleaner,
+                # so freshly-fetched rows are *expected* to be NULL until the
+                # next pipeline run. Only flag rows whose `source_date` is
+                # already older than today — those should have been cleaned
+                # by now and indicate a real backlog.
                 try:
+                    today_ymd = datetime.now().strftime("%Y%m%d")
                     latest_rowid = conn.execute(
                         f"SELECT MAX(_rowid_) FROM [{Config.RAW_FILLS_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
+                        # Sample-based: scan the most recent 50k rowids only,
+                        # matching the bounded-cost contract of integrity.
                         n = conn.execute(
                             f"SELECT COUNT(*) FROM [{Config.RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
-                            f"AND (order_as_of_date IS NULL OR TRIM(order_as_of_date) = '')",
-                            (max(0, int(latest_rowid) - 50_000),),
+                            f"AND source_date < ? "
+                            f"AND (order_as_of_date IS NULL "
+                            f"     OR TRIM(order_as_of_date) = '')",
+                            (
+                                max(0, int(latest_rowid) - 50_000),
+                                today_ymd,
+                            ),
+                        ).fetchone()[0]
+                        # Also report a separate "pending" count so users
+                        # don't confuse "still being processed" with a real
+                        # backlog.
+                        pending = conn.execute(
+                            f"SELECT COUNT(*) FROM [{Config.RAW_FILLS_TABLE}] "
+                            f"WHERE _rowid_ > ? "
+                            f"AND source_date >= ? "
+                            f"AND (order_as_of_date IS NULL "
+                            f"     OR TRIM(order_as_of_date) = '')",
+                            (
+                                max(0, int(latest_rowid) - 50_000),
+                                today_ymd,
+                            ),
                         ).fetchone()[0]
                         if n:
                             report.issues.append(
@@ -947,10 +1049,26 @@ def get_integrity(key: str) -> IntegrityReport:
                                     code="raw_fills_missing_date",
                                     severity="warning",
                                     message=(
-                                        f"{n} recent raw_fills rows missing derived "
-                                        "order_as_of_date (sampled from last 50k rows)."
+                                        f"{n} raw_fills rows older than today are "
+                                        "missing derived order_as_of_date "
+                                        "(cleaner backlog). Run "
+                                        "`python -m CostView.scripts.daily_update` "
+                                        "or backfill the cleaner stage."
                                     ),
                                     count=int(n),
+                                )
+                            )
+                        if pending:
+                            report.issues.append(
+                                IntegrityIssue(
+                                    code="raw_fills_pending_clean",
+                                    severity="info",
+                                    message=(
+                                        f"{pending} raw_fills rows fetched today "
+                                        "are awaiting the cleaner stage to derive "
+                                        "order_as_of_date — this is normal."
+                                    ),
+                                    count=int(pending),
                                 )
                             )
                 except sqlite3.Error:

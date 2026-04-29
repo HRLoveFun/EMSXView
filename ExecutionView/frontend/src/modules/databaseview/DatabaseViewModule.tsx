@@ -5,6 +5,7 @@ import type { DatabaseOverview, UpdateStatusResponse } from './types';
 import { DatabaseOverviewGrid } from './components/DatabaseOverviewGrid';
 import { DatabaseDetailDrawer } from './components/DatabaseDetailDrawer';
 import { UpdateControl } from './components/UpdateControl';
+import { RestartHint } from './components/RestartHint';
 
 export default function DatabaseViewModule() {
   const [overview, setOverview] = useState<DatabaseOverview[]>([]);
@@ -122,6 +123,8 @@ export default function DatabaseViewModule() {
           {error}
         </div>
       )}
+
+      <RestartHint />
 
       <UpdateControl onTrigger={() => void handleTrigger()} status={updateStatus} pending={triggerPending} />
 
