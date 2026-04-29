@@ -182,6 +182,28 @@ def interval_vwap(panel: BarPanel, start_minute: str, end_minute: str) -> Option
     return float((sub["close"] * sub["volume"]).sum() / total_vol)
 
 
+def interval_volume(panel: BarPanel, start_minute: str, end_minute: str) -> Optional[float]:
+    """Total bar volume over [start, end] (inclusive).
+
+    Used to compute participation_rate = route_shares / interval_volume.
+    None if the panel covers no bars in the interval or volume is 0.
+    """
+    if not start_minute or not end_minute or end_minute < start_minute:
+        return None
+    bars = panel.bars
+    mask = (bars.index >= start_minute) & (bars.index <= end_minute)
+    if not mask.any():
+        return None
+    sub = bars[mask]
+    sub = sub[sub["volume"] > 0]
+    if sub.empty:
+        return None
+    total = float(sub["volume"].sum())
+    if total <= 0:
+        return None
+    return total
+
+
 # ----------------------------------------------------------------------------
 # Fills + route-context loaders
 # ----------------------------------------------------------------------------

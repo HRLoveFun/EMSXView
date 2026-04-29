@@ -215,3 +215,28 @@
 | 2026-04-28 13:24 | session | Stop | Session ended | — | auto |
 | 2026-04-28 13:39 | fix | User feedback: KS pre-selection + AU group bleed + missing % quick-fill | Gated ExecutionBoard cursor effect with prevCursorRef (skip initial mount, skip when multi-selection >=2) so it no longer auto-single-selects orders[0] on refresh nor stomps on user group selections. Restored % quick-fill toolbar in BatchRouteOrderDialog with applyPercentQty (multi-broker aware: pct of remaining -> equal-split across selected brokers, lot-floored). | tsc clean | - |
 | 2026-04-28 13:39 | session | Stop | Session ended | — | auto |
+| 2026-04-28 14:53 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:06 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:06 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:08 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | task | M2 attribution close-gaps sprint | P0.1 participation_rate (writer.py + benchmarks.interval_volume + 5x cap), P0.2 bucket_specs in aggregator (pct_adv / participation_rate buckets via pd.cut), P1.4 seeded 14 FOMC+CPI events into ref_macro_event_calendar, P1.5 recommender.py (market+side+pct_adv+regime -> top-k broker x algo with bootstrap CI), P1.6 deferred IV/spread/depth to Phase 2 with architecture-decisions entry, P2.9 audit_research_snapshots table + sha256 hash of top-100 rows in run_metrics finally block, P3.10 logged 3 new error patterns (raw_bdib.vwap NULL, sub-minute bar grid, pytest-asyncio incompat). 11 unit tests passing. Backfill 2025-09-25..2026-04-22 running; 22/149 dates done at log time. | 11 tests pass, schema unchanged at v3, all CHECK constraints honoured | - |
+| 2026-04-28 16:10 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:16 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:21 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:35 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:36 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:40 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:40 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:41 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:43 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | architecture | 用户请求架构审查+归档+README 更新 | 审查 Top-20 大文件（标记 6 个 >1000 行的拆分候选）；归档 12 个一次性脚本到 docs/archive/2026-04-28、scripts/_archive/2026-04-28、CostView/_archive/2026-04-28；更新 README 目录结构与文档索引 | 根目录干净，README 反映当前状态 | — |
+| 2026-04-28 17:05 | session | Stop | Session ended | — | auto |
+| 2026-04-28 18:44 | session | Stop | Session ended | — | auto |
+| 2026-04-28 18:50 | feat | M2 close-gaps sprint completion (P2.7/P2.8/P0.3) | Backfilled fill_attribution_metrics for 149 trade days (2025-09-25 to 2026-04-22, 8.27M rows); fixed aggregator regime JOIN (12 GiB MemoryError -> Cartesian on FillId); fixed recommender JOIN columns; renamed mid->normal across stack to match actual regime label values; added bootstrap_ci_mean memory cap (n_cap=50000, chunked resampling) to prevent 16 GiB allocation; ran papermill substitute (run_attribution_notebook.py) for vol/liq/trend regime variants; filled docs/RESEARCH_NOTES/2026-04-M2-broker-algo-v0.md tables 3.1-3.3 with full-window data; built ExecutionView CostView regime-distribution panel (backend GET /api/costview/regime-distribution + RegimeDistributionPanel.tsx Recharts stacked bar) | 11/11 unit tests pass; 1208/1431 pairwise tests significant at FDR<=0.05; backend/frontend tsc clean; 3 papermill notebooks generated successfully | ~3h |
+| 2026-04-29 09:17 | session | Stop | Session ended | — | auto |

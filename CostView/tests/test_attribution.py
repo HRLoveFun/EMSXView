@@ -17,6 +17,8 @@ import pandas as pd
 
 from CostView.src.attribution.aggregator import (
     METRICS,
+    DEFAULT_BUCKET_SPECS,
+    add_bucket_columns,
     aggregate_cells,
     bootstrap_ci_mean,
     pairwise_welch_bh,
@@ -160,6 +162,52 @@ class TestAggregator(unittest.TestCase):
             self.assertGreaterEqual(q[i] + 1e-12, q[i-1])
         # All q in [0,1]
         self.assertTrue(((q >= 0) & (q <= 1)).all())
+
+
+class TestBuckets(unittest.TestCase):
+    def test_add_bucket_columns(self):
+        df = pd.DataFrame({
+            "pct_adv": [0.0, 0.001, 0.007, 0.02, 0.5, np.nan, -0.1],
+            "participation_rate": [0.0, 0.03, 0.07, 0.15, 0.5, 0.99, np.nan],
+        })
+        out = add_bucket_columns(df, DEFAULT_BUCKET_SPECS)
+        self.assertIn("pct_adv_bucket", out.columns)
+        self.assertIn("participation_rate_bucket", out.columns)
+        # 0.001 -> first bucket [0%-0.50%)
+        self.assertTrue(out["pct_adv_bucket"].iloc[1].startswith("[0.00%-0.50%"))
+        # 0.5 -> last bucket which is closed on right
+        self.assertTrue(out["pct_adv_bucket"].iloc[4].endswith("]"))
+        # Negative / NaN -> NaN bucket label
+        self.assertTrue(pd.isna(out["pct_adv_bucket"].iloc[5]))
+        self.assertTrue(pd.isna(out["pct_adv_bucket"].iloc[6]))
+
+    def test_aggregate_cells_with_bucket(self):
+        # Build a frame with two pct_adv buckets and verify groupby slices.
+        rng = np.random.default_rng(7)
+        rows = []
+        for pct in (0.001, 0.03):  # bucket 1 vs bucket 3
+            for _ in range(50):
+                rows.append({
+                    "OrderId":"o","RouteId":"r","FillId":str(rng.integers(0,1e9)),
+                    "order_as_of_date_iso":"2026-01-01","market_code":"XX",
+                    "broker":"A","algo":"vwap","side":1,
+                    "fill_shares":100,"fill_price":100,"route_shares":100,
+                    "pct_adv": pct,
+                    "is_bps": rng.normal(2.0 if pct < 0.005 else 8.0, 1.0),
+                    "vwap_bps": np.nan, "reversal_1m_bps": np.nan,
+                    "reversal_5m_bps": np.nan, "reversal_30m_bps": np.nan,
+                })
+        df = pd.DataFrame(rows)
+        agg = aggregate_cells(
+            df, cfg=_cfg(min_n=30, n_boot=200),
+            by=["broker", "algo", "pct_adv_bucket"],
+            bucket_specs={"pct_adv": [0.0, 0.005, 0.01, 0.05, 1.0]},
+        )
+        self.assertEqual(len(agg), 2)
+        # Larger pct_adv bucket should have larger mean is_bps
+        agg_sorted = agg.sort_values("pct_adv_bucket")
+        means = agg_sorted["is_bps_mean"].tolist()
+        self.assertLess(means[0], means[1])
 
 
 if __name__ == "__main__":

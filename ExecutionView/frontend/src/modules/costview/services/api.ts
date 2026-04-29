@@ -121,3 +121,46 @@ export async function fetchScorecard(payload: ScorecardRequestPayload): Promise<
   const json = await response.json();
   return json.data as ScorecardReport;
 }
+// -- Regime distribution ------------------------------------------------------
+
+export interface RegimeDistributionRow {
+  date: string;
+  market_code: string;
+  low: number;
+  normal: number;
+  high: number;
+  extreme: number;
+  none: number;
+  total: number;
+}
+
+export interface RegimeDistributionResponse {
+  success: boolean;
+  rows: RegimeDistributionRow[];
+  regime_dim: string;
+  config_version: string | null;
+  start_date: string;
+  end_date: string;
+}
+
+export async function fetchRegimeDistribution(params: {
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  regimeDim?: 'vol_regime' | 'liq_regime' | 'trend_regime';
+}): Promise<RegimeDistributionResponse> {
+  const url = new URL(
+    `${API_BASE_URL}/api/costview/regime-distribution`,
+    window.location.origin,
+  );
+  url.searchParams.set('start_date', params.startDate);
+  url.searchParams.set('end_date', params.endDate);
+  url.searchParams.set('regime_dim', params.regimeDim ?? 'vol_regime');
+  const response = await fetch(url.toString().replace(window.location.origin, API_BASE_URL || ''), {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as RegimeDistributionResponse;
+}

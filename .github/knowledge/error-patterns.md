@@ -252,3 +252,39 @@
 - **Date**: 2026-04-23
 - **Files**: CostView/tests/test_fill_fetch.py, CostView/tests/test_tca_query_service.py, CostView/test_pipeline_guards.py, ExecutionView/backend/api/tests/test_service_provider.py, ExecutionView/backend/api/tests/test_db_bootstrap.py
 - **Lessons**: When pytest fails before collection with framework/plugin stack traces, treat the environment as the first suspect and neutralize plugin autoload before debugging application code.
+
+---
+
+## Pattern: raw_bdib.vwap Column Always NULL
+
+- **Signature**: Computed `vwap_bps` is 100% NaN even though `interval_vwap` calls succeed; SELECT vwap FROM raw_bdib returns all NULL.
+- **Root Cause**: Bloomberg BDIB feed populates OHLCV but not the vwap column for the tickers / dates we subscribe to. The column exists in the schema but is never written.
+- **Resolution**: In `CostView/src/attribution/benchmarks.py`, ignore `raw_bdib.vwap` entirely. Compute the bar VWAP proxy manually as `sum(close * volume) / sum(volume)` over all bars in [first_minute, last_minute] (inclusive). Never SELECT vwap.
+- **Status**: Resolved
+- **Date**: 2026-04-28
+- **Files**: `CostView/src/attribution/benchmarks.py`
+- **Lessons**: Always SELECT a small sample of raw bar data before relying on a derived column. BDIB has many nullable columns; assume nothing about field population.
+
+---
+
+## Pattern: Sub-minute Bar Grid Loses Volume on Dedup-by-Minute
+
+- **Signature**: interval_vwap returns prices that don''t match observed VWAP; total volume in interval is too low.
+- **Root Cause**: raw_bdib bars are NOT a clean 1-minute grid. Many bars use sub-minute timestamps (e.g. 09:30:10, 09:30:20, ... 09:30:50) plus a 09:30:00 minute mark. Naive `drop_duplicates(subset=["minute"], keep="last")` discards 4 of 5 sub-minute bars and most of the volume.
+- **Resolution**: Keep ALL sub-minute rows in BarPanel.bars. Only dedup by minute when computing `mid_by_minute` (we want the last close per minute as a spot mid lookup). For volume integration in `interval_vwap` and `interval_volume`, retain every bar and sum across the full sub-minute panel.
+- **Status**: Resolved
+- **Date**: 2026-04-28
+- **Files**: `CostView/src/attribution/benchmarks.py`, `CostView/src/attribution/writer.py`
+- **Lessons**: Verify the time grid of Bloomberg bar data with a quick `SELECT mkt_timestamp, COUNT(*) GROUP BY mkt_timestamp` before designing aggregations.
+
+---
+
+## Pattern: pytest-asyncio 9.0.2 Fails Test Collection
+
+- **Signature**: `AttributeError: ''Package'' object has no attribute ''obj''` during pytest collection.
+- **Root Cause**: pytest-asyncio 9.0.2 is incompatible with the installed pytest version; package collection hooks reference `pkg.obj` which no longer exists.
+- **Resolution**: Use `python -m unittest CostView.tests.<module> -v` for CostView tests instead of pytest. All CostView tests inherit from `unittest.TestCase` so this works directly.
+- **Status**: Workaround
+- **Date**: 2026-04-28
+- **Files**: N/A (testing tooling)
+- **Lessons**: When pytest collection breaks, fall back to plain unittest before debugging plugin compatibility.

@@ -16,6 +16,7 @@ broker x algo x regime cells with bootstrap CI + Welch t + BH-FDR.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
 import math
 import sqlite3
@@ -33,6 +34,7 @@ from .benchmarks import (
     RAW_BDIB_DB,
     add_minutes,
     compute_route_arrival_minutes,
+    interval_volume,
     interval_vwap,
     load_bar_panels_for_date,
     load_fills_for_date,
@@ -50,6 +52,55 @@ _FLAG_NO_ARRIVAL = 1
 _FLAG_NO_INTERVAL_VWAP = 2
 _FLAG_NO_MID_AT_FILL = 4
 _FLAG_NO_MID_PLUS_BASE = 8  # bit position multiplier for reversal windows
+
+
+# ----------------------------------------------------------------------------
+# Snapshot table (P2.9) - lazy create-if-missing
+# ----------------------------------------------------------------------------
+_SNAPSHOT_DDL = """
+CREATE TABLE IF NOT EXISTS audit_research_snapshots (
+    run_id           INTEGER PRIMARY KEY,
+    stage_name       TEXT NOT NULL,
+    config_version   TEXT NOT NULL,
+    start_date       TEXT NOT NULL,
+    end_date         TEXT NOT NULL,
+    rows_written     INTEGER NOT NULL,
+    rows_total       INTEGER NOT NULL,
+    snapshot_sha256  TEXT NOT NULL,
+    created_at       TIMESTAMP NOT NULL
+)
+"""
+
+
+def _compute_snapshot_sha256(
+    regime_conn: sqlite3.Connection,
+    config_version: str,
+    start_iso: str,
+    end_iso: str,
+) -> Tuple[str, int]:
+    """Return (sha256_hex, total_rows_in_range) over a deterministic top-100
+    sample of (OrderId, RouteId, FillId) keys + their is_bps values.
+
+    Uses ORDER BY ascending PK so the sample is reproducible across runs.
+    """
+    cur = regime_conn.execute(
+        """SELECT OrderId, RouteId, FillId, order_as_of_date_iso, is_bps
+           FROM fill_attribution_metrics
+           WHERE config_version=? AND order_as_of_date_iso BETWEEN ? AND ?
+           ORDER BY OrderId, RouteId, FillId, order_as_of_date_iso
+           LIMIT 100""",
+        (config_version, start_iso, end_iso),
+    )
+    h = hashlib.sha256()
+    for row in cur.fetchall():
+        oid, rid, fid, d, isb = row
+        h.update(f"{oid}|{rid}|{fid}|{d}|{isb}\n".encode("utf-8"))
+    total = regime_conn.execute(
+        """SELECT COUNT(*) FROM fill_attribution_metrics
+           WHERE config_version=? AND order_as_of_date_iso BETWEEN ? AND ?""",
+        (config_version, start_iso, end_iso),
+    ).fetchone()[0]
+    return h.hexdigest(), int(total)
 
 
 # ----------------------------------------------------------------------------
@@ -111,6 +162,39 @@ def _process_one_date(
     panels = load_bar_panels_for_date(bdib_conn, yyyymmdd, distinct_tickers)
     adv_map = _load_adv_map(bdib_conn, yyyymmdd, distinct_tickers)
     route_minutes = compute_route_arrival_minutes(fills_df)  # idx (OrderId, RouteId)
+
+    # Per-route participation cache:
+    #   participation_rate = route_shares / sum(BDIB volume over [first_min, last_min])
+    # Build once per (OrderId, RouteId) using the route's ticker + window.
+    route_partic: Dict[Tuple[str, str], Optional[float]] = {}
+    route_keys = (
+        fills_df[["OrderId", "RouteId", "equ_ticker", "RouteShares"]]
+        .drop_duplicates(subset=["OrderId", "RouteId"])
+    )
+    for r in route_keys.itertuples(index=False):
+        key = (r.OrderId, r.RouteId)
+        try:
+            first_m, last_m = route_minutes.loc[key]
+        except KeyError:
+            route_partic[key] = None
+            continue
+        panel = panels.get(r.equ_ticker)
+        if panel is None or not first_m or not last_m:
+            route_partic[key] = None
+            continue
+        ivol = interval_volume(panel, first_m, last_m)
+        rs = r.RouteShares
+        if ivol is None or ivol <= 0 or rs is None or not pd.notna(rs) or float(rs) <= 0:
+            route_partic[key] = None
+            continue
+        pr = float(rs) / float(ivol)
+        # Schema constraint: participation_rate in [0, 5]. Off-book / dark
+        # fills can push the ratio above bar interval volume; cap to None
+        # when it exceeds 5x (clearly outside on-book interpretation).
+        if pr < 0 or pr > 5.0:
+            route_partic[key] = None
+        else:
+            route_partic[key] = pr
 
     iso_date = _iso_date(yyyymmdd)
     rev_windows = list(cfg.reversal_windows_min)
@@ -183,7 +267,7 @@ def _process_one_date(
             str(fill.OrderId), str(fill.RouteId), str(fill.FillId), iso_date, cfg.version_id,
             market_code, fill.Broker, fill.algo, side, fill_shares, fill_price,
             float(fill.RouteShares) if pd.notna(fill.RouteShares) else None,
-            pct_adv, None,  # participation_rate computed later (needs interval volume)
+            pct_adv, route_partic.get((fill.OrderId, fill.RouteId)),
             arrival_px, ivwap,
             mid_at, mids_plus.get(rev_windows[0] if len(rev_windows) > 0 else None),
             mids_plus.get(rev_windows[1] if len(rev_windows) > 1 else None),
@@ -321,6 +405,27 @@ def run_metrics(
             (finished_at, "failed" if failed else "success",
              rows_written, 0, err, duration_sec, run_id),
         )
+        # P2.9: research snapshot hash (only on success).
+        if not failed:
+            try:
+                regime_conn.execute(_SNAPSHOT_DDL)
+                sha, total = _compute_snapshot_sha256(
+                    regime_conn, cfg.version_id, start_date_iso, end_date_iso,
+                )
+                regime_conn.execute(
+                    """INSERT OR REPLACE INTO audit_research_snapshots
+                       (run_id, stage_name, config_version, start_date,
+                        end_date, rows_written, rows_total, snapshot_sha256,
+                        created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (run_id, "attribution_metrics", cfg.version_id,
+                     start_date_iso, end_date_iso, rows_written, total,
+                     sha, finished_at),
+                )
+                regime_conn.commit()
+                logger.info("snapshot sha256=%s rows_total=%d", sha[:16], total)
+            except Exception as e:
+                logger.warning("snapshot write failed: %r", e)
         regime_conn.close()
         fills_conn.close()
         bdib_conn.close()

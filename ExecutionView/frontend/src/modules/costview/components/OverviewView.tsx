@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { averageMetric, countAlertOrders, getHighestOrderSeverity, getSeverityText, getSeverityTone } from '../lib/thresholds';
 import type { CostViewConfig, CostViewExportState, TcaReport } from '../types';
+import { RegimeDistributionPanel } from './RegimeDistributionPanel';
 
 interface OverviewViewProps {
   config: CostViewConfig;
@@ -174,6 +175,14 @@ export function OverviewView({ config, error, exportState, isLoading, report, on
           )}
         </CardContent>
       </Card>
+      <RegimeDistributionPanel
+        startDate={(() => {
+          const d = new Date();
+          d.setDate(d.getDate() - 30);
+          return d.toISOString().slice(0, 10);
+        })()}
+        endDate={new Date().toISOString().slice(0, 10)}
+      />
     </div>
   );
 }
