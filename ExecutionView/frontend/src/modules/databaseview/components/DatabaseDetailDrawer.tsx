@@ -124,7 +124,11 @@ export function DatabaseDetailDrawer({ dbKey }: DatabaseDetailDrawerProps) {
         </TabsContent>
 
         <TabsContent value="schema" className="pt-2">
-          <SchemaSamplePanel dbKey={dbKey} tables={summary.tables} />
+          <SchemaSamplePanel
+            dbKey={dbKey}
+            tables={summary.tables}
+            dbExists={summary.exists}
+          />
         </TabsContent>
 
         <TabsContent value="integrity" className="pt-2">

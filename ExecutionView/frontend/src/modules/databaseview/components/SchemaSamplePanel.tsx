@@ -7,11 +7,12 @@ import { formatRowCount } from '../lib/format';
 interface SchemaSamplePanelProps {
   dbKey: string;
   tables: TableSummary[];
+  dbExists?: boolean;
 }
 
 const LIMIT_OPTIONS = [10, 50, 100, 200] as const;
 
-export function SchemaSamplePanel({ dbKey, tables }: SchemaSamplePanelProps) {
+export function SchemaSamplePanel({ dbKey, tables, dbExists = true }: SchemaSamplePanelProps) {
   const tableNames = useMemo(() => tables.map((t) => t.name), [tables]);
   const [activeTable, setActiveTable] = useState<string | null>(
     tableNames[0] ?? null,
@@ -85,9 +86,17 @@ export function SchemaSamplePanel({ dbKey, tables }: SchemaSamplePanelProps) {
   }, [dbKey, activeTable, limit, refreshTick]);
 
   if (tableNames.length === 0) {
+    if (!dbExists) {
+      return (
+        <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-6 text-center text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+          数据库文件还没生成。这个数据库需要先运行一次完整的数据更新流程（
+          <span className="font-mono">daily_update</span>）才会出现表。
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-        No registered tables for this database.
+        这个数据库目前没有可展示的表。
       </div>
     );
   }
