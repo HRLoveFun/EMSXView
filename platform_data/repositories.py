@@ -151,6 +151,19 @@ def _spec_by_key(key: str) -> _DatabaseSpec:
     raise KeyError(f"Unknown database key: {key}")
 
 
+def _spec_table(spec: _DatabaseSpec, table: str) -> _TableSpec:
+    """Look up a table spec by name, raising KeyError if not registered.
+
+    Used to validate user-supplied table names before they are interpolated
+    into SQL — only registered names are ever passed to a query string,
+    eliminating SQL-injection risk on the schema/sample endpoints.
+    """
+    for t in spec.tables:
+        if t.name == table:
+            return t
+    raise KeyError(f"Table '{table}' is not registered for database '{spec.key}'")
+
+
 # ── Response dataclasses ──────────────────────────────────────────────────────
 
 @dataclass
@@ -227,6 +240,74 @@ class DatabaseSummary:
                 }
                 for t in self.tables
             ],
+        }
+
+
+@dataclass
+class ColumnInfo:
+    name: str
+    type: str            # declared SQLite type, e.g. "TEXT", "INTEGER", "REAL"
+    nullable: bool
+    primary_key: int     # 0 if not part of PK; otherwise the 1-based PK position
+    default_value: Optional[str] = None
+
+
+@dataclass
+class IndexInfo:
+    name: str
+    unique: bool
+    columns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TableSchema:
+    database_key: str
+    table: str
+    description: str
+    primary_key_display: Optional[str]
+    columns: list[ColumnInfo] = field(default_factory=list)
+    indexes: list[IndexInfo] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "database_key": self.database_key,
+            "table": self.table,
+            "description": self.description,
+            "primary_key_display": self.primary_key_display,
+            "columns": [asdict(c) for c in self.columns],
+            "indexes": [asdict(i) for i in self.indexes],
+        }
+
+
+@dataclass
+class ColumnAnomaly:
+    column: str
+    severity: str        # "info" | "warning" | "error"
+    code: str            # "high_null" | "all_same" | "negative_value" | ...
+    message: str
+
+
+@dataclass
+class TableSample:
+    database_key: str
+    table: str
+    columns: list[str]
+    rows: list[list]              # JSON-safe values (str/int/float/bool/None)
+    row_count_estimate: int       # cheap estimate via MAX(_rowid_)
+    fetched_at: str               # ISO timestamp
+    order_by: Optional[str]       # human-readable ordering used
+    anomalies: list[ColumnAnomaly] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "database_key": self.database_key,
+            "table": self.table,
+            "columns": list(self.columns),
+            "rows": [list(r) for r in self.rows],
+            "row_count_estimate": self.row_count_estimate,
+            "fetched_at": self.fetched_at,
+            "order_by": self.order_by,
+            "anomalies": [asdict(a) for a in self.anomalies],
         }
 
 
@@ -529,6 +610,228 @@ def get_summary(key: str, date_limit: int = 800) -> DatabaseSummary:
     return summary
 
 
+_SAMPLE_LIMIT_MAX = 200
+_SAMPLE_CELL_MAX_BYTES = 4096
+_NULL_RATIO_WARN = 0.10
+_NULL_RATIO_ERROR = 0.50
+_SAME_VALUE_MIN_ROWS = 20
+
+
+def list_tables(key: str) -> list[str]:
+    """Return registered table names for the given database key."""
+    spec = _spec_by_key(key)
+    return [t.name for t in spec.tables]
+
+
+def _coerce_cell(value: object) -> object:
+    """Convert SQLite cell values to JSON-safe primitives."""
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        try:
+            decoded = bytes(value).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            return f"<{len(bytes(value))} bytes>"
+        if len(decoded) > _SAMPLE_CELL_MAX_BYTES:
+            return decoded[:_SAMPLE_CELL_MAX_BYTES] + "…"
+        return decoded
+    text = str(value)
+    if len(text) > _SAMPLE_CELL_MAX_BYTES:
+        return text[:_SAMPLE_CELL_MAX_BYTES] + "…"
+    return text
+
+
+def get_schema(key: str, table: str) -> TableSchema:
+    """Return column / index metadata for a registered table.
+
+    Uses `PRAGMA table_info` and `PRAGMA index_list/index_info`. Table names
+    are validated against the static registry (`_spec_table`) before any SQL
+    interpolation, so this endpoint is not exposed to SQL injection.
+    """
+    spec = _spec_by_key(key)
+    tspec = _spec_table(spec, table)
+    schema = TableSchema(
+        database_key=spec.key,
+        table=tspec.name,
+        description=tspec.description,
+        primary_key_display=tspec.primary_key,
+    )
+    if not spec.path.exists():
+        return schema
+    try:
+        with _open_ro(spec.path) as conn:
+            if not _table_exists(conn, tspec.name):
+                return schema
+            # PRAGMA table_info(<table>) → cid, name, type, notnull, dflt_value, pk
+            for cid, name, ctype, notnull, dflt, pk in conn.execute(
+                f"PRAGMA table_info([{tspec.name}])"
+            ).fetchall():
+                schema.columns.append(
+                    ColumnInfo(
+                        name=str(name),
+                        type=str(ctype or ""),
+                        nullable=not bool(notnull),
+                        primary_key=int(pk or 0),
+                        default_value=None if dflt is None else str(dflt),
+                    )
+                )
+            # PRAGMA index_list → seq, name, unique, origin, partial
+            for _seq, idx_name, unique, *_ in conn.execute(
+                f"PRAGMA index_list([{tspec.name}])"
+            ).fetchall():
+                cols = [
+                    str(r[2])
+                    for r in conn.execute(
+                        f"PRAGMA index_info([{idx_name}])"
+                    ).fetchall()
+                ]
+                schema.indexes.append(
+                    IndexInfo(
+                        name=str(idx_name),
+                        unique=bool(unique),
+                        columns=cols,
+                    )
+                )
+    except sqlite3.Error as exc:
+        logger.warning(
+            "Schema query failed for %s.%s: %s", spec.key, tspec.name, exc
+        )
+    return schema
+
+
+def _detect_anomalies(
+    columns: list[str], rows: list[tuple]
+) -> list[ColumnAnomaly]:
+    """Cheap, sample-bounded column-level anomaly detection.
+
+    Operates on the already-fetched sample (no extra queries). Reports:
+    - high_null: NULL ratio ≥ 10% (warning) or ≥ 50% (error)
+    - all_same:  every value identical when sample ≥ _SAME_VALUE_MIN_ROWS
+    """
+    anomalies: list[ColumnAnomaly] = []
+    n = len(rows)
+    if n == 0:
+        return anomalies
+    for ci, col in enumerate(columns):
+        nulls = 0
+        seen: set = set()
+        for r in rows:
+            v = r[ci]
+            if v is None:
+                nulls += 1
+            else:
+                seen.add(v)
+        ratio = nulls / n
+        if ratio >= _NULL_RATIO_ERROR:
+            anomalies.append(
+                ColumnAnomaly(
+                    column=col,
+                    severity="error",
+                    code="high_null",
+                    message=f"{nulls}/{n} rows ({ratio:.0%}) are NULL.",
+                )
+            )
+        elif ratio >= _NULL_RATIO_WARN:
+            anomalies.append(
+                ColumnAnomaly(
+                    column=col,
+                    severity="warning",
+                    code="high_null",
+                    message=f"{nulls}/{n} rows ({ratio:.0%}) are NULL.",
+                )
+            )
+        if (
+            n >= _SAME_VALUE_MIN_ROWS
+            and nulls < n
+            and len(seen) == 1
+        ):
+            anomalies.append(
+                ColumnAnomaly(
+                    column=col,
+                    severity="info",
+                    code="all_same",
+                    message=f"All {n} sampled rows share the same value.",
+                )
+            )
+    return anomalies
+
+
+def get_sample(key: str, table: str, limit: int = 50) -> TableSample:
+    """Return the most recent N rows of a registered table.
+
+    Ordering preference:
+    1. `<date_column> DESC, _rowid_ DESC` when the spec declares a date column
+    2. `_rowid_ DESC` otherwise
+    Both orderings hit indexed/native columns and stay O(log n + limit) on
+    multi-GB tables.
+    """
+    spec = _spec_by_key(key)
+    tspec = _spec_table(spec, table)
+    safe_limit = max(1, min(int(limit), _SAMPLE_LIMIT_MAX))
+    fetched_at = (
+        datetime.now(tz=timezone.utc).astimezone().isoformat(timespec="seconds")
+    )
+    sample = TableSample(
+        database_key=spec.key,
+        table=tspec.name,
+        columns=[],
+        rows=[],
+        row_count_estimate=0,
+        fetched_at=fetched_at,
+        order_by=None,
+    )
+    if not spec.path.exists():
+        return sample
+    try:
+        with _open_ro(spec.path) as conn:
+            if not _table_exists(conn, tspec.name):
+                return sample
+            # Resolve column names from PRAGMA so we never SELECT *.
+            col_rows = conn.execute(
+                f"PRAGMA table_info([{tspec.name}])"
+            ).fetchall()
+            col_names = [str(r[1]) for r in col_rows]
+            if not col_names:
+                return sample
+            sample.columns = col_names
+            sample.row_count_estimate = _count_rows_fast(conn, tspec.name)
+
+            if tspec.date_column and tspec.date_column in col_names:
+                order_by = f"[{tspec.date_column}] DESC, _rowid_ DESC"
+            else:
+                order_by = "_rowid_ DESC"
+            sample.order_by = order_by
+
+            select_cols = ", ".join(f"[{c}]" for c in col_names)
+            try:
+                cursor = conn.execute(
+                    f"SELECT {select_cols} FROM [{tspec.name}] "
+                    f"ORDER BY {order_by} LIMIT ?",
+                    (safe_limit,),
+                )
+                raw_rows = cursor.fetchall()
+            except sqlite3.Error:
+                # Fallback: some pre-existing tables may not have an index on
+                # the declared date_column; retry with rowid ordering.
+                cursor = conn.execute(
+                    f"SELECT {select_cols} FROM [{tspec.name}] "
+                    f"ORDER BY _rowid_ DESC LIMIT ?",
+                    (safe_limit,),
+                )
+                raw_rows = cursor.fetchall()
+                sample.order_by = "_rowid_ DESC"
+
+            sample.rows = [
+                [_coerce_cell(v) for v in row] for row in raw_rows
+            ]
+            sample.anomalies = _detect_anomalies(col_names, raw_rows)
+    except sqlite3.Error as exc:
+        logger.warning(
+            "Sample query failed for %s.%s: %s", spec.key, tspec.name, exc
+        )
+    return sample
+
+
 def get_integrity(key: str) -> IntegrityReport:
     """Lightweight integrity check — never heavier than a few aggregate scans."""
     spec = _spec_by_key(key)
@@ -664,14 +967,22 @@ def get_integrity(key: str) -> IntegrityReport:
 
 
 __all__ = [
+    "ColumnAnomaly",
+    "ColumnInfo",
     "DatabaseOverview",
     "DatabaseSummary",
     "DateRowCount",
+    "IndexInfo",
     "IntegrityIssue",
     "IntegrityReport",
+    "TableSample",
+    "TableSchema",
     "TableSummary",
     "get_integrity",
     "get_overview",
+    "get_sample",
+    "get_schema",
     "get_summary",
     "list_database_keys",
+    "list_tables",
 ]

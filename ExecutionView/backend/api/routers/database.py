@@ -7,11 +7,13 @@ the iteration plan.
 
 Endpoints
 ---------
-GET    /api/db/overview                 — all databases + headline stats
-GET    /api/db/{key}/summary            — per-table date coverage + per-date row counts
-GET    /api/db/{key}/integrity          — lightweight, bounded integrity checks
-POST   /api/db/update                   — trigger the daily update pipeline (localhost only)
-GET    /api/db/update-status/{job_id}   — poll a triggered pipeline job
+GET    /api/db/overview                          — all databases + headline stats
+GET    /api/db/{key}/summary                     — per-table date coverage + per-date row counts
+GET    /api/db/{key}/integrity                   — lightweight, bounded integrity checks
+GET    /api/db/{key}/tables/{table}/schema       — column + index metadata for one table
+GET    /api/db/{key}/tables/{table}/sample       — most recent rows (≤ 200) of one table
+POST   /api/db/update                            — trigger the daily update pipeline (localhost only)
+GET    /api/db/update-status/{job_id}            — poll a triggered pipeline job
 """
 
 from __future__ import annotations
@@ -104,6 +106,49 @@ class IntegrityResponse(BaseModel):
     issues: list[IntegrityIssueModel]
 
 
+class ColumnInfoModel(BaseModel):
+    name: str
+    type: str
+    nullable: bool
+    primary_key: int = 0
+    default_value: Optional[str] = None
+
+
+class IndexInfoModel(BaseModel):
+    name: str
+    unique: bool
+    columns: list[str] = Field(default_factory=list)
+
+
+class SchemaResponse(BaseModel):
+    success: bool = True
+    database_key: str
+    table: str
+    description: str
+    primary_key_display: Optional[str] = None
+    columns: list[ColumnInfoModel] = Field(default_factory=list)
+    indexes: list[IndexInfoModel] = Field(default_factory=list)
+
+
+class ColumnAnomalyModel(BaseModel):
+    column: str
+    severity: str
+    code: str
+    message: str
+
+
+class SampleResponse(BaseModel):
+    success: bool = True
+    database_key: str
+    table: str
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list] = Field(default_factory=list)
+    row_count_estimate: int = 0
+    fetched_at: str
+    order_by: Optional[str] = None
+    anomalies: list[ColumnAnomalyModel] = Field(default_factory=list)
+
+
 class TriggerUpdateResponse(BaseModel):
     success: bool = True
     job_id: str
@@ -160,6 +205,51 @@ async def get_database_integrity(key: str) -> IntegrityResponse:
         raise HTTPException(status_code=404, detail=f"Unknown database key: {key}")
     integrity = repo.get_integrity(key)
     return IntegrityResponse(**integrity.to_dict())
+
+
+@router.get(
+    "/api/db/{key}/tables/{table}/schema",
+    response_model=SchemaResponse,
+)
+async def get_table_schema(key: str, table: str) -> SchemaResponse:
+    """Return column / index metadata for a registered table.
+
+    Both `key` and `table` are validated against the static registry; any
+    unknown identifier is rejected with 404 before reaching SQL.
+    """
+    if key not in repo.list_database_keys():
+        raise HTTPException(status_code=404, detail=f"Unknown database key: {key}")
+    if table not in repo.list_tables(key):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown table '{table}' for database '{key}'",
+        )
+    schema = repo.get_schema(key, table)
+    return SchemaResponse(**schema.to_dict())
+
+
+@router.get(
+    "/api/db/{key}/tables/{table}/sample",
+    response_model=SampleResponse,
+)
+async def get_table_sample(
+    key: str, table: str, limit: int = 50
+) -> SampleResponse:
+    """Return the most recent rows of a registered table (≤ 200)."""
+    if key not in repo.list_database_keys():
+        raise HTTPException(status_code=404, detail=f"Unknown database key: {key}")
+    if table not in repo.list_tables(key):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown table '{table}' for database '{key}'",
+        )
+    if limit < 1:
+        raise HTTPException(
+            status_code=400, detail="limit must be ≥ 1"
+        )
+    sample = repo.get_sample(key, table, limit=limit)
+    return SampleResponse(**sample.to_dict())
+
 
 
 @router.post("/api/db/update", response_model=TriggerUpdateResponse)

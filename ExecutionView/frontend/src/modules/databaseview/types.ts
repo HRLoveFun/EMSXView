@@ -76,6 +76,53 @@ export interface IntegrityResponse extends IntegrityReport {
   success: boolean;
 }
 
+// ── Schema & sample (per-table inspection) ──────────────────────────────────
+
+export interface ColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  primary_key: number;       // 0 = not in PK, otherwise 1-based PK position
+  default_value: string | null;
+}
+
+export interface IndexInfo {
+  name: string;
+  unique: boolean;
+  columns: string[];
+}
+
+export interface SchemaResponse {
+  success: boolean;
+  database_key: string;
+  table: string;
+  description: string;
+  primary_key_display: string | null;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+}
+
+export interface ColumnAnomaly {
+  column: string;
+  severity: 'info' | 'warning' | 'error' | string;
+  code: string;
+  message: string;
+}
+
+export type SampleCell = string | number | boolean | null;
+
+export interface SampleResponse {
+  success: boolean;
+  database_key: string;
+  table: string;
+  columns: string[];
+  rows: SampleCell[][];
+  row_count_estimate: number;
+  fetched_at: string;
+  order_by: string | null;
+  anomalies: ColumnAnomaly[];
+}
+
 // Pipeline job types — identical shape to costview TriggerUpdate/UpdateStatus.
 export interface TriggerUpdateResponse {
   job_id: string;
