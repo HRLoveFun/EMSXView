@@ -144,3 +144,23 @@
 - **Status**: Active
 
 
+
+---
+
+## Decision: Defer IV / Spread / Depth Inputs to Vol/Liq Regime (P2)
+
+- **Date**: 2026-04-28
+- **Context**: Original 项目功能构建规划.md M1 plan calls for IV (implied volatility) inside vol_regime and bid-ask spread + book depth inside liq_regime. Bloomberg BDIB feed (raw_bdib) carries OHLCV + vwap only; no NBBO, no IV chain, no order book depth. Adding these would require enabling Bloomberg BVOL / BPIPE depth feeds and a new ingestion pipeline.
+- **Decision**: Keep current schema (v3) using ATR-based vol_regime and ADV-based liq_regime as in M1. Postpone IV / spread / depth integration to Phase 2 (M4+). When integrated, add nullable columns `iv_pct`, `spread_pct`, `depth_proxy` to `daily_vol_regime` / `daily_liquidity_regime` via schema v4 migration; current rows keep NULL.
+- **Consequences**: Vol regime is realized-vol-only (ATR proxy), missing forward-looking signal. Liq regime ignores microstructure. Recommendations may be biased toward historically calm names. Mitigation: add a manually-curated `is_macro_day_pm1` flag to capture event-driven regime shifts.
+- **Review Date**: 2026-07-01 (Phase 2 kickoff or earlier when BVOL / depth feeds become available)
+
+---
+
+## Decision: Off-book Trades Cap participation_rate at 5x
+
+- **Date**: 2026-04-28
+- **Context**: P0.1 added `participation_rate = route_shares / Σ(BDIB bar volume over [first_min, last_min])`. Schema v3 already constrains `participation_rate IN [0, 5]` to reject obvious junk. Real-world routes that fill against dark/off-book liquidity (e.g. blocks, internalised crosses) often produce ratios > 1 because the on-book bar volume excludes those prints.
+- **Decision**: When the computed ratio exceeds 5x, store NULL instead. Aggregator treats NULL as "unknown" (excluded from cell). Rows < 0 (impossible by definition) also become NULL.
+- **Consequences**: Avoids CHECK constraint failures during backfill while preserving the analytic integrity of the column for on-book scenarios. Loses signal for highly off-book strategies; deferred mitigation: separate `dark_pool_share` column when broker-tagging is integrated.
+- **Review Date**: 2026-06-01

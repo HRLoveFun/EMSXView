@@ -147,9 +147,13 @@ EMSX/
 │   ├── start-all.bat / stop-all.bat
 │   └── ...
 ├── data/                          # Shared runtime data
-├── logs/                          # Service logs
-└── test.ipynb                     # Jupyter notebook for exploratory work
+└── logs/                          # Service logs
 ```
+
+> Older one-off scripts and exploratory notebooks are kept under
+> `docs/archive/<date>/`, `scripts/_archive/<date>/`, and
+> `CostView/_archive/<date>/`. See `docs/archive/2026-04-28/README.md`
+> for the most recent cleanup.
 
 ## Quick Start
 
@@ -235,7 +239,8 @@ MarketView ──────▶ ExecutionView ──────▶ CostView
 | [ExecutionView/README.md](./ExecutionView/README.md) | Execution module details |
 | [CostView/README.md](./CostView/README.md) | CostView module details |
 | [MarketView/README.md](./MarketView/README.md) | MarketView module details |
+| [项目功能构建规划.md](./项目功能构建规划.md) | 下一步功能构建路线图 (中文) |
 
 ---
 
-*Last updated: April 24, 2026*
+*Last updated: April 28, 2026*

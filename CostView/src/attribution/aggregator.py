@@ -40,6 +40,48 @@ logger = logging.getLogger(__name__)
 
 METRICS = ["is_bps", "vwap_bps", "reversal_1m_bps", "reversal_5m_bps", "reversal_30m_bps"]
 
+# Default bucket specs (P0.2). Caller passes these (or override) and includes
+# `{col}_bucket` in the `by` argument to slice cells by bucket.
+DEFAULT_BUCKET_SPECS: Dict[str, List[float]] = {
+    "pct_adv": [0.0, 0.005, 0.01, 0.05, 1.0],
+    "participation_rate": [0.0, 0.05, 0.10, 0.20, 1.0],
+}
+
+
+def _format_bucket_label(lo: float, hi: float, is_last: bool) -> str:
+    """ASCII-safe label like '[0.00%-0.50%)' or '[5.00%-100.00%]'."""
+    bracket_hi = "]" if is_last else ")"
+    return f"[{lo*100:.2f}%-{hi*100:.2f}%{bracket_hi}"
+
+
+def add_bucket_columns(
+    df: pd.DataFrame,
+    bucket_specs: Optional[Dict[str, List[float]]] = None,
+) -> pd.DataFrame:
+    """Add `{col}_bucket` columns for each col in bucket_specs.
+
+    Values <=0 or NaN -> bucket label NaN (excluded by groupby dropna). The
+    last bin is closed on the right (include_lowest=False, right=True).
+    """
+    if bucket_specs is None:
+        return df
+    df = df.copy()
+    for col, edges in bucket_specs.items():
+        if col not in df.columns:
+            continue
+        edges = list(edges)
+        if len(edges) < 2:
+            continue
+        labels = [
+            _format_bucket_label(edges[i], edges[i + 1], is_last=(i == len(edges) - 2))
+            for i in range(len(edges) - 1)
+        ]
+        df[f"{col}_bucket"] = pd.cut(
+            df[col], bins=edges, labels=labels,
+            include_lowest=True, right=True,
+        ).astype(object)
+    return df
+
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -67,7 +109,8 @@ def load_fill_metrics(
     base_sql = """
         SELECT fam.OrderId, fam.RouteId, fam.FillId, fam.order_as_of_date_iso,
                fam.market_code, fam.broker, fam.algo, fam.side,
-               fam.fill_shares, fam.fill_price, fam.route_shares, fam.pct_adv,
+               fam.fill_shares, fam.fill_price, fam.route_shares,
+               fam.pct_adv, fam.participation_rate,
                fam.is_bps, fam.vwap_bps,
                fam.reversal_1m_bps, fam.reversal_5m_bps, fam.reversal_30m_bps
         FROM fill_attribution_metrics fam
@@ -85,17 +128,21 @@ def load_fill_metrics(
                 raise ValueError(f"unknown regime_dim: {regime_dim}")
             # Pull regime labels (regime config = active)
             reg_df = pd.read_sql_query(
-                f"""SELECT fill_id AS FillId, trade_date AS order_as_of_date_iso,
+                f"""SELECT OrderId, RouteId, FillId, order_as_of_date_iso,
                            {regime_dim} AS regime_value
                     FROM fill_regime_labels
                     WHERE config_version = (
                         SELECT version_id FROM audit_regime_config_versions
                         WHERE is_active = 1 LIMIT 1
                     )
-                      AND trade_date BETWEEN ? AND ?""",
+                      AND order_as_of_date_iso BETWEEN ? AND ?""",
                 conn, params=(start_date_iso, end_date_iso),
             )
-            df = df.merge(reg_df, on=["FillId", "order_as_of_date_iso"], how="left")
+            df = df.merge(
+                reg_df,
+                on=["OrderId", "RouteId", "FillId", "order_as_of_date_iso"],
+                how="left",
+            )
             df = df.rename(columns={"regime_value": regime_dim})
     finally:
         conn.close()
@@ -117,8 +164,24 @@ def bootstrap_ci_mean(
         return (float("nan"), float("nan"))
     rng = rng or np.random.default_rng(0)
     n = finite.size
-    idx = rng.integers(0, n, size=(n_resamples, n))
-    means = finite[idx].mean(axis=1)
+    # For very large samples, cap to keep bootstrap O(n_resamples * n_cap).
+    # CI for the mean stabilises well before n=50k; this keeps memory and
+    # runtime bounded for full-window aggregation across many cells.
+    n_cap = 50_000
+    if n > n_cap:
+        finite = rng.choice(finite, size=n_cap, replace=False)
+        n = n_cap
+    # Chunk resamples to cap peak memory at ~chunk*n*8 bytes
+    target_bytes = 256 * 1024 * 1024  # 256 MiB
+    chunk = max(1, min(n_resamples, target_bytes // max(1, n * 8)))
+    means_parts = []
+    remaining = n_resamples
+    while remaining > 0:
+        c = min(chunk, remaining)
+        idx = rng.integers(0, n, size=(c, n))
+        means_parts.append(finite[idx].mean(axis=1))
+        remaining -= c
+    means = np.concatenate(means_parts)
     lo = float(np.quantile(means, alpha / 2))
     hi = float(np.quantile(means, 1 - alpha / 2))
     return (lo, hi)
@@ -145,16 +208,21 @@ def aggregate_cells(
     by: Sequence[str],
     metrics: Sequence[str] = METRICS,
     rng_seed: int = 42,
+    bucket_specs: Optional[Dict[str, List[float]]] = None,
 ) -> pd.DataFrame:
     """Per-cell stats with bootstrap CI.
 
     Output columns per (cell, metric):
       n, mean, median, std, mean_winsor, ci_lo, ci_hi, mean_weighted
     Cells with n < cfg.min_cell_n are tagged but kept.
+
+    If `bucket_specs` is provided, `{col}_bucket` columns are derived first;
+    callers can include those in `by` to slice cells by bucket.
     """
     if df.empty:
         return pd.DataFrame()
 
+    df = add_bucket_columns(df, bucket_specs)
     df = df.copy()
     df["_w"] = _route_notional(df)
     rng = np.random.default_rng(rng_seed)
