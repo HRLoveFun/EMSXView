@@ -1,6 +1,8 @@
 import type {
   IntegrityResponse,
   OverviewResponse,
+  SampleResponse,
+  SchemaResponse,
   SummaryResponse,
   TriggerUpdateResponse,
   UpdateStatusResponse,
@@ -68,4 +70,29 @@ export async function fetchUpdateStatus(jobId: string): Promise<UpdateStatusResp
   );
   if (!response.ok) throw new Error(await readError(response));
   return response.json() as Promise<UpdateStatusResponse>;
+}
+
+export async function fetchTableSchema(
+  key: string,
+  table: string,
+): Promise<SchemaResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/db/${encodeURIComponent(key)}/tables/${encodeURIComponent(table)}/schema`,
+    { headers: getAuthHeaders() },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json() as Promise<SchemaResponse>;
+}
+
+export async function fetchTableSample(
+  key: string,
+  table: string,
+  limit = 50,
+): Promise<SampleResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/db/${encodeURIComponent(key)}/tables/${encodeURIComponent(table)}/sample?limit=${limit}`,
+    { headers: getAuthHeaders() },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json() as Promise<SampleResponse>;
 }

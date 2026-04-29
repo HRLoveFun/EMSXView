@@ -122,6 +122,8 @@ SQLite 数据库族的交易日期覆盖、行数与健康状态，并承载唯�
 | GET  | `/api/db/overview` | 所有注册数据库的概览（size、date range、health）|
 | GET  | `/api/db/{key}/summary` | 指定库的表级日期覆盖 + 每日行数序列 |
 | GET  | `/api/db/{key}/integrity` | 有界完整性检查（仅扫描最近窗口）|
+| GET  | `/api/db/{key}/tables/{table}/schema` | 列与索引元数据（PRAGMA table_info / index_list）|
+| GET  | `/api/db/{key}/tables/{table}/sample?limit=N` | 最近 N 行样本（N≤200，按 date_column DESC 或 _rowid_ DESC）+ 字段级 NULL/同值异常 |
 | POST | `/api/db/update` | 触发 daily 增量 pipeline（仅 localhost）|
 | GET  | `/api/db/update-status/{job_id}` | 轮询作业状态 |
 

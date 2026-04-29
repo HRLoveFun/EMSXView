@@ -687,6 +687,15 @@ class BloombergEMSXService:
             event_status = self._msg_safe_int(msg, "EVENT_STATUS", -1)
             seq = self._msg_safe_int(msg, "EMSX_SEQUENCE", 0)
             if seq == 0:
+                # EMSX may deliver INIT_PAINT control messages (EVENT_STATUS=11)
+                # without EMSX_SEQUENCE when the user has no orders today.
+                # Mark init paint complete so the frontend can leave
+                # "Warming subscriptions" state. Mirrors route handler logic.
+                if event_status == 11:
+                    with self._data_lock:
+                        order_count = len(self._orders)
+                        self._init_paint_done = True
+                    logger.warning(f"INIT_PAINT complete (control msg) — {order_count} orders loaded")
                 return
 
             seq_key = str(seq)
