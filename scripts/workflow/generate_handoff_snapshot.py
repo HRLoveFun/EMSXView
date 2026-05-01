@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_STATUS = ROOT / ".workbuddy/plans/execution-platform-status.yaml"
-DEFAULT_RISKS = ROOT / ".workbuddy/plans/execution-platform-risk-register.yaml"
+DEFAULT_STATUS = ROOT / "plans/execution-platform-status.yaml"
+DEFAULT_RISKS = ROOT / "plans/execution-platform-risk-register.yaml"
 DEFAULT_OUTPUT = ROOT / "docs/generated/execution-platform-handoff.md"
 
 

@@ -29,5 +29,5 @@ Deliver the first algorithmic scheduling engine for TWAP, VWAP, and participatio
 2. Validate the plan ledger with `validate_phase_gate.py --mode plan`.
 3. Run `sync_execution_status.py` to refresh metrics and iteration-log sections.
 
-- `C:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-status.yaml`
-- `C:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-risk-register.yaml`
+- `C:/Users/hrchen/Documents/EMSX/plans/execution-platform-status.yaml`
+- `C:/Users/hrchen/Documents/EMSX/plans/execution-platform-risk-register.yaml`

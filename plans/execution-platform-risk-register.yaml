@@ -1,0 +1,54 @@
+{
+  "status_values": ["open", "watch", "mitigated", "closed"],
+  "severity_values": ["low", "medium", "high", "critical"],
+  "risks": [
+    {
+      "id": "R-001",
+      "title": "Backend packaging drift during modularization",
+      "severity": "high",
+      "status": "mitigated",
+      "owner": "unassigned",
+      "linked_sprints": ["P0-S0", "P1-S1", "P2-S3"],
+      "description": "The current backend Dockerfile copies only main.py and auth.py; future service extraction will fail in container builds unless packaging is updated early.",
+      "trigger": "New backend modules are added but not copied into the image.",
+      "mitigation": "Update Dockerfile in Sprint 1 to copy package directories, repositories, models, and migration assets.",
+      "review_date": "2026-04-16"
+    },
+    {
+      "id": "R-002",
+      "title": "Plan drift between WBS document and machine-readable ledger",
+      "severity": "medium",
+      "status": "mitigated",
+      "owner": "unassigned",
+      "linked_sprints": ["P0-S0"],
+      "description": "The Markdown WBS and the delivery ledger can diverge if sprint/issue changes are only recorded in one source.",
+      "trigger": "Issues are added or statuses change without updating the ledger.",
+      "mitigation": "Use validate/sync scripts in CI and require sprint-key metadata in issue and PR templates.",
+      "review_date": "2026-04-16"
+    },
+    {
+      "id": "R-003",
+      "title": "CI false negatives caused by Bloomberg-specific runtime dependencies",
+      "severity": "medium",
+      "status": "watch",
+      "owner": "unassigned",
+      "linked_sprints": ["P0-S0", "P1-S1"],
+      "description": "The backend depends on Bloomberg-specific libraries and runtime access patterns that are not available in generic CI environments.",
+      "trigger": "CI attempts to execute runtime-dependent backend tests before adapter isolation is complete.",
+      "mitigation": "Start Sprint 0 CI with plan validation, Python syntax, and frontend checks; add deeper backend test gates incrementally as modules are isolated.",
+      "review_date": "2026-04-30"
+    },
+    {
+      "id": "R-004",
+      "title": "Current fragmented state model complicates durable migration",
+      "severity": "medium",
+      "status": "watch",
+      "owner": "unassigned",
+      "linked_sprints": ["P1-S1", "P1-S2", "P2-S4"],
+      "description": "Execution state is split across backend memory, JSON files, and frontend localStorage, which makes the first persistence migration risky.",
+      "trigger": "Projection storage or config ownership changes without a compatibility period.",
+      "mitigation": "Use dual-write and fallback-read patterns during Sprint 1 and demote localStorage/file stores only after backend ownership is stable.",
+      "review_date": "2026-05-01"
+    }
+  ]
+}
