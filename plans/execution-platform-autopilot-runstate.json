@@ -1,0 +1,11 @@
+{
+  "run_id": "",
+  "state": "PENDING",
+  "updated_at": "",
+  "current_issue_id": null,
+  "current_step": null,
+  "retry_count": 0,
+  "last_error_code": "OK",
+  "last_error_message": "",
+  "commit_sha": null
+}

@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_STATUS = ROOT / ".workbuddy/plans/execution-platform-status.yaml"
-DEFAULT_RISKS = ROOT / ".workbuddy/plans/execution-platform-risk-register.yaml"
+DEFAULT_STATUS = ROOT / "plans/execution-platform-status.yaml"
+DEFAULT_RISKS = ROOT / "plans/execution-platform-risk-register.yaml"
 DEFAULT_METRICS = ROOT / ".workbuddy/knowledge/metrics.md"
 DEFAULT_ITERATION = ROOT / ".workbuddy/knowledge/iteration-log.md"
 

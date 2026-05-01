@@ -84,7 +84,7 @@ Plan Source -> Sprint Board -> Issue/PR Execution -> CI/QA Gates -> Progress Led
      |               |                  |                |                +-> .workbuddy/knowledge/metrics.md
      |               |                  |                +-> .github/workflows/*.yml
      |               |                  +-> Git branches / PR templates / commit conventions
-     |               +-> machine-readable sprint state under .workbuddy/plans/
+     |               +-> machine-readable sprint state under plans/
      +-> this WBS document under docs/
 ```
 
@@ -97,7 +97,7 @@ Use a dual layer:
 1. **Human-readable master plan**
    - `c:/Users/hrchen/Documents/EMSX/docs/EXECUTION_PLATFORM_WBS.md`
 2. **Machine-readable sprint ledger**
-   - `c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-status.yaml`
+   - `c:/Users/hrchen/Documents/EMSX/plans/execution-platform-status.yaml`
    - stores current phase, sprint, issue state, blockers, checkpoint state, and release tag
 
 ### B. Version control integration
@@ -182,8 +182,8 @@ Every artifact must carry:
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-status.yaml` | create | Persistent machine-readable plan ledger | YAML structure for phase/sprint/issue/checkpoint state; used by scripts and automations | None |
-| `c:/Users/hrchen/Documents/EMSX/.workbuddy/plans/execution-platform-risk-register.yaml` | create | Track blockers, architecture risks, and mitigation owners | YAML keyed by risk ID with severity, trigger, mitigation, sprint linkage | None |
+| `c:/Users/hrchen/Documents/EMSX/plans/execution-platform-status.yaml` | create | Persistent machine-readable plan ledger | YAML structure for phase/sprint/issue/checkpoint state; used by scripts and automations | None |
+| `c:/Users/hrchen/Documents/EMSX/plans/execution-platform-risk-register.yaml` | create | Track blockers, architecture risks, and mitigation owners | YAML keyed by risk ID with severity, trigger, mitigation, sprint linkage | None |
 | `c:/Users/hrchen/Documents/EMSX/.github/ISSUE_TEMPLATE/execution-platform-task.yml` | create | Standardize issue-sized tasks | Fields: sprint key, phase, dependency IDs, acceptance criteria, checkpoint list | P0-S0-01 |
 | `c:/Users/hrchen/Documents/EMSX/.github/PULL_REQUEST_TEMPLATE/execution-platform.md` | create | Enforce PR metadata and checkpoint completion | Checklist for tests, docs, migration impact, rollback, sprint ledger update | P0-S0-02 |
 | `c:/Users/hrchen/Documents/EMSX/.github/workflows/execution-platform-ci.yml` | create | CI entrypoint for backend/frontend/test gates | Matrix jobs for Python and Node; branch protections consume this workflow | P0-S0-03 |
@@ -718,7 +718,7 @@ Add event-driven surveillance, replay, and recommendation scaffolding on top of 
 - `ExecutionView/frontend/src/App.tsx` should only be simplified after `services/realtime.ts` and stream hooks exist
 - `ExecutionView/frontend/src/types/index.ts` must be updated in every phase that changes backend models
 - `CostView/src/pipeline.py` depends on stable execution export contracts from `ExecutionView/backend/api/services/analytics_export.py`
-- `.workbuddy/plans/execution-platform-status.yaml` must be updated in every sprint as the source of truth for progress automation
+- `plans/execution-platform-status.yaml` must be updated in every sprint as the source of truth for progress automation
 
 ---
 

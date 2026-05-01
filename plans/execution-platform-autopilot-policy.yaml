@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "description": "Autopilot policy — defines which actions are auto-approved vs require manual gate.",
+
+  "auto_approve": {
+    "description": "Actions that proceed without human confirmation.",
+    "actions": [
+      "compileall",
+      "validate_phase_gate --mode plan",
+      "sync_execution_status",
+      "generate_handoff_snapshot",
+      "collect_ci_status",
+      "set_issue_status_completed",
+      "set_checkpoint_status_passed",
+      "set_issue_status_in_progress",
+      "set_issue_status_blocked",
+      "update_program_last_synced_at",
+      "git_add_commit_push"
+    ]
+  },
+
+  "manual_gate_required": {
+    "description": "Actions that MUST pause for human confirmation before proceeding.",
+    "triggers": [
+      {
+        "id": "phase-transition",
+        "description": "Changing program.current_phase to a different phase.",
+        "field": "program.current_phase",
+        "condition": "value_change"
+      },
+      {
+        "id": "sprint-transition",
+        "description": "Changing program.current_sprint to a different sprint.",
+        "field": "program.current_sprint",
+        "condition": "value_change"
+      },
+      {
+        "id": "sprint-close",
+        "description": "Closing a sprint (status -> completed).",
+        "entity": "sprint",
+        "condition": "status_change_to_completed"
+      },
+      {
+        "id": "risk-status-downgrade",
+        "description": "Changing risk status from open/watch to mitigated/closed.",
+        "entity": "risk",
+        "condition": "status_change",
+        "from": ["open", "watch"],
+        "to": ["mitigated", "closed"]
+      },
+      {
+        "id": "ci-quality-gate-downgrade",
+        "description": "Setting continue-on-error or weakening a CI quality gate.",
+        "entity": "workflow",
+        "condition": "quality_gate_weakened"
+      }
+    ]
+  },
+
+  "retry_policy": {
+    "max_retries": 3,
+    "backoff_seconds": [30, 120, 300],
+    "retryable_error_codes": [
+      "E_TRANSIENT_NETWORK",
+      "E_CI_TIMEOUT",
+      "E_CI_API",
+      "E_LOCK_CONFLICT"
+    ]
+  },
+
+  "verification_chain": {
+    "description": "Ordered list of verification commands run after every issue implementation.",
+    "steps": [
+      {
+        "id": "compile-check",
+        "command": "python -m compileall Execution/backend/api scripts/workflow -q",
+        "error_code": "E_VERIFY_BUILD_FAILED",
+        "retryable": false
+      },
+      {
+        "id": "plan-validation",
+        "command": "python scripts/workflow/validate_phase_gate.py --mode plan --output-json plans/last-gate-result.json",
+        "error_code": "E_VERIFY_PLAN_FAILED",
+        "retryable": false
+      },
+      {
+        "id": "status-sync",
+        "command": "python scripts/workflow/sync_execution_status.py --output-json docs/generated/execution-platform-status.json",
+        "error_code": "E_VERIFY_SCRIPT_FAILED",
+        "retryable": false
+      },
+      {
+        "id": "handoff-snapshot",
+        "command": "python scripts/workflow/generate_handoff_snapshot.py --output docs/generated/execution-platform-handoff.md",
+        "error_code": "E_VERIFY_SCRIPT_FAILED",
+        "retryable": false
+      }
+    ]
+  }
+}
