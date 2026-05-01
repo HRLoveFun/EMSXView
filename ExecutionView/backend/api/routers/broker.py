@@ -113,17 +113,9 @@ async def refresh_broker_algorithms(user: dict = Depends(verify_token)):
         brokers = await bb.get_brokers("EQTY")
         logger.info(f"[RefreshBrokerAlgorithms] Found {len(brokers)} brokers")
 
-        exchange_map = {
-            "EQ-GS": "US", "EQ-MS": "US", "EQ-JPM": "US", "EQ-BARCLAY": "LN",
-            "EQ-ML": "US", "EQ-CITI": "US", "EQ-UBS": "US",
-            "EQ-HSBC": "LN", "EQ-BNP": "FP",
-            "EQ-NOMURA": "JP", "EQ-DAIWA": "JP", "EQ-MIZUHO": "JP",
-            "EQ-CLSA": "HK", "EQ-MACQ": "AU",
-            "EQ-INSTNET": "US", "EQ-SEB": "SS", "EQ-TD": "CN",
-            "EQ-BHP": "AU",
-        }
-
         for broker in brokers:
+            if not broker.startswith("EQ-"):
+                continue
             try:
                 strategies = await bb.get_broker_strategies(broker, "EQTY")
                 if not strategies:
@@ -150,7 +142,6 @@ async def refresh_broker_algorithms(user: dict = Depends(verify_token)):
                         logger.warning(f"[RefreshBrokerAlgorithms] Failed info for {broker}/{strategy_name}: {e}")
                 configs.append(BrokerAlgorithmConfig(
                     broker=broker,
-                    exchange=exchange_map.get(broker, "OTHER"),
                     strategies=strategy_configs,
                 ))
             except Exception as e:

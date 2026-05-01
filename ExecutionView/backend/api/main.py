@@ -315,6 +315,7 @@ from routers.broker import router as broker_router
 from routers.debug import router as debug_router
 from routers.realtime import router as realtime_router
 from routers.market_broker_mapping import router as market_broker_mapping_router
+from routers.route_plans import router as route_plans_router
 
 app.include_router(connection_router)
 app.include_router(marketview_router)
@@ -325,6 +326,7 @@ app.include_router(broker_router)
 app.include_router(debug_router)
 app.include_router(realtime_router)
 app.include_router(market_broker_mapping_router)
+app.include_router(route_plans_router)
 
 # CostView TCA 路由 — 可选模块，不影响 ExecutionView 核心启动
 # MarketView / ExecutionView / CostView 是三个独立模块，任一模块

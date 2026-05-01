@@ -272,3 +272,29 @@
 | 2026-04-30 15:10 | session | Stop | Session ended | — | auto |
 | 2026-04-30 15:26 | session | Stop | Session ended | — | auto |
 | 2026-05-01 08:00 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:30 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:45 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:49 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:51 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:54 | task | 用户请求: ExecutionView 新增 RouteEngine 功能 | 实施 RouteEngine 完整功能：
+- 后端: 新增 3 个 ORM 模型 (RoutePlan, RoutePlanAllocation, SubOrderProposal) + 迁移脚本
+- 后端: RoutePlanRepository (CRUD), RouteEngine 核心服务 (匹配+拆单生成), API 路由 (13 端点)
+- 后端: Pydantic Schema 扩展 (RoutePlanCreate/Update/Response, SubOrderProposalResponse, BatchConfirmRequest, TestMatchResponse)
+- 后端: main.py 注册 route_plans router
+- 前端: TypeScript 类型 (RoutePlan, SubOrderProposal, etc.)
+- 前端: api.ts 新增 11 个 API 方法
+- 前端: route-plan-manager.tsx (方案 CRUD 界面, 含 Broker 分配表+时间参数配置)
+- 前端: sub-order-review-panel.tsx (待确认子订单列表, 单个/批量确认+拒绝)
+- 前端: ExecutionBoard 集成子订单面板 + 待确认计数 Badge
+- 前端: SettingsBoard 添加"路由方案管理"入口 | 所有后端 Python 文件编译通过，前端 tsc --noEmit 无类型错误。功能覆盖: RoutePlan CRUD, 多维匹配 (symbol/side/portfolio/trader/exchange), BROKER_SPLIT/TIME_SCHEDULE/HYBRID 三种拆分策略, AUTO/MANUAL 激活模式, MANUAL_CONFIRM 提交模式, 批量确认调用现有 batch_route_service。 | manual |
+| 2026-05-01 12:55 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:05 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:05 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:49 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:52 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:02 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:10 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:16 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:30 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:37 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:42 | session | Stop | Session ended | — | auto |

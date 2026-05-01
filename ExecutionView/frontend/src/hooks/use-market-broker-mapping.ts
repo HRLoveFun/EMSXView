@@ -21,10 +21,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { apiService } from '@/services/api';
+import { getBrokerExchangeMapping } from '@/data/broker-exchange-mapping';
 
 type SelectionMap = Record<string, Record<string, boolean>>;
 
 const EVENT_NAME = 'market-broker-mapping:updated';
+const DEFAULT_MAPPING = getBrokerExchangeMapping();
 
 let cachedSelection: SelectionMap | null = null;
 let inflight: Promise<SelectionMap> | null = null;
@@ -99,11 +101,20 @@ export function useMarketBrokerMapping(): UseMarketBrokerMappingResult {
   const allowedFor = useCallback(
     (market: string | null | undefined): string[] | null => {
       if (!market) return null;
-      const row = selection[market];
-      if (!row) return null;
-      return Object.entries(row)
-        .filter(([, v]) => !!v)
-        .map(([k]) => k);
+      const savedRow = selection[market];
+      const defaultRow = DEFAULT_MAPPING[market];
+      if (!savedRow && !defaultRow) return null;
+
+      const brokers = new Set<string>([
+        ...Object.keys(savedRow || {}),
+        ...Object.keys(defaultRow || {}),
+      ]);
+
+      return Array.from(brokers).filter(b => {
+        if (savedRow && b in savedRow) return !!savedRow[b];
+        if (defaultRow && b in defaultRow) return !!defaultRow[b];
+        return false;
+      });
     },
     [selection],
   );

@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Info,
   Building2,
+  GitBranch,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -69,6 +70,7 @@ import {
   getAvailableBrokersFromFile,
 } from '@/services/strategy-data-service';
 import { MarketBrokerMappingSection } from '@/components/market-broker-mapping-section';
+import { RoutePlanManager } from '@/components/route-plan-manager';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface ParameterFrequency {
@@ -81,7 +83,7 @@ interface ParameterFrequency {
 interface TreeNode {
   id: string;
   name: string;
-  type: 'exchange' | 'broker' | 'algorithm';
+  type: 'broker' | 'algorithm';
   children?: TreeNode[];
   isLoading?: boolean;
 }
@@ -118,6 +120,7 @@ type SettingsSectionId =
   | 'broker-algo'
   | 'market-broker-mapping'
   | 'parameter-frequency'
+  | 'route-plans'
   | 'data-manager'
   | 'about';
 
@@ -170,8 +173,6 @@ export function SettingsBoard({
     lastUpdated,
     error,
     refreshData,
-    getExchanges,
-    getBrokersForExchange,
     getStrategiesForBroker,
     getParametersForStrategy,
   } = useBrokerAlgorithms();
@@ -218,25 +219,19 @@ export function SettingsBoard({
       return;
     }
 
-    const exchanges = getExchanges();
-    const data: TreeNode[] = exchanges.map(exchange => ({
-      id: `exchange::${exchange}`,
-      name: exchange,
-      type: 'exchange',
-      children: getBrokersForExchange(exchange).map(broker => ({
-        id: `broker::${exchange}::${broker}`,
-        name: broker,
-        type: 'broker',
-        children: getStrategiesForBroker(broker).map(strategy => ({
-          id: `algo::${exchange}::${broker}::${strategy.name}`,
-          name: strategy.name,
-          type: 'algorithm',
-        })),
+    const data: TreeNode[] = configs.map(config => ({
+      id: `broker::${config.broker}`,
+      name: config.broker,
+      type: 'broker',
+      children: getStrategiesForBroker(config.broker).map(strategy => ({
+        id: `algo::${config.broker}::${strategy.name}`,
+        name: strategy.name,
+        type: 'algorithm',
       })),
     }));
 
     setTreeData(data);
-  }, [configs, getExchanges, getBrokersForExchange, getStrategiesForBroker]);
+  }, [configs, getStrategiesForBroker]);
 
   // Load strategy data for manager
   const loadStrategyStatus = useCallback(async () => {
@@ -375,14 +370,14 @@ export function SettingsBoard({
     const paddingLeft = level * 16 + 12;
 
     const algoMatch = node.id.startsWith('algo::') ? node.id.split('::') : null;
-    // algoMatch: ['algo', exchange, broker, strategy]
+    // algoMatch: ['algo', broker, strategy]
 
     return (
       <div key={node.id}>
         <div
           className={`flex items-center gap-1 py-1.5 px-2 hover:bg-muted/50 cursor-pointer rounded-sm ${
             node.type === 'algorithm' && selectedAlgorithm?.strategy === node.name &&
-            algoMatch && selectedAlgorithm?.broker === algoMatch[2]
+            algoMatch && selectedAlgorithm?.broker === algoMatch[1]
               ? 'bg-primary/10'
               : ''
           }`}
@@ -392,7 +387,7 @@ export function SettingsBoard({
               toggleNode(node.id);
             }
             if (node.type === 'algorithm' && algoMatch) {
-              handleSelectAlgorithm(algoMatch[2], algoMatch[3]);
+              handleSelectAlgorithm(algoMatch[1], algoMatch[2]);
             }
           }}
         >
@@ -406,7 +401,6 @@ export function SettingsBoard({
             <span className="w-4" />
           )}
           <span className="text-sm">
-            {node.type === 'exchange' && '🏢 '}
             {node.type === 'broker' && '🏦 '}
             {node.type === 'algorithm' && '⚙️ '}
             {node.name}
@@ -443,6 +437,7 @@ export function SettingsBoard({
           { id: 'broker-algo',         label: 'Broker & Algorithm',  icon: Database },
           { id: 'market-broker-mapping', label: 'Market Broker Mapping', icon: Building2 },
           { id: 'parameter-frequency', label: 'Parameter Frequency', icon: RefreshCw },
+          { id: 'route-plans',         label: 'Route Plans',         icon: GitBranch },
           { id: 'data-manager',        label: 'Strategy Data',       icon: FileJson },
           { id: 'about',               label: 'About',               icon: Info },
         ] as const).map(item => {
@@ -747,7 +742,7 @@ export function SettingsBoard({
             <div className="border rounded-md">
               <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Exchange / Broker / Algorithm
+                  Broker / Algorithm
                 </span>
                 <Button
                   variant="ghost"
@@ -942,6 +937,24 @@ export function SettingsBoard({
           </table>
         </CardContent>
       </Card>
+      )}
+
+      {/* Route Plans */}
+      {activeSection === 'route-plans' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base">路由方案管理</CardTitle>
+            </div>
+            <CardDescription>
+              预设路由方案模板：匹配条件 + Broker 分配/时间拆分策略。新订单到达时可自动/手动匹配并生成待确认子订单。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RoutePlanManager />
+          </CardContent>
+        </Card>
       )}
 
       {/* Data Manager (Strategy Files) */}

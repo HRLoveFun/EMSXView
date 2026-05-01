@@ -6,6 +6,7 @@ interface ExecutionViewTabsProps {
   onTabChange: (tab: ExecutionViewTab) => void;
   monitorView: ReactNode;
   executionView: ReactNode;
+  routeEngineView: ReactNode;
   settingsView: ReactNode;
   monitorExceptionCount?: number;
   tradeExceptionCount?: number;
@@ -16,6 +17,7 @@ export function ExecutionViewTabs({
   onTabChange,
   monitorView,
   executionView,
+  routeEngineView,
   settingsView,
   monitorExceptionCount = 0,
   tradeExceptionCount = 0,
@@ -70,6 +72,18 @@ export function ExecutionViewTabs({
         </button>
         <button
           role="tab"
+          aria-selected={activeTab === 'route-engine'}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'route-engine'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => onTabChange('route-engine')}
+        >
+          路由引擎
+        </button>
+        <button
+          role="tab"
           aria-selected={activeTab === 'settings'}
           className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
             activeTab === 'settings'
@@ -86,7 +100,9 @@ export function ExecutionViewTabs({
         ? monitorView
         : activeTab === 'trade'
           ? executionView
-          : settingsView}
+          : activeTab === 'route-engine'
+            ? routeEngineView
+            : settingsView}
     </>
   );
 }

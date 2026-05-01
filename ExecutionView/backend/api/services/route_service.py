@@ -7,7 +7,9 @@ parameter handling.
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from fastapi import HTTPException
@@ -23,6 +25,28 @@ logger = logging.getLogger(__name__)
 ROUTABLE_STATUSES = frozenset({"NEW", "ASSIGN", "WORKING", "PARTIAL", "SENT", "QUEUED"})
 LIMIT_PRICE_RESET_SENTINEL = -99999
 STOP_PRICE_RESET_SENTINEL = -1
+
+# Per-broker EMSX_HAND_INSTRUCTION defaults — loaded once from JSON config
+_HI_CONFIG_PATH = Path(__file__).resolve().parent.parent / "data" / "broker_hand_instruction.json"
+_hand_instruction_map: dict[str, str] = {}
+
+
+def _load_hand_instruction_map() -> dict[str, str]:
+    try:
+        if _HI_CONFIG_PATH.exists():
+            with _HI_CONFIG_PATH.open("r", encoding="utf-8") as f:
+                raw = json.load(f)
+            return {k.strip().upper(): str(v).strip() for k, v in raw.items() if k[0] != "_" and v}
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _resolve_hand_instruction(broker: str) -> str:
+    global _hand_instruction_map
+    if not _hand_instruction_map:
+        _hand_instruction_map = _load_hand_instruction_map()
+    return _hand_instruction_map.get(broker.strip().upper(), "ANY")
 
 
 def validate_route_request(request: RouteOrderRequest, parent_order: Any) -> None:
@@ -172,7 +196,7 @@ def build_route_request_fields(
         "EMSX_AMOUNT": request.quantity,
         "EMSX_ORDER_TYPE": emsx_order_type,
         "EMSX_TIF": request.timeInForce,
-        "EMSX_HAND_INSTRUCTION": "ANY",
+        "EMSX_HAND_INSTRUCTION": _resolve_hand_instruction(request.broker),
     }
 
     if order_type_uses_limit_price(emsx_order_type) and request.price is not None:

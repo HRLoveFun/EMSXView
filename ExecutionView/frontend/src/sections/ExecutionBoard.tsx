@@ -1,9 +1,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard } from 'lucide-react';
+import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown, ChevronRight } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
 import { AlgoLaunchDialog } from '@/components/algo-launch-dialog';
+import { SubOrderReviewPanel } from '@/components/sub-order-review-panel';
 import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@/hooks/use-trade-hotkeys';
 import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
@@ -50,6 +51,8 @@ export function ExecutionBoard({
 }: ExecutionBoardProps) {
   const [algoLaunchOrder] = useState<Order | null>(null);
   const [isAlgoDialogOpen, setIsAlgoDialogOpen] = useState(false);
+  const [showSubOrderPanel, setShowSubOrderPanel] = useState(false);
+  const [pendingProposalCount, setPendingProposalCount] = useState(0);
 
   const handleAlgoConfirm = useCallback(async (request: CreateParentExecutionRequest) => {
     if (onLaunchExecution) {
@@ -212,6 +215,19 @@ export function ExecutionBoard({
           </span>
         )}
         <button
+          onClick={() => setShowSubOrderPanel(v => !v)}
+          className={`inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors ${algoOrderCount > 0 ? 'ml-2' : 'ml-auto'}`}
+          title="待确认子订单"
+        >
+          <ChevronDown className={`h-3 w-3 transition-transform ${showSubOrderPanel ? '' : '-rotate-90'}`} />
+          子订单
+          {pendingProposalCount > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold">
+              {pendingProposalCount > 99 ? '99+' : pendingProposalCount}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setCheatsheetOpen(true)}
           className={`inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground ${algoOrderCount > 0 ? 'ml-2' : 'ml-auto'}`}
           title="Show keyboard shortcuts (?)"
@@ -269,6 +285,16 @@ export function ExecutionBoard({
           />
         </div>
       </section>
+
+      {/* ── Sub-Order Review Panel (collapsible) ──────────────────── */}
+      {showSubOrderPanel && (
+        <section className="flex flex-col min-h-[80px] max-h-[35%] shrink-0 rounded-md border p-3 overflow-y-auto bg-muted/10">
+          <SubOrderReviewPanel
+            currentTrader={currentTrader}
+            onRefresh={onRefresh}
+          />
+        </section>
+      )}
 
       {/* Algo Launch Dialog */}
       <AlgoLaunchDialog

@@ -3,7 +3,7 @@ import { loadConditions, saveConditions, matchesAnyCondition, type MonitorCondit
 import type { Order, OrderFilters, Route, StartupStatusSnapshot } from '../types';
 
 export type AppModule = 'marketview' | 'execution' | 'costview' | 'database';
-export type ExecutionViewTab = 'monitor' | 'trade' | 'settings';
+export type ExecutionViewTab = 'monitor' | 'trade' | 'route-engine' | 'settings';
 
 interface UseAppShellStateParams {
   effectiveOrders: Order[];
