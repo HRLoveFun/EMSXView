@@ -81,14 +81,21 @@ export function OrderModifyDialog({
   const handleConfirm = async () => {
     if (!order) return;
 
-    // Validate quantity
+    // Validate quantity. Order matters: zero / negative must be checked
+    // before "below filled", otherwise a user typing "0" gets the
+    // misleading "must be at least filled (0)" hint instead of the
+    // straightforward ">0" rule.
     if (updates.quantity !== undefined) {
-      if (updates.quantity < order.filledQuantity) {
-        setError(`New quantity must be at least the filled amount (${order.filledQuantity})`);
+      if (!Number.isInteger(updates.quantity)) {
+        setError('Quantity must be a whole number of shares');
         return;
       }
       if (updates.quantity <= 0) {
         setError('Quantity must be greater than 0');
+        return;
+      }
+      if (updates.quantity < order.filledQuantity) {
+        setError(`New quantity must be at least the filled amount (${order.filledQuantity})`);
         return;
       }
     }
@@ -205,11 +212,14 @@ export function OrderModifyDialog({
                   onChange={(e) => setUpdates({ ...updates, price: e.target.value ? parseFloat(e.target.value) : null })}
                   placeholder="Enter limit price"
                 />
-                {order.price && (
-                  <p className="text-xs text-muted-foreground">
-                    Current: {order.price.toFixed(2)}
-                  </p>
-                )}
+                {/* Surface the venue tick-size hint so the user is not
+                    surprised by a backend rejection after submitting a
+                    price that is finer than what the exchange accepts. */}
+                <p className="text-xs text-muted-foreground">
+                  {order.price != null && <>Current: {order.price.toFixed(2)} · </>}
+                  Tick size depends on venue ({order.exchange || '—'} / {order.currency || '—'}).
+                  The backend will reject prices that violate the venue's minimum increment.
+                </p>
               </div>
             )}
 
@@ -243,11 +253,20 @@ export function OrderModifyDialog({
                 min={order.filledQuantity}
                 step="1"
                 value={updates.quantity ?? ''}
-                onChange={(e) => setUpdates({ ...updates, quantity: parseInt(e.target.value) || 0 })}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') { setUpdates({ ...updates, quantity: undefined }); return; }
+                  // Reject any non-integer keystroke up-front instead of
+                  // silently truncating with parseInt — surface it as a
+                  // validation error so the user notices the rounding.
+                  const num = Number(raw);
+                  if (!Number.isFinite(num)) return;
+                  setUpdates({ ...updates, quantity: num });
+                }}
                 placeholder="Enter quantity"
               />
               <p className="text-xs text-muted-foreground">
-                Must be at least filled quantity ({order.filledQuantity.toLocaleString()})
+                Must be a whole number of shares, at least filled quantity ({order.filledQuantity.toLocaleString()})
               </p>
             </div>
 

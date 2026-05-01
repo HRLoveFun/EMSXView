@@ -52,6 +52,13 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { apiService } from '@/services/api';
 import { useBrokerAlgorithms } from '@/hooks/use-broker-algorithms';
 import {
@@ -63,9 +70,10 @@ import {
   BrokerStrategyFields,
   useStrategyFields,
 } from '@/components/broker-strategy-fields';
-import { ViolationList } from '@/components/compliance-violation';
+import { ViolationList, violationLabel } from '@/components/compliance-violation';
 import type {
   Order,
+  Route,
   TimeInForce,
   BatchRouteOrderRequest,
   BatchRouteOrderItem,
@@ -102,10 +110,22 @@ interface RowState {
 
 interface BatchRouteOrderDialogProps {
   orders: Order[];
+  /** All known routes — used to subtract pending WORKING quantity from each
+   *  parent order's nominal remainingQuantity so users cannot double-route
+   *  what is already out at the broker. */
+  routes?: Route[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete?: () => void;
 }
+
+/** Route statuses that still consume parent order capacity (i.e. quantity
+ *  is at the broker, not yet filled or cancelled). */
+const PENDING_ROUTE_STATUSES = new Set([
+  'SENT', 'WORKING', 'PARTFILLED', 'QUEUED', 'HOLD',
+  'CXLREQ', 'CXLREJ', 'CXLREP', 'CXLRPRQ', 'CXLRPRJ',
+  'REPPEN', 'A-SENT', 'OA-SENT',
+]);
 
 /** Lot size for an order (PX_ROUND_LOT_SIZE refdata; fallback 100 for JP, else 1). */
 function lotSizeOf(o: Order): number {
@@ -131,11 +151,20 @@ function equalSplit(remaining: number, lot: number, n: number): number[] {
   );
 }
 
-/** Pick a sensible default strategy for a broker — prefer VWAP, else first. */
+/** Pick a sensible default strategy for a broker — prefer VWAP, else first.
+ *  Match logic: normalize to alphanumerics, then prefer exact `VWAP`,
+ *  then any name starting with `VWAP` that is not a TWAP variant
+ *  (covers broker-specific aliases like `VWAP.`, `VWAP_LIQ`, `VWAP1`). */
 function defaultStrategyFor(strategies: string[]): string {
   if (strategies.length === 0) return '';
-  const vwap = strategies.find(s => s.toUpperCase() === 'VWAP');
-  return vwap ?? strategies[0];
+  const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const exact = strategies.find(s => norm(s) === 'VWAP');
+  if (exact) return exact;
+  const variant = strategies.find(s => {
+    const n = norm(s);
+    return n.startsWith('VWAP') && !n.includes('TWAP');
+  });
+  return variant ?? strategies[0];
 }
 
 function clientKeyOf(orderId: string, broker: string): string {
@@ -144,6 +173,7 @@ function clientKeyOf(orderId: string, broker: string): string {
 
 export function BatchRouteOrderDialog({
   orders,
+  routes,
   open,
   onOpenChange,
   onComplete,
@@ -169,12 +199,46 @@ export function BatchRouteOrderDialog({
     ReturnType<typeof useStrategyFields>['toStrategyParams']
   >;
   const paramsBuildersRef = useRef<Map<string, ParamsBuilder>>(new Map());
+  // Snapshot of user-edited strategy params, keyed by `${broker}#${strategy}`.
+  // Lets users toggle a broker off and back on without losing the params
+  // they just typed.
+  type ParamsSnapshot = ReturnType<
+    ReturnType<typeof useStrategyFields>['toStrategyParams']
+  >;
+  const paramsCacheRef = useRef<Map<string, ParamsSnapshot>>(new Map());
+  const cacheKey = (broker: string, strategy: string) => `${broker}#${strategy}`;
   const registerParamsBuilder = useCallback(
     (broker: string, builder: ParamsBuilder | null) => {
       if (builder === null) paramsBuildersRef.current.delete(broker);
       else paramsBuildersRef.current.set(broker, builder);
     },
     [],
+  );
+
+  // Pending working quantity per parent order (sum of route.working for
+  // routes whose status is in PENDING_ROUTE_STATUSES). Capacity already
+  // committed at the broker that should NOT be re-allocated.
+  const pendingWorkingByOrder = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (!routes || routes.length === 0) return map;
+    for (const r of routes) {
+      if (!PENDING_ROUTE_STATUSES.has((r.status ?? '').toUpperCase())) continue;
+      const oid = String(r.sequence);
+      const w = Number(r.working ?? 0);
+      if (!Number.isFinite(w) || w <= 0) continue;
+      map[oid] = (map[oid] ?? 0) + w;
+    }
+    return map;
+  }, [routes]);
+
+  /** What the user is actually allowed to allocate now: order's own remaining
+   *  minus quantity already working at the broker. Never negative. */
+  const effectiveRemainingOf = useCallback(
+    (o: Order): number => {
+      const pending = pendingWorkingByOrder[o.id] ?? 0;
+      return Math.max(0, o.remainingQuantity - pending);
+    },
+    [pendingWorkingByOrder],
   );
 
   // ── Catalog data ────────────────────────────────────────────────────────
@@ -247,6 +311,7 @@ export function BatchRouteOrderDialog({
       setSummary(null);
       setCustomPct('100');
       paramsBuildersRef.current.clear();
+      paramsCacheRef.current.clear();
       const init: Record<string, RowState> = {};
       for (const o of orders) {
         init[o.id] = { selected: true, allocations: {} };
@@ -292,7 +357,7 @@ export function BatchRouteOrderDialog({
         const o = orders.find(x => x.id === oid);
         if (!o) { next[oid] = r; continue; }
         const lot = lotSizeOf(o);
-        const splits = equalSplit(o.remainingQuantity, lot, selectedBrokers.length);
+        const splits = equalSplit(effectiveRemainingOf(o), lot, selectedBrokers.length);
         const allocs: Record<string, AllocState> = {};
         selectedBrokers.forEach((b, i) => {
           const existing = r.allocations[b];
@@ -307,9 +372,21 @@ export function BatchRouteOrderDialog({
         });
         next[oid] = { selected: r.selected, allocations: allocs };
       }
-      // Clean up params builders for brokers no longer selected.
+      // Snapshot + clean up params for brokers no longer selected.
+      // The builder closure still captures live useStrategyFields state at
+      // the moment we call it (before the editor unmounts), so cached
+      // params include the user's edits.
       for (const b of Array.from(paramsBuildersRef.current.keys())) {
-        if (!selectedBrokers.includes(b)) paramsBuildersRef.current.delete(b);
+        if (selectedBrokers.includes(b)) continue;
+        const builder = paramsBuildersRef.current.get(b);
+        const strat = brokerStrategies[b] || '';
+        if (builder && strat) {
+          try {
+            const snap = builder();
+            if (snap) paramsCacheRef.current.set(cacheKey(b, strat), snap);
+          } catch { /* swallow — keep cache stable on error */ }
+        }
+        paramsBuildersRef.current.delete(b);
       }
       return next;
     });
@@ -398,7 +475,7 @@ export function BatchRouteOrderDialog({
         const o = orders.find(x => x.id === oid);
         if (!o) { next[oid] = r; continue; }
         const lot = lotSizeOf(o);
-        const splits = equalSplit(o.remainingQuantity, lot, selectedBrokers.length);
+        const splits = equalSplit(effectiveRemainingOf(o), lot, selectedBrokers.length);
         const allocs: Record<string, AllocState> = { ...r.allocations };
         selectedBrokers.forEach((b, i) => {
           const cur = allocs[b];
@@ -437,8 +514,8 @@ export function BatchRouteOrderDialog({
         const o = orders.find(x => x.id === oid);
         if (!o) { next[oid] = r; continue; }
         const lot = lotSizeOf(o);
-        // Apply pct to remaining, then floor to lot to get the row total.
-        const target = floorToLot((o.remainingQuantity * pct) / 100, lot);
+        // Apply pct to effective remaining (post-working), then floor to lot.
+        const target = floorToLot((effectiveRemainingOf(o) * pct) / 100, lot);
         const splits = equalSplit(target, lot, selectedBrokers.length);
         const allocs: Record<string, AllocState> = { ...r.allocations };
         selectedBrokers.forEach((b, i) => {
@@ -452,6 +529,47 @@ export function BatchRouteOrderDialog({
           };
         });
         next[oid] = { ...r, allocations: allocs };
+      }
+      return next;
+    });
+  };
+
+  /** Per-broker column quick-fill: set THIS broker's qty to pct% of each
+   *  selected order's effective remaining (lot-floored). Other brokers'
+   *  cells are untouched \u2014 row total may exceed remain (cell turns red),
+   *  which is fine: user explicitly asked for "broker A gets 50%". */
+  const applyPercentToBroker = (broker: string, pct: number) => {
+    if (!selectedBrokers.includes(broker)) {
+      setError(`Pick broker ${broker} first.`);
+      return;
+    }
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+      setError('Please pick a percentage between 1 and 100.');
+      return;
+    }
+    setError('');
+    setRows(prev => {
+      const next: Record<string, RowState> = {};
+      for (const [oid, r] of Object.entries(prev)) {
+        if (!r.selected) { next[oid] = r; continue; }
+        const o = orders.find(x => x.id === oid);
+        if (!o) { next[oid] = r; continue; }
+        const lot = lotSizeOf(o);
+        const target = floorToLot((effectiveRemainingOf(o) * pct) / 100, lot);
+        const cur = r.allocations[broker];
+        next[oid] = {
+          ...r,
+          allocations: {
+            ...r.allocations,
+            [broker]: {
+              qty: String(target),
+              violations: cur?.violations ?? [],
+              status: cur?.status,
+              message: cur?.message,
+              routeId: cur?.routeId,
+            },
+          },
+        };
       }
       return next;
     });
@@ -474,6 +592,10 @@ export function BatchRouteOrderDialog({
         const alloc = r.allocations[b];
         const qty = computeAllocQty(alloc);
         if (qty <= 0) continue;
+        // On real submission, skip destinations the dry-run flagged BLOCKED.
+        // Forces user to either fix qty and re-Validate or accept that this
+        // destination will be omitted; avoids re-submitting a known reject.
+        if (!dryRun && alloc?.status === 'BLOCKED') continue;
         const strat = brokerStrategies[b] || '';
         const override: Partial<BatchRouteOrderRequest['template']> & {
           quantity?: number;
@@ -529,10 +651,57 @@ export function BatchRouteOrderDialog({
         total += q;
       }
       if (!anyPositive) return false;
-      if (total > o.remainingQuantity) return false;
+      if (total > effectiveRemainingOf(o)) return false;
     }
     return true;
-  }, [selectedOrders, selectedBrokers, rows]);
+  }, [selectedOrders, selectedBrokers, rows, effectiveRemainingOf]);
+
+  // ── Blocked-destination details for inline banner ──────────────────────
+  // Derived from rows after dry-run / submit fills in violations + status.
+  // Each entry: { orderId, symbol, broker, violations[] }.
+  const blockedDetails = useMemo(() => {
+    const out: { orderId: string; symbol: string; broker: string; violations: Violation[] }[] = [];
+    const orderById: Record<string, Order> = {};
+    for (const o of orders) orderById[o.id] = o;
+    for (const [oid, row] of Object.entries(rows)) {
+      const o = orderById[oid];
+      if (!o) continue;
+      for (const [broker, alloc] of Object.entries(row.allocations)) {
+        if (alloc.status !== 'BLOCKED') continue;
+        out.push({
+          orderId: oid,
+          symbol: o.symbol,
+          broker,
+          violations: alloc.violations ?? [],
+        });
+      }
+    }
+    return out;
+  }, [orders, rows]);
+
+  // ── FAILED-destination details (live submit only) ──────────────────────
+  // Distinct from blockedDetails: FAILED == EMSX backend rejection (e.g.
+  // "Invalid Handling Instruction" when broker code is not enabled for EMSX
+  // API staging — broker-side configuration issue, not a pre-trade rule).
+  const failedDetails = useMemo(() => {
+    const out: { orderId: string; symbol: string; broker: string; message: string }[] = [];
+    const orderById: Record<string, Order> = {};
+    for (const o of orders) orderById[o.id] = o;
+    for (const [oid, row] of Object.entries(rows)) {
+      const o = orderById[oid];
+      if (!o) continue;
+      for (const [broker, alloc] of Object.entries(row.allocations)) {
+        if (alloc.status !== 'FAILED') continue;
+        out.push({
+          orderId: oid,
+          symbol: o.symbol,
+          broker,
+          message: alloc.message ?? '(no error detail returned)',
+        });
+      }
+    }
+    return out;
+  }, [orders, rows]);
 
   // ── Apply BatchOperationItemResult[] back onto allocation state ─────────
   const applyResults = (results: BatchOperationItemResult[]) => {
@@ -577,22 +746,14 @@ export function BatchRouteOrderDialog({
       return;
     }
     applyResults(res.data.items);
-    // Auto-deselect rows where ANY destination was BLOCKED.
-    setRows(prev => {
-      const next: Record<string, RowState> = { ...prev };
-      for (const item of res.data!.items) {
-        if (item.status !== 'BLOCKED') continue;
-        const hashIdx = item.key.indexOf('#');
-        if (hashIdx < 0) continue;
-        const oid = item.key.slice(0, hashIdx);
-        if (next[oid]) next[oid] = { ...next[oid], selected: false };
-      }
-      return next;
-    });
+    // Don't auto-deselect blocked rows — the user may want to fix the qty
+    // and re-validate. The Submit step only sends destinations whose qty is
+    // > 0; blocked-but-still-selected rows surface in the banner so the
+    // user can either zero them out or unblock them by editing.
     setSummary(res.data);
     setPhase('review');
     if (res.data.blocked > 0) {
-      setError('Some destinations failed validation; affected rows were auto-deselected.');
+      setError('Some destinations failed pre-trade checks. See the banner for which broker on which order; edit qty and Validate again, or proceed to Submit (blocked items will be skipped).');
     }
   };
 
@@ -642,13 +803,17 @@ export function BatchRouteOrderDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitBranch className="h-5 w-5 text-primary" />
-            Batch Route — {orders.length} order{orders.length === 1 ? '' : 's'}
+            {orders.length === 1
+              ? `Route Order — ${orders[0]?.symbol ?? orders[0]?.id}`
+              : `Batch Route — ${orders.length} orders`}
           </DialogTitle>
           <DialogDescription>
             Pick brokers, set each broker's algo + params, then review qty
             splits per order. Order type and price are inherited from each
-            parent order. Compliance (USD &lt; 10K / &gt; 49M, JP odd lot)
-            is enforced server-side.
+            parent order. Each order's available capacity = remaining
+            quantity \u2212 quantity already working at the broker.
+            Compliance (USD &lt; 10K / &gt; 49M, JP odd lot) is enforced
+            server-side.
           </DialogDescription>
         </DialogHeader>
 
@@ -693,8 +858,30 @@ export function BatchRouteOrderDialog({
         {/* ── Per-broker strategy + params ──────────────────────────────── */}
         {selectedBrokers.length > 0 && (
           <div className="border border-border rounded p-3 space-y-3">
-            <div className="text-xs font-semibold text-muted-foreground">
-              Strategy &amp; parameters per broker
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-muted-foreground">
+                Strategy &amp; parameters per broker
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  // Reset every selected broker to its computed default
+                  // strategy (VWAP-preferred) and clear cached parameter
+                  // edits so the editor re-fetches a fresh field set.
+                  setBrokerStrategies(() => {
+                    const next: Record<string, string> = {};
+                    for (const b of selectedBrokers) next[b] = defaultStrategyFor(strategiesFor(b));
+                    return next;
+                  });
+                  paramsBuildersRef.current.clear();
+                  paramsCacheRef.current.clear();
+                }}
+                className="text-[11px] text-primary hover:underline"
+                disabled={!editable}
+                title="Reset every selected broker to its default strategy and clear unsaved parameter edits"
+              >
+                Reset to defaults
+              </button>
             </div>
             {selectedBrokers.map(b => (
               <BrokerStrategyParamsEditor
@@ -704,6 +891,7 @@ export function BatchRouteOrderDialog({
                 strategies={strategiesFor(b)}
                 onStrategyChange={(s) => setBrokerStrategy(b, s)}
                 registerParamsBuilder={registerParamsBuilder}
+                getCachedSnapshot={(br, st) => paramsCacheRef.current.get(cacheKey(br, st))}
                 disabled={!editable}
               />
             ))}
@@ -750,10 +938,19 @@ export function BatchRouteOrderDialog({
             max={100}
             step={1}
             value={customPct}
-            onChange={e => setCustomPct(e.target.value)}
+            onChange={e => {
+              // Clamp at the input layer so users cannot enter 250 or -30
+              // and only discover the rejection on Apply.
+              const v = e.target.value;
+              if (v === '') { setCustomPct(''); return; }
+              const n = Number(v);
+              if (!Number.isFinite(n)) return;
+              setCustomPct(String(Math.max(1, Math.min(100, Math.round(n)))));
+            }}
+            onWheel={e => e.currentTarget.blur()}
             className="h-6 w-16 text-xs"
             disabled={!editable || selectedBrokers.length === 0 || selectedOrders.length === 0}
-            title="Custom percentage"
+            title="Custom percentage (1\u2013100)"
           />
           <Button
             variant="outline"
@@ -795,7 +992,38 @@ export function BatchRouteOrderDialog({
                   <th className="text-right px-2 py-1">Price</th>
                   <th className="text-right px-2 py-1">Remain</th>
                   {selectedBrokers.map(b => (
-                    <th key={b} className="text-right px-2 py-1 font-mono">{b}</th>
+                    <th key={b} className="text-right px-2 py-1 font-mono">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            disabled={!editable}
+                            className="inline-flex items-center gap-1 hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                            title={`Quick-fill ${b} column with % of each selected order's effective remaining`}
+                          >
+                            {b}
+                            <span className="text-[9px] text-muted-foreground/70">▾</span>
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="text-xs">
+                          {QUICK_PCT_PRESETS.map(pct => (
+                            <DropdownMenuItem
+                              key={pct}
+                              onSelect={() => applyPercentToBroker(b, pct)}
+                            >
+                              Set {b} = {pct}% of remain
+                            </DropdownMenuItem>
+                          ))}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => applyPercentToBroker(b, 0)}
+                            disabled
+                          >
+                            Custom % — use toolbar input
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </th>
                   ))}
                   <th className="text-right px-2 py-1">Σ Qty</th>
                   <th className="text-left px-2 py-1">Status</th>
@@ -812,7 +1040,9 @@ export function BatchRouteOrderDialog({
                   if (!r) return null;
                   const lot = lotSizeOf(o);
                   const total = rowTotalQty(r);
-                  const overAlloc = total > o.remainingQuantity;
+                  const effRemain = effectiveRemainingOf(o);
+                  const pendingWorking = pendingWorkingByOrder[o.id] ?? 0;
+                  const overAlloc = total > effRemain;
                   const anyAlloc = Object.values(r.allocations).some(a => computeAllocQty(a) > 0);
                   return (
                     <OrderRow
@@ -821,6 +1051,8 @@ export function BatchRouteOrderDialog({
                       row={r}
                       lot={lot}
                       total={total}
+                      effectiveRemaining={effRemain}
+                      pendingWorking={pendingWorking}
                       overAlloc={overAlloc}
                       anyAlloc={anyAlloc}
                       selectedBrokers={selectedBrokers}
@@ -849,16 +1081,94 @@ export function BatchRouteOrderDialog({
         {error && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>
+              <div>{error}</div>
+              {blockedDetails.length > 0 && (
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer select-none">
+                    View {blockedDetails.length} blocked destination
+                    {blockedDetails.length === 1 ? '' : 's'}
+                  </summary>
+                  <ul className="mt-1 space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {blockedDetails.map(d => (
+                      <li
+                        key={`${d.orderId}#${d.broker}`}
+                        className="border-l-2 border-red-500/60 pl-2"
+                      >
+                        <div className="font-mono">
+                          <span className="font-semibold">{d.symbol}</span>
+                          <span className="text-muted-foreground"> · {d.broker}</span>
+                        </div>
+                        {d.violations.length === 0 ? (
+                          <div className="text-muted-foreground italic">
+                            (no violation detail returned)
+                          </div>
+                        ) : (
+                          <ul className="ml-2">
+                            {d.violations.map((v, i) => (
+                              <li key={`${v.code}-${i}`}>
+                                <span className="font-semibold">
+                                  {violationLabel(v.code)}
+                                </span>
+                                <span className="text-muted-foreground"> — {v.message}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </AlertDescription>
           </Alert>
         )}
         {phase === 'result' && summary && (
           <Alert>
             <AlertDescription>
-              <strong>Done.</strong> Total {summary.total} ·
-              <span className="text-emerald-600"> {summary.succeeded} succeeded</span> ·
-              <span className="text-red-600"> {summary.blocked} blocked</span> ·
-              <span className="text-amber-600"> {summary.failed} failed</span>
+              <div>
+                <strong>Done.</strong> Total {summary.total} ·
+                <span className="text-emerald-600"> {summary.succeeded} succeeded</span> ·
+                <span className="text-red-600"> {summary.blocked} blocked</span> ·
+                <span className="text-amber-600"> {summary.failed} failed</span>
+              </div>
+              {failedDetails.length > 0 && (
+                <details className="mt-2 text-xs" open>
+                  <summary className="cursor-pointer select-none">
+                    View {failedDetails.length} failed destination
+                    {failedDetails.length === 1 ? '' : 's'}
+                  </summary>
+                  <ul className="mt-1 space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {failedDetails.map(d => (
+                      <li
+                        key={`${d.orderId}#${d.broker}`}
+                        className="border-l-2 border-amber-500/60 pl-2"
+                      >
+                        <div className="font-mono">
+                          <span className="font-semibold">{d.symbol}</span>
+                          <span className="text-muted-foreground"> · {d.broker}</span>
+                        </div>
+                        <div className="text-muted-foreground">{d.message}</div>
+                        {/Invalid Handling Instruction/i.test(d.message) && (
+                          <div className="text-amber-700 dark:text-amber-300 mt-0.5">
+                            提示：该 broker 代码未在 EMSX API 中启用 staging
+                            权限。请联系 Bloomberg / broker 开通 API
+                            授权后再路由。
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {failedDetails.length === 0 &&
+                blockedDetails.length > 0 &&
+                summary.blocked > 0 && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {blockedDetails.length} blocked — see banner above for
+                    details.
+                  </div>
+                )}
             </AlertDescription>
           </Alert>
         )}
@@ -899,6 +1209,12 @@ interface OrderRowProps {
   row: RowState;
   lot: number;
   total: number;
+  /** o.remainingQuantity − pending working at the broker. The number actually
+   *  available to the user. */
+  effectiveRemaining: number;
+  /** Pending working qty already at the broker, surfaced inline so the user
+   *  can see *why* the available capacity is less than nominal remaining. */
+  pendingWorking: number;
   overAlloc: boolean;
   anyAlloc: boolean;
   selectedBrokers: string[];
@@ -910,8 +1226,9 @@ interface OrderRowProps {
 }
 
 function OrderRow(p: OrderRowProps) {
-  const { order: o, row: r, lot, total, overAlloc, anyAlloc,
-    selectedBrokers, isBrokerAllowedFor, onPatchRow, onPatchAlloc, editable, phase } = p;
+  const { order: o, row: r, lot, total, effectiveRemaining, pendingWorking,
+    overAlloc, anyAlloc, selectedBrokers, isBrokerAllowedFor,
+    onPatchRow, onPatchAlloc, editable, phase } = p;
 
   const aggregateStatus: AllocStatus | undefined = useMemo(() => {
     const statuses = Object.values(r.allocations).map(a => a.status).filter(Boolean) as AllocStatus[];
@@ -955,8 +1272,12 @@ function OrderRow(p: OrderRowProps) {
         {o.price != null ? o.price.toFixed(2) : '—'}
       </td>
       <td className="px-2 py-1 text-right font-mono-numbers">
-        {o.remainingQuantity.toLocaleString()}
-        <div className="text-[10px] text-muted-foreground/70">lot {lot}</div>
+        {effectiveRemaining.toLocaleString()}
+        <div className="text-[10px] text-muted-foreground/70">
+          {pendingWorking > 0
+            ? `−${pendingWorking.toLocaleString()} working · lot ${lot}`
+            : `lot ${lot}`}
+        </div>
       </td>
       {selectedBrokers.map(b => {
         const a = r.allocations[b];
@@ -974,16 +1295,23 @@ function OrderRow(p: OrderRowProps) {
                 step={lot}
                 value={a?.qty ?? '0'}
                 onChange={(e) => onPatchAlloc(b, { qty: e.target.value })}
+                onWheel={e => e.currentTarget.blur()}
                 className={
                   'h-7 w-24 text-right font-mono text-xs ' +
                   // Use ring instead of bg to avoid contrast issues with the
                   // input's text color in either light or dark mode.
+                  // Dashed ring during 'review' (dry-run preview) so the
+                  // user can tell pre-flight result apart from a real route.
                   (cellInvalid
                     ? 'ring-2 ring-red-500/70 ring-inset'
                     : (allocStatus === 'SUCCESS'
-                      ? 'ring-2 ring-emerald-500/40 ring-inset'
+                      ? (phase === 'review'
+                        ? 'ring-2 ring-emerald-500/40 ring-inset ring-dashed'
+                        : 'ring-2 ring-emerald-500/40 ring-inset')
                       : (allocStatus === 'BLOCKED'
-                        ? 'ring-2 ring-red-500/40 ring-inset'
+                        ? (phase === 'review'
+                          ? 'ring-2 ring-red-500/40 ring-inset ring-dashed'
+                          : 'ring-2 ring-red-500/40 ring-inset')
                         : (allocStatus === 'FAILED'
                           ? 'ring-2 ring-amber-500/40 ring-inset'
                           : ''))))
@@ -1002,6 +1330,11 @@ function OrderRow(p: OrderRowProps) {
       })}
       <td className={'px-2 py-1 text-right font-mono-numbers ' + (overAlloc ? 'text-red-600 font-semibold' : '')}>
         {total.toLocaleString()}{overAlloc ? ' ⚠' : ''}
+        {effectiveRemaining > 0 && (
+          <div className="text-[10px] text-muted-foreground/70">
+            {Math.round((total / effectiveRemaining) * 100)}% of avail
+          </div>
+        )}
       </td>
       <td className="px-2 py-1">
         {aggregateStatus === 'SUCCESS' && (
@@ -1037,6 +1370,11 @@ interface BrokerStrategyParamsEditorProps {
       ReturnType<typeof useStrategyFields>['toStrategyParams']
     >) | null,
   ) => void;
+  /** Returns a previously-cached params snapshot for {broker, strategy}, if
+   *  any \u2014 used to restore user edits after a toggle off/on cycle. */
+  getCachedSnapshot: (broker: string, strategy: string) => ReturnType<
+    ReturnType<typeof useStrategyFields>['toStrategyParams']
+  > | undefined;
   disabled: boolean;
 }
 
@@ -1046,9 +1384,30 @@ function BrokerStrategyParamsEditor({
   strategies,
   onStrategyChange,
   registerParamsBuilder,
+  getCachedSnapshot,
   disabled,
 }: BrokerStrategyParamsEditorProps) {
   const state = useStrategyFields(broker, strategy, 'EQTY');
+
+  // Restore cached params after the catalog finishes loading the defaults.
+  // Tracked by `restoredKeyRef` so we restore exactly once per
+  // {broker, strategy} pair \u2014 not on every render of `state.fields`.
+  const restoredKeyRef = useRef<string>('');
+  useEffect(() => {
+    const key = `${broker}#${strategy}`;
+    if (!strategy || state.isLoading || state.fields.length === 0) return;
+    if (restoredKeyRef.current === key) return;
+    const snap = getCachedSnapshot(broker, strategy);
+    if (snap && snap.fields && snap.fields.length === state.fields.length) {
+      state.setFields(prev => prev.map((f, i) => ({
+        ...f,
+        value: snap.fields[i]?.value ?? f.value,
+        disabled: snap.fields[i]?.disabled ?? f.disabled,
+      })));
+    }
+    restoredKeyRef.current = key;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [broker, strategy, state.isLoading, state.fields.length]);
 
   // Register a stable builder for this broker so the dialog can collect
   // strategy params at request-build time.

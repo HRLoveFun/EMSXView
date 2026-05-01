@@ -96,6 +96,33 @@ def test_market_order_without_last_price_blocks():
     assert any(v.code == "NOTIONAL_UNKNOWN" for v in violations)
 
 
+def test_market_order_falls_back_to_arrival_price():
+    """When lastPrice is missing, broaden fallback chain to arrivalPrice / vwap / avgPrice / price."""
+    order = make_order(
+        currency="USD", fxRate=1.0,
+        lastPrice=None, mktVwap=None, dayAvgPrice=None,
+        arrivalPrice=200.0,
+    )
+    violations = compliance_service.check_route(
+        order, route_qty=100, limit_price=None, stop_price=None, order_type="MKT",
+    )
+    # 200 * 100 = 20,000 — within bounds; should NOT be NOTIONAL_UNKNOWN
+    assert all(v.code != "NOTIONAL_UNKNOWN" for v in violations)
+
+
+def test_market_order_falls_back_to_parent_price():
+    """Resting LIMIT parent with no tape — `price` is the last viable fallback."""
+    order = make_order(
+        currency="USD", fxRate=1.0,
+        lastPrice=None, mktVwap=None, dayAvgPrice=None,
+        arrivalPrice=None, avgPrice=None, price=150.0,
+    )
+    violations = compliance_service.check_route(
+        order, route_qty=100, limit_price=None, stop_price=None, order_type="MKT",
+    )
+    assert all(v.code != "NOTIONAL_UNKNOWN" for v in violations)
+
+
 def test_non_usd_with_fx_rate_converts():
     # JPY 1500 * 100 = 150,000 JPY * 0.0067 = ~1005 USD -> below min
     order = make_order(currency="JPY", exchange="JP", fxRate=0.0067)

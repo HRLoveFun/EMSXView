@@ -329,7 +329,7 @@ def test_batch_route_split_oversum_blocks_all_destinations(
     assert data["succeeded"] == 0
     for item in data["items"]:
         assert item["status"] == "BLOCKED"
-        assert "Split allocation total" in item["message"]
+        assert "exceeds available capacity" in item["message"]
 
 
 def test_batch_route_split_within_limit_streams_success(

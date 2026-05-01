@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Edit3, Trash2, X, CheckSquare, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,10 +20,18 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { UpdateableField, BatchUpdateRequest } from '@/types';
+import type { UpdateableField, BatchUpdateRequest, Order } from '@/types';
 
 interface BatchOperationPanelProps {
-  selectedCount: number;
+  /** Authoritative list of currently-selected order IDs. Replaces the previous
+   *  DOM-scraping approach which silently truncated the batch when rows were
+   *  virtualised, collapsed, or off-screen — and which also relied on a
+   *  hard-coded `id.startsWith('ORD')` filter that excluded all real Bloomberg
+   *  numeric sequences. */
+  selectedOrderIds: string[];
+  /** Optional: surfaced in the cancel-confirmation dialog so users see exactly
+   *  which tickers / sides they are about to cancel before committing. */
+  selectedOrders?: Order[];
   onBatchUpdate: (request: BatchUpdateRequest) => Promise<void>;
   onClearSelection: () => void;
   isLoading: boolean;
@@ -43,17 +51,41 @@ const timeInForceOptions = [
   { value: 'FOK', label: 'Fill or Kill' },
 ];
 
-export function BatchOperationPanel({ 
-  selectedCount, 
-  onBatchUpdate, 
+export function BatchOperationPanel({
+  selectedOrderIds,
+  selectedOrders = [],
+  onBatchUpdate,
   onClearSelection,
-  isLoading 
+  isLoading
 }: BatchOperationPanelProps) {
+  const selectedCount = selectedOrderIds.length;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedField, setSelectedField] = useState<UpdateableField>('price');
   const [newValue, setNewValue] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Build a human-readable summary for the cancel confirmation: distinct
+  // tickers + side breakdown so the trader knows exactly the blast radius
+  // before signing off on an irreversible action.
+  const cancelSummary = useMemo(() => {
+    const tickers = new Set<string>();
+    let buys = 0;
+    let sells = 0;
+    for (const o of selectedOrders) {
+      if (o.symbol) tickers.add(o.symbol);
+      if (o.side === 'BUY') buys += 1;
+      else if (o.side === 'SELL') sells += 1;
+    }
+    const tickerList = Array.from(tickers);
+    return {
+      tickerCount: tickerList.length,
+      sample: tickerList.slice(0, 5).join(', '),
+      hasMore: tickerList.length > 5,
+      buys,
+      sells,
+    };
+  }, [selectedOrders]);
 
   const handleOpenModal = () => {
     setSelectedField('price');
@@ -71,6 +103,11 @@ export function BatchOperationPanel({
   const handleSubmit = async () => {
     setError(null);
 
+    if (selectedOrderIds.length === 0) {
+      setError('No orders are currently selected. Tick at least one order in the table first.');
+      return;
+    }
+
     if (!newValue && selectedField !== 'status') {
       setError('Please enter a value');
       return;
@@ -78,8 +115,15 @@ export function BatchOperationPanel({
 
     if (selectedField === 'price' || selectedField === 'quantity') {
       const numValue = parseFloat(newValue);
-      if (isNaN(numValue) || numValue <= 0) {
+      // Guard zero / negative *first* so users typing "0" get the obvious
+      // ">0" message instead of the misleading "must be at least filled (0)"
+      // that was previously emitted when filledQuantity happened to be 0.
+      if (isNaN(numValue)) {
         setError(`Invalid ${selectedField} value`);
+        return;
+      }
+      if (numValue <= 0) {
+        setError(`${selectedField === 'price' ? 'Limit price' : 'Quantity'} must be greater than 0`);
         return;
       }
     }
@@ -88,11 +132,6 @@ export function BatchOperationPanel({
       setConfirmCancel(true);
       return;
     }
-
-    // Get selected order IDs from parent
-    const selectedOrderIds = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
-      .map(cb => (cb as HTMLInputElement).value)
-      .filter(id => id.startsWith('ORD'));
 
     await onBatchUpdate({
       orderIds: selectedOrderIds,
@@ -163,14 +202,14 @@ export function BatchOperationPanel({
           <div className="flex items-center gap-2">
             <CheckSquare className="h-5 w-5 text-primary" />
             <span className="font-medium">
-              {selectedCount} order{selectedCount !== 1 ? 's' : ''} selected
+              已选 {selectedCount} 个订单
             </span>
           </div>
           <Badge variant="secondary" className="text-xs">
-            Ready for batch operation
+            可执行批量操作
           </Badge>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -179,7 +218,7 @@ export function BatchOperationPanel({
             disabled={isLoading}
           >
             <X className="h-4 w-4 mr-1.5" />
-            Clear
+            清空选择
           </Button>
           <Button
             variant="default"
@@ -189,7 +228,7 @@ export function BatchOperationPanel({
             className="gap-1.5"
           >
             <Edit3 className="h-4 w-4" />
-            Batch Modify
+            批量改单
           </Button>
         </div>
       </div>
@@ -199,10 +238,10 @@ export function BatchOperationPanel({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit3 className="h-5 w-5" />
-              Batch Modify Orders
+              批量改单
             </DialogTitle>
             <DialogDescription>
-              Modify {selectedCount} selected order{selectedCount !== 1 ? 's' : ''}
+              将对已选择的 {selectedCount} 个订单进行批量修改
             </DialogDescription>
           </DialogHeader>
 
@@ -210,7 +249,23 @@ export function BatchOperationPanel({
             <Alert variant="destructive" className="mb-4">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                Are you sure you want to cancel these orders? This action cannot be undone.
+                <div className="font-semibold">
+                  即将取消 {selectedCount} 个订单
+                  {cancelSummary.tickerCount > 0
+                    ? `，涉及 ${cancelSummary.tickerCount} 个标的`
+                    : ''}
+                </div>
+                {cancelSummary.tickerCount > 0 && (
+                  <div className="mt-1 text-xs opacity-90">
+                    {cancelSummary.buys > 0 && <>买入 × {cancelSummary.buys}</>}
+                    {cancelSummary.buys > 0 && cancelSummary.sells > 0 && ' · '}
+                    {cancelSummary.sells > 0 && <>卖出 × {cancelSummary.sells}</>}
+                    {cancelSummary.sample && (
+                      <> · {cancelSummary.sample}{cancelSummary.hasMore ? ' …' : ''}</>
+                    )}
+                  </div>
+                )}
+                <div className="mt-1 text-xs">此操作不可撤销，请确认。</div>
               </AlertDescription>
             </Alert>
           )}
@@ -263,27 +318,27 @@ export function BatchOperationPanel({
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={handleCloseModal} disabled={isLoading}>
-              Cancel
+              取消
             </Button>
-            <Button 
-              onClick={handleSubmit} 
+            <Button
+              onClick={handleSubmit}
               disabled={isLoading}
               variant={confirmCancel ? 'destructive' : 'default'}
             >
               {isLoading ? (
                 <>
                   <div className="spinner h-4 w-4 mr-2" />
-                  Processing...
+                  处理中…
                 </>
               ) : confirmCancel ? (
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Confirm Cancel
+                  确认取消 {selectedCount} 个订单
                 </>
               ) : (
                 <>
                   <CheckSquare className="h-4 w-4 mr-2" />
-                  Apply Changes
+                  应用修改
                 </>
               )}
             </Button>

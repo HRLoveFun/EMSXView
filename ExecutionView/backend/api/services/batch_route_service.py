@@ -339,12 +339,20 @@ def _validate_split_totals(
     request: BatchRouteOrderRequest,
     eval_results: List[Tuple[BatchOperationItemResult, Optional[RouteOrderRequest]]],
 ) -> List[Tuple[BatchOperationItemResult, Optional[RouteOrderRequest]]]:
-    """Cross-item check for multi-broker split: sum of validated qty per
-    parent order must not exceed remainingQuantity. When violated, every item
+    """Cross-item check for over-allocation:
+
+    For each parent order, sum of validated qty must not exceed
+    *effective remaining* = ``order.remainingQuantity`` minus quantity
+    already pending at the broker (sum of ``route.working`` for routes
+    whose status is still capacity-consuming). When violated, every item
     referencing that order is rewritten as BLOCKED.
 
     Operates only on currently-SUCCESS items; already-BLOCKED items are kept
     as-is so their original failure reason still surfaces.
+
+    Note: applies even when only a single item references the order \u2014
+    needed because the user may already have an in-flight working route
+    from an earlier batch.
     """
     totals: Dict[str, int] = defaultdict(int)
     items_by_order: Dict[str, List[int]] = defaultdict(list)
@@ -357,24 +365,46 @@ def _validate_split_totals(
     if not totals:
         return eval_results
 
+    # Statuses whose quantity is still committed at the broker. Mirrors
+    # the frontend PENDING_ROUTE_STATUSES set so user UI and server agree
+    # on what counts as "already routed and not back yet".
+    pending_route_statuses = {
+        "SENT", "WORKING", "PARTFILLED", "QUEUED", "HOLD",
+        "CXLREQ", "CXLREJ", "CXLREP", "CXLRPRQ", "CXLRPRJ",
+        "REPPEN", "A-SENT", "OA-SENT",
+    }
+
     out = list(eval_results)
     with getattr(bloomberg, "_data_lock"):
-        cache = getattr(bloomberg, "_orders", {}) or {}
-        remaining_map = {oid: int(getattr(cache.get(oid), "remainingQuantity", 0) or 0)
-                         for oid in totals}
+        order_cache = getattr(bloomberg, "_orders", {}) or {}
+        route_cache = getattr(bloomberg, "_routes", {}) or {}
+        remaining_map: Dict[str, int] = {}
+        pending_map: Dict[str, int] = {oid: 0 for oid in totals}
+        for oid in totals:
+            remaining_map[oid] = int(getattr(order_cache.get(oid), "remainingQuantity", 0) or 0)
+        for route in route_cache.values():
+            seq = str(getattr(route, "sequence", "") or "")
+            if seq not in pending_map:
+                continue
+            status = (getattr(route, "status", "") or "").upper()
+            if status not in pending_route_statuses:
+                continue
+            working = int(getattr(route, "working", 0) or 0)
+            if working > 0:
+                pending_map[seq] += working
     for oid, total_qty in totals.items():
-        # Skip when only a single item references this order (single-broker case).
-        if len(items_by_order[oid]) <= 1:
-            continue
         remain = remaining_map.get(oid, 0)
-        if total_qty > remain:
+        pending = pending_map.get(oid, 0)
+        effective = max(0, remain - pending)
+        if total_qty > effective:
             for idx in items_by_order[oid]:
                 blocked = BatchOperationItemResult(
                     key=out[idx][0].key,
                     status="BLOCKED",
                     message=(
-                        f"Split allocation total ({total_qty}) exceeds remaining "
-                        f"quantity ({remain}) for order {oid}"
+                        f"Allocation total ({total_qty}) exceeds available capacity "
+                        f"({effective} = remaining {remain} \u2212 pending {pending}) "
+                        f"for order {oid}"
                     ),
                     violations=[],
                 )

@@ -48,6 +48,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useBrokerAlgorithms } from '@/hooks/use-broker-algorithms';
 import type { StrategyParameter } from '@/types';
 import {
+  RECONCILE_INTERVAL_OPTIONS,
+  getReconcileIntervalSec,
+  setReconcileIntervalSec,
+  type ReconcileIntervalSec,
+} from '@/lib/reconcile-settings';
+import {
   CONDITION_DEFS,
   DEFAULT_CONDITIONS,
   type MonitorConditions,
@@ -128,6 +134,23 @@ export function SettingsBoard({
 }: SettingsBoardProps = {}) {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection);
   useEffect(() => { setActiveSection(initialSection); }, [initialSection]);
+
+  // Transient "已保存" indicator: settings persist on every keystroke via the
+  // parent's saveConditions effect, but without visible feedback users would
+  // not know whether their change took effect. A 1.5s pill confirms the save
+  // happened — required because the alternative was leaving traders to wonder
+  // if the threshold they typed was actually applied.
+  const [savedFlashAt, setSavedFlashAt] = useState<number | null>(null);
+  const handleConditionsChange = (next: MonitorConditions) => {
+    if (!onMonitorConditionsChange) return;
+    onMonitorConditionsChange(next);
+    setSavedFlashAt(Date.now());
+  };
+  useEffect(() => {
+    if (!savedFlashAt) return;
+    const t = setTimeout(() => setSavedFlashAt(null), 1500);
+    return () => clearTimeout(t);
+  }, [savedFlashAt]);
   // Global settings state
   const [monitorAlertsEnabled, setMonitorAlertsEnabled] = useState(() => {
     return localStorage.getItem('emsx_monitor_alerts_enabled') !== 'false';
@@ -135,6 +158,9 @@ export function SettingsBoard({
   const [desktopNotificationsEnabled, setDesktopNotificationsEnabled] = useState(() => {
     return localStorage.getItem('emsx_desktop_notifications') === 'true';
   });
+  const [reconcileIntervalSec, setReconcileIntervalSecState] = useState<ReconcileIntervalSec>(() =>
+    getReconcileIntervalSec(),
+  );
 
   // Broker algorithm state from hook
   const {
@@ -480,6 +506,34 @@ export function SettingsBoard({
               onCheckedChange={setDesktopNotificationsEnabled}
             />
           </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <Label htmlFor="reconcile-interval" className="font-medium">Background Refresh Interval</Label>
+                <p className="text-xs text-muted-foreground">How often the table cross-checks the realtime stream against the backend. Lower = fresher, more network.</p>
+              </div>
+            </div>
+            <Select
+              value={String(reconcileIntervalSec)}
+              onValueChange={(v) => {
+                const sec = parseInt(v, 10) as ReconcileIntervalSec;
+                setReconcileIntervalSecState(sec);
+                setReconcileIntervalSec(sec);
+              }}
+            >
+              <SelectTrigger id="reconcile-interval" className="h-8 w-44 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RECONCILE_INTERVAL_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={String(opt.value)} className="text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
       )}
@@ -488,9 +542,20 @@ export function SettingsBoard({
       {activeSection === 'monitor-conditions' && (
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-5 w-5 text-primary" />
-            <CardTitle className="text-base">Monitor Conditions</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base">Monitor Conditions</CardTitle>
+            </div>
+            {savedFlashAt && (
+              <span
+                className="text-xs text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in"
+                role="status"
+                aria-live="polite"
+              >
+                ✓ 已保存
+              </span>
+            )}
           </div>
           <CardDescription>
             Configure threshold triggers that flag orders on the Monitor Board. Changes apply immediately.
@@ -512,7 +577,7 @@ export function SettingsBoard({
                   const isDollar = def.id === 'dollarValueLow' || def.id === 'dollarValueHigh';
                   const isBool = def.isBool;
                   const setField = (patch: Partial<ConditionConfig & BoolConditionConfig>) => {
-                    onMonitorConditionsChange({
+                    handleConditionsChange({
                       ...monitorConditions,
                       [def.id]: { ...cfg, ...patch },
                     } as MonitorConditions);
@@ -576,7 +641,7 @@ export function SettingsBoard({
                       <Checkbox
                         checked={lazyCfg.enabled}
                         onCheckedChange={(v) =>
-                          onMonitorConditionsChange({
+                          handleConditionsChange({
                             ...monitorConditions,
                             lazy: { ...lazyCfg, enabled: Boolean(v) },
                           })
@@ -606,7 +671,7 @@ export function SettingsBoard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => onMonitorConditionsChange(structuredClone(DEFAULT_CONDITIONS))}
+                  onClick={() => handleConditionsChange(structuredClone(DEFAULT_CONDITIONS))}
                 >
                   <RefreshCw className="h-3 w-3 mr-1" />Reset to defaults
                 </Button>

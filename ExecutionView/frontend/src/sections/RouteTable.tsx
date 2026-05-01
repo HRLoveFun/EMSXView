@@ -463,13 +463,27 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
   };
 
   // Action handlers
+  // Per-route in-flight guard: a user double-clicking "Cancel Route" while
+  // the network is slow would otherwise dispatch the request twice. The
+  // second call wastes a round-trip and emits a duplicate "already
+  // cancelled" error toast. Treat the route as locked from submission
+  // until either the parent refresh resolves or a 5s safety window expires.
+  const inflightCancelRef = useRef<Set<string>>(new Set());
   const handleCancel = async (route: Route) => {
     if (!onCancelRoute) return;
-    await onCancelRoute({ sequence: route.sequence, routeId: route.routeId });
-    // Cancel also produces a CXLPEND transition (<~500ms). Use the same optimistic
-    // spinner + staged refresh so the final CANCEL status appears without manual refresh.
-    markReplacing(route.id);
-    if (onRefresh) await onRefresh();
+    if (inflightCancelRef.current.has(route.id)) return;
+    inflightCancelRef.current.add(route.id);
+    const safety = window.setTimeout(() => inflightCancelRef.current.delete(route.id), 5000);
+    try {
+      await onCancelRoute({ sequence: route.sequence, routeId: route.routeId });
+      // Cancel also produces a CXLPEND transition (<~500ms). Use the same optimistic
+      // spinner + staged refresh so the final CANCEL status appears without manual refresh.
+      markReplacing(route.id);
+      if (onRefresh) await onRefresh();
+    } finally {
+      window.clearTimeout(safety);
+      inflightCancelRef.current.delete(route.id);
+    }
   };
 
   const renderRow = (route: Route) => {
@@ -577,9 +591,9 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
 
   return (
     <TooltipProvider>
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col h-full min-h-0">
         {/* Group-by bar with primary and secondary grouping */}
-        <div className="border-b border-border px-4 py-1.5 bg-secondary/30 flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="border-b border-border px-4 py-1.5 bg-secondary/30 flex items-center gap-3 text-xs text-muted-foreground shrink-0">
           <Layers className="h-3.5 w-3.5" />
           <span>Group by</span>
           {/* Primary group */}
@@ -652,7 +666,10 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
           </div>
         )}
 
-        <ScrollArea className="h-[calc(100vh-370px)]">
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="text-[10px] text-muted-foreground/60 px-3 py-0.5 italic" aria-hidden="true">
+            ↔ scroll horizontally for more columns (Shift + mouse wheel)
+          </div>
           <table className="trading-table min-w-max">
             <thead className="sticky top-0 z-10">
               <tr>
@@ -856,7 +873,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
         </ScrollArea>
 
         {/* Table Footer */}
-        <div className="border-t border-border px-4 py-2 bg-secondary/30 flex items-center justify-between text-xs text-muted-foreground">
+        <div className="border-t border-border px-4 py-2 bg-secondary/30 flex items-center justify-between text-xs text-muted-foreground shrink-0">
           <div className="flex items-center gap-3">
             <span>Showing {filteredRoutes.length} of {routes.length} route{filteredRoutes.length !== 1 ? 's' : ''}</span>
             {groupConfig.primary !== 'none' && (

@@ -8,7 +8,7 @@ import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@/hooks/use-t
 import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
   CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,
-  RouteOrderRequest, CreateParentExecutionRequest,
+  CreateParentExecutionRequest,
 } from '@/types';
 
 interface ExecutionBoardProps {
@@ -26,7 +26,6 @@ interface ExecutionBoardProps {
   onCancelRoute?: (request: CancelRouteRequest) => Promise<void>;
   onModifyRoute?: (request: ModifyRouteRequest) => Promise<void>;
   onModifyOrder?: (request: ModifyOrderRequest) => Promise<void>;
-  onRouteOrder?: (request: RouteOrderRequest) => Promise<void>;
   onRefresh?: () => Promise<void>;
   onLaunchExecution?: (request: CreateParentExecutionRequest) => Promise<void>;
 }
@@ -46,7 +45,6 @@ export function ExecutionBoard({
   onCancelRoute,
   onModifyRoute,
   onModifyOrder,
-  onRouteOrder,
   onRefresh,
   onLaunchExecution,
 }: ExecutionBoardProps) {
@@ -163,7 +161,15 @@ export function ExecutionBoard({
           onSelectionChange(next);
         }
       },
-      onEscape: () => { if (isRouteFiltered) onClearSelection(); },
+      onEscape: () => {
+        if (isRouteFiltered) {
+          onClearSelection();
+          // Send the cursor back to the top so the next j/k keystroke does not
+          // resume from a stale row that may now be invisible after re-filter.
+          setCursorOrderIdx(0);
+          setCursorRouteIdx(0);
+        }
+      },
       onFocusSearch: () => {
         // Best-effort: focus the first visible input[aria-label*="Filter"] in the active pane
         const scope = activePane === 'orders'
@@ -217,7 +223,7 @@ export function ExecutionBoard({
       {/* ── Order Pane (top — fixed 55%) ───────────────────────────────── */}
       <section
         aria-label="Orders"
-        className={`flex flex-col min-h-0 basis-[55%] shrink-0 space-y-2 rounded-md transition-colors overflow-hidden ${activePane === 'orders' ? 'ring-1 ring-primary/40' : ''}`}
+        className={`flex flex-col min-h-[200px] basis-[55%] shrink-0 space-y-2 rounded-md transition-colors overflow-hidden ${activePane === 'orders' ? 'ring-1 ring-primary/40' : ''}`}
         onMouseDown={() => setActivePane('orders')}
         tabIndex={-1}
       >
@@ -231,12 +237,14 @@ export function ExecutionBoard({
             filters={filters}
             onFilterChange={onFilterChange}
             onModifyOrder={onModifyOrder}
-            onRouteOrder={onRouteOrder}
+            routes={routes}
+            onRouteCompleted={onRefresh}
             currentTrader={currentTrader}
           />
         </div>
         <BatchOperationPanel
-          selectedCount={selectedOrders.size}
+          selectedOrderIds={Array.from(selectedOrders)}
+          selectedOrders={orders.filter(o => selectedOrders.has(o.id))}
           onBatchUpdate={onBatchUpdate}
           onClearSelection={onClearSelection}
           isLoading={isLoading}
@@ -246,7 +254,7 @@ export function ExecutionBoard({
       {/* ── Route Pane (bottom — fixed 45%) ───────────────────────────── */}
       <section
         aria-label="Routes"
-        className={`flex flex-col min-h-0 basis-[45%] shrink-0 space-y-2 rounded-md transition-colors overflow-hidden ${activePane === 'routes' ? 'ring-1 ring-primary/40' : ''}`}
+        className={`flex flex-col min-h-[160px] basis-[45%] shrink-0 space-y-2 rounded-md transition-colors overflow-hidden ${activePane === 'routes' ? 'ring-1 ring-primary/40' : ''}`}
         onMouseDown={() => setActivePane('routes')}
         tabIndex={-1}
       >

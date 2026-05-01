@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiService } from '@/services/api';
 import { CACHE_CONFIGS, clearAllCaches, createCache, getOrFetch } from '@/lib/cache-manager';
+import { getReconcileIntervalMs } from '@/lib/reconcile-settings';
 import type {
   BatchUpdateRequest,
   CancelRouteRequest,
@@ -44,6 +45,17 @@ export function useExecutionViewData({
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const initialDataLoadedRef = useRef(false);
+  // Mutual exclusion: counts of in-flight user mutations. While > 0 the
+  // background reconcile poll skips its tick so it can't clobber the
+  // post-mutation snapshot the mutation handler is about to fetch itself.
+  const inflightMutationsRef = useRef(0);
+  // Dedup guard for manual refresh — second click while the first is still
+  // running becomes a no-op instead of double-hitting the backend.
+  const refreshInflightRef = useRef(false);
+  // Consecutive reconcile failures. Surfaces a single warning toast at the
+  // threshold so users know the table may be stale.
+  const reconcileFailuresRef = useRef(0);
+  const reconcileWarnedRef = useRef(false);
 
   const fetchTraderInfo = useCallback(async (forceRefresh = false) => {
     try {
@@ -198,6 +210,48 @@ export function useExecutionViewData({
     };
   }, [allowFallbackFetch, fetchOrdersAndRoutes, isAuthenticated, isBackendReady, streamConnected]);
 
+  // Reconcile poll — runs even while the WebSocket stream is connected, to
+  // catch order/route status changes that the stream may have dropped.
+  // Cadence is user-configurable (5/15/30/60s) and doubled when tab hidden.
+  // Skipped while a user mutation is in flight so optimistic post-mutation
+  // state is not clobbered by a stale backend read.
+  useEffect(() => {
+    if (!isAuthenticated || !isBackendReady || !streamConnected) {
+      return;
+    }
+
+    let active = true;
+
+    const tick = async () => {
+      const base = getReconcileIntervalMs();
+      if (inflightMutationsRef.current === 0) {
+        try {
+          await fetchOrdersAndRoutes();
+          if (reconcileWarnedRef.current) {
+            onToast('success', 'Data refresh recovered');
+          }
+          reconcileFailuresRef.current = 0;
+          reconcileWarnedRef.current = false;
+        } catch {
+          reconcileFailuresRef.current += 1;
+          if (reconcileFailuresRef.current >= 3 && !reconcileWarnedRef.current) {
+            reconcileWarnedRef.current = true;
+            onToast('error', 'Background refresh failing — table data may be stale');
+          }
+        }
+      }
+      if (active) {
+        timer = setTimeout(tick, document.hidden ? base * 2 : base);
+      }
+    };
+
+    let timer = setTimeout(tick, getReconcileIntervalMs());
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [fetchOrdersAndRoutes, isAuthenticated, isBackendReady, streamConnected, onToast]);
+
   useEffect(() => {
     if (!isAuthenticated || !isBackendReady) {
       return;
@@ -225,6 +279,8 @@ export function useExecutionViewData({
   }, [fetchTraderInfo, isAuthenticated, isBackendReady]);
 
   const handleRefresh = useCallback(async () => {
+    if (refreshInflightRef.current) return;
+    refreshInflightRef.current = true;
     setIsLoading(true);
     try {
       const [response, routesRes] = await Promise.all([
@@ -247,6 +303,7 @@ export function useExecutionViewData({
       console.error('Refresh error:', error);
     } finally {
       setIsLoading(false);
+      refreshInflightRef.current = false;
     }
   }, [fetchTraderInfo, onToast]);
 
@@ -289,6 +346,7 @@ export function useExecutionViewData({
   }, [fetchTraderInfo, onToast]);
 
   const handleCancelRoute = useCallback(async (request: CancelRouteRequest) => {
+    inflightMutationsRef.current += 1;
     try {
       const response = await apiService.cancelRoute(request);
       if (response.success) {
@@ -299,10 +357,13 @@ export function useExecutionViewData({
     } catch (error) {
       onToast('error', 'Network error while cancelling route');
       console.error('Cancel route error:', error);
+    } finally {
+      inflightMutationsRef.current = Math.max(0, inflightMutationsRef.current - 1);
     }
   }, [onToast]);
 
   const handleModifyRoute = useCallback(async (request: ModifyRouteRequest) => {
+    inflightMutationsRef.current += 1;
     try {
       const response = await apiService.modifyRoute(request);
       if (response.success) {
@@ -313,10 +374,13 @@ export function useExecutionViewData({
     } catch (error) {
       onToast('error', 'Network error while modifying route');
       console.error('Modify route error:', error);
+    } finally {
+      inflightMutationsRef.current = Math.max(0, inflightMutationsRef.current - 1);
     }
   }, [onToast]);
 
   const handleModifyOrder = useCallback(async (request: ModifyOrderRequest) => {
+    inflightMutationsRef.current += 1;
     try {
       const response = await apiService.modifyOrder(request);
       if (response.success) {
@@ -328,6 +392,8 @@ export function useExecutionViewData({
     } catch (error) {
       onToast('error', 'Network error while modifying order');
       console.error('Modify order error:', error);
+    } finally {
+      inflightMutationsRef.current = Math.max(0, inflightMutationsRef.current - 1);
     }
   }, [fetchOrders, onToast]);
 

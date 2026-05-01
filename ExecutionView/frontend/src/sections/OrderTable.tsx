@@ -22,9 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatNumber } from '@/lib/format-utils';
 import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TYPE_OPTIONS, type OrderGroupByValue } from '@/lib/table-constants';
-import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, RouteOrderRequest } from '@/types';
+import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, Route } from '@/types';
 import { OrderModifyDialog, type OrderUpdates } from '@/components/order-modify-dialog';
-import { RouteOrderDialog, type RouteOrderData } from '@/components/order-route-dialog';
 import { BatchRouteOrderDialog } from '@/components/batch-route-order-dialog';
 
 type SortField = keyof Order | null;
@@ -39,7 +38,12 @@ interface OrderTableProps {
   filters: OrderFilters;
   onFilterChange: (filters: OrderFilters) => void;
   onModifyOrder?: (request: ModifyOrderRequest) => Promise<void>;
-  onRouteOrder?: (request: RouteOrderRequest) => Promise<void>;
+  /** Routes are passed through so BatchRouteOrderDialog can subtract
+   *  pending working quantity from each parent order's nominal remaining. */
+  routes?: Route[];
+  /** Refresh callback fired after a route completes — lets the parent
+   *  view refetch orders/routes so the UI no longer shows stale state. */
+  onRouteCompleted?: () => void;
   currentTrader?: string;
 }
 
@@ -50,7 +54,7 @@ interface SortConfig {
 
 const TOTAL_COLS = 28; // 27 data columns + 1 actions column
 
-export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChange, isLoading, filters, onFilterChange, onModifyOrder, onRouteOrder, currentTrader }: OrderTableProps) {
+export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChange, isLoading, filters, onFilterChange, onModifyOrder, routes, onRouteCompleted, currentTrader }: OrderTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'createdAt', direction: 'desc' });
   const [groupBy, setGroupBy] = useState<OrderGroupByValue>('exchange');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -252,28 +256,6 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
     setIsRouteDialogOpen(true);
   };
 
-  const handleRouteConfirm = async (order: Order, routeData: RouteOrderData) => {
-    if (!onRouteOrder) return;
-
-    const request: RouteOrderRequest = {
-      orderId: order.id,
-      broker: routeData.broker,
-      strategy: routeData.strategy || undefined,
-      quantity: routeData.quantity,
-      orderType: routeData.orderType,
-      price: routeData.price,
-      stopPrice: routeData.stopPrice,
-      timeInForce: routeData.timeInForce,
-      exchangeDestination: routeData.exchangeDestination,
-      notes: routeData.notes,
-      strategyParams: routeData.strategyParams ?? undefined,
-    };
-    
-    await onRouteOrder(request);
-    setIsRouteDialogOpen(false);
-    setRouteOrder(null);
-  };
-
   const getPmNote = (order: Order) => {
     const parts: string[] = [];
     if (order.notes) parts.push(order.notes);
@@ -460,9 +442,9 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
 
   return (
     <TooltipProvider>
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col h-full min-h-0">
         {/* Group-by bar — top of table */}
-        <div className="border-b border-border px-4 py-1.5 bg-secondary/30 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="border-b border-border px-4 py-1.5 bg-secondary/30 flex items-center gap-2 text-xs text-muted-foreground shrink-0">
           <Layers className="h-3.5 w-3.5" />
           <span>Group by</span>
           <Select value={groupBy} onValueChange={(v) => handleGroupByChange(v as OrderGroupByValue)}>
@@ -495,7 +477,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
               <X className="h-3 w-3" />Clear filters
             </button>
           )}
-          {selectedOrders.size > 0 && onRouteOrder && (
+          {selectedOrders.size > 0 && (
             <button
               onClick={() => setIsBatchRouteDialogOpen(true)}
               className={`${hasActiveFilters ? '' : 'ml-auto'} flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium`}
@@ -505,7 +487,10 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
           )}
         </div>
 
-        <ScrollArea className="h-[calc(100vh-370px)]">
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="text-[10px] text-muted-foreground/60 px-3 py-0.5 italic" aria-hidden="true">
+            ↔ scroll horizontally for more columns (Shift + mouse wheel)
+          </div>
           <table className="trading-table min-w-max">
             <thead className="sticky top-0 z-10">
               <tr>
@@ -660,7 +645,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                           <Edit3 className="h-3.5 w-3.5" />
                         </button>
                       )}
-                      {canRouteOrder(order) && onRouteOrder && (
+                      {canRouteOrder(order) && (
                         <button
                           onClick={() => handleRouteClick(order)}
                           className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-blue-500 transition-colors"
@@ -722,7 +707,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
         </ScrollArea>
 
         {/* Table Footer */}
-        <div className="border-t border-border px-4 py-2 bg-secondary/30 flex items-center justify-between text-xs text-muted-foreground">
+        <div className="border-t border-border px-4 py-2 bg-secondary/30 flex items-center justify-between text-xs text-muted-foreground shrink-0">
           <div className="flex items-center gap-3">
             <span>Showing {orders.length}{allOrders.length !== orders.length ? ` of ${allOrders.length}` : ''} order{orders.length !== 1 ? 's' : ''}</span>
             {groupBy !== 'none' && (
@@ -744,18 +729,26 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
         onConfirm={handleModifyConfirm}
       />
 
-      <RouteOrderDialog
-        order={routeOrder}
-        open={isRouteDialogOpen}
-        onOpenChange={setIsRouteDialogOpen}
-        onConfirm={handleRouteConfirm}
+      {/* Single-order Route reuses the multi-broker BatchRouteOrderDialog
+          with a one-element orders array. The dialog adapts its title and
+          everything else flows through the same backend contract. */}
+      <BatchRouteOrderDialog
+        orders={routeOrder ? [routeOrder] : []}
+        routes={routes}
+        open={isRouteDialogOpen && routeOrder !== null}
+        onOpenChange={(v) => {
+          setIsRouteDialogOpen(v);
+          if (!v) setRouteOrder(null);
+        }}
+        onComplete={() => { onRouteCompleted?.(); }}
       />
 
       <BatchRouteOrderDialog
         orders={orders.filter(o => selectedOrders.has(o.id))}
+        routes={routes}
         open={isBatchRouteDialogOpen}
         onOpenChange={setIsBatchRouteDialogOpen}
-        onComplete={() => onSelectionChange(new Set())}
+        onComplete={() => { onSelectionChange(new Set()); onRouteCompleted?.(); }}
       />
     </TooltipProvider>
   );
