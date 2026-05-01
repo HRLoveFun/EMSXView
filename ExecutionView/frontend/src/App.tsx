@@ -6,6 +6,7 @@ import { ExecutionViewTabs } from './sections/ExecutionViewTabs';
 import { SettingsBoard } from './sections/SettingsBoard';
 import { ToastContainer } from './sections/ToastContainer';
 import { StartupGate } from './components/startup-gate';
+import { SubOrderReviewPanel } from './components/sub-order-review-panel';
 import { WorkspaceModuleTabs } from './sections/WorkspaceModuleTabs';
 import { Spinner } from './components/ui/spinner';
 import { tokenService } from './services/api';
@@ -56,7 +57,7 @@ function App() {
   // `new Date()`-on-every-render placeholder which always read "just now".
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [settingsInitialSection, setSettingsInitialSection] = useState<
-    'global' | 'monitor-conditions' | 'broker-algo' | 'parameter-frequency' | 'data-manager' | 'about'
+    'global' | 'monitor-conditions' | 'broker-algo' | 'parameter-frequency' | 'route-plans' | 'data-manager' | 'about'
   >('global');
   const [monitorExceptionCount, setMonitorExceptionCount] = useState(0);
 
@@ -367,6 +368,12 @@ function App() {
                     onCancelRoute={handleCancelRoute}
                     onModifyRoute={handleModifyRoute}
                     onModifyOrder={handleModifyOrder}
+                    onRefresh={fetchOrders}
+                  />
+                }
+                routeEngineView={
+                  <SubOrderReviewPanel
+                    currentTrader={currentTrader}
                     onRefresh={fetchOrders}
                   />
                 }

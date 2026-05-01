@@ -15,7 +15,6 @@ import { apiService } from '@/services/api';
 export interface BrokerAlgorithmConfig {
   broker: string;
   assetClass: string;
-  exchange: string;
   strategies: StrategyConfig[];
 }
 
@@ -47,339 +46,9 @@ const STORAGE_KEY_TIMESTAMP = 'emsx_broker_algorithm_timestamp';
 const STORAGE_KEY_VERSION = 'emsx_broker_algorithm_version';
 
 // Current data version (bump when structure changes)
-const DATA_VERSION = '1.0';
+const DATA_VERSION = '1.1';
 
-// Exchange mapping for brokers
-/**
- * Mapping of brokers to their associated exchanges and trading status
- * Key: New broker code (string)
- * Value: Array of objects containing exchange code and active status (boolean)
- */
-const EXCHANGE_FOR_BROKER: Record<string, { exchange: string; active: boolean }[]> = {
-  'EQ-BARCLAY': [ // Replaced BBC
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GA', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'LI', active: true },
-    { exchange: 'LN', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'PW', active: false },
-    { exchange: 'RM', active: false },
-    { exchange: 'SJ', active: false },
-    { exchange: 'SM', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: false },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: false }
-  ],
-  'EQ-BHP': [
-    { exchange: 'IT', active: false }
-  ],
-  'EQ-BNP': [ // Replaced BNP
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GA', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IJ', active: false },
-    { exchange: 'IM', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'LI', active: false },
-    { exchange: 'LN', active: true },
-    { exchange: 'MK', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SP', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-ML': [ // Replaced BOA
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'BZ', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'IN', active: true },
-    { exchange: 'IT', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'KS', active: true },
-    { exchange: 'LN', active: true },
-    { exchange: 'MK', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'PW', active: true },
-    { exchange: 'SJ', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-CITI': [ // Replaced CIT
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'BZ', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GA', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'IJ', active: false },
-    { exchange: 'IM', active: true },
-    { exchange: 'IN', active: true },
-    { exchange: 'IT', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'KS', active: true },
-    { exchange: 'LI', active: false },
-    { exchange: 'LN', active: true },
-    { exchange: 'MK', active: true },
-    { exchange: 'MM', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: false },
-    { exchange: 'PL', active: true },
-    { exchange: 'PW', active: true },
-    { exchange: 'RM', active: false },
-    { exchange: 'SJ', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SP', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-CLSA': [ // Replaced CLS
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GA', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IJ', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'IN', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'KS', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'SM', active: true }
-  ],
-  
-  'EQ-DAIWA': [ // Replaced DAI
-    { exchange: 'JP', active: true }
-  ],
-  'EQ-GS': [ // Replaced GOL
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'LI', active: true },
-    { exchange: 'LN', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-HSBC': [ // Replaced HSB
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GA', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'IT', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'KS', active: true },
-    { exchange: 'LI', active: false },
-    { exchange: 'LN', active: true },
-    { exchange: 'MK', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'PW', active: true },
-    { exchange: 'RM', active: false },
-    { exchange: 'SJ', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SP', active: false },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-INSTNET': [ // Replaced IST
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GA', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'LI', active: true },
-    { exchange: 'LN', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'NZ', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-JPM': [ // Replaced JPM
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'BZ', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: false },
-    { exchange: 'IJ', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'IN', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'KS', active: true },
-    { exchange: 'LI', active: false },
-    { exchange: 'LN', active: true },
-    { exchange: 'MK', active: true },
-    { exchange: 'MM', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'RM', active: true },
-    { exchange: 'SJ', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SP', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-MIZUHO': [ // Replaced MFG
-    { exchange: 'JP', active: true }
-  ],
-  'EQ-MS': [ // Replaced MOR
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'BZ', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'IN', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'KS', active: true },
-    { exchange: 'LI', active: true },
-    { exchange: 'LN', active: true },
-    { exchange: 'MM', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'RM', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SP', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ],
-  'EQ-MACQ': [ // Replaced MQG
-    { exchange: 'AU', active: true },
-    { exchange: 'IJ', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'NZ', active: true }
-  ],
-  'EQ-NOMURA': [ // Replaced NOM
-    { exchange: 'JP', active: true }
-  ],
-  'EQ-SEB': [ // Replaced SEB
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'SS', active: true }
-  ],
-  'EQ-TD': [ // Replaced TDB
-    { exchange: 'CN', active: true },
-    { exchange: 'US', active: true }
-  ],
-  'EQ-UBS': [ // Replaced UBS
-    { exchange: 'AU', active: true },
-    { exchange: 'AV', active: true },
-    { exchange: 'BB', active: true },
-    { exchange: 'BZ', active: true },
-    { exchange: 'CN', active: true },
-    { exchange: 'DC', active: true },
-    { exchange: 'FH', active: true },
-    { exchange: 'FP', active: true },
-    { exchange: 'GR', active: true },
-    { exchange: 'ID', active: true },
-    { exchange: 'IJ', active: true },
-    { exchange: 'IM', active: true },
-    { exchange: 'IN', active: true },
-    { exchange: 'JP', active: true },
-    { exchange: 'LI', active: true },
-    { exchange: 'LN', active: true },
-    { exchange: 'MK', active: true },
-    { exchange: 'MM', active: true },
-    { exchange: 'NA', active: true },
-    { exchange: 'NO', active: true },
-    { exchange: 'PL', active: true },
-    { exchange: 'PW', active: true },
-    { exchange: 'SJ', active: true },
-    { exchange: 'SM', active: true },
-    { exchange: 'SP', active: true },
-    { exchange: 'SS', active: true },
-    { exchange: 'SW', active: true },
-    { exchange: 'US', active: true },
-    { exchange: 'VX', active: true }
-  ]
-};
+
 /**
  * Check if data needs refresh (older than 1 day or not from today)
  */
@@ -436,18 +105,6 @@ function saveStoredData(data: BrokerAlgorithmConfig[], timestamp: Date): void {
 }
 
 /**
- * Get the primary exchange for a broker from the exchange mapping.
- * Returns the first active exchange code, or 'OTHER' if not found.
- */
-function getExchangeForBroker(broker: string): string {
-  const exchanges = EXCHANGE_FOR_BROKER[broker];
-  if (!exchanges || exchanges.length === 0) return 'OTHER';
-  // Return the first active exchange, or the first one if none are active
-  const active = exchanges.find(e => e.active);
-  return active ? active.exchange : exchanges[0].exchange;
-}
-
-/**
  * Main hook for managing broker algorithm configuration
  */
 export function useBrokerAlgorithms() {
@@ -473,7 +130,6 @@ export function useBrokerAlgorithms() {
         const backendConfigs: BrokerAlgorithmConfig[] = storedRes.data.configs.map(c => ({
           broker: c.broker,
           assetClass: c.assetClass || 'EQTY',
-          exchange: c.exchange || getExchangeForBroker(c.broker),
           strategies: (c.strategies || []).map(s => ({
             name: s.name,
             parameters: (s.parameters || []).map(p => ({
@@ -505,7 +161,6 @@ export function useBrokerAlgorithms() {
       return refreshRes.data.configs.map(c => ({
         broker: c.broker,
         assetClass: c.assetClass || 'EQTY',
-        exchange: c.exchange || getExchangeForBroker(c.broker),
         strategies: (c.strategies || []).map(s => ({
           name: s.name,
           parameters: (s.parameters || []).map(p => ({
@@ -622,7 +277,6 @@ export function useBrokerAlgorithms() {
                 const minimalConfigs: BrokerAlgorithmConfig[] = res.data.brokers.map(broker => ({
                   broker,
                   assetClass: 'EQTY',
-                  exchange: getExchangeForBroker(broker),
                   strategies: [],
                 }));
                 setState(s => ({
@@ -698,31 +352,11 @@ export function useBrokerAlgorithms() {
     return strategyConfig?.parameters || [];
   }, [state.configs]);
 
-  /**
-   * Get all exchanges
-   */
-  const getExchanges = useCallback((): string[] => {
-    const exchanges = new Set(state.configs.map(c => c.exchange));
-    return Array.from(exchanges).sort();
-  }, [state.configs]);
-
-  /**
-   * Get brokers for an exchange
-   */
-  const getBrokersForExchange = useCallback((exchange: string): string[] => {
-    return state.configs
-      .filter(c => c.exchange === exchange)
-      .map(c => c.broker)
-      .sort();
-  }, [state.configs]);
-
   return {
     ...state,
     refreshData: forceRefresh,
     getStrategiesForBroker,
     getParametersForStrategy,
-    getExchanges,
-    getBrokersForExchange,
   };
 }
 

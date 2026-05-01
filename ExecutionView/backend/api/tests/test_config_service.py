@@ -18,7 +18,6 @@ def _run(coro):
 def _make_config(broker: str = "BMTB") -> BrokerAlgorithmConfig:
     return BrokerAlgorithmConfig(
         broker=broker,
-        exchange="US",
         strategies=[
             StrategyConfig(
                 name="VWAP",

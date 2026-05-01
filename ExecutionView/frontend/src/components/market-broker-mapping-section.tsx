@@ -32,8 +32,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
-import type { Order, Route } from '@/types';
 import { notifyMarketBrokerMappingUpdated } from '@/hooks/use-market-broker-mapping';
+import { getBrokerExchangeMapping } from '@/data/broker-exchange-mapping';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,63 +46,39 @@ interface MappingState {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/** Derive the market key from an order/route record.
- *  EUR-currency exchanges collapse into the single "EUR" row. */
-function deriveMarketKey(
-  exchange: string | null | undefined,
-  currency: string | null | undefined,
-): string | null {
-  const cur = (currency || '').trim().toUpperCase();
-  if (cur === 'EUR') return 'EUR';
-  const ex = (exchange || '').trim().toUpperCase();
-  return ex || null;
-}
-
-/** Keep only Equity-style synthetic broker codes coming from EMSX's
- *  GetBrokersWithAssetClass response. The full EMSX list mixes FX/FI/MM
- *  rows that are irrelevant to the Modify-Route equity dropdown. */
-function isEquityBroker(code: string): boolean {
-  return /^EQ-/i.test(code.trim());
-}
-
-/** Merge live-discovered markets/brokers into the persisted selection.
- *  Returns the merged selection plus a boolean indicating whether anything
- *  changed (so the caller knows whether to PUT). */
-function mergeDiscovered(
-  selection: SelectionMap,
-  liveMarkets: string[],
-  liveBrokers: string[],
-): { merged: SelectionMap; changed: boolean } {
+/** Merge saved selection with defaults from EXCHANGE_FOR_BROKER.
+ *  Saved values take precedence; defaults fill in missing markets/brokers.
+ *  Returns the merged selection. */
+function mergeWithDefaults(
+  saved: SelectionMap,
+  defaults: SelectionMap,
+): SelectionMap {
   const merged: SelectionMap = {};
-  let changed = false;
-
-  // Universe of markets = persisted ∪ live
-  const allMarkets = new Set<string>([...Object.keys(selection), ...liveMarkets]);
-  // Universe of brokers = persisted (any sub-key) ∪ live
-  const allBrokers = new Set<string>(liveBrokers);
-  for (const sel of Object.values(selection)) for (const b of Object.keys(sel)) allBrokers.add(b);
+  const allMarkets = new Set<string>([...Object.keys(defaults), ...Object.keys(saved)]);
+  const allBrokers = new Set<string>();
+  for (const row of Object.values(defaults)) for (const b of Object.keys(row)) allBrokers.add(b);
+  for (const row of Object.values(saved)) for (const b of Object.keys(row)) allBrokers.add(b);
 
   for (const m of allMarkets) {
-    const prev = selection[m];
-    if (!prev) changed = true;
-    const row: Record<string, boolean> = {};
+    merged[m] = {};
     for (const b of allBrokers) {
-      if (prev && b in prev) {
-        row[b] = !!prev[b];
+      if (saved[m] && b in saved[m]) {
+        merged[m][b] = !!saved[m][b];
+      } else if (defaults[m] && b in defaults[m]) {
+        merged[m][b] = !!defaults[m][b];
       } else {
-        row[b] = false;
-        if (prev) changed = true; // new broker added to existing market row
+        merged[m][b] = false;
       }
     }
-    merged[m] = row;
   }
-  return { merged, changed };
+  return merged;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function MarketBrokerMappingSection() {
   const [state, setState] = useState<MappingState | null>(null);
+  const [defaults, setDefaults] = useState<SelectionMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -117,12 +93,7 @@ export function MarketBrokerMappingSection() {
     setLoading(true);
     setError(null);
     try {
-      const [mapResp, routesResp, ordersResp, brokersResp] = await Promise.all([
-        apiService.getMarketBrokerMapping(),
-        apiService.getRoutes(),
-        apiService.getOrders(),
-        apiService.getBrokers('EQTY'),
-      ]);
+      const mapResp = await apiService.getMarketBrokerMapping();
 
       const baseSelection: SelectionMap =
         (mapResp.success && mapResp.data?.selection) || {};
@@ -132,47 +103,14 @@ export function MarketBrokerMappingSection() {
         setError(mapResp.error || mapResp.message || 'Failed to load mapping');
       }
 
-      const routes: Route[] = routesResp.success && routesResp.data ? routesResp.data : [];
-      const orders: Order[] = ordersResp.success && ordersResp.data ? ordersResp.data : [];
-
-      // Discover live markets/brokers
-      const liveMarkets = new Set<string>();
-      for (const r of routes) {
-        const k = deriveMarketKey(r.exchange, r.currency);
-        if (k) liveMarkets.add(k);
-      }
-      for (const o of orders) {
-        const k = deriveMarketKey(o.exchange, o.currency);
-        if (k) liveMarkets.add(k);
-      }
-      const liveBrokers = new Set<string>();
-      // Master list from EMSX GetBrokersWithAssetClass — filtered to the EQ-*
-      // synthetic codes the Modify-Route dropdown actually offers.
-      if (brokersResp.success && brokersResp.data?.brokers) {
-        for (const b of brokersResp.data.brokers) {
-          const code = (b || '').trim();
-          if (code && isEquityBroker(code)) liveBrokers.add(code);
-        }
-      }
-      // Union with brokers actually seen on routes — covers cases where EMSX
-      // hasn't published a code yet but a real route uses it.
-      for (const r of routes) {
-        const b = (r.broker || '').trim();
-        if (b) liveBrokers.add(b);
-      }
-
-      const { merged, changed } = mergeDiscovered(
-        baseSelection,
-        Array.from(liveMarkets),
-        Array.from(liveBrokers),
-      );
+      const defaultMapping = getBrokerExchangeMapping();
+      setDefaults(defaultMapping);
+      const merged = mergeWithDefaults(baseSelection, defaultMapping);
 
       setState({ updatedAt, selection: merged });
 
-      // Auto-persist any newly discovered markets/brokers so they survive a
-      // reload even when no live data is currently available. We don't mark
-      // the form dirty here — these are passive discoveries, not user edits.
-      if (changed) {
+      // Auto-persist if backend has no data yet so the mapping survives reloads
+      if (Object.keys(baseSelection).length === 0) {
         const payload = JSON.stringify(merged);
         if (payload !== lastAutoSaveRef.current) {
           lastAutoSaveRef.current = payload;
@@ -200,34 +138,39 @@ export function MarketBrokerMappingSection() {
   useEffect(() => { loadAll(); }, [loadAll]);
 
   // ── Derived: rows / cols ─────────────────────────────────────────────────
-  const markets = useMemo(() => {
-    if (!state) return [] as string[];
-    return Object.keys(state.selection).sort();
-  }, [state]);
+  // Universe is strictly defined by EXCHANGE_FOR_BROKER; users can only
+  // reduce active brokers, never add new market-broker pairs.
+  const markets = useMemo(() => Object.keys(defaults).sort(), [defaults]);
 
   const brokers = useMemo(() => {
-    if (!state) return [] as string[];
     const s = new Set<string>();
-    for (const row of Object.values(state.selection)) {
+    for (const row of Object.values(defaults)) {
       for (const b of Object.keys(row)) s.add(b);
     }
     return Array.from(s).sort();
-  }, [state]);
+  }, [defaults]);
 
   // ── Mutators ─────────────────────────────────────────────────────────────
 
   const toggleSelection = useCallback((market: string, broker: string) => {
+    // Only allow reducing: the broker-market pair must exist in defaults
+    // and be active; the user can only uncheck it (set to false).
+    if (!defaults[market]?.[broker]) return;
+
     setState(prev => {
       if (!prev) return prev;
       const row = { ...(prev.selection[market] ?? {}) };
-      row[broker] = !row[broker];
+      const current = row[broker] ?? defaults[market][broker];
+      // Already false — cannot add back
+      if (!current) return prev;
+      row[broker] = false;
       return {
         ...prev,
         selection: { ...prev.selection, [market]: row },
       };
     });
     setDirty(true);
-  }, []);
+  }, [defaults]);
 
   const saveSelection = useCallback(async () => {
     if (!state) return;
@@ -262,10 +205,9 @@ export function MarketBrokerMappingSection() {
           <div>
             <CardTitle className="text-base">Market ↔ Broker Mapping</CardTitle>
             <CardDescription>
-              Rows are markets discovered from real orders; columns are the same
-              broker list used by the Modify-Route dialog. New markets/brokers
-              are auto-persisted as they appear. Tick a cell to allow that
-              broker for that market.
+              Source: hard-coded broker-exchange mapping table.
+              You may only uncheck active brokers (reduce); you cannot
+              activate new broker-market pairs.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -350,7 +292,7 @@ export function MarketBrokerMappingSection() {
                       <td key={b} className="px-2 py-1 text-center">
                         <Checkbox
                           checked={!!row[b]}
-                          disabled={!editMode}
+                          disabled={!editMode || !defaults[m]?.[b]}
                           onCheckedChange={() => toggleSelection(m, b)}
                         />
                       </td>
@@ -363,12 +305,11 @@ export function MarketBrokerMappingSection() {
         </div>
 
         <p className="mt-3 text-[11px] text-muted-foreground">
-          Click <span className="font-semibold">Edit</span> to enable the
-          checkboxes, tick the allowed broker for each market, then press{' '}
-          <span className="font-semibold">Save</span>. Switch to{' '}
-          <span className="font-semibold">Done</span> to lock the table again.
-          Use <span className="font-semibold">Refresh</span> to re-scan live
-          orders for new markets/brokers.
+          Click <span className="font-semibold">Edit</span> to disable
+          brokers for a market. Only currently active brokers can be
+          unchecked; you cannot activate new broker-market pairs. Press{' '}
+          <span className="font-semibold">Save</span> to persist your
+          changes.
         </p>
       </CardContent>
     </Card>

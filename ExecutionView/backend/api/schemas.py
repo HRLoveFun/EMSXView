@@ -503,7 +503,6 @@ class StrategyConfig(BaseModel):
 class BrokerAlgorithmConfig(BaseModel):
     """Broker algorithm configuration"""
     broker: str
-    exchange: str
     strategies: List[StrategyConfig]
 
 class BrokerAlgorithmStorage(BaseModel):
@@ -658,3 +657,152 @@ class BatchOperationResult(BaseModel):
     blocked: int
     failed: int
     items: List[BatchOperationItemResult]
+
+
+# ============================================================================
+# Route Plan / RouteEngine Models
+# ============================================================================
+
+class RoutePlanAllocationItem(BaseModel):
+    """Single broker allocation entry within a route plan."""
+    broker: str = Field(..., description="Broker code")
+    allocationType: Literal["PERCENTAGE", "FIXED"] = Field("PERCENTAGE", description="Allocation type")
+    allocationValue: float = Field(..., description="Percentage (0-100) or fixed share count")
+    orderType: Optional[str] = Field(None, description="Override order type for this broker")
+    limitPriceOffset: Optional[float] = Field(None, description="Limit price offset from market")
+    strategyParams: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters for this broker")
+    sortOrder: int = Field(0, description="Display sort order")
+
+
+class RoutePlanCreate(BaseModel):
+    """Create a new route plan."""
+    name: str = Field(..., min_length=1, max_length=128, description="Plan name")
+    description: Optional[str] = Field(None, description="Plan description")
+    matchMarket: str = Field(..., min_length=1, max_length=32, description="Market code (required, e.g. JP, US, HK)")
+    matchSymbol: Optional[str] = Field(None, description="Symbol pattern (supports * wildcard)")
+    matchSide: Literal["BUY", "SELL", "BOTH"] = Field("BOTH", description="Order side to match")
+    matchPortfolio: Optional[str] = Field(None, description="Portfolio pattern")
+    matchTrader: Optional[str] = Field(None, description="Trader name pattern")
+    matchExchange: Optional[str] = Field(None, description="Exchange code pattern")
+    matchCurrency: Optional[str] = Field(None, max_length=8, description="Currency code (optional, e.g. USD, JPY)")
+    activationMode: Literal["AUTO", "MANUAL"] = Field("MANUAL", description="Activation mode")
+    submissionMode: Literal["MANUAL_CONFIRM", "AUTO_SUBMIT"] = Field("MANUAL_CONFIRM", description="Submission mode")
+    splitType: Literal["BROKER_SPLIT", "TIME_SCHEDULE", "HYBRID"] = Field("BROKER_SPLIT", description="Split strategy type")
+    scheduleType: Optional[str] = Field(None, description="TWAP, VWAP, or POV (for TIME_SCHEDULE/HYBRID)")
+    numSlices: Optional[int] = Field(None, ge=1, le=1000, description="Number of time slices")
+    defaultStartOffsetMin: Optional[int] = Field(None, description="Default start offset in minutes from now")
+    defaultEndTimeLocal: Optional[str] = Field(None, description="Default end time, e.g. '16:00'")
+    participationRate: Optional[float] = Field(None, ge=0.0, le=1.0, description="POV participation rate")
+    defaultBroker: Optional[str] = Field(None, description="Default broker for time-based slices")
+    defaultOrderType: Optional[str] = Field(None, description="Default order type")
+    defaultTif: Optional[str] = Field(None, description="Default time-in-force")
+    defaultStrategyParams: Optional[Dict[str, Any]] = Field(None, description="Default strategy parameters")
+    enabled: bool = Field(True, description="Whether the plan is active")
+    priority: int = Field(0, description="Priority (higher = checked first)")
+    allocations: Optional[List[RoutePlanAllocationItem]] = Field(None, description="Broker allocations")
+
+
+class RoutePlanUpdate(BaseModel):
+    """Update an existing route plan (partial)."""
+    name: Optional[str] = Field(None, min_length=1, max_length=128)
+    description: Optional[str] = None
+    matchMarket: Optional[str] = Field(None, min_length=1, max_length=32)
+    matchSymbol: Optional[str] = None
+    matchSide: Optional[Literal["BUY", "SELL", "BOTH"]] = None
+    matchPortfolio: Optional[str] = None
+    matchTrader: Optional[str] = None
+    matchExchange: Optional[str] = None
+    matchCurrency: Optional[str] = Field(None, max_length=8)
+    activationMode: Optional[Literal["AUTO", "MANUAL"]] = None
+    submissionMode: Optional[Literal["MANUAL_CONFIRM", "AUTO_SUBMIT"]] = None
+    splitType: Optional[Literal["BROKER_SPLIT", "TIME_SCHEDULE", "HYBRID"]] = None
+    scheduleType: Optional[str] = None
+    numSlices: Optional[int] = Field(None, ge=1, le=1000)
+    defaultStartOffsetMin: Optional[int] = None
+    defaultEndTimeLocal: Optional[str] = None
+    participationRate: Optional[float] = Field(None, ge=0.0, le=1.0)
+    defaultBroker: Optional[str] = None
+    defaultOrderType: Optional[str] = None
+    defaultTif: Optional[str] = None
+    defaultStrategyParams: Optional[Dict[str, Any]] = None
+    enabled: Optional[bool] = None
+    priority: Optional[int] = None
+    allocations: Optional[List[RoutePlanAllocationItem]] = None
+
+
+class RoutePlanResponse(BaseModel):
+    """Route plan as returned by the API."""
+    id: int
+    name: str
+    description: Optional[str] = None
+    matchMarket: str
+    matchSymbol: Optional[str] = None
+    matchSide: str
+    matchPortfolio: Optional[str] = None
+    matchTrader: Optional[str] = None
+    matchExchange: Optional[str] = None
+    matchCurrency: Optional[str] = None
+    activationMode: str
+    submissionMode: str
+    splitType: str
+    scheduleType: Optional[str] = None
+    numSlices: Optional[int] = None
+    defaultStartOffsetMin: Optional[int] = None
+    defaultEndTimeLocal: Optional[str] = None
+    participationRate: Optional[float] = None
+    defaultBroker: Optional[str] = None
+    defaultOrderType: Optional[str] = None
+    defaultTif: Optional[str] = None
+    defaultStrategyParams: Optional[Dict[str, Any]] = None
+    enabled: bool
+    priority: int
+    allocations: list[RoutePlanAllocationItem] = Field(default_factory=list)
+    createdAt: str
+    updatedAt: str
+
+
+class SubOrderProposalResponse(BaseModel):
+    """Sub-order proposal as returned by the API."""
+    id: int
+    routePlanId: Optional[int] = None
+    parentOrderId: str
+    routeId: Optional[int] = None
+    broker: str
+    quantity: int
+    orderType: Optional[str] = None
+    limitPrice: Optional[float] = None
+    tif: Optional[str] = None
+    strategyParams: Optional[Dict[str, Any]] = None
+    sliceIndex: Optional[int] = None
+    scheduledStart: Optional[str] = None
+    scheduledEnd: Optional[str] = None
+    parentSymbol: Optional[str] = None
+    parentSide: Optional[str] = None
+    parentTrader: Optional[str] = None
+    parentPortfolio: Optional[str] = None
+    status: str
+    confirmedAt: Optional[str] = None
+    submittedAt: Optional[str] = None
+    createdAt: str
+    updatedAt: str
+
+
+class BatchConfirmRequest(BaseModel):
+    """Batch confirm and submit sub-order proposals."""
+    proposalIds: List[int] = Field(..., min_length=1, description="Proposal IDs to confirm and submit")
+    dryRun: bool = Field(False, description="If true, validate only; do not submit")
+
+    @field_validator("proposalIds")
+    @classmethod
+    def validate_size(cls, v: List[int]) -> List[int]:
+        if len(v) > _BATCH_ROUTE_MAX_SIZE:
+            raise ValueError(f"Batch size {len(v)} exceeds maximum of {_BATCH_ROUTE_MAX_SIZE}")
+        return v
+
+
+class TestMatchResponse(BaseModel):
+    """Result of testing a route plan against current orders."""
+    planId: int
+    planName: str
+    matchedOrders: list[str] = Field(default_factory=list, description="Order IDs that match this plan")
+    matchCount: int = 0

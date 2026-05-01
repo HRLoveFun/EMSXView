@@ -2463,7 +2463,8 @@ class BloombergEMSXService:
             emsx_order_type = self._normalize_emsx_order_type(request_data.orderType)
             request.set("EMSX_ORDER_TYPE", emsx_order_type)
             request.set("EMSX_TIF", request_data.timeInForce)
-            request.set("EMSX_HAND_INSTRUCTION", "ANY")
+            from services.route_service import _resolve_hand_instruction
+            request.set("EMSX_HAND_INSTRUCTION", _resolve_hand_instruction(request_data.broker))
             
             # Optional fields
             if self._order_type_uses_limit_price(emsx_order_type) and request_data.price is not None:
