@@ -58,21 +58,24 @@ def _resolve_effective_price(
     order_type: str,
     limit_price: Optional[float],
     stop_price: Optional[float],
-    fallback_last_price: Optional[float],
-) -> Optional[float]:
-    """Return the price used to estimate $Value, or None when unknown.
+    fallback_prices: "list[tuple[str, Optional[float]]]",
+) -> "tuple[Optional[float], Optional[str]]":
+    """Return ``(price, source_label)`` used to estimate $Value, or ``(None, None)``.
 
     Priority: limit_price (when order type uses limit) > stop_price (when stop
-    type) > fallback_last_price.
+    type) > first positive value in ``fallback_prices`` (in declaration order).
+    ``fallback_prices`` is a list of ``(label, value)`` tuples so the chosen
+    fallback can be surfaced in logs / violation details.
     """
     ot = _normalize_order_type(order_type)
     if ot in _LIMIT_ORDER_TYPES and limit_price is not None and limit_price > 0:
-        return float(limit_price)
+        return float(limit_price), "limitPrice"
     if ot in {"STP", "STOP"} and stop_price is not None and stop_price > 0:
-        return float(stop_price)
-    if fallback_last_price is not None and fallback_last_price > 0:
-        return float(fallback_last_price)
-    return None
+        return float(stop_price), "stopPrice"
+    for label, value in fallback_prices:
+        if value is not None and value > 0:
+            return float(value), label
+    return None, None
 
 
 def _to_usd(price: float, qty: int, fx_rate: Optional[float], currency: Optional[str]) -> float:
@@ -99,22 +102,30 @@ def _check_notional(
     qty: int,
     limit_price: Optional[float],
     stop_price: Optional[float],
-    last_price: Optional[float],
+    fallback_prices: "list[tuple[str, Optional[float]]]",
     fx_rate: Optional[float],
     currency: Optional[str],
 ) -> List[Violation]:
     if qty <= 0:
         return []
-    eff_price = _resolve_effective_price(order_type, limit_price, stop_price, last_price)
+    eff_price, eff_source = _resolve_effective_price(
+        order_type, limit_price, stop_price, fallback_prices
+    )
     if eff_price is None:
+        tried = [label for label, _ in fallback_prices]
         return [
             Violation(
                 code="NOTIONAL_UNKNOWN",
                 message=(
                     "Cannot estimate USD notional: order has no limit price and "
-                    "no last price is available."
+                    f"no fallback price available (tried: {', '.join(tried) or 'none'})."
                 ),
-                details={"orderType": order_type, "qty": qty, "currency": currency},
+                details={
+                    "orderType": order_type,
+                    "qty": qty,
+                    "currency": currency,
+                    "triedFallbacks": tried,
+                },
             )
         ]
     notional_usd = _to_usd(eff_price, qty, fx_rate, currency)
@@ -130,6 +141,7 @@ def _check_notional(
                     "orderType": order_type,
                     "qty": qty,
                     "price": eff_price,
+                    "priceSource": eff_source,
                     "currency": currency,
                 },
             )
@@ -150,6 +162,7 @@ def _check_notional(
                     "notionalUsd": round(notional_usd, 2),
                     "thresholdUsd": min_thr,
                     "price": eff_price,
+                    "priceSource": eff_source,
                     "qty": qty,
                     "currency": currency,
                     "fxRate": fx_rate,
@@ -168,6 +181,7 @@ def _check_notional(
                     "notionalUsd": round(notional_usd, 2),
                     "thresholdUsd": max_thr,
                     "price": eff_price,
+                    "priceSource": eff_source,
                     "qty": qty,
                     "currency": currency,
                     "fxRate": fx_rate,
@@ -222,8 +236,20 @@ def check_route(
     currency = getattr(parent_order, "currency", None)
     exchange = getattr(parent_order, "exchange", None)
     fx_rate = getattr(parent_order, "fxRate", None)
-    last_price = getattr(parent_order, "lastPrice", None)
     round_lot_size = getattr(parent_order, "roundLotSize", None)
+
+    # Broadened fallback chain — any positive value is an acceptable proxy for
+    # USD notional sanity checks. Order matters: prefer the freshest tape
+    # signal, then intraday VWAP, then arrival, then parent's own avg fill,
+    # finally the parent's own working price (typical for resting LIMITs).
+    fallback_prices: list[tuple[str, Optional[float]]] = [
+        ("lastPrice", getattr(parent_order, "lastPrice", None)),
+        ("mktVwap", getattr(parent_order, "mktVwap", None)),
+        ("dayAvgPrice", getattr(parent_order, "dayAvgPrice", None)),
+        ("arrivalPrice", getattr(parent_order, "arrivalPrice", None)),
+        ("avgPrice", getattr(parent_order, "avgPrice", None)),
+        ("price", getattr(parent_order, "price", None)),
+    ]
 
     violations: List[Violation] = []
     violations.extend(
@@ -232,7 +258,7 @@ def check_route(
             qty=route_qty,
             limit_price=limit_price,
             stop_price=stop_price,
-            last_price=last_price,
+            fallback_prices=fallback_prices,
             fx_rate=fx_rate,
             currency=currency,
         )
@@ -291,14 +317,25 @@ def check_modify(
         else getattr(cached_route, "exchange", None)
     )
     fx_rate = getattr(parent_order, "fxRate", None) if parent_order is not None else None
-    last_price = (
-        getattr(parent_order, "lastPrice", None)
-        if parent_order is not None
-        else getattr(cached_route, "lastPrice", None)
-    )
     round_lot_size = (
         getattr(parent_order, "roundLotSize", None) if parent_order is not None else None
     )
+
+    def _attr(name: str) -> Optional[float]:
+        if parent_order is not None:
+            v = getattr(parent_order, name, None)
+            if v is not None:
+                return v
+        return getattr(cached_route, name, None) if cached_route is not None else None
+
+    fallback_prices: list[tuple[str, Optional[float]]] = [
+        ("lastPrice", _attr("lastPrice")),
+        ("mktVwap", _attr("mktVwap")),
+        ("dayAvgPrice", _attr("dayAvgPrice")),
+        ("arrivalPrice", _attr("arrivalPrice")),
+        ("avgPrice", _attr("avgPrice")),
+        ("price", _attr("price")),
+    ]
 
     violations: List[Violation] = []
     violations.extend(
@@ -307,7 +344,7 @@ def check_modify(
             qty=qty,
             limit_price=limit_price,
             stop_price=stop_price,
-            last_price=last_price,
+            fallback_prices=fallback_prices,
             fx_rate=fx_rate,
             currency=currency,
         )

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Loader2, RotateCcw, Server } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,23 @@ export function StartupGate({
   onRetry,
 }: StartupGateProps) {
   const isError = phase === 'error';
+  // Throttle the manual retry so an anxious user mashing the button does
+  // not produce a thundering herd of probe requests against the backend.
+  const [retryCount, setRetryCount] = useState(0);
+  const [retryCooldown, setRetryCooldown] = useState(0);
+
+  useEffect(() => {
+    if (retryCooldown <= 0) return;
+    const t = setTimeout(() => setRetryCooldown(c => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [retryCooldown]);
+
+  const handleRetry = () => {
+    if (retryCooldown > 0) return;
+    setRetryCount(c => c + 1);
+    setRetryCooldown(3); // 3-second debounce window
+    onRetry();
+  };
   const title =
     phase === 'backend_starting'
       ? '后台 HTTP 服务正在启动'
@@ -84,14 +102,23 @@ export function StartupGate({
               <span>{isError ? '需要人工检查启动链路' : '持续检测启动状态'}</span>
             </div>
 
-            <Button onClick={onRetry} className="gap-2">
-              <RotateCcw className="h-4 w-4" />
-              重新检测
+            <Button onClick={handleRetry} disabled={retryCooldown > 0} className="gap-2">
+              {retryCooldown > 0
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <RotateCcw className="h-4 w-4" />}
+              {retryCooldown > 0 ? `稍候 ${retryCooldown}s` : '重新检测'}
             </Button>
+            {retryCount > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                已重试 {retryCount} 次
+              </div>
+            )}
 
             <div className="text-xs leading-5 text-muted-foreground">
-              日志位置：
-              <span className="font-mono text-foreground"> C:\Users\hrchen\Documents\EMSX\logs</span>
+              {/* Display a relative log path so it remains accurate on any
+                  deployment host and does not expose a developer username
+                  baked into an absolute path. */}
+              日志位置：<span className="font-mono text-foreground">./logs/</span>
             </div>
           </div>
         </div>

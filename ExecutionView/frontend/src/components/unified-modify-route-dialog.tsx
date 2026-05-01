@@ -68,6 +68,21 @@ interface UnifiedModifyRouteDialogProps {
   onSubmit: (request: ModifyRouteRequest) => Promise<void>;
 }
 
+/** Find a VWAP-like strategy in a broker's strategy list, if any. Match logic
+ *  matches `BatchRouteOrderDialog::defaultStrategyFor` so user-facing
+ *  recommendations stay consistent across dialogs. */
+function findVwapStrategy(strategies: string[]): string | null {
+  if (strategies.length === 0) return null;
+  const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const exact = strategies.find(s => norm(s) === 'VWAP');
+  if (exact) return exact;
+  const variant = strategies.find(s => {
+    const n = norm(s);
+    return n.startsWith('VWAP') && !n.includes('TWAP');
+  });
+  return variant ?? null;
+}
+
 interface DiffEntry {
   label: string;
   from: string;
@@ -79,9 +94,14 @@ const displayValue = (v: unknown): string => {
   return String(v);
 };
 
-/** Returns the amber highlight class when dirty, otherwise empty. */
+/** Returns the amber highlight class when dirty, otherwise empty.
+ *  Includes a thick left border + ring + bold text so the change is
+ *  perceivable in dark mode and to colour-blind users — the previous
+ *  pale-amber-50 background was nearly invisible on dark themes. */
 const dirtyClass = (dirty: boolean): string =>
-  dirty ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500/60 text-amber-900 dark:text-amber-100' : '';
+  dirty
+    ? 'border-l-4 border-l-amber-500 ring-1 ring-amber-500/60 bg-amber-100 dark:bg-amber-900/50 text-amber-950 dark:text-amber-50 font-semibold'
+    : '';
 
 export function UnifiedModifyRouteDialog({
   route,
@@ -434,17 +454,33 @@ export function UnifiedModifyRouteDialog({
                     <Loader2 className="h-3 w-3 animate-spin" /> Loading…
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1">
-                    <Select value={strategy || '__none__'} onValueChange={(v) => setStrategy(v === '__none__' ? '' : v)} disabled={strategies.length === 0}>
-                      <SelectTrigger className={`h-8 flex-1 ${dirtyClass(dirtyStrategy)}`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {strategies.map(s => <SelectItem key={s || '__none__'} value={s || '__none__'}>{s || '(None / DMA)'}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <button type="button" onClick={handleRefreshStrategy} disabled={isRefreshing || !broker}
-                      className="p-1 rounded hover:bg-secondary disabled:opacity-40" title="Refresh broker / strategy list">
-                      <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    </button>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <Select value={strategy || '__none__'} onValueChange={(v) => setStrategy(v === '__none__' ? '' : v)} disabled={strategies.length === 0}>
+                        <SelectTrigger className={`h-8 flex-1 ${dirtyClass(dirtyStrategy)}`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {strategies.map(s => <SelectItem key={s || '__none__'} value={s || '__none__'}>{s || '(None / DMA)'}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <button type="button" onClick={handleRefreshStrategy} disabled={isRefreshing || !broker}
+                        className="p-1 rounded hover:bg-secondary disabled:opacity-40" title="Refresh broker / strategy list">
+                        <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                    {(() => {
+                      const suggested = findVwapStrategy(strategies);
+                      if (!suggested || suggested === strategy) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setStrategy(suggested)}
+                          className="self-start text-[10px] text-primary hover:underline"
+                          title="Apply the broker's VWAP variant as the strategy"
+                        >
+                          Suggested: {suggested}
+                        </button>
+                      );
+                    })()}
                   </div>
                 )}
               </FieldBlock>

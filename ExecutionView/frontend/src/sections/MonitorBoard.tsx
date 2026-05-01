@@ -40,18 +40,22 @@ const TOTAL_COLS = 26; // Health strip + 25 data cols (see ColHeader list below)
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 function getStatusBadge(status: OrderStatus) {
+  // Each status gets a visually distinct treatment so traders never confuse
+  // FILLED (final, success) with COMPLETED (post-trade reconciled) or
+  // mistake PENDING_CANCEL (high-risk, irreversible) for the milder
+  // REJECTED. Colour + weight + border style together encode the meaning.
   const map: Record<OrderStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }> = {
     NEW:            { variant: 'outline' },
     ASSIGN:         { variant: 'outline', className: 'border-cyan-500 text-cyan-600' },
     WORKING:        { variant: 'default', className: 'bg-blue-500/90 hover:bg-blue-600' },
     PARTIAL:        { variant: 'default', className: 'bg-amber-500/90 hover:bg-amber-600' },
     FILLED:         { variant: 'default', className: 'bg-emerald-500/90 hover:bg-emerald-600' },
-    CANCELLED:      { variant: 'secondary' },
-    COMPLETED:      { variant: 'default', className: 'bg-green-600/90 hover:bg-green-700' },
+    CANCELLED:      { variant: 'secondary', className: 'border border-dashed border-muted-foreground/40 italic' },
+    COMPLETED:      { variant: 'outline', className: 'border-emerald-700 text-emerald-700 dark:text-emerald-400 font-semibold' },
     QUEUED:         { variant: 'default', className: 'bg-purple-500/90 hover:bg-purple-600' },
     SUSPENDED:      { variant: 'default', className: 'bg-orange-500/90 hover:bg-orange-600' },
-    PENDING_CANCEL: { variant: 'destructive', className: 'bg-red-400/90' },
-    REJECTED:       { variant: 'destructive' },
+    PENDING_CANCEL: { variant: 'destructive', className: 'bg-red-600 ring-2 ring-red-300 animate-pulse' },
+    REJECTED:       { variant: 'destructive', className: 'bg-red-700/90' },
     SENT:           { variant: 'default', className: 'bg-sky-500/90 hover:bg-sky-600' },
   };
   const s = map[status] ?? { variant: 'outline' as const };
@@ -69,12 +73,21 @@ function ThresholdInput({
   disabled?: boolean;
 }) {
   const [local, setLocal] = useState(String(value));
+  // Track an "invalid" flag so an empty / non-numeric commit visibly snaps
+  // back to the previous value with a brief amber flash, instead of
+  // silently reverting and leaving the user thinking their edit was saved.
+  const [flashInvalid, setFlashInvalid] = useState(false);
   useEffect(() => { setLocal(String(value)); }, [value]);
 
   const commit = () => {
     const v = parseFloat(local);
-    if (!isNaN(v) && v >= 0) onChange(v);
-    else setLocal(String(value));
+    if (!isNaN(v) && v >= 0) {
+      onChange(v);
+    } else {
+      setLocal(String(value));
+      setFlashInvalid(true);
+      setTimeout(() => setFlashInvalid(false), 800);
+    }
   };
 
   return (
@@ -87,7 +100,8 @@ function ThresholdInput({
       min={0}
       step={step}
       disabled={disabled}
-      className={`h-6 rounded border border-input bg-background px-1.5 text-xs text-foreground tabular-nums
+      title={flashInvalid ? '数值无效，已恢复为原值' : undefined}
+      className={`h-6 rounded border ${flashInvalid ? 'border-amber-500 ring-1 ring-amber-500' : 'border-input'} bg-background px-1.5 text-xs text-foreground tabular-nums
         focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${className ?? ''}`}
     />
   );

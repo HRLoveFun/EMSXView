@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useCallback, useEffect, useRef } from 'react';
+import { Suspense, lazy, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Toolbar } from './sections/Toolbar';
 import { MonitorBoard } from './sections/MonitorBoard';
 import { ExecutionBoard } from './sections/ExecutionBoard';
@@ -7,6 +7,7 @@ import { SettingsBoard } from './sections/SettingsBoard';
 import { ToastContainer } from './sections/ToastContainer';
 import { StartupGate } from './components/startup-gate';
 import { WorkspaceModuleTabs } from './sections/WorkspaceModuleTabs';
+import { Spinner } from './components/ui/spinner';
 import { tokenService } from './services/api';
 import { createRealtimeClient, type RealtimeClient } from './services/realtime';
 import { useAppShellState } from './hooks/use-app-shell-state';
@@ -22,6 +23,22 @@ const CostViewModule = lazy(() => import('./modules/costview/CostViewModule'));
 const MarketViewModule = lazy(() => import('./modules/marketview/MarketViewModule'));
 const DatabaseViewModule = lazy(() => import('./modules/databaseview/DatabaseViewModule'));
 
+/** Skeleton shown while a lazy-loaded module's chunk is downloading.
+ *  Replaces the previous static "Loading..." text which gave no progress
+ *  feedback and looked indistinguishable from a frozen tab. */
+function ModuleLoadingSkeleton({ name }: { name: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground"
+    >
+      <Spinner className="h-6 w-6" />
+      <div>正在加载 {name} 模块…</div>
+    </div>
+  );
+}
+
 // ─── Main App ────────────────────────────────────────────────────────────────
 function App() {
   // Bloomberg Terminal is already authenticated locally — no login required
@@ -34,6 +51,10 @@ function App() {
   // distinguish "never connected" (cold start) from "previously connected,
   // currently reconnecting" (recovery).
   const [streamEverConnected, setStreamEverConnected] = useState(false);
+  // Real timestamp (ms) of the most recent successful data refresh. Used by
+  // the toolbar to render an honest "Last Updated" label — replaces the old
+  // `new Date()`-on-every-render placeholder which always read "just now".
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     'global' | 'monitor-conditions' | 'broker-algo' | 'parameter-frequency' | 'data-manager' | 'about'
   >('global');
@@ -50,12 +71,72 @@ function App() {
     isReady: isBackendReady,
   } = useStartupStatus({ enabled: isAuthenticated });
 
+  // Toast helper is declared *before* the realtime useEffect so the WS
+  // security-downgrade warning below can reach the user instead of going
+  // only to the console where non-technical traders never see it.
+  const addToast = useCallback((type: Toast['type'], message: string) => {
+    // Collision-resistant id; falls back to a non-crypto id on older browsers
+    // so dev environments without `crypto.randomUUID` don't break.
+    const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    // Cap visible toasts to keep the screen readable when many errors arrive
+    // back-to-back (e.g. network outage producing one toast per failed poll).
+    const MAX_TOASTS = 5;
+    setToasts(prev => {
+      const next = [...prev, { id, type, message }];
+      if (next.length > MAX_TOASTS) {
+        // Track drops so the container can render a "+N more" badge —
+        // without it, a network outage looks like only 5 errors happened
+        // when in reality dozens were silently truncated.
+        setDroppedToastCount(c => c + (next.length - MAX_TOASTS));
+        return next.slice(next.length - MAX_TOASTS);
+      }
+      return next;
+    });
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const clearDroppedToastCount = useCallback(() => setDroppedToastCount(0), []);
+
+  // True when the toast list has been truncated due to back-pressure — we
+  // surface this in ToastContainer so the user sees that older alerts were
+  // dropped instead of believing only 5 errors occurred during an outage.
+  const [droppedToastCount, setDroppedToastCount] = useState(0);
+
+
   useEffect(() => {
-    // Build WS URL from current page location (works behind proxy)
+    // Build WS URL from current page location (works behind proxy).
+    // Security: when serving over HTTPS we must connect via WSS — a configured
+    // VITE_API_URL pointing at plain HTTP would otherwise downgrade the
+    // realtime channel. We refuse to talk to non-secure origins on a secure
+    // page rather than silently leaking auth-bearing frames over plaintext.
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsBase = import.meta.env.VITE_API_URL
-      ? import.meta.env.VITE_API_URL.replace(/^http/, 'ws')
-      : `${proto}//${window.location.host}`;
+    const envUrl = import.meta.env.VITE_API_URL;
+    let wsBase: string;
+    if (envUrl) {
+      const isPageSecure = window.location.protocol === 'https:';
+      const envIsInsecure = /^http:\/\//i.test(envUrl) || /^ws:\/\//i.test(envUrl);
+      if (isPageSecure && envIsInsecure) {
+        console.error('[realtime] Refusing to use insecure VITE_API_URL on https page');
+        // Surface the downgrade to the user instead of failing silently —
+        // they may have configured the URL on purpose and need to know we
+        // overrode it, otherwise data flowing from a different origin would
+        // look like a config mismatch with no explanation.
+        addToast(
+          'error',
+          '检测到 VITE_API_URL 为非安全协议（http/ws），已自动切换为同源 WSS。请检查环境配置。',
+        );
+        wsBase = `${proto}//${window.location.host}`;
+      } else {
+        wsBase = envUrl.replace(/^http/i, 'ws');
+      }
+    } else {
+      wsBase = `${proto}//${window.location.host}`;
+    }
     const client = createRealtimeClient({ url: `${wsBase}/ws/orders` });
     rtClientRef.current = client;
 
@@ -92,15 +173,6 @@ function App() {
     setIsAuthenticated(false);
   }, []);
 
-  const addToast = useCallback((type: Toast['type'], message: string) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, type, message }]);
-  }, []);
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
-
   // Degraded-mode flag: HTTP is up, but EMSX subscriptions warming has
   // exceeded the timeout window. Allow REST polling so users see data even
   // before INIT_PAINT completes.
@@ -124,7 +196,6 @@ function App() {
     handleCancelRoute,
     handleModifyRoute,
     handleModifyOrder,
-    handleRouteOrder,
   } = useExecutionViewData({
     isAuthenticated,
     isBackendReady,
@@ -146,9 +217,26 @@ function App() {
     enabled: streamConnected,
   });
 
-  // When stream is connected, use stream-driven state
-  const effectiveOrders = streamConnected ? streamOrders : allOrders;
-  const effectiveRoutes = streamConnected ? streamRoutes : allRoutes;
+  // When the WS first opens, `streamOrders` is briefly empty before the
+  // server replays a snapshot — switching to it eagerly causes the table to
+  // flash empty for a few hundred ms. Keep the REST list as a fallback until
+  // the stream has actually populated, eliminating that flicker.
+  const effectiveOrders = useMemo(() => {
+    if (streamConnected && streamOrders.length > 0) return streamOrders;
+    return allOrders;
+  }, [streamConnected, streamOrders, allOrders]);
+  const effectiveRoutes = useMemo(() => {
+    if (streamConnected && streamRoutes.length > 0) return streamRoutes;
+    return allRoutes;
+  }, [streamConnected, streamRoutes, allRoutes]);
+
+  // Refresh `lastUpdatedAt` whenever the underlying data references change —
+  // covers both REST refresh and WS deltas through a single signal.
+  useEffect(() => {
+    if (effectiveOrders.length > 0 || effectiveRoutes.length > 0) {
+      setLastUpdatedAt(Date.now());
+    }
+  }, [effectiveOrders, effectiveRoutes]);
 
   const {
     activeModule,
@@ -190,6 +278,7 @@ function App() {
         startupStatus={startupStatus}
         connectionStatus={connectionStatus}
         checkingStartup={checkingStartup}
+        lastUpdatedAt={lastUpdatedAt}
       />
 
       <main className="flex-1 p-4 space-y-4">
@@ -208,13 +297,7 @@ function App() {
             activeModule={activeModule}
             onModuleChange={setActiveModule}
             marketView={
-              <Suspense
-                fallback={
-                  <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                    Loading MarketView module...
-                  </div>
-                }
-              >
+              <Suspense fallback={<ModuleLoadingSkeleton name="MarketView" />}>
                 <MarketViewModule />
               </Suspense>
             }
@@ -284,7 +367,6 @@ function App() {
                     onCancelRoute={handleCancelRoute}
                     onModifyRoute={handleModifyRoute}
                     onModifyOrder={handleModifyOrder}
-                    onRouteOrder={handleRouteOrder}
                     onRefresh={fetchOrders}
                   />
                 }
@@ -299,24 +381,12 @@ function App() {
               </div>
             }
             costView={
-              <Suspense
-                fallback={
-                  <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                    Loading CostView module...
-                  </div>
-                }
-              >
+              <Suspense fallback={<ModuleLoadingSkeleton name="CostView" />}>
                 <CostViewModule onNavigateToDatabase={() => setActiveModule('database')} />
               </Suspense>
             }
             databaseView={
-              <Suspense
-                fallback={
-                  <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                    Loading Database module...
-                  </div>
-                }
-              >
+              <Suspense fallback={<ModuleLoadingSkeleton name="Database" />}>
                 <DatabaseViewModule />
               </Suspense>
             }
@@ -324,15 +394,20 @@ function App() {
         )}
       </main>
 
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer
+        toasts={toasts}
+        onRemove={removeToast}
+        droppedCount={droppedToastCount}
+        onClearDropped={clearDroppedToastCount}
+      />
 
       <footer className="border-t border-border px-4 py-2 bg-card">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div>EMSX Trading Tool v1.0.0</div>
-          <div className="flex items-center gap-4">
-            <span>{footerConnectionText}</span>
-            <span className="text-primary">Bloomberg Terminal</span>
-          </div>
+          {/* The connection phase is already prominent in the toolbar; the
+              footer keeps a single non-redundant attribution so users still
+              know the data source without seeing the same status twice. */}
+          <div>来源：Bloomberg Terminal · {footerConnectionText}</div>
         </div>
       </footer>
       </HandoffContractsProvider>

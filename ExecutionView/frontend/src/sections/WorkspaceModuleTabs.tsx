@@ -37,8 +37,10 @@ export function WorkspaceModuleTabs({
   const recCount = recommendations.length;
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
+      <div role="tablist" aria-label="工作台模块切换" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
         <button
+          role="tab"
+          aria-selected={activeModule === 'marketview'}
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             activeModule === 'marketview'
               ? 'bg-primary text-primary-foreground'
@@ -48,9 +50,11 @@ export function WorkspaceModuleTabs({
           onMouseEnter={prefetchMarketView}
           onFocus={prefetchMarketView}
         >
-          MarketView
+          市场视图
         </button>
         <button
+          role="tab"
+          aria-selected={activeModule === 'execution'}
           className={`relative rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             activeModule === 'execution'
               ? 'bg-primary text-primary-foreground'
@@ -59,23 +63,35 @@ export function WorkspaceModuleTabs({
           onClick={() => onModuleChange('execution')}
           title={
             candidateCount > 0
-              ? `Pending MarketView handoff: ${candidateCount} candidate(s) + ${recCount} recommendation(s)`
+              ? `待处理：来自 MarketView 的 ${candidateCount} 个候选标的，以及来自 CostView 的 ${recCount} 条建议`
               : undefined
           }
         >
-          ExecutionView
+          执行视图
+          {/* Spell out the badge meaning instead of using "MV→EV" jargon
+              that non-technical users could not parse on first sight. */}
           {candidateCount > 0 && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-black">
-              MV→EV {candidateCount}
+            <span
+              className="ml-2 inline-flex items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-black"
+              aria-label={`待处理候选 ${candidateCount} 条（来自市场视图）`}
+              title={`待处理候选 ${candidateCount} 条（来自市场视图）`}
+            >
+              候选 {candidateCount}
             </span>
           )}
           {recCount > 0 && (
-            <span className="ml-1 inline-flex items-center rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-black">
-              CV→EV {recCount}
+            <span
+              className="ml-1 inline-flex items-center rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-black"
+              aria-label={`待处理建议 ${recCount} 条（来自成本视图）`}
+              title={`待处理建议 ${recCount} 条（来自成本视图）`}
+            >
+              建议 {recCount}
             </span>
           )}
         </button>
         <button
+          role="tab"
+          aria-selected={activeModule === 'costview'}
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             activeModule === 'costview'
               ? 'bg-primary text-primary-foreground'
@@ -85,9 +101,11 @@ export function WorkspaceModuleTabs({
           onMouseEnter={prefetchCostView}
           onFocus={prefetchCostView}
         >
-          CostView
+          成本视图
         </button>
         <button
+          role="tab"
+          aria-selected={activeModule === 'database'}
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             activeModule === 'database'
               ? 'bg-primary text-primary-foreground'
@@ -97,7 +115,7 @@ export function WorkspaceModuleTabs({
           onMouseEnter={prefetchDatabaseView}
           onFocus={prefetchDatabaseView}
         >
-          Database
+          数据库
         </button>
       </div>
 
