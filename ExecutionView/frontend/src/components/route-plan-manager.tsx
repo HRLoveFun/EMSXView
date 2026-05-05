@@ -301,7 +301,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
     setError('');
   }, [open, editPlan]);
 
-  // Fetch markets & brokers from Market↔Broker Mapping API
+  // Fetch markets & brokers from Market Broker Mapping API
   useEffect(() => {
     if (!open) return;
     apiService.getMarketBrokerMapping().then(result => {

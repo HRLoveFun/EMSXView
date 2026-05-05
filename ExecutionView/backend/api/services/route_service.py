@@ -37,8 +37,17 @@ def _load_hand_instruction_map() -> dict[str, str]:
             with _HI_CONFIG_PATH.open("r", encoding="utf-8") as f:
                 raw = json.load(f)
             return {k.strip().upper(): str(v).strip() for k, v in raw.items() if k[0] != "_" and v}
+        else:
+            logger.warning(
+                "EMSX_HAND_INSTRUCTION config file not found: %s — all brokers will default to 'ANY'",
+                _HI_CONFIG_PATH,
+            )
     except (OSError, json.JSONDecodeError):
-        pass
+        logger.error(
+            "Failed to load EMSX_HAND_INSTRUCTION config from %s — all brokers will default to 'ANY'",
+            _HI_CONFIG_PATH,
+            exc_info=True,
+        )
     return {}
 
 
@@ -46,7 +55,16 @@ def _resolve_hand_instruction(broker: str) -> str:
     global _hand_instruction_map
     if not _hand_instruction_map:
         _hand_instruction_map = _load_hand_instruction_map()
-    return _hand_instruction_map.get(broker.strip().upper(), "ANY")
+    key = broker.strip().upper()
+    if key in _hand_instruction_map:
+        return _hand_instruction_map[key]
+    logger.warning(
+        "Broker '%s' not found in EMSX_HAND_INSTRUCTION config (%s) — defaulting to 'ANY'. "
+        "Edit the JSON file to add an entry for this broker.",
+        key,
+        _HI_CONFIG_PATH,
+    )
+    return "ANY"
 
 
 def validate_route_request(request: RouteOrderRequest, parent_order: Any) -> None:

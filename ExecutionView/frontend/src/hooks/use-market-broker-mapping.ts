@@ -1,7 +1,7 @@
 /**
  * useMarketBrokerMapping
  * ──────────────────────
- * Shared accessor for the persisted `Market ↔ Broker` allow-list configured
+ * Shared accessor for the persisted `Market Broker` allow-list configured
  * in `Settings → Market Broker Mapping`. Used by Route-Order and
  * Modify-Route dialogs to restrict their broker dropdown to the brokers the
  * desk has explicitly allowed for the order's market.

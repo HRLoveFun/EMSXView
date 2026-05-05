@@ -25,7 +25,7 @@
  *   editable. There is no per-row password gate.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Check, Save, RefreshCw, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
 import { notifyMarketBrokerMappingUpdated } from '@/hooks/use-market-broker-mapping';
 import { getBrokerExchangeMapping } from '@/data/broker-exchange-mapping';
+import { EXCHANGE_REGION, REGION_ORDER, REGION_LABELS } from '@/data/exchange-region-mapping';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,26 +49,29 @@ interface MappingState {
 
 /** Merge saved selection with defaults from EXCHANGE_FOR_BROKER.
  *  Saved values take precedence; defaults fill in missing markets/brokers.
- *  Returns the merged selection. */
+ *  Only includes broker keys that exist in either `saved` or `defaults`
+ *  so we don't pollute the persisted state with irrelevant false entries. */
 function mergeWithDefaults(
   saved: SelectionMap,
   defaults: SelectionMap,
 ): SelectionMap {
   const merged: SelectionMap = {};
   const allMarkets = new Set<string>([...Object.keys(defaults), ...Object.keys(saved)]);
-  const allBrokers = new Set<string>();
-  for (const row of Object.values(defaults)) for (const b of Object.keys(row)) allBrokers.add(b);
-  for (const row of Object.values(saved)) for (const b of Object.keys(row)) allBrokers.add(b);
 
   for (const m of allMarkets) {
     merged[m] = {};
-    for (const b of allBrokers) {
-      if (saved[m] && b in saved[m]) {
-        merged[m][b] = !!saved[m][b];
-      } else if (defaults[m] && b in defaults[m]) {
-        merged[m][b] = !!defaults[m][b];
-      } else {
-        merged[m][b] = false;
+    const savedRow = saved[m];
+    const defaultRow = defaults[m];
+    // Broker keys: union of saved and defaults only
+    const brokerKeys = new Set<string>([
+      ...Object.keys(savedRow || {}),
+      ...Object.keys(defaultRow || {}),
+    ]);
+    for (const b of brokerKeys) {
+      if (savedRow && b in savedRow) {
+        merged[m][b] = !!savedRow[b];
+      } else if (defaultRow && b in defaultRow) {
+        merged[m][b] = !!defaultRow[b];
       }
     }
   }
@@ -140,7 +144,37 @@ export function MarketBrokerMappingSection() {
   // ── Derived: rows / cols ─────────────────────────────────────────────────
   // Universe is strictly defined by EXCHANGE_FOR_BROKER; users can only
   // reduce active brokers, never add new market-broker pairs.
-  const markets = useMemo(() => Object.keys(defaults).sort(), [defaults]);
+  // Markets are grouped by region (APAC / EMEA / EUR / NSA).
+
+  type MarketGroup = { region: string; label: string; markets: string[] };
+
+  const marketGroups = useMemo((): MarketGroup[] => {
+    const map = new Map<string, string[]>();
+    for (const m of Object.keys(defaults)) {
+      const region = EXCHANGE_REGION[m] || 'Other';
+      if (!map.has(region)) map.set(region, []);
+      map.get(region)!.push(m);
+    }
+    for (const arr of map.values()) arr.sort();
+    // Order groups per REGION_ORDER, then any unknown groups
+    const ordered: MarketGroup[] = [];
+    for (const r of REGION_ORDER) {
+      const items = map.get(r);
+      if (items) {
+        ordered.push({ region: r, label: REGION_LABELS[r], markets: items });
+        map.delete(r);
+      }
+    }
+    for (const [k, v] of Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+      ordered.push({ region: k, label: k, markets: v.sort() });
+    }
+    return ordered;
+  }, [defaults]);
+
+  const totalMarkets = useMemo(
+    () => marketGroups.reduce((sum, g) => sum + g.markets.length, 0),
+    [marketGroups],
+  );
 
   const brokers = useMemo(() => {
     const s = new Set<string>();
@@ -203,7 +237,7 @@ export function MarketBrokerMappingSection() {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base">Market ↔ Broker Mapping</CardTitle>
+            <CardTitle className="text-base">Market Broker Mapping</CardTitle>
             <CardDescription>
               Source: hard-coded broker-exchange mapping table.
               You may only uncheck active brokers (reduce); you cannot
@@ -244,7 +278,7 @@ export function MarketBrokerMappingSection() {
 
         <div className="flex items-center justify-between mb-2 text-[11px] text-muted-foreground">
           <span>
-            {markets.length} markets · {brokers.length} brokers ·{' '}
+            {totalMarkets} markets · {brokers.length} brokers ·{' '}
             {editMode ? <span className="text-primary font-semibold">edit mode</span> : 'read-only'}
           </span>
           <span>
@@ -271,7 +305,7 @@ export function MarketBrokerMappingSection() {
               </tr>
             </thead>
             <tbody>
-              {markets.length === 0 && (
+              {marketGroups.length === 0 && (
                 <tr>
                   <td
                     colSpan={1 + Math.max(brokers.length, 1)}
@@ -283,23 +317,37 @@ export function MarketBrokerMappingSection() {
                   </td>
                 </tr>
               )}
-              {markets.map(m => {
-                const row = state?.selection[m] ?? {};
-                return (
-                  <tr key={m} className="border-b border-border/60 hover:bg-muted/20">
-                    <td className="px-2 py-1 font-mono font-semibold">{m}</td>
-                    {brokers.map(b => (
-                      <td key={b} className="px-2 py-1 text-center">
-                        <Checkbox
-                          checked={!!row[b]}
-                          disabled={!editMode || !defaults[m]?.[b]}
-                          onCheckedChange={() => toggleSelection(m, b)}
-                        />
-                      </td>
-                    ))}
+              {marketGroups.map(group => (
+                <Fragment key={group.region}>
+                  {/* Region header row */}
+                  <tr className="bg-muted/50 border-b-2 border-border">
+                    <td
+                      colSpan={1 + Math.max(brokers.length, 1)}
+                      className="px-3 py-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide"
+                    >
+                      {group.label}
+                    </td>
                   </tr>
-                );
-              })}
+                  {/* Market rows in this group */}
+                  {group.markets.map(m => {
+                    const row = state?.selection[m] ?? {};
+                    return (
+                      <tr key={m} className="border-b border-border/60 hover:bg-muted/20">
+                        <td className="px-2 py-1 font-mono font-semibold">{m}</td>
+                        {brokers.map(b => (
+                          <td key={b} className="px-2 py-1 text-center">
+                            <Checkbox
+                              checked={!!row[b]}
+                              disabled={!editMode || !defaults[m]?.[b]}
+                              onCheckedChange={() => toggleSelection(m, b)}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
         </div>
