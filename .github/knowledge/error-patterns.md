@@ -288,3 +288,31 @@
 - **Date**: 2026-04-28
 - **Files**: N/A (testing tooling)
 - **Lessons**: When pytest collection breaks, fall back to plain unittest before debugging plugin compatibility.
+
+
+---
+
+## Pattern: LSE (LN Equity) mktdata subscription fails with rcode=-11
+
+- **Signature**: 日志: "Mktdata subscription failures: N ([('XX/ LN Equity', 'Invalid security, rcode = -11')])"
+- **Root Cause**: Bloomberg //blp/mktdata 不接受根符号中包含 `/` 的 LSE ticker（如 "UU/ LN Equity"）。EMSX 中的 ticker 格式保留了 Bloomberg 原始格式的 `/`，但 mktdata 服务需要标准格式（如 "UU LN Equity"）。
+- **Resolution**:
+1. 在 _update_mktdata_subscriptions 中，对 LN Equity ticker 做根符号 `/` 剥离 (ticker.replace('/', '')) 后作为 mktdata topic；CorrelationId 保持原始 ticker 以正确映射数据。2. 在 SUBSCRIPTION_STATUS 处理中增加 errorCode 提取和日志记录。
+- **Status**: Resolved
+- **Date**: 2026-05-05
+- **Files**: ExecutionView/backend/api/services/bloomberg_adapter.py
+- **Lessons**: 不同 Bloomberg API 服务对 ticker 格式要求可能不同。EMSX API 接受 "UU/ LN Equity" 但 mktdata 可能需要 "UU LN Equity"。在跨服务使用 ticker 时需注意格式差异。
+
+
+---
+
+## Pattern: Bloomberg EMSX 拒绝 "Invalid Handling Instruction"
+
+- **Signature**: batch_route_service - WARNING - batch-route item key={orderId}#{broker} status=FAILED rtt_ms={ms} detail=Invalid Handling Instruction
+- **Root Cause**: Bloomberg EMSX 拒绝 RouteEx 请求中的 EMSX_HAND_INSTRUCTION 值。值来自 broker_hand_instruction.json 中该 broker 的配置（如 EQ-BARCLAY→AUTO1、EQ-JPM→DOT）。值本身在 pipeline 中未被篡改，但 Bloomberg/托管券商端未启用或未识别该 HAND_INSTRUCTION 类型。
+- **Resolution**:
+1. 确认 broker_hand_instruction.json 中该 broker 的 HAND_INSTRUCTION 配置正确。2. 检查 Bloomberg EMSX 端该 broker 账户是否启用了对应的 HAND_INSTRUCTION。3. 联系券商/Bloomberg 确认该 HAND_INSTRUCTION（如 AUTO1、DOT）是否在账户级别已激活。4. 测试替代值（如 "ANY"）确认是否是配置值本身的问题。
+- **Status**: Resolved
+- **Date**: 2026-05-05
+- **Files**: ExecutionView/backend/api/data/broker_hand_instruction.json, ExecutionView/backend/api/services/route_service.py, ExecutionView/backend/api/services/bloomberg_adapter.py
+- **Lessons**: 1. HAND_INSTRUCTION 是 broker 级别的 Bloomberg EMSX 配置，需券商端配合激活。2. 新增 broker 必须先在 broker_hand_instruction.json 中配置，再联系 Bloomberg 确认该值已被券商接受。3. "Invalid Handling Instruction" 错误 99% 是券商/Bloomberg 端问题，非代码 bug。

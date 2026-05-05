@@ -151,20 +151,34 @@ function equalSplit(remaining: number, lot: number, n: number): number[] {
   );
 }
 
-/** Pick a sensible default strategy for a broker — prefer VWAP, else first.
- *  Match logic: normalize to alphanumerics, then prefer exact `VWAP`,
- *  then any name starting with `VWAP` that is not a TWAP variant
- *  (covers broker-specific aliases like `VWAP.`, `VWAP_LIQ`, `VWAP1`). */
-function defaultStrategyFor(strategies: string[]): string {
+/** Broker-specific default strategy overrides.
+ *  Key = broker code, value = preferred default strategy name. */
+const BROKER_DEFAULT_STRATEGY: Record<string, string> = {
+  'EQ-BARCLAY': 'VWAP-EU',
+};
+
+/** Pick a default strategy for a broker.
+ *  Priority:
+ *    1. Broker-specific override (BROKER_DEFAULT_STRATEGY), if available
+ *    2. Exact `VWAP` match (normalized to alphanumerics)
+ *    3. Empty string — no default, user must pick manually
+ *  If a broker-specific override exists and the override is among the
+ *  available strategies, it takes precedence over exact VWAP. */
+function defaultStrategyFor(strategies: string[], broker?: string): string {
   if (strategies.length === 0) return '';
+
+  // Broker-specific override (e.g. EQ-BARCLAY → VWAP-EU)
+  if (broker && broker in BROKER_DEFAULT_STRATEGY) {
+    const preferred = BROKER_DEFAULT_STRATEGY[broker];
+    if (strategies.includes(preferred)) return preferred;
+  }
+
+  // Exact VWAP match only — no fuzzy fallback
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const exact = strategies.find(s => norm(s) === 'VWAP');
   if (exact) return exact;
-  const variant = strategies.find(s => {
-    const n = norm(s);
-    return n.startsWith('VWAP') && !n.includes('TWAP');
-  });
-  return variant ?? strategies[0];
+
+  return '';
 }
 
 function clientKeyOf(orderId: string, broker: string): string {
@@ -430,7 +444,7 @@ export function BatchRouteOrderDialog({
     });
     setBrokerStrategies(prev => {
       if (b in prev) return prev;
-      const def = defaultStrategyFor(strategiesFor(b));
+      const def = defaultStrategyFor(strategiesFor(b), b);
       return { ...prev, [b]: def };
     });
   };
@@ -775,16 +789,20 @@ export function BatchRouteOrderDialog({
     });
     const req = buildRequest(false);
     let count = 0;
-    const res = await apiService.streamBatchRoute(
-      req,
-      (item: BatchOperationItemResult) => {
-        count += 1;
-        setProgress(count);
-        applyResults([item]);
-      },
-      (s: BatchOperationResult) => setSummary(s),
-    );
-    if (!res.success) setError(res.error || 'Submission failed');
+    try {
+      const res = await apiService.streamBatchRoute(
+        req,
+        (item: BatchOperationItemResult) => {
+          count += 1;
+          setProgress(count);
+          applyResults([item]);
+        },
+        (s: BatchOperationResult) => setSummary(s),
+      );
+      if (!res.success) setError(res.error || 'Submission failed');
+    } catch (err) {
+      setError(`Submission error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
     setPhase('result');
   };
 
@@ -870,7 +888,7 @@ export function BatchRouteOrderDialog({
                   // edits so the editor re-fetches a fresh field set.
                   setBrokerStrategies(() => {
                     const next: Record<string, string> = {};
-                    for (const b of selectedBrokers) next[b] = defaultStrategyFor(strategiesFor(b));
+                    for (const b of selectedBrokers) next[b] = defaultStrategyFor(strategiesFor(b), b);
                     return next;
                   });
                   paramsBuildersRef.current.clear();

@@ -298,3 +298,42 @@
 | 2026-05-01 14:30 | session | Stop | Session ended | — | auto |
 | 2026-05-01 14:37 | session | Stop | Session ended | — | auto |
 | 2026-05-01 14:42 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:36 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:40 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:44 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:52 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:58 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:05 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:48 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:50 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:54 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:59 | session | Stop | Session ended | — | auto |
+| 2026-05-04 18:04 | session | Stop | Session ended | — | auto |
+| 2026-05-04 20:57 | task | 用户请求：基于 Agent Coding 范式设计纲领，编写适配当前项目的 AGENTS.md | 深入研读项目架构（docs/MEMORY.md、docs/CLAUDE.md、docs/PROJECT_STRUCTURE.md、docs/DATA_DOMAIN.md、docs/HANDOFF.md、docs/EXECUTION_PLATFORM_WBS.md）、现有指令文件（.github/instructions/）、知识库（.github/knowledge/）、技能体系（.github/skills/）和仓库记忆后，编写了 AGENTS.md。文件完整覆盖：四大支柱原则、项目架构卡（分层架构+依赖方向+关键约束）、绝对禁止清单、七阶段工作流状态机、三层防护栏体系、技术债预算、人机角色分工、项目编码契约（通用/后端/前端/数据域）、知识库与技能体系、任务后检查清单、回滚规则、维护与演进机制。 | 成功创建 AGENTS.md（仓库根目录），将 Agent Coding 范式设计纲领完整适配到 EMSX 项目的具体架构、技术栈和治理结构中。文件与现有 .github/copilot-instructions.md、.github/instructions/ 等规则文件形成互补关系。 | manual |
+| 2026-05-04 20:58 | session | Stop | Session ended | — | auto |
+| 2026-05-04 22:41 | session | Stop | Session ended | — | auto |
+| 2026-05-04 23:09 | architecture | 用户请求：AGENTS.md 适配大规模重构——将旧路径绑定描述改为架构原则，使文件不束缚重构 | 将 AGENTS.md 升级至 v2.0，完成以下修改：(1) I.支柱1 — 去掉 ExecutionView/CostView 等具体模块名，改为业务域描述；(2) II.项目架构卡 — 完全重写为「业务模块架构 + 分层契约 + 永久约束 + 重构过渡期规则」结构，移除所有具体目录树，分层图改为抽象层名；(3) III.绝对禁止 — #6/#7 从写死路径改为通用原则，引用 docs/PROJECT_STRUCTURE.md；(4) V.过程防护栏 — 作用域引用改为抽象描述；(5) VI.技术债预算 — 遗留引用监听改为以 PROJECT_STRUCTURE.md 为准；(6) 新增「重构过渡期规则」：当 AGENTS.md 中路径与已确认重构计划冲突时以后者为准。 | AGENTS.md 完成重构过渡期适配，现在仅描述永久性架构原则而非绑定具体路径。Agent 在重构期间不会因旧路径引用而拒绝重构操作。关键约束（分层方向、Bloomberg 字段规则、编码契约、七阶段工作流）全部保留。 | manual |
+| 2026-05-04 23:10 | session | Stop | Session ended | — | auto |
+| 2026-05-04 23:11 | task | 用户请求：将 AGENTS.md 中的具体路径描述替换为原则性描述，以适配即将进行的大规模重构 | 对 AGENTS.md 进行了以下原则化修改：1) II.项目架构卡 — 移除具体目录树，替换为业务模块架构原则描述 + 抽象分层契约图，新增「重构过渡期规则」；2) II.关键约束 — 从 7 条路径绑定约束改为 6 条永久性架构原则；3) VIII.编码契约(前端) — 移除 modules/marketview/、modules/costview/ 等具体路径；4) VIII.编码契约(数据域) — platform_data/ 改为共享适配层；5) VI.技术债预算 — 架构漂移和遗留引用改为原则性描述；6) I.支柱1 — 业务模块改为业务域描述；7) III.绝对禁止 — 第6/7条改为原则性表述；8) 版本升至 2.0，增加重构过渡期状态标识 | AGENTS.md 现不依赖任何具体目录路径，全部以永久性架构原则描述。新增的「重构过渡期规则」确保重构期间 Agent 以重构计划为准，不被旧路径束缚。跨域数据访问禁止规则（通过共享适配层）作为永久约束保留。 | manual |
+| 2026-05-04 23:12 | session | Stop | Session ended | — | auto |
+| 2026-05-05 17:52 | session | Stop | Session ended | — | auto |
+| 2026-05-05 17:59 | session | Stop | Session ended | — | auto |
+| 2026-05-05 18:47 | error | user request: batch route AV/LN Equity 出现黑屏 + 修复 P2 | 修复 batch route AV/LN Equity 黑屏问题 + 修复 LN Equity mktdata 订阅 P2。前端: 在 streamNdjsonBatch 中为 onItem/onSummary 回调增加 try-catch 保护；在 runSubmit 中增加 try-catch 确保 setPhase('result') 始终执行。后端: 在 SUBSCRIPTION_STATUS 处理中增加 errorCode 提取；在 _update_mktdata_subscriptions 中对 LN Equity ticker 做 `/` 剥离后订阅 mktdata (CID 保持原始 ticker)。 | 前端 batch-route-order-dialog 在回调抛异常时不再白屏/冻结，界面能正常回到 result 阶段显示错误。后端 LN Equity ticker mktdata 订阅增加 errorCode 诊断日志，并尝试通过剥离根符号中的 `/` 来修复 rcode=-11。 | manual |
+| 2026-05-05 18:48 | session | Stop | Session ended | — | auto |
+| 2026-05-05 18:58 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:07 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:16 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:42 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:57 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:00 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:05 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:12 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:26 | error | user request: investigate AV/LN Equity routing failure for EQ-BARCLAY | 全面检查 HAND_INSTRUCTION (AUTO1) 和算法 (VWAP-EU) 在 pipeline 中的完整性。验证 broker_hand_instruction.json 配置、_resolve_hand_instruction() 代码路径、_apply_strategy_params() 代码路径、batch_route_service 数据流、日志错误记录。 | 确认 AUTO1 和 VWAP-EU 通过完整 pipeline 未被篡改。根因是 Bloomberg EMSX 返回 "Invalid Handling Instruction"——AUTO1 被 Barclays 端拒绝，非系统代码问题。 | manual |
+| 2026-05-05 20:26 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:48 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:23 | task | 用户需求：批次路由面板中 EQ-BARCLAY 默认 algo 改为 VWAP-EU | 修改 batch-route-order-dialog.tsx 中 defaultStrategyFor 函数，增加 broker 参数和 BROKER_DEFAULT_STRATEGY 映射表，将 EQ-BARCLAY 默认策略设为 VWAP-EU；更新两处调用点传入 broker 参数 | 成功。Vite 构建通过，EQ-BARCLAY 现在默认选择 VWAP-EU 而非 VWAP。 | manual |
+| 2026-05-05 22:23 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:28 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:31 | task | 用户要求进一步收紧默认策略逻辑：未找到精确 VWAP 时留空不选 | 移除 defaultStrategyFor 中的 VWAP variant 模糊匹配和 strategies[0] 回退，未匹配时直接返回空字符串 | 成功。现在只有经纪商特定覆盖（如 EQ-BARCLAY → VWAP-EU）或精确 VWAP 才会自动选中，其余情况默认策略留空。 | manual |
+| 2026-05-05 22:31 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:35 | session | Stop | Session ended | — | auto |

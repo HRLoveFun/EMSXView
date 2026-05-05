@@ -1,110 +1,9 @@
 {
   "version": "1.0",
-  "lastUpdated": "2026-05-01T17:48:37.956285",
+  "lastUpdated": "2026-05-05T16:30:05.049733",
   "configs": [
     {
-      "broker": "HT-MS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-CROSING",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-HSBC-KR",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "MM-NTC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-BHP",
-      "exchange": "AU",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-RBS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-HSBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-RBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-MS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-GS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-WEP",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -114,67 +13,6 @@
     },
     {
       "broker": "EQ-BOCI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-UBS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-DAIWA",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-DB",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "MM-OCBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-CITI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "MANU",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -184,7 +22,6 @@
     },
     {
       "broker": "EQ-BMO",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -194,7 +31,6 @@
     },
     {
       "broker": "EQ-BARCLAY",
-      "exchange": "LN",
       "strategies": [
         {
           "name": "VWAP",
@@ -1028,7 +864,6 @@
     },
     {
       "broker": "EQ-MS",
-      "exchange": "US",
       "strategies": [
         {
           "name": "VWAP",
@@ -1460,78 +1295,7 @@
       ]
     },
     {
-      "broker": "FX-BARC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-BOCI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "BEXE",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-RAB",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-JPM",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-SG",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-BARC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-CLSA",
-      "exchange": "HK",
       "strategies": [
         {
           "name": "VWAP_ADP",
@@ -3151,7 +2915,6 @@
     },
     {
       "broker": "EQ-UBS",
-      "exchange": "US",
       "strategies": [
         {
           "name": "VWAP",
@@ -4182,7 +3945,6 @@
     },
     {
       "broker": "EQ-JPM",
-      "exchange": "US",
       "strategies": [
         {
           "name": "AQUA",
@@ -5007,58 +4769,7 @@
       ]
     },
     {
-      "broker": "FX-WFC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-SCB",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-ABCI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-CICC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-ICBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-ICBCI",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -5068,7 +4779,6 @@
     },
     {
       "broker": "EQ-MIZUHO",
-      "exchange": "JP",
       "strategies": [
         {
           "name": "VWAP",
@@ -5779,28 +5489,7 @@
       ]
     },
     {
-      "broker": "HT-JPM",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-CLSA",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-NOMURA",
-      "exchange": "JP",
       "strategies": [
         {
           "name": "BLOCKPEG",
@@ -7099,18 +6788,7 @@
       ]
     },
     {
-      "broker": "HT-RBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-CITI",
-      "exchange": "US",
       "strategies": [
         {
           "name": "Dagger",
@@ -7809,38 +7487,7 @@
       ]
     },
     {
-      "broker": "HT-BARCLAY",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "MM-BOC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-ML",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-ML",
-      "exchange": "US",
       "strategies": [
         {
           "name": "VWAP",
@@ -8323,18 +7970,7 @@
       ]
     },
     {
-      "broker": "HT-MIZUHO",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-GS",
-      "exchange": "US",
       "strategies": [
         {
           "name": "VWAP",
@@ -9630,7 +9266,6 @@
     },
     {
       "broker": "EQ-MACQ",
-      "exchange": "AU",
       "strategies": [
         {
           "name": "VWAP",
@@ -10384,18 +10019,7 @@
       ]
     },
     {
-      "broker": "HT-UBS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-WFC",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -10405,77 +10029,6 @@
     },
     {
       "broker": "EQ-SCOTIA",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-BAML-KR",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-SSB",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "BGSP",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-BAML",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-BON",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-SCB",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-SEB-NDF",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -10485,27 +10038,6 @@
     },
     {
       "broker": "EQ-ICBCI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "CROSSING",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "MM-RABO",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -10515,7 +10047,6 @@
     },
     {
       "broker": "EQ-CLSA-EU",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "VWAP_ADP",
@@ -11831,7 +11362,6 @@
     },
     {
       "broker": "EQ-TD",
-      "exchange": "CN",
       "strategies": [
         {
           "name": "DMA",
@@ -12581,7 +12111,6 @@
     },
     {
       "broker": "EQ-BNP",
-      "exchange": "FP",
       "strategies": [
         {
           "name": "POV",
@@ -13037,48 +12566,7 @@
       ]
     },
     {
-      "broker": "HT-HSBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-RBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-BNP",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-CITI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-SOG",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "",
@@ -13088,7 +12576,6 @@
     },
     {
       "broker": "EQ-ABCI",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "NONE",
@@ -13376,38 +12863,7 @@
       ]
     },
     {
-      "broker": "HT-ML",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-CICC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-SCOTIA",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-SEB",
-      "exchange": "SS",
       "strategies": [
         {
           "name": "NONE",
@@ -13807,28 +13263,7 @@
       ]
     },
     {
-      "broker": "BGDM",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-JPM",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-ML-BR",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "VWAP",
@@ -14257,58 +13692,7 @@
       ]
     },
     {
-      "broker": "FX-HSBC-AO",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-SEB",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FX-HSBC",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-SOG",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-MS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-HSBC",
-      "exchange": "LN",
       "strategies": [
         {
           "name": "DMA",
@@ -14475,38 +13859,7 @@
       ]
     },
     {
-      "broker": "FX-BNP",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "FI-CITI",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "TEST",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-SG",
-      "exchange": "OTHER",
       "strategies": [
         {
           "name": "INLINE",
@@ -15021,7 +14374,6 @@
     },
     {
       "broker": "EQ-DAIWA",
-      "exchange": "JP",
       "strategies": [
         {
           "name": "VWAP",
@@ -15840,18 +15192,7 @@
       ]
     },
     {
-      "broker": "FX-SSB-KR",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
       "broker": "EQ-INSTNET",
-      "exchange": "US",
       "strategies": [
         {
           "name": "AUCTION",
@@ -17471,36 +16812,6 @@
               "description": "Custom parameter"
             }
           ]
-        }
-      ]
-    },
-    {
-      "broker": "MM-WELLSF",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-GS",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "HT-MACQ",
-      "exchange": "OTHER",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
         }
       ]
     }

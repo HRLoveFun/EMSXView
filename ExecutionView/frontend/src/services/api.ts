@@ -150,9 +150,9 @@ async function streamNdjsonBatch(
         try {
           const obj = JSON.parse(line);
           if (obj && typeof obj === 'object' && 'summary' in obj) {
-            onSummary(obj.summary as BatchOperationResult);
+            try { onSummary(obj.summary as BatchOperationResult); } catch { /* callback error — don't crash the stream */ }
           } else {
-            onItem(obj as BatchOperationItemResult);
+            try { onItem(obj as BatchOperationItemResult); } catch { /* callback error — don't crash the stream */ }
           }
         } catch {
           // ignore malformed line
@@ -165,9 +165,9 @@ async function streamNdjsonBatch(
       try {
         const obj = JSON.parse(tail);
         if (obj && typeof obj === 'object' && 'summary' in obj) {
-          onSummary(obj.summary as BatchOperationResult);
+          try { onSummary(obj.summary as BatchOperationResult); } catch { /* callback error */ }
         } else {
-          onItem(obj as BatchOperationItemResult);
+          try { onItem(obj as BatchOperationItemResult); } catch { /* callback error */ }
         }
       } catch { /* ignore */ }
     }

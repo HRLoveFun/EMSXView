@@ -256,6 +256,7 @@ class BloombergEMSXService:
         self._mktdata_subscribed_tickers: set = set()  # tickers currently subscribed (attempted)
         self._mktdata_active_tickers: set = set()       # tickers confirmed streaming data
         self._mktdata_failed_tickers: set = set()       # tickers whose subscription failed (retry later)
+        self._mktdata_permanently_failed: set = set()  # LN Equity etc — will never succeed, skip retry
         self._mktdata_last_retry: Optional[datetime] = None
         self._mktdata_retry_interval = 300  # retry failed subscriptions every 5 min
         self._market_data_lock = threading.Lock()  # protect subscription management
@@ -281,6 +282,9 @@ class BloombergEMSXService:
         self._round_lot_pending_tickers: set = set()  # tickers with pending refdata request
         self._round_lot_refdata_cid = blpapi.CorrelationId("__round_lot_refdata__")
         self._round_lot_refdata_pending = False
+
+        # Permanently-failed ticker refdata cache (PX_LAST via //blp/refdata)
+        self._permfail_last_prices: Dict[str, float] = {}  # ticker -> last price from refdata
 
         # Background mktdata subscription thread
         self._mktdata_thread: Optional[threading.Thread] = None
@@ -358,6 +362,8 @@ class BloombergEMSXService:
                 self._mktdata_subscribed_tickers = set()
                 self._mktdata_active_tickers = set()
                 self._mktdata_failed_tickers = set()
+                self._mktdata_permanently_failed = set()
+                self._permfail_last_prices = {}
                 self._mktdata_last_retry = None
                 self._fx_last_refresh = None
                 self._fx_refdata_pending = False
@@ -1462,6 +1468,12 @@ class BloombergEMSXService:
             except Exception as e:
                 logger.warning(f"Error querying round lot sizes: {e}")
 
+            # Refresh PX_LAST for permanently-failed mktdata tickers via //blp/refdata
+            try:
+                self._maybe_refresh_permanently_failed_tickers(sess)
+            except Exception as e:
+                logger.warning(f"Error refreshing permanently-failed tickers: {e}")
+
             # Process events from mktdata session
             try:
                 event = sess.nextEvent(2000)
@@ -1484,17 +1496,55 @@ class BloombergEMSXService:
                             if cid_val:
                                 self._mktdata_failed_tickers.add(cid_val)
                                 self._mktdata_active_tickers.discard(cid_val)
-                            # Extract failure reason from Bloomberg API
-                            failure_reason = ""
+                            # Extract failure reason AND errorCode(s) from Bloomberg API.
+                            # SUBSCRIPTION_STATUS messages can pack multiple reason entries
+                            # per ticker (reason is an array, not a scalar), so iterate.
+                            reasons: list[str] = []
                             try:
                                 if msg.hasElement("reason"):
                                     reason = msg.getElement("reason")
-                                    if reason.hasElement("description"):
-                                        failure_reason = str(reason.getElement("description").getValue())
-                                    elif reason.hasElement("source"):
-                                        failure_reason = str(reason.getElement("source").getValue())
+                                    if reason.isArray():
+                                        for i in range(reason.numValues()):
+                                            entry = reason.getValueAsElement(i)
+                                            desc = ""
+                                            ec: Optional[int] = None
+                                            if entry.hasElement("errorCode"):
+                                                ec = entry.getElementAsInteger("errorCode")
+                                            if entry.hasElement("description"):
+                                                desc = str(entry.getElement("description").getValue())
+                                            elif entry.hasElement("source"):
+                                                desc = str(entry.getElement("source").getValue())
+                                            reasons.append(f"{desc}, rcode = {ec}" if ec is not None and desc else (f"rcode = {ec}" if ec is not None else desc))
+                                    else:
+                                        # Scalar reason (single-entry)
+                                        desc = ""
+                                        ec: Optional[int] = None
+                                        if reason.hasElement("errorCode"):
+                                            ec = reason.getElementAsInteger("errorCode")
+                                        if reason.hasElement("description"):
+                                            desc = str(reason.getElement("description").getValue())
+                                        elif reason.hasElement("source"):
+                                            desc = str(reason.getElement("source").getValue())
+                                        reasons.append(f"{desc}, rcode = {ec}" if ec is not None and desc else (f"rcode = {ec}" if ec is not None else desc))
                             except Exception:
                                 pass
+                            failure_reason = "; ".join(reasons) if reasons else ""
+                            # ── Permanently-failed detection ──────────────
+                            # LN Equity (and similar) tickers that fail with
+                            # rcode=-11/-1/2 ("Invalid security") will never succeed
+                            # via //blp/mktdata. Mark them permanently failed
+                            # so the retry loop skips them and a refdata fallback
+                            # (PX_LAST via ReferenceDataRequest) is used instead.
+                            _permanent_rcodes = {"-11", "-1", "2"}
+                            if cid_val and any(
+                                f"rcode = {rc}" in r for r in reasons for rc in _permanent_rcodes
+                            ):
+                                self._mktdata_permanently_failed.add(cid_val)
+                                self._mktdata_failed_tickers.discard(cid_val)
+                                logger.warning(
+                                    "[MKTDATA PERMFAIL] %s — will not retry. Falling back to //blp/refdata.",
+                                    cid_val,
+                                )
                             batch_failures.append((cid_val or "unknown", failure_reason))
                         elif "SubscriptionStarted" in mtype:
                             if cid_val:
@@ -1519,6 +1569,8 @@ class BloombergEMSXService:
                                 self._process_crncy_refdata_response(msg)
                             elif cid_val == "__round_lot_refdata__":
                                 self._process_round_lot_refdata_response(msg)
+                            elif cid_val == "__permfail_refdata__":
+                                self._process_permfail_refdata_response(msg)
                             else:
                                 self._process_fx_refdata_response(msg)
                             if cid_val:
@@ -1561,12 +1613,14 @@ class BloombergEMSXService:
 
         new_tickers = current_tickers - self._mktdata_subscribed_tickers
 
-        # Periodically retry failed subscriptions (capacity may have reset)
+        # Periodically retry failed subscriptions (capacity may have reset).
+        # Permanently-failed tickers (rcode=-11 etc.) are skipped — this
+        # prevents infinite 300s retry loops for LN Equity and similar.
         now = datetime.now()
         retry_tickers: set = set()
         if self._mktdata_failed_tickers:
             if self._mktdata_last_retry is None or (now - self._mktdata_last_retry).total_seconds() >= self._mktdata_retry_interval:
-                retry_tickers = self._mktdata_failed_tickers.copy()
+                retry_tickers = self._mktdata_failed_tickers - self._mktdata_permanently_failed
                 self._mktdata_last_retry = now
                 if retry_tickers:
                     logger.info(f"Retrying {len(retry_tickers)} failed ticker subscriptions")
@@ -1578,7 +1632,9 @@ class BloombergEMSXService:
 
         sub_list = blpapi.SubscriptionList()
 
-        # Subscribe to market data fields for new equity tickers
+        # Subscribe to market data fields for new equity tickers.
+        # Permanently-failed tickers (rcode=-11/-1/2) have already been
+        # excluded from retry_tickers above so they are never re-subscribed.
         for ticker in all_new_tickers:
             cid = blpapi.CorrelationId(ticker)  # use ticker string as CID for easy lookup
             sub_list.add(
@@ -1941,6 +1997,77 @@ class BloombergEMSXService:
             logger.warning(f"Error processing PX_ROUND_LOT_SIZE refdata response: {e}")
 
     # ------------------------------------------------------------------
+    # Permanently-failed mktdata ticker refdata fallback (LN Equity etc.)
+    # ------------------------------------------------------------------
+
+    def _maybe_refresh_permanently_failed_tickers(self, sess):
+        """Periodically fetch PX_LAST via //blp/refdata for tickers that can
+        never get a //blp/mktdata subscription (e.g. LN Equity rcode=-11).
+
+        Runs every 60 seconds (much faster than the 300s mktdata retry) to
+        provide a reasonable real-time-data approximation for these tickers.
+        """
+        if not self._refdata_service_available:
+            return
+        if not self._mktdata_permanently_failed:
+            return
+        now = datetime.now()
+        if not hasattr(self, "_permfail_last_refresh"):
+            self._permfail_last_refresh: Optional[datetime] = None
+        if self._permfail_last_refresh is not None and (now - self._permfail_last_refresh).total_seconds() < 60:
+            return
+        self._permfail_last_refresh = now
+
+        tickers = sorted(self._mktdata_permanently_failed)
+        try:
+            svc = sess.getService("//blp/refdata")
+            req = svc.createRequest("ReferenceDataRequest")
+            securities = req.getElement("securities")
+            for t in tickers:
+                securities.appendValue(t)
+            fields = req.getElement("fields")
+            fields.appendValue("PX_LAST")
+            sess.sendRequest(req, correlationId=blpapi.CorrelationId("__permfail_refdata__"))
+            logger.warning(
+                "[MKTDATA PERMFAIL REFDATA] Sent PX_LAST request for %d permanently-failed tickers: %s",
+                len(tickers), tickers[:5],
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send permanently-failed refdata request: {e}")
+
+    def _process_permfail_refdata_response(self, msg):
+        """Process PX_LAST refdata response for permanently-failed mktdata tickers.
+
+        Stores PX_LAST in ``_permfail_last_prices``, which ``get_orders()``
+        injects into each order's ``lastPrice`` field (so compliance and
+        frontend see the latest price). NOT stored in ``_price_changes`` —
+        that dict feeds ``pctChange`` and would misrepresent a price value as
+        a percentage.
+        """
+        try:
+            if not msg.hasElement("securityData"):
+                return
+            sd = msg.getElement("securityData")
+            updated = 0
+            for i in range(sd.numValues()):
+                entry = sd.getValueAsElement(i)
+                sec = entry.getElementAsString("security")
+                if entry.hasElement("fieldData"):
+                    fd = entry.getElement("fieldData")
+                    if fd.hasElement("PX_LAST"):
+                        px = fd.getElementAsFloat("PX_LAST")
+                        if px > 0:
+                            self._permfail_last_prices[sec] = px
+                            updated += 1
+            if updated:
+                logger.warning(
+                    "[MKTDATA PERMFAIL REFDATA] Updated PX_LAST for %d permanently-failed tickers",
+                    updated,
+                )
+        except Exception as e:
+            logger.warning(f"Error processing permfail refdata response: {e}")
+
+    # ------------------------------------------------------------------
     # Request/response helpers (for ModifyOrder, CancelOrder, etc.)
     # ------------------------------------------------------------------
 
@@ -2162,6 +2289,15 @@ class BloombergEMSXService:
         # Save enriched data back to cache so future updates preserve calculated values
         with self._data_lock:
             for order in enriched:
+                # ── Inject permfail last-prices ──────────────────────
+                # For tickers that can never get mktdata (LN Equity etc.),
+                # patch the order's lastPrice via refdata PX_LAST so that
+                # compliance (notional check) and the frontend still see
+                # a current price.
+                permfail_px = self._permfail_last_prices.get(order.symbol)
+                if permfail_px is not None and permfail_px > 0:
+                    order.lastPrice = permfail_px
+                # ─────────────────────────────────────────────────────
                 self._orders[order.id] = order
         orders = enriched
 
