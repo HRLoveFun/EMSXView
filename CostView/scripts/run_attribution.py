@@ -20,8 +20,13 @@ from CostView.src.attribution.aggregator import (
     aggregate_cells, load_fill_metrics, pairwise_welch_bh, METRICS,
 )
 from CostView.src.attribution.config import get_active_config, seed_default_config
+from CostView.src.attribution.repositories import (
+    SqliteAttributionConfigRepository,
+    SqliteBarDataRepository,
+    SqliteFillRepository,
+    SqliteRegimeRepository,
+)
 from CostView.src.attribution.writer import run_metrics
-from CostView.src.regime.schema import REGIME_DB_PATH
 
 
 def main(argv=None) -> int:
@@ -46,13 +51,26 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if not args.inspect:
-        result = run_metrics(args.start, args.end)
+        # Create repository instances for dependency injection
+        fill_repo = SqliteFillRepository()
+        bar_repo = SqliteBarDataRepository()
+        regime_repo = SqliteRegimeRepository()
+        config_repo = SqliteAttributionConfigRepository()
+
+        result = run_metrics(
+            args.start, args.end,
+            fill_repo=fill_repo,
+            bar_repo=bar_repo,
+            regime_repo=regime_repo,
+            config_repo=config_repo,
+        )
         print("== run_metrics ==")
         print(json.dumps(result, indent=2, default=str))
 
     # Aggregate
-    seed_default_config(REGIME_DB_PATH)
-    cfg = get_active_config(REGIME_DB_PATH)
+    config_repo = SqliteAttributionConfigRepository()
+    seed_default_config(config_repo=config_repo)
+    cfg = get_active_config(config_repo=config_repo)
     if cfg is None:
         print("ERROR: no active attribution config", file=sys.stderr)
         return 2
@@ -61,9 +79,12 @@ def main(argv=None) -> int:
     if args.regime_dim:
         by = by + [args.regime_dim]
 
+    regime_repo = SqliteRegimeRepository()
     df = load_fill_metrics(args.start, args.end,
                            config_version=args.config_version,
-                           regime_dim=args.regime_dim)
+                           regime_dim=args.regime_dim,
+                           regime_repo=regime_repo,
+                           config_repo=config_repo)
     if df.empty:
         print("(no rows)")
         return 0

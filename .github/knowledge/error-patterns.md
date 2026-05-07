@@ -316,3 +316,17 @@
 - **Date**: 2026-05-05
 - **Files**: ExecutionView/backend/api/data/broker_hand_instruction.json, ExecutionView/backend/api/services/route_service.py, ExecutionView/backend/api/services/bloomberg_adapter.py
 - **Lessons**: 1. HAND_INSTRUCTION 是 broker 级别的 Bloomberg EMSX 配置，需券商端配合激活。2. 新增 broker 必须先在 broker_hand_instruction.json 中配置，再联系 Bloomberg 确认该值已被券商接受。3. "Invalid Handling Instruction" 错误 99% 是券商/Bloomberg 端问题，非代码 bug。
+
+
+---
+
+## Pattern: batch-route-black-screen-no-error-boundary
+
+- **Signature**: 点击 batch route/modify 的 Validate 或 Submit 按钮后，整个页面变白/黑（React 组件树崩溃）
+- **Root Cause**: 项目缺少 ErrorBoundary 错误边界 + 部分异步提交函数（BatchModifyDialog.runSubmit）缺少 try-catch 保护 + streamNdjsonBatch 缺少超时机制。任何未捕获异常（buildRequest 抛出、回调异常、网络错误等）都会向上传播到 React 根组件，导致整个页面空白。
+- **Resolution**:
+1. 创建 ErrorBoundary 组件包裹主内容区，确保局部崩溃不会导致全页面空白 2. 为 BatchModifyDialog.runSubmit 添加 try-catch（与 BatchRouteOrderDialog 保持一致） 3. 使用 ref 同步 summary 状态，解决陈旧闭包问题 4. 为 streamNdjsonBatch 添加 AbortSignal.timeout 超时保护（5分钟）
+- **Status**: Resolved
+- **Date**: 2026-05-06
+- **Files**: ExecutionView/frontend/src/components/error-boundary.tsx, ExecutionView/frontend/src/App.tsx, ExecutionView/frontend/src/components/batch-operation-dialogs.tsx, ExecutionView/frontend/src/services/api.ts
+- **Lessons**: 1. 所有 React 项目必须有 ErrorBoundary 包裹 2. 所有异步提交函数必须包裹 try-catch 3. setState 异步更新后不能立即读取状态值，应使用 ref 或 onSummary 回调 4. NDJSON 流式请求必须有超时机制

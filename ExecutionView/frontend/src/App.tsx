@@ -9,6 +9,7 @@ import { StartupGate } from './components/startup-gate';
 import { SubOrderReviewPanel } from './components/sub-order-review-panel';
 import { WorkspaceModuleTabs } from './sections/WorkspaceModuleTabs';
 import { Spinner } from './components/ui/spinner';
+import { ErrorBoundary } from './components/error-boundary';
 import { tokenService } from './services/api';
 import { createRealtimeClient, type RealtimeClient } from './services/realtime';
 import { useAppShellState } from './hooks/use-app-shell-state';
@@ -283,6 +284,7 @@ function App() {
       />
 
       <main className="flex-1 p-4 space-y-4">
+        <ErrorBoundary label="MainContent">
         {shouldShowStartupGate ? (
           <StartupGate
             phase={startupStatus?.phase ?? 'backend_starting'}
@@ -399,6 +401,7 @@ function App() {
             }
           />
         )}
+        </ErrorBoundary>
       </main>
 
       <ToastContainer

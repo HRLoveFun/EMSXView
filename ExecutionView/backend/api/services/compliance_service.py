@@ -1,10 +1,10 @@
 """Pre-trade compliance checks for route / modify-route operations.
 
-Three hard-block rules are evaluated in USD-equivalent notional terms:
+Three rules are evaluated in USD-equivalent notional terms:
 
-  1. NOTIONAL_TOO_SMALL — $Value < USD_NOTIONAL_MIN (default 10,000)
-  2. NOTIONAL_TOO_LARGE — $Value > USD_NOTIONAL_MAX (default 49,000,000)
-  3. JP_ODD_LOT       — JP-listed instrument and qty not multiple of round-lot
+  1. NOTIONAL_TOO_SMALL — $Value < USD_NOTIONAL_MIN (default 10,000) — **soft warn**
+  2. NOTIONAL_TOO_LARGE — $Value > USD_NOTIONAL_MAX (default 49,000,000) — **hard block**
+  3. JP_ODD_LOT       — JP-listed instrument and qty not multiple of round-lot — **hard block**
 
 A fourth conservative rule is applied when the notional cannot be estimated
 (MARKET order with no last price): NOTIONAL_UNKNOWN — also a hard block, in
@@ -154,8 +154,9 @@ def _check_notional(
         violations.append(
             Violation(
                 code="NOTIONAL_TOO_SMALL",
+                severity="WARN",
                 message=(
-                    f"USD notional {notional_usd:,.2f} is below the minimum "
+                    f"USD notional {notional_usd:,.2f} is below the recommended minimum "
                     f"{min_thr:,.0f}."
                 ),
                 details={

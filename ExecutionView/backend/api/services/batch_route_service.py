@@ -223,13 +223,18 @@ def _evaluate_route_item(
         stop_price=request.stopPrice,
         order_type=request.orderType,
     )
-    if violations:
+    # Separate hard-block from soft-warn violations. Only BLOCK severtiy
+    # prevents the route; WARN violations are carried on a SUCCESS result
+    # so the UI can surface the advisory message.
+    block_violations = [v for v in violations if v.severity == "BLOCK"]
+    warn_violations = [v for v in violations if v.severity == "WARN"]
+    if block_violations:
         return (
             BatchOperationItemResult(
                 key=rkey,
                 status="BLOCKED",
                 message="Compliance check failed",
-                violations=violations,
+                violations=violations,  # all violations for full diagnostics
             ),
             None,
         )
@@ -239,6 +244,7 @@ def _evaluate_route_item(
             key=rkey,
             status="SUCCESS",
             message="Validated",
+            violations=warn_violations,  # carry soft warnings
         ),
         request,
     )
@@ -300,7 +306,12 @@ def _evaluate_modify_item(
         new_stop_price=new_stop_price,
         new_order_type=request.orderType,
     )
-    if violations:
+    # Separate hard-block from soft-warn violations. Only BLOCK severtiy
+    # prevents the modify; WARN violations are carried on a SUCCESS result
+    # so the UI can surface the advisory message.
+    block_violations = [v for v in violations if v.severity == "BLOCK"]
+    warn_violations = [v for v in violations if v.severity == "WARN"]
+    if block_violations:
         return (
             BatchOperationItemResult(
                 key=key,
@@ -312,7 +323,12 @@ def _evaluate_modify_item(
         )
 
     return (
-        BatchOperationItemResult(key=key, status="SUCCESS", message="Validated"),
+        BatchOperationItemResult(
+            key=key,
+            status="SUCCESS",
+            message="Validated",
+            violations=warn_violations,
+        ),
         request,
     )
 
@@ -454,6 +470,7 @@ async def _submit_route(
     sem: asyncio.Semaphore,
     rkey: str,
     validated_req: RouteOrderRequest,
+    violations: Optional[List[Violation]] = None,
 ) -> BatchOperationItemResult:
     """Submit a single validated route under the semaphore; log RTT."""
     async with sem:
@@ -471,6 +488,7 @@ async def _submit_route(
                 status="SUCCESS",
                 message=f"Route created (routeId={route_id})" if route_id else "Route created",
                 routeId=route_id,
+                violations=violations or [],
             )
         except HTTPException as exc:
             rtt_ms = (time.monotonic() - t0) * 1000.0
@@ -496,6 +514,7 @@ async def _submit_modify(
     sem: asyncio.Semaphore,
     mkey: str,
     validated_req: ModifyRouteRequest,
+    violations: Optional[List[Violation]] = None,
 ) -> BatchOperationItemResult:
     async with sem:
         t0 = time.monotonic()
@@ -506,7 +525,10 @@ async def _submit_modify(
                 "batch-modify item key=%s status=SUCCESS rtt_ms=%.1f",
                 mkey, rtt_ms,
             )
-            return BatchOperationItemResult(key=mkey, status="SUCCESS", message="Route modified")
+            return BatchOperationItemResult(
+                key=mkey, status="SUCCESS", message="Route modified",
+                violations=violations or [],
+            )
         except HTTPException as exc:
             rtt_ms = (time.monotonic() - t0) * 1000.0
             detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
@@ -557,8 +579,10 @@ async def stream_batch_route(
             final_results.append(result)
             yield _to_ndjson_line(result)
             continue
+        # Forward any WARN violations from the evaluation result so they
+        # appear on the final SUCCESS line returned by _submit_route.
         pending.append(asyncio.create_task(
-            _submit_route(bloomberg, sem, result.key, validated_req)
+            _submit_route(bloomberg, sem, result.key, validated_req, result.violations)
         ))
 
     for coro in asyncio.as_completed(pending):
@@ -597,7 +621,7 @@ async def stream_batch_modify(
             yield _to_ndjson_line(result)
             continue
         pending.append(asyncio.create_task(
-            _submit_modify(bloomberg, sem, result.key, validated_req)
+            _submit_modify(bloomberg, sem, result.key, validated_req, result.violations)
         ))
 
     for coro in asyncio.as_completed(pending):

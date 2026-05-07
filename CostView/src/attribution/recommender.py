@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
-from CostView.src.regime.schema import REGIME_DB_PATH, connect as connect_regime
-
 from .aggregator import bootstrap_ci_mean
 from .config import get_active_config
+
+if TYPE_CHECKING:
+    from .protocols import AttributionConfigRepository, RegimeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,11 @@ def recommend(
     min_n: int = 30,
     pct_adv_window: float = 0.5,     # +/- 50% around size_pct_adv
     config_version: Optional[str] = None,
-    db_path: Path = REGIME_DB_PATH,
+    db_path: Optional[Path] = None,
     bootstrap_n: int = 5000,
     rng_seed: int = 42,
+    regime_repo: Optional["RegimeRepository"] = None,
+    config_repo: Optional["AttributionConfigRepository"] = None,
 ) -> pd.DataFrame:
     """Return DataFrame: broker, algo, n, mean, ci_lo, ci_hi (sorted by mean asc).
 
@@ -45,11 +48,27 @@ def recommend(
       1. SELECT from fill_attribution_metrics filtered by market_code+side+pct_adv window.
       2. Optional JOIN to fill_regime_labels for vol_regime / liq_regime match.
       3. group by broker+algo; require n >= min_n; bootstrap CI; sort by mean asc.
+
+    Supports two calling conventions:
+      1. Pass regime_repo and config_repo directly (preferred).
+      2. Pass db_path to auto-create repositories (legacy).
     """
     if metric not in ("is_bps", "vwap_bps"):
         raise ValueError(f"unsupported metric: {metric}")
+
+    # Resolve repository instances (legacy fallback)
+    if regime_repo is None or config_repo is None:
+        if db_path is None:
+            from CostView.src.regime.schema import REGIME_DB_PATH as _DEFAULT_PATH
+            db_path = _DEFAULT_PATH
+        from .repositories import SqliteAttributionConfigRepository, SqliteRegimeRepository
+        if regime_repo is None:
+            regime_repo = SqliteRegimeRepository(db_path)
+        if config_repo is None:
+            config_repo = SqliteAttributionConfigRepository(db_path)
+
     if config_version is None:
-        cfg = get_active_config(db_path)
+        cfg = get_active_config(config_repo=config_repo)
         if cfg is None:
             raise RuntimeError("no active attribution config")
         config_version = cfg.version_id
@@ -57,7 +76,8 @@ def recommend(
     lo = max(0.0, size_pct_adv * (1.0 - pct_adv_window))
     hi = size_pct_adv * (1.0 + pct_adv_window)
 
-    params: list = [config_version, market, int(side), lo, hi]
+    # Build query parameters for regime_repo.get_recommendations()
+    params: List = [config_version, market, int(side), lo, hi]
     join_sql = ""
     where_extra = ""
     if vol_regime or liq_regime:
@@ -77,22 +97,12 @@ def recommend(
             where_extra += " AND frl.liq_regime = ? "
             params.append(liq_regime)
 
-    sql = f"""
-        SELECT fam.broker, fam.algo, fam.{metric} AS m
-        FROM fill_attribution_metrics fam
-        {join_sql}
-        WHERE fam.config_version = ?
-          AND fam.market_code = ?
-          AND fam.side = ?
-          AND fam.pct_adv BETWEEN ? AND ?
-          AND fam.{metric} IS NOT NULL
-          {where_extra}
-    """
-    conn = connect_regime(db_path)
-    try:
-        df = pd.read_sql_query(sql, conn, params=params)
-    finally:
-        conn.close()
+    df = regime_repo.get_recommendations(
+        market=market, side=side, lo=lo, hi=hi,
+        metric=metric, config_version=config_version,
+        join_sql=join_sql, where_extra=where_extra, params=params,
+    )
+
     if df.empty:
         return pd.DataFrame(columns=["broker", "algo", "n", "mean", "ci_lo", "ci_hi"])
 

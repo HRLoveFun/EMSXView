@@ -21,7 +21,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .database_access import AccessTier
+from .db.connection import AccessTier
 from .outdated_tickers import load_outdated_ticker_set
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config

@@ -1,0 +1,148 @@
+{
+    "EMSX": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX",
+        "path": null
+    },
+    "EMSX.CostView": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.CostView",
+        "path": null
+    },
+    "EMSX.CostView.examples": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.CostView.examples",
+        "path": null
+    },
+    "EMSX.CostView.src": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.CostView.src",
+        "path": null
+    },
+    "EMSX.CostView.src.attribution": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.CostView.src.attribution",
+        "path": null
+    },
+    "EMSX.CostView.src.regime": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.CostView.src.regime",
+        "path": null
+    },
+    "EMSX.CostView.src.storage": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.CostView.src.storage",
+        "path": null
+    },
+    "EMSX.ExecutionView": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView",
+        "path": null
+    },
+    "EMSX.ExecutionView.backend": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView.backend",
+        "path": null
+    },
+    "EMSX.ExecutionView.backend.api": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView.backend.api",
+        "path": null
+    },
+    "EMSX.ExecutionView.backend.api.models": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView.backend.api.models",
+        "path": null
+    },
+    "EMSX.ExecutionView.backend.api.repositories": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView.backend.api.repositories",
+        "path": null
+    },
+    "EMSX.ExecutionView.backend.api.routers": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView.backend.api.routers",
+        "path": null
+    },
+    "EMSX.ExecutionView.backend.api.services": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.ExecutionView.backend.api.services",
+        "path": null
+    },
+    "EMSX.platform_data": {
+        "bacon": 1,
+        "imported_by": [
+            "__main__"
+        ],
+        "name": "EMSX.platform_data",
+        "path": null
+    },
+    "__main__": {
+        "bacon": 0,
+        "imported_by": [
+            "__main__"
+        ],
+        "imports": [
+            "EMSX",
+            "EMSX.CostView",
+            "EMSX.CostView.examples",
+            "EMSX.CostView.src",
+            "EMSX.CostView.src.attribution",
+            "EMSX.CostView.src.regime",
+            "EMSX.CostView.src.storage",
+            "EMSX.ExecutionView",
+            "EMSX.ExecutionView.backend",
+            "EMSX.ExecutionView.backend.api",
+            "EMSX.ExecutionView.backend.api.models",
+            "EMSX.ExecutionView.backend.api.repositories",
+            "EMSX.ExecutionView.backend.api.routers",
+            "EMSX.ExecutionView.backend.api.services",
+            "EMSX.platform_data",
+            "__main__"
+        ],
+        "name": "__main__",
+        "path": null
+    }
+}

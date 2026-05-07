@@ -39,7 +39,7 @@ from platform_data.adapters import (
     ScorecardFilters,
     ScorecardReport,
 )
-from CostView.src.tca_query_service import SCORECARD_COHORTS
+from platform_data.contracts import SCORECARD_COHORTS
 
 from ._pipeline_jobs import get_job, trigger_pipeline
 
@@ -433,58 +433,41 @@ async def regime_distribution(
     if not (len(start_date) == 10 and len(end_date) == 10):
         raise HTTPException(status_code=400, detail="dates must be ISO YYYY-MM-DD")
 
-    import sqlite3
-    db_path = _COSTVIEW_ROOT / "data" / "regime.db"
-    if not db_path.exists():
+    db_adapter = platform_data.database
+    if db_adapter is None:
+        raise HTTPException(status_code=503, detail="CostView database adapter not configured")
+
+    try:
+        rows_data = db_adapter.get_regime_distribution(
+            start_date=start_date,
+            end_date=end_date,
+            regime_dim=regime_dim,
+        )
+    except FileNotFoundError:
         raise HTTPException(status_code=503, detail="regime.db not built yet")
 
-    conn = sqlite3.connect(str(db_path))
-    try:
-        cfg_row = conn.execute(
-            "SELECT version_id FROM audit_regime_config_versions WHERE is_active=1 LIMIT 1"
-        ).fetchone()
-        cfg_version = cfg_row[0] if cfg_row else None
-        if cfg_version is None:
-            return RegimeDistributionResponse(
-                success=True, rows=[], regime_dim=regime_dim,
-                config_version=None, start_date=start_date, end_date=end_date,
-            )
-        # COALESCE empty regime to 'none' bucket
-        sql = f"""
-            SELECT trade_date AS date, market_code,
-                   COALESCE({regime_dim}, 'none') AS regime, COUNT(*) AS n
-            FROM fill_regime_labels
-            WHERE config_version = ?
-              AND trade_date BETWEEN ? AND ?
-            GROUP BY trade_date, market_code, COALESCE({regime_dim}, 'none')
-            ORDER BY trade_date, market_code
-        """
-        cur = conn.execute(sql, (cfg_version, start_date, end_date))
-        rows_raw = cur.fetchall()
-    finally:
-        conn.close()
+    if not rows_data:
+        return RegimeDistributionResponse(
+            success=True, rows=[], regime_dim=regime_dim,
+            config_version=None, start_date=start_date, end_date=end_date,
+        )
 
-    grouped: dict[tuple[str, str], dict[str, int]] = {}
-    for d, mc, regime, n in rows_raw:
-        key = (d, mc)
-        bucket = grouped.setdefault(key, {})
-        bucket[str(regime)] = int(n)
-
+    config_version = rows_data[0].get("config_version")
     out: list[RegimeDistributionRow] = []
-    for (d, mc), counts in grouped.items():
-        total = sum(counts.values())
+    for row in rows_data:
         out.append(RegimeDistributionRow(
-            date=d, market_code=mc,
-            low=counts.get("low", 0),
-            normal=counts.get("normal", 0),
-            high=counts.get("high", 0),
-            extreme=counts.get("extreme", 0),
-            none=counts.get("none", 0),
-            total=total,
+            date=row["date"],
+            market_code=row["market_code"],
+            low=row.get("low", 0),
+            normal=row.get("normal", 0),
+            high=row.get("high", 0),
+            extreme=row.get("extreme", 0),
+            none=row.get("none_count", 0),
+            total=row.get("total", 0),
         ))
     return RegimeDistributionResponse(
         success=True, rows=out, regime_dim=regime_dim,
-        config_version=cfg_version, start_date=start_date, end_date=end_date,
+        config_version=config_version, start_date=start_date, end_date=end_date,
     )
 
 

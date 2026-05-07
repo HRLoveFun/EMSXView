@@ -11,6 +11,7 @@ integration surface for code that needs platform data access.
 
 from .adapters import (
     CostViewAnalyticsAdapter,
+    CostViewDatabaseAdapter,
     ExecutionOperationalDataAdapter,
     MarketReferenceDataAdapter,
     PlatformDataAccess,
@@ -66,6 +67,7 @@ from .adapters import (
 
 __all__ = [
     "CostViewAnalyticsAdapter",
+    "CostViewDatabaseAdapter",
     "ExecutionOperationalDataAdapter",
     "MarketReferenceDataAdapter",
     "PlatformDataAccess",

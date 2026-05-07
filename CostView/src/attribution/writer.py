@@ -2,13 +2,13 @@
 Per-fill attribution metrics writer (Stage 10 of the regime/attribution pipeline).
 
 For each order_as_of_date in [start, end]:
-  1. Load fills + route ticker/side from processed_fills.db
-  2. Load 1-min bar panels for distinct tickers from raw_bdib.db
+  1. Load fills + route ticker/side from processed_fills.db (via FillRepository)
+  2. Load 1-min bar panels for distinct tickers from raw_bdib.db (via BarDataRepository)
   3. Compute arrival_px / interval_vwap / mid_at_fill / mid+N (per active config)
   4. Compute is_bps / vwap_bps / reversal_Nm_bps (side-aware)
-  5. Pull pct_adv from bdib_daily_summary.adv_20d (proxy for ADV)
-  6. Batch UPSERT into regime.db.fill_attribution_metrics (PK includes config_version)
-  7. Write audit_pipeline_runs row
+  5. Pull pct_adv from bdib_daily_summary.adv_20d (via BarDataRepository)
+  6. Batch UPSERT into regime.db.fill_attribution_metrics (via RegimeRepository)
+  7. Write audit_pipeline_runs row (via RegimeRepository)
 
 Downstream (Stage 11 = aggregator) reads back this table and builds the
 broker x algo x regime cells with bootstrap CI + Welch t + BH-FDR.
@@ -16,122 +16,46 @@ broker x algo x regime cells with bootstrap CI + Welch t + BH-FDR.
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import logging
 import math
-import sqlite3
 import time
-from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from CostView.src.regime.market_code import derive_market_code
-from CostView.src.regime.schema import REGIME_DB_PATH, connect as connect_regime, ensure_schema_current
 
 from .benchmarks import (
-    PROCESSED_FILLS_DB,
-    RAW_BDIB_DB,
     add_minutes,
     compute_route_arrival_minutes,
     interval_volume,
     interval_vwap,
-    load_bar_panels_for_date,
-    load_fills_for_date,
     lookup_mid_at_or_after,
     _floor_to_minute,
 )
-from .config import ActiveAttributionConfig, get_active_config, seed_default_config
+from .config import ActiveAttributionConfig
+from .dto import AttributionRowDTO, PipelineRunDTO, PipelineRunResultDTO
 from .metrics import parse_side, reversal_bps, slippage_bps
+from .protocols import (
+    AttributionConfigRepository,
+    BarDataRepository,
+    FillRepository,
+    RegimeRepository,
+)
 
 logger = logging.getLogger(__name__)
 
 SOURCE_VERSION = "attribution.metrics.writer/1"
 
-_FLAG_NO_ARRIVAL = 1
+__FLAG_NO_ARRIVAL = 1
 _FLAG_NO_INTERVAL_VWAP = 2
 _FLAG_NO_MID_AT_FILL = 4
 _FLAG_NO_MID_PLUS_BASE = 8  # bit position multiplier for reversal windows
 
 
-# ----------------------------------------------------------------------------
-# Snapshot table (P2.9) - lazy create-if-missing
-# ----------------------------------------------------------------------------
-_SNAPSHOT_DDL = """
-CREATE TABLE IF NOT EXISTS audit_research_snapshots (
-    run_id           INTEGER PRIMARY KEY,
-    stage_name       TEXT NOT NULL,
-    config_version   TEXT NOT NULL,
-    start_date       TEXT NOT NULL,
-    end_date         TEXT NOT NULL,
-    rows_written     INTEGER NOT NULL,
-    rows_total       INTEGER NOT NULL,
-    snapshot_sha256  TEXT NOT NULL,
-    created_at       TIMESTAMP NOT NULL
-)
-"""
-
-
-def _compute_snapshot_sha256(
-    regime_conn: sqlite3.Connection,
-    config_version: str,
-    start_iso: str,
-    end_iso: str,
-) -> Tuple[str, int]:
-    """Return (sha256_hex, total_rows_in_range) over a deterministic top-100
-    sample of (OrderId, RouteId, FillId) keys + their is_bps values.
-
-    Uses ORDER BY ascending PK so the sample is reproducible across runs.
-    """
-    cur = regime_conn.execute(
-        """SELECT OrderId, RouteId, FillId, order_as_of_date_iso, is_bps
-           FROM fill_attribution_metrics
-           WHERE config_version=? AND order_as_of_date_iso BETWEEN ? AND ?
-           ORDER BY OrderId, RouteId, FillId, order_as_of_date_iso
-           LIMIT 100""",
-        (config_version, start_iso, end_iso),
-    )
-    h = hashlib.sha256()
-    for row in cur.fetchall():
-        oid, rid, fid, d, isb = row
-        h.update(f"{oid}|{rid}|{fid}|{d}|{isb}\n".encode("utf-8"))
-    total = regime_conn.execute(
-        """SELECT COUNT(*) FROM fill_attribution_metrics
-           WHERE config_version=? AND order_as_of_date_iso BETWEEN ? AND ?""",
-        (config_version, start_iso, end_iso),
-    ).fetchone()[0]
-    return h.hexdigest(), int(total)
-
-
-# ----------------------------------------------------------------------------
-# ADV loading
-# ----------------------------------------------------------------------------
-def _load_adv_map(
-    bdib_conn: sqlite3.Connection,
-    yyyymmdd: str,
-    tickers: List[str],
-) -> Dict[str, float]:
-    """Map equ_ticker -> adv_20d for the given trade_date."""
-    if not tickers:
-        return {}
-    out: Dict[str, float] = {}
-    CHUNK = 500
-    for i in range(0, len(tickers), CHUNK):
-        batch = tickers[i:i + CHUNK]
-        ph = ",".join(["?"] * len(batch))
-        sql = (
-            f"SELECT equ_ticker, adv_20d FROM bdib_daily_summary "
-            f"WHERE trade_date=? AND equ_ticker IN ({ph})"
-        )
-        for tk, adv in bdib_conn.execute(sql, [yyyymmdd] + batch).fetchall():
-            if adv is not None and adv > 0:
-                out[tk] = float(adv)
-    return out
-
-
-# ----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Per-date worker
-# ----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 def _iso_date(yyyymmdd: str) -> str:
     return f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:]}"
 
@@ -139,13 +63,13 @@ def _iso_date(yyyymmdd: str) -> str:
 def _process_one_date(
     yyyymmdd: str,
     cfg: ActiveAttributionConfig,
-    fills_conn: sqlite3.Connection,
-    bdib_conn: sqlite3.Connection,
-    regime_conn: sqlite3.Connection,
+    fill_repo: FillRepository,
+    bar_repo: BarDataRepository,
+    regime_repo: RegimeRepository,
     now_iso: str,
 ) -> Tuple[int, int]:
     """Process one trade date. Returns (rows_written, rows_skipped)."""
-    fills_df = load_fills_for_date(fills_conn, yyyymmdd)
+    fills_df = fill_repo.get_fills_for_date(yyyymmdd)
     if fills_df.empty:
         return 0, 0
     n_total = len(fills_df)
@@ -159,8 +83,8 @@ def _process_one_date(
         return 0, n_skip_meta
 
     distinct_tickers = sorted(fills_df["equ_ticker"].dropna().unique().tolist())
-    panels = load_bar_panels_for_date(bdib_conn, yyyymmdd, distinct_tickers)
-    adv_map = _load_adv_map(bdib_conn, yyyymmdd, distinct_tickers)
+    panels = bar_repo.get_bar_panels_for_date(yyyymmdd, distinct_tickers)
+    adv_map = bar_repo.get_adv_map(yyyymmdd, distinct_tickers)
     route_minutes = compute_route_arrival_minutes(fills_df)  # idx (OrderId, RouteId)
 
     # Per-route participation cache:
@@ -263,65 +187,42 @@ def _process_one_date(
             # weighs by route notional; this is just per-fill share footprint.)
             pct_adv = float(fill_shares) / float(adv)
 
-        rows.append((
-            str(fill.OrderId), str(fill.RouteId), str(fill.FillId), iso_date, cfg.version_id,
-            market_code, fill.Broker, fill.algo, side, fill_shares, fill_price,
-            float(fill.RouteShares) if pd.notna(fill.RouteShares) else None,
-            pct_adv, route_partic.get((fill.OrderId, fill.RouteId)),
-            arrival_px, ivwap,
-            mid_at, mids_plus.get(rev_windows[0] if len(rev_windows) > 0 else None),
-            mids_plus.get(rev_windows[1] if len(rev_windows) > 1 else None),
-            mids_plus.get(rev_windows[2] if len(rev_windows) > 2 else None),
-            is_bps, vwap_b, rev1, rev5, rev30,
-            flags, SOURCE_VERSION, now_iso,
+        rows.append(AttributionRowDTO(
+            order_id=str(fill.OrderId),
+            route_id=str(fill.RouteId),
+            fill_id=str(fill.FillId),
+            order_as_of_date_iso=iso_date,
+            config_version=cfg.version_id,
+            market_code=market_code,
+            broker=fill.Broker,
+            algo=fill.algo,
+            side=side,
+            fill_shares=fill_shares,
+            fill_price=fill_price,
+            route_shares=float(fill.RouteShares) if pd.notna(fill.RouteShares) else None,
+            pct_adv=pct_adv,
+            participation_rate=route_partic.get((fill.OrderId, fill.RouteId)),
+            arrival_px=arrival_px,
+            interval_vwap=ivwap,
+            mid_at_fill=mid_at,
+            mid_fill_plus_1m=mids_plus.get(rev_windows[0] if len(rev_windows) > 0 else None),
+            mid_fill_plus_5m=mids_plus.get(rev_windows[1] if len(rev_windows) > 1 else None),
+            mid_fill_plus_30m=mids_plus.get(rev_windows[2] if len(rev_windows) > 2 else None),
+            is_bps=is_bps,
+            vwap_bps=vwap_b,
+            reversal_1m_bps=rev1,
+            reversal_5m_bps=rev5,
+            reversal_30m_bps=rev30,
+            data_quality_flags=flags,
+            source_version=SOURCE_VERSION,
+            ingested_at=now_iso,
         ))
 
     if not rows:
         return 0, n_skip_meta + (n_total - len(fills_df))
 
-    # Batch UPSERT
-    BATCH = 5000
-    written = 0
-    sql = """
-    INSERT INTO fill_attribution_metrics
-      (OrderId, RouteId, FillId, order_as_of_date_iso, config_version,
-       market_code, broker, algo, side, fill_shares, fill_price,
-       route_shares, pct_adv, participation_rate,
-       arrival_px, interval_vwap,
-       mid_at_fill, mid_fill_plus_1m, mid_fill_plus_5m, mid_fill_plus_30m,
-       is_bps, vwap_bps, reversal_1m_bps, reversal_5m_bps, reversal_30m_bps,
-       data_quality_flags, source_version, ingested_at)
-    VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?,?, ?,?,?,?, ?,?,?,?,?, ?,?,?)
-    ON CONFLICT(OrderId, RouteId, FillId, order_as_of_date_iso, config_version)
-    DO UPDATE SET
-       market_code=excluded.market_code,
-       broker=excluded.broker, algo=excluded.algo, side=excluded.side,
-       fill_shares=excluded.fill_shares, fill_price=excluded.fill_price,
-       route_shares=excluded.route_shares, pct_adv=excluded.pct_adv,
-       participation_rate=excluded.participation_rate,
-       arrival_px=excluded.arrival_px, interval_vwap=excluded.interval_vwap,
-       mid_at_fill=excluded.mid_at_fill,
-       mid_fill_plus_1m=excluded.mid_fill_plus_1m,
-       mid_fill_plus_5m=excluded.mid_fill_plus_5m,
-       mid_fill_plus_30m=excluded.mid_fill_plus_30m,
-       is_bps=excluded.is_bps, vwap_bps=excluded.vwap_bps,
-       reversal_1m_bps=excluded.reversal_1m_bps,
-       reversal_5m_bps=excluded.reversal_5m_bps,
-       reversal_30m_bps=excluded.reversal_30m_bps,
-       data_quality_flags=excluded.data_quality_flags,
-       source_version=excluded.source_version,
-       ingested_at=excluded.ingested_at
-    """
-    for i in range(0, len(rows), BATCH):
-        chunk = rows[i:i + BATCH]
-        regime_conn.execute("BEGIN IMMEDIATE")
-        try:
-            regime_conn.executemany(sql, chunk)
-            regime_conn.execute("COMMIT")
-            written += len(chunk)
-        except Exception:
-            regime_conn.execute("ROLLBACK")
-            raise
+    # Batch UPSERT via Repository
+    written = regime_repo.upsert_attribution_metrics(rows)
 
     skipped = (n_total - len(fills_df)) + (len(fills_df) - len(rows))
     return written, skipped
@@ -333,37 +234,49 @@ def _process_one_date(
 def run_metrics(
     start_date_iso: str,
     end_date_iso: str,
-    db_path: Path = REGIME_DB_PATH,
+    *,
+    fill_repo: FillRepository,
+    bar_repo: BarDataRepository,
+    regime_repo: RegimeRepository,
+    config_repo: AttributionConfigRepository,
 ) -> Dict:
     """Compute attribution metrics for all dates in [start, end] inclusive.
 
     Inputs are ISO YYYY-MM-DD; converts to YYYYMMDD for cross-DB queries.
+    All database access is via the provided Repository interfaces.
     """
-    ensure_schema_current(db_path)
-    cfg_id = seed_default_config(db_path)
-    cfg = get_active_config(db_path)
-    if cfg is None:
+    config_repo.ensure_schema_current()
+    cfg_id = config_repo.seed_default_config()
+    cfg_dto = config_repo.get_active_config()
+    if cfg_dto is None:
         raise RuntimeError("no active attribution config")
+    cfg = ActiveAttributionConfig(
+        version_id=cfg_dto.version_id,
+        bench_methods=cfg_dto.bench_methods,
+        reversal_windows_min=cfg_dto.reversal_windows_min,
+        winsor_pct=cfg_dto.winsor_pct,
+        adv_window_days=cfg_dto.adv_window_days,
+        bootstrap_n=cfg_dto.bootstrap_n,
+        min_cell_n=cfg_dto.min_cell_n,
+        description=cfg_dto.description,
+    )
 
     now_iso = dt.datetime.now().isoformat(timespec="seconds")
     yyyymmdd_start = start_date_iso.replace("-", "")
     yyyymmdd_end = end_date_iso.replace("-", "")
 
-    regime_conn = connect_regime(db_path)
-    fills_conn = sqlite3.connect(str(PROCESSED_FILLS_DB))
-    bdib_conn = sqlite3.connect(str(RAW_BDIB_DB))
-
     # Audit run row (status='running' first, then update)
     run_started = now_iso
-    cur = regime_conn.execute(
-        """INSERT INTO audit_pipeline_runs
-           (stage_name, run_started_at, status, target_start_date,
-            target_end_date, config_version, schema_version)
-           VALUES (?,?,?,?,?,?,?)""",
-        ("attribution_metrics", run_started, "running",
-         start_date_iso, end_date_iso, cfg.version_id, 3),
+    run_dto = PipelineRunDTO(
+        stage_name="attribution_metrics",
+        run_started_at=run_started,
+        status="running",
+        target_start_date=start_date_iso,
+        target_end_date=end_date_iso,
+        config_version=cfg.version_id,
+        schema_version=3,
     )
-    run_id = cur.lastrowid
+    run_id = regime_repo.insert_pipeline_run(run_dto)
 
     rows_written = 0
     rows_skipped = 0
@@ -372,21 +285,14 @@ def run_metrics(
     t0 = time.time()
     try:
         # Discover dates with fills in range
-        dates_df = pd.read_sql_query(
-            "SELECT DISTINCT order_as_of_date FROM processed_fills "
-            "WHERE order_as_of_date BETWEEN ? AND ? "
-            "  AND ExecType='FILL' AND FillShares>0 AND FillPrice>0 "
-            "ORDER BY order_as_of_date",
-            fills_conn, params=(yyyymmdd_start, yyyymmdd_end),
-        )
-        dates = dates_df["order_as_of_date"].tolist()
+        dates = fill_repo.get_distinct_dates_in_range(yyyymmdd_start, yyyymmdd_end)
         logger.info("attribution_metrics: %d dates from %s to %s",
                     len(dates), start_date_iso, end_date_iso)
 
         for d in dates:
             d_iso = _iso_date(d)
             t = time.time()
-            w, s = _process_one_date(d, cfg, fills_conn, bdib_conn, regime_conn, now_iso)
+            w, s = _process_one_date(d, cfg, fill_repo, bar_repo, regime_repo, now_iso)
             rows_written += w
             rows_skipped += s
             logger.info("  %s: written=%d skipped=%d (%.2fs)", d_iso, w, s, time.time() - t)
@@ -397,38 +303,35 @@ def run_metrics(
     finally:
         duration_sec = round(time.time() - t0, 2)
         finished_at = dt.datetime.now().isoformat(timespec="seconds")
-        regime_conn.execute(
-            """UPDATE audit_pipeline_runs
-               SET run_finished_at=?, status=?, rows_written=?, rows_updated=?,
-                   error_message=?, duration_sec=?
-               WHERE run_id=?""",
-            (finished_at, "failed" if failed else "success",
-             rows_written, 0, err, duration_sec, run_id),
+        result_dto = PipelineRunResultDTO(
+            run_id=run_id,
+            run_finished_at=finished_at,
+            status="failed" if failed else "success",
+            rows_written=rows_written,
+            rows_updated=0,
+            error_message=err,
+            duration_sec=duration_sec,
         )
+        regime_repo.update_pipeline_run(result_dto)
         # P2.9: research snapshot hash (only on success).
         if not failed:
             try:
-                regime_conn.execute(_SNAPSHOT_DDL)
-                sha, total = _compute_snapshot_sha256(
-                    regime_conn, cfg.version_id, start_date_iso, end_date_iso,
+                sha, total = regime_repo.compute_snapshot_hash(
+                    cfg.version_id, start_date_iso, end_date_iso,
                 )
-                regime_conn.execute(
-                    """INSERT OR REPLACE INTO audit_research_snapshots
-                       (run_id, stage_name, config_version, start_date,
-                        end_date, rows_written, rows_total, snapshot_sha256,
-                        created_at)
-                       VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (run_id, "attribution_metrics", cfg.version_id,
-                     start_date_iso, end_date_iso, rows_written, total,
-                     sha, finished_at),
+                regime_repo.write_research_snapshot(
+                    run_id=run_id,
+                    config_version=cfg.version_id,
+                    start_date_iso=start_date_iso,
+                    end_date_iso=end_date_iso,
+                    rows_written=rows_written,
+                    rows_total=total,
+                    snapshot_sha256=sha,
+                    created_at=finished_at,
                 )
-                regime_conn.commit()
                 logger.info("snapshot sha256=%s rows_total=%d", sha[:16], total)
             except Exception as e:
                 logger.warning("snapshot write failed: %r", e)
-        regime_conn.close()
-        fills_conn.close()
-        bdib_conn.close()
 
     return {
         "config_version": cfg.version_id,

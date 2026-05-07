@@ -11,7 +11,7 @@
  *                NDJSON stream) so server-side compliance can hard-block bad rows.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react';
 import {
   Dialog,
@@ -190,6 +190,14 @@ export function BatchModifyDialog({
   const [errorMsg, setErrorMsg] = useState('');
   const [perRoute, setPerRoute] = useState<Record<string, { status?: 'SUCCESS' | 'BLOCKED' | 'FAILED'; message?: string; violations: Violation[] }>>({});
   const [summary, setSummary] = useState<BatchOperationResult | null>(null);
+  const summaryRef = useRef<BatchOperationResult | null>(null);
+
+  // Keep the ref in sync with the state so async callbacks (runSubmit)
+  // can read the latest summary without stale-closure problems.
+  const handleSummary = (s: BatchOperationResult) => {
+    summaryRef.current = s;
+    setSummary(s);
+  };
 
   // Detect a common (broker, strategyType) — strategy params are only safe
   // to edit collectively when this is uniform across all selected routes.
@@ -223,6 +231,7 @@ export function BatchModifyDialog({
       setNewQty(''); setNewOrderType(''); setNewLimitPrice('');
       setNewStopPrice(''); setNewTif(''); setNewNotes(''); setNotesDirty(false);
       setProgress(0); setErrorMsg(''); setPerRoute({}); setSummary(null);
+      summaryRef.current = null;
       setPhase('configure');
     }
   }, [open]);
@@ -325,7 +334,7 @@ export function BatchModifyDialog({
       };
     }
     setPerRoute(map);
-    setSummary(res.data);
+    handleSummary(res.data);
     setPhase('review');
   };
 
@@ -334,27 +343,36 @@ export function BatchModifyDialog({
     setPhase('submitting');
     setProgress(0);
     let count = 0;
-    const res = await apiService.streamBatchModifyRoutes(
-      buildRequest(false),
-      (item: BatchOperationItemResult) => {
-        count += 1;
-        setProgress(count);
-        setPerRoute(prev => ({
-          ...prev,
-          [item.key]: {
-            status: item.status,
-            message: item.message,
-            violations: item.violations,
-          },
-        }));
-        const route = routes.find(r => `${r.sequence}.${r.routeId}` === item.key);
-        if (route) onEachSubmitted?.(route, item.status);
-      },
-      (s: BatchOperationResult) => setSummary(s),
-    );
-    if (!res.success) setErrorMsg(res.error || 'Submission failed');
+    try {
+      const res = await apiService.streamBatchModifyRoutes(
+        buildRequest(false),
+        (item: BatchOperationItemResult) => {
+          count += 1;
+          setProgress(count);
+          setPerRoute(prev => ({
+            ...prev,
+            [item.key]: {
+              status: item.status,
+              message: item.message,
+              violations: item.violations,
+            },
+          }));
+          const route = routes.find(r => `${r.sequence}.${r.routeId}` === item.key);
+          if (route) onEachSubmitted?.(route, item.status);
+        },
+        (s: BatchOperationResult) => handleSummary(s),
+      );
+      if (!res.success) setErrorMsg(res.error || 'Submission failed');
+    } catch (err) {
+      setErrorMsg(`Submission error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
     setPhase('result');
-    if (summary && summary.failed === 0 && summary.blocked === 0) onComplete?.();
+    // Use the ref (always up to date) instead of the state `summary` which
+    // is stale in this closure because setSummary is async.
+    if (summaryRef.current) {
+      const s = summaryRef.current;
+      if (s.failed === 0 && s.blocked === 0) onComplete?.();
+    }
   };
 
   const close = () => {
@@ -502,7 +520,7 @@ export function BatchModifyDialog({
           {errorMsg && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{errorMsg}</AlertDescription>
+              <AlertDescription>{typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)}</AlertDescription>
             </Alert>
           )}
           {phase === 'result' && summary && (

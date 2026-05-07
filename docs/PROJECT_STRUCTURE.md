@@ -1,7 +1,7 @@
 # EMSX Project Structure
 
 > Current architecture reference for the EMSX Trading Platform
-> Last updated: 2026-04-22 | Version: 3.0
+> Last updated: 2026-05-07 | Version: 3.2
 
 ---
 
@@ -22,7 +22,7 @@
 The repository is converging on this target shape:
 
 - one canonical frontend shell
-- three business modules: MarketView, Execution, CostView
+- three business modules: MarketView, ExecutionView, CostView
 - one logical data domain with explicit subdomains and adapters
 
 This is an incremental evolution of the live codebase, not a big-bang rewrite.
@@ -32,7 +32,7 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 | Module | Role | Current implementation state |
 |---|---|---|
 | MarketView | Pre-trade analysis, market context, execution preparation | Shell anchor exists, domain capabilities still to be built |
-| Execution | Real-time order and route management via Bloomberg EMSX | Production-ready core |
+| ExecutionView | Real-time order and route management via Bloomberg EMSX | Production-ready core |
 | CostView | Post-trade analytics, TCA, data pipeline, reporting | Active data/analytics module with shell-integrated UI |
 
 ---
@@ -43,13 +43,13 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 Browser
   |
   v
-Execution/frontend (canonical shell)
+ExecutionView/frontend (canonical shell)
   |- MarketView module anchor
-  |- Execution workspace
+  |- ExecutionView workspace
   `- CostView module
   |
   v
-Execution/backend/api (FastAPI assembly layer)
+ExecutionView/backend/api (FastAPI assembly layer)
   |- routers/
   |- services/
   |- repositories/
@@ -62,8 +62,8 @@ Execution/backend/api (FastAPI assembly layer)
 
 Key runtime truth:
 
-- `Execution/frontend/src/App.tsx` is the canonical UI entry point.
-- `Execution/backend/api/main.py` is the application assembly entry point, not the sole location of business logic.
+- `ExecutionView/frontend/src/App.tsx` is the canonical UI entry point.
+- `ExecutionView/backend/api/main.py` is the application assembly entry point, not the sole location of business logic.
 - `CostView/src/` is the active analytics and pipeline implementation.
 - `platform_data/` is the shared adapter entry for the logical data domain.
 
@@ -79,7 +79,7 @@ EMSX/
 ├── start-services.bat
 ├── MarketView/
 │   └── README.md
-├── Execution/
+├── ExecutionView/
 │   ├── README.md
 │   ├── frontend/
 │   │   ├── package.json
@@ -114,10 +114,30 @@ EMSX/
 │   │   ├── tca_query_service.py
 │   │   ├── fill_fetch.py
 │   │   ├── bdib_fetcher.py
-│   │   ├── raw_fills_db.py
-│   │   ├── processed_fills_db.py
-│   │   ├── raw_bdib_db.py
-│   │   ├── fill_bdib_db.py
+│   │   ├── db/                          # Database subsystem (Phase 1-2)
+│   │   │   ├── __init__.py
+│   │   │   ├── connection.py            # ConnectionManager + AccessTier
+│   │   │   ├── protocols.py             # Repository Protocols (12)
+│   │   │   ├── dto.py                   # Data transfer objects
+│   │   │   ├── facade.py                # CostViewDatabase unified entry
+│   │   │   ├── repositories/            # Concrete Repository implementations
+│   │   │   │   ├── fills_read.py
+│   │   │   │   ├── fills_write.py
+│   │   │   │   ├── raw_fills_read.py
+│   │   │   │   ├── raw_fills_write.py
+│   │   │   │   ├── market_data_read.py
+│   │   │   │   ├── market_data_write.py
+│   │   │   │   ├── integrated.py
+│   │   │   │   └── regime.py
+│   │   │   └── schema/                 # Unified schema management
+│   │   │       ├── columns.py
+│   │   │       └── migrations/
+│   │   │           └── manager.py       # MigrationManager
+│   │   ├── raw_fills_db.py              # (deprecated, migrating to db/)
+│   │   ├── raw_bdib_db.py              # (deprecated, migrating to db/)
+│   │   ├── fill_bdib_db.py             # (deprecated, migrating to db/)
+│   │   ├── processed_raw_bdib_db.py    # (deprecated, migrating to db/)
+│   │   ├── processed_fills_db/         # Package (Facade + sub-repos)
 │   │   └── daily_metrics_calculator.py
 │   ├── scripts/
 │   ├── tests/
@@ -127,7 +147,13 @@ EMSX/
 │       └── src/
 ├── platform_data/
 │   ├── __init__.py
-│   └── adapters.py
+│   ├── adapters.py                     # Cross-module adapters
+│   ├── repositories.py                 # DatabaseView diagnostic queries
+│   └── contracts/                      # Cross-module data contracts
+│       ├── __init__.py
+│       ├── fill_contracts.py           # SCORECARD_COHORTS + fill types
+│       ├── market_data_contracts.py
+│       └── regime_contracts.py
 ├── docs/
 │   ├── README.md
 │   ├── PROJECT_STRUCTURE.md
@@ -151,12 +177,12 @@ EMSX/
 
 Canonical entry:
 
-- `Execution/frontend/src/App.tsx`
+- `ExecutionView/frontend/src/App.tsx`
 
 Responsibilities:
 
 - owns the platform shell
-- mounts MarketView, Execution, and CostView module surfaces
+- mounts MarketView, ExecutionView, and CostView module surfaces
 - remains the only authoritative browser entry point
 
 Current module split inside the shell:
@@ -169,7 +195,7 @@ Current module split inside the shell:
 
 Canonical entry:
 
-- `Execution/backend/api/main.py`
+- `ExecutionView/backend/api/main.py`
 
 Responsibilities:
 
@@ -193,6 +219,7 @@ Canonical entries:
 
 - `CostView/src/pipeline.py`
 - `CostView/src/tca_query_service.py`
+- `CostView/src/db/facade.py` (CostViewDatabase — unified DB entry point)
 
 Responsibilities:
 
@@ -201,17 +228,33 @@ Responsibilities:
 - cross-database TCA queries
 - analytical metric assembly and reporting
 
+Database subsystem (`CostView/src/db/`):
+
+- `connection.py` — ConnectionManager with AccessTier enforcement across 6 SQLite DBs
+- `protocols.py` — 12 Repository Protocols (read/write/admin per domain)
+- `dto.py` — Data transfer objects for cross-layer communication
+- `facade.py` — CostViewDatabase facade holding all repositories
+- `repositories/` — 10 concrete repository implementations
+- `schema/` — Unified column definitions + MigrationManager
+
+Legacy DB classes (`raw_fills_db.py` etc.) are deprecated and marked for migration.
+
 ### 4.4 Shared logical data-domain entry
 
-Canonical entry:
+Canonical entries:
 
 - `platform_data/adapters.py`
+- `platform_data/contracts/`
+- `platform_data/repositories.py`
 
 Responsibilities:
 
 - exposes a stable adapter layer for platform code
 - preserves ownership boundaries between Execution operational data and CostView analytical data
 - avoids direct cross-domain deep imports becoming the default integration pattern
+- `contracts/` defines the only legal cross-module data types (e.g. `SCORECARD_COHORTS`)
+- `CostViewDatabaseAdapter` provides read-only regime/fills/market data queries
+- `repositories.py` provides DatabaseView diagnostic query access
 
 ---
 
@@ -240,8 +283,8 @@ Workload:
 
 Current entry points:
 
-- `Execution/backend/api/db.py`
-- `Execution/backend/api/service_provider.py`
+- `ExecutionView/backend/api/db.py`
+- `ExecutionView/backend/api/service_provider.py`
 - `platform_data.build_platform_data_access(...).operational`
 
 Current storage model:
@@ -289,7 +332,7 @@ Cross-domain access should follow this order of preference:
 
 - `CostView/frontend/` is downgraded to legacy prototype status.
 - It is not the canonical CostView UI.
-- New production UI work should go to `Execution/frontend/src/modules/costview/`.
+- New production UI work should go to `ExecutionView/frontend/src/modules/costview/`.
 
 ### 6.2 Empty placeholders
 
@@ -308,9 +351,10 @@ These directories should not be treated as active architecture anchors.
 ## 7. Current Alignment Gaps
 
 1. `CostView/frontend/src/` still exists as a legacy code surface and should eventually be archived or removed.
-2. Execution operational data and CostView analytical data now have a shared adapter entry, but broader callers still need to migrate to it incrementally.
+2. ExecutionView operational data and CostView analytical data now have a shared adapter entry; cross-module deep imports from ExecutionView to CostView have been eliminated.
 3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built.
-4. Some older documents still describe March-era topology and should be updated or retired over time.
+4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) are deprecated but still actively used by `pipeline.py` and `MigrationManager`. Full migration to the `db/` subsystem repositories is pending.
+5. `platform_data/adapters.py` still imports `RawBDIBDB` directly as a factory default — this coupling should be migrated to use `CostViewDatabaseAdapter` or a repository-based factory.
 
 ---
 

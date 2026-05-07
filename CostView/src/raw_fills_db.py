@@ -1,6 +1,12 @@
 """
 Raw Fills SQLite Database — primary storage for Bloomberg EMSX fill data (v3).
 
+.. deprecated::
+    This module is superseded by `CostView.src.db.repositories.raw_fills_read`
+    and `CostView.src.db.repositories.raw_fills_write`. New code should use
+    the Repository implementations via `CostViewDatabase` facade. This file
+    is retained for backward compatibility during pipeline migration.
+
 Stores raw EMSX API data (28 original + 5 derived = 33 TEXT columns) with
 PK = (OrderId, RouteId, FillId). INSERT OR REPLACE handles late corrections from
 Bloomberg. Tracks fetch history in a separate fetch_log table.
@@ -25,7 +31,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
-from .database_access import (
+from .db.connection import (
     AccessControlledConnection,
     AccessTier,
     backup_database,
