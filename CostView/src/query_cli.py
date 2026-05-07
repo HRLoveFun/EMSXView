@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from .db.connection import AccessTier, ConnectionManager
+from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config
 from .raw_fills_db import RawFillsDB

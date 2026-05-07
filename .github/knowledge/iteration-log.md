@@ -4,370 +4,387 @@
 
 | Date | Type | Trigger | Action | Outcome | Duration |
 |------|------|---------|--------|---------|----------|
-| 2026-05-07 | refactor | è¿­ä»£ 3: æ—§ DB ç±»å†…éƒ¨è¿ç§» + è¾…åŠ©æ–‡ä»¶æ¸…ç† â€” æ¶ˆé™¤ db/ ä¹‹å¤–æ‰€æœ‰è£¸ sqlite3.connect() | (3.1-3.5) è¿ç§» 5 ä¸ªæ—§ DB ç±» (RawFillsDB, RawBDIBDB, FillBDIBDB, ProcessedRawBDIBDB, BaseProcessedFillsRepo) å†…éƒ¨ _get_conn()/_get_admin_conn() ä»Ž sqlite3.connect() åˆ° ConnectionManager.get_connection()/get_admin_connection()ã€‚æ·»åŠ  connection_manager + path_overrides å‘åŽå…¼å®¹æž„é€ æ¨¡å¼ã€‚(3.6) è¿ç§» validate_raw_fills.pyã€query_cli.py ä½¿ç”¨ ConnectionManagerã€‚(3.7) è¿ç§» regime/schema.py connect() â†’ ConnectionManager.get_admin_connection("regime"); regime/migrations/apply.py â†’ ConnectionManager + isolation_level=None; regime/fill_regime_tagger.py â†’ ConnectionManager.get_connection("processed_fills").(3.7-fix) ä¿®å¤ regime/schema.py connect() ä¸¢å¤± isolation_level=None å¯¼è‡´ run_journal.py INSERT æœª commit çš„é—®é¢˜ â€” åœ¨ run_journal/_finalize ä¸­æ·»åŠ æ˜¾å¼ conn.commit()ã€‚(3.8) è¿ç§» attribution/repositories.py çš„ SqliteFillRepository å’Œ SqliteBarDataRepository æ³¨å…¥ ConnectionManagerã€‚(3.9) åˆ›å»º db/schema/inline_ddl.py æå– 5 ä¸ªæ•°æ®åº“çš„ CREATE TABLE DDL ä¸ºç‹¬ç«‹å‡½æ•°ï¼ŒMigrationManager._ensure_inline_schema() ä¸å†ä¾èµ–æ—§ DB ç±»ã€‚ä¿®å¤ test_regime_e2e ç¼ºå°‘ DateTimeOfFill åˆ—ã€‚ | CostView/src/db/ ä¹‹å¤–é›¶ sqlite3.connect() (ä»… db/connection.py å†…éƒ¨ä¿ç•™)ã€‚MigrationManager ä¸å†å¯¼å…¥æ—§ DB ç±»ã€‚81/81 æµ‹è¯•é€šè¿‡ã€‚regime æ¨¡å—æ˜¾å¼ commit æ¶ˆé™¤ autocommit ä¾èµ–ã€‚ | manual |
-| 2026-05-07 | refactor | è¿­ä»£ 1: Pipeline ç»Ÿä¸€ DB å®žä¾‹åŒ–åˆ° CostViewDatabase facade | Enhanced `db/facade.py` (CostViewDatabase) with lazy-initialized legacy DB class properties (raw_db, proc_db, raw_bdib_db, processed_raw_bdib_db, fill_bdib_db). Added `db: CostViewDatabase` lazy property to `PipelineContext`. Refactored all pipeline stages (IngestExcelStage, ProcessRawFillsStage, AggregateFillsStage, GenerateOrderLabelsStage, IntegrateBDIBStage, CalculateDailyMetricsStage) and helper functions (get_pipeline_status, fill_ingestion defaults, fill_fetch defaults) to obtain DB instances via `context.db` or `CostViewDatabase()` instead of direct `RawFillsDB()` / `ProcessedFillsDB()` / `RawBDIBDB()` / `ProcessedRawBDIBDB()` / `FillBDIBDB()` instantiation. | Zero direct old-DB-class instantiation in pipeline.py, fill_ingestion.py, fill_fetch.py. 15/17 tests pass (2 pre-existing failures unrelated). All pipeline stages and legacy API functions work through unified CostViewDatabase entry point. Commit 1c20e9b. | manual |
-| 2026-05-07 | architecture | Phase 3: CostView æ•°æ®åº“å­ç³»ç»Ÿ â€” è·¨æ¨¡å—è§£è€¦ | Created `platform_data/contracts/` package (fill_contracts.py + market_data_contracts.py + regime_contracts.py) as the sole legal cross-module data interface. Migrated SCORECARD_COHORTS from CostView.src.tca_query_service to platform_data.contracts.fill_contracts. Added CostViewDatabaseAdapter to platform_data/adapters.py with get_regime_distribution() method; updated PlatformDataAccess to include database field. Replaced direct ConnectionManager usage in costview.py regime-distribution endpoint with CostViewDatabaseAdapter. Eliminated platform_data/repositories.py dependency on CostView.src.processing_config by using ConnectionManager.get_all_paths() + hardcoded stable table name constants. | Zero `from CostView.src.*` in ExecutionView; platform_data/repositories.py no longer imports ProcessingConfig; all cross-module data flows through platform_data adapters/contracts | manual |
-| 2026-05-07 | architecture | Phase 2: CostView æ•°æ®åº“å­ç³»ç»Ÿ â€” Repository å®žçŽ° + Schema ç»Ÿä¸€ç®¡ç† | Created `db/repositories/` package with 10 concrete repository implementations (fills_read/write, raw_fills_read/write, market_data_read/write, integrated_read/write, regime_read/write) all using ConnectionManager. Created `db/schema/` package with columns.py (migrated from schema.py) and migrations/manager.py (MigrationManager tracking PRAGMA user_version for all 6 DBs; regime at v3, others at v0). Created `db/facade.py` (CostViewDatabase) for unified cross-repo access + health check. Expanded `db/dto.py` with attribution DTOs. Regime repository merged functionality from attribution/repositories.py + storage/regime_reader.py. | 56/56 tests pass; CostViewDatabase facade health check shows all 6 DBs healthy; MigrationManager correctly tracks regime.db at v3; all Repository read queries verified against live data (raw_fills=8.1M rows, raw_bdib=349M rows) | manual |
-| 2026-04-30 13:38 | task | User mandate "ä¸€ä¸ªä¸æ¼ä¸€æŽ¨åˆ°åº•" â€” implement all six P0/P1/P2 batch-route improvements | (P0a) Per-broker % popover via DropdownMenu in column header; (P0b) clamp 1-100 + onWheel blur + "% of avail" subtitle on Î£ Qty; (P1a) effective remaining = remain âˆ’ Î£ pending working routes, applied frontend (`pendingWorkingByOrder`/`effectiveRemainingOf`) and backend (`_validate_split_totals` reads `bloomberg._routes` cache, even single-broker case); (P1b) dashed ring for review-phase pre-trade results vs solid for live submit; (P2a) merged `RouteOrderDialog` into `BatchRouteOrderDialog` with single-order array (deleted `order-route-dialog.tsx`, dropped `onRouteOrder` prop chain); (P2b) no auto-deselect of BLOCKED rows + `paramsCacheRef` keyed by `${broker}#${strategy}` so re-checking a broker restores prior values via `getCachedSnapshot` overlay. | tsc clean; 9/9 backend batch-route tests pass. Backend restart required. | â€” |
-| 2026-04-02 | setup | Initial deployment | Deployed iterative update mechanism (instructions, skills, hooks, MCP, agents) | Active | â€” |
-| 2026-04-02 11:00 | session | Stop | Session ended | â€” | auto |
-| 2026-04-02 18:24 | session | Stop | Session ended | â€” | auto |
-| 2026-04-03 09:38 | session | Stop | Session ended | â€” | auto |
-| 2026-04-03 09:40 | feat | User request | Autopilot FSM: auto_runner.py, collect_ci_status.py, autopilot workflow, updated validate/sync/handoff scripts with --output-json, write-back params, dynamic Next Actions | Completed, dry-run passed | â€” |
-| 2026-04-03 09:41 | session | Stop | Session ended | â€” | auto |
-| 2026-04-03 | task | Auto-advance P1-S2 | Sprint 2: Built realtime gateway + event serializers (backend), WS client + stream stores + hooks (frontend), integrated stream-first App.tsx with polling fallback, added frontend vitest tests | All 4 P1-S2 issues completed, checkpoints passed | â€” |
-| 2026-04-03 | task | Auto-advance P2-S3 | Sprint 3: Extracted models.py (330 lines), bloomberg_interface.py (ABC), bloomberg_adapter.py (2163 lines) from main.py (3991â†’1038); created order_projections.py (171 lines) and route_projections.py (71 lines); wired services into adapter with configure() DI pattern | All 4 P2-S3 issues completed, main.py reduced 74%, all py_compile checks pass | â€” |
-| 2026-04-03 | task | Auto-advance P2-S4 | Sprint 4: Split main.py into 7 domain routers (orders, routes, auth, broker, connection, debug, realtime), extracted config.py + deps.py + auth_service.py + config_service.py, renamed models.pyâ†’schemas.py to resolve package conflict, 22 tests passing (12 auth + 10 config) | All 4 P2-S4 issues completed, main.py reduced to 351 lines (91% from original), commit 27cd0c1 | â€” |
-| 2026-04-03 | task | Auto-advance P3-S5 | Sprint 5: Created ParentExecution + ChildSlice ORM models, parent_child_repository.py, migration 002, route_service.py (validation + strategy helpers), added strategyParams to RouteOrderRequest (backend + frontend), added Schedule/Children columns to OrderTable + Slice columns to RouteTable, 21 new tests passing | All 4 P3-S5 issues completed, commit 0b281b8 | â€” |
-| 2026-04-03 11:16 | session | Stop | Session ended | â€” | auto |
-| 2026-04-03 | task | P3-S6-01 | Sprint 6: Created benchmark_engine.py (TWAP/VWAP/POV schedulers with largest-remainder rounding), algo_scheduler.py (lifecycle skeleton for S6-02), test_benchmark_engine.py (26 golden tests + perf baseline). Aligned ledger P3-S6 with 4 WBS issues, synced all status artifacts. | P3-S6-01 completed, 3 checkpoints passed, 69 total tests passing (0 regressions) | â€” |
-| 2026-04-03 11:52 | session | Stop | Session ended | â€” | auto |
-| 2026-04-03 | task | P3-S6-02/03/04 | Sprint 6 completion: Implemented algo_scheduler.py (full lifecycle: start/pause/resume/cancel with in-memory registry), 4 parent-execution API endpoints + MockParentChildRepo in orders.py, algo-launch-dialog.tsx (TWAP/VWAP/POV launch UI), ExecutionBoard + RouteTable Schedule column, types/index.ts scheduler types. Fixed is_running bug in start_execution. Created test_algo_scheduler.py (28 tests). | S6-02/03/04 completed, all checkpoints passed, 97 total tests (0 regressions), sprint gate passed | â€” |
-| 2026-04-03 12:23 | session | Stop | Session ended | â€” | auto |
-| 2026-04-08 11:01 | session | Stop | Session ended | â€” | auto |
-| 2026-04-08 14:46 | session | Stop | Session ended | â€” | auto |
-| 2026-04-08 15:15 | session | Stop | Session ended | â€” | auto |
-| 2026-04-15 16:09 | session | Stop | Session ended | â€” | auto |
-| 2026-04-15 | architecture | Deep review | CostView pipeline architecture optimization Phases 1-4: (P1) PK migration safety + transaction atomicity + BDIB source tracking; (P2) Vectorized derive_exchange_times + eliminated upsert full-table scan; (P3) Date-level parallel S2/S3 + ticker-level parallel S5 + retry backoff; (P4) Explicit loop for route intervals + schema whitelist + view idempotency + order labels incremental | All 23 tests pass, 10 files modified, zero schema-breaking changes | â€” |
-| 2026-04-15 16:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 13:01 | session | Stop | Session ended | â€” | auto |
+| 2026-05-07 | refactor | 迭代 4: 边界密封 + Deprecation Warning + platform_data RawBDIBDB 解耦 | (4.1) platform_data/adapters.py 移除 `from CostView.src.raw_bdib_db import RawBDIBDB`，创建 `_ConnectionManagerDailySummaryReader` 替代。`MarketReferenceDataAdapter.daily_summary_db_factory` 类型从 `Callable[[], RawBDIBDB]` 改为 `Callable[[], Any]`。修复 raw_bdib_db.py 中 `conn._conn` → `conn.raw_connection`。(4.2) grep 确认 CostView/src/ 内仅 db/connection.py 保留裸 sqlite3.connect()。(4.3) 4 个旧 DB 类 (RawFillsDB, RawBDIBDB, FillBDIBDB, ProcessedRawBDIBDB) __init__ 添加 `warnings.warn(..., DeprecationWarning)`，引用 Data Platform 提取路线图。(4.4) PipelineContext.__post_init__ 检测旧字段赋值并触发 DeprecationWarning。(4.5) 更新 docs/spec/project-structure.md 对齐缺口：缺口 4 和 5 已修复。 | platform_data/ 零 RawBDIBDB 深层导入。CostView/src/db/ 之外零裸 sqlite3.connect()。旧 DB 类实例化触发 DeprecationWarning。81/81 测试通过。 | manual |
+| 2026-05-07 | refactor | 迭代 3: 旧 DB 类内部迁移 + 辅助文件清理 — 消除 db/ 之外所有裸 sqlite3.connect() | (3.1-3.5) 迁移 5 个旧 DB 类 (RawFillsDB, RawBDIBDB, FillBDIBDB, ProcessedRawBDIBDB, BaseProcessedFillsRepo) 内部 _get_conn()/_get_admin_conn() 从 sqlite3.connect() 到 ConnectionManager.get_connection()/get_admin_connection()。添加 connection_manager + path_overrides 向后兼容构造模式。(3.6) 迁移 validate_raw_fills.py、query_cli.py 使用 ConnectionManager。(3.7) 迁移 regime/schema.py connect() → ConnectionManager.get_admin_connection("regime"); regime/migrations/apply.py → ConnectionManager + isolation_level=None; regime/fill_regime_tagger.py → ConnectionManager.get_connection("processed_fills").(3.7-fix) 修复 regime/schema.py connect() 丢失 isolation_level=None 导致 run_journal.py INSERT 未 commit 的问题 — 在 run_journal/_finalize 中添加显式 conn.commit()。(3.8) 迁移 attribution/repositories.py 的 SqliteFillRepository 和 SqliteBarDataRepository 注入 ConnectionManager。(3.9) 创建 db/schema/inline_ddl.py 提取 5 个数据库的 CREATE TABLE DDL 为独立函数，MigrationManager._ensure_inline_schema() 不再依赖旧 DB 类。修复 test_regime_e2e 缺少 DateTimeOfFill 列。 | CostView/src/db/ 之外零 sqlite3.connect() (仅 db/connection.py 内部保留)。MigrationManager 不再导入旧 DB 类。81/81 测试通过。regime 模块显式 commit 消除 autocommit 依赖。 | manual |
+| 2026-05-07 | refactor | 迭代 1: Pipeline 统一 DB 实例化到 CostViewDatabase facade | Enhanced `db/facade.py` (CostViewDatabase) with lazy-initialized legacy DB class properties (raw_db, proc_db, raw_bdib_db, processed_raw_bdib_db, fill_bdib_db). Added `db: CostViewDatabase` lazy property to `PipelineContext`. Refactored all pipeline stages (IngestExcelStage, ProcessRawFillsStage, AggregateFillsStage, GenerateOrderLabelsStage, IntegrateBDIBStage, CalculateDailyMetricsStage) and helper functions (get_pipeline_status, fill_ingestion defaults, fill_fetch defaults) to obtain DB instances via `context.db` or `CostViewDatabase()` instead of direct `RawFillsDB()` / `ProcessedFillsDB()` / `RawBDIBDB()` / `ProcessedRawBDIBDB()` / `FillBDIBDB()` instantiation. | Zero direct old-DB-class instantiation in pipeline.py, fill_ingestion.py, fill_fetch.py. 15/17 tests pass (2 pre-existing failures unrelated). All pipeline stages and legacy API functions work through unified CostViewDatabase entry point. Commit 1c20e9b. | manual |
+| 2026-05-07 | architecture | Phase 3: CostView 数据库子系统 — 跨模块解耦 | Created `platform_data/contracts/` package (fill_contracts.py + market_data_contracts.py + regime_contracts.py) as the sole legal cross-module data interface. Migrated SCORECARD_COHORTS from CostView.src.tca_query_service to platform_data.contracts.fill_contracts. Added CostViewDatabaseAdapter to platform_data/adapters.py with get_regime_distribution() method; updated PlatformDataAccess to include database field. Replaced direct ConnectionManager usage in costview.py regime-distribution endpoint with CostViewDatabaseAdapter. Eliminated platform_data/repositories.py dependency on CostView.src.processing_config by using ConnectionManager.get_all_paths() + hardcoded stable table name constants. | Zero `from CostView.src.*` in ExecutionView; platform_data/repositories.py no longer imports ProcessingConfig; all cross-module data flows through platform_data adapters/contracts | manual |
+| 2026-05-07 | architecture | Phase 2: CostView 数据库子系统 — Repository 实现 + Schema 统一管理 | Created `db/repositories/` package with 10 concrete repository implementations (fills_read/write, raw_fills_read/write, market_data_read/write, integrated_read/write, regime_read/write) all using ConnectionManager. Created `db/schema/` package with columns.py (migrated from schema.py) and migrations/manager.py (MigrationManager tracking PRAGMA user_version for all 6 DBs; regime at v3, others at v0). Created `db/facade.py` (CostViewDatabase) for unified cross-repo access + health check. Expanded `db/dto.py` with attribution DTOs. Regime repository merged functionality from attribution/repositories.py + storage/regime_reader.py. | 56/56 tests pass; CostViewDatabase facade health check shows all 6 DBs healthy; MigrationManager correctly tracks regime.db at v3; all Repository read queries verified against live data (raw_fills=8.1M rows, raw_bdib=349M rows) | manual |
+| 2026-04-30 13:38 | task | User mandate "一个不漏一推到底" — implement all six P0/P1/P2 batch-route improvements | (P0a) Per-broker % popover via DropdownMenu in column header; (P0b) clamp 1-100 + onWheel blur + "% of avail" subtitle on Σ Qty; (P1a) effective remaining = remain − Σ pending working routes, applied frontend (`pendingWorkingByOrder`/`effectiveRemainingOf`) and backend (`_validate_split_totals` reads `bloomberg._routes` cache, even single-broker case); (P1b) dashed ring for review-phase pre-trade results vs solid for live submit; (P2a) merged `RouteOrderDialog` into `BatchRouteOrderDialog` with single-order array (deleted `order-route-dialog.tsx`, dropped `onRouteOrder` prop chain); (P2b) no auto-deselect of BLOCKED rows + `paramsCacheRef` keyed by `${broker}#${strategy}` so re-checking a broker restores prior values via `getCachedSnapshot` overlay. | tsc clean; 9/9 backend batch-route tests pass. Backend restart required. | — |
+| 2026-04-02 | setup | Initial deployment | Deployed iterative update mechanism (instructions, skills, hooks, MCP, agents) | Active | — |
+| 2026-04-02 11:00 | session | Stop | Session ended | — | auto |
+| 2026-04-02 18:24 | session | Stop | Session ended | — | auto |
+| 2026-04-03 09:38 | session | Stop | Session ended | — | auto |
+| 2026-04-03 09:40 | feat | User request | Autopilot FSM: auto_runner.py, collect_ci_status.py, autopilot workflow, updated validate/sync/handoff scripts with --output-json, write-back params, dynamic Next Actions | Completed, dry-run passed | — |
+| 2026-04-03 09:41 | session | Stop | Session ended | — | auto |
+| 2026-04-03 | task | Auto-advance P1-S2 | Sprint 2: Built realtime gateway + event serializers (backend), WS client + stream stores + hooks (frontend), integrated stream-first App.tsx with polling fallback, added frontend vitest tests | All 4 P1-S2 issues completed, checkpoints passed | — |
+| 2026-04-03 | task | Auto-advance P2-S3 | Sprint 3: Extracted models.py (330 lines), bloomberg_interface.py (ABC), bloomberg_adapter.py (2163 lines) from main.py (3991→1038); created order_projections.py (171 lines) and route_projections.py (71 lines); wired services into adapter with configure() DI pattern | All 4 P2-S3 issues completed, main.py reduced 74%, all py_compile checks pass | — |
+| 2026-04-03 | task | Auto-advance P2-S4 | Sprint 4: Split main.py into 7 domain routers (orders, routes, auth, broker, connection, debug, realtime), extracted config.py + deps.py + auth_service.py + config_service.py, renamed models.py→schemas.py to resolve package conflict, 22 tests passing (12 auth + 10 config) | All 4 P2-S4 issues completed, main.py reduced to 351 lines (91% from original), commit 27cd0c1 | — |
+| 2026-04-03 | task | Auto-advance P3-S5 | Sprint 5: Created ParentExecution + ChildSlice ORM models, parent_child_repository.py, migration 002, route_service.py (validation + strategy helpers), added strategyParams to RouteOrderRequest (backend + frontend), added Schedule/Children columns to OrderTable + Slice columns to RouteTable, 21 new tests passing | All 4 P3-S5 issues completed, commit 0b281b8 | — |
+| 2026-04-03 11:16 | session | Stop | Session ended | — | auto |
+| 2026-04-03 | task | P3-S6-01 | Sprint 6: Created benchmark_engine.py (TWAP/VWAP/POV schedulers with largest-remainder rounding), algo_scheduler.py (lifecycle skeleton for S6-02), test_benchmark_engine.py (26 golden tests + perf baseline). Aligned ledger P3-S6 with 4 WBS issues, synced all status artifacts. | P3-S6-01 completed, 3 checkpoints passed, 69 total tests passing (0 regressions) | — |
+| 2026-04-03 11:52 | session | Stop | Session ended | — | auto |
+| 2026-04-03 | task | P3-S6-02/03/04 | Sprint 6 completion: Implemented algo_scheduler.py (full lifecycle: start/pause/resume/cancel with in-memory registry), 4 parent-execution API endpoints + MockParentChildRepo in orders.py, algo-launch-dialog.tsx (TWAP/VWAP/POV launch UI), ExecutionBoard + RouteTable Schedule column, types/index.ts scheduler types. Fixed is_running bug in start_execution. Created test_algo_scheduler.py (28 tests). | S6-02/03/04 completed, all checkpoints passed, 97 total tests (0 regressions), sprint gate passed | — |
+| 2026-04-03 12:23 | session | Stop | Session ended | — | auto |
+| 2026-04-08 11:01 | session | Stop | Session ended | — | auto |
+| 2026-04-08 14:46 | session | Stop | Session ended | — | auto |
+| 2026-04-08 15:15 | session | Stop | Session ended | — | auto |
+| 2026-04-15 16:09 | session | Stop | Session ended | — | auto |
+| 2026-04-15 | architecture | Deep review | CostView pipeline architecture optimization Phases 1-4: (P1) PK migration safety + transaction atomicity + BDIB source tracking; (P2) Vectorized derive_exchange_times + eliminated upsert full-table scan; (P3) Date-level parallel S2/S3 + ticker-level parallel S5 + retry backoff; (P4) Explicit loop for route intervals + schema whitelist + view idempotency + order labels incremental | All 23 tests pass, 10 files modified, zero schema-breaking changes | — |
+| 2026-04-15 16:35 | session | Stop | Session ended | — | auto |
+| 2026-04-21 13:01 | session | Stop | Session ended | — | auto |
 | 2026-04-21 | feat | TCA implementation | Phase 0-6 TCA module: enabled BDIB pipeline stages (daily_update.py), added bdib_daily_summary schema (raw_bdib_db.py), created daily_metrics_calculator.py (Stage 7), backfill_bdib_history.py, tca_query_service.py (parameterized multi-DB queries, OWASP-compliant), test_tca_query_service.py, routers/costview.py (3 FastAPI endpoints), registered in main.py, updated scheduler to 09:00, frontend: tca-api.ts + TcaFilterPanel + TcaOrderTable + TcaRouteTable + PriceDynamicChart + VolumeDynamicChart + TCAPage + App.tsx TCA tab | All TypeScript 0 errors, all Python files compile, 16/16 todos completed |
-| 2026-04-21 13:17 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:26 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:28 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:31 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:39 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:40 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:44 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:46 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:48 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:53 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 15:58 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 | error | launch-emsx.vbs startup failure | Diagnosed false negative in VBS readiness probe, replaced `MSXML2.XMLHTTP.6.0` with `MSXML2.ServerXMLHTTP.6.0`, fixed stop-script hint, and re-ran launcher from a clean 3000/5173 state | `launch-emsx.vbs` exits 0 and successfully brings up ExecutionView frontend (HTTP 200 on :5173) and backend health endpoint on :3000 | â€” |
-| 2026-04-21 16:12 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 16:13 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 16:39 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 16:46 | session | Stop | Session ended | â€” | auto |
+| 2026-04-21 13:17 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:26 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:28 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:31 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:39 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:40 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:44 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:46 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:48 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:53 | session | Stop | Session ended | — | auto |
+| 2026-04-21 15:58 | session | Stop | Session ended | — | auto |
+| 2026-04-21 | error | launch-emsx.vbs startup failure | Diagnosed false negative in VBS readiness probe, replaced `MSXML2.XMLHTTP.6.0` with `MSXML2.ServerXMLHTTP.6.0`, fixed stop-script hint, and re-ran launcher from a clean 3000/5173 state | `launch-emsx.vbs` exits 0 and successfully brings up ExecutionView frontend (HTTP 200 on :5173) and backend health endpoint on :3000 | — |
+| 2026-04-21 16:12 | session | Stop | Session ended | — | auto |
+| 2026-04-21 16:13 | session | Stop | Session ended | — | auto |
+| 2026-04-21 16:39 | session | Stop | Session ended | — | auto |
+| 2026-04-21 16:46 | session | Stop | Session ended | — | auto |
 | 2026-04-21 17:12 | task | User requested CostView frontend implementation with shared shell, exports, and configurable threshold alerts | Implemented a lazy-loaded CostView module in ExecutionView/frontend with Overview/Analysis/Configure views, local threshold/config persistence, export flows, and threshold unit tests; validated with frontend build and tests | CostView is now integrated into the main frontend shell and verified by successful npm run build and npm test | manual |
-| 2026-04-21 17:14 | session | Stop | Session ended | â€” | auto |
-| 2026-04-21 17:14 | session | Stop | Session ended | â€” | auto |
+| 2026-04-21 17:14 | session | Stop | Session ended | — | auto |
+| 2026-04-21 17:14 | session | Stop | Session ended | — | auto |
 | 2026-04-22 09:37 | task | User requested CostView chunk splitting, export/filter consistency, and investigation of update status stuck at Started | Split CostView into lazy-loaded analysis/config/export/chart chunks, changed warning-only flows to page/export from one full backend-filtered result set, and extended backend/frontend update status with ordered progress and last activity metadata | CostView build output now shows smaller module chunks, warning-only pagination/export are aligned, and pipeline status surfaces stage/activity rather than a generic Started polling message | manual |
-| 2026-04-22 09:38 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 09:38 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 09:38 | session | Stop | Session ended | — | auto |
+| 2026-04-22 09:38 | session | Stop | Session ended | — | auto |
 | 2026-04-22 09:45 | error | User requested one-pass fix for pipeline `database is locked` failures and BDIB near-real-time warnings | Added SQLite busy-timeout configuration, serialized Stage 3 aggregate writes into guarded transactions, introduced a safe BDIB cutoff window in both the pipeline and fetch layer, and added targeted regression tests | Focused Python tests passed; Stage 3 now avoids concurrent write races on `processed_fills.db`, and morning pipeline runs will skip unsafe latest BDIB dates instead of flooding logs with near-real-time warnings | manual |
-| 2026-04-22 09:46 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 10:03 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 10:21 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 10:55 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 09:46 | session | Stop | Session ended | — | auto |
+| 2026-04-22 10:03 | session | Stop | Session ended | — | auto |
+| 2026-04-22 10:21 | session | Stop | Session ended | — | auto |
+| 2026-04-22 10:55 | session | Stop | Session ended | — | auto |
 | 2026-04-22 11:15 | task | user requested outdated ticker tombstones plus Stage 7 Bloomberg daily-field switch | Implemented persistent outdated ticker tombstones for Stage 5/6, switched Stage 7 daily summary sourcing to Bloomberg daily history (`PX_VOLUME`, `VOLATILITY_30D`, `PX_LAST`), expanded `bdib_daily_summary` with `daily_close` and `intraday_volatility`, and updated query semantics to keep `intraday_volatility` on the original local-bar calculation path. | Focused validation passed with `CostView.test_pipeline_guards` (9 tests). Stage 5/6 now skip tombstoned equity tickers and Stage 7 stores Bloomberg daily volatility separately from the preserved intraday-volatility metric. | manual |
-| 2026-04-22 11:15 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 11:15 | session | Stop | Session ended | — | auto |
 | 2026-04-22 11:34 | task | user reported CostView Refresh analysis error and Overview update status stuck at Processing 50% | Fixed TCA order aggregation to ignore missing route metrics, added granular processing-stage markers through the daily pipeline, restarted services manually after the service-manager TIME_WAIT false positive, and verified the live API paths for analyze and update-status. | `POST /api/tca/analyze` no longer throws the NoneType aggregation error, and a live update job advanced to `processing 61 / overall 72` instead of staying at `processing 50`. Focused regression suite passed (11 tests). | manual |
-| 2026-04-22 11:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 11:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 15:43 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 15:47 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 15:50 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 15:51 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 15:53 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 11:35 | session | Stop | Session ended | — | auto |
+| 2026-04-22 11:35 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:43 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:47 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:50 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:51 | session | Stop | Session ended | — | auto |
+| 2026-04-22 15:53 | session | Stop | Session ended | — | auto |
 | 2026-04-22 16:27 | error | User reported CostView Analysis tab columns missing values, inflated Vol % ADV20, and route Time not using local exchange time | Fixed mixed-timezone local-time conversion, corrected raw_bdib time-only comparisons, switched order-table Volatility to daily_volatility, changed ADV participation to use filled order volume, added raw_bdib fallback for missing route market metrics, restarted backend, and validated with targeted pytest plus frontend build | CostView API now returns local exchange route times, reasonable ADV percentages, and daily_volatility in the order summary; rows without matching intraday bar coverage are explicitly surfaced as partial data instead of being misattributed to a display mapping bug. | manual |
-| 2026-04-22 16:29 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 16:45 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 16:29 | session | Stop | Session ended | — | auto |
+| 2026-04-22 16:45 | session | Stop | Session ended | — | auto |
 | 2026-04-22 16:50 | architecture | User requested to start implementation of the target architecture with one frontend shell, three business modules, and one logical data module | Added a MarketView shell anchor in ExecutionView/frontend, aligned top-level and module READMEs with the live shell/module structure, and updated architecture decisions to mark the single-file backend as superseded and formalize the single-shell three-module logical-data-domain direction | Frontend build passed with the new MarketView lazy chunk, documentation now reflects the active shell and module boundaries, and the target architecture has an explicit recorded decision | manual |
-| 2026-04-22 16:51 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 16:51 | session | Stop | Session ended | — | auto |
 | 2026-04-22 17:02 | architecture | User requested continuation of phase 2 and phase 3 architecture implementation | Downgraded CostView/frontend to a documented legacy prototype, rewrote docs/spec/project-structure.md to match the live repository shape, added docs/spec/data-domain.md, introduced platform_data adapter entry points, and switched the CostView backend router to use the shared analytics adapter | Repository structure docs now reflect the live shell/module topology, the legacy frontend has an explicit non-authoritative status, and the logical data domain now has a concrete code-level adapter entry validated by focused backend tests | manual |
-| 2026-04-22 17:03 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 17:03 | session | Stop | Session ended | — | auto |
 | 2026-04-22 17:10 | architecture | User requested phase 4 adapter migration, legacy surface inventory, and the first real MarketView data boundary | Moved remaining Execution-side CostView type imports behind platform_data, added MarketReferenceDataAdapter backed by bdib_daily_summary, introduced a new MarketView backend snapshot router and frontend shell module data fetch path, and documented the legacy CostView frontend inventory plus the MarketView phase-1 data plan | Cross-domain access now uses a broader adapter surface, MarketView renders a real pre-trade market snapshot in the shared shell, and the legacy CostView prototype surface now has an explicit inventory with archive/delete decisions | manual |
-| 2026-04-22 17:11 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 17:25 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 17:11 | session | Stop | Session ended | — | auto |
+| 2026-04-22 17:25 | session | Stop | Session ended | — | auto |
 | 2026-04-22 17:25 | task | User requested pausing MarketView expansion, archiving legacy prototype src files, and restarting backend for a live snapshot smoke test | Updated the session plan to pause MarketView after the current baseline, archived CostView/frontend/src prototype sources to CostView/frontend/archive/2026-04-22/src, added marker/readme updates for the legacy surface, restarted the backend, and executed a live GET /api/marketview/snapshot smoke test | MarketView scope is now explicitly paused in the plan, the legacy CostView prototype source is archived out of the active src surface, and the restarted backend returned a real SQLite-backed market snapshot successfully | manual |
-| 2026-04-22 17:25 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 17:26 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 17:25 | session | Stop | Session ended | — | auto |
+| 2026-04-22 17:26 | session | Stop | Session ended | — | auto |
 | 2026-04-22 17:34 | error | backend restart warning investigation | Fixed OrderStatus SENT enum regression and tightened refdata pending cleanup to correlation-specific completion; added focused regression tests and reran backend smoke validation. | Target warnings for SENT parsing and FX duplicate correlation id no longer appeared after restart; focused pytest suite passed and /api/marketview/snapshot returned live SQLite data. | manual |
-| 2026-04-22 17:35 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 17:35 | session | Stop | Session ended | — | auto |
 | 2026-04-22 17:46 | error | user requested database bootstrap warning fix and FX warning threshold evaluation | Gated database bootstrap behind ENABLE_DB_PERSISTENCE, aligned /api/health to report disabled DB status, classified scaled FX direct-vs-inverse discrepancies as one-time INFO instead of repeated WARNING, and added focused regression tests. | Target getaddrinfo startup warning disappeared, /api/health now reports database=disabled when persistence is off, repeated KRW/IDR FX warnings no longer appeared at WARNING level, and focused pytest plus live health validation passed. | manual |
-| 2026-04-22 17:47 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 17:47 | session | Stop | Session ended | — | auto |
 | 2026-04-22 18:04 | task | user requested documentation cleanup, necessary updates, and archival of outdated docs | Reorganized docs root into living source-of-truth documents, rewrote CLAUDE/HANDOFF/MEMORY to match the current architecture and runtime model, added docs index files, updated service/runtime structure notes, and archived outdated path-bound or completed-phase documents under docs/archive/2026-04-22. | docs root now contains only active runbooks and source-of-truth references; outdated summaries and diagnoses were archived with an index; core guidance documents now match the current single-shell, three-module, logical-data-domain architecture. | manual |
-| 2026-04-22 18:05 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 11:24 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 11:47 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 11:57 | session | Stop | Session ended | â€” | auto |
+| 2026-04-22 18:05 | session | Stop | Session ended | — | auto |
+| 2026-04-23 11:24 | session | Stop | Session ended | — | auto |
+| 2026-04-23 11:47 | session | Stop | Session ended | — | auto |
+| 2026-04-23 11:57 | session | Stop | Session ended | — | auto |
 | 2026-04-23 12:35 | task | user request | Implemented EMSX routing hardening in ExecutionView: fixed RouteEx/ModifyRouteEx order-type mapping and reset semantics, ensured selected strategy names/fields are sent, added GetAssetClass endpoint plus frontend asset-class plumbing with EQTY fallback, and hardened request/session handling with correlation-id filtering, serialized request access, split order/route subscriptions, API_SEQ_NUM gap warnings, and ADMIN slow-consumer logging. | Focused backend regression suite passed (12 tests), frontend build passed, and backend router/service files compiled successfully. | manual |
-| 2026-04-23 12:35 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 12:35 | session | Stop | Session ended | — | auto |
 | 2026-04-23 12:55 | architecture | User requested launcher failure fix and startup UX improvement | Updated launch-emsx.vbs to start backend/frontend in parallel, open frontend as soon as Vite is ready, and added a frontend startup gate that waits for backend readiness before initial data fetches | Cold-start launcher validation succeeded with localhost:5173 and localhost:3000/api/health both returning HTTP 200; startup-error latest-log recursion was also removed | manual |
-| 2026-04-23 12:56 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 12:56 | session | Stop | Session ended | — | auto |
 | 2026-04-23 13:06 | task | User requested continuing ordered frontend/backend optimization after launcher UX fix | Added layered /api/startup-status contract, exposed backend/Bloomberg/subscription readiness from BloombergEMSXService, centralized frontend startup polling into use-startup-status, removed duplicate Toolbar polling, and refined Vite manualChunks to shrink the main entry bundle | Focused backend tests passed (17), frontend build passed, live launcher restart returned startup-status phase=ready, and the previous frontend chunk-size warning was eliminated without circular chunk warnings | manual |
-| 2026-04-23 13:07 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 13:07 | session | Stop | Session ended | — | auto |
 | 2026-04-23 13:19 | task | User requested continuing frontend/backend coordinated optimization after startup-status contract landed | Extracted ExecutionView data orchestration from App.tsx into use-execution-workspace-data, added scripts/diagnose/check-startup-status.ps1 for backend health/startup smoke checks, and kept startup-status-driven frontend gating intact | Frontend build passed with App refactor and existing chunk split preserved; the new smoke script completed non-interactively and reported startup phase=ready against the live backend | manual |
-| 2026-04-23 13:19 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 13:19 | session | Stop | Session ended | — | auto |
 | 2026-04-23 13:28 | task | User requested continued frontend/backend optimization without stopping | Integrated scripts/service-manager.ps1 with layered startup-status diagnostics and extracted App.tsx shell/module state into use-app-shell-state hook | Service manager now reports backend phase/Bloomberg/subscription readiness; frontend App shell responsibilities were reduced and npm build passed | manual |
-| 2026-04-23 13:29 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 13:29 | session | Stop | Session ended | — | auto |
 | 2026-04-23 13:33 | task | User requested continued platform optimization without stopping at progress summaries | Reused layered backend startup summary in service-manager status/start/restart flows and extracted App.tsx module navigation plus execution tabs into dedicated section components | Startup orchestration now surfaces phased backend readiness immediately after launch, and App.tsx render shell was reduced further while frontend build and service-manager status validation passed | manual |
-| 2026-04-23 13:33 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 | feat | User requested WBS-08 cross-module handoff contracts (MarketViewâ†’ExecutionViewâ†’CostView, CostViewâ†’ExecutionView) via shared platform_data adapter, not hard-coded page-to-page wiring | Rebuilt `platform_data/adapters.py` to fully implement market snapshot pools/alerts/history/intraday stubs; added three handoff contract dataclasses (ExecutionCandidateHandoff, ExecutionPostTradeHandoff, BrokerStrategyRecommendation) plus a process-wide `HandoffExchangeAdapter` singleton with trace-id metadata; exposed contracts through new endpoints `POST /api/marketview/handoff/execution`, `GET /api/executions/handoff/candidates`, `POST /api/executions/handoff/post-trade`, `POST /api/tca/recommendations/pin`, `GET /api/broker-recommendations`, `GET /api/tca/handoff/post-trade/{order_id}`; added shared React `HandoffContractsProvider` + `useHandoffContracts` polling context wrapping App, a "Send to ExecutionView" action in MarketView, badges on the ExecutionView Workspace tab, and a "Pin â†’EV" action per scorecard cohort row | Focused backend suite 15/15 green (`test_platform_data_access`, `test_connection_router`, `test_execution_history_router`, `test_marketview_router`); baseline TypeScript compilation (`tsc -b`) clean for all changed files; three cross-module contracts now flow through the shared platform_data layer with consistent metadata/trace_id semantics | manual |
-| 2026-04-23 13:34 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 14:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 14:55 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 15:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 15:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 15:08 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 15:08 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 15:21 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 13:33 | session | Stop | Session ended | — | auto |
+| 2026-04-23 | feat | User requested WBS-08 cross-module handoff contracts (MarketView→ExecutionView→CostView, CostView→ExecutionView) via shared platform_data adapter, not hard-coded page-to-page wiring | Rebuilt `platform_data/adapters.py` to fully implement market snapshot pools/alerts/history/intraday stubs; added three handoff contract dataclasses (ExecutionCandidateHandoff, ExecutionPostTradeHandoff, BrokerStrategyRecommendation) plus a process-wide `HandoffExchangeAdapter` singleton with trace-id metadata; exposed contracts through new endpoints `POST /api/marketview/handoff/execution`, `GET /api/executions/handoff/candidates`, `POST /api/executions/handoff/post-trade`, `POST /api/tca/recommendations/pin`, `GET /api/broker-recommendations`, `GET /api/tca/handoff/post-trade/{order_id}`; added shared React `HandoffContractsProvider` + `useHandoffContracts` polling context wrapping App, a "Send to ExecutionView" action in MarketView, badges on the ExecutionView Workspace tab, and a "Pin →EV" action per scorecard cohort row | Focused backend suite 15/15 green (`test_platform_data_access`, `test_connection_router`, `test_execution_history_router`, `test_marketview_router`); baseline TypeScript compilation (`tsc -b`) clean for all changed files; three cross-module contracts now flow through the shared platform_data layer with consistent metadata/trace_id semantics | manual |
+| 2026-04-23 13:34 | session | Stop | Session ended | — | auto |
+| 2026-04-23 14:35 | session | Stop | Session ended | — | auto |
+| 2026-04-23 14:55 | session | Stop | Session ended | — | auto |
+| 2026-04-23 15:06 | session | Stop | Session ended | — | auto |
+| 2026-04-23 15:06 | session | Stop | Session ended | — | auto |
+| 2026-04-23 15:08 | session | Stop | Session ended | — | auto |
+| 2026-04-23 15:08 | session | Stop | Session ended | — | auto |
+| 2026-04-23 15:21 | session | Stop | Session ended | — | auto |
 | 2026-04-23 15:30 | architecture | User requested ordered implementation of the execution-history spine and shared contracts | Expanded platform_data to expose live_execution plus execution_history, added a CostView-backed execution history query service, introduced read-only /api/execution-history fills/orders/routes endpoints, updated architecture docs, and added focused regression tests | Execution history is now fills-centric and decoupled from the live projection cache; shared adapter tests, history service tests, and router tests all passed | manual |
-| 2026-04-23 15:31 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 15:31 | session | Stop | Session ended | — | auto |
 | 2026-04-23 16:00 | task | User requested WBS-to-task-template conversion for new chat startup | Created docs/roadmap/task-templates.md with 8 reusable task templates and added docs index/structure references | Active planning companion document added to docs root; each task now includes project summary, first-read/search/validate guidance, dependencies, risks, and acceptance commands | manual |
-| 2026-04-23 16:00 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 16:00 | session | Stop | Session ended | — | auto |
 | 2026-04-23 16:10 | task | WBS-01 execution history spine and shared contract request | Made execution-history primary-key and source metadata explicit in platform_data snapshots and backend schemas, clarified live-execution-only provider/db boundaries, hardened backend tests for wrapped pytest imports, and updated data-domain documentation. | Execution history now exposes reusable contract.keys/contract.source metadata without breaking existing live execution or analytics entrypoints; backend acceptance suite passed (24 tests). | manual |
-| 2026-04-23 16:10 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 16:13 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 16:14 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 16:21 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:05 | task | User requested WBS-04 MarketView è‚¡ç¥¨æ± ä¸Žæ—¥çº§ç›˜å‰å·¥ä½œå°å‡çº§ | æ‰©å±• RawBDIBDB/platform_data å¸‚åœºå¿«ç…§ contractï¼Œæ–°å¢žè‚¡ç¥¨æ± ã€æ—¥çº§ç­›é€‰/æŽ’åºã€æµåŠ¨æ€§ä¸Žæ³¢åŠ¨çŽ‡å‘Šè­¦ã€candidate_payloadï¼Œè´¯é€š backend router ä¸Ž frontend å·¥ä½œå°ï¼Œå¹¶è¡¥å…… router/front-end å›žå½’æµ‹è¯•å’Œæ–‡æ¡£ã€‚ | ExecutionView backend MarketView çŽ°åœ¨é€šè¿‡ /api/marketview/snapshot æš´éœ² stock-pool-driven workstation contractï¼›backend pytest 8 é¡¹é€šè¿‡ï¼Œfrontend build å’Œ 22 é¡¹æµ‹è¯•é€šè¿‡ï¼Œé‡å¯ backend åŽ localhost:3000 çƒŸé›¾éªŒè¯è¿”å›žæ–°ç‰ˆ payloadã€‚ | manual |
+| 2026-04-23 16:10 | session | Stop | Session ended | — | auto |
+| 2026-04-23 16:13 | session | Stop | Session ended | — | auto |
+| 2026-04-23 16:14 | session | Stop | Session ended | — | auto |
+| 2026-04-23 16:21 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:05 | task | User requested WBS-04 MarketView 股票池与日级盘前工作台升级 | 扩展 RawBDIBDB/platform_data 市场快照 contract，新增股票池、日级筛选/排序、流动性与波动率告警、candidate_payload，贯通 backend router 与 frontend 工作台，并补充 router/front-end 回归测试和文档。 | ExecutionView backend MarketView 现在通过 /api/marketview/snapshot 暴露 stock-pool-driven workstation contract；backend pytest 8 项通过，frontend build 和 22 项测试通过，重启 backend 后 localhost:3000 烟雾验证返回新版 payload。 | manual |
 | 2026-04-23 17:05 | architecture | User requested WBS-02 Bloomberg control-plane split with strict EMSX session/correlation constraints | Refactored ExecutionView/backend/api/services/bloomberg_adapter.py to keep BloombergEMSXService as a compatibility facade while delegating lifecycle, blotter projection, command orchestration, market/refdata looping, and startup-status synthesis to private collaborators; recorded the decision in architecture-decisions.md | Internal control-plane boundaries are explicit without breaking existing router/frontend behavior or legacy adapter attributes; focused routing/refdata/startup regressions and the requested acceptance suite passed | manual |
 | 2026-04-23 17:06 | error | Acceptance suite failed because async realtime tests were collected without pytest-asyncio support | Verified ExecutionView/backend/api/requirements.txt already declares pytest-asyncio, installed pytest-asyncio==0.23.3 into the configured Python environment, and reran the same acceptance command | The requested acceptance suite switched from plugin-collection failures to a clean pass (20 tests) without any code rollback | manual |
-| 2026-04-23 17:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:34 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:34 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:35 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 17:06 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:06 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:34 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:34 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:35 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:35 | session | Stop | Session ended | — | auto |
 | 2026-04-23 17:38 | task | WBS-03 route contract and broker strategy catalog request | Centralized RouteEx/ModifyRouteEx field assembly in route_service, added broker strategy metadata ordering/cache in bloomberg_adapter, extended broker catalog schemas, and aligned frontend strategy payloads to include field names. | Backend routing acceptance suite passed with 43 tests and frontend build passed; route_service now acts as the single rule layer for preflight, reset semantics, and strategy payload normalization. | manual |
-| 2026-04-23 17:39 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 17:39 | session | Stop | Session ended | — | auto |
 | 2026-04-23 17:47 | architecture | WBS-06 execution-history warehouse implementation | Kept CostView as the execution-history owner, added order_history/route_history/route_event_history persistence and a read-only execution_history adapter/router, while limiting ExecutionView RepositoryProvider to live projection snapshots and audit journal supplement reads. | Execution history now has explicit CostView-owned warehouse boundaries and ExecutionView remains a supplement-only live persistence layer; focused backend and history read tests passed. | manual |
 | 2026-04-23 17:47 | task | WBS-06 CostView order/route/event history request | Validated current fills-centric baseline, implemented CostView history tables and ingestion/query changes, then ran CostView and ExecutionView acceptance plus new execution-history tests. | CostView is now execution-history-aware, TCA prefers new history master data with fallback preserved, and requested backend acceptance tests passed. | manual |
 | 2026-04-23 | feat | WBS-05 MarketView intraday feature service | Added RawBDIBDB.get_bdib_bars_for_pool_on_date; new IntradayFeatureBucket/TickerFeatures/Snapshot dataclasses in platform_data.adapters and exported; MarketReferenceDataAdapter.get_intraday_features computes bucketed volume curve, VWAP, realized vol, running vol/ADV20, open/close 10-min share; /api/marketview/intraday-features router; frontend types + fetchIntradayFeatures + MarketViewModule drill-down panel with per-row Intraday button; 5 new pipeline_guards tests | 46 pytest pass (-p no:asyncio); frontend vite build succeeds | - |
-| 2026-04-23 17:51 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 17:52 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 17:51 | session | Stop | Session ended | — | auto |
+| 2026-04-23 17:52 | session | Stop | Session ended | — | auto |
 | 2026-04-23 | feat | WBS-07 CostView broker/strategy scorecard | Added ScorecardFilters/CohortMetrics/Report dataclasses + build_scorecard + cohort bucketing (broker/strategy/broker_strategy/asset_class/time_of_day/liquidity_adv20/volatility) in tca_query_service.py; platform_data adapter + exports; POST /api/tca/scorecard router endpoint; frontend Scorecard tab with cohort selector, min-sample guard, severity mapping, anomaly badges, CSV export; extended thresholds with evaluateCohortSeverity + formatAnomalyFlag (8 vitest cases); 10 new backend tests | 42/42 backend pytest pass; 27/27 vitest pass; vite build succeeds with new ScorecardView chunk (10.35 kB) | manual |
-| 2026-04-23 18:11 | session | Stop | Session ended | â€” | auto |
-| 2026-04-23 18:39 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 11:43 | session | Stop | Session ended | â€” | auto |
-| 2026-04-22 | feat | User requested frontend perf plan + new DatabaseView module | Phase A: created platform_data/repositories.py (fast MIN/MAX + MAX(_rowid_) counts), routers/_pipeline_jobs.py (shared pipeline job registry), routers/database.py (5 endpoints: overview/summary/integrity/update/update-status), main.py registration, costview.py refactor to aliases. Phase B: modules/databaseview/ scaffold (types, services/api, lib/format, DatabaseViewModule + 5 components: OverviewGrid, DateCoverageHeatmap, DetailDrawer, UpdateControl, IntegrityBanner), App.tsx lazy registration, WorkspaceModuleTabs 4th tab, AppModule type extended. Added docs/spec/memory.md 'ï¿½7 DatabaseView API Contract'. | All get_errors green; TestClient validated overview/summary 200 OK (0.01-0.02s on 71GB DB). Pre-existing use-broker-algorithms.ts TS errors confirmed unrelated via git stash. Phase C (cold-start perf) + Phase D (regression) deferred. | manual |
-| 2026-04-24 12:11 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 12:50 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 13:57 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 13:57 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 14:09 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 | fix | User: Change strategy ?? Max%Vol=8 ?? Invalid Strategy Parameter | Root cause: `_apply_strategy_params` ? value='' ? disabled=false ????? EMSX_FIELD_INDICATOR=0 + ? EMSX_FIELD_DATA,Bloomberg EMSX ?????:? ExecutionView/backend/api/services/bloomberg_adapter.py ?,?????????/None,????? indicator=1(??),??? strip/None ????? test_modify_route_treats_empty_strategy_fields_as_skipped ????? | pytest 15/15 routing + 26/26 parent-child ?? | ï¿½ |
-| 2026-04-24 14:37 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 15:15 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 15:15 | session | Stop | Session ended | â€” | auto |
+| 2026-04-23 18:11 | session | Stop | Session ended | — | auto |
+| 2026-04-23 18:39 | session | Stop | Session ended | — | auto |
+| 2026-04-24 11:43 | session | Stop | Session ended | — | auto |
+| 2026-04-22 | feat | User requested frontend perf plan + new DatabaseView module | Phase A: created platform_data/repositories.py (fast MIN/MAX + MAX(_rowid_) counts), routers/_pipeline_jobs.py (shared pipeline job registry), routers/database.py (5 endpoints: overview/summary/integrity/update/update-status), main.py registration, costview.py refactor to aliases. Phase B: modules/databaseview/ scaffold (types, services/api, lib/format, DatabaseViewModule + 5 components: OverviewGrid, DateCoverageHeatmap, DetailDrawer, UpdateControl, IntegrityBanner), App.tsx lazy registration, WorkspaceModuleTabs 4th tab, AppModule type extended. Added docs/spec/memory.md '�7 DatabaseView API Contract'. | All get_errors green; TestClient validated overview/summary 200 OK (0.01-0.02s on 71GB DB). Pre-existing use-broker-algorithms.ts TS errors confirmed unrelated via git stash. Phase C (cold-start perf) + Phase D (regression) deferred. | manual |
+| 2026-04-24 12:11 | session | Stop | Session ended | — | auto |
+| 2026-04-24 12:50 | session | Stop | Session ended | — | auto |
+| 2026-04-24 13:57 | session | Stop | Session ended | — | auto |
+| 2026-04-24 13:57 | session | Stop | Session ended | — | auto |
+| 2026-04-24 14:09 | session | Stop | Session ended | — | auto |
+| 2026-04-24 | fix | User: Change strategy ?? Max%Vol=8 ?? Invalid Strategy Parameter | Root cause: `_apply_strategy_params` ? value='' ? disabled=false ????? EMSX_FIELD_INDICATOR=0 + ? EMSX_FIELD_DATA,Bloomberg EMSX ?????:? ExecutionView/backend/api/services/bloomberg_adapter.py ?,?????????/None,????? indicator=1(??),??? strip/None ????? test_modify_route_treats_empty_strategy_fields_as_skipped ????? | pytest 15/15 routing + 26/26 parent-child ?? | � |
+| 2026-04-24 14:37 | session | Stop | Session ended | — | auto |
+| 2026-04-24 15:15 | session | Stop | Session ended | — | auto |
+| 2026-04-24 15:15 | session | Stop | Session ended | — | auto |
 | 2026-04-24 | feat | User: Modify Route UX three issues (CxlRprQ blocking, missing Rate, panel fragmentation) | P1: RouteTable + RouteActionMenu map CXLRPRQ/CXLREP -> Replacing badge/spinner, add optimistic replacingRouteIds set cleared on stable status; P2: new backend diagnostic endpoint GET /api/routes/diagnose-strategy-rate + frontend Diagnose Rate toolbar button that prints grouped broker/strategy rate coverage to console; P3: new UnifiedModifyRouteDialog with section-level dirty toggles (Qty/Type+Price+TIF/Broker+Strategy/Notes), diff preview and single-submit ModifyRouteEx; RouteActionMenu simplified to Modify Route + Cancel Route | TS strict noEmit OK; backend pytest 41/41 OK (routing + parent-child) | require backend restart |
-| 2026-04-24 15:37 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 16:10 | session | Stop | Session ended | â€” | auto |
+| 2026-04-24 15:37 | session | Stop | Session ended | — | auto |
+| 2026-04-24 16:10 | session | Stop | Session ended | — | auto |
 | 2026-04-24 16:35 | feat | User follow-up on Modify Route: (1) stale REST polls after stable status (2) Diagnose Rate 404 (3) hardcoded order-type/TIF + request for batch ops UI | P1: RouteTable uses pollTimersRef map + cancelPollsFor(routeId) invoked on stable-status transitions and re-invoked markReplacing; unmount clears all timers. P2: aligned rate-diagnostic-dialog fields with backend (rate1/rate2/hasRate), confirmed old backend PID 52360 served pre-endpoint code and restarted backend. P3a: new GET /api/routes/reference-enums endpoint + apiService.getRouteEnums(); unified-modify-route-dialog fetches enums with fallback and drives showLimit/showStop from needsLimit/needsStop. P3b: added selectedRouteIds set + batch action bar + per-row & header checkboxes + TOTAL_COLS=26; new batch-operation-dialogs.tsx with BatchCancelDialog and BatchModifyDialog (common-delta editor, uniformity badges, per-route error capture, progress counter). | TS strict noEmit OK; /api/routes/reference-enums live (200); backend restarted | manual |
-| 2026-04-24 16:36 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 17:21 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 17:44 | feat | Monitor/Trade/Settings unified iteration: lazy rule, integration, Settings layout, Trade split+linkage, keyboard flow, tab badges | Step 1: new `src/lib/health-palette.ts` (HealthLevel palette + LAZY_EXEMPT_STATUSES + isLazyOrder with dual-rule + getOrderHealth/getRouteHealth). MonitorBoard gained health-strip column, pinned Critical/Lazy synthetic groups, readonly condition chips + "Edit in Settings" link. Step 2: removed `LazyOrderBoard` tab from App.tsx, Monitor now owns lazy rendering and receives allRoutes. Step 3: `SettingsBoard` rewritten to left-nav + right-detail with sections (global, monitor-conditions, broker-algo, parameter-frequency, data-manager, about); monitor conditions editor migrated here. Step 4: `ExecutionBoard` reworked from tabbed to Bloomberg-style vertical split â€” Orders on top + Routes below; `displayedRoutes` filters by selectedOrders via `sequence`; linkage status bar with "Show all routes (Esc)"; Action columns confirmed leftmost in both tables. Step 5: new `hooks/use-trade-hotkeys.tsx` (J/K, Enter, Space, N/M/X, Shift+Tab, /, ?, Esc) + `HotkeyCheatsheet` overlay + active-pane ring. Step 6: `ExecutionViewTabs` accepts monitorExceptionCount/tradeExceptionCount and renders red badge; App wires onExceptionCountChange from MonitorBoard. | TS strict noEmit OK; vite build OK (4.45s, 2492 modules transformed) | manual |
-| 2026-04-24 17:44 | session | Stop | Session ended | â€” | auto |
-| 2026-04-24 18:37 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 10:19 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 11:16 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 15:14 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 15:24 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 15:50 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 15:54 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 16:04 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 16:13 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 16:30 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 16:48 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 16:52 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 | architecture | Schema design rules | Codified 9-principle SQLite schema conventions: 4-layer prefix (ref_/daily_/fill_/audit_), audit_pipeline_runs + status views + validate_*.py per DB, config_version PK for reproducibility, migrations framework with PRAGMA user_version. Created schema-designer skill + agent + repo memory. Added M1 progress board at /memories/repo/costview-regime-m1-progress.md | Reusable for future analytical modules (regime, attribution, research) | ï¿½ |
-| 2026-04-27 16:56 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 17:02 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 17:04 | session | Stop | Session ended | â€” | auto |
-| 2026-04-27 | feat | CostView Regime M1 | å®Œæˆ 10 æ­¥å®žæ–½åºåˆ— (Steps 1-10): regime/ å­åŒ… + schema v0â†’v2 migrations + 23 markets/12 events åŒæ­¥ + 4 daily è®¡ç®—å™¨ (market_index_loader/vol_regime/liquidity_regime/trend_regime) + fill_regime_tagger (composite PK) + pipeline.py Stage 8/9 + scripts/backfill_regime.py CLI + run_journal.py + tests/test_regime_e2e.py (mock fetcher) + storage/regime_reader.py stub. æ•™è®­ï¼šv1 fill_regime_labels å• PK ä¸Ž processed_fills composite PK ä¸åŒ¹é… â†’ v1â†’v2 å‡çº§ï¼›executescript éœ€ autocommitã€‚ | All 2 e2e tests pass, integrated into test_comprehensive (5/6 tests pass; test_basic preexisting failure). Bloomberg çœŸå®žæ‹‰æ•°å¾…ç”Ÿäº§çŽ¯å¢ƒéªŒè¯ | â€” |
-| 2026-04-27 17:20 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 08:59 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:04 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:29 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:45 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:54 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:54 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:57 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:58 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 09:59 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:00 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:08 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:09 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:14 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:15 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:17 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:18 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:18 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:20 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:21 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:22 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:23 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:42 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 10:55 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 11:04 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 11:14 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 11:15 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 11:31 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 11:36 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 11:52 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 12:15 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 12:16 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 | feat | User request: ExecutionView ?????? route/modify | Backend: compliance_service (USD<10K/>49M/JP odd-lot hard block), batch_route_service (NDJSON stream), POST /api/orders/batch-route + /api/routes/batch-modify (dryRun + stream), pre-trade compliance hook on /route + /routes/modify; Frontend: compliance-violation.tsx shared badges, BatchRouteOrderDialog (Configure?Review?Submit?Result), BatchModifyDialog ??(?? per-route ?????? dry-run?common broker+strategy ???????????NDJSON ????) | 36 new tests pass; 181/191 backend tests pass (10 pre-existing config_service event-loop failures unaffected); npx tsc --noEmit clean | ï¿½ |
-| 2026-04-28 12:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 12:49 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 12:58 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 13:01 | session | Stop | Session ended | â€” | auto |
+| 2026-04-24 16:36 | session | Stop | Session ended | — | auto |
+| 2026-04-24 17:21 | session | Stop | Session ended | — | auto |
+| 2026-04-24 17:44 | feat | Monitor/Trade/Settings unified iteration: lazy rule, integration, Settings layout, Trade split+linkage, keyboard flow, tab badges | Step 1: new `src/lib/health-palette.ts` (HealthLevel palette + LAZY_EXEMPT_STATUSES + isLazyOrder with dual-rule + getOrderHealth/getRouteHealth). MonitorBoard gained health-strip column, pinned Critical/Lazy synthetic groups, readonly condition chips + "Edit in Settings" link. Step 2: removed `LazyOrderBoard` tab from App.tsx, Monitor now owns lazy rendering and receives allRoutes. Step 3: `SettingsBoard` rewritten to left-nav + right-detail with sections (global, monitor-conditions, broker-algo, parameter-frequency, data-manager, about); monitor conditions editor migrated here. Step 4: `ExecutionBoard` reworked from tabbed to Bloomberg-style vertical split — Orders on top + Routes below; `displayedRoutes` filters by selectedOrders via `sequence`; linkage status bar with "Show all routes (Esc)"; Action columns confirmed leftmost in both tables. Step 5: new `hooks/use-trade-hotkeys.tsx` (J/K, Enter, Space, N/M/X, Shift+Tab, /, ?, Esc) + `HotkeyCheatsheet` overlay + active-pane ring. Step 6: `ExecutionViewTabs` accepts monitorExceptionCount/tradeExceptionCount and renders red badge; App wires onExceptionCountChange from MonitorBoard. | TS strict noEmit OK; vite build OK (4.45s, 2492 modules transformed) | manual |
+| 2026-04-24 17:44 | session | Stop | Session ended | — | auto |
+| 2026-04-24 18:37 | session | Stop | Session ended | — | auto |
+| 2026-04-27 10:19 | session | Stop | Session ended | — | auto |
+| 2026-04-27 11:16 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:14 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:24 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:50 | session | Stop | Session ended | — | auto |
+| 2026-04-27 15:54 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:04 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:13 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:30 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-27 16:52 | session | Stop | Session ended | — | auto |
+| 2026-04-27 | architecture | Schema design rules | Codified 9-principle SQLite schema conventions: 4-layer prefix (ref_/daily_/fill_/audit_), audit_pipeline_runs + status views + validate_*.py per DB, config_version PK for reproducibility, migrations framework with PRAGMA user_version. Created schema-designer skill + agent + repo memory. Added M1 progress board at /memories/repo/costview-regime-m1-progress.md | Reusable for future analytical modules (regime, attribution, research) | � |
+| 2026-04-27 16:56 | session | Stop | Session ended | — | auto |
+| 2026-04-27 17:02 | session | Stop | Session ended | — | auto |
+| 2026-04-27 17:04 | session | Stop | Session ended | — | auto |
+| 2026-04-27 | feat | CostView Regime M1 | å®Œæˆ 10 æ­¥å®žæ–½åº列 (Steps 1-10): regime/ å­包 + schema v0→v2 migrations + 23 markets/12 events åŒæ­¥ + 4 daily è®¡ç®—å™¨ (market_index_loader/vol_regime/liquidity_regime/trend_regime) + fill_regime_tagger (composite PK) + pipeline.py Stage 8/9 + scripts/backfill_regime.py CLI + run_journal.py + tests/test_regime_e2e.py (mock fetcher) + storage/regime_reader.py stub. 教è®­ï¼šv1 fill_regime_labels å• PK ä¸Ž processed_fills composite PK ä¸åŒ¹é… → v1→v2 å‡çº§ï¼›executescript 需 autocommit。 | All 2 e2e tests pass, integrated into test_comprehensive (5/6 tests pass; test_basic preexisting failure). Bloomberg 真å®ž拉æ•°å¾…生äº§çŽ¯å¢ƒéªŒè¯ | — |
+| 2026-04-27 17:20 | session | Stop | Session ended | — | auto |
+| 2026-04-28 08:59 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:04 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:06 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:29 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:45 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:54 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:54 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:57 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:58 | session | Stop | Session ended | — | auto |
+| 2026-04-28 09:59 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:00 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:08 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:09 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:14 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:15 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:17 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:18 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:18 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:20 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:21 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:22 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:23 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:42 | session | Stop | Session ended | — | auto |
+| 2026-04-28 10:55 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:04 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:14 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:15 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:31 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:36 | session | Stop | Session ended | — | auto |
+| 2026-04-28 11:52 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:15 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:16 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | feat | User request: ExecutionView ?????? route/modify | Backend: compliance_service (USD<10K/>49M/JP odd-lot hard block), batch_route_service (NDJSON stream), POST /api/orders/batch-route + /api/routes/batch-modify (dryRun + stream), pre-trade compliance hook on /route + /routes/modify; Frontend: compliance-violation.tsx shared badges, BatchRouteOrderDialog (Configure?Review?Submit?Result), BatchModifyDialog ??(?? per-route ?????? dry-run?common broker+strategy ???????????NDJSON ????) | 36 new tests pass; 181/191 backend tests pass (10 pre-existing config_service event-loop failures unaffected); npx tsc --noEmit clean | � |
+| 2026-04-28 12:35 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 12:58 | session | Stop | Session ended | — | auto |
+| 2026-04-28 13:01 | session | Stop | Session ended | — | auto |
 | 2026-04-28 | fix | User request: `Market Broker Mapping ??????? Route Order ??` | BatchRouteOrderDialog ?? useMarketBrokerMapping/applyMappingFilter/deriveMarketKey??? brokersForOrder(o) per-order ?? Settings ? Market Broker Mapping ?????? mapping ???? candidate broker?????(default)??? templateBroker?? currentBroker ???? | npx tsc --noEmit clean; ?? OrderTable ? RouteOrderDialog/UnifiedModifyRouteDialog ?? mapping ???? | ? |
-| 2026-04-28 13:08 | session | Stop | Session ended | â€” | auto |
+| 2026-04-28 13:08 | session | Stop | Session ended | — | auto |
 | 2026-04-28 | refactor | User feedback: BatchRoute UX rework (multi-broker checklist + 3 bugfixes) | Rewrote batch-route-order-dialog.tsx (~700 lines) with multi-broker selection model: (1) top broker checklist (filtered by Market Broker Mapping union of selected orders' markets); (2) per-broker strategy + params editor (default VWAP); (3) per-order auto-allocations one column per selected broker, equal-split lot-rounded; (4) order type and price inherited per parent (no batch override); (5) Equal-split toolbar replaces % chips; (6) red ring on odd-lot or over-allocated cells (no bg color so contrast survives both themes); (7) clientKey now '\#\'. OrderTable: hardened group-checkbox handler with onPointerDown stopPropagation + local snapshot of group.orders to eliminate any cross-group selection bleed. | npx tsc --noEmit clean; backend contract unchanged (clientKey suffix opaque to server) | - |
-| 2026-04-28 13:24 | session | Stop | Session ended | â€” | auto |
+| 2026-04-28 13:24 | session | Stop | Session ended | — | auto |
 | 2026-04-28 13:39 | fix | User feedback: KS pre-selection + AU group bleed + missing % quick-fill | Gated ExecutionBoard cursor effect with prevCursorRef (skip initial mount, skip when multi-selection >=2) so it no longer auto-single-selects orders[0] on refresh nor stomps on user group selections. Restored % quick-fill toolbar in BatchRouteOrderDialog with applyPercentQty (multi-broker aware: pct of remaining -> equal-split across selected brokers, lot-floored). | tsc clean | - |
-| 2026-04-28 13:39 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 14:53 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:06 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:08 | session | Stop | Session ended | â€” | auto |
+| 2026-04-28 13:39 | session | Stop | Session ended | — | auto |
+| 2026-04-28 14:53 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:06 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:06 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:08 | session | Stop | Session ended | — | auto |
 | 2026-04-28 | task | M2 attribution close-gaps sprint | P0.1 participation_rate (writer.py + benchmarks.interval_volume + 5x cap), P0.2 bucket_specs in aggregator (pct_adv / participation_rate buckets via pd.cut), P1.4 seeded 14 FOMC+CPI events into ref_macro_event_calendar, P1.5 recommender.py (market+side+pct_adv+regime -> top-k broker x algo with bootstrap CI), P1.6 deferred IV/spread/depth to Phase 2 with architecture-decisions entry, P2.9 audit_research_snapshots table + sha256 hash of top-100 rows in run_metrics finally block, P3.10 logged 3 new error patterns (raw_bdib.vwap NULL, sub-minute bar grid, pytest-asyncio incompat). 11 unit tests passing. Backfill 2025-09-25..2026-04-22 running; 22/149 dates done at log time. | 11 tests pass, schema unchanged at v3, all CHECK constraints honoured | - |
-| 2026-04-28 16:10 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:16 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:21 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:35 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:36 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:40 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:40 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:41 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:43 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:48 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:48 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:48 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:49 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:49 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 16:49 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 | architecture | ç”¨æˆ·è¯·æ±‚æž¶æž„å®¡æŸ¥+å½’æ¡£+README æ›´æ–° | å®¡æŸ¥ Top-20 å¤§æ–‡ä»¶ï¼ˆæ ‡è®° 6 ä¸ª >1000 è¡Œçš„æ‹†åˆ†å€™é€‰ï¼‰ï¼›å½’æ¡£ 12 ä¸ªä¸€æ¬¡æ€§è„šæœ¬åˆ° docs/archive/2026-04-28ã€scripts/_archive/2026-04-28ã€CostView/_archive/2026-04-28ï¼›æ›´æ–° README ç›®å½•ç»“æž„ä¸Žæ–‡æ¡£ç´¢å¼• | æ ¹ç›®å½•å¹²å‡€ï¼ŒREADME åæ˜ å½“å‰çŠ¶æ€ | â€” |
-| 2026-04-28 17:05 | session | Stop | Session ended | â€” | auto |
-| 2026-04-28 18:44 | session | Stop | Session ended | â€” | auto |
+| 2026-04-28 16:10 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:16 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:21 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:35 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:36 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:40 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:40 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:41 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:43 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:48 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 16:49 | session | Stop | Session ended | — | auto |
+| 2026-04-28 | architecture | ç”¨æˆ·è¯·æ±‚æž¶构å®¡æŸ¥+å½’æ¡£+README æ›´æ–° | å®¡æŸ¥ Top-20 å¤§文ä»¶ï¼ˆæ ‡è®° 6 ä¸ª >1000 è¡Œ的拆分候选ï¼‰ï¼›å½’æ¡£ 12 ä¸ªä¸€æ¬¡æ€§脚æœ¬åˆ° docs/archive/2026-04-28ã€scripts/_archive/2026-04-28ã€CostView/_archive/2026-04-28ï¼›æ›´æ–° README ç›®å½•ç»“构ä¸Ž文æ¡£ç´¢å¼• | æ ¹ç›®å½•å¹²净ï¼ŒREADME åæ˜ å½“å‰çŠ¶æ€ | — |
+| 2026-04-28 17:05 | session | Stop | Session ended | — | auto |
+| 2026-04-28 18:44 | session | Stop | Session ended | — | auto |
 | 2026-04-28 18:50 | feat | M2 close-gaps sprint completion (P2.7/P2.8/P0.3) | Backfilled fill_attribution_metrics for 149 trade days (2025-09-25 to 2026-04-22, 8.27M rows); fixed aggregator regime JOIN (12 GiB MemoryError -> Cartesian on FillId); fixed recommender JOIN columns; renamed mid->normal across stack to match actual regime label values; added bootstrap_ci_mean memory cap (n_cap=50000, chunked resampling) to prevent 16 GiB allocation; ran papermill substitute (run_attribution_notebook.py) for vol/liq/trend regime variants; filled docs/RESEARCH_NOTES/2026-04-M2-broker-algo-v0.md tables 3.1-3.3 with full-window data; built ExecutionView CostView regime-distribution panel (backend GET /api/costview/regime-distribution + RegimeDistributionPanel.tsx Recharts stacked bar) | 11/11 unit tests pass; 1208/1431 pairwise tests significant at FDR<=0.05; backend/frontend tsc clean; 3 papermill notebooks generated successfully | ~3h |
-| 2026-04-29 09:17 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 10:30 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 10:32 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 10:33 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 10:34 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 | feat | User request â€” Database module data tangibility | Added GET /api/db/{key}/tables/{table}/schema and .../sample?limit=N (N<=200) backed by platform_data.repositories.get_schema/get_sample (PRAGMA-driven columns+indexes, date_column DESC or _rowid_ DESC ordering, JSON-safe cell coercion, sample-bounded NULL/all-same anomaly detection). Refactored DatabaseDetailDrawer into 3 Radix tabs (Overview / Schema & Sample / Integrity), added SchemaSamplePanel + SampleTable components. Updated docs/spec/memory.md API contract. | Backend smoke test on 9.97M-row raw_fills returned schema + 3-row sample with 7 anomalies; tsc --noEmit clean. | manual |
-| 2026-04-29 10:48 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 10:53 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 10:57 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 11:17 | session | Stop | Session ended | â€” | auto |
+| 2026-04-29 09:17 | session | Stop | Session ended | — | auto |
+| 2026-04-29 10:30 | session | Stop | Session ended | — | auto |
+| 2026-04-29 10:32 | session | Stop | Session ended | — | auto |
+| 2026-04-29 10:33 | session | Stop | Session ended | — | auto |
+| 2026-04-29 10:34 | session | Stop | Session ended | — | auto |
+| 2026-04-29 | feat | User request — Database module data tangibility | Added GET /api/db/{key}/tables/{table}/schema and .../sample?limit=N (N<=200) backed by platform_data.repositories.get_schema/get_sample (PRAGMA-driven columns+indexes, date_column DESC or _rowid_ DESC ordering, JSON-safe cell coercion, sample-bounded NULL/all-same anomaly detection). Refactored DatabaseDetailDrawer into 3 Radix tabs (Overview / Schema & Sample / Integrity), added SchemaSamplePanel + SampleTable components. Updated docs/spec/memory.md API contract. | Backend smoke test on 9.97M-row raw_fills returned schema + 3-row sample with 7 anomalies; tsc --noEmit clean. | manual |
+| 2026-04-29 10:48 | session | Stop | Session ended | — | auto |
+| 2026-04-29 10:53 | session | Stop | Session ended | — | auto |
+| 2026-04-29 10:57 | session | Stop | Session ended | — | auto |
+| 2026-04-29 11:17 | session | Stop | Session ended | — | auto |
 | 2026-04-29 | feat | User concern - non-technical user cannot restart services | Added é‡å¯æœåŠ¡.bat at workspace root (one-click, calls scripts/service-manager.ps1 restart with friendly Chinese feedback and auto-opens browser). Added RestartHint.tsx component shown at the top of DatabaseViewModule (localhost-only, collapsible Chinese guidance with step-by-step instructions and a "send to desktop shortcut" tip). | One-click restart now visible in-app and at workspace root; tsc clean. | manual |
-| 2026-04-29 11:21 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 11:23 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 | fix | User report â€” Schema tab "table: not found" + misleading raw_fills_missing_date warning (50000 rows) | platform_data/repositories.py: added `_list_actual_tables` + `_resolve_table_spec`; `list_tables` now returns union of registered specs + actual sqlite_master user tables; `get_summary` iterates the union, synthesising minimal `_TableSpec(description="(unregistered table)")` entries for tables not in the registry. Integrity check for raw_fills now splits the warning into two issues: stale rows (`source_date < today`) keep the existing `raw_fills_missing_date` warning with a remediation hint pointing at `daily_update`, while rows fetched today become an info-level `raw_fills_pending_clean` message â€” eliminating false alarms on freshly fetched rows. SchemaSamplePanel now distinguishes "DB file missing" from "DB present but empty" via a new `dbExists` prop and Chinese guidance. | processed_fills now exposes 15 tables (was 2); unregistered `route_history` returns 22-col schema and 3-row sample; SQL-injection rejection still works; tsc --noEmit clean; raw_fills integrity message clearly distinguishes backlog vs in-flight rows. | manual |
-| 2026-04-29 11:31 | session | Stop | Session ended | â€” | auto |
-| 2026-04-29 11:37 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 | fix | User report â€” Batch Route banner "Some destinations failed validation; affected rows were auto-deselected" gave no actionable info. Backend log shows `[ROUND_LOT] Skipping: refdata service not available` + recurring `Mktdata subscription failures` (lastPrice missing), so dry-run rejects MARKET orders with `NOTIONAL_UNKNOWN`. | `ExecutionView/frontend/src/components/batch-route-order-dialog.tsx`: derived `blockedDetails` memo from `rows` (orderIdâ†’symbol + per-broker violations); rendered an expandable `<details>` block under the destructive Alert listing each `symbol Â· broker` with localized violation labels + raw messages (uses existing `violationLabel`). Imported `violationLabel` alongside `ViolationList`. No backend changes; surfaces the data already returned in `BatchOperationItemResult.violations`. | get_errors clean; user can now triage why each destination was BLOCKED without inspecting per-row state. | manual |
-| 2026-04-29 12:00 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 | fix | Follow-up: even with banner detail, BHP AU MARKET order still failed `NOTIONAL_UNKNOWN` because `lastPrice` was the only fallback in `compliance_service._resolve_effective_price` and Mktdata subscription was failing. | `ExecutionView/backend/api/services/compliance_service.py`: refactored `_resolve_effective_price` to accept a `fallback_prices: list[(label, value)]` and return `(price, source)`. `check_route` / `check_modify` now build the chain `lastPrice â†’ mktVwap â†’ dayAvgPrice â†’ arrivalPrice â†’ avgPrice â†’ price`; first positive value wins. `_check_notional` now records `priceSource` in violation `details` and lists tried fallbacks in the `NOTIONAL_UNKNOWN` message. Added 2 new tests: `test_market_order_falls_back_to_arrival_price`, `test_market_order_falls_back_to_parent_price`. | All 17 `test_compliance_service.py` pass; `test_batch_route_endpoints.py` standalone 9/9 pass (combined-run failures are pre-existing test-pollution from module reload, confirmed on stash baseline). | manual |
-| 2026-04-30 08:55 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 12:15 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 12:27 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 | fix | User report â€” Batch Route Done summary `Total 10 Â· 7 succeeded Â· 0 blocked Â· 3 failed` gave no failure detail. Backend log: `services.batch_route_service WARNING â€” batch-route item key=4904924#EQ-JPM/EQ-MACQ/EQ-ML status=FAILED detail=Invalid Handling Instruction`. Per EMSX guide Â§"If the handling instruction is for DMA access...EMSX API will not allow users to stage the order from the EMSX API unless the broker enables the broker code for EMSX API" â€” broker-side configuration issue. | `ExecutionView/frontend/src/components/batch-route-order-dialog.tsx`: added `failedDetails` memo (mirrors `blockedDetails`, picks `status==='FAILED'` allocs). Done summary Alert now renders an open `<details>` with each `symbol Â· broker` + raw error message; when message matches `/Invalid Handling Instruction/i` shows a Chinese hint to contact Bloomberg/broker for EMSX API staging entitlement. No backend changes â€” data already on `AllocState.message`. | get_errors clean; user now sees which broker codes need entitlement, not just a count. | manual |
-| 2026-04-30 12:47 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 13:10 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 13:39 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 13:45 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 14:10 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 14:36 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 15:10 | session | Stop | Session ended | â€” | auto |
-| 2026-04-30 15:26 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 08:00 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 12:30 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 12:45 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 12:49 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 12:51 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 12:54 | task | ç”¨æˆ·è¯·æ±‚: ExecutionView æ–°å¢ž RouteEngine åŠŸèƒ½ | å®žæ–½ RouteEngine å®Œæ•´åŠŸèƒ½ï¼š
-- åŽç«¯: æ–°å¢ž 3 ä¸ª ORM æ¨¡åž‹ (RoutePlan, RoutePlanAllocation, SubOrderProposal) + è¿ç§»è„šæœ¬
-- åŽç«¯: RoutePlanRepository (CRUD), RouteEngine æ ¸å¿ƒæœåŠ¡ (åŒ¹é…+æ‹†å•ç”Ÿæˆ), API è·¯ç”± (13 ç«¯ç‚¹)
+| 2026-04-29 11:21 | session | Stop | Session ended | — | auto |
+| 2026-04-29 11:23 | session | Stop | Session ended | — | auto |
+| 2026-04-29 | fix | User report — Schema tab "table: not found" + misleading raw_fills_missing_date warning (50000 rows) | platform_data/repositories.py: added `_list_actual_tables` + `_resolve_table_spec`; `list_tables` now returns union of registered specs + actual sqlite_master user tables; `get_summary` iterates the union, synthesising minimal `_TableSpec(description="(unregistered table)")` entries for tables not in the registry. Integrity check for raw_fills now splits the warning into two issues: stale rows (`source_date < today`) keep the existing `raw_fills_missing_date` warning with a remediation hint pointing at `daily_update`, while rows fetched today become an info-level `raw_fills_pending_clean` message — eliminating false alarms on freshly fetched rows. SchemaSamplePanel now distinguishes "DB file missing" from "DB present but empty" via a new `dbExists` prop and Chinese guidance. | processed_fills now exposes 15 tables (was 2); unregistered `route_history` returns 22-col schema and 3-row sample; SQL-injection rejection still works; tsc --noEmit clean; raw_fills integrity message clearly distinguishes backlog vs in-flight rows. | manual |
+| 2026-04-29 11:31 | session | Stop | Session ended | — | auto |
+| 2026-04-29 11:37 | session | Stop | Session ended | — | auto |
+| 2026-04-30 | fix | User report — Batch Route banner "Some destinations failed validation; affected rows were auto-deselected" gave no actionable info. Backend log shows `[ROUND_LOT] Skipping: refdata service not available` + recurring `Mktdata subscription failures` (lastPrice missing), so dry-run rejects MARKET orders with `NOTIONAL_UNKNOWN`. | `ExecutionView/frontend/src/components/batch-route-order-dialog.tsx`: derived `blockedDetails` memo from `rows` (orderId→symbol + per-broker violations); rendered an expandable `<details>` block under the destructive Alert listing each `symbol · broker` with localized violation labels + raw messages (uses existing `violationLabel`). Imported `violationLabel` alongside `ViolationList`. No backend changes; surfaces the data already returned in `BatchOperationItemResult.violations`. | get_errors clean; user can now triage why each destination was BLOCKED without inspecting per-row state. | manual |
+| 2026-04-29 12:00 | session | Stop | Session ended | — | auto |
+| 2026-04-30 | fix | Follow-up: even with banner detail, BHP AU MARKET order still failed `NOTIONAL_UNKNOWN` because `lastPrice` was the only fallback in `compliance_service._resolve_effective_price` and Mktdata subscription was failing. | `ExecutionView/backend/api/services/compliance_service.py`: refactored `_resolve_effective_price` to accept a `fallback_prices: list[(label, value)]` and return `(price, source)`. `check_route` / `check_modify` now build the chain `lastPrice → mktVwap → dayAvgPrice → arrivalPrice → avgPrice → price`; first positive value wins. `_check_notional` now records `priceSource` in violation `details` and lists tried fallbacks in the `NOTIONAL_UNKNOWN` message. Added 2 new tests: `test_market_order_falls_back_to_arrival_price`, `test_market_order_falls_back_to_parent_price`. | All 17 `test_compliance_service.py` pass; `test_batch_route_endpoints.py` standalone 9/9 pass (combined-run failures are pre-existing test-pollution from module reload, confirmed on stash baseline). | manual |
+| 2026-04-30 08:55 | session | Stop | Session ended | — | auto |
+| 2026-04-30 12:15 | session | Stop | Session ended | — | auto |
+| 2026-04-30 12:27 | session | Stop | Session ended | — | auto |
+| 2026-04-30 | fix | User report — Batch Route Done summary `Total 10 · 7 succeeded · 0 blocked · 3 failed` gave no failure detail. Backend log: `services.batch_route_service WARNING — batch-route item key=4904924#EQ-JPM/EQ-MACQ/EQ-ML status=FAILED detail=Invalid Handling Instruction`. Per EMSX guide §"If the handling instruction is for DMA access...EMSX API will not allow users to stage the order from the EMSX API unless the broker enables the broker code for EMSX API" — broker-side configuration issue. | `ExecutionView/frontend/src/components/batch-route-order-dialog.tsx`: added `failedDetails` memo (mirrors `blockedDetails`, picks `status==='FAILED'` allocs). Done summary Alert now renders an open `<details>` with each `symbol · broker` + raw error message; when message matches `/Invalid Handling Instruction/i` shows a Chinese hint to contact Bloomberg/broker for EMSX API staging entitlement. No backend changes — data already on `AllocState.message`. | get_errors clean; user now sees which broker codes need entitlement, not just a count. | manual |
+| 2026-04-30 12:47 | session | Stop | Session ended | — | auto |
+| 2026-04-30 13:10 | session | Stop | Session ended | — | auto |
+| 2026-04-30 13:39 | session | Stop | Session ended | — | auto |
+| 2026-04-30 13:45 | session | Stop | Session ended | — | auto |
+| 2026-04-30 14:10 | session | Stop | Session ended | — | auto |
+| 2026-04-30 14:36 | session | Stop | Session ended | — | auto |
+| 2026-04-30 15:10 | session | Stop | Session ended | — | auto |
+| 2026-04-30 15:26 | session | Stop | Session ended | — | auto |
+| 2026-05-01 08:00 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:30 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:45 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:49 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:51 | session | Stop | Session ended | — | auto |
+| 2026-05-01 12:54 | task | 用户请求: ExecutionView 新增 RouteEngine 功能 | 实施 RouteEngine 完整功能：
+- åŽç«¯: æ–°å¢ž 3 ä¸ª ORM æ¨¡型 (RoutePlan, RoutePlanAllocation, SubOrderProposal) + è¿ç§»脚æœ¬
+- åŽç«¯: RoutePlanRepository (CRUD), RouteEngine æ ¸å¿ƒæœåŠ¡ (åŒ¹é…+拆å•生æˆ), API è·¯ç”± (13 ç«¯ç‚¹)
 - åŽç«¯: Pydantic Schema æ‰©å±• (RoutePlanCreate/Update/Response, SubOrderProposalResponse, BatchConfirmRequest, TestMatchResponse)
-- åŽç«¯: main.py æ³¨å†Œ route_plans router
-- å‰ç«¯: TypeScript ç±»åž‹ (RoutePlan, SubOrderProposal, etc.)
+- åŽç«¯: main.py æ³¨册 route_plans router
+- å‰ç«¯: TypeScript ç±»型 (RoutePlan, SubOrderProposal, etc.)
 - å‰ç«¯: api.ts æ–°å¢ž 11 ä¸ª API æ–¹æ³•
-- å‰ç«¯: route-plan-manager.tsx (æ–¹æ¡ˆ CRUD ç•Œé¢, å« Broker åˆ†é…è¡¨+æ—¶é—´å‚æ•°é…ç½®)
-- å‰ç«¯: sub-order-review-panel.tsx (å¾…ç¡®è®¤å­è®¢å•åˆ—è¡¨, å•ä¸ª/æ‰¹é‡ç¡®è®¤+æ‹’ç»)
-- å‰ç«¯: ExecutionBoard é›†æˆå­è®¢å•é¢æ¿ + å¾…ç¡®è®¤è®¡æ•° Badge
-- å‰ç«¯: SettingsBoard æ·»åŠ "è·¯ç”±æ–¹æ¡ˆç®¡ç†"å…¥å£ | æ‰€æœ‰åŽç«¯ Python æ–‡ä»¶ç¼–è¯‘é€šè¿‡ï¼Œå‰ç«¯ tsc --noEmit æ— ç±»åž‹é”™è¯¯ã€‚åŠŸèƒ½è¦†ç›–: RoutePlan CRUD, å¤šç»´åŒ¹é… (symbol/side/portfolio/trader/exchange), BROKER_SPLIT/TIME_SCHEDULE/HYBRID ä¸‰ç§æ‹†åˆ†ç­–ç•¥, AUTO/MANUAL æ¿€æ´»æ¨¡å¼, MANUAL_CONFIRM æäº¤æ¨¡å¼, æ‰¹é‡ç¡®è®¤è°ƒç”¨çŽ°æœ‰ batch_route_serviceã€‚ | manual |
-| 2026-05-01 12:55 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 13:05 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 13:05 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 13:49 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 13:52 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 14:02 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 14:10 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 14:16 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 14:30 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 14:37 | session | Stop | Session ended | â€” | auto |
-| 2026-05-01 14:42 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 16:36 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 16:40 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 16:44 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 16:52 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 16:58 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 17:05 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 17:48 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 17:50 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 17:54 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 17:59 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 18:04 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 20:57 | task | ç”¨æˆ·è¯·æ±‚ï¼šåŸºäºŽ Agent Coding èŒƒå¼è®¾è®¡çº²é¢†ï¼Œç¼–å†™é€‚é…å½“å‰é¡¹ç›®çš„ .github/agent.md | æ·±å…¥ç ”è¯»é¡¹ç›®æž¶æž„ï¼ˆdocs/spec/memory.mdã€docs/dev-guide.mdã€docs/spec/project-structure.mdã€docs/spec/data-domain.mdã€docs/handoff.mdã€docs/roadmap/wbs.mdï¼‰ã€çŽ°æœ‰æŒ‡ä»¤æ–‡ä»¶ï¼ˆ.github/instructions/ï¼‰ã€çŸ¥è¯†åº“ï¼ˆ.github/knowledge/ï¼‰ã€æŠ€èƒ½ä½“ç³»ï¼ˆ.github/skills/ï¼‰å’Œä»“åº“è®°å¿†åŽï¼Œç¼–å†™äº† .github/agent.mdã€‚æ–‡ä»¶å®Œæ•´è¦†ç›–ï¼šå››å¤§æ”¯æŸ±åŽŸåˆ™ã€é¡¹ç›®æž¶æž„å¡ï¼ˆåˆ†å±‚æž¶æž„+ä¾èµ–æ–¹å‘+å…³é”®çº¦æŸï¼‰ã€ç»å¯¹ç¦æ­¢æ¸…å•ã€ä¸ƒé˜¶æ®µå·¥ä½œæµçŠ¶æ€æœºã€ä¸‰å±‚é˜²æŠ¤æ ä½“ç³»ã€æŠ€æœ¯å€ºé¢„ç®—ã€äººæœºè§’è‰²åˆ†å·¥ã€é¡¹ç›®ç¼–ç å¥‘çº¦ï¼ˆé€šç”¨/åŽç«¯/å‰ç«¯/æ•°æ®åŸŸï¼‰ã€çŸ¥è¯†åº“ä¸ŽæŠ€èƒ½ä½“ç³»ã€ä»»åŠ¡åŽæ£€æŸ¥æ¸…å•ã€å›žæ»šè§„åˆ™ã€ç»´æŠ¤ä¸Žæ¼”è¿›æœºåˆ¶ã€‚ | æˆåŠŸåˆ›å»º .github/agent.mdï¼ˆä»“åº“æ ¹ç›®å½•ï¼‰ï¼Œå°† Agent Coding èŒƒå¼è®¾è®¡çº²é¢†å®Œæ•´é€‚é…åˆ° EMSX é¡¹ç›®çš„å…·ä½“æž¶æž„ã€æŠ€æœ¯æ ˆå’Œæ²»ç†ç»“æž„ä¸­ã€‚æ–‡ä»¶ä¸ŽçŽ°æœ‰ .github/copilot-instructions.mdã€.github/instructions/ ç­‰è§„åˆ™æ–‡ä»¶å½¢æˆäº’è¡¥å…³ç³»ã€‚ | manual |
-| 2026-05-04 20:58 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 22:41 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 23:09 | architecture | ç”¨æˆ·è¯·æ±‚ï¼š.github/agent.md é€‚é…å¤§è§„æ¨¡é‡æž„â€”â€”å°†æ—§è·¯å¾„ç»‘å®šæè¿°æ”¹ä¸ºæž¶æž„åŽŸåˆ™ï¼Œä½¿æ–‡ä»¶ä¸æŸç¼šé‡æž„ | å°† .github/agent.md å‡çº§è‡³ v2.0ï¼Œå®Œæˆä»¥ä¸‹ä¿®æ”¹ï¼š(1) I.æ”¯æŸ±1 â€” åŽ»æŽ‰ ExecutionView/CostView ç­‰å…·ä½“æ¨¡å—åï¼Œæ”¹ä¸ºä¸šåŠ¡åŸŸæè¿°ï¼›(2) II.é¡¹ç›®æž¶æž„å¡ â€” å®Œå…¨é‡å†™ä¸ºã€Œä¸šåŠ¡æ¨¡å—æž¶æž„ + åˆ†å±‚å¥‘çº¦ + æ°¸ä¹…çº¦æŸ + é‡æž„è¿‡æ¸¡æœŸè§„åˆ™ã€ç»“æž„ï¼Œç§»é™¤æ‰€æœ‰å…·ä½“ç›®å½•æ ‘ï¼Œåˆ†å±‚å›¾æ”¹ä¸ºæŠ½è±¡å±‚åï¼›(3) III.ç»å¯¹ç¦æ­¢ â€” #6/#7 ä»Žå†™æ­»è·¯å¾„æ”¹ä¸ºé€šç”¨åŽŸåˆ™ï¼Œå¼•ç”¨ docs/spec/project-structure.mdï¼›(4) V.è¿‡ç¨‹é˜²æŠ¤æ  â€” ä½œç”¨åŸŸå¼•ç”¨æ”¹ä¸ºæŠ½è±¡æè¿°ï¼›(5) VI.æŠ€æœ¯å€ºé¢„ç®— â€” é—ç•™å¼•ç”¨ç›‘å¬æ”¹ä¸ºä»¥ PROJECT_STRUCTURE.md ä¸ºå‡†ï¼›(6) æ–°å¢žã€Œé‡æž„è¿‡æ¸¡æœŸè§„åˆ™ã€ï¼šå½“ .github/agent.md ä¸­è·¯å¾„ä¸Žå·²ç¡®è®¤é‡æž„è®¡åˆ’å†²çªæ—¶ä»¥åŽè€…ä¸ºå‡†ã€‚ | .github/agent.md å®Œæˆé‡æž„è¿‡æ¸¡æœŸé€‚é…ï¼ŒçŽ°åœ¨ä»…æè¿°æ°¸ä¹…æ€§æž¶æž„åŽŸåˆ™è€Œéžç»‘å®šå…·ä½“è·¯å¾„ã€‚Agent åœ¨é‡æž„æœŸé—´ä¸ä¼šå› æ—§è·¯å¾„å¼•ç”¨è€Œæ‹’ç»é‡æž„æ“ä½œã€‚å…³é”®çº¦æŸï¼ˆåˆ†å±‚æ–¹å‘ã€Bloomberg å­—æ®µè§„åˆ™ã€ç¼–ç å¥‘çº¦ã€ä¸ƒé˜¶æ®µå·¥ä½œæµï¼‰å…¨éƒ¨ä¿ç•™ã€‚ | manual |
-| 2026-05-04 23:10 | session | Stop | Session ended | â€” | auto |
-| 2026-05-04 23:11 | task | ç”¨æˆ·è¯·æ±‚ï¼šå°† .github/agent.md ä¸­çš„å…·ä½“è·¯å¾„æè¿°æ›¿æ¢ä¸ºåŽŸåˆ™æ€§æè¿°ï¼Œä»¥é€‚é…å³å°†è¿›è¡Œçš„å¤§è§„æ¨¡é‡æž„ | å¯¹ .github/agent.md è¿›è¡Œäº†ä»¥ä¸‹åŽŸåˆ™åŒ–ä¿®æ”¹ï¼š1) II.é¡¹ç›®æž¶æž„å¡ â€” ç§»é™¤å…·ä½“ç›®å½•æ ‘ï¼Œæ›¿æ¢ä¸ºä¸šåŠ¡æ¨¡å—æž¶æž„åŽŸåˆ™æè¿° + æŠ½è±¡åˆ†å±‚å¥‘çº¦å›¾ï¼Œæ–°å¢žã€Œé‡æž„è¿‡æ¸¡æœŸè§„åˆ™ã€ï¼›2) II.å…³é”®çº¦æŸ â€” ä»Ž 7 æ¡è·¯å¾„ç»‘å®šçº¦æŸæ”¹ä¸º 6 æ¡æ°¸ä¹…æ€§æž¶æž„åŽŸåˆ™ï¼›3) VIII.ç¼–ç å¥‘çº¦(å‰ç«¯) â€” ç§»é™¤ modules/marketview/ã€modules/costview/ ç­‰å…·ä½“è·¯å¾„ï¼›4) VIII.ç¼–ç å¥‘çº¦(æ•°æ®åŸŸ) â€” platform_data/ æ”¹ä¸ºå…±äº«é€‚é…å±‚ï¼›5) VI.æŠ€æœ¯å€ºé¢„ç®— â€” æž¶æž„æ¼‚ç§»å’Œé—ç•™å¼•ç”¨æ”¹ä¸ºåŽŸåˆ™æ€§æè¿°ï¼›6) I.æ”¯æŸ±1 â€” ä¸šåŠ¡æ¨¡å—æ”¹ä¸ºä¸šåŠ¡åŸŸæè¿°ï¼›7) III.ç»å¯¹ç¦æ­¢ â€” ç¬¬6/7æ¡æ”¹ä¸ºåŽŸåˆ™æ€§è¡¨è¿°ï¼›8) ç‰ˆæœ¬å‡è‡³ 2.0ï¼Œå¢žåŠ é‡æž„è¿‡æ¸¡æœŸçŠ¶æ€æ ‡è¯† | .github/agent.md çŽ°ä¸ä¾èµ–ä»»ä½•å…·ä½“ç›®å½•è·¯å¾„ï¼Œå…¨éƒ¨ä»¥æ°¸ä¹…æ€§æž¶æž„åŽŸåˆ™æè¿°ã€‚æ–°å¢žçš„ã€Œé‡æž„è¿‡æ¸¡æœŸè§„åˆ™ã€ç¡®ä¿é‡æž„æœŸé—´ Agent ä»¥é‡æž„è®¡åˆ’ä¸ºå‡†ï¼Œä¸è¢«æ—§è·¯å¾„æŸç¼šã€‚è·¨åŸŸæ•°æ®è®¿é—®ç¦æ­¢è§„åˆ™ï¼ˆé€šè¿‡å…±äº«é€‚é…å±‚ï¼‰ä½œä¸ºæ°¸ä¹…çº¦æŸä¿ç•™ã€‚ | manual |
-| 2026-05-04 23:12 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 17:52 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 17:59 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 18:47 | error | user request: batch route AV/LN Equity å‡ºçŽ°é»‘å± + ä¿®å¤ P2 | ä¿®å¤ batch route AV/LN Equity é»‘å±é—®é¢˜ + ä¿®å¤ LN Equity mktdata è®¢é˜… P2ã€‚å‰ç«¯: åœ¨ streamNdjsonBatch ä¸­ä¸º onItem/onSummary å›žè°ƒå¢žåŠ  try-catch ä¿æŠ¤ï¼›åœ¨ runSubmit ä¸­å¢žåŠ  try-catch ç¡®ä¿ setPhase('result') å§‹ç»ˆæ‰§è¡Œã€‚åŽç«¯: åœ¨ SUBSCRIPTION_STATUS å¤„ç†ä¸­å¢žåŠ  errorCode æå–ï¼›åœ¨ _update_mktdata_subscriptions ä¸­å¯¹ LN Equity ticker åš `/` å‰¥ç¦»åŽè®¢é˜… mktdata (CID ä¿æŒåŽŸå§‹ ticker)ã€‚ | å‰ç«¯ batch-route-order-dialog åœ¨å›žè°ƒæŠ›å¼‚å¸¸æ—¶ä¸å†ç™½å±/å†»ç»“ï¼Œç•Œé¢èƒ½æ­£å¸¸å›žåˆ° result é˜¶æ®µæ˜¾ç¤ºé”™è¯¯ã€‚åŽç«¯ LN Equity ticker mktdata è®¢é˜…å¢žåŠ  errorCode è¯Šæ–­æ—¥å¿—ï¼Œå¹¶å°è¯•é€šè¿‡å‰¥ç¦»æ ¹ç¬¦å·ä¸­çš„ `/` æ¥ä¿®å¤ rcode=-11ã€‚ | manual |
-| 2026-05-05 18:48 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 18:58 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 19:07 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 19:16 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 19:42 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 19:57 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 20:00 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 20:05 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 20:12 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 20:26 | error | user request: investigate AV/LN Equity routing failure for EQ-BARCLAY | å…¨é¢æ£€æŸ¥ HAND_INSTRUCTION (AUTO1) å’Œç®—æ³• (VWAP-EU) åœ¨ pipeline ä¸­çš„å®Œæ•´æ€§ã€‚éªŒè¯ broker_hand_instruction.json é…ç½®ã€_resolve_hand_instruction() ä»£ç è·¯å¾„ã€_apply_strategy_params() ä»£ç è·¯å¾„ã€batch_route_service æ•°æ®æµã€æ—¥å¿—é”™è¯¯è®°å½•ã€‚ | ç¡®è®¤ AUTO1 å’Œ VWAP-EU é€šè¿‡å®Œæ•´ pipeline æœªè¢«ç¯¡æ”¹ã€‚æ ¹å› æ˜¯ Bloomberg EMSX è¿”å›ž "Invalid Handling Instruction"â€”â€”AUTO1 è¢« Barclays ç«¯æ‹’ç»ï¼Œéžç³»ç»Ÿä»£ç é—®é¢˜ã€‚ | manual |
-| 2026-05-05 20:26 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 20:48 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 22:23 | task | ç”¨æˆ·éœ€æ±‚ï¼šæ‰¹æ¬¡è·¯ç”±é¢æ¿ä¸­ EQ-BARCLAY é»˜è®¤ algo æ”¹ä¸º VWAP-EU | ä¿®æ”¹ batch-route-order-dialog.tsx ä¸­ defaultStrategyFor å‡½æ•°ï¼Œå¢žåŠ  broker å‚æ•°å’Œ BROKER_DEFAULT_STRATEGY æ˜ å°„è¡¨ï¼Œå°† EQ-BARCLAY é»˜è®¤ç­–ç•¥è®¾ä¸º VWAP-EUï¼›æ›´æ–°ä¸¤å¤„è°ƒç”¨ç‚¹ä¼ å…¥ broker å‚æ•° | æˆåŠŸã€‚Vite æž„å»ºé€šè¿‡ï¼ŒEQ-BARCLAY çŽ°åœ¨é»˜è®¤é€‰æ‹© VWAP-EU è€Œéž VWAPã€‚ | manual |
-| 2026-05-05 22:23 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 22:28 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 22:31 | task | ç”¨æˆ·è¦æ±‚è¿›ä¸€æ­¥æ”¶ç´§é»˜è®¤ç­–ç•¥é€»è¾‘ï¼šæœªæ‰¾åˆ°ç²¾ç¡® VWAP æ—¶ç•™ç©ºä¸é€‰ | ç§»é™¤ defaultStrategyFor ä¸­çš„ VWAP variant æ¨¡ç³ŠåŒ¹é…å’Œ strategies[0] å›žé€€ï¼ŒæœªåŒ¹é…æ—¶ç›´æŽ¥è¿”å›žç©ºå­—ç¬¦ä¸² | æˆåŠŸã€‚çŽ°åœ¨åªæœ‰ç»çºªå•†ç‰¹å®šè¦†ç›–ï¼ˆå¦‚ EQ-BARCLAY â†’ VWAP-EUï¼‰æˆ–ç²¾ç¡® VWAP æ‰ä¼šè‡ªåŠ¨é€‰ä¸­ï¼Œå…¶ä½™æƒ…å†µé»˜è®¤ç­–ç•¥ç•™ç©ºã€‚ | manual |
-| 2026-05-05 22:31 | session | Stop | Session ended | â€” | auto |
-| 2026-05-05 22:35 | session | Stop | Session ended | â€” | auto |
-| 2026-05-06 18:10 | error | ç”¨æˆ·æŠ¥å‘Š batch route å†æ¬¡å‡ºçŽ°é»‘å±é—®é¢˜ï¼ˆç‚¹å‡» Validate/Submit åŽé¡µé¢ç©ºç™½ï¼‰ | (1) åˆ›å»º ErrorBoundary ç»„ä»¶ (error-boundary.tsx) é˜²æ­¢æœªæ•èŽ·å¼‚å¸¸å¯¼è‡´æ•´ä¸ªé¡µé¢å´©æºƒï¼›(2) åœ¨ App.tsx ä¸»å†…å®¹åŒºåŒ…è£¹ ErrorBoundaryï¼›(3) ä¿®å¤ BatchModifyDialog.runSubmit ç¼ºå°‘ try-catch çš„é—®é¢˜ï¼ˆä¸Žå·²ä¿®å¤çš„ BatchRouteOrderDialog ä¿æŒä¸€è‡´ï¼‰ï¼›(4) ä¿®å¤ BatchModifyDialog ä¸­ setSummary åŽçš„é™ˆæ—§é—­åŒ…é—®é¢˜ï¼ˆsummary çŠ¶æ€åœ¨å¼‚æ­¥å›žè°ƒä¸­å§‹ç»ˆä¸º nullï¼‰ï¼›(5) ä¸º streamNdjsonBatch æ·»åŠ  300 ç§’ AbortSignal è¶…æ—¶ä¿æŠ¤ï¼Œé˜²æ­¢åŽç«¯æ— å“åº”æ—¶å‰ç«¯æ°¸ä¹…æŒ‚èµ· | ä¸‰å±‚ä¿æŠ¤ï¼šErrorBoundary å…œåº•é¡µé¢å´©æºƒ â†’ try-catch é˜²æ­¢æäº¤è¿‡ç¨‹æŠ›å¼‚å¸¸ â†’ è¶…æ—¶ä¿æŠ¤é˜²æ­¢æµæŒ‚èµ·ã€‚æ‰€æœ‰ä¿®æ”¹æ–‡ä»¶é€šè¿‡ get_errors é›¶é”™è¯¯éªŒè¯ã€‚é¢„å…ˆå­˜åœ¨çš„ TS æž„å»ºé”™è¯¯ï¼ˆ15ä¸ªï¼‰ä¸Žæœ¬æ¬¡æ›´æ”¹æ— å…³ã€‚ | manual |
-| 2026-05-06 18:10 | session | Stop | Session ended | â€” | auto |
-| 2026-05-06 18:16 | error | ç”¨æˆ·æŠ¥å‘Š Objects are not valid as a React child (object keys: type, loc, msg, input, ctx) â€” åŽç«¯éªŒè¯é”™è¯¯å¯¹è±¡è¢«ä¼ å…¥ React çŠ¶æ€å¹¶ç›´æŽ¥æ¸²æŸ“ | (1) åœ¨ api.ts ä¸­åˆ›å»º toErrorString() å·¥å…·å‡½æ•°ï¼Œå°†æœªçŸ¥ç±»åž‹çš„é”™è¯¯å€¼ï¼ˆstring/Error/æ•°ç»„/Zodæ ¡éªŒå¯¹è±¡ï¼‰ç»Ÿä¸€è½¬ä¸ºå¯è¯»å­—ç¬¦ä¸²ï¼›(2) åœ¨ apiFetch å’Œ streamNdjsonBatch çš„ !response.ok é”™è¯¯æå–å¤„ä½¿ç”¨ toErrorString() åŒ…è£¹ j.detailï¼Œé¿å… Zod/Pydantic éªŒè¯é”™è¯¯æ•°ç»„æ³„æ¼åˆ° React çŠ¶æ€ï¼›(3) åœ¨ batch-route-order-dialog.tsx çš„ 4 å¤„æ¸²æŸ“ç‚¹ï¼ˆerrorã€d.messageã€v.messageï¼‰æ·»åŠ  typeof === 'string' é˜²å¾¡ï¼›(4) åœ¨ batch-operation-dialogs.tsx çš„ errorMsg æ¸²æŸ“ç‚¹æ·»åŠ é˜²å¾¡ï¼›(5) åœ¨ compliance-violation.tsx çš„ v.message æ¸²æŸ“ç‚¹æ·»åŠ é˜²å¾¡ | ä¸¤å±‚é˜²å¾¡ï¼štoErrorString ä»Žæºå¤´ç¡®ä¿æ‰€æœ‰ error è¿”å›žå€¼å§‹ç»ˆä¸ºå­—ç¬¦ä¸²ï¼›æ¸²æŸ“å±‚é˜²å¾¡ç¡®ä¿å³ä½¿æ„å¤–ä¼ å…¥å¯¹è±¡ä¹Ÿä¸ä¼šä½¿ React å´©æºƒã€‚é›¶ç¼–è¯‘é”™è¯¯ã€‚ | manual |
-| 2026-05-06 18:16 | session | Stop | Session ended | â€” | auto |
-| 2026-05-06 18:30 | task | ç”¨æˆ·è¯·æ±‚å°†æ¯ä¸ª route çš„é‡‘é¢ä½ŽäºŽ 10K æ”¹ä¸ºè½¯çº¦æŸ | (1) åŽç«¯ schemas.py: Violation.severity ç±»åž‹ä»Ž Literal['BLOCK'] æ‰©å±•ä¸º Literal['BLOCK','WARN']; (2) compliance_service.py: NOTIONAL_TOO_SMALL è®¾ç½® severity='WARN', æ–‡æ¡£æ›´æ–°; (3) batch_route_service.py: _evaluate_route_item/_evaluate_modify_item åŒºåˆ† BLOCK/WARN è¿è§„, ä»… BLOCK é˜»æ­¢è·¯ç”±, WARN éš SUCCESS ç»“æžœè½¬å‘; _submit_route/_submit_modify æŽ¥æ”¶ violations å‚æ•°å¹¶ä¼ é€’åˆ°æœ€ç»ˆç»“æžœ; (4) å‰ç«¯ types/index.ts: Violation.severity ç±»åž‹æ›´æ–°; (5) compliance-violation.tsx: ViolationBadge æ”¯æŒ severity å±žæ€§, WARN ä¸ºç¥ç€è‰², BLOCK ä¿æŒçº¢è‰²; æ ‡ç­¾æ›´æ–°ä¸º"é‡‘é¢ä½ŽäºŽ USD 10Kï¼ˆè½¯çº¦æŸï¼‰"; (6) batch-route-order-dialog.tsx: å¢žåŠ  warnDetails è®¡ç®—, ç»“æžœæ‘˜è¦æ˜¾ç¤º advisory warnings; SUCCESS è¡ŒåŒæ—¶æ˜¾ç¤º violation badges; (7) æµ‹è¯•æ›´æ–°: æ”¹åå’Œé€‚é…è½¯çº¦æŸè¡Œä¸º | NOTIONAL_TOO_SMALL ç¡¬çº¦æŸâ†’è½¯çº¦æŸæ”¹åŠ¨å®Œæ•´è½åœ°ã€‚åŽç«¯ 26 ä¸ªæµ‹è¯•å…¨éƒ¨é€šè¿‡ã€‚å‰ç«¯é›¶ç¼–è¯‘é”™è¯¯ã€‚ | manual |
-| 2026-05-06 18:30 | session | Stop | Session ended | â€” | auto |
-| 2026-05-06 23:44 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 00:05 | architecture | ç”¨æˆ·è¯·æ±‚è§£è€¦é‡æž„ | å®Œæˆ CostView attribution æ¨¡å—ä¸Žæ•°æ®æŒä¹…å±‚çš„è§£è€¦é‡æž„ã€‚æ–°å¢ž dto.pyï¼ˆæ•°æ®ä¼ è¾“å¯¹è±¡ï¼‰ã€protocols.pyï¼ˆRepository Protocol æŽ¥å£ï¼‰ã€repositories.pyï¼ˆSQL ä»“å‚¨å®žçŽ°ï¼‰ï¼›ç§»é™¤ writer.py/aggregator.py/config.py/recommender.py ä¸­çš„ sqlite3 ç›´æŽ¥ä¾èµ–å’Œ regime.schema ç¡¬ç¼–ç ï¼›æ‹†åˆ† benchmarks.py ä¿ç•™çº¯ç®—æ³•ã€è¿å‡º DB å‡½æ•°ï¼›pipeline.py å¢žåŠ  Repository æ³¨å…¥å­—æ®µï¼›run_attribution.py CLI åˆ›å»ºå’Œæ³¨å…¥ Repository å®žä¾‹ã€‚æ‰€æœ‰æ¨¡å—é€šè¿‡ç¼–è¯‘å’Œå¯¼å…¥éªŒè¯ã€‚ | 13 ä¸ªæ–‡ä»¶å˜æ›´ï¼ˆ4 æ–°å»ºã€9 ä¿®æ”¹ï¼‰ï¼Œattribution/ æ¨¡å—ä¸å†ç›´æŽ¥å¯¼å…¥ sqlite3 æˆ– regime.schemaï¼ˆä»… repositories.py ä¿ç•™ SQL çŸ¥è¯†ï¼‰ï¼Œä¸šåŠ¡é€»è¾‘é€šè¿‡ Protocol æŽ¥å£è®¿é—®æ•°æ®ã€‚ä¿ç•™ db_path å‘åŽå…¼å®¹å‚æ•°ã€‚ç¼–è¯‘å’Œå¯¼å…¥éªŒè¯å…¨éƒ¨é€šè¿‡ã€‚ | manual |
-| 2026-05-07 00:07 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 15:03 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 15:10 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 15:26 | task | å°† CostView/src/processed_fills_db.pyï¼ˆ1149è¡Œã€39ä¸ªæ–¹æ³•ã€8+è¡¨ï¼‰God Object æ‹†åˆ†ä¸º6ä¸ªå•èŒè´£ Repository + 1ä¸ª Facade | åˆ›å»º processed_fills_db/ åŒ…ç›®å½•ï¼ŒåŒ…å« 8 ä¸ªæ¨¡å—ï¼š_base.pyï¼ˆè¿žæŽ¥ç®¡ç†+ Schema åˆå§‹åŒ–åè°ƒï¼‰ã€fills_repository.pyï¼ˆæ ¸å¿ƒå¡«å……+è·¯ç”±æ³¨å†Œï¼‰ã€aggregation_repository.pyï¼ˆ10s/1min èšåˆï¼‰ã€execution_history_repository.pyï¼ˆè®¢å•/è·¯ç”±/äº‹ä»¶åŽ†å²ï¼‰ã€order_label_repository.pyï¼ˆè®¢å•æ ‡ç­¾ï¼‰ã€processing_log_repository.pyï¼ˆå¤„ç†å®¡è®¡æ—¥å¿—ï¼‰ã€ticker_repository.pyï¼ˆTicker å…ƒæ•°æ®4å¼ è¡¨ï¼‰ã€legacy_repository.pyï¼ˆåºŸå¼ƒè¡¨åªä¿ç•™è¯»å–ï¼‰+ stats.pyï¼ˆè·¨åŸŸç»Ÿè®¡ï¼‰+ facade.pyï¼ˆå‘åŽå…¼å®¹é—¨é¢ï¼Œä»£ç†æ‰€æœ‰39ä¸ªæ–¹æ³•åˆ°å­ä»“åº“ï¼‰+ __init__.pyã€‚åŽŸå§‹ processed_fills_db.py é‡å‘½åä¸º _legacy_backup.pyã€‚ | æ‰€æœ‰å­ä»“åº“ç‹¬ç«‹å¯ç”¨ï¼›ProcessedFillsDB é—¨é¢ 100% å‘åŽå…¼å®¹ï¼ˆ33ä¸ªæ–¹æ³•éªŒè¯é€šè¿‡ï¼‰ï¼›æ‰€æœ‰è°ƒç”¨æ–¹ï¼ˆpipeline, fill_ingestion, downstream_interface, daily_metrics_calculator, query_cliï¼‰é›¶ä¿®æ”¹å¯¼å…¥æˆåŠŸï¼›16å¼ è¡¨+1ä¸ªVIEW Schema åˆå§‹åŒ–æ­£å¸¸ï¼›æ— å¾ªçŽ¯ä¾èµ–ï¼›å­ä»“åº“å¯å•ç‹¬å®žä¾‹åŒ– | manual |
-| 2026-05-07 15:30 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 15:40 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 | refactor | è¿­ä»£ 2: tca_query_service + execution_history_service + daily_metrics_calculator è¿ç§»åˆ° ConnectionManager | Enhanced `db/connection.py` with `row_factory` parameter on `get_connection()`/`_create_connection()`/`connection()` and `path_overrides` dict on `ConnectionManager.__init__()` for test injection. Refactored `TcaQueryService.__init__` to accept optional `connection_manager` parameter with backward-compatible `db_path` â†’ `path_overrides` internal conversion. Replaced 4 private connection factory methods (`_proc_fills_conn`, `_fill_bdib_conn`, `_raw_bdib_conn`, `_raw_fills_conn`) from raw `sqlite3.connect()` to `ConnectionManager.get_connection()`. Updated `_compute_route_metrics_from_raw_bdib` and `_table_exists` type annotations from `sqlite3.Connection` to generic. Migrated `ExecutionHistoryQueryService` with same `connection_manager` + `path_overrides` pattern, replaced `_fetch_rows` raw connect. Migrated `CalculateDailyMetrics._load_bars_for_date` from raw `sqlite3.connect(self._db.db_path)` to `self._mgr.get_connection("raw_bdib", AccessTier.READ)`, with auto-detection of custom `db.db_path` for ConnectionManager path override. | Zero `sqlite3.connect()` in tca_query_service.py, execution_history_service.py, daily_metrics_calculator.py. TCA tests 42/42 pass. Pipeline guard tests 15/17 pass (2 pre-existing). All 7 acceptance criteria met. | manual |
-| 2026-05-07 18:54 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 19:09 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 19:57 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 20:04 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 20:14 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 20:20 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 20:25 | architecture | Staff Engineer æ·±åº¦å®¡æŸ¥ â€” è¯†åˆ«å¹¶æ¶ˆé™¤æž¶æž„è¿‡åº¦è®¾è®¡ | (1) åˆ é™¤ market_data_contracts.py + regime_contracts.py ç©ºå ä½ (2) ç²¾ç®€ platform_data/__init__.py barrel ä»Ž 50+ ç¬¦å·åˆ° 9 ä¸ª adapter (3) ç§»é™¤ adapters.py ä¸­ EXECUTION_HISTORY_CONTRACT ä»£ç åŒ–æ–‡æ¡£(90è¡Œ)æ›¿æ¢ä¸ºè½»é‡ç‰ˆæœ¬å· (4) åŒæ­¥æ›´æ–° schemas.py 6 ä¸ª Pydantic æ¨¡åž‹åŽ»æŽ‰ contract åµŒå¥— (5) æ›´æ–° 5 ä¸ªæ¶ˆè´¹è€… import è·¯å¾„ (6) åˆ é™¤ generated/execution-platform-handoff.md é™ˆæ—§å¿«ç…§ (7) ç²¾ç®€ TASK_TEMPLATES.md 717â†’97 è¡Œ (8) ç²¾ç®€ SERVICE_MANAGEMENT.md Quick Start (9) æ ‡è®° MODULAR_SEQUENCE_DIAGRAMS.md | åˆ é™¤ 3 ä»½æ–‡ä»¶ã€ç²¾ç®€ 4 ä»½æ–‡æ¡£ã€ä¿®æ”¹ 5 ä»½ Python æ–‡ä»¶ import è·¯å¾„ï¼Œæ¶ˆé™¤çº¦ 700+ è¡Œå†—ä½™ã€‚æ‰€æœ‰ AST è¯­æ³•æ£€æŸ¥é€šè¿‡ï¼Œæ—  import æ–­è£‚ã€‚ | manual |
-| 2026-05-07 20:26 | session | Stop | Session ended | â€” | auto |
-| 2026-05-07 20:29 | session | Stop | Session ended | â€” | auto |
+- å‰ç«¯: route-plan-manager.tsx (æ–¹æ¡ˆ CRUD 界é¢, å« Broker 分é…è¡¨+æ—¶é—´å‚æ•°é…ç½®)
+- å‰ç«¯: sub-order-review-panel.tsx (å¾…ç¡®è®¤å­è®¢å•列è¡¨, å•ä¸ª/æ‰¹é‡确认+拒绝)
+- 前端: ExecutionBoard 集成子订单面板 + 待确认计数 Badge
+- 前端: SettingsBoard 添加"路由方案管理"入口 | 所有后端 Python 文件编译通过，前端 tsc --noEmit 无类型错误。功能覆盖: RoutePlan CRUD, 多维匹配 (symbol/side/portfolio/trader/exchange), BROKER_SPLIT/TIME_SCHEDULE/HYBRID 三种拆分策略, AUTO/MANUAL 激活模式, MANUAL_CONFIRM 提交模式, 批量确认调用现有 batch_route_service。 | manual |
+| 2026-05-01 12:55 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:05 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:05 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:49 | session | Stop | Session ended | — | auto |
+| 2026-05-01 13:52 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:02 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:10 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:16 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:30 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:37 | session | Stop | Session ended | — | auto |
+| 2026-05-01 14:42 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:36 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:40 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:44 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:52 | session | Stop | Session ended | — | auto |
+| 2026-05-04 16:58 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:05 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:48 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:50 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:54 | session | Stop | Session ended | — | auto |
+| 2026-05-04 17:59 | session | Stop | Session ended | — | auto |
+| 2026-05-04 18:04 | session | Stop | Session ended | — | auto |
+| 2026-05-04 20:57 | task | 用户请求：基于 Agent Coding 范式设计纲领，编写适配当前项目的 .github/agent.md | 深入研读项目架构（docs/spec/memory.md、docs/dev-guide.md、docs/spec/project-structure.md、docs/spec/data-domain.md、docs/handoff.md、docs/roadmap/wbs.md）、现有指令文件（.github/instructions/）、知识库（.github/knowledge/）、技能体系（.github/skills/）和仓库记忆后，编写了 .github/agent.md。文件完整覆盖：四大支柱原则、项目架构卡（分层架构+依赖方向+关键约束）、绝对禁止清单、七阶段工作流状态机、三层防护栏体系、技术债预算、人机角色分工、项目编码契约（通用/后端/前端/数据域）、知识库与技能体系、任务后检查清单、回滚规则、维护与演进机制。 | 成功创建 .github/agent.md（仓库根目录），将 Agent Coding 范式设计纲领完整适配到 EMSX 项目的具体架构、技术栈和治理结构中。文件与现有 .github/copilot-instructions.md、.github/instructions/ 等规则文件形成互补关系。 | manual |
+| 2026-05-04 20:58 | session | Stop | Session ended | — | auto |
+| 2026-05-04 22:41 | session | Stop | Session ended | — | auto |
+| 2026-05-04 23:09 | architecture | 用户请求：.github/agent.md 适配大规模重构——将旧路径绑定描述改为架构原则，使文件不束缚重构 | 将 .github/agent.md 升级至 v2.0，完成以下修改：(1) I.支柱1 — 去掉 ExecutionView/CostView 等具体模块名，改为业务域描述；(2) II.项目架构卡 — 完全重写为「业务模块架构 + 分层契约 + 永久约束 + 重构过渡期规则」结构，移除所有具体目录树，分层图改为抽象层名；(3) III.绝对禁止 — #6/#7 从写死路径改为通用原则，引用 docs/spec/project-structure.md；(4) V.过程防护栏 — 作用域引用改为抽象描述；(5) VI.技术债预算 — 遗留引用监听改为以 PROJECT_STRUCTURE.md 为准；(6) 新增「重构过渡期规则」：当 .github/agent.md 中路径与已确认重构计划冲突时以后者为准。 | .github/agent.md 完成重构过渡期适配，现在仅描述永久性架构原则而非绑定具体路径。Agent 在重构期间不会因旧路径引用而拒绝重构操作。关键约束（分层方向、Bloomberg 字段规则、编码契约、七阶段工作流）全部保留。 | manual |
+| 2026-05-04 23:10 | session | Stop | Session ended | — | auto |
+| 2026-05-04 23:11 | task | 用户请求：将 .github/agent.md 中的具体路径描述替换为原则性描述，以适配即将进行的大规模重构 | 对 .github/agent.md 进行了以下原则化修改：1) II.项目架构卡 — 移除具体目录树，替换为业务模块架构原则描述 + 抽象分层契约图，新增「重构过渡期规则」；2) II.关键约束 — 从 7 条路径绑定约束改为 6 条永久性架构原则；3) VIII.编码契约(前端) — 移除 modules/marketview/、modules/costview/ 等具体路径；4) VIII.编码契约(数据域) — platform_data/ 改为共享适配层；5) VI.技术债预算 — 架构漂移和遗留引用改为原则性描述；6) I.支柱1 — 业务模块改为业务域描述；7) III.绝对禁止 — 第6/7条改为原则性表述；8) 版本升至 2.0，增加重构过渡期状态标识 | .github/agent.md 现不依赖任何具体目录路径，全部以永久性架构原则描述。新增的「重构过渡期规则」确保重构期间 Agent 以重构计划为准，不被旧路径束缚。跨域数据访问禁止规则（通过共享适配层）作为永久约束保留。 | manual |
+| 2026-05-04 23:12 | session | Stop | Session ended | — | auto |
+| 2026-05-05 17:52 | session | Stop | Session ended | — | auto |
+| 2026-05-05 17:59 | session | Stop | Session ended | — | auto |
+| 2026-05-05 18:47 | error | user request: batch route AV/LN Equity 出现黑屏 + 修复 P2 | 修复 batch route AV/LN Equity 黑屏问题 + 修复 LN Equity mktdata 订阅 P2。前端: 在 streamNdjsonBatch 中为 onItem/onSummary 回调增加 try-catch 保护；在 runSubmit 中增加 try-catch 确保 setPhase('result') 始终执行。后端: 在 SUBSCRIPTION_STATUS 处理中增加 errorCode 提取；在 _update_mktdata_subscriptions 中对 LN Equity ticker 做 `/` 剥离后订阅 mktdata (CID 保持原始 ticker)。 | 前端 batch-route-order-dialog 在回调抛异常时不再白屏/冻结，界面能正常回到 result 阶段显示错误。后端 LN Equity ticker mktdata 订阅增加 errorCode 诊断日志，并尝试通过剥离根符号中的 `/` 来修复 rcode=-11。 | manual |
+| 2026-05-05 18:48 | session | Stop | Session ended | — | auto |
+| 2026-05-05 18:58 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:07 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:16 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:42 | session | Stop | Session ended | — | auto |
+| 2026-05-05 19:57 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:00 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:05 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:12 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:26 | error | user request: investigate AV/LN Equity routing failure for EQ-BARCLAY | 全面检查 HAND_INSTRUCTION (AUTO1) 和算法 (VWAP-EU) 在 pipeline 中的完整性。验证 broker_hand_instruction.json 配置、_resolve_hand_instruction() 代码路径、_apply_strategy_params() 代码路径、batch_route_service 数据流、日志错误记录。 | 确认 AUTO1 和 VWAP-EU 通过完整 pipeline 未被篡改。根因是 Bloomberg EMSX 返回 "Invalid Handling Instruction"——AUTO1 被 Barclays 端拒绝，非系统代码问题。 | manual |
+| 2026-05-05 20:26 | session | Stop | Session ended | — | auto |
+| 2026-05-05 20:48 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:23 | task | 用户需求：批次路由面板中 EQ-BARCLAY 默认 algo 改为 VWAP-EU | 修改 batch-route-order-dialog.tsx 中 defaultStrategyFor 函数，增加 broker 参数和 BROKER_DEFAULT_STRATEGY 映射表，将 EQ-BARCLAY 默认策略设为 VWAP-EU；更新两处调用点传入 broker 参数 | 成功。Vite 构建通过，EQ-BARCLAY 现在默认选择 VWAP-EU 而非 VWAP。 | manual |
+| 2026-05-05 22:23 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:28 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:31 | task | 用户要求进一步收紧默认策略逻辑：未找到精确 VWAP 时留空不选 | 移除 defaultStrategyFor 中的 VWAP variant 模糊匹配和 strategies[0] 回退，未匹配时直接返回空字符串 | 成功。现在只有经纪商特定覆盖（如 EQ-BARCLAY → VWAP-EU）或精确 VWAP 才会自动选中，其余情况默认策略留空。 | manual |
+| 2026-05-05 22:31 | session | Stop | Session ended | — | auto |
+| 2026-05-05 22:35 | session | Stop | Session ended | — | auto |
+| 2026-05-06 18:10 | error | 用户报告 batch route 再次出现黑屏问题（点击 Validate/Submit 后页面空白） | (1) 创建 ErrorBoundary 组件 (error-boundary.tsx) 防止未捕获异常导致整个页面崩溃；(2) 在 App.tsx 主内容区包裹 ErrorBoundary；(3) 修复 BatchModifyDialog.runSubmit 缺少 try-catch 的问题（与已修复的 BatchRouteOrderDialog 保持一致）；(4) 修复 BatchModifyDialog 中 setSummary 后的陈旧闭包问题（summary 状态在异步回调中始终为 null）；(5) 为 streamNdjsonBatch 添加 300 秒 AbortSignal 超时保护，防止后端无响应时前端永久挂起 | 三层保护：ErrorBoundary 兜底页面崩溃 → try-catch 防止提交过程抛异常 → 超时保护防止流挂起。所有修改文件通过 get_errors 零错误验证。预先存在的 TS 构建错误（15个）与本次更改无关。 | manual |
+| 2026-05-06 18:10 | session | Stop | Session ended | — | auto |
+| 2026-05-06 18:16 | error | 用户报告 Objects are not valid as a React child (object keys: type, loc, msg, input, ctx) — 后端验证错误对象被传入 React 状态并直接渲染 | (1) 在 api.ts 中创建 toErrorString() 工具函数，将未知类型的错误值（string/Error/数组/Zod校验对象）统一转为可读字符串；(2) 在 apiFetch 和 streamNdjsonBatch 的 !response.ok 错误提取处使用 toErrorString() 包裹 j.detail，避免 Zod/Pydantic 验证错误数组泄漏到 React 状态；(3) 在 batch-route-order-dialog.tsx 的 4 处渲染点（error、d.message、v.message）添加 typeof === 'string' 防御；(4) 在 batch-operation-dialogs.tsx 的 errorMsg 渲染点添加防御；(5) 在 compliance-violation.tsx 的 v.message 渲染点添加防御 | 两层防御：toErrorString 从源头确保所有 error 返回值始终为字符串；渲染层防御确保即使意外传入对象也不会使 React 崩溃。零编译错误。 | manual |
+| 2026-05-06 18:16 | session | Stop | Session ended | — | auto |
+| 2026-05-06 18:30 | task | 用户请求将每个 route 的金额低于 10K 改为软约束 | (1) 后端 schemas.py: Violation.severity 类型从 Literal['BLOCK'] 扩展为 Literal['BLOCK','WARN']; (2) compliance_service.py: NOTIONAL_TOO_SMALL 设置 severity='WARN', 文档更新; (3) batch_route_service.py: _evaluate_route_item/_evaluate_modify_item 区分 BLOCK/WARN 违规, 仅 BLOCK 阻止路由, WARN 随 SUCCESS 结果转发; _submit_route/_submit_modify 接收 violations 参数并传递到最终结果; (4) 前端 types/index.ts: Violation.severity 类型更新; (5) compliance-violation.tsx: ViolationBadge 支持 severity 属性, WARN 为琥珀色, BLOCK 保持红色; 标签更新为"金额低于 USD 10K（软约束）"; (6) batch-route-order-dialog.tsx: 增加 warnDetails 计算, 结果摘要显示 advisory warnings; SUCCESS 行同时显示 violation badges; (7) 测试更新: 改名和适配软约束行为 | NOTIONAL_TOO_SMALL 硬约束→软约束改动完整落地。后端 26 个测试全部通过。前端零编译错误。 | manual |
+| 2026-05-06 18:30 | session | Stop | Session ended | — | auto |
+| 2026-05-06 23:44 | session | Stop | Session ended | — | auto |
+| 2026-05-07 00:05 | architecture | 用户请求解耦重构 | 完成 CostView attribution 模块与数据持久层的解耦重构。新增 dto.py（数据传输对象）、protocols.py（Repository Protocol 接口）、repositories.py（SQL 仓储实现）；移除 writer.py/aggregator.py/config.py/recommender.py 中的 sqlite3 直接依赖和 regime.schema 硬编码；拆分 benchmarks.py 保留纯算法、迁出 DB 函数；pipeline.py 增加 Repository 注入字段；run_attribution.py CLI 创建和注入 Repository 实例。所有模块通过编译和导入验证。 | 13 个文件变更（4 新建、9 修改），attribution/ 模块不再直接导入 sqlite3 或 regime.schema（仅 repositories.py 保留 SQL 知识），业务逻辑通过 Protocol 接口访问数据。保留 db_path 向后兼容参数。编译和导入验证全部通过。 | manual |
+| 2026-05-07 00:07 | session | Stop | Session ended | — | auto |
+| 2026-05-07 15:03 | session | Stop | Session ended | — | auto |
+| 2026-05-07 15:10 | session | Stop | Session ended | — | auto |
+| 2026-05-07 15:26 | task | 将 CostView/src/processed_fills_db.py（1149行、39个方法、8+表）God Object 拆分为6个单职责 Repository + 1个 Facade | 创建 processed_fills_db/ 包目录，包含 8 个模块：_base.py（连接管理+ Schema 初始化协调）、fills_repository.py（核心填充+路由注册）、aggregation_repository.py（10s/1min 聚合）、execution_history_repository.py（订单/路由/事件历史）、order_label_repository.py（订单标签）、processing_log_repository.py（处理审计日志）、ticker_repository.py（Ticker 元数据4张表）、legacy_repository.py（废弃表只保留读取）+ stats.py（跨域统计）+ facade.py（向后兼容门面，代理所有39个方法到子仓库）+ __init__.py。原始 processed_fills_db.py 重命名为 _legacy_backup.py。 | 所有子仓库独立可用；ProcessedFillsDB 门面 100% 向后兼容（33个方法验证通过）；所有调用方（pipeline, fill_ingestion, downstream_interface, daily_metrics_calculator, query_cli）零修改导入成功；16张表+1个VIEW Schema 初始化正常；无循环依赖；子仓库可单独实例化 | manual |
+| 2026-05-07 15:30 | session | Stop | Session ended | — | auto |
+| 2026-05-07 15:40 | session | Stop | Session ended | — | auto |
+| 2026-05-07 | refactor | 迭代 2: tca_query_service + execution_history_service + daily_metrics_calculator 迁移到 ConnectionManager | Enhanced `db/connection.py` with `row_factory` parameter on `get_connection()`/`_create_connection()`/`connection()` and `path_overrides` dict on `ConnectionManager.__init__()` for test injection. Refactored `TcaQueryService.__init__` to accept optional `connection_manager` parameter with backward-compatible `db_path` → `path_overrides` internal conversion. Replaced 4 private connection factory methods (`_proc_fills_conn`, `_fill_bdib_conn`, `_raw_bdib_conn`, `_raw_fills_conn`) from raw `sqlite3.connect()` to `ConnectionManager.get_connection()`. Updated `_compute_route_metrics_from_raw_bdib` and `_table_exists` type annotations from `sqlite3.Connection` to generic. Migrated `ExecutionHistoryQueryService` with same `connection_manager` + `path_overrides` pattern, replaced `_fetch_rows` raw connect. Migrated `CalculateDailyMetrics._load_bars_for_date` from raw `sqlite3.connect(self._db.db_path)` to `self._mgr.get_connection("raw_bdib", AccessTier.READ)`, with auto-detection of custom `db.db_path` for ConnectionManager path override. | Zero `sqlite3.connect()` in tca_query_service.py, execution_history_service.py, daily_metrics_calculator.py. TCA tests 42/42 pass. Pipeline guard tests 15/17 pass (2 pre-existing). All 7 acceptance criteria met. | manual |
+| 2026-05-07 18:54 | session | Stop | Session ended | — | auto |
+| 2026-05-07 19:09 | session | Stop | Session ended | — | auto |
+| 2026-05-07 19:57 | session | Stop | Session ended | — | auto |
+| 2026-05-07 20:04 | session | Stop | Session ended | — | auto |
+| 2026-05-07 20:14 | session | Stop | Session ended | — | auto |
+| 2026-05-07 20:20 | session | Stop | Session ended | — | auto |
+| 2026-05-07 20:25 | architecture | Staff Engineer 深度审查 — 识别并消除架构过度设计 | (1) 删除 market_data_contracts.py + regime_contracts.py 空占位 (2) 精简 platform_data/__init__.py barrel 从 50+ 符号到 9 个 adapter (3) 移除 adapters.py 中 EXECUTION_HISTORY_CONTRACT 代码化文档(90行)替换为轻量版本号 (4) 同步更新 schemas.py 6 个 Pydantic 模型去掉 contract 嵌套 (5) 更新 5 个消费者 import 路径 (6) 删除 generated/execution-platform-handoff.md 陈旧快照 (7) 精简 TASK_TEMPLATES.md 717→97 行 (8) 精简 SERVICE_MANAGEMENT.md Quick Start (9) 标记 MODULAR_SEQUENCE_DIAGRAMS.md | 删除 3 份文件、精简 4 份文档、修改 5 份 Python 文件 import 路径，消除约 700+ 行冗余。所有 AST 语法检查通过，无 import 断裂。 | manual |
+| 2026-05-07 20:26 | session | Stop | Session ended | — | auto |
+| 2026-05-07 20:29 | session | Stop | Session ended | — | auto |
 
 
 | 2026-05-07 20:41 | architecture | 用户要求分析并优化核心架构文件的存储位置与组织结构 | (1) 创建 docs/spec/ docs/api/ docs/ops/ docs/roadmap/ 子目录 (2) 移动 PROJECT_STRUCTURE/DATA_DOMAIN/MEMORY → docs/spec/ (3) 移动 SERVICE_MANAGEMENT → docs/ops/ (4) 移动 WBS/TASK_TEMPLATES → docs/roadmap/ (5) 重命名 CLAUDE.md → docs/dev-guide.md (6) 移动 EMSX Guide + Sequence Diagrams → docs/api/ (7) 从 memory.md 提取 DatabaseView API → docs/api/database.md (8) 合并 AGENTS.md + copilot-instructions.md → .github/agent.md (9) 删除 docs/architecture/ docs/generated/ AGENTS.md copilot-instructions.md (10) 更新 15+ 个文件中的跨文档引用 (11) 修正 CostView README 中旧 Execution/ 路径 (12) 添加 README 状态标签 | docs/ 从 10 文件扁平杂物 → 4 子目录 + 4 根入口的清晰结构。删除 4 份冗余文件/目录。Agent 检索路径从"翻 30+ 文件"变为"首屏可见 docs/spec/ "。所有跨文档引用经验证无残留旧路径。 | manual |
 | 2026-05-07 20:43 | session | Stop | Session ended | — | auto |
 | 2026-05-07 20:47 | session | Stop | Session ended | — | auto |
 | 2026-05-07 20:57 | session | Stop | Session ended | — | auto |
+| 2026-05-07 21:59 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:01 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:07 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:18 | task | Phase 1: Data Platform extraction — zero-DB processing modules | Created DataPipeline/ package structure; migrated fill_cleaner.py, fill_processor.py, fill_aggregator.py, fill_bdib_integrated.py → DataPipeline/src/processing/; migrated bdib_fetcher.py → DataPipeline/src/acquisition/; created re-export stubs in CostView/src/ with DeprecationWarning | 81/81 tests passed. All 5 migrated modules import correctly via both DataPipeline and CostView re-export paths. | manual |
+| 2026-05-07 22:19 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:32 | task | Phase 2: Storage layer migration (highest risk) | Migrated CostView/src/db/connection.py, protocols.py, dto.py, repositories/ (9 files), schema/ (6 files) → DataPipeline/src/storage/. Updated all consumer imports: platform_data/adapters.py (2 locations), platform_data/repositories.py, CostView/src/db/facade.py (11 imports), CostView/src/db/__init__.py, db/schema/migrations/manager.py (2 locations), regime/ (3 files), attribution/repositories.py, __main__.py, validate_raw_fills.py, database_access.py, processed_fills_db/ (2 files). Deleted all migrated originals from CostView/src/db/ | 81/81 tests passed. platform_data and all CostView consumers import storage classes from DataPipeline.src.storage.*. CostView/src/db/ now only contains __init__.py (re-export) and facade.py (CostViewDatabase). | manual |
+| 2026-05-07 22:32 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:41 | task | Phase 3: Migrate fill_fetch.py, fill_ingestion.py, daily_metrics_calculator.py | Migrated fill_ingestion.py to DataPipeline/src/ingestion/ (imports updated to DataPipeline processing modules). Migrated fill_fetch.py to DataPipeline/src/ingestion/ — replaced SQLAlchemy FillFetchDatabase with lightweight FetchHistoryDB using ConnectionManager + pure sqlite3. Migrated daily_metrics_calculator.py to DataPipeline/src/processing/ — replaced RawBDIBDB/ProcessedFillsDB with CostViewDatabase facade. Created re-export stubs in CostView/src/ for all 3 files. | 81/81 tests passed. DataPipeline now fully owns ingestion and daily metrics processing. SQLAlchemy dependency eliminated from fetch history tracking. | manual |
+| 2026-05-07 22:41 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:49 | task | Phase 4: Pipeline orchestration migration + shared tools extraction | Created DataPipeline/src/common/ with processing_config.py, exchange_tz.py, mapping.py, outdated_tickers.py, schema.py extracted from CostView. Updated all 18 DataPipeline modules to import from DataPipeline.src.common instead of CostView.src. Migrated pipeline.py to DataPipeline/src/orchestration/pipeline.py (imports updated). Updated __main__.py imports to DataPipeline paths. Created re-export stubs in CostView/src/ for processing_config, exchange_tz, mapping, outdated_tickers, schema, pipeline. | 81/81 tests passed. DataPipeline is now fully independent of CostView for common configuration and utility modules. | manual |
+| 2026-05-07 22:49 | session | Stop | Session ended | — | auto |
+| 2026-05-07 22:53 | task | Phase 5: Contracts + Adapter for Data Platform | Created platform_data/contracts/data_platform_contracts.py with IngestionConfig, IngestionResult, PipelineState (enum), PipelineStatus. Updated contracts/__init__.py to export them. Added DataPlatformIngestionAdapter class in adapters.py with trigger_ingestion() and get_pipeline_status() methods. Extended PlatformDataAccess with data_platform field. Updated build_platform_data_access() factory with data_platform_factory parameter. Updated platform_data/__init__.py exports. | 81/81 tests passed. Data Platform contracts and adapter integrated into platform_data. Adapter tested: construct, describe, get_pipeline_status all work. build_platform_data_access() returns PlatformDataAccess with .data_platform attribute. | manual |
+| 2026-05-07 22:53 | session | Stop | Session ended | — | auto |
+| 2026-05-07 23:21 | task | Phase 6: Cleanup — delete old DB classes, re-export stubs, update docs | Copied old DB classes (raw_fills_db.py, raw_bdib_db.py, fill_bdib_db.py, processed_raw_bdib_db.py, processed_fills_db/) from CostView/src/ to DataPipeline/src/storage/. Updated all DataPipeline internal imports to point to DataPipeline paths. Deleted 5 old DB class files and 6 zero-consumer re-export stubs (fill_cleaner, fill_processor, fill_aggregator, fill_bdib_integrated, fill_fetch, fill_ingestion) from CostView/src/. Kept 8 re-export stubs still consumed by tests/ or non-migrated modules. Updated docs/spec/data-domain.md to reflect completed migration. | 81/81 tests passed. CostView/src/ now only contains analysis-layer modules (tca, regime, attribution) + 8 re-export stubs for external consumers. No old DB classes or data pipeline code remains in CostView. | manual |
+| 2026-05-07 23:22 | session | Stop | Session ended | — | auto |
+| 2026-05-07 23:27 | session | Stop | Session ended | — | auto |

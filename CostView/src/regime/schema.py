@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from CostView.src.db.connection import ConnectionManager
+from DataPipeline.src.storage.connection import ConnectionManager
 
 # Pinned schema version. Bump → add new migrations/vN_to_vN+1.sql + apply.py runs it.
 SCHEMA_VERSION: int = 3
