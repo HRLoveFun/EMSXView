@@ -27,6 +27,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from .exchange_tz import convert_ny_to_local
+from .db.connection import AccessTier, ConnectionManager
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)
@@ -186,15 +187,27 @@ class TcaQueryService:
 
     def __init__(
         self,
+        connection_manager: Optional[ConnectionManager] = None,
         proc_fills_db_path: Optional[str] = None,
         fill_bdib_db_path: Optional[str] = None,
         raw_bdib_db_path: Optional[str] = None,
         raw_fills_db_path: Optional[str] = None,
     ):
-        self._proc_fills_path = str(proc_fills_db_path or Config.PROCESSED_FILLS_DB)
-        self._fill_bdib_path = str(fill_bdib_db_path or Config.FILL_BDIB_DB)
-        self._raw_bdib_path = str(raw_bdib_db_path or Config.RAW_BDIB_DB)
-        self._raw_fills_path = str(raw_fills_db_path or Config.RAW_FILLS_DB)
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        elif any([proc_fills_db_path, fill_bdib_db_path, raw_bdib_db_path, raw_fills_db_path]):
+            overrides: dict[str, Path] = {}
+            if proc_fills_db_path:
+                overrides["processed_fills"] = Path(proc_fills_db_path)
+            if fill_bdib_db_path:
+                overrides["fill_bdib"] = Path(fill_bdib_db_path)
+            if raw_bdib_db_path:
+                overrides["raw_bdib"] = Path(raw_bdib_db_path)
+            if raw_fills_db_path:
+                overrides["raw_fills"] = Path(raw_fills_db_path)
+            self._mgr = ConnectionManager(path_overrides=overrides)
+        else:
+            self._mgr = ConnectionManager()
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -1019,9 +1032,9 @@ class TcaQueryService:
 
     def _compute_route_metrics_from_raw_bdib(
         self,
-        raw_conn: sqlite3.Connection,
+        raw_conn,
         route: dict,
-        fill_rows: list[sqlite3.Row],
+        fill_rows,
     ) -> Optional[dict[str, Any]]:
         ticker = route.get("equ_ticker")
         trade_date = route.get("order_as_of_date")
@@ -1404,30 +1417,20 @@ class TcaQueryService:
         weight = rank - lower
         return cleaned[lower] * (1 - weight) + cleaned[upper] * weight
 
-    def _proc_fills_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._proc_fills_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _proc_fills_conn(self):
+        return self._mgr.get_connection("processed_fills", AccessTier.READ, row_factory=sqlite3.Row)
 
-    def _fill_bdib_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._fill_bdib_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+    def _fill_bdib_conn(self):
+        return self._mgr.get_connection("fill_bdib", AccessTier.READ)
 
-    def _raw_bdib_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._raw_bdib_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _raw_bdib_conn(self):
+        return self._mgr.get_connection("raw_bdib", AccessTier.READ, row_factory=sqlite3.Row)
 
-    def _raw_fills_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._raw_fills_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+    def _raw_fills_conn(self):
+        return self._mgr.get_connection("raw_fills", AccessTier.READ)
 
     @staticmethod
-    def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    def _table_exists(conn, table_name: str) -> bool:
         cursor = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ? LIMIT 1",
             [table_name],

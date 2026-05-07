@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
+from .db.connection import AccessTier, ConnectionManager
 from .processing_config import ProcessingConfig as Config
 
 
@@ -12,11 +13,21 @@ class ExecutionHistoryQueryService:
 
     def __init__(
         self,
+        connection_manager: Optional[ConnectionManager] = None,
         proc_fills_db_path: str | None = None,
         raw_fills_db_path: str | None = None,
     ):
-        self._proc_fills_path = Path(proc_fills_db_path or Config.PROCESSED_FILLS_DB)
-        self._raw_fills_path = Path(raw_fills_db_path or Config.RAW_FILLS_DB)
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        elif proc_fills_db_path or raw_fills_db_path:
+            overrides: dict[str, Path] = {}
+            if proc_fills_db_path:
+                overrides["processed_fills"] = Path(proc_fills_db_path)
+            if raw_fills_db_path:
+                overrides["raw_fills"] = Path(raw_fills_db_path)
+            self._mgr = ConnectionManager(path_overrides=overrides)
+        else:
+            self._mgr = ConnectionManager()
 
     def list_fill_history(
         self,
@@ -27,7 +38,7 @@ class ExecutionHistoryQueryService:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> list[dict[str, Any]]:
-        if not self._proc_fills_path.exists():
+        if not self._mgr.database_exists("processed_fills"):
             return []
 
         where_sql, params = self._build_processed_filters(
@@ -40,7 +51,7 @@ class ExecutionHistoryQueryService:
         raw_join = ""
         raw_source_date = "NULL AS source_date"
         raw_fetched_at = "NULL AS fetched_at"
-        if self._raw_fills_path.exists():
+        if self._mgr.database_exists("raw_fills"):
             raw_join = f"""
                 LEFT JOIN raw.{Config.RAW_FILLS_TABLE} raw
                   ON CAST(raw.OrderId AS TEXT) = CAST(p.OrderId AS TEXT)
@@ -89,7 +100,7 @@ class ExecutionHistoryQueryService:
             LIMIT ?
         """
         params.append(limit)
-        return self._fetch_rows(query, params, attach_raw=self._raw_fills_path.exists())
+        return self._fetch_rows(query, params, attach_raw=self._mgr.database_exists("raw_fills"))
 
     def list_order_history(
         self,
@@ -99,7 +110,7 @@ class ExecutionHistoryQueryService:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> list[dict[str, Any]]:
-        if not self._proc_fills_path.exists():
+        if not self._mgr.database_exists("processed_fills"):
             return []
 
         where_sql, params = self._build_processed_filters(
@@ -147,7 +158,7 @@ class ExecutionHistoryQueryService:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> list[dict[str, Any]]:
-        if not self._proc_fills_path.exists():
+        if not self._mgr.database_exists("processed_fills"):
             return []
 
         where_sql, params = self._build_processed_filters(
@@ -228,11 +239,11 @@ class ExecutionHistoryQueryService:
         *,
         attach_raw: bool = False,
     ) -> list[dict[str, Any]]:
-        conn = sqlite3.connect(str(self._proc_fills_path))
-        conn.row_factory = sqlite3.Row
+        conn = self._mgr.get_connection("processed_fills", AccessTier.READ, row_factory=sqlite3.Row)
         try:
             if attach_raw:
-                conn.execute("ATTACH DATABASE ? AS raw", [str(self._raw_fills_path)])
+                raw_path = self._mgr.get_path("raw_fills")
+                conn.execute("ATTACH DATABASE ? AS raw", [str(raw_path)])
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
         finally:

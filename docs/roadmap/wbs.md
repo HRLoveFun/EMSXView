@@ -1,6 +1,6 @@
-# EMSX ExecutionView Platform Work Breakdown Structure
+﻿# EMSX ExecutionView Platform Work Breakdown Structure
 
-**Document Path**: `c:/Users/hrchen/Documents/EMSX/docs/EXECUTION_PLATFORM_WBS.md`
+**Document Path**: `c:/Users/hrchen/Documents/EMSX/docs/roadmap/wbs.md`
 **Requested**: 2026-04-02
 **Scope**: `ExecutionView/`, `CostView/`, repo-level workflow automation under `.github/`, `.workbuddy/`, and `scripts/`
 **Planning Horizon**: 9 sprints across 6 phases
@@ -80,7 +80,7 @@ Each sprint must pass the following gates before merge:
 ```text
 Plan Source -> Sprint Board -> Issue/PR Execution -> CI/QA Gates -> Progress Ledger -> Review Gate -> Release/Handoff
      |               |                  |                |                |               |
-     |               |                  |                |                |               +-> docs/HANDOFF.md
+     |               |                  |                |                |               +-> docs/handoff.md
      |               |                  |                |                +-> .workbuddy/knowledge/metrics.md
      |               |                  |                +-> .github/workflows/*.yml
      |               |                  +-> Git branches / PR templates / commit conventions
@@ -95,7 +95,7 @@ Plan Source -> Sprint Board -> Issue/PR Execution -> CI/QA Gates -> Progress Led
 Use a dual layer:
 
 1. **Human-readable master plan**
-   - `c:/Users/hrchen/Documents/EMSX/docs/EXECUTION_PLATFORM_WBS.md`
+   - `c:/Users/hrchen/Documents/EMSX/docs/roadmap/wbs.md`
 2. **Machine-readable sprint ledger**
    - `c:/Users/hrchen/Documents/EMSX/plans/execution-platform-status.yaml`
    - stores current phase, sprint, issue state, blockers, checkpoint state, and release tag
@@ -114,7 +114,7 @@ Persist sprint status to:
 
 - `c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/iteration-log.md`
 - `c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/metrics.md`
-- `c:/Users/hrchen/Documents/EMSX/docs/HANDOFF.md`
+- `c:/Users/hrchen/Documents/EMSX/docs/handoff.md`
 
 ### D. Quality assurance checkpoints
 
@@ -805,3 +805,4 @@ Track these in `c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/metrics.md`:
 - The earliest packaging-risk file is `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/Dockerfile`, because it currently copies only `main.py` and `auth.py`.
 - The highest continuity-risk area is fragmented state across backend memory, JSON files, and frontend `localStorage`; Sprint 1 and Sprint 4 address that directly.
 - The recommendation layer must not be promoted to production decisioning until Phase 4 scorecards are stable and validated.
+

@@ -1,375 +1,376 @@
-# 关键文件索引
+﻿# å…³é”®æ–‡ä»¶ç´¢å¼•
 
-> 基于 cloc 行数 + 依赖图 + 架构角色综合标注。  
-> 标签说明：`🔥超大` ≥500行 | `⚠️超限` >300行(前端)/>500行(后端) | `🧱无内部依赖` | `🔗枢纽` 被多模块依赖
+> åŸºäºŽ cloc è¡Œæ•° + ä¾èµ–å›¾ + æž¶æž„è§’è‰²ç»¼åˆæ ‡æ³¨ã€‚  
+> æ ‡ç­¾è¯´æ˜Žï¼š`ðŸ”¥è¶…å¤§` â‰¥500è¡Œ | `âš ï¸è¶…é™` >300è¡Œ(å‰ç«¯)/>500è¡Œ(åŽç«¯) | `ðŸ§±æ— å†…éƒ¨ä¾èµ–` | `ðŸ”—æž¢çº½` è¢«å¤šæ¨¡å—ä¾èµ–
 
 ---
 
-## 核心抽象（不能动）⭐⭐⭐
+## æ ¸å¿ƒæŠ½è±¡ï¼ˆä¸èƒ½åŠ¨ï¼‰â­â­â­
 
-> 跨模块共享的基础设施、API 契约、数据访问唯一入口。修改需全员审批。
+> è·¨æ¨¡å—å…±äº«çš„åŸºç¡€è®¾æ–½ã€API å¥‘çº¦ã€æ•°æ®è®¿é—®å”¯ä¸€å…¥å£ã€‚ä¿®æ”¹éœ€å…¨å‘˜å®¡æ‰¹ã€‚
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `platform_data/adapters.py` | 936 | 🔥超大 🔗枢纽 | 共享适配层——跨域数据访问的唯一合法入口，CostView 后端依赖 |
-| `platform_data/repositories.py` | 866 | 🔥超大 🔗枢纽 | 共享仓储层——持久化数据访问，无内部依赖 |
-| `platform_data/__init__.py` | 98 | 🧱 | 模块入口，导出 adapters |
-| `ExecutionView/backend/api/services/bloomberg_adapter.py` | 2119 | 🔥超大 🔗枢纽 | Bloomberg EMSX 核心适配器：订单/路由/行情订阅、字段解析、事件分发 |
-| `ExecutionView/backend/api/schemas.py` | 614 | ⚠️超限 🧱🔗枢纽 | Pydantic API 契约，前后端接口镜像的源头，无内部依赖 |
-| `ExecutionView/backend/api/db.py` | 56 | 🧱 | SQLite 初始化 + migration 执行 |
-| `ExecutionView/backend/api/deps.py` | 43 | 🔗枢纽 | FastAPI 依赖注入：组装所有 service 单例，审计日志异步持久化 |
+| `platform_data/adapters.py` | 936 | ðŸ”¥è¶…å¤§ ðŸ”—æž¢çº½ | å…±äº«é€‚é…å±‚â€”â€”è·¨åŸŸæ•°æ®è®¿é—®çš„å”¯ä¸€åˆæ³•å…¥å£ï¼ŒCostView åŽç«¯ä¾èµ– |
+| `platform_data/repositories.py` | 866 | ðŸ”¥è¶…å¤§ ðŸ”—æž¢çº½ | å…±äº«ä»“å‚¨å±‚â€”â€”æŒä¹…åŒ–æ•°æ®è®¿é—®ï¼Œæ— å†…éƒ¨ä¾èµ– |
+| `platform_data/__init__.py` | 98 | ðŸ§± | æ¨¡å—å…¥å£ï¼Œå¯¼å‡º adapters |
+| `ExecutionView/backend/api/services/bloomberg_adapter.py` | 2119 | ðŸ”¥è¶…å¤§ ðŸ”—æž¢çº½ | Bloomberg EMSX æ ¸å¿ƒé€‚é…å™¨ï¼šè®¢å•/è·¯ç”±/è¡Œæƒ…è®¢é˜…ã€å­—æ®µè§£æžã€äº‹ä»¶åˆ†å‘ |
+| `ExecutionView/backend/api/schemas.py` | 614 | âš ï¸è¶…é™ ðŸ§±ðŸ”—æž¢çº½ | Pydantic API å¥‘çº¦ï¼Œå‰åŽç«¯æŽ¥å£é•œåƒçš„æºå¤´ï¼Œæ— å†…éƒ¨ä¾èµ– |
+| `ExecutionView/backend/api/db.py` | 56 | ðŸ§± | SQLite åˆå§‹åŒ– + migration æ‰§è¡Œ |
+| `ExecutionView/backend/api/deps.py` | 43 | ðŸ”—æž¢çº½ | FastAPI ä¾èµ–æ³¨å…¥ï¼šç»„è£…æ‰€æœ‰ service å•ä¾‹ï¼Œå®¡è®¡æ—¥å¿—å¼‚æ­¥æŒä¹…åŒ– |
 
-## 数据层 ⭐⭐
+## æ•°æ®å±‚ â­â­
 
-> 数据库定义、仓储实现、Schema 迁移。
+> æ•°æ®åº“å®šä¹‰ã€ä»“å‚¨å®žçŽ°ã€Schema è¿ç§»ã€‚
 
-### CostView 数据库
+### CostView æ•°æ®åº“
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `CostView/src/schema.py` | 215 | 🧱 | 表结构定义（raw_fills / processed_fills / aggregated_fills 等） |
-| `CostView/src/database.py` | 98 | 🧱 | 数据库连接工厂 |
-| `CostView/src/database_access.py` | 104 | 🧱 | 通用数据访问层基类 |
-| `CostView/src/raw_fills_db.py` | 516 | ⚠️超限 | 原始填充 CRUD |
-| `CostView/src/processed_fills_db.py` | 685 | ⚠️超限 | 已处理填充 CRUD + 聚合查询 |
-| `CostView/src/fill_bdib_db.py` | 100 | | 填充-BDIB 关联数据库 |
-| `CostView/src/raw_bdib_db.py` | 272 | | 原始 BDIB 行情存储 |
-| `CostView/src/processed_raw_bdib_db.py` | 134 | | 已处理 BDIB 数据 |
-| `CostView/src/processed_bdib_db.py` | 13 | | 已处理 BDIB（旧） |
-| `CostView/src/regime/schema.py` | 31 | | 市场状态数据库 Schema |
-| `CostView/src/storage/regime_reader.py` | 58 | | 市场状态数据读取 |
+| `CostView/src/schema.py` | 215 | ðŸ§± | è¡¨ç»“æž„å®šä¹‰ï¼ˆraw_fills / processed_fills / aggregated_fills ç­‰ï¼‰ |
+| `CostView/src/database.py` | 98 | ðŸ§± | æ•°æ®åº“è¿žæŽ¥å·¥åŽ‚ |
+| `CostView/src/database_access.py` | 104 | ðŸ§± | é€šç”¨æ•°æ®è®¿é—®å±‚åŸºç±» |
+| `CostView/src/raw_fills_db.py` | 516 | âš ï¸è¶…é™ | åŽŸå§‹å¡«å…… CRUD |
+| `CostView/src/processed_fills_db.py` | 685 | âš ï¸è¶…é™ | å·²å¤„ç†å¡«å…… CRUD + èšåˆæŸ¥è¯¢ |
+| `CostView/src/fill_bdib_db.py` | 100 | | å¡«å……-BDIB å…³è”æ•°æ®åº“ |
+| `CostView/src/raw_bdib_db.py` | 272 | | åŽŸå§‹ BDIB è¡Œæƒ…å­˜å‚¨ |
+| `CostView/src/processed_raw_bdib_db.py` | 134 | | å·²å¤„ç† BDIB æ•°æ® |
+| `CostView/src/processed_bdib_db.py` | 13 | | å·²å¤„ç† BDIBï¼ˆæ—§ï¼‰ |
+| `CostView/src/regime/schema.py` | 31 | | å¸‚åœºçŠ¶æ€æ•°æ®åº“ Schema |
+| `CostView/src/storage/regime_reader.py` | 58 | | å¸‚åœºçŠ¶æ€æ•°æ®è¯»å– |
 
-### ExecutionView 数据库
+### ExecutionView æ•°æ®åº“
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/models/execution_state.py` | 46 | 🧱 | 执行状态 dataclass 模型 |
-| `ExecutionView/backend/api/models/route_plan.py` | 113 | | 路由计划 dataclass 模型 |
-| `ExecutionView/backend/api/models/parent_child_orders.py` | 73 | | 父子订单 dataclass 模型 |
-| `ExecutionView/backend/api/repositories/orders.py` | 47 | | 订单仓储 |
-| `ExecutionView/backend/api/repositories/routes.py` | 48 | | 路由仓储 |
-| `ExecutionView/backend/api/repositories/parent_child_repository.py` | 82 | | 父子执行仓储 |
-| `ExecutionView/backend/api/repositories/audit.py` | 35 | | 审计日志仓储 |
-| `ExecutionView/backend/api/migrations/001_init_execution_schema.sql` | 45 | | 初始化迁移 |
-| `ExecutionView/backend/api/migrations/002_parent_child_execution.sql` | 43 | | 父子执行迁移 |
-| `ExecutionView/backend/api/migrations/003_route_plan.sql` | 72 | | 路由计划迁移 |
+| `ExecutionView/backend/api/models/execution_state.py` | 46 | ðŸ§± | æ‰§è¡ŒçŠ¶æ€ dataclass æ¨¡åž‹ |
+| `ExecutionView/backend/api/models/route_plan.py` | 113 | | è·¯ç”±è®¡åˆ’ dataclass æ¨¡åž‹ |
+| `ExecutionView/backend/api/models/parent_child_orders.py` | 73 | | çˆ¶å­è®¢å• dataclass æ¨¡åž‹ |
+| `ExecutionView/backend/api/repositories/orders.py` | 47 | | è®¢å•ä»“å‚¨ |
+| `ExecutionView/backend/api/repositories/routes.py` | 48 | | è·¯ç”±ä»“å‚¨ |
+| `ExecutionView/backend/api/repositories/parent_child_repository.py` | 82 | | çˆ¶å­æ‰§è¡Œä»“å‚¨ |
+| `ExecutionView/backend/api/repositories/audit.py` | 35 | | å®¡è®¡æ—¥å¿—ä»“å‚¨ |
+| `ExecutionView/backend/api/migrations/001_init_execution_schema.sql` | 45 | | åˆå§‹åŒ–è¿ç§» |
+| `ExecutionView/backend/api/migrations/002_parent_child_execution.sql` | 43 | | çˆ¶å­æ‰§è¡Œè¿ç§» |
+| `ExecutionView/backend/api/migrations/003_route_plan.sql` | 72 | | è·¯ç”±è®¡åˆ’è¿ç§» |
 
-## 业务逻辑 ⭐⭐
+## ä¸šåŠ¡é€»è¾‘ â­â­
 
-> 服务层、路由层、管道编排——系统的核心决策逻辑。
+> æœåŠ¡å±‚ã€è·¯ç”±å±‚ã€ç®¡é“ç¼–æŽ’â€”â€”ç³»ç»Ÿçš„æ ¸å¿ƒå†³ç­–é€»è¾‘ã€‚
 
-### ExecutionView 后端服务层
+### ExecutionView åŽç«¯æœåŠ¡å±‚
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/services/route_engine.py` | 333 | 🔗枢纽 | 路由引擎——订单→子单拆分决策、自动路由规则应用 |
-| `ExecutionView/backend/api/services/route_service.py` | 209 | 🔗枢纽 | 路由 CRUD + 提交/修改/取消，与 Bloomberg 交互 |
-| `ExecutionView/backend/api/services/batch_route_service.py` | 474 | ⚠️超限 🔗枢纽 | 批量路由服务——并发提交、进度追踪、策略费率诊断 |
-| `ExecutionView/backend/api/services/compliance_service.py` | 278 | | 合规检查——碎股限制、手动经纪商审批 |
-| `ExecutionView/backend/api/services/algo_scheduler.py` | 190 | 🔗枢纽 | 算法调度器——定时/条件触发子单提交 |
-| `ExecutionView/backend/api/services/benchmark_engine.py` | 117 | | 基准引擎——VWAP/Arrival 等基准价计算 |
-| `ExecutionView/backend/api/services/order_projections.py` | 125 | 🧱 | 订单投影——UI 所需的聚合/计算字段 |
-| `ExecutionView/backend/api/services/route_projections.py` | 51 | 🧱 | 路由投影——UI 所需的聚合/计算字段 |
-| `ExecutionView/backend/api/services/config_service.py` | 39 | 🧱 | 运行时配置读写（策略费率、风控参数） |
+| `ExecutionView/backend/api/services/route_engine.py` | 333 | ðŸ”—æž¢çº½ | è·¯ç”±å¼•æ“Žâ€”â€”è®¢å•â†’å­å•æ‹†åˆ†å†³ç­–ã€è‡ªåŠ¨è·¯ç”±è§„åˆ™åº”ç”¨ |
+| `ExecutionView/backend/api/services/route_service.py` | 209 | ðŸ”—æž¢çº½ | è·¯ç”± CRUD + æäº¤/ä¿®æ”¹/å–æ¶ˆï¼Œä¸Ž Bloomberg äº¤äº’ |
+| `ExecutionView/backend/api/services/batch_route_service.py` | 474 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | æ‰¹é‡è·¯ç”±æœåŠ¡â€”â€”å¹¶å‘æäº¤ã€è¿›åº¦è¿½è¸ªã€ç­–ç•¥è´¹çŽ‡è¯Šæ–­ |
+| `ExecutionView/backend/api/services/compliance_service.py` | 278 | | åˆè§„æ£€æŸ¥â€”â€”ç¢Žè‚¡é™åˆ¶ã€æ‰‹åŠ¨ç»çºªå•†å®¡æ‰¹ |
+| `ExecutionView/backend/api/services/algo_scheduler.py` | 190 | ðŸ”—æž¢çº½ | ç®—æ³•è°ƒåº¦å™¨â€”â€”å®šæ—¶/æ¡ä»¶è§¦å‘å­å•æäº¤ |
+| `ExecutionView/backend/api/services/benchmark_engine.py` | 117 | | åŸºå‡†å¼•æ“Žâ€”â€”VWAP/Arrival ç­‰åŸºå‡†ä»·è®¡ç®— |
+| `ExecutionView/backend/api/services/order_projections.py` | 125 | ðŸ§± | è®¢å•æŠ•å½±â€”â€”UI æ‰€éœ€çš„èšåˆ/è®¡ç®—å­—æ®µ |
+| `ExecutionView/backend/api/services/route_projections.py` | 51 | ðŸ§± | è·¯ç”±æŠ•å½±â€”â€”UI æ‰€éœ€çš„èšåˆ/è®¡ç®—å­—æ®µ |
+| `ExecutionView/backend/api/services/config_service.py` | 39 | ðŸ§± | è¿è¡Œæ—¶é…ç½®è¯»å†™ï¼ˆç­–ç•¥è´¹çŽ‡ã€é£ŽæŽ§å‚æ•°ï¼‰ |
 
-### ExecutionView 后端路由层
+### ExecutionView åŽç«¯è·¯ç”±å±‚
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/routers/orders.py` | 482 | ⚠️超限 🔗枢纽 | 订单+执行 API（15+ 端点），依赖几乎所有 service |
-| `ExecutionView/backend/api/routers/route_plans.py` | 491 | ⚠️超限 🔗枢纽 | 路由计划 + RouteEngine + 子单提案 API |
-| `ExecutionView/backend/api/routers/routes.py` | 160 | | 路由操作 API |
-| `ExecutionView/backend/api/routers/broker.py` | 192 | | 经纪商/策略/算法查询 API |
-| `ExecutionView/backend/api/routers/marketview.py` | 409 | ⚠️超限 🧱 | 市场快照+盘内特征+执行交接 API |
-| `ExecutionView/backend/api/routers/costview.py` | 434 | ⚠️超限 🧱 | TCA 分析/记分卡/管道触发 API |
-| `ExecutionView/backend/api/routers/market_broker_mapping.py` | 127 | | 经纪商-市场映射 CRUD API |
-| `ExecutionView/backend/api/routers/execution_history.py` | 103 | | 执行历史查询 API |
-| `ExecutionView/backend/api/routers/_pipeline_jobs.py` | 190 | | CostView 管道子进程管理 |
-| `ExecutionView/backend/api/routers/auth.py` | 19 | | 认证 API |
-| `ExecutionView/backend/api/routers/connection.py` | 51 | | 连接/健康检查 API |
-| `ExecutionView/backend/api/routers/realtime.py` | 57 | | WebSocket 实时推送 |
+| `ExecutionView/backend/api/routers/orders.py` | 482 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | è®¢å•+æ‰§è¡Œ APIï¼ˆ15+ ç«¯ç‚¹ï¼‰ï¼Œä¾èµ–å‡ ä¹Žæ‰€æœ‰ service |
+| `ExecutionView/backend/api/routers/route_plans.py` | 491 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | è·¯ç”±è®¡åˆ’ + RouteEngine + å­å•ææ¡ˆ API |
+| `ExecutionView/backend/api/routers/routes.py` | 160 | | è·¯ç”±æ“ä½œ API |
+| `ExecutionView/backend/api/routers/broker.py` | 192 | | ç»çºªå•†/ç­–ç•¥/ç®—æ³•æŸ¥è¯¢ API |
+| `ExecutionView/backend/api/routers/marketview.py` | 409 | âš ï¸è¶…é™ ðŸ§± | å¸‚åœºå¿«ç…§+ç›˜å†…ç‰¹å¾+æ‰§è¡Œäº¤æŽ¥ API |
+| `ExecutionView/backend/api/routers/costview.py` | 434 | âš ï¸è¶…é™ ðŸ§± | TCA åˆ†æž/è®°åˆ†å¡/ç®¡é“è§¦å‘ API |
+| `ExecutionView/backend/api/routers/market_broker_mapping.py` | 127 | | ç»çºªå•†-å¸‚åœºæ˜ å°„ CRUD API |
+| `ExecutionView/backend/api/routers/execution_history.py` | 103 | | æ‰§è¡ŒåŽ†å²æŸ¥è¯¢ API |
+| `ExecutionView/backend/api/routers/_pipeline_jobs.py` | 190 | | CostView ç®¡é“å­è¿›ç¨‹ç®¡ç† |
+| `ExecutionView/backend/api/routers/auth.py` | 19 | | è®¤è¯ API |
+| `ExecutionView/backend/api/routers/connection.py` | 51 | | è¿žæŽ¥/å¥åº·æ£€æŸ¥ API |
+| `ExecutionView/backend/api/routers/realtime.py` | 57 | | WebSocket å®žæ—¶æŽ¨é€ |
 
-### CostView 核心管道
+### CostView æ ¸å¿ƒç®¡é“
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `CostView/src/pipeline.py` | 808 | ⚠️超限 🔗枢纽 | **管道编排器**——依赖几乎所有 CostView 模块，协调 fetch→process→aggregate→BDIB→attribution |
-| `CostView/src/tca_query_service.py` | 1082 | 🔥超大 | TCA 查询服务——多维度归因分析、聚合查询 |
-| `CostView/src/fill_fetch.py` | 773 | ⚠️超限 🔗枢纽 | Bloomberg EMSX 填充数据获取，含增量/历史模式 |
-| `CostView/src/fill_ingestion.py` | 321 | | 填充摄入——清洗→处理→入库编排 |
-| `CostView/src/fill_processor.py` | 168 | | 填充处理——字段映射、计算 |
-| `CostView/src/fill_cleaner.py` | 168 | | 填充清洗——去重、时区、异常值 |
-| `CostView/src/fill_aggregator.py` | 123 | | 填充聚合——日度/策略级汇总 |
-| `CostView/src/daily_metrics_calculator.py` | 257 | | BDIB 每日指标计算（ADV/VWAP 等） |
-| `CostView/src/validate_raw_fills.py` | 405 | ⚠️超限 | 原始填充完整性验证 |
-| `CostView/src/__main__.py` | 246 | | CostView CLI 入口（fetch/process/aggregate/pipeline/query/schedule） |
+| `CostView/src/pipeline.py` | 808 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | **ç®¡é“ç¼–æŽ’å™¨**â€”â€”ä¾èµ–å‡ ä¹Žæ‰€æœ‰ CostView æ¨¡å—ï¼Œåè°ƒ fetchâ†’processâ†’aggregateâ†’BDIBâ†’attribution |
+| `CostView/src/tca_query_service.py` | 1082 | ðŸ”¥è¶…å¤§ | TCA æŸ¥è¯¢æœåŠ¡â€”â€”å¤šç»´åº¦å½’å› åˆ†æžã€èšåˆæŸ¥è¯¢ |
+| `CostView/src/fill_fetch.py` | 773 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | Bloomberg EMSX å¡«å……æ•°æ®èŽ·å–ï¼Œå«å¢žé‡/åŽ†å²æ¨¡å¼ |
+| `CostView/src/fill_ingestion.py` | 321 | | å¡«å……æ‘„å…¥â€”â€”æ¸…æ´—â†’å¤„ç†â†’å…¥åº“ç¼–æŽ’ |
+| `CostView/src/fill_processor.py` | 168 | | å¡«å……å¤„ç†â€”â€”å­—æ®µæ˜ å°„ã€è®¡ç®— |
+| `CostView/src/fill_cleaner.py` | 168 | | å¡«å……æ¸…æ´—â€”â€”åŽ»é‡ã€æ—¶åŒºã€å¼‚å¸¸å€¼ |
+| `CostView/src/fill_aggregator.py` | 123 | | å¡«å……èšåˆâ€”â€”æ—¥åº¦/ç­–ç•¥çº§æ±‡æ€» |
+| `CostView/src/daily_metrics_calculator.py` | 257 | | BDIB æ¯æ—¥æŒ‡æ ‡è®¡ç®—ï¼ˆADV/VWAP ç­‰ï¼‰ |
+| `CostView/src/validate_raw_fills.py` | 405 | âš ï¸è¶…é™ | åŽŸå§‹å¡«å……å®Œæ•´æ€§éªŒè¯ |
+| `CostView/src/__main__.py` | 246 | | CostView CLI å…¥å£ï¼ˆfetch/process/aggregate/pipeline/query/scheduleï¼‰ |
 
-### CostView 归因分析
+### CostView å½’å› åˆ†æž
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `CostView/src/attribution/writer.py` | 288 | | 归因结果写入 |
-| `CostView/src/attribution/aggregator.py` | 212 | | 归因聚合计算 |
-| `CostView/src/attribution/benchmarks.py` | 129 | | 基准价计算（VWAP/Arrival/TWAP） |
-| `CostView/src/attribution/recommender.py` | 71 | | 执行建议生成 |
-| `CostView/src/attribution/metrics.py` | 39 | | 归因指标定义 |
-| `CostView/src/attribution/config.py` | 70 | | 归因配置（算法/Benchmark/期限） |
+| `CostView/src/attribution/writer.py` | 288 | | å½’å› ç»“æžœå†™å…¥ |
+| `CostView/src/attribution/aggregator.py` | 212 | | å½’å› èšåˆè®¡ç®— |
+| `CostView/src/attribution/benchmarks.py` | 129 | | åŸºå‡†ä»·è®¡ç®—ï¼ˆVWAP/Arrival/TWAPï¼‰ |
+| `CostView/src/attribution/recommender.py` | 71 | | æ‰§è¡Œå»ºè®®ç”Ÿæˆ |
+| `CostView/src/attribution/metrics.py` | 39 | | å½’å› æŒ‡æ ‡å®šä¹‰ |
+| `CostView/src/attribution/config.py` | 70 | | å½’å› é…ç½®ï¼ˆç®—æ³•/Benchmark/æœŸé™ï¼‰ |
 
-### CostView 市场状态（Regime）
+### CostView å¸‚åœºçŠ¶æ€ï¼ˆRegimeï¼‰
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `CostView/src/regime/fill_regime_tagger.py` | 175 | | 填充→市场状态标签映射 |
-| `CostView/src/regime/vol_regime.py` | 122 | | 波动率状态判定 |
-| `CostView/src/regime/trend_regime.py` | 87 | | 趋势状态判定 |
-| `CostView/src/regime/liquidity_regime.py` | 75 | | 流动性状态判定 |
-| `CostView/src/regime/market_index_loader.py` | 141 | | 市场指数数据加载 |
-| `CostView/src/regime/time_bucket.py` | 66 | | 时间桶划分 |
-| `CostView/src/regime/market_code.py` | 33 | | 市场代码映射 |
-| `CostView/src/regime/config.py` | 83 | | 市场状态配置 |
-| `CostView/src/regime/migrations/apply.py` | 71 | | 数据库迁移执行器 |
-| `CostView/src/regime/migrations/v0_to_v1.sql` | 179 | | 迁移 v0→v1 |
-| `CostView/src/regime/migrations/v1_to_v2.sql` | 55 | | 迁移 v1→v2 |
-| `CostView/src/regime/migrations/v2_to_v3.sql` | 89 | | 迁移 v2→v3 |
+| `CostView/src/regime/fill_regime_tagger.py` | 175 | | å¡«å……â†’å¸‚åœºçŠ¶æ€æ ‡ç­¾æ˜ å°„ |
+| `CostView/src/regime/vol_regime.py` | 122 | | æ³¢åŠ¨çŽ‡çŠ¶æ€åˆ¤å®š |
+| `CostView/src/regime/trend_regime.py` | 87 | | è¶‹åŠ¿çŠ¶æ€åˆ¤å®š |
+| `CostView/src/regime/liquidity_regime.py` | 75 | | æµåŠ¨æ€§çŠ¶æ€åˆ¤å®š |
+| `CostView/src/regime/market_index_loader.py` | 141 | | å¸‚åœºæŒ‡æ•°æ•°æ®åŠ è½½ |
+| `CostView/src/regime/time_bucket.py` | 66 | | æ—¶é—´æ¡¶åˆ’åˆ† |
+| `CostView/src/regime/market_code.py` | 33 | | å¸‚åœºä»£ç æ˜ å°„ |
+| `CostView/src/regime/config.py` | 83 | | å¸‚åœºçŠ¶æ€é…ç½® |
+| `CostView/src/regime/migrations/apply.py` | 71 | | æ•°æ®åº“è¿ç§»æ‰§è¡Œå™¨ |
+| `CostView/src/regime/migrations/v0_to_v1.sql` | 179 | | è¿ç§» v0â†’v1 |
+| `CostView/src/regime/migrations/v1_to_v2.sql` | 55 | | è¿ç§» v1â†’v2 |
+| `CostView/src/regime/migrations/v2_to_v3.sql` | 89 | | è¿ç§» v2â†’v3 |
 
-## 集成层 ⭐
+## é›†æˆå±‚ â­
 
-> 外部系统接口、实时通信网关、事件序列化。
+> å¤–éƒ¨ç³»ç»ŸæŽ¥å£ã€å®žæ—¶é€šä¿¡ç½‘å…³ã€äº‹ä»¶åºåˆ—åŒ–ã€‚
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/services/bloomberg_interface.py` | 41 | 🧱 | Bloomberg API 底层封装（blpapi Session 管理） |
-| `ExecutionView/backend/api/services/realtime_gateway.py` | 80 | 🔗枢纽 | WebSocket 推送网关——订单/路由变更广播 |
-| `ExecutionView/backend/api/services/event_serializers.py` | 41 | 🧱 | Bloomberg 事件→Pydantic 序列化 |
-| `ExecutionView/backend/api/auth.py` | 122 | | JWT 认证中间件 |
-| `ExecutionView/backend/api/services/auth_service.py` | 29 | | 认证服务（Bloomberg UUID 校验） |
-| `CostView/src/emsx_client.py` | 239 | | Bloomberg EMSX SOAP/REST 客户端 |
-| `CostView/src/bdib_fetcher.py` | 301 | | Bloomberg BDIB 行情数据获取 |
-| `CostView/src/fill_bdib_integrated.py` | 207 | | 填充-BDIB 联合获取 |
-| `CostView/src/downstream_interface.py` | 97 | | 下游系统接口（查询/导出） |
-| `CostView/src/execution_history_service.py` | 122 | | 执行历史查询服务 |
+| `ExecutionView/backend/api/services/bloomberg_interface.py` | 41 | ðŸ§± | Bloomberg API åº•å±‚å°è£…ï¼ˆblpapi Session ç®¡ç†ï¼‰ |
+| `ExecutionView/backend/api/services/realtime_gateway.py` | 80 | ðŸ”—æž¢çº½ | WebSocket æŽ¨é€ç½‘å…³â€”â€”è®¢å•/è·¯ç”±å˜æ›´å¹¿æ’­ |
+| `ExecutionView/backend/api/services/event_serializers.py` | 41 | ðŸ§± | Bloomberg äº‹ä»¶â†’Pydantic åºåˆ—åŒ– |
+| `ExecutionView/backend/api/auth.py` | 122 | | JWT è®¤è¯ä¸­é—´ä»¶ |
+| `ExecutionView/backend/api/services/auth_service.py` | 29 | | è®¤è¯æœåŠ¡ï¼ˆBloomberg UUID æ ¡éªŒï¼‰ |
+| `CostView/src/emsx_client.py` | 239 | | Bloomberg EMSX SOAP/REST å®¢æˆ·ç«¯ |
+| `CostView/src/bdib_fetcher.py` | 301 | | Bloomberg BDIB è¡Œæƒ…æ•°æ®èŽ·å– |
+| `CostView/src/fill_bdib_integrated.py` | 207 | | å¡«å……-BDIB è”åˆèŽ·å– |
+| `CostView/src/downstream_interface.py` | 97 | | ä¸‹æ¸¸ç³»ç»ŸæŽ¥å£ï¼ˆæŸ¥è¯¢/å¯¼å‡ºï¼‰ |
+| `CostView/src/execution_history_service.py` | 122 | | æ‰§è¡ŒåŽ†å²æŸ¥è¯¢æœåŠ¡ |
 
-## 配置/工具 ⭐
+## é…ç½®/å·¥å…· â­
 
-> 配置单例、静态数据、前端服务/类型/hook、运维脚本。
+> é…ç½®å•ä¾‹ã€é™æ€æ•°æ®ã€å‰ç«¯æœåŠ¡/ç±»åž‹/hookã€è¿ç»´è„šæœ¬ã€‚
 
-### 后端配置与装配
+### åŽç«¯é…ç½®ä¸Žè£…é…
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/config.py` | 48 | 🧱 | 后端全局配置单例（Bloomberg/DB/JWT/CORS/风控） |
-| `ExecutionView/backend/api/service_provider.py` | 187 | 🔗枢纽 | 服务工厂——组装所有仓储+服务实例，DI 容器 |
-| `ExecutionView/backend/api/main.py` | 254 | 🔗枢纽 | FastAPI 应用入口：路由注册、生命周期、Bloomberg 异步连接 |
-| `ExecutionView/backend/api/start_server.py` | 18 | | 备用启动器 |
-| `CostView/src/processing_config.py` | 102 | 🧱🔗枢纽 | CostView 管道中心化配置——目录/DB路径/参数 |
-| `CostView/src/secure_config.py` | 218 | | Bloomberg 凭据管理（UUID + 环境变量/JSON） |
-| `CostView/src/exchange_tz.py` | 99 | | 交易所时区映射 |
-| `CostView/src/mapping.py` | 177 | | 通用字段映射工具 |
-| `CostView/src/order_label.py` | 69 | | 订单标签生成 |
-| `CostView/src/query_cli.py` | 175 | | 交互式 TCA 查询 CLI |
+| `ExecutionView/backend/api/config.py` | 48 | ðŸ§± | åŽç«¯å…¨å±€é…ç½®å•ä¾‹ï¼ˆBloomberg/DB/JWT/CORS/é£ŽæŽ§ï¼‰ |
+| `ExecutionView/backend/api/service_provider.py` | 187 | ðŸ”—æž¢çº½ | æœåŠ¡å·¥åŽ‚â€”â€”ç»„è£…æ‰€æœ‰ä»“å‚¨+æœåŠ¡å®žä¾‹ï¼ŒDI å®¹å™¨ |
+| `ExecutionView/backend/api/main.py` | 254 | ðŸ”—æž¢çº½ | FastAPI åº”ç”¨å…¥å£ï¼šè·¯ç”±æ³¨å†Œã€ç”Ÿå‘½å‘¨æœŸã€Bloomberg å¼‚æ­¥è¿žæŽ¥ |
+| `ExecutionView/backend/api/start_server.py` | 18 | | å¤‡ç”¨å¯åŠ¨å™¨ |
+| `CostView/src/processing_config.py` | 102 | ðŸ§±ðŸ”—æž¢çº½ | CostView ç®¡é“ä¸­å¿ƒåŒ–é…ç½®â€”â€”ç›®å½•/DBè·¯å¾„/å‚æ•° |
+| `CostView/src/secure_config.py` | 218 | | Bloomberg å‡­æ®ç®¡ç†ï¼ˆUUID + çŽ¯å¢ƒå˜é‡/JSONï¼‰ |
+| `CostView/src/exchange_tz.py` | 99 | | äº¤æ˜“æ‰€æ—¶åŒºæ˜ å°„ |
+| `CostView/src/mapping.py` | 177 | | é€šç”¨å­—æ®µæ˜ å°„å·¥å…· |
+| `CostView/src/order_label.py` | 69 | | è®¢å•æ ‡ç­¾ç”Ÿæˆ |
+| `CostView/src/query_cli.py` | 175 | | äº¤äº’å¼ TCA æŸ¥è¯¢ CLI |
 
-### 静态数据文件
+### é™æ€æ•°æ®æ–‡ä»¶
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/data/broker_algorithms.json` | 16819 | 🔥超大 | 经纪商算法配置（~300 算法），启动时加载 |
-| `ExecutionView/backend/api/data/market_broker_mapping.json` | 360 | | 市场-经纪商默认映射 |
-| `ExecutionView/backend/api/data/broker_hand_instruction.json` | 8 | | 手动执行指令配置 |
+| `ExecutionView/backend/api/data/broker_algorithms.json` | 16819 | ðŸ”¥è¶…å¤§ | ç»çºªå•†ç®—æ³•é…ç½®ï¼ˆ~300 ç®—æ³•ï¼‰ï¼Œå¯åŠ¨æ—¶åŠ è½½ |
+| `ExecutionView/backend/api/data/market_broker_mapping.json` | 360 | | å¸‚åœº-ç»çºªå•†é»˜è®¤æ˜ å°„ |
+| `ExecutionView/backend/api/data/broker_hand_instruction.json` | 8 | | æ‰‹åŠ¨æ‰§è¡ŒæŒ‡ä»¤é…ç½® |
 
-### 前端——服务层
+### å‰ç«¯â€”â€”æœåŠ¡å±‚
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/services/api.ts` | 587 | ⚠️超限 🔗枢纽 | 核心 HTTP 客户端——所有后端 API 调用 |
-| `ExecutionView/frontend/src/services/realtime.ts` | 201 | | WebSocket 客户端 |
-| `ExecutionView/frontend/src/services/strategy-data-service.ts` | 243 | ⚠️超限 | 策略数据管理服务 |
-| `ExecutionView/frontend/src/services/handoff-api.ts` | 149 | | 交接 API 服务 |
-| `ExecutionView/frontend/src/modules/costview/services/api.ts` | 143 | | CostView 专用 API |
-| `ExecutionView/frontend/src/modules/marketview/services/api.ts` | 87 | | MarketView 专用 API |
-| `ExecutionView/frontend/src/modules/databaseview/services/api.ts` | 88 | | DatabaseView 专用 API |
+| `ExecutionView/frontend/src/services/api.ts` | 587 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | æ ¸å¿ƒ HTTP å®¢æˆ·ç«¯â€”â€”æ‰€æœ‰åŽç«¯ API è°ƒç”¨ |
+| `ExecutionView/frontend/src/services/realtime.ts` | 201 | | WebSocket å®¢æˆ·ç«¯ |
+| `ExecutionView/frontend/src/services/strategy-data-service.ts` | 243 | âš ï¸è¶…é™ | ç­–ç•¥æ•°æ®ç®¡ç†æœåŠ¡ |
+| `ExecutionView/frontend/src/services/handoff-api.ts` | 149 | | äº¤æŽ¥ API æœåŠ¡ |
+| `ExecutionView/frontend/src/modules/costview/services/api.ts` | 143 | | CostView ä¸“ç”¨ API |
+| `ExecutionView/frontend/src/modules/marketview/services/api.ts` | 87 | | MarketView ä¸“ç”¨ API |
+| `ExecutionView/frontend/src/modules/databaseview/services/api.ts` | 88 | | DatabaseView ä¸“ç”¨ API |
 
-### 前端——类型定义
+### å‰ç«¯â€”â€”ç±»åž‹å®šä¹‰
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/types/index.ts` | 533 | ⚠️超限 🔗枢纽 | 全局 TypeScript 类型——须与后端 schemas.py 镜像一致 |
-| `ExecutionView/frontend/src/modules/costview/types.ts` | 198 | | CostView 类型 |
-| `ExecutionView/frontend/src/modules/marketview/types.ts` | 148 | | MarketView 类型 |
-| `ExecutionView/frontend/src/modules/databaseview/types.ts` | 124 | | DatabaseView 类型 |
+| `ExecutionView/frontend/src/types/index.ts` | 533 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | å…¨å±€ TypeScript ç±»åž‹â€”â€”é¡»ä¸ŽåŽç«¯ schemas.py é•œåƒä¸€è‡´ |
+| `ExecutionView/frontend/src/modules/costview/types.ts` | 198 | | CostView ç±»åž‹ |
+| `ExecutionView/frontend/src/modules/marketview/types.ts` | 148 | | MarketView ç±»åž‹ |
+| `ExecutionView/frontend/src/modules/databaseview/types.ts` | 124 | | DatabaseView ç±»åž‹ |
 
-### 前端——Hooks（状态层）
+### å‰ç«¯â€”â€”Hooksï¼ˆçŠ¶æ€å±‚ï¼‰
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/hooks/use-execution-view-data.ts` | 375 | ⚠️超限 🔗枢纽 | 主数据 hook——订单/路由/执行状态聚合 |
-| `ExecutionView/frontend/src/hooks/use-broker-algorithms.ts` | 294 | | 经纪商算法 hook |
-| `ExecutionView/frontend/src/hooks/use-market-broker-mapping.ts` | 94 | | 经纪商映射 hook |
-| `ExecutionView/frontend/src/hooks/use-app-shell-state.ts` | 153 | | 应用壳状态 hook |
-| `ExecutionView/frontend/src/hooks/use-startup-status.ts` | 148 | | 启动状态 hook |
-| `ExecutionView/frontend/src/hooks/use-handoff-contracts.tsx` | 117 | | 交接合约 hook |
-| `ExecutionView/frontend/src/hooks/use-trade-hotkeys.tsx` | 133 | | 交易快捷键 hook |
-| `ExecutionView/frontend/src/hooks/use-orders-stream.ts` | 41 | | 订单流 hook |
-| `ExecutionView/frontend/src/hooks/use-routes-stream.ts` | 41 | | 路由流 hook |
-| `ExecutionView/frontend/src/hooks/use-mobile.ts` | 15 | | 移动端检测 hook |
+| `ExecutionView/frontend/src/hooks/use-execution-view-data.ts` | 375 | âš ï¸è¶…é™ ðŸ”—æž¢çº½ | ä¸»æ•°æ® hookâ€”â€”è®¢å•/è·¯ç”±/æ‰§è¡ŒçŠ¶æ€èšåˆ |
+| `ExecutionView/frontend/src/hooks/use-broker-algorithms.ts` | 294 | | ç»çºªå•†ç®—æ³• hook |
+| `ExecutionView/frontend/src/hooks/use-market-broker-mapping.ts` | 94 | | ç»çºªå•†æ˜ å°„ hook |
+| `ExecutionView/frontend/src/hooks/use-app-shell-state.ts` | 153 | | åº”ç”¨å£³çŠ¶æ€ hook |
+| `ExecutionView/frontend/src/hooks/use-startup-status.ts` | 148 | | å¯åŠ¨çŠ¶æ€ hook |
+| `ExecutionView/frontend/src/hooks/use-handoff-contracts.tsx` | 117 | | äº¤æŽ¥åˆçº¦ hook |
+| `ExecutionView/frontend/src/hooks/use-trade-hotkeys.tsx` | 133 | | äº¤æ˜“å¿«æ·é”® hook |
+| `ExecutionView/frontend/src/hooks/use-orders-stream.ts` | 41 | | è®¢å•æµ hook |
+| `ExecutionView/frontend/src/hooks/use-routes-stream.ts` | 41 | | è·¯ç”±æµ hook |
+| `ExecutionView/frontend/src/hooks/use-mobile.ts` | 15 | | ç§»åŠ¨ç«¯æ£€æµ‹ hook |
 
-### 前端——数据/映射
+### å‰ç«¯â€”â€”æ•°æ®/æ˜ å°„
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/data/broker-exchange-mapping.ts` | 338 | | 经纪商-交易所映射 |
-| `ExecutionView/frontend/src/data/exchange-region-mapping.ts` | 44 | | 交易所-区域映射 |
+| `ExecutionView/frontend/src/data/broker-exchange-mapping.ts` | 338 | | ç»çºªå•†-äº¤æ˜“æ‰€æ˜ å°„ |
+| `ExecutionView/frontend/src/data/exchange-region-mapping.ts` | 44 | | äº¤æ˜“æ‰€-åŒºåŸŸæ˜ å°„ |
 
-### 前端——工具库
+### å‰ç«¯â€”â€”å·¥å…·åº“
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/lib/cache-manager.ts` | 205 | | LocalStorage 缓存管理 |
-| `ExecutionView/frontend/src/lib/monitor-conditions.ts` | 174 | | 监控条件定义 |
-| `ExecutionView/frontend/src/lib/health-palette.ts` | 88 | | 健康状态配色 |
-| `ExecutionView/frontend/src/lib/format-utils.ts` | 29 | | 格式化工具 |
-| `ExecutionView/frontend/src/lib/reconcile-settings.ts` | 29 | | 设置对账工具 |
-| `ExecutionView/frontend/src/lib/table-constants.ts` | 57 | | 表格常量 |
-| `ExecutionView/frontend/src/lib/utils.ts` | 5 | | 通用工具 |
+| `ExecutionView/frontend/src/lib/cache-manager.ts` | 205 | | LocalStorage ç¼“å­˜ç®¡ç† |
+| `ExecutionView/frontend/src/lib/monitor-conditions.ts` | 174 | | ç›‘æŽ§æ¡ä»¶å®šä¹‰ |
+| `ExecutionView/frontend/src/lib/health-palette.ts` | 88 | | å¥åº·çŠ¶æ€é…è‰² |
+| `ExecutionView/frontend/src/lib/format-utils.ts` | 29 | | æ ¼å¼åŒ–å·¥å…· |
+| `ExecutionView/frontend/src/lib/reconcile-settings.ts` | 29 | | è®¾ç½®å¯¹è´¦å·¥å…· |
+| `ExecutionView/frontend/src/lib/table-constants.ts` | 57 | | è¡¨æ ¼å¸¸é‡ |
+| `ExecutionView/frontend/src/lib/utils.ts` | 5 | | é€šç”¨å·¥å…· |
 
-### 前端——核心 UI 组件（业务复杂度高）
+### å‰ç«¯â€”â€”æ ¸å¿ƒ UI ç»„ä»¶ï¼ˆä¸šåŠ¡å¤æ‚åº¦é«˜ï¼‰
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/components/batch-route-order-dialog.tsx` | 1247 | 🔥超大 ⚠️超限 | 批量路由对话框——最复杂的前端组件 |
-| `ExecutionView/frontend/src/sections/SettingsBoard.tsx` | 1102 | 🔥超大 ⚠️超限 | 设置面板 |
-| `ExecutionView/frontend/src/components/route-modify-dialogs.tsx` | 893 | ⚠️超限 | 路由修改对话框组 |
-| `ExecutionView/frontend/src/sections/RouteTable.tsx` | 866 | ⚠️超限 | 路由表格 |
-| `ExecutionView/frontend/src/sections/OrderTable.tsx` | 681 | ⚠️超限 | 订单表格 |
-| `ExecutionView/frontend/src/components/ui/sidebar.tsx` | 661 | ⚠️超限 | 侧边栏导航 |
-| `ExecutionView/frontend/src/components/route-plan-manager.tsx` | 617 | ⚠️超限 | 路由计划管理器 |
-| `ExecutionView/frontend/src/sections/MonitorBoard.tsx` | 574 | ⚠️超限 | 监控面板 |
-| `ExecutionView/frontend/src/components/batch-operation-dialogs.tsx` | 497 | ⚠️超限 | 批量操作对话框 |
-| `ExecutionView/frontend/src/components/unified-modify-route-dialog.tsx` | 486 | ⚠️超限 | 统一路由修改对话框 |
-| `ExecutionView/frontend/src/sections/BatchOperationPanel.tsx` | 308 | | 批量操作面板 |
-| `ExecutionView/frontend/src/components/market-broker-mapping-section.tsx` | 285 | | 经纪商映射配置区 |
-| `ExecutionView/frontend/src/components/algo-launch-dialog.tsx` | 283 | | 算法启动对话框 |
-| `ExecutionView/frontend/src/components/order-modify-dialog.tsx` | 270 | | 订单修改对话框 |
-| `ExecutionView/frontend/src/sections/ExecutionBoard.tsx` | 268 | | 执行面板 |
-| `ExecutionView/frontend/src/components/rate-diagnostic-dialog.tsx` | 266 | | 策略费率诊断对话框 |
-| `ExecutionView/frontend/src/components/strategy-data-manager.tsx` | 255 | | 策略数据管理器 |
-| `ExecutionView/frontend/src/components/sub-order-review-panel.tsx` | 240 | | 子单审核面板 |
+| `ExecutionView/frontend/src/components/batch-route-order-dialog.tsx` | 1247 | ðŸ”¥è¶…å¤§ âš ï¸è¶…é™ | æ‰¹é‡è·¯ç”±å¯¹è¯æ¡†â€”â€”æœ€å¤æ‚çš„å‰ç«¯ç»„ä»¶ |
+| `ExecutionView/frontend/src/sections/SettingsBoard.tsx` | 1102 | ðŸ”¥è¶…å¤§ âš ï¸è¶…é™ | è®¾ç½®é¢æ¿ |
+| `ExecutionView/frontend/src/components/route-modify-dialogs.tsx` | 893 | âš ï¸è¶…é™ | è·¯ç”±ä¿®æ”¹å¯¹è¯æ¡†ç»„ |
+| `ExecutionView/frontend/src/sections/RouteTable.tsx` | 866 | âš ï¸è¶…é™ | è·¯ç”±è¡¨æ ¼ |
+| `ExecutionView/frontend/src/sections/OrderTable.tsx` | 681 | âš ï¸è¶…é™ | è®¢å•è¡¨æ ¼ |
+| `ExecutionView/frontend/src/components/ui/sidebar.tsx` | 661 | âš ï¸è¶…é™ | ä¾§è¾¹æ å¯¼èˆª |
+| `ExecutionView/frontend/src/components/route-plan-manager.tsx` | 617 | âš ï¸è¶…é™ | è·¯ç”±è®¡åˆ’ç®¡ç†å™¨ |
+| `ExecutionView/frontend/src/sections/MonitorBoard.tsx` | 574 | âš ï¸è¶…é™ | ç›‘æŽ§é¢æ¿ |
+| `ExecutionView/frontend/src/components/batch-operation-dialogs.tsx` | 497 | âš ï¸è¶…é™ | æ‰¹é‡æ“ä½œå¯¹è¯æ¡† |
+| `ExecutionView/frontend/src/components/unified-modify-route-dialog.tsx` | 486 | âš ï¸è¶…é™ | ç»Ÿä¸€è·¯ç”±ä¿®æ”¹å¯¹è¯æ¡† |
+| `ExecutionView/frontend/src/sections/BatchOperationPanel.tsx` | 308 | | æ‰¹é‡æ“ä½œé¢æ¿ |
+| `ExecutionView/frontend/src/components/market-broker-mapping-section.tsx` | 285 | | ç»çºªå•†æ˜ å°„é…ç½®åŒº |
+| `ExecutionView/frontend/src/components/algo-launch-dialog.tsx` | 283 | | ç®—æ³•å¯åŠ¨å¯¹è¯æ¡† |
+| `ExecutionView/frontend/src/components/order-modify-dialog.tsx` | 270 | | è®¢å•ä¿®æ”¹å¯¹è¯æ¡† |
+| `ExecutionView/frontend/src/sections/ExecutionBoard.tsx` | 268 | | æ‰§è¡Œé¢æ¿ |
+| `ExecutionView/frontend/src/components/rate-diagnostic-dialog.tsx` | 266 | | ç­–ç•¥è´¹çŽ‡è¯Šæ–­å¯¹è¯æ¡† |
+| `ExecutionView/frontend/src/components/strategy-data-manager.tsx` | 255 | | ç­–ç•¥æ•°æ®ç®¡ç†å™¨ |
+| `ExecutionView/frontend/src/components/sub-order-review-panel.tsx` | 240 | | å­å•å®¡æ ¸é¢æ¿ |
 
-### 前端——业务模块
+### å‰ç«¯â€”â€”ä¸šåŠ¡æ¨¡å—
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/modules/marketview/MarketViewModule.tsx` | 795 | ⚠️超限 | MarketView 模块壳 |
-| `ExecutionView/frontend/src/modules/costview/CostViewModule.tsx` | 265 | | CostView 模块壳 |
-| `ExecutionView/frontend/src/modules/costview/components/ScorecardView.tsx` | 447 | ⚠️超限 | TCA 记分卡视图 |
-| `ExecutionView/frontend/src/modules/costview/components/AnalysisView.tsx` | 223 | | 归因分析视图 |
-| `ExecutionView/frontend/src/modules/costview/components/ConfigureView.tsx` | 193 | | 配置视图 |
-| `ExecutionView/frontend/src/modules/costview/components/OverviewView.tsx` | 178 | | 总览视图 |
-| `ExecutionView/frontend/src/modules/costview/components/PriceDynamicsChart.tsx` | 133 | | 价格动态图 |
-| `ExecutionView/frontend/src/modules/costview/components/RegimeDistributionPanel.tsx` | 110 | | 市场状态分布面板 |
-| `ExecutionView/frontend/src/modules/costview/components/VolumeDynamicsChart.tsx` | 109 | | 成交量动态图 |
-| `ExecutionView/frontend/src/modules/costview/lib/export.ts` | 276 | | CostView 导出功能 |
-| `ExecutionView/frontend/src/modules/costview/lib/thresholds.ts` | 222 | | TCA 阈值逻辑 |
+| `ExecutionView/frontend/src/modules/marketview/MarketViewModule.tsx` | 795 | âš ï¸è¶…é™ | MarketView æ¨¡å—å£³ |
+| `ExecutionView/frontend/src/modules/costview/CostViewModule.tsx` | 265 | | CostView æ¨¡å—å£³ |
+| `ExecutionView/frontend/src/modules/costview/components/ScorecardView.tsx` | 447 | âš ï¸è¶…é™ | TCA è®°åˆ†å¡è§†å›¾ |
+| `ExecutionView/frontend/src/modules/costview/components/AnalysisView.tsx` | 223 | | å½’å› åˆ†æžè§†å›¾ |
+| `ExecutionView/frontend/src/modules/costview/components/ConfigureView.tsx` | 193 | | é…ç½®è§†å›¾ |
+| `ExecutionView/frontend/src/modules/costview/components/OverviewView.tsx` | 178 | | æ€»è§ˆè§†å›¾ |
+| `ExecutionView/frontend/src/modules/costview/components/PriceDynamicsChart.tsx` | 133 | | ä»·æ ¼åŠ¨æ€å›¾ |
+| `ExecutionView/frontend/src/modules/costview/components/RegimeDistributionPanel.tsx` | 110 | | å¸‚åœºçŠ¶æ€åˆ†å¸ƒé¢æ¿ |
+| `ExecutionView/frontend/src/modules/costview/components/VolumeDynamicsChart.tsx` | 109 | | æˆäº¤é‡åŠ¨æ€å›¾ |
+| `ExecutionView/frontend/src/modules/costview/lib/export.ts` | 276 | | CostView å¯¼å‡ºåŠŸèƒ½ |
+| `ExecutionView/frontend/src/modules/costview/lib/thresholds.ts` | 222 | | TCA é˜ˆå€¼é€»è¾‘ |
 | `ExecutionView/frontend/src/modules/costview/lib/storage.ts` | 124 | | CostView LocalStorage |
-| `ExecutionView/frontend/src/modules/databaseview/DatabaseViewModule.tsx` | 134 | | DatabaseView 模块壳 |
-| `ExecutionView/frontend/src/modules/databaseview/components/SchemaSamplePanel.tsx` | 289 | | Schema 采样面板 |
-| `ExecutionView/frontend/src/modules/databaseview/components/DatabaseDetailDrawer.tsx` | 151 | | 数据库详情抽屉 |
-| `ExecutionView/frontend/src/modules/marketview/lib/workspace.ts` | 29 | | MarketView 工作区 |
+| `ExecutionView/frontend/src/modules/databaseview/DatabaseViewModule.tsx` | 134 | | DatabaseView æ¨¡å—å£³ |
+| `ExecutionView/frontend/src/modules/databaseview/components/SchemaSamplePanel.tsx` | 289 | | Schema é‡‡æ ·é¢æ¿ |
+| `ExecutionView/frontend/src/modules/databaseview/components/DatabaseDetailDrawer.tsx` | 151 | | æ•°æ®åº“è¯¦æƒ…æŠ½å±‰ |
+| `ExecutionView/frontend/src/modules/marketview/lib/workspace.ts` | 29 | | MarketView å·¥ä½œåŒº |
 
-### 前端——应用壳
+### å‰ç«¯â€”â€”åº”ç”¨å£³
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/App.tsx` | 345 | | 应用根组件 |
-| `ExecutionView/frontend/src/main.tsx` | 9 | | React 入口 |
-| `ExecutionView/frontend/src/index.css` | 137 | | 全局样式 |
-| `ExecutionView/frontend/src/sections/WorkspaceModuleTabs.tsx` | 123 | | 工作区模块标签 |
-| `ExecutionView/frontend/src/sections/ExecutionViewTabs.tsx` | 100 | | 执行视图标签 |
-| `ExecutionView/frontend/src/sections/Toolbar.tsx` | 203 | | 工具栏 |
-| `ExecutionView/frontend/src/sections/ToastContainer.tsx` | 86 | | 消息提示容器 |
-| `ExecutionView/frontend/src/sections/LazyOrderBoard.tsx` | 133 | | 懒加载订单面板 |
-| `ExecutionView/frontend/src/components/startup-gate.tsx` | 112 | | 启动门控组件 |
+| `ExecutionView/frontend/src/App.tsx` | 345 | | åº”ç”¨æ ¹ç»„ä»¶ |
+| `ExecutionView/frontend/src/main.tsx` | 9 | | React å…¥å£ |
+| `ExecutionView/frontend/src/index.css` | 137 | | å…¨å±€æ ·å¼ |
+| `ExecutionView/frontend/src/sections/WorkspaceModuleTabs.tsx` | 123 | | å·¥ä½œåŒºæ¨¡å—æ ‡ç­¾ |
+| `ExecutionView/frontend/src/sections/ExecutionViewTabs.tsx` | 100 | | æ‰§è¡Œè§†å›¾æ ‡ç­¾ |
+| `ExecutionView/frontend/src/sections/Toolbar.tsx` | 203 | | å·¥å…·æ  |
+| `ExecutionView/frontend/src/sections/ToastContainer.tsx` | 86 | | æ¶ˆæ¯æç¤ºå®¹å™¨ |
+| `ExecutionView/frontend/src/sections/LazyOrderBoard.tsx` | 133 | | æ‡’åŠ è½½è®¢å•é¢æ¿ |
+| `ExecutionView/frontend/src/components/startup-gate.tsx` | 112 | | å¯åŠ¨é—¨æŽ§ç»„ä»¶ |
 
-### 前端——Stream Store
+### å‰ç«¯â€”â€”Stream Store
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/frontend/src/stores/order-stream-store.ts` | 39 | | 订单流状态存储 |
-| `ExecutionView/frontend/src/stores/route-stream-store.ts` | 39 | | 路由流状态存储 |
+| `ExecutionView/frontend/src/stores/order-stream-store.ts` | 39 | | è®¢å•æµçŠ¶æ€å­˜å‚¨ |
+| `ExecutionView/frontend/src/stores/route-stream-store.ts` | 39 | | è·¯ç”±æµçŠ¶æ€å­˜å‚¨ |
 
-### 运维脚本（关键）
+### è¿ç»´è„šæœ¬ï¼ˆå…³é”®ï¼‰
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `scripts/workflow/auto_runner.py` | 582 | ⚠️超限 | CI 自动化 CLI——run-step/check-step/run-all |
-| `scripts/import_excel_fills.py` | 590 | ⚠️超限 | Excel 填充导入（含 HK→NY 时区转换） |
-| `scripts/service-manager.ps1` | 519 | ⚠️超限 | 核心服务管理器（start/stop/restart/status/logs） |
-| `scripts/fetch_and_inspect.py` | 211 | | 获取+逐步检查填充数据 |
-| `scripts/mcp/knowledge-server.py` | 149 | | MCP 知识服务器 |
-| `scripts/deploy/deploy.sh` | 193 | | Docker Compose 生产部署 |
-| `scripts/workflow/sync_execution_status.py` | 202 | | 交付状态同步 |
-| `scripts/workflow/validate_phase_gate.py` | 154 | | 冲刺门验证 |
+| `scripts/workflow/auto_runner.py` | 582 | âš ï¸è¶…é™ | CI è‡ªåŠ¨åŒ– CLIâ€”â€”run-step/check-step/run-all |
+| `scripts/import_excel_fills.py` | 590 | âš ï¸è¶…é™ | Excel å¡«å……å¯¼å…¥ï¼ˆå« HKâ†’NY æ—¶åŒºè½¬æ¢ï¼‰ |
+| `scripts/service-manager.ps1` | 519 | âš ï¸è¶…é™ | æ ¸å¿ƒæœåŠ¡ç®¡ç†å™¨ï¼ˆstart/stop/restart/status/logsï¼‰ |
+| `scripts/fetch_and_inspect.py` | 211 | | èŽ·å–+é€æ­¥æ£€æŸ¥å¡«å……æ•°æ® |
+| `scripts/mcp/knowledge-server.py` | 149 | | MCP çŸ¥è¯†æœåŠ¡å™¨ |
+| `scripts/deploy/deploy.sh` | 193 | | Docker Compose ç”Ÿäº§éƒ¨ç½² |
+| `scripts/workflow/sync_execution_status.py` | 202 | | äº¤ä»˜çŠ¶æ€åŒæ­¥ |
+| `scripts/workflow/validate_phase_gate.py` | 154 | | å†²åˆºé—¨éªŒè¯ |
 
-## Legacy / 待清理 ⚠️
+## Legacy / å¾…æ¸…ç† âš ï¸
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `CostView/frontend/src/README.md` | 8 | | 遗留 CostView 前端占位，已废弃 |
-| `CostView/src/outdated_tickers.py` | 68 | | 过时股票代码检测——名称暗示待清理 |
-| `CostView/src/regime/sync_macro_calendar.py` | 79 | | 参照数据同步脚本——应合并到统一加载流程 |
-| `CostView/src/regime/sync_market_mapping.py` | 72 | | 参照数据同步脚本——应合并 |
-| `CostView/src/regime/sync_macro_event_dict.py` | 46 | | 参照数据同步脚本——应合并 |
-| `ExecutionView/backend/api/routers/database.py` | 49 | | 数据库管理路由——180 行注释，调试/运维用途 |
-| `ExecutionView/backend/api/routers/debug.py` | 92 | | 调试路由——仅开发环境使用 |
-| `ExecutionView/backend/api/.pytest_cache/README.md` | 5 | | 应加入 .gitignore |
-| `scripts/_archive/2026-04-28/*` | — | | 已归档诊断脚本，可删除 |
-| `scripts/diagnose/diagnose_orders_display.py` | 177 | | 一次性诊断脚本 |
-| `scripts/diagnose/diagnose_exchange_ticker_issue.py` | 171 | | 一次性诊断脚本 |
-| `scripts/diagnose/diagnose_odd_lot.py` | 80 | | 一次性诊断脚本 |
-| `scripts/diagnose/diagnose_market_data.py` | 63 | | 一次性诊断脚本 |
-| `scripts/diagnose/diagnose_order.py` | 96 | | 一次性诊断脚本 |
-| `$null` | 0 | | 空文件，应删除 |
+| `CostView/frontend/src/README.md` | 8 | | é—ç•™ CostView å‰ç«¯å ä½ï¼Œå·²åºŸå¼ƒ |
+| `CostView/src/outdated_tickers.py` | 68 | | è¿‡æ—¶è‚¡ç¥¨ä»£ç æ£€æµ‹â€”â€”åç§°æš—ç¤ºå¾…æ¸…ç† |
+| `CostView/src/regime/sync_macro_calendar.py` | 79 | | å‚ç…§æ•°æ®åŒæ­¥è„šæœ¬â€”â€”åº”åˆå¹¶åˆ°ç»Ÿä¸€åŠ è½½æµç¨‹ |
+| `CostView/src/regime/sync_market_mapping.py` | 72 | | å‚ç…§æ•°æ®åŒæ­¥è„šæœ¬â€”â€”åº”åˆå¹¶ |
+| `CostView/src/regime/sync_macro_event_dict.py` | 46 | | å‚ç…§æ•°æ®åŒæ­¥è„šæœ¬â€”â€”åº”åˆå¹¶ |
+| `ExecutionView/backend/api/routers/database.py` | 49 | | æ•°æ®åº“ç®¡ç†è·¯ç”±â€”â€”180 è¡Œæ³¨é‡Šï¼Œè°ƒè¯•/è¿ç»´ç”¨é€” |
+| `ExecutionView/backend/api/routers/debug.py` | 92 | | è°ƒè¯•è·¯ç”±â€”â€”ä»…å¼€å‘çŽ¯å¢ƒä½¿ç”¨ |
+| `ExecutionView/backend/api/.pytest_cache/README.md` | 5 | | åº”åŠ å…¥ .gitignore |
+| `scripts/_archive/2026-04-28/*` | â€” | | å·²å½’æ¡£è¯Šæ–­è„šæœ¬ï¼Œå¯åˆ é™¤ |
+| `scripts/diagnose/diagnose_orders_display.py` | 177 | | ä¸€æ¬¡æ€§è¯Šæ–­è„šæœ¬ |
+| `scripts/diagnose/diagnose_exchange_ticker_issue.py` | 171 | | ä¸€æ¬¡æ€§è¯Šæ–­è„šæœ¬ |
+| `scripts/diagnose/diagnose_odd_lot.py` | 80 | | ä¸€æ¬¡æ€§è¯Šæ–­è„šæœ¬ |
+| `scripts/diagnose/diagnose_market_data.py` | 63 | | ä¸€æ¬¡æ€§è¯Šæ–­è„šæœ¬ |
+| `scripts/diagnose/diagnose_order.py` | 96 | | ä¸€æ¬¡æ€§è¯Šæ–­è„šæœ¬ |
+| `$null` | 0 | | ç©ºæ–‡ä»¶ï¼Œåº”åˆ é™¤ |
 
-## 测试
+## æµ‹è¯•
 
-| 文件 | 行数 | 标签 | 说明 |
+| æ–‡ä»¶ | è¡Œæ•° | æ ‡ç­¾ | è¯´æ˜Ž |
 |------|------|------|------|
-| `ExecutionView/backend/api/tests/test_parent_child_execution.py` | 324 | | 父子执行集成测试 |
-| `ExecutionView/backend/api/tests/test_algo_scheduler.py` | 319 | | 算法调度器测试 |
-| `ExecutionView/backend/api/tests/test_bloomberg_adapter_routing.py` | 293 | | Bloomberg 适配器路由测试 |
-| `ExecutionView/backend/api/tests/test_batch_route_endpoints.py` | 289 | | 批量路由端点测试 |
-| `ExecutionView/backend/api/tests/test_benchmark_engine.py` | 295 | | 基准引擎测试 |
-| `ExecutionView/backend/api/tests/test_compliance_service.py` | 142 | | 合规服务测试 |
-| `ExecutionView/backend/api/tests/test_platform_data_access.py` | 231 | | 跨域数据访问测试 |
-| `ExecutionView/backend/api/tests/test_bloomberg_adapter_refdata.py` | 39 | | Bloomberg 参照数据测试 |
-| `ExecutionView/backend/api/tests/test_realtime_gateway.py` | 103 | | 实时推送网关测试 |
-| `ExecutionView/backend/api/tests/test_service_provider.py` | 69 | | 服务工厂测试 |
-| `ExecutionView/backend/api/tests/test_config_service.py` | 89 | | 配置服务测试 |
-| `ExecutionView/backend/api/tests/test_auth_policy.py` | 66 | | 认证策略测试 |
-| `ExecutionView/backend/api/tests/test_db_bootstrap.py` | 32 | | 数据库初始化测试 |
-| `ExecutionView/backend/api/tests/test_connection_router.py` | 97 | | 连接路由测试 |
-| `ExecutionView/backend/api/tests/test_marketview_router.py` | 143 | | MarketView 路由测试 |
-| `ExecutionView/backend/api/tests/test_execution_history_router.py` | 131 | | 执行历史路由测试 |
-| `ExecutionView/backend/api/tests/test_projection_repositories.py` | 20 | | 投影仓储测试 |
-| `ExecutionView/frontend/src/services/realtime.test.ts` | 226 | | WebSocket 客户端测试 |
-| `ExecutionView/frontend/src/modules/costview/lib/thresholds.test.ts` | 113 | | 阈值逻辑测试 |
-| `ExecutionView/frontend/src/modules/costview/lib/report-state.test.ts` | 71 | | 报告状态测试 |
-| `ExecutionView/frontend/src/modules/marketview/lib/workspace.test.ts` | 136 | | 工作区逻辑测试 |
+| `ExecutionView/backend/api/tests/test_parent_child_execution.py` | 324 | | çˆ¶å­æ‰§è¡Œé›†æˆæµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_algo_scheduler.py` | 319 | | ç®—æ³•è°ƒåº¦å™¨æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_bloomberg_adapter_routing.py` | 293 | | Bloomberg é€‚é…å™¨è·¯ç”±æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_batch_route_endpoints.py` | 289 | | æ‰¹é‡è·¯ç”±ç«¯ç‚¹æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_benchmark_engine.py` | 295 | | åŸºå‡†å¼•æ“Žæµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_compliance_service.py` | 142 | | åˆè§„æœåŠ¡æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_platform_data_access.py` | 231 | | è·¨åŸŸæ•°æ®è®¿é—®æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_bloomberg_adapter_refdata.py` | 39 | | Bloomberg å‚ç…§æ•°æ®æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_realtime_gateway.py` | 103 | | å®žæ—¶æŽ¨é€ç½‘å…³æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_service_provider.py` | 69 | | æœåŠ¡å·¥åŽ‚æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_config_service.py` | 89 | | é…ç½®æœåŠ¡æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_auth_policy.py` | 66 | | è®¤è¯ç­–ç•¥æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_db_bootstrap.py` | 32 | | æ•°æ®åº“åˆå§‹åŒ–æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_connection_router.py` | 97 | | è¿žæŽ¥è·¯ç”±æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_marketview_router.py` | 143 | | MarketView è·¯ç”±æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_execution_history_router.py` | 131 | | æ‰§è¡ŒåŽ†å²è·¯ç”±æµ‹è¯• |
+| `ExecutionView/backend/api/tests/test_projection_repositories.py` | 20 | | æŠ•å½±ä»“å‚¨æµ‹è¯• |
+| `ExecutionView/frontend/src/services/realtime.test.ts` | 226 | | WebSocket å®¢æˆ·ç«¯æµ‹è¯• |
+| `ExecutionView/frontend/src/modules/costview/lib/thresholds.test.ts` | 113 | | é˜ˆå€¼é€»è¾‘æµ‹è¯• |
+| `ExecutionView/frontend/src/modules/costview/lib/report-state.test.ts` | 71 | | æŠ¥å‘ŠçŠ¶æ€æµ‹è¯• |
+| `ExecutionView/frontend/src/modules/marketview/lib/workspace.test.ts` | 136 | | å·¥ä½œåŒºé€»è¾‘æµ‹è¯• |
 
 ---
 
-## 统计摘要
+## ç»Ÿè®¡æ‘˜è¦
 
-| 分类 | 文件数 | 代码行 | 占比 |
+| åˆ†ç±» | æ–‡ä»¶æ•° | ä»£ç è¡Œ | å æ¯” |
 |------|--------|--------|------|
-| 核心抽象 ⭐⭐⭐ | 7 | 4,732 | 6.5% |
-| 数据层 ⭐⭐ | 21 | 3,734 | 5.1% |
-| 业务逻辑 ⭐⭐ | 46 | 16,855 | 23.0% |
-| 集成层 ⭐ | 10 | 1,277 | 1.7% |
-| 配置/工具 ⭐ | 68 | 18,712 | 25.5% |
-| Legacy/待清理 ⚠️ | 13 | 1,053 | 1.4% |
-| 测试 | 21 | 2,957 | 4.0% |
-| UI 基础组件 (ui/*) | ~40 | ~3,500 | 4.8% |
-| 其他（未列出的小文件） | — | ~21,443 | 28.0% |
-| **总计** | **331** | **73,263** | **100%** |
+| æ ¸å¿ƒæŠ½è±¡ â­â­â­ | 7 | 4,732 | 6.5% |
+| æ•°æ®å±‚ â­â­ | 21 | 3,734 | 5.1% |
+| ä¸šåŠ¡é€»è¾‘ â­â­ | 46 | 16,855 | 23.0% |
+| é›†æˆå±‚ â­ | 10 | 1,277 | 1.7% |
+| é…ç½®/å·¥å…· â­ | 68 | 18,712 | 25.5% |
+| Legacy/å¾…æ¸…ç† âš ï¸ | 13 | 1,053 | 1.4% |
+| æµ‹è¯• | 21 | 2,957 | 4.0% |
+| UI åŸºç¡€ç»„ä»¶ (ui/*) | ~40 | ~3,500 | 4.8% |
+| å…¶ä»–ï¼ˆæœªåˆ—å‡ºçš„å°æ–‡ä»¶ï¼‰ | â€” | ~21,443 | 28.0% |
+| **æ€»è®¡** | **331** | **73,263** | **100%** |
 
-> **⚠️ 超限文件汇总**（需拆分）：`bloomberg_adapter.py`(2119), `batch-route-order-dialog.tsx`(1247), `SettingsBoard.tsx`(1102), `tca_query_service.py`(1082), `adapters.py`(936), `route-modify-dialogs.tsx`(893), `repositories.py`(866), `RouteTable.tsx`(866), `pipeline.py`(808), `fill_fetch.py`(773), `processed_fills_db.py`(685), `OrderTable.tsx`(681), `MarketViewModule.tsx`(795), `raw_fills_db.py`(516), `api.ts`(587), `import_excel_fills.py`(590), `auto_runner.py`(582), `service-manager.ps1`(519), `batch_route_service.py`(474), `route_plans.py`(491), `orders.py`(482), `marketview.py`(409), `costview.py`(434), `validate_raw_fills.py`(405)
+> **âš ï¸ è¶…é™æ–‡ä»¶æ±‡æ€»**ï¼ˆéœ€æ‹†åˆ†ï¼‰ï¼š`bloomberg_adapter.py`(2119), `batch-route-order-dialog.tsx`(1247), `SettingsBoard.tsx`(1102), `tca_query_service.py`(1082), `adapters.py`(936), `route-modify-dialogs.tsx`(893), `repositories.py`(866), `RouteTable.tsx`(866), `pipeline.py`(808), `fill_fetch.py`(773), `processed_fills_db.py`(685), `OrderTable.tsx`(681), `MarketViewModule.tsx`(795), `raw_fills_db.py`(516), `api.ts`(587), `import_excel_fills.py`(590), `auto_runner.py`(582), `service-manager.ps1`(519), `batch_route_service.py`(474), `route_plans.py`(491), `orders.py`(482), `marketview.py`(409), `costview.py`(434), `validate_raw_fills.py`(405)
+

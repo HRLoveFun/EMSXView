@@ -13,7 +13,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from platform_data import (
+from platform_data.adapters import (
     INTRADAY_BUCKET_OPTIONS,
     INTRADAY_DEFAULT_BUCKET_MINUTES,
     INTRADAY_MAX_TICKERS,
@@ -27,8 +27,8 @@ from platform_data import (
     MarketSnapshotFilters,
     MarketSnapshotSort,
     MarketStockPool,
-    build_platform_data_access,
 )
+from platform_data import build_platform_data_access
 
 router = APIRouter(tags=["MarketView"])
 platform_data = build_platform_data_access()

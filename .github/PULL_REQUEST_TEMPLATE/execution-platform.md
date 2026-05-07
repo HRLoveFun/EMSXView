@@ -1,10 +1,10 @@
-# ExecutionView Platform Pull Request
+﻿# ExecutionView Platform Pull Request
 
 ## Summary
 - **Phase**:
 - **Sprint**:
 - **Issue ID(s)**:
-- **WBS Reference**: `docs/EXECUTION_PLATFORM_WBS.md`
+- **WBS Reference**: `docs/roadmap/wbs.md`
 
 ## Scope of change
 - What was implemented?
@@ -42,3 +42,4 @@ Describe how to revert this change safely.
 
 ## Risks / blockers
 List any remaining delivery or operational risks.
+

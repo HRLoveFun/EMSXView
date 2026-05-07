@@ -1,4 +1,4 @@
-# EMSX Trading Tool - Quick Start
+﻿# EMSX Trading Tool - Quick Start
 
 ## One-Command Start
 
@@ -14,10 +14,10 @@ start-services.bat
 
 | Action | Command |
 |--------|---------|
-| **Start** | `start-services.bat` → Select [1] |
-| **Stop** | `start-services.bat` → Select [2] |
-| **Restart** | `start-services.bat` → Select [3] |
-| **Status** | `start-services.bat` → Select [4] |
+| **Start** | `start-services.bat` â†’ Select [1] |
+| **Stop** | `start-services.bat` â†’ Select [2] |
+| **Restart** | `start-services.bat` â†’ Select [3] |
+| **Status** | `start-services.bat` â†’ Select [4] |
 
 ## Service URLs
 
@@ -32,7 +32,7 @@ start-services.bat
 ### Port Already in Use
 ```batch
 # Stop all services first
-start-services.bat → Select [2]
+start-services.bat â†’ Select [2]
 
 # Or force kill
 scripts\restart-all.bat
@@ -41,10 +41,10 @@ scripts\restart-all.bat
 ### Services Won't Start
 ```batch
 # Check status
-start-services.bat → Select [4]
+start-services.bat â†’ Select [4]
 
 # View logs
-start-services.bat → Select [5]
+start-services.bat â†’ Select [5]
 ```
 
 ### Connection Errors
@@ -56,19 +56,20 @@ start-services.bat → Select [5]
 
 ```
 EMSX/
-├── start-services.bat      # Interactive launcher
-├── ExecutionView/
-│   ├── backend/api/        # Python backend
-│   └── frontend/           # React frontend
-├── scripts/
-│   ├── start-all.bat       # Quick start
-│   ├── stop-all.bat        # Quick stop
-│   └── service-manager.ps1 # PowerShell manager
-└── logs/                   # Service logs
+â”œâ”€â”€ start-services.bat      # Interactive launcher
+â”œâ”€â”€ ExecutionView/
+â”‚   â”œâ”€â”€ backend/api/        # Python backend
+â”‚   â””â”€â”€ frontend/           # React frontend
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ start-all.bat       # Quick start
+â”‚   â”œâ”€â”€ stop-all.bat        # Quick stop
+â”‚   â””â”€â”€ service-manager.ps1 # PowerShell manager
+â””â”€â”€ logs/                   # Service logs
 ```
 
 ## Need Help?
 
-- Full documentation: `docs/SERVICE_MANAGEMENT.md`
+- Full documentation: `docs/ops/service-management.md`
 - API documentation: `ExecutionView/backend/README.md`
 - Frontend docs: `ExecutionView/frontend/README.md`
+

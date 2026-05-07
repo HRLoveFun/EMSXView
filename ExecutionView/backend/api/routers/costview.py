@@ -33,12 +33,14 @@ _COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from platform_data import TcaFilters, TcaReport, build_platform_data_access
 from platform_data.adapters import (
     ScorecardCohortMetrics,
     ScorecardFilters,
     ScorecardReport,
+    TcaFilters,
+    TcaReport,
 )
+from platform_data import build_platform_data_access
 from platform_data.contracts import SCORECARD_COHORTS
 
 from ._pipeline_jobs import get_job, trigger_pipeline

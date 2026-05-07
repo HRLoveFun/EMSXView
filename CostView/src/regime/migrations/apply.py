@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import argparse
 import re
-import sqlite3
 import sys
 from pathlib import Path
 from typing import List, Tuple
+
+from CostView.src.db.connection import ConnectionManager
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent
 _MIGRATION_NAME_RE = re.compile(r"^v(\d+)_to_v(\d+)\.sql$")
@@ -48,14 +49,15 @@ def _discover() -> List[Tuple[int, int, Path]]:
 def apply_pending(db_path: Path | str, dry_run: bool = False) -> int:
     """Apply pending migrations. Returns the final user_version."""
     db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # autocommit mode: executescript() does not collide with implicit transactions.
     # Atomicity within a single migration is delivered by `BEGIN; ... COMMIT;` wrapping
     # inside the .sql file itself (forward-only DDL is also idempotent via IF NOT EXISTS).
-    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    mgr = ConnectionManager(path_overrides={"regime": db_path})
+    conn = mgr.get_admin_connection("regime")
+    conn.isolation_level = None  # autocommit required for executescript()
     try:
-        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA foreign_keys=ON")  # already set by ConnectionManager; idempotent
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         migrations = _discover()
         pending = [(fv, tv, p) for (fv, tv, p) in migrations if fv >= current]

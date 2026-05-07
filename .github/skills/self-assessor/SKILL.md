@@ -1,4 +1,4 @@
----
+﻿---
 name: self-assessor
 description: "Evaluate and improve the iterative update mechanism itself. Use for biweekly self-assessment, after mechanism failures, when adapting to new project patterns, or when mechanism effectiveness is questioned."
 ---
@@ -42,4 +42,5 @@ For each degraded or underperforming area:
 - Append to [iteration-log.md](../../knowledge/iteration-log.md): date, type=mechanism, trigger=self-assessment, action, outcome
 
 ## Reference
-- [Assessment Criteria](./references/assessment-criteria.md) — Metric definitions, thresholds, improvement templates
+- [Assessment Criteria](./references/assessment-criteria.md) â€” Metric definitions, thresholds, improvement templates
+

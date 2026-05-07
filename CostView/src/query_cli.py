@@ -20,12 +20,11 @@ import csv
 import io
 import json
 import logging
-import sqlite3
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from .db.connection import AccessTier
+from .db.connection import AccessTier, ConnectionManager
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config
 from .raw_fills_db import RawFillsDB
@@ -39,6 +38,7 @@ class QueryEngine:
     def __init__(self):
         self.raw_db = RawFillsDB(access_tier=AccessTier.READ)
         self.proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
+        self._mgr = ConnectionManager()
 
     def query_fills(
         self,
@@ -49,7 +49,7 @@ class QueryEngine:
         offset: int = 0,
     ) -> pd.DataFrame:
         """Query processed fills by date, order ID, or ticker."""
-        conn = sqlite3.connect(str(self.proc_db.db_path))
+        conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
         try:
             conditions = []
             params: list = []
@@ -72,7 +72,7 @@ class QueryEngine:
                     {where}
                     ORDER BY order_as_of_date, mkt_timestamp
                     LIMIT ? OFFSET ?""",
-                conn,
+                conn.raw_connection,
                 params=params,
             )
         finally:
@@ -86,7 +86,7 @@ class QueryEngine:
         offset: int = 0,
     ) -> pd.DataFrame:
         """Query raw fills by date or order ID."""
-        conn = sqlite3.connect(str(self.raw_db.db_path))
+        conn = self._mgr.get_connection("raw_fills", AccessTier.READ)
         try:
             conditions = []
             params: list = []
@@ -106,7 +106,7 @@ class QueryEngine:
                     {where}
                     ORDER BY source_date, DateTimeOfFill
                     LIMIT ? OFFSET ?""",
-                conn,
+                conn.raw_connection,
                 params=params,
             )
         finally:
@@ -137,7 +137,7 @@ class QueryEngine:
 
     def query_tickers(self, ticker_type: str = "all") -> pd.DataFrame:
         """List all tracked tickers from ticker_date_mapping."""
-        conn = sqlite3.connect(str(self.proc_db.db_path))
+        conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
         try:
             if ticker_type == "all":
                 return pd.read_sql_query(
@@ -148,7 +148,7 @@ class QueryEngine:
                         FROM {Config.TICKER_DATE_MAPPING_TABLE}
                         GROUP BY ticker, ticker_type
                         ORDER BY ticker_type, ticker""",
-                    conn,
+                    conn.raw_connection,
                 )
             else:
                 return pd.read_sql_query(
@@ -160,7 +160,7 @@ class QueryEngine:
                         WHERE ticker_type = ?
                         GROUP BY ticker
                         ORDER BY ticker""",
-                    conn,
+                    conn.raw_connection,
                     params=[ticker_type],
                 )
         finally:
@@ -186,7 +186,7 @@ class QueryEngine:
         summary["processing_stages"] = proc_stats.get("processing_stages", {})
 
         # Ticker counts
-        conn = sqlite3.connect(str(self.proc_db.db_path))
+        conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
         try:
             for tt in ("equ_ticker", "ccy_ticker"):
                 try:

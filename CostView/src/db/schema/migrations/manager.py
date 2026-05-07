@@ -95,25 +95,42 @@ class MigrationManager:
             logger.warning(f"Failed to ensure regime.db schema: {e}")
 
     def _ensure_inline_schema(self, database: str) -> None:
-        """Trigger inline schema initialization for databases without formal migrations."""
+        """Trigger inline schema initialization for databases without formal migrations.
+
+        Uses ConnectionManager.get_admin_connection() and the DDL functions in
+        inline_ddl.py instead of instantiating old DB classes.
+        """
         try:
-            if database == "raw_fills":
-                from CostView.src.raw_fills_db import RawFillsDB
-                RawFillsDB()
-            elif database == "processed_fills":
-                from CostView.src.processed_fills_db import init_processed_fills_schema
-                init_processed_fills_schema()
-            elif database == "raw_bdib":
-                from CostView.src.raw_bdib_db import RawBDIBDB
-                RawBDIBDB()
-            elif database == "processed_raw_bdib":
-                from CostView.src.processed_raw_bdib_db import ProcessedRawBDIBDB
-                ProcessedRawBDIBDB()
-            elif database == "fill_bdib":
-                from CostView.src.fill_bdib_db import FillBDIBDB
-                FillBDIBDB()
+            conn = self._mgr.get_admin_connection(database)
+            try:
+                self._run_inline_ddl(database, conn)
+            finally:
+                conn.close()
         except Exception as e:
             logger.warning(f"Failed to ensure inline schema for {database}: {e}")
+
+    @staticmethod
+    def _run_inline_ddl(database: str, conn) -> None:
+        """Execute CREATE TABLE IF NOT EXISTS DDL for the given database."""
+        from ..inline_ddl import (
+            init_fill_bdib_schema,
+            init_processed_fills_schema,
+            init_processed_raw_bdib_schema,
+            init_raw_bdib_schema,
+            init_raw_fills_schema,
+        )
+        ddl_map = {
+            "raw_fills": init_raw_fills_schema,
+            "processed_fills": init_processed_fills_schema,
+            "raw_bdib": init_raw_bdib_schema,
+            "processed_raw_bdib": init_processed_raw_bdib_schema,
+            "fill_bdib": init_fill_bdib_schema,
+        }
+        fn = ddl_map.get(database)
+        if fn is None:
+            logger.warning(f"No inline DDL function for database '{database}'")
+            return
+        fn(conn)
 
     def get_all_versions(self) -> Dict[str, Dict[str, object]]:
         """Return schema version status for all databases."""

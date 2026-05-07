@@ -21,6 +21,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import pandas as pd
 
 from CostView.src.processing_config import ProcessingConfig as Config
+from CostView.src.db.connection import ConnectionManager, AccessTier
 from CostView.src.regime.schema import (
     REGIME_DB_PATH,
     connect as connect_regime,
@@ -50,15 +51,24 @@ class SqliteFillRepository:
     query in writer.run_metrics().
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
-        self._db_path = Path(db_path or Config.PROCESSED_FILLS_DB)
+    def __init__(
+        self,
+        db_path: Optional[Path] = None,
+        connection_manager: Optional[ConnectionManager] = None,
+    ):
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        elif db_path is not None:
+            self._mgr = ConnectionManager(
+                path_overrides={"processed_fills": Path(db_path)}
+            )
+        else:
+            self._mgr = ConnectionManager()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _connect(self):
+        return self._mgr.get_connection(
+            "processed_fills", AccessTier.READ, row_factory=sqlite3.Row
+        )
 
     def get_fills_for_date(self, yyyymmdd: str) -> pd.DataFrame:
         """Pull fills + route ticker/side context for a single order_as_of_date.
@@ -80,7 +90,7 @@ class SqliteFillRepository:
         """
         conn = self._connect()
         try:
-            return pd.read_sql_query(sql, conn, params=(yyyymmdd,))
+            return pd.read_sql_query(sql, conn.raw_connection, params=(yyyymmdd,))
         finally:
             conn.close()
 
@@ -99,7 +109,7 @@ class SqliteFillRepository:
         )
         conn = self._connect()
         try:
-            df = pd.read_sql_query(sql, conn, params=(start_yyyymmdd, end_yyyymmdd))
+            df = pd.read_sql_query(sql, conn.raw_connection, params=(start_yyyymmdd, end_yyyymmdd))
             return df["order_as_of_date"].tolist()
         finally:
             conn.close()
@@ -116,15 +126,24 @@ class SqliteBarDataRepository:
     writer._load_adv_map().
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
-        self._db_path = Path(db_path or Config.RAW_BDIB_DB)
+    def __init__(
+        self,
+        db_path: Optional[Path] = None,
+        connection_manager: Optional[ConnectionManager] = None,
+    ):
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        elif db_path is not None:
+            self._mgr = ConnectionManager(
+                path_overrides={"raw_bdib": Path(db_path)}
+            )
+        else:
+            self._mgr = ConnectionManager()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _connect(self):
+        return self._mgr.get_connection(
+            "raw_bdib", AccessTier.READ, row_factory=sqlite3.Row
+        )
 
     def get_bar_panels_for_date(
         self, yyyymmdd: str, tickers: Iterable[str],
@@ -150,7 +169,7 @@ class SqliteBarDataRepository:
                     f"WHERE order_as_of_date = ? "
                     f"  AND equ_ticker IN ({placeholders})"
                 )
-                df = pd.read_sql_query(sql, conn, params=[yyyymmdd] + batch)
+                df = pd.read_sql_query(sql, conn.raw_connection, params=[yyyymmdd] + batch)
                 if df.empty:
                     continue
                 df["minute"] = df["mkt_timestamp"].apply(_floor_to_minute)

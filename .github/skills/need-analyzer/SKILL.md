@@ -1,4 +1,4 @@
----
+﻿---
 name: need-analyzer
 description: "Analyze and prioritize user needs from interaction history. Use when reviewing recurring requests, planning feature additions, evaluating automation opportunities, or deciding what to build next."
 ---
@@ -24,7 +24,7 @@ description: "Analyze and prioritize user needs from interaction history. Use wh
 
 ### Step 3: Score and Prioritize
 - Apply the scoring rubric from [need-tracking.md](./references/need-tracking.md)
-- Score = Frequency × Impact ÷ Effort
+- Score = Frequency Ã— Impact Ã· Effort
 - Rank all needs by score, highest first
 
 ### Step 4: Design Solutions
@@ -36,11 +36,12 @@ For the top 3 needs:
 ### Step 5: Monitor
 - After implementing a solution, set a review date (2 weeks out)
 - At review: check if related requests decreased
-- If not → refine or replace the solution
+- If not â†’ refine or replace the solution
 
 ### Step 6: Update Knowledge Base
 - Update [user-needs.md](../../knowledge/user-needs.md) with new/changed entries
 - Append to [iteration-log.md](../../knowledge/iteration-log.md): date, type=need, trigger, action, outcome
 
 ## Reference
-- [Need Tracking](./references/need-tracking.md) — Scoring rubric, entry template, review process
+- [Need Tracking](./references/need-tracking.md) â€” Scoring rubric, entry template, review process
+

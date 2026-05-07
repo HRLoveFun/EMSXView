@@ -258,7 +258,11 @@ class ConnectionManager:
             conn.commit()
     """
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        path_overrides: Optional[dict[str, Path]] = None,
+    ):
         self._config = config or Config()
         self._registry: dict[str, Path] = {
             DB_RAW_FILLS: self._config.RAW_FILLS_DB,
@@ -268,6 +272,10 @@ class ConnectionManager:
             DB_FILL_BDIB: self._config.FILL_BDIB_DB,
             DB_REGIME: self._resolve_regime_db_path(),
         }
+        if path_overrides:
+            for key, path in path_overrides.items():
+                if key in self._registry:
+                    self._registry[key] = Path(path)
 
     def _resolve_regime_db_path(self) -> Path:
         """Resolve regime.db path.
@@ -296,6 +304,7 @@ class ConnectionManager:
         self,
         database: str,
         tier: Optional[AccessTier] = None,
+        row_factory: Optional[type] = None,
     ) -> AccessControlledConnection:
         """Create a new access-controlled connection to the named database.
 
@@ -306,6 +315,8 @@ class ConnectionManager:
         Args:
             database: One of the DB_* constants or a name in the registry.
             tier: Access tier. Defaults to resolve_access_tier() (WRITE).
+            row_factory: Optional row_factory to set on the underlying
+                sqlite3.Connection (e.g. sqlite3.Row for dict-like rows).
 
         Returns:
             AccessControlledConnection wrapping a new sqlite3.Connection.
@@ -315,7 +326,7 @@ class ConnectionManager:
         """
         db_path = self.get_path(database)
         effective_tier = resolve_access_tier(tier)
-        return self._create_connection(db_path, effective_tier)
+        return self._create_connection(db_path, effective_tier, row_factory=row_factory)
 
     def get_admin_connection(self, database: str) -> sqlite3.Connection:
         """Create a raw admin connection for schema init/migration.
@@ -334,6 +345,7 @@ class ConnectionManager:
         self,
         database: str,
         tier: Optional[AccessTier] = None,
+        row_factory: Optional[type] = None,
     ):
         """Context-manager shorthand for get_connection().
 
@@ -341,13 +353,14 @@ class ConnectionManager:
             with mgr.connection("raw_fills", AccessTier.READ) as conn:
                 ...
         """
-        conn = self.get_connection(database, tier)
+        conn = self.get_connection(database, tier, row_factory=row_factory)
         return conn  # AccessControlledConnection is already a context manager
 
     @staticmethod
     def _create_connection(
         db_path: Path,
         tier: AccessTier,
+        row_factory: Optional[type] = None,
     ) -> AccessControlledConnection:
         """Create an AccessControlledConnection with standard pragmas."""
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -355,6 +368,8 @@ class ConnectionManager:
         raw_conn.execute("PRAGMA journal_mode=WAL")
         raw_conn.execute("PRAGMA foreign_keys=ON")
         raw_conn.execute(f"PRAGMA busy_timeout = {Config.SQLITE_BUSY_TIMEOUT_MS}")
+        if row_factory is not None:
+            raw_conn.row_factory = row_factory
         return AccessControlledConnection(raw_conn, tier)
 
     def get_all_paths(self) -> dict[str, Path]:

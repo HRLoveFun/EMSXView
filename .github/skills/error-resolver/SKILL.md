@@ -1,4 +1,4 @@
----
+﻿---
 name: error-resolver
 description: "Resolve recurring errors using pattern recognition. Use when debugging repeated failures, analyzing error logs, investigating test regressions, or when the same error signature appears more than once."
 ---
@@ -18,13 +18,13 @@ description: "Resolve recurring errors using pattern recognition. Use when debug
 
 ### Step 2: Search Knowledge Base
 - Read [error-patterns.md](../../knowledge/error-patterns.md) for matching signatures
-- If match found → go to Step 3a
-- If no match → go to Step 3b
+- If match found â†’ go to Step 3a
+- If no match â†’ go to Step 3b
 
 ### Step 3a: Apply Known Resolution
 - Follow the documented resolution steps
 - Verify the fix still applies to current codebase (files/functions may have changed)
-- If the resolution no longer works → go to Step 4
+- If the resolution no longer works â†’ go to Step 4
 
 ### Step 3b: Analyze Context
 - Gather: stack traces, recent code changes (git diff), environment state, Bloomberg connection status
@@ -39,7 +39,7 @@ description: "Resolve recurring errors using pattern recognition. Use when debug
 ### Step 5: Validate
 - Run affected unit tests
 - Run integration tests if the fix crosses module boundaries
-- If tests fail → iterate on the fix (back to Step 4, max 3 attempts)
+- If tests fail â†’ iterate on the fix (back to Step 4, max 3 attempts)
 
 ### Step 6: Update Knowledge Base
 - Add or update the pattern in [error-patterns.md](../../knowledge/error-patterns.md) using the format in [resolution-workflow.md](./references/resolution-workflow.md)
@@ -49,4 +49,5 @@ description: "Resolve recurring errors using pattern recognition. Use when debug
 - Append entry to [iteration-log.md](../../knowledge/iteration-log.md): date, type=error, trigger, action, outcome
 
 ## Reference
-- [Resolution Workflow](./references/resolution-workflow.md) — Decision tree, pattern entry template, failed-approach documentation
+- [Resolution Workflow](./references/resolution-workflow.md) â€” Decision tree, pattern entry template, failed-approach documentation
+

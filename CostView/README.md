@@ -1,6 +1,6 @@
 # CostView Module
 
-> **Post-Trade Analysis Module**  
+> **Post-Trade Analysis Module** · 🟢 Active
 > Transaction cost analysis, performance reporting, and execution quality metrics
 
 ---
@@ -12,8 +12,8 @@ The **CostView** module provides comprehensive post-trade analysis capabilities 
 Current architecture note:
 
 - The active CostView data and analytics implementation lives under `CostView/src/`.
-- The canonical CostView UI now lives inside the shared frontend shell at `Execution/frontend/src/modules/costview/`.
-- `Execution/backend/api/routers/costview.py` is the current bridge between the platform backend and the CostView analysis/query layer.
+- The canonical CostView UI now lives inside the shared frontend shell at `ExecutionView/frontend/src/modules/costview/`.
+- `ExecutionView/backend/api/routers/costview.py` is the current bridge between the platform backend and the CostView analysis/query layer.
 - `CostView/frontend/src/` is a legacy prototype surface and should not be treated as the primary UI entry point.
 
 ---

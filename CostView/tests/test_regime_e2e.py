@@ -109,16 +109,17 @@ class RegimeE2ETest(unittest.TestCase):
                     OrderId TEXT, RouteId TEXT, FillId TEXT,
                     order_as_of_date TEXT,
                     Exchange TEXT, Currency TEXT,
+                    DateTimeOfFill TEXT,
                     PRIMARY KEY (OrderId, RouteId, FillId, order_as_of_date)
                 )
             """)
             rows = [
-                ("O1", "R1", "F1", "20260415", "US", "USD"),
-                ("O1", "R1", "F2", "20260415", "US", "USD"),
-                ("O2", "R1", "F1", "20260416", "HK", "HKD"),
+                ("O1", "R1", "F1", "20260415", "US", "USD", "2026-04-15T09:30:00-04:00"),
+                ("O1", "R1", "F2", "20260415", "US", "USD", "2026-04-15T10:00:00-04:00"),
+                ("O2", "R1", "F1", "20260416", "HK", "HKD", "2026-04-16T10:00:00+08:00"),
             ]
             conn.executemany(
-                "INSERT INTO processed_fills VALUES (?,?,?,?,?,?)", rows,
+                "INSERT INTO processed_fills VALUES (?,?,?,?,?,?,?)", rows,
             )
             conn.commit()
         finally:

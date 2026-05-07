@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import warnings
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 
-from .db.connection import AccessControlledConnection, AccessTier, resolve_access_tier
+from .db.connection import AccessControlledConnection, AccessTier, ConnectionManager, resolve_access_tier
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)
@@ -59,23 +60,30 @@ class ProcessedRawBDIBDB:
         self,
         db_path: Optional[str] = None,
         access_tier: Optional[AccessTier] = None,
+        connection_manager: Optional[ConnectionManager] = None,
     ):
+        warnings.warn(
+            "ProcessedRawBDIBDB is deprecated. Use CostViewDatabase facade or "
+            "db.repositories.market_data_read/write via ConnectionManager. "
+            "See docs/spec/data-domain.md for the Data Platform extraction roadmap.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.db_path = Path(db_path or Config.PROCESSED_RAW_BDIB_DB)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._access_tier = resolve_access_tier(access_tier)
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        else:
+            overrides = {"processed_raw_bdib": self.db_path} if db_path else {}
+            self._mgr = ConnectionManager(path_overrides=overrides)
         self._init_db()
 
     def _get_conn(self) -> AccessControlledConnection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return AccessControlledConnection(conn, self._access_tier)
+        return self._mgr.get_connection("processed_raw_bdib", self._access_tier)
 
     def _get_admin_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        return self._mgr.get_admin_connection("processed_raw_bdib")
 
     def _init_db(self) -> None:
         conn = self._get_admin_conn()

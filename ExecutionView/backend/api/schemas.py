@@ -347,33 +347,10 @@ class ExecutionHistoryFillRecord(BaseModel):
     fetched_at: Optional[str] = None
 
 
-class ExecutionHistoryKeyContract(BaseModel):
-    canonical_fact: List[str]
-    raw_lineage: List[str]
-    order_grouping: List[str]
-    route_grouping: List[str]
-
-
-class ExecutionHistorySourceContract(BaseModel):
-    owner: str
-    canonical_fact_store: str
-    canonical_fact_dataset: str
-    canonical_fact_write_entrypoint: str
-    raw_lineage_store: Optional[str] = None
-    raw_lineage_dataset: Optional[str] = None
-    raw_lineage_write_entrypoint: Optional[str] = None
-    read_entrypoint: str
-
-
-class ExecutionHistoryContractData(BaseModel):
-    keys: ExecutionHistoryKeyContract
-    source: ExecutionHistorySourceContract
-
-
 class ExecutionHistoryFillData(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    contract: Optional[ExecutionHistoryContractData] = None
+    contract_version: Optional[str] = None
     row_count: int
     rows: List[ExecutionHistoryFillRecord]
 
@@ -400,7 +377,7 @@ class ExecutionHistoryOrderSummaryRecord(BaseModel):
 class ExecutionHistoryOrderSummaryData(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    contract: Optional[ExecutionHistoryContractData] = None
+    contract_version: Optional[str] = None
     row_count: int
     rows: List[ExecutionHistoryOrderSummaryRecord]
 
@@ -431,7 +408,7 @@ class ExecutionHistoryRouteSummaryRecord(BaseModel):
 class ExecutionHistoryRouteSummaryData(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    contract: Optional[ExecutionHistoryContractData] = None
+    contract_version: Optional[str] = None
     row_count: int
     rows: List[ExecutionHistoryRouteSummaryRecord]
 

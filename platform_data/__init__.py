@@ -1,117 +1,34 @@
 """Canonical logical data-domain entry points for EMSX.
 
-This package defines the shared adapter layer between:
-
-- Execution operational persistence and warm-start data
-- CostView analytical queries and reporting
-
-The goal is to keep business domains separate while exposing one stable
-integration surface for code that needs platform data access.
+This package exposes only the adapter layer — the stable integration surface
+between business domains. Dataclass types (MarketSnapshot, TcaFilters, etc.)
+are imported directly from platform_data.adapters.
 """
 
 from .adapters import (
+    build_platform_data_access,
+    PlatformDataAccess,
+    # Adapter classes
     CostViewAnalyticsAdapter,
     CostViewDatabaseAdapter,
-    ExecutionOperationalDataAdapter,
-    MarketReferenceDataAdapter,
-    PlatformDataAccess,
-    build_platform_data_access,
-    # Market reference types
-    MarketAlert,
-    MarketCandidatePayload,
-    MarketCandidateRow,
-    MarketDailySnapshotRow,
-    MarketSnapshot,
-    MarketSnapshotFilters,
-    MarketSnapshotSort,
-    MarketStockPool,
-    # Intraday feature types
-    INTRADAY_BUCKET_OPTIONS,
-    INTRADAY_DEFAULT_BUCKET_MINUTES,
-    INTRADAY_MAX_TICKERS,
-    IntradayFeatureBucket,
-    IntradayFeatureSnapshot,
-    IntradayTickerFeatures,
-    # Execution history types
-    EXECUTION_HISTORY_CONTRACT,
     ExecutionHistoryAdapter,
-    ExecutionHistoryContract,
-    ExecutionHistoryKeyContract,
-    ExecutionHistorySourceContract,
-    FillHistoryRow,
-    FillHistorySnapshot,
-    OrderHistoryRow,
-    OrderHistorySnapshot,
-    RouteHistoryRow,
-    RouteHistorySnapshot,
-    ExecutionHistoryFillRow,
-    ExecutionHistoryFillSnapshot,
-    ExecutionHistoryOrderSummaryRow,
-    ExecutionHistoryOrderSummarySnapshot,
-    ExecutionHistoryRouteSummaryRow,
-    ExecutionHistoryRouteSummarySnapshot,
-    # Analytics re-exports (owned by CostView)
-    ScorecardCohortMetrics,
-    ScorecardFilters,
-    ScorecardReport,
-    TcaFilters,
-    TcaReport,
-    # Handoff contracts (WBS-08)
-    BrokerStrategyRecommendation,
-    ExecutionCandidateHandoff,
-    ExecutionPostTradeHandoff,
+    ExecutionOperationalDataAdapter,
     HandoffExchangeAdapter,
-    HandoffMetadata,
+    MarketReferenceDataAdapter,
+    # Singleton entry points
     get_shared_handoff_exchange,
 )
+from . import repositories  # noqa: F401 — used by DatabaseView router
 
 __all__ = [
+    "build_platform_data_access",
+    "PlatformDataAccess",
     "CostViewAnalyticsAdapter",
     "CostViewDatabaseAdapter",
-    "ExecutionOperationalDataAdapter",
-    "MarketReferenceDataAdapter",
-    "PlatformDataAccess",
-    "build_platform_data_access",
-    "MarketAlert",
-    "MarketCandidatePayload",
-    "MarketCandidateRow",
-    "MarketDailySnapshotRow",
-    "MarketSnapshot",
-    "MarketSnapshotFilters",
-    "MarketSnapshotSort",
-    "MarketStockPool",
-    "INTRADAY_BUCKET_OPTIONS",
-    "INTRADAY_DEFAULT_BUCKET_MINUTES",
-    "INTRADAY_MAX_TICKERS",
-    "IntradayFeatureBucket",
-    "IntradayFeatureSnapshot",
-    "IntradayTickerFeatures",
-    "EXECUTION_HISTORY_CONTRACT",
     "ExecutionHistoryAdapter",
-    "ExecutionHistoryContract",
-    "ExecutionHistoryKeyContract",
-    "ExecutionHistorySourceContract",
-    "FillHistoryRow",
-    "FillHistorySnapshot",
-    "OrderHistoryRow",
-    "OrderHistorySnapshot",
-    "RouteHistoryRow",
-    "RouteHistorySnapshot",
-    "ExecutionHistoryFillRow",
-    "ExecutionHistoryFillSnapshot",
-    "ExecutionHistoryOrderSummaryRow",
-    "ExecutionHistoryOrderSummarySnapshot",
-    "ExecutionHistoryRouteSummaryRow",
-    "ExecutionHistoryRouteSummarySnapshot",
-    "ScorecardCohortMetrics",
-    "ScorecardFilters",
-    "ScorecardReport",
-    "TcaFilters",
-    "TcaReport",
-    "BrokerStrategyRecommendation",
-    "ExecutionCandidateHandoff",
-    "ExecutionPostTradeHandoff",
+    "ExecutionOperationalDataAdapter",
     "HandoffExchangeAdapter",
-    "HandoffMetadata",
+    "MarketReferenceDataAdapter",
     "get_shared_handoff_exchange",
+    "repositories",
 ]

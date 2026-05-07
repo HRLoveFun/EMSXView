@@ -1,4 +1,4 @@
----
+﻿---
 name: task-planner
 description: "Decompose tasks into implementation plans with checkpoints. Use when receiving new feature requests, bug reports, refactoring tasks, or any multi-step work that needs structured planning and validation gates."
 ---
@@ -42,10 +42,11 @@ Produce a structured plan using the template in [planning-workflow.md](./referen
 ### Step 6: Execute with Validation
 - Complete each sub-task in order
 - At each checkpoint, run validation
-- If checkpoint fails → diagnose → add corrective sub-task → re-validate before continuing
+- If checkpoint fails â†’ diagnose â†’ add corrective sub-task â†’ re-validate before continuing
 
 ### Step 7: Log
 - Append completed task to [iteration-log.md](../../knowledge/iteration-log.md): date, type=task, trigger, action, outcome
 
 ## Reference
-- [Planning Workflow](./references/planning-workflow.md) — Plan template, checkpoint criteria, dynamic replanning rules
+- [Planning Workflow](./references/planning-workflow.md) â€” Plan template, checkpoint criteria, dynamic replanning rules
+

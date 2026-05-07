@@ -13,7 +13,7 @@ for path in (PROJECT_ROOT, API_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from platform_data import (
+from platform_data.adapters import (
     ExecutionHistoryFillRow,
     ExecutionHistoryFillSnapshot,
     ExecutionHistoryOrderSummaryRow,

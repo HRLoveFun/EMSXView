@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Optional
 
-from CostView.src.raw_bdib_db import RawBDIBDB
+from CostView.src.db.connection import ConnectionManager, AccessTier
 from CostView.src.tca_query_service import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -40,6 +40,68 @@ try:  # pragma: no cover - graceful when ExecutionHistoryQueryService is absent
     )
 except Exception:  # pragma: no cover - defensive fallback
     _DefaultExecutionHistoryService = None  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# Daily summary reader — replaces RawBDIBDB direct import
+# ---------------------------------------------------------------------------
+
+_BDIB_DAILY_SUMMARY_TABLE = "bdib_daily_summary"
+
+
+class _ConnectionManagerDailySummaryReader:
+    """Read-only daily summary access via ConnectionManager.
+
+    Replaces the direct ``RawBDIBDB`` instantiation that previously
+    coupled platform_data to a CostView legacy DB class.
+    """
+
+    def __init__(self, connection_manager: ConnectionManager | None = None):
+        self._mgr = connection_manager or ConnectionManager()
+
+    def get_latest_daily_summary(
+        self,
+        limit: int = 25,
+        trade_date: str | None = None,
+    ):
+        """Return the latest available daily-summary rows as a DataFrame."""
+        import pandas as pd
+
+        conn = self._mgr.get_connection("raw_bdib", AccessTier.READ)
+        try:
+            resolved_trade_date = trade_date
+            if not resolved_trade_date:
+                cursor = conn.execute(
+                    f"SELECT MAX(trade_date) FROM {_BDIB_DAILY_SUMMARY_TABLE}"
+                )
+                resolved_trade_date = cursor.fetchone()[0]
+
+            if not resolved_trade_date:
+                return pd.DataFrame(
+                    columns=[
+                        "equ_ticker",
+                        "trade_date",
+                        "total_volume",
+                        "daily_close",
+                        "daily_volatility",
+                        "intraday_volatility",
+                        "adv_5d",
+                        "adv_20d",
+                    ]
+                )
+
+            return pd.read_sql_query(
+                f"SELECT equ_ticker, trade_date, total_volume, daily_close, daily_volatility, "
+                f"intraday_volatility, adv_5d, adv_20d "
+                f"FROM {_BDIB_DAILY_SUMMARY_TABLE} "
+                "WHERE trade_date = ? "
+                "ORDER BY COALESCE(total_volume, 0) DESC, equ_ticker ASC "
+                "LIMIT ?",
+                conn.raw_connection,
+                params=[resolved_trade_date, limit],
+            )
+        finally:
+            conn.close()
 
 
 @dataclass(frozen=True)
@@ -187,52 +249,10 @@ class IntradayFeatureSnapshot:
 
 
 # ── Execution history (CostView read path) ────────────────────────────────────
+# Contract metadata (owner, data lineage) documented in docs/DATA_DOMAIN.md
+# rather than embedded as runtime objects.
 
-
-@dataclass(frozen=True)
-class ExecutionHistoryKeyContract:
-    canonical_fact: list[str]
-    raw_lineage: list[str]
-    order_grouping: list[str]
-    route_grouping: list[str]
-
-
-@dataclass(frozen=True)
-class ExecutionHistorySourceContract:
-    owner: str
-    canonical_fact_store: str
-    canonical_fact_dataset: str
-    canonical_fact_write_entrypoint: str
-    raw_lineage_store: str | None
-    raw_lineage_dataset: str | None
-    raw_lineage_write_entrypoint: str | None
-    read_entrypoint: str
-
-
-@dataclass(frozen=True)
-class ExecutionHistoryContract:
-    keys: ExecutionHistoryKeyContract
-    source: ExecutionHistorySourceContract
-
-
-EXECUTION_HISTORY_CONTRACT = ExecutionHistoryContract(
-    keys=ExecutionHistoryKeyContract(
-        canonical_fact=["order_id", "route_id", "fill_id"],
-        raw_lineage=["order_id", "route_id", "fill_id", "source_date"],
-        order_grouping=["order_id", "order_as_of_date"],
-        route_grouping=["order_id", "route_id", "order_as_of_date"],
-    ),
-    source=ExecutionHistorySourceContract(
-        owner="CostView",
-        canonical_fact_store="processed_fills.db",
-        canonical_fact_dataset="processed_fills",
-        canonical_fact_write_entrypoint="CostView.src.fill_ingestion",
-        raw_lineage_store="raw_fills.db",
-        raw_lineage_dataset="raw_fills",
-        raw_lineage_write_entrypoint="CostView.src.fill_fetch",
-        read_entrypoint="CostView.src.execution_history_service.ExecutionHistoryQueryService",
-    ),
-)
+EXECUTION_HISTORY_CONTRACT_VERSION: str = "1.0"
 
 
 @dataclass(frozen=True)
@@ -300,7 +320,7 @@ class ExecutionHistoryFillSnapshot:
     end_date: str | None
     row_count: int
     rows: list[ExecutionHistoryFillRow]
-    contract: ExecutionHistoryContract | None = None
+    contract_version: str | None = EXECUTION_HISTORY_CONTRACT_VERSION
 
 
 @dataclass(frozen=True)
@@ -309,7 +329,7 @@ class ExecutionHistoryOrderSummarySnapshot:
     end_date: str | None
     row_count: int
     rows: list[ExecutionHistoryOrderSummaryRow]
-    contract: ExecutionHistoryContract | None = None
+    contract_version: str | None = EXECUTION_HISTORY_CONTRACT_VERSION
 
 
 @dataclass(frozen=True)
@@ -318,7 +338,7 @@ class ExecutionHistoryRouteSummarySnapshot:
     end_date: str | None
     row_count: int
     rows: list[ExecutionHistoryRouteSummaryRow]
-    contract: ExecutionHistoryContract | None = None
+    contract_version: str | None = EXECUTION_HISTORY_CONTRACT_VERSION
 
 
 # Backwards-compatible aliases (pre-WBS-08 naming)
@@ -546,14 +566,14 @@ _DEFAULT_STOCK_POOLS: tuple[MarketStockPool, ...] = (
 class MarketReferenceDataAdapter:
     """Canonical adapter for MarketView-facing market reference data."""
 
-    daily_summary_db_factory: Callable[[], RawBDIBDB] = RawBDIBDB
+    daily_summary_db_factory: Callable[[], Any] = _ConnectionManagerDailySummaryReader
 
     def describe(self) -> dict[str, str]:
         return {
             "domain": "market-reference",
             "owner": "CostView market-data pipeline",
             "storage": "SQLite bdib_daily_summary",
-            "entrypoint": "RawBDIBDB",
+            "entrypoint": "ConnectionManager",
         }
 
     def get_market_snapshot(
@@ -842,7 +862,6 @@ class ExecutionHistoryAdapter:
             end_date=end_date,
             row_count=len(rows),
             rows=rows,
-            contract=EXECUTION_HISTORY_CONTRACT,
         )
 
     def list_order_history(
@@ -870,7 +889,6 @@ class ExecutionHistoryAdapter:
             end_date=end_date,
             row_count=len(rows),
             rows=rows,
-            contract=EXECUTION_HISTORY_CONTRACT,
         )
 
     def list_route_history(
@@ -900,7 +918,6 @@ class ExecutionHistoryAdapter:
             end_date=end_date,
             row_count=len(rows),
             rows=rows,
-            contract=EXECUTION_HISTORY_CONTRACT,
         )
 
 
@@ -1141,7 +1158,7 @@ class PlatformDataAccess:
 def build_platform_data_access(
     repository_provider: Any | None = None,
     *,
-    market_db_factory: Callable[[], RawBDIBDB] = RawBDIBDB,
+    market_db_factory: Callable[[], Any] = _ConnectionManagerDailySummaryReader,
     query_service_factory: Callable[[], TcaQueryService] = TcaQueryService,
     execution_history_service_factory: Callable[[], Any] | None = None,
     handoff_exchange: HandoffExchangeAdapter | None = None,
