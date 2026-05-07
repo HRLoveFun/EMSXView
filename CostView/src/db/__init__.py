@@ -1,21 +1,17 @@
-"""CostView database subsystem — unified connection management, protocols,
-repositories, schema management, and facade.
+"""CostView database subsystem — re-export layer.
+
+All storage primitives have been migrated to DataPipeline/src/storage/.
+This module re-exports them for backward compatibility.
 
 Usage:
-    # Connection management
-    from CostView.src.db import ConnectionManager, AccessTier
+    # Connection management (new import path)
+    from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
 
-    # Repository access (new code)
-    from CostView.src.db.repositories import SqliteFillReadRepository
-
-    # Unified facade
+    # Unified facade (CostView concept, kept here)
     from CostView.src.db.facade import CostViewDatabase
-
-    # Schema management
-    from CostView.src.db.schema import MigrationManager
 """
 
-from .connection import (
+from DataPipeline.src.storage.connection import (
     AccessControlledConnection,
     AccessTier,
     ConnectionManager,

@@ -10,7 +10,7 @@ New code should import from ``CostView.src.db`` directly.
 Deprecated since: 2026-05-07 (Phase 1 database subsystem refactoring)
 """
 
-from .db.connection import (  # noqa: F401 — re-exports for backward compat
+from DataPipeline.src.storage.connection import (  # noqa: F401 — re-exports for backward compat
     AccessControlledConnection,
     AccessTier,
     backup_database,
@@ -18,7 +18,7 @@ from .db.connection import (  # noqa: F401 — re-exports for backward compat
 )
 
 # Also expose ConnectionManager for callers that have already migrated
-from .db.connection import ConnectionManager  # noqa: F401
+from DataPipeline.src.storage.connection import ConnectionManager  # noqa: F401
 
 __all__ = [
     "AccessControlledConnection",

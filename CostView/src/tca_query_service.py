@@ -27,7 +27,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from .exchange_tz import convert_ny_to_local
-from .db.connection import AccessTier, ConnectionManager
+from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)

@@ -1,123 +1,121 @@
-﻿# EMSX å¼€å‘æŒ‡å—
+﻿# EMSX 开发指南
 
 > Last updated: 2026-05-06 | Version: 2.1
 
-## 1. å¿«é€Ÿå¯åŠ¨
+## 1. 快速启动
 
-æŽ¨èå…¥å£ï¼š
+推荐入口：
 
-- ä»“åº“æ ¹ç›®å½•è¿è¡Œ start-services.bat
-- æˆ–ä½¿ç”¨ scripts ä¸‹çš„ start-all.bat / restart-all.bat / check-status.bat
+- 仓库根目录运行 start-services.bat
+- 或使用 scripts 下的 start-all.bat / restart-all.bat / check-status.bat
 
-æŒ‰æ¨¡å—å•ç‹¬å¯åŠ¨ï¼š
+按模块单独启动：
 
 ```powershell
-# åŽç«¯
+# 后端
 Set-Location ExecutionView/backend/api
 python start_server.py
 
-# å‰ç«¯
+# 前端
 Set-Location ExecutionView/frontend
 npm run dev
 ```
 
-å¸¸ç”¨æ£€æŸ¥ï¼š
+常用检查：
 
-- å¥åº·æ£€æŸ¥ï¼šhttp://localhost:3000/api/health
-- å¸‚åœºå¿«ç…§åŸºçº¿ï¼šhttp://localhost:3000/api/marketview/snapshot?limit=3
-- å‰ç«¯å¼€å‘æœåŠ¡ï¼šhttp://localhost:5173
+- 健康检查：http://localhost:3000/api/health
+- 市场快照基线：http://localhost:3000/api/marketview/snapshot?limit=3
+- 前端开发服务：http://localhost:5173
 
-## 2. å½“å‰å·¥ç¨‹äº‹å®ž
+## 2. 当前工程事实
 
-å½“å‰ä»“åº“ä¸æ˜¯â€œä¸‰å¥—ç‹¬ç«‹åº”ç”¨â€ï¼Œè€Œæ˜¯ï¼š
+当前仓库不是"三套独立应用"，而是：
 
-- ä¸€ä¸ªæ­£å¼å‰ç«¯å£³ï¼šExecutionView/frontend/src/App.tsx
-- ä¸‰ä¸ªä¸šåŠ¡æ¨¡å—ï¼šMarketViewã€ExecutionViewã€CostView
-- ä¸€ä¸ªé€»è¾‘æ•°æ®åŸŸå…¥å£ï¼šplatform_data/
+- 一个正式前端壳：ExecutionView/frontend/src/App.tsx
+- 三个业务模块：MarketView、ExecutionView、CostView
+- 一个逻辑数据域入口：platform_data/
 
-å½“å‰æƒå¨å®žçŽ°é¢ï¼š
+当前权威实现面：
 
-- å‰ç«¯å£³ï¼šExecutionView/frontend/
-- åŽç«¯è£…é…å±‚ï¼šExecutionView/backend/api/
-- CostView åˆ†æžä¸Žç®¡çº¿ï¼šCostView/src/
-- å…±äº«æ•°æ®é€‚é…å±‚ï¼šplatform_data/
+- 前端壳：ExecutionView/frontend/
+- 后端装配层：ExecutionView/backend/api/
+- CostView 分析与管线：CostView/src/
+- 共享数据适配层：platform_data/
 
-é‡è¦è¿è¡Œè¯­ä¹‰ï¼š
+重要运行语义：
 
-- Python åŽç«¯æ”¹åŠ¨åŽå¿…é¡»é‡å¯åŽç«¯ã€‚
-- ENABLE_DB_PERSISTENCE=false æ—¶ï¼Œæ•°æ®åº“è¢«è§†ä¸ºå¯é€‰èƒ½åŠ›ï¼›/api/health ä¼šè¿”å›ž database=disabledã€‚
-- Bloomberg ç›¸å…³å­—æ®µå¦‚æžœä¸åœ¨è®¢é˜…åˆ—è¡¨ä¸­ï¼Œå°±ä¸ä¼šæ”¶åˆ°ã€‚
-- Bloomberg å­—æ®µç±»åž‹å¿…é¡»ä¸Žè§£æžå™¨ç±»åž‹ä¸€è‡´ã€‚
+- Python 后端改动后必须重启后端。
+- ENABLE_DB_PERSISTENCE=false 时，数据库被视为可选能力；/api/health 会返回 database=disabled。
+- Bloomberg 相关字段如果不在订阅列表中，就不会收到。
+- Bloomberg 字段类型必须与解析器类型一致。
 
-## 3. éªŒè¯æ¸…å•
+## 3. 验证清单
 
-å‰ç«¯æ”¹åŠ¨ï¼š
+前端改动：
 
-- åœ¨ ExecutionView/frontend è¿è¡Œ npm run build
+- 在 ExecutionView/frontend 运行 npm run build
 
-åŽç«¯æ”¹åŠ¨ï¼š
+后端改动：
 
-- ä¼˜å…ˆè¿è¡Œå—å½±å“åˆ‡é¢çš„ pytestï¼Œè€Œä¸æ˜¯åªåšå…¨é‡è¯­æ³•æ£€æŸ¥
-- å¦‚ä¿®æ”¹äº†è¿è¡Œæ—¶è¡Œä¸ºï¼Œé‡å¯åŽç«¯å¹¶åšä¸€æ¬¡æŽ¥å£ smoke test
+- 优先运行受影响切面的 pytest，而不是只做全量语法检查
+- 如修改了运行时行为，重启后端并做一次接口 smoke test
 
-æ–‡æ¡£æ”¹åŠ¨ï¼š
+文档改动：
 
-- æ›´æ–° docs/index.md ä¸­çš„æ–‡æ¡£åˆ†å±‚æˆ–å…¥å£è¯´æ˜Ž
-- å¦‚æ”¹å˜æž¶æž„è¡¨è¿°ï¼ŒåŒæ—¶æ£€æŸ¥ docs/spec/project-structure.mdã€docs/spec/data-domain.mdã€docs/spec/memory.md
-- å¦‚æ”¹å˜å½“å‰è¿è¡ŒçŠ¶æ€æˆ–é˜»å¡žé¢ï¼ŒåŒæ—¶æ£€æŸ¥ docs/handoff.md
+- 更新 docs/index.md 中的文档分层或入口说明
+- 如改变架构表述，同时检查 docs/spec/project-structure.md、docs/spec/data-domain.md、docs/spec/memory.md
+- 如改变当前运行状态或阻塞面，同时检查 docs/handoff.md
 
-## 4. å¸¸è§ä»»åŠ¡å…¥å£
+## 4. 常见任务入口
 
-### æ·»åŠ æˆ–è°ƒæ•´åŽç«¯èƒ½åŠ›
+### 添加或调整后端能力
 
-ä¼˜å…ˆæ£€æŸ¥è¿™äº›ä½ç½®ï¼š
+优先检查这些位置：
 
-- è·¯ç”±ï¼šExecutionView/backend/api/routers/
-- æœåŠ¡ï¼šExecutionView/backend/api/services/
-- æ•°æ®å¥‘çº¦ï¼šExecutionView/backend/api/schemas.py
-- å…±äº«é€‚é…ï¼šplatform_data/
+- 路由：ExecutionView/backend/api/routers/
+- 服务：ExecutionView/backend/api/services/
+- 数据契约：ExecutionView/backend/api/schemas.py
+- 共享适配：platform_data/
 
-### è°ƒæ•´è·¨åŸŸæ•°æ®è®¿é—®
+### 调整跨域数据访问
 
-ä¼˜å…ˆèµ° platform_data/ï¼Œä¸è¦é»˜è®¤æ–°å¢žæ·±å±‚ç›´æŽ¥å¯¼å…¥ã€‚
+优先走 platform_data/，不要默认新增深层直接导入。
 
-å…¸åž‹é¡ºåºï¼š
+典型顺序：
 
-1. åœ¨ platform_data/adapters.py å¢žåŠ æˆ–æ‰©å±•é€‚é…å™¨
-2. ä¿®æ”¹è°ƒç”¨æ–¹è·¯ç”±æˆ–æœåŠ¡
-3. è¡¥å¯¹åº”æµ‹è¯•
-4. åŒæ­¥å‰ç«¯ç±»åž‹æˆ–å±•ç¤º
+1. 在 platform_data/adapters.py 增加或扩展适配器
+2. 修改调用方路由或服务
+3. 补对应测试
+4. 同步前端类型或展示
 
-### è°ƒè¯• Bloomberg è¿è¡Œæ—¶é—®é¢˜
+### 调试 Bloomberg 运行时问题
 
-ä¼˜å…ˆæŸ¥çœ‹ï¼š
+优先查看：
 
-- logs/emsx_api.log åŠå…¶è½®è½¬æ–‡ä»¶
+- logs/emsx_api.log 及其轮转文件
 - .github/knowledge/error-patterns.md
-- docs/handoff.md ä¸­çš„å½“å‰è¿è¡ŒçŠ¶æ€
+- docs/handoff.md 中的当前运行状态
 
-## 5. å½“å‰æ–‡æ¡£åœ°å›¾
+## 5. 当前文档地图
 
-ä¼˜å…ˆé˜…è¯»é¡ºåºï¼š
+优先阅读顺序：
 
-1. docs/index.mdï¼šæ–‡æ¡£å…¥å£ä¸Žåˆ†ç±»
-2. docs/spec/project-structure.mdï¼šå½“å‰ä»“åº“ç»“æž„ä¸Žæƒå¨å®žçŽ°é¢
-3. docs/spec/data-domain.mdï¼šé€»è¾‘æ•°æ®åŸŸè¾¹ç•Œ
-4. docs/spec/memory.mdï¼šç¨³å®šæž¶æž„è®°å¿†ä¸Žå·¥ä½œçº¦æŸ
-5. docs/handoff.mdï¼šå½“å‰é˜»å¡žã€è¿è¡ŒçŠ¶æ€ã€ä¸‹ä¸€æ­¥
+1. docs/index.md：文档入口与分类
+2. docs/spec/project-structure.md：当前仓库结构与权威实现面
+3. docs/spec/data-domain.md：逻辑数据域边界
+4. docs/spec/memory.md：稳定架构记忆与工作约束
+5. docs/handoff.md：当前阻塞、运行状态、下一步
 
-çŸ¥è¯†åº“ä½ç½®ï¼š
+知识库位置：
 
-- æž¶æž„å†³ç­–ï¼š.github/knowledge/architecture-decisions.md
-- é”™è¯¯æ¨¡å¼ï¼š.github/knowledge/error-patterns.md
-- ç”¨æˆ·éœ€æ±‚ï¼š.github/knowledge/user-needs.md
-- è¿­ä»£æ—¥å¿—ï¼š.github/knowledge/iteration-log.md
+- 架构决策：.github/knowledge/architecture-decisions.md
+- 错误模式：.github/knowledge/error-patterns.md
+- 用户需求：.github/knowledge/user-needs.md
+- 迭代日志：.github/knowledge/iteration-log.md
 
-## 6. å·¥ä½œçº¦æŸ
+## 6. 工作约束
 
-- ä¸è¦æŠŠ CostView/frontend å½“æˆæ­£å¼å‰ç«¯å…¥å£ã€‚
-- ä¸è¦å†ç”¨ app/ æˆ– emsx-backend/ ä½œä¸ºå½“å‰ç»“æž„æè¿°ã€‚
-- æ–°çš„ä¸“é¢˜æ€»ç»“ç±»æ–‡æ¡£å¦‚æžœåªå¯¹åº”ä¸€æ¬¡æ€§é—®é¢˜æˆ–å·²å®Œæˆé˜¶æ®µï¼Œåº”æ”¾å…¥ docs/archive/ è€Œä¸æ˜¯é•¿æœŸç•™åœ¨ docs æ ¹ç›®å½•ã€‚
-- é•¿æœŸæœ‰æ•ˆçš„æ–‡æ¡£æ‰ç•™åœ¨ docs æ ¹ç›®å½•ï¼šè¿è¡ŒæŒ‡å—ã€æž¶æž„è¯´æ˜Žã€æ•°æ®è¾¹ç•Œã€å½“å‰ handoffã€æŒç»­ç»´æŠ¤çš„è®¡åˆ’æ–‡æ¡£ã€‚
-
-
+- 不要把 CostView/frontend 当成正式前端入口。
+- 不要再用 app/ 或 emsx-backend/ 作为当前结构描述。
+- 新的专题总结类文档如果只对应一次性问题或已完成阶段，应放入 docs/archive/ 而不是长期留在 docs 根目录。
+- 长期有效的文档才留在 docs 根目录：运行指南、架构说明、数据边界、当前 handoff、持续维护的计划文档。

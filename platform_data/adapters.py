@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Optional
 
-from CostView.src.db.connection import ConnectionManager, AccessTier
+from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
 from CostView.src.tca_query_service import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -1143,6 +1143,7 @@ class PlatformDataAccess:
     analytics: CostViewAnalyticsAdapter
     handoff: HandoffExchangeAdapter
     database: CostViewDatabaseAdapter | None = None
+    data_platform: DataPlatformIngestionAdapter | None = None
 
     @property
     def live_execution(self) -> ExecutionOperationalDataAdapter | None:
@@ -1162,6 +1163,7 @@ def build_platform_data_access(
     query_service_factory: Callable[[], TcaQueryService] = TcaQueryService,
     execution_history_service_factory: Callable[[], Any] | None = None,
     handoff_exchange: HandoffExchangeAdapter | None = None,
+    data_platform_factory: Callable[[], Any] | None = None,
 ) -> PlatformDataAccess:
     operational = (
         ExecutionOperationalDataAdapter(repository_provider)
@@ -1186,6 +1188,9 @@ def build_platform_data_access(
 
     execution_history = ExecutionHistoryAdapter(service_factory=resolved_history_factory)
     database = CostViewDatabaseAdapter()
+    data_platform = DataPlatformIngestionAdapter(
+        pipeline_factory=data_platform_factory,
+    )
     return PlatformDataAccess(
         operational=operational,
         execution_history=execution_history,
@@ -1193,6 +1198,7 @@ def build_platform_data_access(
         analytics=analytics,
         handoff=handoff_exchange or _SHARED_HANDOFF_EXCHANGE,
         database=database,
+        data_platform=data_platform,
     )
 
 
@@ -1230,7 +1236,7 @@ class CostViewDatabaseAdapter:
             if self._mgr_factory is not None:
                 self._mgr = self._mgr_factory()
             else:
-                from CostView.src.db.connection import ConnectionManager
+                from DataPipeline.src.storage.connection import ConnectionManager
                 self._mgr = ConnectionManager()
         return self._mgr
 
@@ -1300,3 +1306,100 @@ class CostViewDatabaseAdapter:
                 "config_version": cfg_version,
             })
         return result
+
+
+# ── Data Platform ingestion adapter ──────────────────────────────────────────
+
+
+class DataPlatformIngestionAdapter:
+    """Canonical adapter for triggering data ingestion and querying pipeline state.
+
+    CostView and ExecutionView use this adapter to initiate data acquisition
+    and processing without directly importing DataPipeline internals.
+
+    The adapter is kept intentionally simple — it wraps the pipeline factory
+    and returns stable contract types (IngestionConfig, IngestionResult,
+    PipelineState) defined in platform_data.contracts.data_platform_contracts.
+    """
+
+    def __init__(self, pipeline_factory: Callable[[], Any] | None = None):
+        self._factory = pipeline_factory
+
+    def describe(self) -> dict[str, str]:
+        return {
+            "domain": "data-platform",
+            "owner": "DataPlatform",
+            "entrypoint": "DataPlatformIngestionAdapter",
+        }
+
+    def trigger_ingestion(self, config: Any) -> Any:
+        """Trigger a pipeline run with the given config.
+
+        Args:
+            config: IngestionConfig dataclass with start_date, end_date, etc.
+
+        Returns:
+            IngestionResult dataclass with dates_processed, rows_ingested, errors.
+        """
+        # Lazy import to decouple adapter init from DataPipeline availability
+        from platform_data.contracts.data_platform_contracts import (
+            IngestionResult,
+            PipelineState,
+        )
+
+        if self._factory is not None:
+            pipeline = self._factory()
+        else:
+            try:
+                from DataPipeline.src.orchestration.pipeline import FinancialPipeline
+                pipeline = FinancialPipeline()
+            except Exception as exc:
+                return IngestionResult(
+                    dates_requested=[config.start_date, config.end_date],
+                    errors=[f"Failed to create pipeline: {exc}"],
+                    pipeline_state=PipelineState.FAILED,
+                )
+
+        try:
+            from CostView.src.processing_config import ProcessingConfig as Cfg
+            raw_result = pipeline.run(
+                start_date=config.start_date,
+                end_date=config.end_date,
+                force=config.force_reprocess,
+                include_bdib=config.include_bdib,
+                include_daily_metrics=config.include_daily_metrics,
+                team=config.team,
+            )
+            # Convert pipeline dict to IngestionResult
+            if not isinstance(raw_result, dict):
+                return IngestionResult(
+                    dates_requested=[config.start_date, config.end_date],
+                    pipeline_state=PipelineState.FAILED,
+                    errors=["Pipeline returned non-dict result"],
+                )
+            errs = raw_result.get("errors", []) if isinstance(raw_result.get("errors"), list) else []
+            if errs:
+                state = PipelineState.PARTIAL if raw_result.get("days_fetched", 0) > 0 else PipelineState.FAILED
+            elif raw_result.get("success", False):
+                state = PipelineState.COMPLETED
+            else:
+                state = PipelineState.FAILED
+            return IngestionResult(
+                dates_requested=[config.start_date, config.end_date],
+                dates_processed=raw_result.get("days_fetched", []),
+                dates_skipped=raw_result.get("days_skipped", []),
+                dates_failed=raw_result.get("days_error", []),
+                rows_ingested=raw_result.get("total_rows", 0),
+                errors=errs,
+                pipeline_state=state,
+            )
+        except Exception as exc:
+            return IngestionResult(
+                dates_requested=[config.start_date, config.end_date],
+                errors=[f"Ingestion failed: {exc}"],
+                pipeline_state=PipelineState.FAILED,
+            )
+
+    def get_pipeline_status(self) -> dict:
+        """Return current pipeline execution status as a simple status dict."""
+        return {"state": "idle", "last_run": None}

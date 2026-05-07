@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ...connection import ConnectionManager
+from DataPipeline.src.storage.connection import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class MigrationManager:
     @staticmethod
     def _run_inline_ddl(database: str, conn) -> None:
         """Execute CREATE TABLE IF NOT EXISTS DDL for the given database."""
-        from ..inline_ddl import (
+        from DataPipeline.src.storage.schema.inline_ddl import (
             init_fill_bdib_schema,
             init_processed_fills_schema,
             init_processed_raw_bdib_schema,

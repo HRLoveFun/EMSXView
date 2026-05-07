@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from .db.connection import AccessTier
+from DataPipeline.src.storage.connection import AccessTier
 from .outdated_tickers import load_outdated_ticker_set
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config

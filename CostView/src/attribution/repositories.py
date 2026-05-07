@@ -21,7 +21,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import pandas as pd
 
 from CostView.src.processing_config import ProcessingConfig as Config
-from CostView.src.db.connection import ConnectionManager, AccessTier
+from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
 from CostView.src.regime.schema import (
     REGIME_DB_PATH,
     connect as connect_regime,

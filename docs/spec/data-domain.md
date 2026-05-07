@@ -60,34 +60,45 @@ Examples:
 - pipeline orchestration and migration management
 - data quality monitoring
 
-Primary code surfaces (target — see Near-term migration path):
+Primary code surfaces (current):
 
+- `DataPipeline/src/acquisition/` — BDIB market bar acquisition
 - `DataPipeline/src/ingestion/` — fill and market data ingestion
-- `DataPipeline/src/processing/` — cleaning, enrichment, metrics
-- `DataPipeline/src/storage/` — repository layer for processed data
+- `DataPipeline/src/processing/` — cleaning, enrichment, aggregation, metrics
+- `DataPipeline/src/storage/` — connection management, repositories, legacy DB facades
 - `DataPipeline/src/orchestration/` — pipeline and migration management
+- `DataPipeline/src/common/` — shared configuration (ProcessingConfig, schema, exchange_tz, mapping)
 
-Legacy surfaces (currently in `CostView/src/`, awaiting extraction):
+Legacy surfaces (all migrated — original files deleted from `CostView/src/`):
 
-- `CostView/src/fill_fetch.py` → migrate to `DataPipeline/src/ingestion/`
-- `CostView/src/fill_ingestion.py` → migrate to `DataPipeline/src/ingestion/`
-- `CostView/src/fill_cleaner.py` → migrate to `DataPipeline/src/processing/`
-- `CostView/src/fill_processor.py` → migrate to `DataPipeline/src/processing/`
-- `CostView/src/fill_aggregator.py` → migrate to `DataPipeline/src/processing/`
-- `CostView/src/bdib_fetcher.py` → migrate to `DataPipeline/src/acquisition/`
-- `CostView/src/daily_metrics_calculator.py` → migrate to `DataPipeline/src/processing/`
-- `CostView/src/pipeline.py` → migrate to `DataPipeline/src/orchestration/`
-- `CostView/src/raw_fills_db.py` → migrate to `DataPipeline/src/storage/`
-- `CostView/src/raw_bdib_db.py` → migrate to `DataPipeline/src/storage/`
-- `CostView/src/processed_fills_db/` → migrate to `DataPipeline/src/storage/`
-- `CostView/src/db/repositories/raw_fills_*` → migrate to `DataPipeline/src/storage/`
-- `CostView/src/db/repositories/fills_*` → migrate to `DataPipeline/src/storage/`
-- `CostView/src/db/repositories/market_data_*` → migrate to `DataPipeline/src/storage/`
-- `CostView/src/db/repositories/integrated.py` → migrate to `DataPipeline/src/storage/`
+- ✅ `fill_fetch.py` → `DataPipeline/src/ingestion/fill_fetch.py` (SQLAlchemy replaced with ConnectionManager)
+- ✅ `fill_ingestion.py` → `DataPipeline/src/ingestion/fill_ingestion.py`
+- ✅ `fill_cleaner.py` → `DataPipeline/src/processing/fill_cleaner.py`
+- ✅ `fill_processor.py` → `DataPipeline/src/processing/fill_processor.py`
+- ✅ `fill_aggregator.py` → `DataPipeline/src/processing/fill_aggregator.py`
+- ✅ `fill_bdib_integrated.py` → `DataPipeline/src/processing/fill_bdib_integrated.py`
+- ✅ `bdib_fetcher.py` → `DataPipeline/src/acquisition/bdib_fetcher.py`
+- ✅ `daily_metrics_calculator.py` → `DataPipeline/src/processing/daily_metrics_calculator.py`
+- ✅ `pipeline.py` → `DataPipeline/src/orchestration/pipeline.py`
+- ✅ `raw_fills_db.py` → `DataPipeline/src/storage/raw_fills_db.py`
+- ✅ `raw_bdib_db.py` → `DataPipeline/src/storage/raw_bdib_db.py`
+- ✅ `fill_bdib_db.py` → `DataPipeline/src/storage/fill_bdib_db.py`
+- ✅ `processed_raw_bdib_db.py` → `DataPipeline/src/storage/processed_raw_bdib_db.py`
+- ✅ `processed_fills_db/` → `DataPipeline/src/storage/processed_fills_db/`
+- ✅ `CostView/src/db/connection.py` → `DataPipeline/src/storage/connection.py`
+- ✅ `CostView/src/db/repositories/` → `DataPipeline/src/storage/repositories/`
+- ✅ `CostView/src/db/schema/` → `DataPipeline/src/storage/schema/`
+- ✅ `CostView/src/db/protocols.py` → `DataPipeline/src/storage/protocols.py`
+- ✅ `CostView/src/db/dto.py` → `DataPipeline/src/storage/dto.py`
+- ✅ `processing_config.py` → `DataPipeline/src/common/processing_config.py`
+- ✅ `exchange_tz.py` → `DataPipeline/src/common/exchange_tz.py`
+- ✅ `mapping.py` → `DataPipeline/src/common/mapping.py`
+- ✅ `outdated_tickers.py` → `DataPipeline/src/common/outdated_tickers.py`
+- ✅ `schema.py` → `DataPipeline/src/common/schema.py`
 
 Canonical shared adapter:
 
-- `platform_data.build_platform_data_access().data_platform` (planned)
+- `platform_data.build_platform_data_access().data_platform` (implemented — `DataPlatformIngestionAdapter`)
 
 ### 3. CostView — algorithm evaluation and analytics (refocused)
 
@@ -138,7 +149,7 @@ Current contracts:
 - `platform_data/contracts/fill_contracts.py` â€” `SCORECARD_COHORTS` tuple
 - `platform_data/contracts/market_data_contracts.py` â€” (placeholder for future market data types)
 - `platform_data/contracts/regime_contracts.py` — (placeholder for future regime types)
-- `platform_data/contracts/data_platform_contracts.py` — (planned — ingestion config, pipeline state, processing schemas)
+- `platform_data/contracts/data_platform_contracts.py` — `IngestionConfig`, `PipelineState`, `IngestionResult`
 - `platform_data/contracts/evaluation_contracts.py` — (planned — algorithm model metadata, evaluation specs, output format)
 
 Rule: Consumers import from `platform_data.contracts`, not from `CostView.src.*` directly.
@@ -166,7 +177,7 @@ Current adapters:
 
 Planned adapters:
 
-- `DataPlatformIngestionAdapter` \â€\” ingestion trigger and pipeline status (planned)
+- `DataPlatformIngestionAdapter` \â€\” ingestion trigger and pipeline status (implemented — see `platform_data.adapters.DataPlatformIngestionAdapter`)
 - `AlgorithmEvaluationAdapter` \â€\” model-driven evaluation output (planned)
 
 Example:
@@ -206,19 +217,28 @@ ends at clean, well-structured data delivery.
 
 ---
 
-## Near-term migration path
+## Extraction status
 
-1. **Extract Data Platform subdomain.** Create `DataPipeline/` package and migrate the following from `CostView/src/`:
-   - Ingestion: `fill_fetch.py`, `fill_ingestion.py`, `bdib_fetcher.py`
-   - Processing: `fill_cleaner.py`, `fill_processor.py`, `fill_aggregator.py`, `daily_metrics_calculator.py`, `pipeline.py`
-   - Storage: `raw_fills_db.py`, `raw_bdib_db.py`, `processed_fills_db/`, `db/repositories/raw_fills_*`, `db/repositories/fills_*`, `db/repositories/market_data_*`
-2. **Add platform_data contract files** for the Data Platform (`data_platform_contracts.py`) and for algorithm evaluation (`evaluation_contracts.py`).
-3. **Introduce new adapters** in `platform_data/adapters.py`: `DataPlatformIngestionAdapter`, and extend `PlatformDataAccess` with a `.data_platform` entry.
-4. **Build CostView evaluation layer.** Create `CostView/src/evaluation/` (model loading, orchestration) and `CostView/src/models/` (algorithm model definitions). These replace the direct data-access patterns that will be extracted.
-5. **Redirect CostView internal imports.** Update `CostView/src/tca_query_service.py` and `CostView/src/attribution/` to consume data through Data Platform adapters rather than directly accessing storage.
-6. **Deprecate legacy classes.** Mark `CostView/src/raw_fills_db.py`, `CostView/src/raw_bdib_db.py`, `CostView/src/fill_bdib_db.py`, and `CostView/src/processed_fills_db/` as fully deprecated once extraction completes.
-7. Add more contracts and adapters only when a real caller needs them (YAGNI).
-8. Defer any storage unification until there is a workload-driven reason.
+### Completed (2026-05-07)
+
+1. ✅ **Extract Data Platform subdomain.** Created `DataPipeline/` package and migrated all data surfaces from `CostView/src/`:
+   - Acquisition: `bdib_fetcher.py` → `DataPipeline/src/acquisition/`
+   - Ingestion: `fill_fetch.py`, `fill_ingestion.py` → `DataPipeline/src/ingestion/`
+   - Processing: `fill_cleaner.py`, `fill_processor.py`, `fill_aggregator.py`, `fill_bdib_integrated.py`, `daily_metrics_calculator.py` → `DataPipeline/src/processing/`
+   - Storage: `connection.py`, `repositories/`, `schema/`, `protocols.py`, `dto.py`, `raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`, `processed_fills_db/` → `DataPipeline/src/storage/`
+   - Orchestration: `pipeline.py` → `DataPipeline/src/orchestration/`
+   - Common: `processing_config.py`, `exchange_tz.py`, `mapping.py`, `outdated_tickers.py`, `schema.py` → `DataPipeline/src/common/`
+2. ✅ **Added platform_data contract files:** `data_platform_contracts.py` (IngestionConfig, PipelineState, IngestionResult, PipelineStatus). `evaluation_contracts.py` deferred (YAGNI).
+3. ✅ **Introduced new adapters:** `DataPlatformIngestionAdapter` in `platform_data/adapters.py`, integrated into `PlatformDataAccess.data_platform`.
+4. ⬜ **Build CostView evaluation layer** — deferred (out of scope for this extraction).
+5. ✅ **Redirect internal imports.** All DataPipeline modules import from within DataPipeline. `CostView/src/db/` is a thin re-export layer.
+6. ✅ **Deleted legacy classes.** `raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`, `processed_fills_db/` removed from `CostView/src/`. Copied to `DataPipeline/src/storage/`.
+
+### Remaining work
+
+- Build `CostView/src/evaluation/` and `CostView/src/models/` (algorithm evaluation layer).
+- Add more contracts and adapters only when a real caller needs them (YAGNI).
+- Defer any storage unification until there is a workload-driven reason.
 
 ---
 

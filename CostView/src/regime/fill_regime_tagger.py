@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from CostView.src.processing_config import ProcessingConfig as PCConfig
-from CostView.src.db.connection import ConnectionManager, AccessTier
+from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
 from CostView.src.exchange_tz import convert_ny_to_local, get_exchange_timezone
 from CostView.src.regime.config import get_active_config, get_config
 from CostView.src.regime.market_code import derive_market_code

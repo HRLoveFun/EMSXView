@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-from .db.connection import AccessTier, ConnectionManager
+from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 from .processing_config import ProcessingConfig as Config
 
 

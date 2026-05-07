@@ -32,10 +32,10 @@ import pandas as pd
 
 try:
     from src.processing_config import ProcessingConfig as Config
-    from src.db.connection import AccessTier, ConnectionManager
+    from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 except ImportError:
     from .processing_config import ProcessingConfig as Config
-    from .db.connection import AccessTier, ConnectionManager
+    from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
 

@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from CostView.src.db.connection import ConnectionManager
+from DataPipeline.src.storage.connection import ConnectionManager
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent
 _MIGRATION_NAME_RE = re.compile(r"^v(\d+)_to_v(\d+)\.sql$")

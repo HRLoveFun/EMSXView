@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from CostView.src.db.connection import ConnectionManager as _ConnectionManager
+from DataPipeline.src.storage.connection import ConnectionManager as _ConnectionManager
 
 logger = logging.getLogger(__name__)
 
