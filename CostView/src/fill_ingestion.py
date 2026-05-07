@@ -29,6 +29,7 @@ from .fill_cleaner import clean_emsx_fills
 from .fill_processor import process_fills
 from .processing_config import ProcessingConfig as Config
 from .raw_fills_db import RawFillsDB, compute_fills_hash
+from .db.facade import CostViewDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +225,9 @@ def ingest_excel_file(
         return result
 
     if db is None:
-        db = RawFillsDB()
+        db = CostViewDatabase().raw_db
+
+    files = sorted(excel_dir.glob("fills_*.xlsx"))
 
     try:
         df_raw = pd.read_excel(file_path, engine="openpyxl")
@@ -279,7 +282,7 @@ def ingest_all_excel_files(
     """Ingest all FillFetch Excel files from the data directory (legacy)."""
     excel_dir = Path(excel_dir or Config.RAW_EXCEL_DIR)
     if db is None:
-        db = RawFillsDB()
+        db = CostViewDatabase().raw_db
 
     files = sorted(excel_dir.glob("fills_*.xlsx"))
     if not files:
@@ -340,10 +343,9 @@ def process_raw_fills_for_date(
     }
 
     if raw_db is None:
-        raw_db = RawFillsDB()
+        raw_db = CostViewDatabase().raw_db
     if proc_db is None:
-        from .processed_fills_db import ProcessedFillsDB
-        proc_db = ProcessedFillsDB()
+        proc_db = CostViewDatabase().proc_db
 
     try:
         # 1. Read raw fills
