@@ -404,10 +404,10 @@ class FillFetch:
         self.raw_db = None
         try:
             try:
-                from src.raw_fills_db import RawFillsDB
+                from src.db.facade import CostViewDatabase
             except ImportError:
-                from .raw_fills_db import RawFillsDB
-            self.raw_db = RawFillsDB()
+                from .db.facade import CostViewDatabase
+            self.raw_db = CostViewDatabase().raw_db
         except Exception as e:
             logger.warning(f"Failed to initialize raw_fills.db (fetch_log unavailable): {e}")
 
@@ -482,10 +482,10 @@ class FillFetch:
         last_processed = None
         try:
             try:
-                from src.processed_fills_db import ProcessedFillsDB
+                from src.db.facade import CostViewDatabase
             except ImportError:
-                from .processed_fills_db import ProcessedFillsDB
-            proc_db = ProcessedFillsDB()
+                from .db.facade import CostViewDatabase
+            proc_db = CostViewDatabase().proc_db
             dates = proc_db.get_processed_dates(stage="processed")
             if dates:
                 last_processed = datetime.strptime(dates[-1], "%Y%m%d").date()
@@ -961,11 +961,11 @@ class FillFetch:
 
         try:
             try:
-                from src.processed_fills_db import ProcessedFillsDB
+                from src.db.facade import CostViewDatabase
             except ImportError:
-                from .processed_fills_db import ProcessedFillsDB
+                from .db.facade import CostViewDatabase
 
-            proc_db = ProcessedFillsDB()
+            proc_db = CostViewDatabase().proc_db
             stats['execution_history'] = proc_db.get_execution_history_stats()
         except Exception:
             pass

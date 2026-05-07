@@ -35,6 +35,7 @@ from .processing_config import ProcessingConfig as Config
 from .raw_bdib_db import RawBDIBDB
 from .raw_fills_db import RawFillsDB
 from .db.connection import ConnectionManager
+from .db.facade import CostViewDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +53,13 @@ class PipelineContext:
     excel_dir: Optional[Path] = None
     config: Dict[str, Any] = field(default_factory=dict)
     
+    # 数据库子系统统一入口（迭代 1 新增）
+    _db: Optional[CostViewDatabase] = field(default=None, init=False, repr=False)
+    
     # 数据库连接管理器（Phase 1 新增：统一连接生命周期）
     connection_manager: Optional[ConnectionManager] = None
     
-    # 数据库连接单例（保留向后兼容，内部逐步迁移到 ConnectionManager）
+    # 数据库连接单例（保留向后兼容，逐步迁移到 context.db）
     raw_db: Optional[RawFillsDB] = None
     proc_db: Optional[ProcessedFillsDB] = None
     raw_bdib_db: Optional[RawBDIBDB] = None
@@ -74,6 +78,18 @@ class PipelineContext:
     # 状态与错误追踪
     is_successful: bool = True
     errors: List[Dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def db(self) -> CostViewDatabase:
+        """统一的数据库访问入口（懒初始化）。
+        
+        所有新的 Repository 访问应通过此属性获取，例如:
+            context.db.fills_read.get_fills_for_date("20260408")
+            context.db.market_data_write.upsert_bdib_data(df)
+        """
+        if self._db is None:
+            self._db = CostViewDatabase(self.get_connection_manager())
+        return self._db
 
     def get_connection_manager(self) -> ConnectionManager:
         """Get or lazily create the ConnectionManager singleton."""
@@ -132,10 +148,9 @@ class IngestExcelStage(BaseStage):
     def name(self) -> str: return "1. Ingest Excel (Legacy)"
 
     def process(self, context: PipelineContext) -> bool:
-        if context.raw_db is None:
-            context.raw_db = RawFillsDB()
+        raw_db = context.raw_db or context.db.raw_db
             
-        results = ingest_all_excel_files(excel_dir=context.excel_dir, db=context.raw_db)
+        results = ingest_all_excel_files(excel_dir=context.excel_dir, db=raw_db)
         
         context.summary["ingestion"] = {
             "results": results,
@@ -152,12 +167,10 @@ class ProcessRawFillsStage(BaseStage):
     def name(self) -> str: return "2. Process Raw Fills -> Clean -> Enrich"
 
     def process(self, context: PipelineContext) -> bool:
-        if context.raw_db is None:
-            context.raw_db = RawFillsDB()
-        if context.proc_db is None:
-            context.proc_db = ProcessedFillsDB()
+        raw_db = context.raw_db or context.db.raw_db
+        proc_db = context.proc_db or context.db.proc_db
             
-        all_raw_dates = context.raw_db.get_all_source_dates()
+        all_raw_dates = raw_db.get_all_source_dates()
         if not all_raw_dates:
             logger.info("No dates in raw_fills.db to process")
             context.summary["processing"] = {"rows_processed": 0}
@@ -168,7 +181,7 @@ class ProcessRawFillsStage(BaseStage):
         elif context.force:
             target_dates = all_raw_dates
         else:
-            target_dates = context.proc_db.get_unprocessed_dates(all_raw_dates, stage="processed")
+            target_dates = proc_db.get_unprocessed_dates(all_raw_dates, stage="processed")
 
         if not target_dates:
             logger.info("All dates already processed")
@@ -185,13 +198,14 @@ class ProcessRawFillsStage(BaseStage):
 
         def _process_date(date_str: str) -> dict:
             """Process a single date with its own DB connections."""
-            local_raw = RawFillsDB()
-            local_proc = ProcessedFillsDB()
+            _db = context.db
+            local_raw = _db.raw_db
+            local_proc = _db.proc_db
             return process_raw_fills_for_date(date_str, raw_db=local_raw, proc_db=local_proc)
 
         if max_workers <= 1:
             for date_str in target_dates:
-                result = process_raw_fills_for_date(date_str, raw_db=context.raw_db, proc_db=context.proc_db)
+                result = process_raw_fills_for_date(date_str, raw_db=raw_db, proc_db=proc_db)
                 if result["success"]:
                     total_processed += result["rows_processed"]
                     total_order_history += result.get("order_history_rows", 0)
@@ -231,16 +245,15 @@ class AggregateFillsStage(BaseStage):
     def name(self) -> str: return "3. Aggregate (route-level 10s)"
 
     def process(self, context: PipelineContext) -> bool:
-        if context.proc_db is None:
-            context.proc_db = ProcessedFillsDB()
+        proc_db = context.proc_db or context.db.proc_db
 
         if context.target_dates:
             target_dates = context.target_dates
         elif context.force:
-            target_dates = context.proc_db.get_processed_dates(stage="processed")
+            target_dates = proc_db.get_processed_dates(stage="processed")
         else:
-            processed_dates = context.proc_db.get_processed_dates(stage="processed")
-            target_dates = context.proc_db.get_unprocessed_dates(processed_dates, stage="aggregated")
+            processed_dates = proc_db.get_processed_dates(stage="processed")
+            target_dates = proc_db.get_unprocessed_dates(processed_dates, stage="aggregated")
 
         if not target_dates:
             logger.info("No dates to aggregate")
@@ -254,7 +267,7 @@ class AggregateFillsStage(BaseStage):
 
         def _aggregate_date(date_str: str) -> tuple[str, int]:
             """Aggregate a single date with its own DB connection."""
-            local_proc = ProcessedFillsDB()
+            local_proc = context.db.proc_db
             processed_df = local_proc.get_processed_fills_for_date(
                 date_str,
                 use_legacy_view=True,
@@ -283,7 +296,7 @@ class AggregateFillsStage(BaseStage):
         if max_workers <= 1:
             for date_str in target_dates:
                 try:
-                    processed_df = context.proc_db.get_processed_fills_for_date(
+                    processed_df = proc_db.get_processed_fills_for_date(
                         date_str,
                         use_legacy_view=True,
                     )
@@ -291,11 +304,11 @@ class AggregateFillsStage(BaseStage):
                         continue
 
                     agg_10s = generate_agg_fills_10s(processed_df)
-                    write_conn = context.proc_db._get_conn()
+                    write_conn = proc_db._get_conn()
                     try:
                         if not agg_10s.empty:
-                            context.proc_db.upsert_agg_fills_10s(agg_10s, conn=write_conn)
-                        context.proc_db.mark_date_processed(
+                            proc_db.upsert_agg_fills_10s(agg_10s, conn=write_conn)
+                        proc_db.mark_date_processed(
                             date_str,
                             stage="aggregated",
                             row_count=len(agg_10s),
@@ -330,8 +343,7 @@ class GenerateOrderLabelsStage(BaseStage):
     def name(self) -> str: return "4. Generate Order Labels"
 
     def process(self, context: PipelineContext) -> bool:
-        if context.proc_db is None:
-            context.proc_db = ProcessedFillsDB()
+        proc_db = context.proc_db or context.db.proc_db
 
         if context.target_dates:
             target_label_dates = context.target_dates
@@ -342,26 +354,26 @@ class GenerateOrderLabelsStage(BaseStage):
             aggregation_info = context.summary.get("aggregation", {})
             if processing_info.get("rows_processed", 0) > 0:
                 # Use the dates S2 actually processed (available from get_processed_dates)
-                target_label_dates = context.proc_db.get_processed_dates(stage="processed")
+                target_label_dates = proc_db.get_processed_dates(stage="processed")
             else:
                 target_label_dates = None
 
         if target_label_dates:
-            dfs = [context.proc_db.get_processed_fills_for_date(d) for d in target_label_dates]
+            dfs = [proc_db.get_processed_fills_for_date(d) for d in target_label_dates]
             processed_fills = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
         else:
-            processed_fills = context.proc_db.get_all_processed_fills()
+            processed_fills = proc_db.get_all_processed_fills()
 
         if processed_fills.empty:
             logger.info("No processed fills for order label generation")
             context.summary["order_labels"] = {"orders": 0}
             return True
 
-        existing_labels = None if context.force else context.proc_db.get_order_labels()
+        existing_labels = None if context.force else proc_db.get_order_labels()
         order_labels = generate_order_label_incremental(processed_fills, existing_labels)
 
         if not order_labels.empty:
-            context.proc_db.upsert_order_labels(order_labels)
+            proc_db.upsert_order_labels(order_labels)
 
         logger.info(f"Order labels generated: {len(order_labels)} orders")
         context.summary["order_labels"] = {"orders": len(order_labels)}
@@ -415,14 +427,13 @@ class IntegrateBDIBStage(BaseStage):
 
         # ── Initialize all three BDIB database layers ──
         # Layer 1: raw_bdib (Bloomberg-native columns only)
-        if context.raw_bdib_db is None:
-            context.raw_bdib_db = RawBDIBDB()
+        raw_bdib_db = context.raw_bdib_db or context.db.raw_bdib_db
         # Layer 2: processed_raw_bdib (raw + vwap/fluctuation/log_chg)
-        if context.processed_raw_bdib_db is None:
-            context.processed_raw_bdib_db = ProcessedRawBDIBDB()
+        processed_raw_bdib_db = context.processed_raw_bdib_db or context.db.processed_raw_bdib_db
         # Layer 3: fill_bdib (fills + processed_bdib integration + TCA)
-        if context.proc_bdib_db is None:
-            context.proc_bdib_db = FillBDIBDB()
+        proc_bdib_db = context.proc_bdib_db or context.db.fill_bdib_db
+        # Also need proc_db for date tracking
+        proc_db = context.proc_db or context.db.proc_db
 
         # ── Determine target dates with proper incremental filtering per layer ──
         # Each BDIB layer has its own incremental state:
@@ -449,7 +460,7 @@ class IntegrateBDIBStage(BaseStage):
             )
         else:
             # Auto-detect: use raw_bdib's latest date as baseline
-            latest_raw = context.raw_bdib_db.get_latest_order_as_of_date()
+            latest_raw = raw_bdib_db.get_latest_order_as_of_date()
 
             if context.force or not latest_raw:
                 start_dt = latest_safe_bdib_date - timedelta(days=180)
@@ -478,19 +489,19 @@ class IntegrateBDIBStage(BaseStage):
         logger.info(f"BDIB integration: {len(all_candidate_dates)} candidate dates")
 
         # ── Pre-filter: get each layer's latest processed date ──
-        latest_raw_date = context.raw_bdib_db.get_latest_order_as_of_date()
-        latest_proc_raw_date = context.processed_raw_bdib_db.get_latest_order_as_of_date()
+        latest_raw_date = raw_bdib_db.get_latest_order_as_of_date()
+        latest_proc_raw_date = processed_raw_bdib_db.get_latest_order_as_of_date()
         # For fill_bdib, check which dates are already marked as bdib_integrated
         try:
             already_integrated = set(
-                context.proc_db.get_processed_dates(stage="bdib_integrated")
+                proc_db.get_processed_dates(stage="bdib_integrated")
                 or []
             )
         except Exception:
             already_integrated = set()
 
         bdid_exchange = [str(e).strip().upper() for e in Config.BDID_EXCHANGE if str(e).strip()]
-        ticker_exchange_map_all = context.proc_db.get_ticker_exchange_map(exchanges=bdid_exchange)
+        ticker_exchange_map_all = proc_db.get_ticker_exchange_map(exchanges=bdid_exchange)
         if not ticker_exchange_map_all:
             logger.warning(
                 f"No ticker_repository entries matched BDID_EXCHANGE={bdid_exchange}; skip raw BDIB fetch"
@@ -544,14 +555,14 @@ class IntegrateBDIBStage(BaseStage):
 
                 raw_bdib_rows = 0
                 if not bdib_df.empty:
-                    raw_bdib_rows = context.raw_bdib_db.upsert_bdib_data(bdib_df, date_str=date_str)
+                    raw_bdib_rows = raw_bdib_db.upsert_bdib_data(bdib_df, date_str=date_str)
 
                 # ── Phase B: raw_bdib → processed_raw_bdib (add derived fields) ──
                 proc_raw_bdib_rows = 0
                 if not bdib_df.empty:
                     # Compute vwap, fluctuation, log_chg_pct_10s
                     bdib_enriched = ProcessedRawBDIBDB.compute_derived_fields(bdib_df)
-                    proc_raw_bdib_rows = context.processed_raw_bdib_db.upsert_processed_bdib(
+                    proc_raw_bdib_rows = processed_raw_bdib_db.upsert_processed_bdib(
                         bdib_enriched
                     )
 
@@ -566,9 +577,9 @@ class IntegrateBDIBStage(BaseStage):
                     )
                     continue
 
-                agg_df = context.proc_db.get_agg_fills_10s_for_date(date_str)
+                agg_df = proc_db.get_agg_fills_10s_for_date(date_str)
                 if agg_df.empty:
-                    agg_df = context.proc_db.get_agg_fills_for_date(date_str)  # Fallback
+                    agg_df = proc_db.get_agg_fills_for_date(date_str)  # Fallback
 
                 if agg_df.empty:
                     total_raw_bdib_rows += raw_bdib_rows
@@ -592,13 +603,13 @@ class IntegrateBDIBStage(BaseStage):
 
                 fill_bdib_rows = 0
                 if not integrated_df.empty:
-                    fill_bdib_rows = context.proc_bdib_db.upsert_integrated_data(
+                    fill_bdib_rows = proc_bdib_db.upsert_integrated_data(
                         integrated_df,
                         date_str=date_str,
                     )
                     total_fill_bdib_rows += fill_bdib_rows
 
-                    context.proc_db.mark_date_processed(
+                    proc_db.mark_date_processed(
                         date_str, stage="bdib_integrated", row_count=len(integrated_df)
                     )
                     logger.info(
@@ -654,19 +665,18 @@ class CalculateDailyMetricsStage(BaseStage):
             context.summary["daily_metrics"] = {"skipped": True, "error": str(e)}
             return True
 
-        calc = CalculateDailyMetrics(db=context.raw_bdib_db, proc_db=context.proc_db)
+        calc = CalculateDailyMetrics(db=context.raw_bdib_db or context.db.raw_bdib_db,
+                                     proc_db=context.proc_db or context.db.proc_db)
 
         # Determine which dates to (re)compute
         if context.target_dates:
             dates_to_process = context.target_dates
         else:
-            if context.proc_db is None:
-                context.proc_db = ProcessedFillsDB()
-            dates_to_process = context.proc_db.get_processed_dates(stage="bdib_integrated")
+            _proc_db = context.proc_db or context.db.proc_db
+            dates_to_process = _proc_db.get_processed_dates(stage="bdib_integrated")
             if not dates_to_process:
-                if context.raw_bdib_db is None:
-                    context.raw_bdib_db = RawBDIBDB()
-                dates_to_process = context.raw_bdib_db.get_distinct_dates()
+                _raw_bdib_db = context.raw_bdib_db or context.db.raw_bdib_db
+                dates_to_process = _raw_bdib_db.get_distinct_dates()
 
         if not dates_to_process:
             logger.info("No dates for daily metrics calculation")
@@ -1083,16 +1093,16 @@ def run_incremental(
 def get_pipeline_status() -> Dict[str, Any]:
     """Get current status of the processing pipeline."""
     status: Dict[str, Any] = {}
-    mgr = ConnectionManager()
+    db = CostViewDatabase()
 
     try:
-        raw_db = RawFillsDB()
+        raw_db_inst = db.raw_db
         status["raw_fills"] = {
-            "total_rows": raw_db.get_row_count(),
-            "dates": raw_db.get_all_source_dates(),
-            "date_counts": raw_db.get_date_row_counts(),
+            "total_rows": raw_db_inst.get_row_count(),
+            "dates": raw_db_inst.get_all_source_dates(),
+            "date_counts": raw_db_inst.get_date_row_counts(),
         }
-        fetch_log = raw_db.get_fetch_log_stats()
+        fetch_log = raw_db_inst.get_fetch_log_stats()
         status["fetch_log"] = {
             "entries": len(fetch_log),
             "latest": fetch_log[0] if fetch_log else None,
@@ -1101,37 +1111,36 @@ def get_pipeline_status() -> Dict[str, Any]:
         status["raw_fills"] = {"error": str(e)}
 
     try:
-        proc_db = ProcessedFillsDB()
-        stats = proc_db.get_processing_stats()
+        proc_db_inst = db.proc_db
+        stats = proc_db_inst.get_processing_stats()
         status["processed_fills"] = stats
     except Exception as e:
         status["processed_fills"] = {"error": str(e)}
 
     # ── BDIB pipeline (3-layer) status ──
     try:
-        raw_bdib_db = RawBDIBDB()
+        raw_bdib_inst = db.raw_bdib_db
         status["raw_bdib"] = {
-            "total_rows": raw_bdib_db.get_row_count(),
-            "db_path": str(mgr.get_path("raw_bdib")),
+            "total_rows": raw_bdib_inst.get_row_count(),
+            "db_path": str(db.connection_manager.get_path("raw_bdib")),
         }
     except Exception as e:
         status["raw_bdib"] = {"error": str(e)}
 
     try:
-        proc_raw_bdib_db = ProcessedRawBDIBDB()
+        proc_raw_bdib_inst = db.processed_raw_bdib_db
         status["processed_raw_bdib"] = {
-            "total_rows": proc_raw_bdib_db.get_row_count(),
-            "db_path": str(mgr.get_path("processed_raw_bdib")),
+            "total_rows": proc_raw_bdib_inst.get_row_count(),
+            "db_path": str(db.connection_manager.get_path("processed_raw_bdib")),
         }
     except Exception as e:
         status["processed_raw_bdib"] = {"error": str(e)}
 
     try:
-        # Use FillBDIBDB directly; ProcessedBDIBDB is a legacy alias
-        fill_bdib_db = FillBDIBDB()
+        fill_bdib_inst = db.fill_bdib_db
         status["fill_bdib"] = {
-            "total_rows": fill_bdib_db.get_row_count(),
-            "db_path": str(mgr.get_path("fill_bdib")),
+            "total_rows": fill_bdib_inst.get_row_count(),
+            "db_path": str(db.connection_manager.get_path("fill_bdib")),
         }
         # Backward-compatible key for existing consumers
         status["processed_bdib"] = status["fill_bdib"]
