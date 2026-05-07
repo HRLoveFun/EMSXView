@@ -1,0 +1,123 @@
+# Module Dependencies for: src
+# Generated: 2026-05-05 23:03:56.032405
+# Total Python files: 59
+
+============================================================
+LOCAL MODULES
+============================================================
+  __init__
+  __main__
+  attribution.__init__
+  attribution.aggregator
+  attribution.benchmarks
+  attribution.config
+  attribution.metrics
+  attribution.recommender
+  attribution.writer
+  bdib_fetcher
+  daily_metrics_calculator
+  database
+  database_access
+  downstream_interface
+  emsx_client
+  exchange_tz
+  execution_history_service
+  fill_aggregator
+  fill_bdib_db
+  fill_bdib_integrated
+  fill_cleaner
+  fill_fetch
+  fill_ingestion
+  fill_processor
+  mapping
+  order_label
+  outdated_tickers
+  pipeline
+  processed_bdib_db
+  processed_fills_db
+  processed_raw_bdib_db
+  processing_config
+  query_cli
+  raw_bdib_db
+  raw_fills_db
+  regime.__init__
+  regime.config
+  regime.data_source
+  regime.fill_regime_tagger
+  regime.liquidity_regime
+  regime.market_code
+  regime.market_index_loader
+  regime.migrations.__init__
+  regime.migrations.apply
+  regime.run_journal
+  regime.schema
+  regime.sync_macro_calendar
+  regime.sync_macro_event_dict
+  regime.sync_market_mapping
+  regime.time_bucket
+  regime.trend_regime
+  regime.validate_macro_calendar
+  regime.vol_regime
+  schema
+  secure_config
+  storage.__init__
+  storage.regime_reader
+  tca_query_service
+  validate_raw_fills
+
+============================================================
+INTERNAL DEPENDENCIES (module -> depends on)
+============================================================
+  bdib_fetcher -> outdated_tickers, processing_config
+  daily_metrics_calculator -> database_access, outdated_tickers, processed_fills_db, processing_config, raw_bdib_db
+  downstream_interface -> database_access, outdated_tickers, processed_fills_db, processing_config
+  execution_history_service -> processing_config
+  fill_aggregator -> processing_config
+  fill_bdib_db -> database_access, processing_config
+  fill_bdib_integrated -> bdib_fetcher, processing_config
+  fill_cleaner -> exchange_tz, processing_config, schema
+  fill_fetch -> database, emsx_client, processed_fills_db, processing_config, raw_fills_db, schema, validate_raw_fills
+  fill_ingestion -> fill_cleaner, fill_processor, processed_fills_db, processing_config, raw_fills_db
+  fill_processor -> fill_cleaner, mapping, processing_config
+  outdated_tickers -> processing_config
+  pipeline -> attribution.__init__, attribution.aggregator, attribution.benchmarks, attribution.config, attribution.metrics, attribution.recommender, attribution.writer, bdib_fetcher, daily_metrics_calculator, downstream_interface, fill_aggregator, fill_bdib_db, fill_bdib_integrated, fill_ingestion, order_label, processed_bdib_db, processed_fills_db, processed_raw_bdib_db, processing_config, raw_bdib_db, raw_fills_db, regime.__init__, regime.config, regime.data_source, regime.fill_regime_tagger, regime.liquidity_regime, regime.market_code, regime.market_index_loader, regime.migrations.__init__, regime.migrations.apply, regime.run_journal, regime.schema, regime.sync_macro_calendar, regime.sync_macro_event_dict, regime.sync_market_mapping, regime.time_bucket, regime.trend_regime, regime.validate_macro_calendar, regime.vol_regime
+  processed_bdib_db -> fill_bdib_db
+  processed_fills_db -> database_access, processing_config, schema
+  processed_raw_bdib_db -> database_access, processing_config
+  query_cli -> database_access, processed_fills_db, processing_config, raw_fills_db
+  raw_bdib_db -> database_access, processing_config
+  raw_fills_db -> database_access, processing_config, schema
+  regime.__init__ -> schema
+  tca_query_service -> exchange_tz, processing_config
+  validate_raw_fills -> processing_config
+
+  Modules with no internal deps: __init__, __main__, attribution.__init__, attribution.aggregator, attribution.benchmarks, attribution.config, attribution.metrics, attribution.recommender, attribution.writer, database, database_access, emsx_client, exchange_tz, mapping, order_label, processing_config, regime.config, regime.data_source, regime.fill_regime_tagger, regime.liquidity_regime, regime.market_code, regime.market_index_loader, regime.migrations.__init__, regime.migrations.apply, regime.run_journal, regime.schema, regime.sync_macro_calendar, regime.sync_macro_event_dict, regime.sync_market_mapping, regime.time_bucket, regime.trend_regime, regime.validate_macro_calendar, regime.vol_regime, schema, secure_config, storage.__init__, storage.regime_reader
+
+============================================================
+STDLIB MODULES USED
+============================================================
+  abc, collections, concurrent, contextlib, csv, dataclasses, datetime, enum, functools, hashlib, io, json, logging, math, os, pathlib, re, shutil, socket, sqlite3, sys, threading, time, traceback, typing, zoneinfo
+
+============================================================
+THIRD-PARTY DEPENDENCIES
+============================================================
+  CostView
+  __future__
+  aggregator
+  argparse
+  benchmarks
+  blpapi
+  config
+  dotenv
+  gc
+  getpass
+  metrics
+  migrations
+  numpy
+  pandas
+  schedule
+  scipy
+  sqlalchemy
+  src
+  tabulate
+  xbbg

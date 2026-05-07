@@ -1,7 +1,7 @@
 # EMSX Logical Data Domain
 
 > Boundary definition for shared platform data
-> Last updated: 2026-04-22
+> Last updated: 2026-05-07
 
 ---
 
@@ -16,7 +16,7 @@ The goal is not to force every workload into one database or one package. The go
 ## Principles
 
 1. One logical data domain does not imply one physical database.
-2. Execution owns operational state.
+2. ExecutionView owns operational state.
 3. CostView owns analytical and pipeline data.
 4. Cross-domain access should go through adapters or documented services.
 5. Storage decisions must follow workload shape, not diagram aesthetics.
@@ -25,7 +25,7 @@ The goal is not to force every workload into one database or one package. The go
 
 ## Data subdomains
 
-### 1. Execution operational state
+### 1. ExecutionView operational state
 
 Examples:
 
@@ -36,10 +36,10 @@ Examples:
 
 Primary code surfaces:
 
-- `Execution/backend/api/db.py`
-- `Execution/backend/api/service_provider.py`
-- `Execution/backend/api/repositories/`
-- `Execution/backend/api/models/`
+- `ExecutionView/backend/api/db.py`
+- `ExecutionView/backend/api/service_provider.py`
+- `ExecutionView/backend/api/repositories/`
+- `ExecutionView/backend/api/models/`
 
 Canonical shared adapter:
 
@@ -57,9 +57,14 @@ Examples:
 Primary code surfaces:
 
 - `CostView/src/bdib_fetcher.py`
-- `CostView/src/raw_bdib_db.py`
-- `CostView/src/fill_bdib_db.py`
+- `CostView/src/db/repositories/market_data_read.py`
+- `CostView/src/db/repositories/market_data_write.py`
 - `CostView/src/daily_metrics_calculator.py`
+
+Deprecated surfaces (retained for pipeline migration):
+
+- `CostView/src/raw_bdib_db.py` → use `db/repositories/market_data_*`
+- `CostView/src/fill_bdib_db.py` → use `db/repositories/integrated`
 
 ### 3. Fill and execution-history data
 
@@ -73,10 +78,15 @@ Examples:
 Primary code surfaces:
 
 - `CostView/src/fill_fetch.py`
-- `CostView/src/raw_fills_db.py`
-- `CostView/src/processed_fills_db.py`
-- `CostView/src/fill_processor.py`
-- `CostView/src/fill_aggregator.py`
+- `CostView/src/db/repositories/fills_read.py`
+- `CostView/src/db/repositories/fills_write.py`
+- `CostView/src/db/repositories/raw_fills_read.py`
+- `CostView/src/db/repositories/raw_fills_write.py`
+
+Deprecated surfaces (retained for pipeline migration):
+
+- `CostView/src/raw_fills_db.py` → use `db/repositories/raw_fills_*`
+- `CostView/src/processed_fills_db/` → use `db/repositories/fills_*`
 
 ### 4. Analytical query and reporting data
 
@@ -86,15 +96,32 @@ Examples:
 - route-level benchmark metrics
 - price/volume dynamics series
 - analytical warning states
+- regime distribution and classification
 
 Primary code surfaces:
 
 - `CostView/src/tca_query_service.py`
-- `Execution/backend/api/routers/costview.py`
+- `CostView/src/db/repositories/regime.py`
+- `ExecutionView/backend/api/routers/costview.py`
 
-Canonical shared adapter:
+Canonical shared adapters:
 
 - `platform_data.build_platform_data_access().analytics`
+- `platform_data.build_platform_data_access().database`
+
+---
+
+## Contract layer
+
+Cross-module data contracts are defined in `platform_data/contracts/`. This is the **only legal source** for data types and constants that cross module boundaries (ExecutionView ↔ CostView ↔ MarketView).
+
+Current contracts:
+
+- `platform_data/contracts/fill_contracts.py` — `SCORECARD_COHORTS` tuple
+- `platform_data/contracts/market_data_contracts.py` — (placeholder for future market data types)
+- `platform_data/contracts/regime_contracts.py` — (placeholder for future regime types)
+
+Rule: Consumers import from `platform_data.contracts`, not from `CostView.src.*` directly.
 
 ---
 
@@ -104,45 +131,53 @@ The shared code entry is:
 
 - `platform_data/__init__.py`
 - `platform_data/adapters.py`
+- `platform_data/contracts/`
+- `platform_data/repositories.py`
 
 Current adapters:
 
-- `ExecutionOperationalDataAdapter`
-- `MarketReferenceDataAdapter`
-- `CostViewAnalyticsAdapter`
-- `PlatformDataAccess`
+- `ExecutionOperationalDataAdapter` — live execution state
+- `MarketReferenceDataAdapter` — market snapshots and intraday features
+- `CostViewAnalyticsAdapter` — TCA and scorecard reports
+- `CostViewDatabaseAdapter` — read-only regime/fills/market data queries via `CostViewDatabase`
+- `ExecutionHistoryAdapter` — fill/order/route history
+- `HandoffExchangeAdapter` — cross-module handoff contracts
+- `PlatformDataAccess` — unified entry point holding all adapters
 
 Example:
 
 ```python
 from platform_data import build_platform_data_access
+from platform_data.contracts import SCORECARD_COHORTS
 
 platform_data = build_platform_data_access(repository_provider=repo_provider)
 orders = await platform_data.operational.load_orders(limit=100)
 snapshot = platform_data.market.get_market_snapshot(limit=25)
 report = platform_data.analytics.build_tca_report(filters)
+regime_rows = platform_data.database.get_regime_distribution(start_date, end_date)
 ```
 
 ---
 
 ## Current ownership boundary
 
-Execution may read or persist operational state through its provider-backed adapter.
+ExecutionView may read or persist operational state through its provider-backed adapter.
 
 CostView may build analytical reports and pipeline outputs through its analytics adapter.
 
-Execution should not treat CostView internals as its default persistence layer.
+ExecutionView should not treat CostView internals as its default persistence layer.
 
-CostView should not treat Execution's operational projection store as its analytical warehouse.
+CostView should not treat ExecutionView's operational projection store as its analytical warehouse.
 
 ---
 
 ## Near-term migration path
 
 1. Move new cross-domain callers to `platform_data/` first.
-2. Leave existing direct deep imports in place unless the change is low-risk and local.
-3. Add more adapters only when a real caller needs them.
-4. Defer any storage unification until there is a workload-driven reason.
+2. Cross-module deep imports from ExecutionView to CostView have been eliminated; `platform_data/contracts/` is the canonical source for shared constants.
+3. Legacy CostView DB classes (`raw_fills_db.py` etc.) are deprecated; `pipeline.py` and `MigrationManager` still reference them — full migration to `db/` subsystem is pending.
+4. Add more contracts and adapters only when a real caller needs them (YAGNI).
+5. Defer any storage unification until there is a workload-driven reason.
 
 ---
 

@@ -417,7 +417,7 @@ export type ViolationCode =
 export interface Violation {
   code: ViolationCode;
   message: string;
-  severity: 'BLOCK';
+  severity: 'BLOCK' | 'WARN';
   details?: Record<string, unknown> | null;
 }
 

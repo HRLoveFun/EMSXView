@@ -8,14 +8,14 @@
 
 当前仓库的真实结构是：
 
-- 一个正式前端壳：Execution/frontend
-- 三个业务模块：MarketView、Execution、CostView
+- 一个正式前端壳：ExecutionView/frontend
+- 三个业务模块：MarketView、ExecutionView、CostView
 - 一个逻辑数据域入口：platform_data
 
 关键入口：
 
-- 前端壳：Execution/frontend/src/App.tsx
-- 后端装配层：Execution/backend/api/main.py
+- 前端壳：ExecutionView/frontend/src/App.tsx
+- 后端装配层：ExecutionView/backend/api/main.py
 - CostView 管线与分析：CostView/src/
 - 共享适配层：platform_data/adapters.py
 
@@ -25,21 +25,21 @@
 
 ### 前端
 
-- Execution/frontend 是唯一正式 UI 入口。
-- CostView 的正式 UI 位于 Execution/frontend/src/modules/costview/。
+- ExecutionView/frontend 是唯一正式 UI 入口。
+- CostView 的正式 UI 位于 ExecutionView/frontend/src/modules/costview/。
 - CostView/frontend/ 是遗留原型面，不应再承接默认产品开发。
 - MarketView 当前已有壳内入口和真实快照基线，但后续扩展已暂停。
 
 ### 后端
 
-- Execution/backend/api/main.py 现在主要负责应用装配，不再是唯一业务逻辑文件。
+- ExecutionView/backend/api/main.py 现在主要负责应用装配，不再是唯一业务逻辑文件。
 - Bloomberg 逻辑核心在 services/bloomberg_adapter.py。
 - Python 后端代码修改后需要重启后端才能生效。
 
 ### 数据域
 
 - 一个逻辑数据域不等于一个物理数据库。
-- Execution 拥有 operational state。
+- ExecutionView 拥有 operational state。
 - CostView 拥有 analytical 和 pipeline 数据。
 - 跨域访问优先通过 platform_data/ 适配层，而不是深层直接导入。
 
@@ -99,13 +99,13 @@
 - Bloomberg 字段必须进入订阅列表才会收到。
 - Bloomberg 字段类型必须与解析器类型一致。
 - 默认日志级别为 WARNING，因此新增诊断日志要谨慎控制等级。
-- MarketView、CostView、Execution 的共享数据接入优先从 platform_data 进入。
+- MarketView、CostView、ExecutionView 的共享数据接入优先从 platform_data 进入。
 
 ---
 
 ## 7. DatabaseView API Contract (/api/db/*)
 
-DatabaseView 是 Execution/frontend 的第 4 个顶层模块，负责可视化 CostView
+DatabaseView 是 ExecutionView/frontend 的第 4 个顶层模块，负责可视化 CostView
 SQLite 数据库族的交易日期覆盖、行数与健康状态，并承载唯一的"触发增量更新"入口。
 
 ### 路由注册

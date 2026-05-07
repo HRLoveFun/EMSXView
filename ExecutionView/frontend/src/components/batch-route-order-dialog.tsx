@@ -717,6 +717,30 @@ export function BatchRouteOrderDialog({
     return out;
   }, [orders, rows]);
 
+  // ── Warn violations on SUCCESS destinations ────────────────────────────
+  // Soft-warn violations (NOTIONAL_TOO_SMALL) that did NOT block the route.
+  const warnDetails = useMemo(() => {
+    const out: { orderId: string; symbol: string; broker: string; violations: Violation[] }[] = [];
+    const orderById: Record<string, Order> = {};
+    for (const o of orders) orderById[o.id] = o;
+    for (const [oid, row] of Object.entries(rows)) {
+      const o = orderById[oid];
+      if (!o) continue;
+      for (const [broker, alloc] of Object.entries(row.allocations)) {
+        if (alloc.status !== 'SUCCESS') continue;
+        const warns = (alloc.violations ?? []).filter(v => v.severity === 'WARN');
+        if (warns.length === 0) continue;
+        out.push({
+          orderId: oid,
+          symbol: o.symbol,
+          broker,
+          violations: warns,
+        });
+      }
+    }
+    return out;
+  }, [orders, rows]);
+
   // ── Apply BatchOperationItemResult[] back onto allocation state ─────────
   const applyResults = (results: BatchOperationItemResult[]) => {
     setRows(prev => {
@@ -1100,7 +1124,7 @@ export function BatchRouteOrderDialog({
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              <div>{error}</div>
+              <div>{typeof error === 'string' ? error : JSON.stringify(error)}</div>
               {blockedDetails.length > 0 && (
                 <details className="mt-2 text-xs">
                   <summary className="cursor-pointer select-none">
@@ -1128,7 +1152,7 @@ export function BatchRouteOrderDialog({
                                 <span className="font-semibold">
                                   {violationLabel(v.code)}
                                 </span>
-                                <span className="text-muted-foreground"> — {v.message}</span>
+                                <span className="text-muted-foreground"> — {typeof v.message === 'string' ? v.message : JSON.stringify(v.message)}</span>
                               </li>
                             ))}
                           </ul>
@@ -1166,14 +1190,40 @@ export function BatchRouteOrderDialog({
                           <span className="font-semibold">{d.symbol}</span>
                           <span className="text-muted-foreground"> · {d.broker}</span>
                         </div>
-                        <div className="text-muted-foreground">{d.message}</div>
-                        {/Invalid Handling Instruction/i.test(d.message) && (
+                        <div className="text-muted-foreground">{typeof d.message === 'string' ? d.message : JSON.stringify(d.message)}</div>
+                        {/Invalid Handling Instruction/i.test(typeof d.message === 'string' ? d.message : JSON.stringify(d.message)) && (
                           <div className="text-amber-700 dark:text-amber-300 mt-0.5">
                             提示：该 broker 代码未在 EMSX API 中启用 staging
                             权限。请联系 Bloomberg / broker 开通 API
                             授权后再路由。
                           </div>
                         )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {/* Soft-warn violations (e.g. NOTIONAL_TOO_SMALL) on successful routes */}
+              {warnDetails.length > 0 && (
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer select-none text-amber-600">
+                    {warnDetails.length} destination{warnDetails.length === 1 ? '' : 's'} routed with advisory warning{warnDetails.length === 1 ? '' : 's'}
+                  </summary>
+                  <ul className="mt-1 space-y-1 max-h-32 overflow-y-auto pr-1">
+                    {warnDetails.map(d => (
+                      <li
+                        key={`${d.orderId}#${d.broker}-warn`}
+                        className="border-l-2 border-amber-400/60 pl-2"
+                      >
+                        <div className="font-mono">
+                          <span className="font-semibold">{d.symbol}</span>
+                          <span className="text-muted-foreground"> · {d.broker}</span>
+                        </div>
+                        {d.violations.map((v, i) => (
+                          <div key={i} className="text-muted-foreground">
+                            {violationLabel(v.code)} — {typeof v.message === 'string' ? v.message : JSON.stringify(v.message)}
+                          </div>
+                        ))}
                       </li>
                     ))}
                   </ul>
@@ -1356,9 +1406,17 @@ function OrderRow(p: OrderRowProps) {
       </td>
       <td className="px-2 py-1">
         {aggregateStatus === 'SUCCESS' && (
-          <span className="text-emerald-600 inline-flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" />Routed
-          </span>
+          <>
+            <span className="text-emerald-600 inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" />Routed
+            </span>
+            {/* Show soft-warn violations on successful routes */}
+            {aggregateViolations.length > 0 && (
+              <div className="mt-0.5">
+                <ViolationList violations={aggregateViolations} />
+              </div>
+            )}
+          </>
         )}
         {aggregateStatus === 'BLOCKED' && <ViolationList violations={aggregateViolations} />}
         {aggregateStatus === 'FAILED' && <span className="text-amber-600 text-xs">Some failed</span>}

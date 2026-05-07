@@ -164,3 +164,55 @@
 - **Decision**: When the computed ratio exceeds 5x, store NULL instead. Aggregator treats NULL as "unknown" (excluded from cell). Rows < 0 (impossible by definition) also become NULL.
 - **Consequences**: Avoids CHECK constraint failures during backfill while preserving the analytic integrity of the column for on-book scenarios. Loses signal for highly off-book strategies; deferred mitigation: separate `dark_pool_share` column when broker-tagging is integrated.
 - **Review Date**: 2026-06-01
+
+---
+
+## Decision: ProcessedFillsDB God Object Decomposition — Repository Package
+
+- **Date**: 2026-05-07
+- **Context**: `processed_fills_db.py` was a 1149-line, 39-method God Object managing 15 tables (6 business domains). Modularity score was 2/5 (Poor). The `attribution/` module had already established a Protocol-driven DI pattern (dto → protocols → repositories).
+- **Decision**: Decompose into a `processed_fills_db/` package with 8 domain-specific repositories + 1 backward-compatible Facade:
+  - `_base.py`: Shared `BaseProcessedFillsRepo` (connection management, access control) + `init_processed_fills_schema()` (coordinated DDL for all 15 tables)
+  - `fills_repository.py`: ProcessedFillsRepository (5 methods — processed_fills + route_registry)
+  - `aggregation_repository.py`: AggregationRepository (4 methods — agg_fills_10s/1min)
+  - `execution_history_repository.py`: ExecutionHistoryRepository (4 methods — order/route/event history)
+  - `order_label_repository.py`: OrderLabelRepository (3 methods — order_label)
+  - `processing_log_repository.py`: ProcessingLogRepository (3 methods — processing_log)
+  - `ticker_repository.py`: TickerRepository (7 methods — 4 ticker metadata tables)
+  - `legacy_repository.py`: LegacyRepository (5 methods — deprecated dynamic-schema tables)
+  - `stats.py`: Cross-domain `get_processing_stats()` (reads all tables)
+  - `facade.py`: `ProcessedFillsDB` class delegating 33 methods to sub-repositories
+  - `__init__.py`: Re-exports Facade + all Repository classes
+  - Original `processed_fills_db.py` → `processed_fills_db._legacy_backup.py`
+- **Consequences**: Each repo is ≤200 lines (well under 500-line limit); callers import `ProcessedFillsDB` unchanged; new code can import specific repositories; Schema init is coordinated in one place; `_upsert_fixed_schema()` is a static method on `BaseProcessedFillsRepo` available to all repos.
+- **Review Date**: 2026-08-01 (or when Phase 3 Protocol extraction is attempted)
+
+---
+
+## Decision: CostView Database Subsystem Phase 1 — Unified Connection Management + Protocol Definitions
+
+- **Date**: 2026-05-07
+- **Context**: CostView data layer had 3 coexisting access patterns (raw SQL, DB classes, Repository Protocol) with no centralized connection management. 6 SQLite databases were accessed via scattered `sqlite3.connect()` calls. The `costview.py` router used raw SQL to query `regime.db`. Pipeline context held 5 independent DB instances with no unified lifecycle.
+- **Decision**: Introduce `CostView/src/db/` package with: (1) `ConnectionManager` — centralized connection lifecycle for all 6 databases with standard pragmas (WAL, foreign_keys, busy_timeout) and access tier enforcement; (2) `protocols.py` — 12 Repository Protocols (read/write/admin for fills, market data, integrated, regime) + `FillQueryBuilder` escape hatch; (3) `dto.py` — pure data transfer objects for cross-database operations; (4) `database_access.py` → backward-compat re-export module. Migrated all `from .database_access import` to `from .db.connection import` across 10 files. Eliminated raw `sqlite3.connect()` in `costview.py` router (regime-distribution endpoint). Added `ConnectionManager` to `PipelineContext` with lazy initialization.
+- **Consequences**: All CostView internal DB classes now import from `db.connection` instead of `database_access.py`. External callers still work via `database_access.py` re-export. `costview.py` router no longer uses raw sqlite3. `ConnectionManager` provides path registry for all 6 databases + existence checks + admin connection factory. Foundation laid for Phase 2 (Repository implementations) and Phase 3 (cross-module decoupling via platform_data contracts).
+- **Review Date**: 2026-08-01 (or when Phase 2 Repository implementation begins)
+
+---
+
+## Decision: CostView Database Subsystem Phase 2 — Repository Implementations + Unified Schema Management
+
+- **Date**: 2026-05-07
+- **Context**: Phase 1 established ConnectionManager and Protocol definitions. Phase 2 needed concrete Repository implementations using ConnectionManager, a unified MigrationManager, and a facade for backward compatibility. The `attribution/repositories.py` contained 3 repositories (SqliteFillRepository, SqliteBarDataRepository, SqliteRegimeRepository) with their own connection management, and `processed_fills_db/` had 8 sub-repositories using BaseProcessedFillsRepo.
+- **Decision**: Created `db/repositories/` package with 10 concrete repository classes implementing Phase 1 Protocol interfaces: fills_read, fills_write, raw_fills_read, raw_fills_write, market_data_read, market_data_write, integrated (read+write), regime (read+write). All use `ConnectionManager` for connections. Created `db/schema/` package with `columns.py` (migrated from schema.py) and `migrations/manager.py` (MigrationManager tracking PRAGMA user_version for all 6 DBs). Created `db/facade.py` (CostViewDatabase) providing unified access to all repositories + health check. Created `db/dto.py` with attribution DTOs (migrated from attribution/dto.py). Regime repository merged functionality from attribution/repositories.py + storage/regime_reader.py.
+- **Consequences**: All 6 databases now have read+write repository implementations using ConnectionManager. MigrationManager provides unified schema version tracking (regime.db at v3, others at v0 with inline DDL). CostViewDatabase facade provides single entry point. Existing attribution repositories remain functional (unchanged imports). 56/56 tests pass. The `db/schema/columns.py` is now the canonical source for column definitions alongside the original `schema.py`.
+- **Review Date**: 2026-08-01 (or when Phase 3 cross-module decoupling begins)
+
+---
+
+## Decision: CostView Database Subsystem Phase 3 — Cross-Module Decoupling via Contracts + CostViewDatabaseAdapter
+
+- **Date**: 2026-05-07
+- **Context**: Phase 1+2 established ConnectionManager, Repository implementations, and CostViewDatabase facade within CostView. However, cross-module data access still had three violations: (1) ExecutionView's `costview.py` router directly imported `SCORECARD_COHORTS` from `CostView.src.tca_query_service`; (2) the same router used `ConnectionManager` directly to query `regime.db` with raw SQL; (3) `platform_data/repositories.py` depended on `CostView.src.processing_config.ProcessingConfig` for database paths and table names. These violated the architecture principle that `platform_data` is the sole legal entry point for cross-module data access.
+- **Decision**: (1) Created `platform_data/contracts/` package with `fill_contracts.py` (SCORECARD_COHORTS + FillContract), `market_data_contracts.py` (ADVRecordContract, DailySummaryContract, IntradayBarContract), and `regime_contracts.py` (RegimeDistributionContract, RegimeDistributionResultContract) — pure dataclass constants with zero CostView imports, serving as the stable cross-module interface. (2) Migrated SCORECARD_COHORTS from `CostView.src.tca_query_service` to `platform_data.contracts.fill_contracts`; updated ExecutionView import to `from platform_data.contracts import SCORECARD_COHORTS`. (3) Added `CostViewDatabaseAdapter` to `platform_data/adapters.py` with `get_regime_distribution()` method that encapsulates regime.db SQL behind the adapter interface; updated `PlatformDataAccess` to include `database: CostViewDatabaseAdapter` field. (4) Replaced direct `ConnectionManager` usage in `costview.py` router's regime-distribution endpoint with `CostViewDatabaseAdapter.get_regime_distribution()`. (5) Eliminated `platform_data/repositories.py` dependency on `ProcessingConfig` by using `ConnectionManager.get_all_paths()` for database paths and hardcoding stable table name constants (`_RAW_FILLS_TABLE`, `_FETCH_LOG_TABLE`, etc.) within the module.
+- **Consequences**: Zero `from CostView.src.*` imports remain in ExecutionView. `platform_data/repositories.py` no longer depends on `CostView.src.processing_config`. Cross-module data access flows exclusively through `platform_data` adapters and contracts. The `CostViewDatabaseAdapter` provides a clean read-only interface for regime/fills/market data queries. Internal CostView code (`tca_query_service.py`) still has its own `SCORECARD_COHORTS` for backward compatibility; the contracts layer is the canonical cross-module source.
+- **Review Date**: 2026-08-01

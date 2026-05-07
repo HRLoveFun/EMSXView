@@ -1,6 +1,12 @@
 """
 Raw BDIB SQLite storage.
 
+.. deprecated::
+    This module is superseded by `CostView.src.db.repositories.market_data_read`
+    and `CostView.src.db.repositories.market_data_write`. New code should use
+    the Repository implementations via `CostViewDatabase` facade. This file
+    is retained for backward compatibility during pipeline migration.
+
 Stores 10-second intraday BDIB bars as returned by Bloomberg blp.bdib().
 Contains ONLY Bloomberg-native columns (OHLC/volume/num_trds/value).
 No derived fields (vwap, fluctuation, etc.) — those belong in processed_bdib.
@@ -17,7 +23,7 @@ from typing import Optional
 
 import pandas as pd
 
-from .database_access import AccessControlledConnection, AccessTier, resolve_access_tier
+from .db.connection import AccessControlledConnection, AccessTier, resolve_access_tier
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)

@@ -102,3 +102,16 @@
 - **Proposed Automation**: Continue consolidating launcher, service-manager, and frontend startup surfaces around one phased readiness contract, reusable startup summaries, and machine-readable status outputs for orchestration and regression checks.
 - **Status**: Identified
 - **Date**: 2026-04-23
+
+
+---
+
+## Need: CostView Attribution 模块与数据层解耦
+
+- **Frequency**: 2
+- **Impact**: 5
+- **Effort**: TBD
+- **Current Solution**: attribution 模块业务逻辑（writer/aggregator/recommender/config）直接嵌入 SQL 查询、硬编码 DB 路径、紧耦合 sqlite3.Connection，无法独立测试
+- **Proposed Automation**: 已完成：引入 Protocol 接口抽象层 + DTO 数据类 + Repository 实现 + 依赖注入，业务逻辑与数据访问完全分离
+- **Status**: Identified
+- **Date**: 2026-05-07

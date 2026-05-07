@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -31,10 +30,10 @@ try:
 except ImportError:  # pragma: no cover
     scipy_stats = None  # type: ignore
 
-from CostView.src.regime.schema import REGIME_DB_PATH, connect as connect_regime
-
-from .config import ActiveAttributionConfig, get_active_config
+from .config import ActiveAttributionConfig
+from .dto import FillMetricsQueryDTO
 from .metrics import winsorize_series
+from .protocols import AttributionConfigRepository, RegimeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -92,61 +91,46 @@ def load_fill_metrics(
     *,
     config_version: Optional[str] = None,
     regime_dim: Optional[str] = None,        # 'vol_regime' | 'liq_regime' | 'trend_regime'
-    db_path: Path = REGIME_DB_PATH,
+    regime_repo: Optional[RegimeRepository] = None,
+    config_repo: Optional[AttributionConfigRepository] = None,
+    # Deprecated: kept for backward compatibility; will be removed in next iteration.
+    db_path: Optional["Path"] = None,
 ) -> pd.DataFrame:
     """Load attribution rows for the requested window, optionally joined with one regime dim.
 
     Returns DataFrame with columns: OrderId, RouteId, FillId, order_as_of_date_iso,
       market_code, broker, algo, side, fill_shares, fill_price, route_shares,
       pct_adv, is_bps, vwap_bps, reversal_*, [regime_dim_col]
+
+    Supports two calling conventions:
+      1. (Preferred) Pass regime_repo and config_repo directly.
+      2. (Legacy) Pass db_path to auto-create repositories.
     """
+    # Legacy fallback: if db_path is given but no repos, create them.
+    if regime_repo is None or config_repo is None:
+        if db_path is None:
+            raise ValueError(
+                "Either (regime_repo + config_repo) or db_path must be provided"
+            )
+        from .repositories import SqliteAttributionConfigRepository, SqliteRegimeRepository
+        if regime_repo is None:
+            regime_repo = SqliteRegimeRepository(db_path)
+        if config_repo is None:
+            config_repo = SqliteAttributionConfigRepository(db_path)
+
     if config_version is None:
-        cfg = get_active_config(db_path)
+        cfg = config_repo.get_active_config()
         if cfg is None:
             raise RuntimeError("no active attribution config")
         config_version = cfg.version_id
 
-    base_sql = """
-        SELECT fam.OrderId, fam.RouteId, fam.FillId, fam.order_as_of_date_iso,
-               fam.market_code, fam.broker, fam.algo, fam.side,
-               fam.fill_shares, fam.fill_price, fam.route_shares,
-               fam.pct_adv, fam.participation_rate,
-               fam.is_bps, fam.vwap_bps,
-               fam.reversal_1m_bps, fam.reversal_5m_bps, fam.reversal_30m_bps
-        FROM fill_attribution_metrics fam
-        WHERE fam.config_version = ?
-          AND fam.order_as_of_date_iso BETWEEN ? AND ?
-    """
-    conn = connect_regime(db_path)
-    try:
-        df = pd.read_sql_query(
-            base_sql, conn,
-            params=(config_version, start_date_iso, end_date_iso),
-        )
-        if regime_dim:
-            if regime_dim not in {"vol_regime", "liq_regime", "trend_regime"}:
-                raise ValueError(f"unknown regime_dim: {regime_dim}")
-            # Pull regime labels (regime config = active)
-            reg_df = pd.read_sql_query(
-                f"""SELECT OrderId, RouteId, FillId, order_as_of_date_iso,
-                           {regime_dim} AS regime_value
-                    FROM fill_regime_labels
-                    WHERE config_version = (
-                        SELECT version_id FROM audit_regime_config_versions
-                        WHERE is_active = 1 LIMIT 1
-                    )
-                      AND order_as_of_date_iso BETWEEN ? AND ?""",
-                conn, params=(start_date_iso, end_date_iso),
-            )
-            df = df.merge(
-                reg_df,
-                on=["OrderId", "RouteId", "FillId", "order_as_of_date_iso"],
-                how="left",
-            )
-            df = df.rename(columns={"regime_value": regime_dim})
-    finally:
-        conn.close()
-    return df
+    query = FillMetricsQueryDTO(
+        start_date_iso=start_date_iso,
+        end_date_iso=end_date_iso,
+        config_version=config_version,
+        regime_dim=regime_dim,
+    )
+    return regime_repo.get_fill_metrics(query)
 
 
 # ---------------------------------------------------------------------------

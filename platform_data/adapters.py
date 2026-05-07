@@ -1125,6 +1125,7 @@ class PlatformDataAccess:
     market: MarketReferenceDataAdapter
     analytics: CostViewAnalyticsAdapter
     handoff: HandoffExchangeAdapter
+    database: CostViewDatabaseAdapter | None = None
 
     @property
     def live_execution(self) -> ExecutionOperationalDataAdapter | None:
@@ -1167,12 +1168,14 @@ def build_platform_data_access(
         resolved_history_factory = _raise_missing
 
     execution_history = ExecutionHistoryAdapter(service_factory=resolved_history_factory)
+    database = CostViewDatabaseAdapter()
     return PlatformDataAccess(
         operational=operational,
         execution_history=execution_history,
         market=market,
         analytics=analytics,
         handoff=handoff_exchange or _SHARED_HANDOFF_EXCHANGE,
+        database=database,
     )
 
 
@@ -1186,3 +1189,97 @@ def _to_optional_float(value: Any) -> float | None:
     if numeric != numeric:  # NaN check
         return None
     return numeric
+
+
+# ── CostView database subsystem adapter ───────────────────────────────────────
+
+
+class CostViewDatabaseAdapter:
+    """Canonical adapter for the CostView database subsystem.
+
+    Provides read-only query access to regime data through the new
+    db subsystem (ConnectionManager). This is the **only legal entry
+    point** for cross-module database queries — ExecutionView and other
+    consumers must use this adapter instead of importing
+    CostView.src.db.* directly.
+    """
+
+    def __init__(self, connection_manager_factory: Callable[[], Any] | None = None):
+        self._mgr_factory = connection_manager_factory
+        self._mgr: Any | None = None
+
+    def _get_manager(self) -> Any:
+        if self._mgr is None:
+            if self._mgr_factory is not None:
+                self._mgr = self._mgr_factory()
+            else:
+                from CostView.src.db.connection import ConnectionManager
+                self._mgr = ConnectionManager()
+        return self._mgr
+
+    def describe(self) -> dict[str, str]:
+        return {
+            "domain": "costview-database",
+            "owner": "CostView",
+            "storage": "SQLite (6 databases)",
+            "entrypoint": "CostViewDatabaseAdapter",
+        }
+
+    def get_regime_distribution(
+        self,
+        start_date: str,
+        end_date: str,
+        regime_dim: str = "vol_regime",
+    ) -> list[dict[str, Any]]:
+        """Query regime distribution from regime.db.
+
+        Returns a list of dicts with keys:
+          date, market_code, low, normal, high, extreme, none_count, total,
+          config_version
+
+        Raises FileNotFoundError if regime.db does not exist.
+        """
+        mgr = self._get_manager()
+        if not mgr.database_exists("regime"):
+            raise FileNotFoundError("regime.db not built yet")
+
+        with mgr.connection("regime") as conn:
+            cfg_row = conn.execute(
+                "SELECT version_id FROM audit_regime_config_versions "
+                "WHERE is_active=1 LIMIT 1"
+            ).fetchone()
+            cfg_version = cfg_row[0] if cfg_row else None
+            if cfg_version is None:
+                return []
+
+            sql = f"""
+                SELECT trade_date AS date, market_code,
+                       COALESCE({regime_dim}, 'none') AS regime, COUNT(*) AS n
+                FROM fill_regime_labels
+                WHERE config_version = ?
+                  AND trade_date BETWEEN ? AND ?
+                GROUP BY trade_date, market_code, COALESCE({regime_dim}, 'none')
+                ORDER BY trade_date, market_code
+            """
+            cur = conn.execute(sql, (cfg_version, start_date, end_date))
+            rows_raw = cur.fetchall()
+
+        grouped: dict[tuple[str, str], dict[str, int]] = {}
+        for d, mc, regime, n in rows_raw:
+            grouped.setdefault((d, mc), {})[str(regime)] = int(n)
+
+        result: list[dict[str, Any]] = []
+        for (d, mc), counts in grouped.items():
+            total = sum(counts.values())
+            result.append({
+                "date": d,
+                "market_code": mc,
+                "low": counts.get("low", 0),
+                "normal": counts.get("normal", 0),
+                "high": counts.get("high", 0),
+                "extreme": counts.get("extreme", 0),
+                "none_count": counts.get("none", 0),
+                "total": total,
+                "config_version": cfg_version,
+            })
+        return result

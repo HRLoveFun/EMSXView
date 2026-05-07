@@ -1,0 +1,49 @@
+============================================================
+CROSS-MODULE DEPENDENCY ANALYSIS
+============================================================
+
+  ExecutionView.routers/broker
+    -> platform_data
+  ExecutionView.routers/costview
+    -> CostView.src.tca_query_service
+    -> platform_data
+    -> platform_data.adapters
+  ExecutionView.routers/database
+    -> platform_data
+  ExecutionView.routers/execution_history
+    -> platform_data
+  ExecutionView.routers/marketview
+    -> platform_data
+  ExecutionView.routers/orders
+    -> platform_data
+  ExecutionView.tests/test_execution_history_router
+    -> platform_data
+  ExecutionView.tests/test_marketview_router
+    -> platform_data
+  ExecutionView.tests/test_platform_data_access
+    -> platform_data
+  platform_data.adapters
+    -> CostView.src.execution_history_service
+    -> CostView.src.raw_bdib_db
+    -> CostView.src.tca_query_service
+  platform_data.repositories
+    -> CostView.src.processing_config
+
+============================================================
+MODULES THAT IMPORT platform_data
+============================================================
+  .arch_extraction\cross_module_deps.py
+  CostView\test_pipeline_guards.py
+  ExecutionView\backend\api\db.py
+  ExecutionView\backend\api\service_provider.py
+  ExecutionView\backend\api\routers\broker.py
+  ExecutionView\backend\api\routers\costview.py
+  ExecutionView\backend\api\routers\database.py
+  ExecutionView\backend\api\routers\execution_history.py
+  ExecutionView\backend\api\routers\marketview.py
+  ExecutionView\backend\api\routers\orders.py
+  ExecutionView\backend\api\tests\test_execution_history_router.py
+  ExecutionView\backend\api\tests\test_marketview_router.py
+  ExecutionView\backend\api\tests\test_platform_data_access.py
+  platform_data\adapters.py
+  platform_data\__init__.py

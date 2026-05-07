@@ -29,12 +29,12 @@ from .fill_aggregator import generate_agg_fills_10s
 from .fill_ingestion import ingest_all_excel_files, process_raw_fills_for_date
 from .order_label import generate_order_label_incremental
 from .fill_bdib_db import FillBDIBDB
-from .processed_bdib_db import ProcessedBDIBDB  # backward-compat alias for FillBDIBDB
 from .processed_fills_db import ProcessedFillsDB
 from .processed_raw_bdib_db import ProcessedRawBDIBDB
 from .processing_config import ProcessingConfig as Config
 from .raw_bdib_db import RawBDIBDB
 from .raw_fills_db import RawFillsDB
+from .db.connection import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +52,21 @@ class PipelineContext:
     excel_dir: Optional[Path] = None
     config: Dict[str, Any] = field(default_factory=dict)
     
-    # 数据库连接单例
+    # 数据库连接管理器（Phase 1 新增：统一连接生命周期）
+    connection_manager: Optional[ConnectionManager] = None
+    
+    # 数据库连接单例（保留向后兼容，内部逐步迁移到 ConnectionManager）
     raw_db: Optional[RawFillsDB] = None
     proc_db: Optional[ProcessedFillsDB] = None
     raw_bdib_db: Optional[RawBDIBDB] = None
     processed_raw_bdib_db: Optional[ProcessedRawBDIBDB] = None
-    proc_bdib_db: Optional[ProcessedBDIBDB] = None  # alias for FillBDIBDB
+    proc_bdib_db: Optional[FillBDIBDB] = None
+    
+    # Attribution Repository 注入（解耦后新增）
+    fill_repo: Optional[Any] = None          # FillRepository Protocol
+    bar_repo: Optional[Any] = None            # BarDataRepository Protocol
+    regime_repo: Optional[Any] = None        # RegimeRepository Protocol
+    config_repo: Optional[Any] = None        # AttributionConfigRepository Protocol
     
     # 流水线阶段性产出结果 (用于记录或供下游阶段使用)
     summary: Dict[str, Any] = field(default_factory=dict)
@@ -65,6 +74,12 @@ class PipelineContext:
     # 状态与错误追踪
     is_successful: bool = True
     errors: List[Dict[str, Any]] = field(default_factory=list)
+
+    def get_connection_manager(self) -> ConnectionManager:
+        """Get or lazily create the ConnectionManager singleton."""
+        if self.connection_manager is None:
+            self.connection_manager = ConnectionManager()
+        return self.connection_manager
 
     def log_error(self, stage_name: str, error: Exception) -> None:
         """记录阶段性错误并将上下文标记为失败。"""
@@ -777,15 +792,26 @@ class AttributionMetricsStage(BaseStage):
             return True
         try:
             from .attribution.writer import run_metrics
+            from .attribution.repositories import (
+                SqliteFillRepository,
+                SqliteBarDataRepository,
+                SqliteRegimeRepository,
+                SqliteAttributionConfigRepository,
+            )
         except ImportError as e:
             logger.warning(f"Skipping attribution metrics stage: {e}")
             context.summary["attribution_metrics"] = {"skipped": True, "error": str(e)}
             return True
 
-        opts = context.config.get("attribution", {}) or {}
-        # Future: opts["config_version"] could pin a specific config; today the
-        # writer always uses the active one.
-        _ = opts
+        # Create repository instances if not already injected
+        if context.fill_repo is None:
+            context.fill_repo = SqliteFillRepository()
+        if context.bar_repo is None:
+            context.bar_repo = SqliteBarDataRepository()
+        if context.regime_repo is None:
+            context.regime_repo = SqliteRegimeRepository()
+        if context.config_repo is None:
+            context.config_repo = SqliteAttributionConfigRepository()
 
         iso_dates = [_to_iso_safe(d) for d in context.target_dates]
         iso_dates = [d for d in iso_dates if d]
@@ -793,7 +819,13 @@ class AttributionMetricsStage(BaseStage):
             return True
         start, end = min(iso_dates), max(iso_dates)
 
-        s = run_metrics(start, end)
+        s = run_metrics(
+            start, end,
+            fill_repo=context.fill_repo,
+            bar_repo=context.bar_repo,
+            regime_repo=context.regime_repo,
+            config_repo=context.config_repo,
+        )
         context.summary["attribution_metrics"] = s
         return True
 
@@ -1051,6 +1083,7 @@ def run_incremental(
 def get_pipeline_status() -> Dict[str, Any]:
     """Get current status of the processing pipeline."""
     status: Dict[str, Any] = {}
+    mgr = ConnectionManager()
 
     try:
         raw_db = RawFillsDB()
@@ -1079,7 +1112,7 @@ def get_pipeline_status() -> Dict[str, Any]:
         raw_bdib_db = RawBDIBDB()
         status["raw_bdib"] = {
             "total_rows": raw_bdib_db.get_row_count(),
-            "db_path": str(Config.RAW_BDIB_DB),
+            "db_path": str(mgr.get_path("raw_bdib")),
         }
     except Exception as e:
         status["raw_bdib"] = {"error": str(e)}
@@ -1088,7 +1121,7 @@ def get_pipeline_status() -> Dict[str, Any]:
         proc_raw_bdib_db = ProcessedRawBDIBDB()
         status["processed_raw_bdib"] = {
             "total_rows": proc_raw_bdib_db.get_row_count(),
-            "db_path": str(Config.PROCESSED_RAW_BDIB_DB),
+            "db_path": str(mgr.get_path("processed_raw_bdib")),
         }
     except Exception as e:
         status["processed_raw_bdib"] = {"error": str(e)}
@@ -1098,7 +1131,7 @@ def get_pipeline_status() -> Dict[str, Any]:
         fill_bdib_db = FillBDIBDB()
         status["fill_bdib"] = {
             "total_rows": fill_bdib_db.get_row_count(),
-            "db_path": str(Config.FILL_BDIB_DB),
+            "db_path": str(mgr.get_path("fill_bdib")),
         }
         # Backward-compatible key for existing consumers
         status["processed_bdib"] = status["fill_bdib"]

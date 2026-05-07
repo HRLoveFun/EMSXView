@@ -55,14 +55,14 @@ scripts\check-status.bat
 ### Backend Service
 - **Port**: 3000
 - **Process**: Python (uvicorn)
-- **Entry Point**: `Execution/backend/api/start_server.py`
+- **Entry Point**: `ExecutionView/backend/api/start_server.py`
 - **Health Check**: http://localhost:3000/api/health
 - **Startup Time**: 通常几秒，但 Bloomberg 初始化和首轮订阅可能更久
 
 ### Frontend Service
 - **Port**: 5173 (dev) / 80 (prod)
 - **Process**: Node.js (Vite)
-- **Entry Point**: `Execution/frontend/` (npm run dev)
+- **Entry Point**: `ExecutionView/frontend/` (npm run dev)
 - **Startup Time**: ~5 seconds
 
 ## Synchronized Startup Process
@@ -237,7 +237,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 
 3. Check Python dependencies:
    ```bash
-   cd Execution/backend/api
+   cd ExecutionView/backend/api
    pip install -r requirements.txt
    ```
 
@@ -247,7 +247,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 **Solutions**:
 1. Install Node dependencies:
    ```bash
-   cd Execution/frontend
+   cd ExecutionView/frontend
    npm install
    ```
 
@@ -291,7 +291,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 
 3. Run backend manually to see errors:
    ```bash
-   cd Execution/backend/api
+   cd ExecutionView/backend/api
    python start_server.py
    ```
 
@@ -311,12 +311,12 @@ $Config = @{
 ```
 
 ### Custom Ports
-Edit `Execution/backend/.env`:
+Edit `ExecutionView/backend/.env`:
 ```
 API_PORT=3001  # Change from default 3000
 ```
 
-Edit `Execution/frontend/vite.config.ts`:
+Edit `ExecutionView/frontend/vite.config.ts`:
 ```typescript
 server: {
     port: 5174,  // Change from default 5173
@@ -341,8 +341,8 @@ To run as Windows Service (auto-start on boot):
 1. Install NSSM (Non-Sucking Service Manager)
 2. Create service:
    ```batch
-   nssm install EMSXBackend "python" "C:\Users\hrchen\Documents\EMSX\Execution\backend\api\start_server.py"
-   nssm install EMSXFrontend "node" "C:\Users\hrchen\Documents\EMSX\Execution\frontend\node_modules\vite\bin\vite.js"
+   nssm install EMSXBackend "python" "C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\start_server.py"
+   nssm install EMSXFrontend "node" "C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\vite\bin\vite.js"
    ```
 
 ## Script Reference

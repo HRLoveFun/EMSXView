@@ -24,9 +24,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from CostView.src.processing_config import ProcessingConfig as Config
+from CostView.src.db.connection import ConnectionManager as _ConnectionManager
 
 logger = logging.getLogger(__name__)
+
+# ── Table name constants (stable, from ProcessingConfig) ──────────────────────
+# These are duplicated here to avoid importing ProcessingConfig.
+# If CostView ever changes table names, these must be updated in sync.
+_RAW_FILLS_TABLE = "raw_fills"
+_FETCH_LOG_TABLE = "fetch_log"
+_PROCESSED_FILLS_TABLE = "processed_fills"
+_RAW_BDIB_TABLE = "raw_bdib"
+_FILL_BDIB_TABLE = "fill_bdib"
+
+
+def _get_db_paths() -> dict[str, Path]:
+    """Get database paths from ConnectionManager instead of ProcessingConfig.
+
+    Uses ConnectionManager's registry as the single source of truth for
+    database paths, eliminating the direct dependency on ProcessingConfig.
+    """
+    mgr = _ConnectionManager()
+    return mgr.get_all_paths()
 
 
 # ── Registry of databases we expose to the frontend ──────────────────────────
@@ -51,25 +70,22 @@ class _DatabaseSpec:
 
 
 def _build_registry() -> tuple[_DatabaseSpec, ...]:
+    paths = _get_db_paths()
     return (
         _DatabaseSpec(
             key="raw_fills",
             label="Raw Fills",
-            path=Path(Config.RAW_FILLS_DB),
+            path=paths.get("raw_fills", Path("raw_fills.db")),
             description="EMSX GetFills raw rows (28 original + 5 derived columns).",
             tables=(
                 _TableSpec(
-                    name=Config.RAW_FILLS_TABLE,
-                    # Use `source_date` (YYYYMMDD, always populated at ingest)
-                    # rather than `order_as_of_date`: the latter is filled in by
-                    # the post-ingest cleaner and is NULL for freshly-fetched
-                    # rows, making the headline "Latest" date look stale.
+                    name=_RAW_FILLS_TABLE,
                     date_column="source_date",
                     primary_key="(OrderId, RouteId, FillId)",
                     description="Bloomberg EMSX fills, INSERT OR REPLACE for late corrections.",
                 ),
                 _TableSpec(
-                    name=Config.FETCH_LOG_TABLE,
+                    name=_FETCH_LOG_TABLE,
                     date_column="fetch_date",
                     primary_key="(fetch_date, fetch_started_at)",
                     description="Per-day fetch tracking (records_fetched, status).",
@@ -79,11 +95,11 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
         _DatabaseSpec(
             key="processed_fills",
             label="Processed Fills",
-            path=Path(Config.PROCESSED_FILLS_DB),
+            path=paths.get("processed_fills", Path("processed_fills.db")),
             description="Cleaned 27-column fact table + route registry.",
             tables=(
                 _TableSpec(
-                    name=Config.PROCESSED_FILLS_TABLE,
+                    name=_PROCESSED_FILLS_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, FillId, order_as_of_date)",
                     description="TCA-ready fills (deduplicated, typed).",
@@ -99,11 +115,11 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
         _DatabaseSpec(
             key="raw_bdib",
             label="Raw BDIB",
-            path=Path(Config.RAW_BDIB_DB),
+            path=paths.get("raw_bdib", Path("raw_bdib.db")),
             description="10-second intraday BDIB bars (Bloomberg-native columns).",
             tables=(
                 _TableSpec(
-                    name=Config.RAW_BDIB_TABLE,
+                    name=_RAW_BDIB_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(equ_ticker, order_as_of_date, mkt_timestamp)",
                     description="OHLC + volume + num_trds + value per 10s bar.",
@@ -113,11 +129,11 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
         _DatabaseSpec(
             key="fill_bdib",
             label="Fill × BDIB",
-            path=Path(Config.FILL_BDIB_DB),
+            path=paths.get("fill_bdib", Path("fill_bdib.db")),
             description="Fills enriched with BDIB intraday metrics (TCA input).",
             tables=(
                 _TableSpec(
-                    name=Config.FILL_BDIB_TABLE,
+                    name=_FILL_BDIB_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, order_as_of_date, mkt_timestamp)",
                     description="Integrated fill × BDIB view used by TCA analysis.",
@@ -127,7 +143,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
         _DatabaseSpec(
             key="fill_fetch_history",
             label="Fill Fetch History",
-            path=Path(Config.FETCH_HISTORY_DB),
+            path=paths.get("raw_fills", Path("raw_fills.db")).parent / "fill_fetch_history.db",
             description="Historical fetch-job records (deduplication + audit).",
             tables=(
                 _TableSpec(
@@ -934,11 +950,11 @@ def get_integrity(key: str) -> IntegrityReport:
                 # on multi-GB raw_bdib.db files.
                 try:
                     latest_rowid = conn.execute(
-                        f"SELECT MAX(_rowid_) FROM [{Config.RAW_BDIB_TABLE}]"
+                        f"SELECT MAX(_rowid_) FROM [{_RAW_BDIB_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
                         n = conn.execute(
-                            f"SELECT COUNT(*) FROM [{Config.RAW_BDIB_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_RAW_BDIB_TABLE}] "
                             f"WHERE _rowid_ > ? AND close IS NULL",
                             (max(0, int(latest_rowid) - 200_000),),
                         ).fetchone()[0]
@@ -961,42 +977,45 @@ def get_integrity(key: str) -> IntegrityReport:
                 # Fills present in processed_fills but missing from fill_bdib —
                 # limited to the latest 30 trading days to bound query cost.
                 try:
-                    conn.execute(
-                        "ATTACH DATABASE ? AS pf",
-                        (f"file:{Path(Config.PROCESSED_FILLS_DB).as_posix()}?mode=ro",),
-                    )
-                    cutoff_row = conn.execute(
-                        f"SELECT MAX(order_as_of_date) "
-                        f"FROM pf.[{Config.PROCESSED_FILLS_TABLE}] "
-                        f"WHERE order_as_of_date IS NOT NULL"
-                    ).fetchone()
-                    cutoff = cutoff_row[0] if cutoff_row else None
-                    if cutoff:
-                        n = conn.execute(
-                            f"""
-                            SELECT COUNT(DISTINCT pf.OrderId || '|' || pf.order_as_of_date)
-                            FROM pf.[{Config.PROCESSED_FILLS_TABLE}] pf
-                            LEFT JOIN [{Config.FILL_BDIB_TABLE}] fb
-                              ON fb.OrderId = pf.OrderId
-                             AND fb.order_as_of_date = pf.order_as_of_date
-                            WHERE pf.order_as_of_date >= ?
-                              AND fb.OrderId IS NULL
-                            """,
-                            # ~45 calendar days back, YYYYMMDD lexical compare
-                            (str(int(cutoff) - 45) if cutoff.isdigit() else cutoff,),
-                        ).fetchone()[0]
-                        if n:
-                            report.issues.append(
-                                IntegrityIssue(
-                                    code="fill_bdib_missing",
-                                    severity="warning",
-                                    message=(
-                                        f"{n} recent (order_id, date) pairs present in "
-                                        "processed_fills.db but missing from fill_bdib.db."
-                                    ),
-                                    count=int(n),
+                    # Resolve processed_fills.db path from ConnectionManager
+                    db_paths = _get_db_paths()
+                    pf_db_path = db_paths.get("processed_fills")
+                    if pf_db_path and pf_db_path.exists():
+                        conn.execute(
+                            "ATTACH DATABASE ? AS pf",
+                            (f"file:{pf_db_path.as_posix()}?mode=ro",),
+                        )
+                        cutoff_row = conn.execute(
+                            f"SELECT MAX(order_as_of_date) "
+                            f"FROM pf.[{_PROCESSED_FILLS_TABLE}] "
+                            f"WHERE order_as_of_date IS NOT NULL"
+                        ).fetchone()
+                        cutoff = cutoff_row[0] if cutoff_row else None
+                        if cutoff:
+                            n = conn.execute(
+                                f"""
+                                SELECT COUNT(DISTINCT pf.OrderId || '|' || pf.order_as_of_date)
+                                FROM pf.[{_PROCESSED_FILLS_TABLE}] pf
+                                LEFT JOIN [{_FILL_BDIB_TABLE}] fb
+                                  ON fb.OrderId = pf.OrderId
+                                 AND fb.order_as_of_date = pf.order_as_of_date
+                                WHERE pf.order_as_of_date >= ?
+                                  AND fb.OrderId IS NULL
+                                """,
+                                (str(int(cutoff) - 45) if cutoff.isdigit() else cutoff,),
+                            ).fetchone()[0]
+                            if n:
+                                report.issues.append(
+                                    IntegrityIssue(
+                                        code="fill_bdib_missing",
+                                        severity="warning",
+                                        message=(
+                                            f"{n} recent (order_id, date) pairs present in "
+                                            "processed_fills.db but missing from fill_bdib.db."
+                                        ),
+                                        count=int(n),
+                                    )
                                 )
-                            )
                 except sqlite3.Error:
                     pass
                 finally:
@@ -1013,13 +1032,11 @@ def get_integrity(key: str) -> IntegrityReport:
                 try:
                     today_ymd = datetime.now().strftime("%Y%m%d")
                     latest_rowid = conn.execute(
-                        f"SELECT MAX(_rowid_) FROM [{Config.RAW_FILLS_TABLE}]"
+                        f"SELECT MAX(_rowid_) FROM [{_RAW_FILLS_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
-                        # Sample-based: scan the most recent 50k rowids only,
-                        # matching the bounded-cost contract of integrity.
                         n = conn.execute(
-                            f"SELECT COUNT(*) FROM [{Config.RAW_FILLS_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
                             f"AND source_date < ? "
                             f"AND (order_as_of_date IS NULL "
@@ -1029,11 +1046,8 @@ def get_integrity(key: str) -> IntegrityReport:
                                 today_ymd,
                             ),
                         ).fetchone()[0]
-                        # Also report a separate "pending" count so users
-                        # don't confuse "still being processed" with a real
-                        # backlog.
                         pending = conn.execute(
-                            f"SELECT COUNT(*) FROM [{Config.RAW_FILLS_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
                             f"AND source_date >= ? "
                             f"AND (order_as_of_date IS NULL "

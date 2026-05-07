@@ -545,7 +545,9 @@ _BATCH_ROUTE_MAX_SIZE = int(os.getenv("BATCH_ROUTE_MAX_SIZE", "500"))
 
 
 class Violation(BaseModel):
-    """Pre-trade compliance violation. All current violations are hard-blocking."""
+    """Pre-trade compliance violation. ``severity="BLOCK"`` hard-blocks the
+    route; ``severity="WARN"`` is advisory only — the route proceeds but the
+    violation is surfaced to the user."""
     code: Literal[
         "NOTIONAL_TOO_SMALL",
         "NOTIONAL_TOO_LARGE",
@@ -553,7 +555,7 @@ class Violation(BaseModel):
         "NOTIONAL_UNKNOWN",
     ]
     message: str
-    severity: Literal["BLOCK"] = "BLOCK"
+    severity: Literal["BLOCK", "WARN"] = "BLOCK"
     # Free-form context for UI tooltips, e.g. {"notionalUsd": 12345.67, "lotSize": 100}
     details: Optional[Dict[str, Any]] = None
 

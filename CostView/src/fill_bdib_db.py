@@ -1,6 +1,12 @@
 """
 Fill-BDIB Integrated SQLite storage.
 
+.. deprecated::
+    This module is superseded by `CostView.src.db.repositories.integrated`.
+    New code should use the Repository implementations via `CostViewDatabase`
+    facade. This file is retained for backward compatibility during pipeline
+    migration.
+
 Stores integrated fills+BDIB/TCA rows keyed by
 (OrderId, RouteId, order_as_of_date, mkt_timestamp).
 
@@ -18,7 +24,7 @@ from typing import Optional
 
 import pandas as pd
 
-from .database_access import AccessControlledConnection, AccessTier, resolve_access_tier
+from .db.connection import AccessControlledConnection, AccessTier, resolve_access_tier
 from .processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)

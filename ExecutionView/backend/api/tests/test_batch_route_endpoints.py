@@ -94,11 +94,12 @@ def app_with_mock_bloomberg(monkeypatch, make_order_record):
 # /api/orders/batch-route
 # ---------------------------------------------------------------------------
 
-def test_batch_route_dry_run_blocks_compliance_no_blpapi_call(
+def test_batch_route_dry_run_warns_notional_too_small(
     app_with_mock_bloomberg, make_order_record,
 ):
     app, bloomberg = app_with_mock_bloomberg
     # Order with notional too small: 100 qty * $5 limit = $500 < $10K
+    # NOTIONAL_TOO_SMALL is now a soft WARN — route should SUCCEED with violation.
     bloomberg._orders["100"] = make_order_record("100", price=5.0, lastPrice=5.0, remainingQuantity=100)
     client = TestClient(app)
 
@@ -112,12 +113,13 @@ def test_batch_route_dry_run_blocks_compliance_no_blpapi_call(
     body = resp.json()
     data = body["data"]
     assert data["total"] == 1
-    assert data["blocked"] == 1
-    assert data["succeeded"] == 0
-    assert data["items"][0]["status"] == "BLOCKED"
+    assert data["blocked"] == 0
+    assert data["succeeded"] == 1
+    assert data["items"][0]["status"] == "SUCCESS"
     codes = [v["code"] for v in data["items"][0]["violations"]]
     assert "NOTIONAL_TOO_SMALL" in codes
-    bloomberg.route_order.assert_not_awaited()
+    # Soft warning should not prevent routing — assert bloomberg.route_order
+    # will be called in the live path (not checked here since this is dry-run).
 
 
 def test_batch_route_dry_run_validates_passing_rows(
@@ -146,7 +148,7 @@ def test_batch_route_streaming_mixes_blocked_success_failed(
     app, bloomberg = app_with_mock_bloomberg
     # Order #1: passes compliance and submits successfully
     bloomberg._orders["1"] = make_order_record("1", price=200.0, lastPrice=200.0)
-    # Order #2: fails compliance (notional too small)
+    # Order #2: notional too small (500 USD < 10K) — soft WARN, route proceeds
     bloomberg._orders["2"] = make_order_record("2", price=5.0, lastPrice=5.0, remainingQuantity=100)
     # Order #3: passes compliance, but adapter raises HTTPException (e.g. EMSX reject)
     bloomberg._orders["3"] = make_order_record("3", price=200.0, lastPrice=200.0)
@@ -186,14 +188,17 @@ def test_batch_route_streaming_mixes_blocked_success_failed(
     by_key = {r["key"]: r for r in item_results}
     assert by_key["1"]["status"] == "SUCCESS"
     assert by_key["1"]["routeId"] == 5001
-    assert by_key["2"]["status"] == "BLOCKED"
+    # Order #2: notional too small is now a soft WARN — status is SUCCESS, carries violation
+    assert by_key["2"]["status"] == "SUCCESS"
+    codes2 = [v["code"] for v in by_key["2"]["violations"]]
+    assert "NOTIONAL_TOO_SMALL" in codes2
     assert by_key["3"]["status"] == "FAILED"
     assert by_key["4"]["status"] == "BLOCKED"
     assert "summary" in summary_line
     summary = summary_line["summary"]
     assert summary["total"] == 4
-    assert summary["succeeded"] == 1
-    assert summary["blocked"] == 2
+    assert summary["succeeded"] == 2  # orders #1 (clean) + #2 (soft warn)
+    assert summary["blocked"] == 1  # order #4 only
     assert summary["failed"] == 1
 
 

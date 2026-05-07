@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from .database_access import AccessTier
+from .db.connection import AccessTier
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config
 from .raw_fills_db import RawFillsDB

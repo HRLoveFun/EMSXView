@@ -1,0 +1,28 @@
+# Module Dependencies for: platform_data
+# Generated: 2026-05-05 23:03:57.206156
+# Total Python files: 3
+
+============================================================
+LOCAL MODULES
+============================================================
+  __init__
+  adapters
+  repositories
+
+============================================================
+INTERNAL DEPENDENCIES (module -> depends on)
+============================================================
+  __init__ -> adapters
+
+  Modules with no internal deps: adapters, repositories
+
+============================================================
+STDLIB MODULES USED
+============================================================
+  dataclasses, datetime, itertools, logging, math, pathlib, sqlite3, threading, typing, uuid
+
+============================================================
+THIRD-PARTY DEPENDENCIES
+============================================================
+  CostView
+  __future__

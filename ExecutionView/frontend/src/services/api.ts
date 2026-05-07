@@ -53,6 +53,30 @@ function getAuthHeaders(): HeadersInit {
   return headers;
 }
 
+/** Convert an unknown error value (possibly a Zod/Pydantic validation detail
+ *  array, an object, or an Error) to a human-readable string. Prevents the
+ *  "Objects are not valid as a React child" crash when a structured backend
+ *  error response is accidentally rendered directly. */
+function toErrorString(err: unknown): string {
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  if (Array.isArray(err)) {
+    // Pydantic/Zod validation detail: [{type, loc, msg, input, ctx}, ...]
+    return err.map(e => {
+      if (typeof e === 'object' && e !== null) {
+        return (e as { msg?: string }).msg ?? JSON.stringify(e);
+      }
+      return String(e);
+    }).join('; ');
+  }
+  if (typeof err === 'object' && err !== null) {
+    // Try common fields: msg, message, error
+    const obj = err as Record<string, unknown>;
+    return String(obj.msg ?? obj.message ?? obj.error ?? JSON.stringify(err));
+  }
+  return String(err);
+}
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -75,7 +99,11 @@ async function apiFetch<T>(
         try {
           const err = JSON.parse(text);
           // Use backend's error message if available
-          const errorMsg = err.error ?? err.detail ?? response.statusText;
+          // NB: `err.detail` may be a Zod/Pydantic validation array
+          // [{type, loc, msg, input, ctx}, ...] — use toErrorString to
+          // avoid storing an object in React state (causes "Objects are
+          // not valid as a React child" crash on render).
+          const errorMsg = toErrorString(err.error ?? err.detail ?? response.statusText);
           // For proxy/gateway errors, add context but preserve backend message
           if (response.status === 502 || response.status === 503 || response.status === 504) {
             if (errorMsg.includes('Bloomberg')) {
@@ -113,22 +141,34 @@ async function apiFetch<T>(
 
 // NDJSON stream helper for batch endpoints.
 // Each line is either a per-item result, or a final {"summary": ...} envelope.
+/** Max time (ms) to wait for an NDJSON stream to finish. 5 minutes should
+ *  cover any reasonable batch size; if exceeded, the UI returns an error
+ *  instead of hanging indefinitely (which previously caused a black screen). */
+const NDJSON_STREAM_TIMEOUT_MS = 300_000;
+
 async function streamNdjsonBatch(
   path: string,
   body: unknown,
   onItem: (item: BatchOperationItemResult) => void,
   onSummary: (summary: BatchOperationResult) => void,
 ): Promise<{ success: boolean; error?: string }> {
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), NDJSON_STREAM_TIMEOUT_MS);
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     if (!response.ok) {
       const text = await response.text();
       let msg = response.statusText;
-      try { const j = JSON.parse(text); msg = j.error ?? j.detail ?? msg; } catch { /* keep statusText */ }
+      try {
+        const j = JSON.parse(text);
+        // `j.detail` may be a Zod/Pydantic validation array; normalize to string.
+        msg = toErrorString(j.error ?? j.detail ?? msg);
+      } catch { /* keep statusText */ }
       return { success: false, error: msg };
     }
     if (!response.body) {
@@ -173,7 +213,14 @@ async function streamNdjsonBatch(
     }
     return { success: true };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Network error' };
+    const message = err instanceof Error ? err.message : 'Network error';
+    // Distinguish abort/timeout from transport errors for clearer diagnostics.
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { success: false, error: `Request timed out after ${NDJSON_STREAM_TIMEOUT_MS / 1000}s` };
+    }
+    return { success: false, error: message };
+  } finally {
+    clearTimeout(timerId);
   }
 }
 

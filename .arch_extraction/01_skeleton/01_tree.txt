@@ -1,0 +1,117 @@
+# Directory Tree - .
+# Generated: 2026-05-05 23:09:37
+# Max Depth: 4, File Limit: 50
+# Excluded: __pycache__|\.pyc$|\.git|node_modules|venv|\.venv|dist|build|\.egg-info|\.arch_extraction|\.pytest_cache|\.vite|logs|_archive
+
++-- .vscode/
+|   +-- mcp.json [0.2 KB]
+|   '-- settings.json [0.2 KB]
++-- .workbuddy/
+|   +-- memory/
+|   |   +-- 2026-04-15.md [2 KB]
+|   |   '-- MEMORY.md [0 KB]
+|   +-- plans/
+|   '-- expert-history.json [2.8 KB]
++-- CostView/ (119 items, truncated)
++-- data/
+|   +-- fills/
+|   |   +-- fills_20260305.xlsx [672.3 KB]
+|   |   '-- fills_20260306.xlsx [4885.1 KB]
+|   +-- fill_fetch_history.db [20 KB]
+|   '-- raw_fills.db [0 KB]
++-- docs/
+|   +-- archive/
+|   |   +-- 2026-04-22/
+|   |   |   +-- CLAUDE.pre-2026-04-22.md [5.4 KB]
+|   |   |   +-- EXPORT_FEATURE_GUIDE.md [7.3 KB]
+|   |   |   +-- HANDOFF.pre-2026-04-22.md [4.5 KB]
+|   |   |   +-- LOG_OPTIMIZATION_SUMMARY.md [4.9 KB]
+|   |   |   +-- MEMORY.pre-2026-04-22.md [5.5 KB]
+|   |   |   +-- ORDERS_DISPLAY_DIAGNOSIS.md [4.4 KB]
+|   |   |   +-- README.md [1.2 KB]
+|   |   |   +-- SPRINT_0_IMPLEMENTATION_CHECKLIST.md [6.2 KB]
+|   |   |   '-- STRATEGY_FILE_STORAGE_SUMMARY.md [4.5 KB]
+|   |   '-- 2026-04-28/
+|   |       +-- _tmp_inspect.py [0.6 KB]
+|   |       +-- _wait_poll.py [0.3 KB]
+|   |       +-- README.md [1.2 KB]
+|   |       '-- test.ipynb [21.8 KB]
+|   +-- generated/
+|   |   +-- execution-platform-handoff.md [1.1 KB]
+|   |   '-- execution-platform-status.json [3.7 KB]
+|   +-- modular_sequence_diagrams/
+|   |   +-- images/
+|   |   |   +-- 01-execution-initial-load.svg [46.9 KB]
+|   |   |   +-- 02-execution-modify-order.svg [39.2 KB]
+|   |   |   +-- 03-execution-route-management.svg [41.6 KB]
+|   |   |   +-- 04-costview-daily-pipeline.svg [47.2 KB]
+|   |   |   '-- 05-costview-bdib-branch.svg [37 KB]
+|   |   '-- mermaid/
+|   |       +-- 01-execution-initial-load.mmd [2.6 KB]
+|   |       +-- 02-execution-modify-order.mmd [1.8 KB]
+|   |       +-- 03-execution-route-management.mmd [2.1 KB]
+|   |       +-- 04-costview-daily-pipeline.mmd [2.6 KB]
+|   |       +-- 05-costview-bdib-branch.mmd [2.3 KB]
+|   |       +-- mermaid-fonts.css [0.4 KB]
+|   |       '-- puppeteer-config.json [0.1 KB]
+|   +-- RESEARCH_NOTES/
+|   |   '-- 2026-04-M2-broker-algo-v0.md [8.4 KB]
+|   +-- CLAUDE.md [3.5 KB]
+|   +-- DATA_DOMAIN.md [3.9 KB]
+|   +-- EMSX API Developer's Guide.md [330.3 KB]
+|   +-- EXECUTION_PLATFORM_TASK_TEMPLATES.md [26 KB]
+|   +-- EXECUTION_PLATFORM_WBS.md [50.3 KB]
+|   +-- HANDOFF.md [2.5 KB]
+|   +-- MEMORY.md [5.4 KB]
+|   +-- MODULAR_SEQUENCE_DIAGRAMS.md [4 KB]
+|   +-- PROJECT_STRUCTURE.md [8.9 KB]
+|   +-- README.md [2.5 KB]
+|   '-- SERVICE_MANAGEMENT.md [10.1 KB]
++-- ExecutionView/
+|   +-- backend/
+|   |   +-- api/ (99 items, truncated)
+|   |   +-- config/
+|   |   |   +-- grafana/
+|   |   |   |   +-- dashboards/
+|   |   |   |   '-- datasources/
+|   |   |   +-- nginx.conf [3.6 KB]
+|   |   |   +-- nginx-host.conf [1.4 KB]
+|   |   |   '-- prometheus.yml [0.7 KB]
+|   |   +-- data/
+|   |   +-- frontend/
+|   |   +-- .dockerignore [0.6 KB]
+|   |   +-- .env [4.2 KB]
+|   |   +-- .env.example [4.9 KB]
+|   |   +-- docker-compose.host.yml [1.3 KB]
+|   |   +-- docker-compose.yml [6.2 KB]
+|   |   +-- QUICKSTART.md [2.3 KB]
+|   |   '-- README.md [6.3 KB]
+|   +-- frontend/ (312 items, truncated)
+|   '-- README.md [3.7 KB]
++-- MarketView/
+|   '-- README.md [4.3 KB]
++-- notebooks/
+|   '-- research_notes/
+|       +-- M2_broker_algo_v0.ipynb [7.4 KB]
+|       +-- out_liq.ipynb [362.8 KB]
+|       +-- out_trend.ipynb [362.9 KB]
+|       '-- out_vol.ipynb [361 KB]
++-- -p/
++-- plans/
+|   +-- execution-platform-autopilot-policy.yaml [3.2 KB]
+|   +-- execution-platform-autopilot-runstate.json [0.2 KB]
+|   +-- execution-platform-risk-register.yaml [2.8 KB]
+|   '-- execution-platform-status.yaml [32.9 KB]
++-- platform_data/
+|   +-- __init__.py [3.3 KB]
+|   +-- adapters.py [41 KB]
+|   '-- repositories.py [40.9 KB]
++-- scripts/ (52 items, truncated)
++-- $null [0 KB]
++-- AGENTS.md [35.9 KB]
++-- package.json [0.4 KB]
++-- QUICKSTART.md [1.8 KB]
++-- README.md [11.6 KB]
++-- start-services.bat [5.1 KB]
++-- ????.bat [2.3 KB]
+'-- ????????.md [20.5 KB]

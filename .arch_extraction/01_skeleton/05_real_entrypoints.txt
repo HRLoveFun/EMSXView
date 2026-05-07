@@ -1,0 +1,193 @@
+# Real Entrypoints — classified from 05a_main_blocks.txt
+# Legend: ✅=真入口  ❌=临时/测试入口  ⚠️=undetermined
+# 分类标准：文件名暗示用途 | __main__块>10行 | 调用高层函数 | 有argparse | 有子命令分支
+
+================================================================================
+## Web 服务入口
+================================================================================
+
+✅ ExecutionView/backend/api/main.py:384
+   → uvicorn.run("main:app", ...) — FastAPI 服务主入口，8行
+
+✅ ExecutionView/backend/api/start_server.py:15
+   → uvicorn.run("main:app", ...) — 后端启动脚本，14行
+   注：与 main.py 功能重叠，为独立启动入口
+
+================================================================================
+## CostView 管线入口
+================================================================================
+
+✅ CostView/src/__main__.py:327
+   → main() — CostView 主管线入口，argparse + 多子命令(fetch/process/aggregate/pipeline/query/schedule)
+   → 最核心入口，250+ 行 main()，支持 --fetch-auto / --pipeline / --query / --schedule 等
+
+✅ CostView/src/fill_fetch.py:1136
+   → main() — Bloomberg EMSX Fill 数据抓取器独立入口
+
+✅ CostView/src/daily_metrics_calculator.py:316
+   → argparse --date/--all — Bloomberg 日指标计算器，22行块
+
+✅ CostView/src/validate_raw_fills.py:627
+   → main() — 原始 fills 校验工具，有完整 CLI 逻辑
+
+✅ CostView/src/secure_config.py:325
+   → argparse --validate/--setup — 配置管理器 CLI，30行块，含交互逻辑
+
+================================================================================
+## CostView 运维脚本入口
+================================================================================
+
+✅ CostView/scripts/daily_update.py:186
+   → main() — 每日更新调度脚本
+
+✅ CostView/scripts/install_scheduler.py:130
+   → main() — 定时任务安装/卸载脚本，含 install/uninstall 子命令
+
+✅ CostView/scripts/backfill_raw_bdib.py:698
+   → main() — 历史BDIB数据回填（大脚本698行，含完整CLI管线）
+
+✅ CostView/scripts/backfill_bdib_history.py:176
+   → argparse --lookback/--dry-run — BDIB历史回填（轻量版）
+
+✅ CostView/scripts/backfill_regime.py:106
+   → main() — Regime层数据回填
+
+✅ CostView/scripts/fetch_macro_calendar.py:261
+   → main() — 宏观日历数据拉取
+
+✅ CostView/scripts/run_attribution.py:107
+   → main() — 归因分析运行器
+
+✅ CostView/scripts/seed_macro_events.py:68
+   → main() — 宏观事件种子数据初始化
+
+================================================================================
+## CostView Regime 同步/校验工具
+================================================================================
+
+✅ CostView/src/regime/migrations/apply.py:109
+   → main() — regime.db 数据库迁移工具
+
+✅ CostView/src/regime/sync_macro_calendar.py:115
+   → main() — 宏观日历 CSV → DB 同步
+
+✅ CostView/src/regime/sync_macro_event_dict.py:69
+   → main() — 宏观事件字典同步
+
+✅ CostView/src/regime/sync_market_mapping.py:114
+   → main() — 市场映射同步
+
+✅ CostView/src/regime/validate_macro_calendar.py:176
+   → main() — 宏观日历校验
+
+================================================================================
+## 项目级脚本入口
+================================================================================
+
+✅ scripts/workflow/auto_runner.py:757
+   → main() — ExecutionView 平台自动运行器，757行大脚本，含 argparse + RunConfig
+
+✅ scripts/workflow/collect_ci_status.py:118
+   → main() — CI 状态收集器，argparse
+
+✅ scripts/workflow/generate_handoff_snapshot.py:139
+   → main() — 交接快照生成器
+
+✅ scripts/workflow/sync_execution_status.py:240
+   → main() — 执行平台状态同步
+
+✅ scripts/workflow/validate_phase_gate.py:186
+   → main() — 阶段门禁校验
+
+✅ scripts/mcp/knowledge-server.py:317
+   → mcp.run(transport="stdio") — MCP 知识库服务器入口
+
+✅ scripts/fetch_and_inspect.py:306
+   → main() — EMSX 数据抓取+检查，argparse
+
+✅ scripts/import_excel_fills.py:951
+   → main() — Excel fills 导入工具，951行大脚本，argparse + 多子命令
+
+✅ scripts/run_attribution_notebook.py:76
+   → main() — 归因 notebook 运行器
+
+✅ scripts/sync-metrics.py:122
+   → main() — 指标同步工具
+
+================================================================================
+## Git Hooks 入口
+================================================================================
+
+✅ scripts/hooks/log-change.py:52
+   → main() — Git commit-msg hook，JSON输出
+
+✅ scripts/hooks/session-context.py:126
+   → main() — Git session 上下文 hook
+
+✅ scripts/hooks/session-summary.py:42
+   → main() — Git session 总结 hook
+
+================================================================================
+## 临时/诊断入口 (❌)
+================================================================================
+
+❌ CostView/examples/secure_uuid_example.py:148
+   → main() — 示例代码，非生产入口
+
+❌ scripts/diagnose/diagnose_exchange_ticker_issue.py:321
+   → main() — 一次性诊断脚本
+
+❌ scripts/diagnose/diagnose_odd_lot.py:110
+   → test_api() — 测试/调试入口，调用低层 test_* 函数
+
+❌ scripts/diagnose/diagnose_orders_display.py:349
+   → main() — 一次性诊断脚本
+
+❌ CostView/tests/test_attribution.py:213
+   → 测试文件
+
+❌ CostView/tests/test_fill_fetch.py:86
+   → 测试文件
+
+❌ CostView/tests/test_regime_e2e.py:194
+   → 测试文件
+
+❌ CostView/tests/test_secure_config.py:186
+   → 测试文件
+
+❌ CostView/_archive/2026-04-28/analyze_route.py:34
+   → 归档脚本
+
+❌ CostView/_archive/2026-04-28/test_fetch_workflow.py:115
+   → 归档脚本
+
+❌ CostView/_archive/2026-04-28/test_runner.py:44
+   → 归档脚本
+
+❌ CostView/_archive/2026-04-28/verify_route.py:75
+   → 归档脚本
+
+❌ CostView/test_comprehensive.py:129
+   → 测试文件
+
+❌ CostView/test_pipeline_guards.py:558
+   → 测试文件
+
+❌ scripts/_archive/2026-04-28/test_exchange_ticker_fix.py:162
+   → 归档脚本
+
+❌ scripts/_archive/2026-04-28/test_orders_display_fix.py:154
+   → 归档脚本
+
+❌ scripts/_archive/2026-04-28/test_order_exchange_ticker.py:288
+   → 归档脚本
+
+❌ scripts/_archive/2026-04-28/verify_fetch_20260403.py:228
+   → 归档脚本
+
+================================================================================
+## 统计
+================================================================================
+真入口: 28
+临时/测试/归档: 18
+undetermined: 0

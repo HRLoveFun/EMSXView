@@ -1,0 +1,339 @@
+﻿C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:6:the scheduler generates to fulfil that objective.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:36:class ScheduleType(str, Enum):
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:75:schedule_type: Mapped[str] = mapped_column(String(16), nullable=False)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:104:# ChildSlice — one discrete route submitted by the scheduler
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:117:# Slice schedule
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:122:# Optional scheduled time window for this slice
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:123:scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\parent_child_orders.py:124:scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\route_plan.py:50:TIME_SCHEDULE = "TIME_SCHEDULE"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\route_plan.py:104:# Time schedule config (for TIME_SCHEDULE or HYBRID)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\route_plan.py:105:schedule_type: Mapped[str | None] = mapped_column(String(16), nullable=True)  # TWAP/VWAP/POV
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\route_plan.py:179:# Time schedule info (for TIME_SCHEDULE / HYBRID)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\route_plan.py:181:scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\route_plan.py:182:scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\__init__.py:2:from .parent_child_orders import ChildSlice, ExecutionStatus, ParentExecution, ScheduleType, SliceStatus
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\models\__init__.py:13:"ScheduleType",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:202:Computes a schedule using the benchmark engine, persists
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:203:child slices, and activates the scheduler.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:205:from models.parent_child_orders import ScheduleType
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:206:from services.benchmark_engine import ScheduleRequest, VolumeProfile, compute_schedule
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:207:from services.algo_scheduler import start_execution
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:212:"scheduleType": request.scheduleType,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:217:# Parse schedule type
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:219:schedule_type = ScheduleType(request.scheduleType)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:223:error=f"Unsupported schedule type: {request.scheduleType}",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:241:# Compute schedule
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:243:schedule_req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:244:schedule_type=schedule_type,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:252:planned_slices = compute_schedule(schedule_req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:263:schedule_type=schedule_type.value,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:277:# Start via scheduler (uses mock repo)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:295:from services.algo_scheduler import (
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:332:from services.algo_scheduler import get_execution_state
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:351:from services.algo_scheduler import list_active_parent_ids
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:361:"scheduleType": parent.schedule_type,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\orders.py:387:Wraps around the parent object for scheduler lifecycle calls
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\route_plans.py:90:"scheduleType": plan.get("schedule_type"),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\route_plans.py:132:"scheduledStart": p.get("scheduled_start"),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\route_plans.py:133:"scheduledEnd": p.get("scheduled_end"),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\route_plans.py:194:"split_type": request.splitType, "schedule_type": request.scheduleType,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\routers\route_plans.py:279:("splitType", "split_type"), ("scheduleType", "schedule_type"),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:1:"""Runtime scheduler orchestration for algorithmic parent executions.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:30:class SchedulerCommand(str, Enum):
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:31:"""Commands the scheduler accepts for a running parent execution."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:40:class SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:41:"""Snapshot of a parent execution's scheduler state."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:82:schedule: list[PlannedSlice] = field(default_factory=list)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:103:) -> SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:108:3. Registers the execution in the in-memory scheduler.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:111:raise ValueError(f"Parent {parent.id} is already registered in the scheduler")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:120:"scheduled_start": ps.scheduled_start,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:121:"scheduled_end": ps.scheduled_end,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:131:# Register in scheduler
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:134:schedule=slices,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:140:"Scheduler START parent=%d slices=%d target_qty=%d",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:152:) -> SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:156:raise ValueError(f"Parent {parent_id} is not active in the scheduler")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:163:logger.warning("Scheduler PAUSE parent=%d at slice_index=%d", parent_id, entry.next_slice_index)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:165:return _build_state(parent_id, ExecutionStatus.PAUSED.value, entry.schedule, entry)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:171:) -> SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:175:raise ValueError(f"Parent {parent_id} is not active in the scheduler")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:182:logger.warning("Scheduler RESUME parent=%d at slice_index=%d", parent_id, entry.next_slice_index)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:184:return _build_state(parent_id, ExecutionStatus.ACTIVE.value, entry.schedule, entry)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:190:) -> SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:194:raise ValueError(f"Parent {parent_id} is not active in the scheduler")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:206:schedule = entry.schedule
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:210:"Scheduler CANCEL parent=%d cancelled_slices=%d", parent_id, cancelled_count
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:213:state = _build_state(parent_id, ExecutionStatus.CANCELLED.value, schedule)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:222:) -> SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:223:"""Get current scheduler state for a parent execution."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:231:state = SchedulerState(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:255:"""Return IDs of all parents currently tracked by the scheduler."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:260:"""Clear the in-memory scheduler registry (for testing only)."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:272:schedule: list[PlannedSlice],
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:274:) -> SchedulerState:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:276:return SchedulerState(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:281:total_slices=len(schedule),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\algo_scheduler.py:282:target_quantity=sum(s.planned_quantity for s in schedule),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:3:Computes deterministic child-slice schedules from a parent execution
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:13:from models.parent_child_orders import ScheduleType
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:22:"""One planned child order produced by the scheduler."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:26:scheduled_start: datetime
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:27:scheduled_end: datetime
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:50:class ScheduleRequest:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:53:schedule_type: ScheduleType
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:66:def compute_schedule(request: ScheduleRequest) -> list[PlannedSlice]:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:67:"""Produce a deterministic child-slice schedule from a parent objective.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:69:Raises ``ValueError`` for invalid inputs or unsupported schedule types.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:79:ScheduleType.TWAP: _compute_twap,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:80:ScheduleType.VWAP: _compute_vwap,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:81:ScheduleType.POV: _compute_pov,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:83:handler = dispatch.get(request.schedule_type)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:86:f"Unsupported schedule type for benchmark engine: {request.schedule_type}"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:134:scheduled_start=b_start,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:135:scheduled_end=b_end,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:148:def _compute_twap(req: ScheduleRequest) -> list[PlannedSlice]:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:156:def _compute_vwap(req: ScheduleRequest) -> list[PlannedSlice]:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\benchmark_engine.py:173:def _compute_pov(req: ScheduleRequest) -> list[PlannedSlice]:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\bloomberg_adapter.py:804:self._schedule_persist_order(final_order)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\bloomberg_adapter.py:859:def _schedule_persist_order(self, order: Order) -> None:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\bloomberg_adapter.py:860:"""Schedule an async DB upsert from the synchronous subscription thread."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\bloomberg_adapter.py:881:def _schedule_persist_route(self, route: Route) -> None:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\bloomberg_adapter.py:882:"""Schedule an async DB upsert from the synchronous subscription thread."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\bloomberg_adapter.py:992:self._schedule_persist_route(final_route)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:134:elif plan.split_type == SplitType.TIME_SCHEDULE.value:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:135:return self._generate_time_schedule(order, plan)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:215:def _generate_time_schedule(self, order: Order, plan: RoutePlan) -> list[dict]:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:220:if not plan.schedule_type or not plan.num_slices or plan.num_slices <= 0:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:221:logger.warning("Plan %d has TIME_SCHEDULE but missing schedule_type or num_slices", plan.id)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:239:ScheduleRequest,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:241:compute_schedule,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:243:from models.parent_child_orders import ScheduleType
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:245:st = ScheduleType(plan.schedule_type)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:248:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:249:schedule_type=st,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:257:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:272:"scheduled_start": s.scheduled_start.isoformat(),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:273:"scheduled_end": s.scheduled_end.isoformat(),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:284:"""First split by broker, then apply time schedule within each broker allocation."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:301:ScheduleRequest,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:303:compute_schedule,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:305:from models.parent_child_orders import ScheduleType
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:307:st = ScheduleType(plan.schedule_type or "TWAP")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:314:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:315:schedule_type=st,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:323:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:329:"scheduled_start": s.scheduled_start.isoformat(),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:330:"scheduled_end": s.scheduled_end.isoformat(),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:482:"scheduled_start": s_start.isoformat(),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\services\route_engine.py:483:"scheduled_end": s_end.isoformat(),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:1:"""Tests for algo_scheduler lifecycle and state tracking.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:26:from services.algo_scheduler import (
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:27:SchedulerState,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:105:schedule_type="TWAP",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:124:scheduled_start=T0 + step * i,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:125:scheduled_end=T0 + step * (i + 1),
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_algo_scheduler.py:133:"""Ensure a fresh scheduler registry for every test."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:4:schedule distribution logic will surface here immediately.
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:22:from models.parent_child_orders import ScheduleType
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:25:ScheduleRequest,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:27:compute_schedule,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:90:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:91:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:97:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:103:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:104:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:110:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:118:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:119:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:125:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:126:assert slices[0].scheduled_start == T0
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:127:assert slices[-1].scheduled_end == T0 + timedelta(hours=2)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:129:assert slices[i].scheduled_end == slices[i + 1].scheduled_start
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:132:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:133:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:139:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:152:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:153:schedule_type=ScheduleType.VWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:160:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:169:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:170:schedule_type=ScheduleType.VWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:176:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:181:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:182:schedule_type=ScheduleType.VWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:189:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:194:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:195:schedule_type=ScheduleType.VWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:202:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:218:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:219:schedule_type=ScheduleType.POV,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:227:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:238:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:239:schedule_type=ScheduleType.POV,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:247:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:253:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:254:schedule_type=ScheduleType.POV,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:262:compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:265:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:266:schedule_type=ScheduleType.POV,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:274:compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:284:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:285:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:291:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:296:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:297:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:304:compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:307:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:308:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:315:compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:318:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:319:schedule_type=ScheduleType.IS,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:326:compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:329:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:330:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:336:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:343:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:344:schedule_type=ScheduleType.TWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:350:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:360:def test_large_schedule_under_100ms(self):
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:361:"""Generating a 1000-slice schedule must complete in < 100 ms."""
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:363:req = ScheduleRequest(
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:364:schedule_type=ScheduleType.VWAP,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:372:slices = compute_schedule(req)
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_benchmark_engine.py:376:assert elapsed < 0.1, f"Schedule generation took {elapsed:.3f}s (limit 0.1s)"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_parent_child_execution.py:15:ScheduleType,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_parent_child_execution.py:49:schedule_type=ScheduleType.TWAP.value,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_parent_child_execution.py:55:assert p.schedule_type == "TWAP"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_parent_child_execution.py:64:schedule_type=ScheduleType.MANUAL.value,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\tests\test_parent_child_execution.py:76:schedule_type=ScheduleType.POV.value,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:522:scheduleType: str = Field(..., description="TWAP | VWAP | POV")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:525:startTime: str = Field(..., description="ISO-8601 schedule start")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:526:endTime: str = Field(..., description="ISO-8601 schedule end")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:692:splitType: Literal["BROKER_SPLIT", "TIME_SCHEDULE", "HYBRID"] = Field("BROKER_SPLIT", description="Split strategy type")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:693:scheduleType: Optional[str] = Field(None, description="TWAP, VWAP, or POV (for TIME_SCHEDULE/HYBRID)")
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:720:splitType: Optional[Literal["BROKER_SPLIT", "TIME_SCHEDULE", "HYBRID"]] = None
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:721:scheduleType: Optional[str] = None
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:750:scheduleType: Optional[str] = None
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:779:scheduledStart: Optional[str] = None
+C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\schemas.py:780:scheduledEnd: Optional[str] = None
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\@babel\helper-globals\data\browser-upper.json:31:"AudioScheduledSourceNode",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\@babel\helper-globals\data\browser-upper.json:607:"Scheduler",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\@eslint\eslintrc\node_modules\globals\globals.json:390:"AudioScheduledSourceNode": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:66:"AudioScheduledSourceNode": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:856:"scheduler": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:857:"Scheduler": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:2783:"scheduler": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:2784:"Scheduler": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:3224:"scheduler": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\globals\globals.json:3225:"Scheduler": false,
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\react-dom\package.json:20:"scheduler": "^0.27.0"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\react-refresh\package.json:36:"scheduler-0-13": "npm:scheduler@0.13.0"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\reusify\.github\dependabot.yml:5:schedule:
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\scheduler\package.json:2:"name": "scheduler",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\scheduler\package.json:4:"description": "Cooperative scheduler for the browser environment.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\scheduler\package.json:8:"directory": "packages/scheduler"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\es\diagnosticMessages.generated.json:227:"An_async_function_or_method_in_ES5_requires_the_Promise_constructor_Make_sure_you_have_a_declaration_2705": "Una función o un método de asincronía en ES5 requiere el constructor \"Promise\".  Asegúrese de que tiene una declaración para el constructor \"Promise\" o incluya \"ES2015\" en su opción \"--lib\".",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\es\diagnosticMessages.generated.json:229:"An_async_iterator_must_have_a_next_method_2519": "Un iterador de asincronía debe tener un método \"next()\".",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\es\diagnosticMessages.generated.json:1550:"The_0_property_of_an_async_iterator_must_be_a_method_2768": "La propiedad \"{0}\" de un iterador de asincronía debe ser un método.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\es\diagnosticMessages.generated.json:1643:"The_type_returned_by_the_0_method_of_an_async_iterator_must_be_a_promise_for_a_type_with_a_value_pro_2547": "El tipo devuelto por el método \"{0}()\" de un iterador de asincronía debe ser una promesa para un tipo con una propiedad \"value\".",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\es\diagnosticMessages.generated.json:1756:"Type_0_must_have_a_Symbol_asyncIterator_method_that_returns_an_async_iterator_2504": "El tipo \"{0}\" debe tener un método \"[Symbol.asyncIterator]()\" que devuelve un iterador de asincronía.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:227:"An_async_function_or_method_in_ES5_requires_the_Promise_constructor_Make_sure_you_have_a_declaration_2705": "Con una funzione o un metodo asincrono in ES5 è necessario il costruttore 'Promise'.  Assicurarsi che sia presente una dichiarazione per il costruttore 'Promise' oppure includere 'ES2015' nell'opzione '--lib'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:228:"An_async_function_or_method_must_return_a_Promise_Make_sure_you_have_a_declaration_for_Promise_or_in_2697": "Un metodo o una funzione asincrona deve restituire un costruttore 'Promise'. Assicurarsi che sia presente una dichiarazione per 'Promise' oppure includere 'ES2015' nell'opzione '--lib'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:229:"An_async_iterator_must_have_a_next_method_2519": "Un iteratore asincrono deve contenere un metodo 'next()'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:372:"Cannot_find_name_0_Did_you_mean_to_write_this_in_an_async_function_2311": "Impossibile trovare il nome '{0}'. Si intendeva scrivere questo elemento in una funzione asincrona?",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:492:"Convert_all_to_async_functions_95066": "Convertire tutto in funzioni asincrone",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:515:"Convert_to_async_function_95065": "Convertire nella funzione asincrona",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:641:"Duplicate_identifier_0_Compiler_reserves_name_1_in_top_level_scope_of_a_module_containing_async_func_2529": "L'identificatore '{0}' è duplicato. Il compilatore riserva il nome '{1}' nell'ambito di primo livello di un modulo che contiene funzioni asincrone.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:643:"Duplicate_identifier_0_Compiler_uses_declaration_1_to_support_async_functions_2520": "Identificatore '{0}' duplicato. Il compilatore usa la dichiarazione '{1}' per supportare le funzioni asincrone.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:827:"Fix_all_incorrect_return_type_of_an_async_functions_90037": "Correggere tutti i tipi restituiti non corretti di una funzione asincrona",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1540:"Synchronously_call_callbacks_and_update_the_state_of_directory_watchers_on_platforms_that_don_t_supp_6704": "Chiama in modo sincrono i callback e aggiorna lo stato dei watcher di directory in piattaforme che non supportano il controllo ricorsivo in modo nativo.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1550:"The_0_property_of_an_async_iterator_must_be_a_method_2768": "La proprietà '{0}' di un iteratore asincrono deve essere un metodo.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1555:"The_arguments_object_cannot_be_referenced_in_an_async_function_or_method_in_ES5_Consider_using_a_sta_2522": "Non è possibile fare riferimento all'oggetto 'arguments' in un metodo o una funzione asincrona in ES5. Provare a usare un metodo o una funzione standard.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1620:"The_return_type_of_an_async_function_must_either_be_a_valid_promise_or_must_not_contain_a_callable_t_1058": "Il tipo restituito di una funzione asincrona deve essere una promessa valida oppure non deve contenere un membro 'then' chiamabile.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1621:"The_return_type_of_an_async_function_or_method_must_be_the_global_Promise_T_type_1065": "Il tipo restituito di un metodo o una funzione asincrona deve essere il tipo globale Promise<T>.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1622:"The_return_type_of_an_async_function_or_method_must_be_the_global_Promise_T_type_Did_you_mean_to_wri_1064": "Il tipo restituito di un metodo o una funzione asincrona deve essere il tipo globale Promise<T>. Si intendeva scrivere 'Promise<{0}>'?",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1643:"The_type_returned_by_the_0_method_of_an_async_iterator_must_be_a_promise_for_a_type_with_a_value_pro_2547": "Il tipo restituito dal metodo '{0}()' di un iteratore asincrono deve essere una promessa per un tipo con una proprietà 'value'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1680:"This_may_be_converted_to_an_async_function_80006": "Può essere convertita in una funzione asincrona.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1741:"Type_0_is_not_a_valid_async_function_return_type_in_ES5_because_it_does_not_refer_to_a_Promise_compa_1055": "Il tipo '{0}' non è un tipo restituito di funzione asincrona valido in ES5 perché non fa riferimento a un valore di costruttore compatibile con Promise.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1756:"Type_0_must_have_a_Symbol_asyncIterator_method_that_returns_an_async_iterator_2504": "Il tipo '{0}' deve contenere un metodo '[Symbol.asyncIterator]()' che restituisce un iteratore asincrono.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:1789:"Type_of_yield_operand_in_an_async_generator_must_either_be_a_valid_promise_or_must_not_contain_a_cal_1321": "Il tipo dell'operando 'yield' in un generatore asincrono deve essere una promessa valida oppure non deve contenere un membro 'then' chiamabile.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:2019:"await_expressions_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules_1308": "Le espressioni 'await' sono consentite solo all'interno di funzioni asincrone e al primo livello di moduli.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:2024:"await_using_statements_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules_2852": "Le istruzioni 'await using' sono consentite solo all'interno di funzioni asincrone e al primo livello di moduli.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:2051:"for_await_loops_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules_1103": "I cicli 'for await' sono consentiti solo all'interno di funzioni asincrone e al primo livello di moduli.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\it\diagnosticMessages.generated.json:2118:"with_statements_are_not_allowed_in_an_async_function_block_1300": "Le istruzioni 'with' non sono consentite in un blocco di funzione asincrona.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:147:"Add_async_modifier_to_containing_function_90029": "Adicione o modificador assíncrono que contém a função",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:227:"An_async_function_or_method_in_ES5_requires_the_Promise_constructor_Make_sure_you_have_a_declaration_2705": "Uma função ou método assíncrono no ES5 requer o construtor 'Promise'.  Verifique se você tem uma declaração para o construtor 'Promise' ou inclua 'ES2015' na sua opção '--lib'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:228:"An_async_function_or_method_must_return_a_Promise_Make_sure_you_have_a_declaration_for_Promise_or_in_2697": "Uma função ou método assíncrono deve retornar um 'Promise'. Verifique se você tem uma declaração para 'Promise' ou inclua 'ES2015' na sua opção '--lib'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:229:"An_async_iterator_must_have_a_next_method_2519": "O iterador assíncrono deve ter um método 'next()'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:372:"Cannot_find_name_0_Did_you_mean_to_write_this_in_an_async_function_2311": "Não foi possível encontrar o nome '{0}'. Você quis escrever isto em uma função assíncrona?",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:492:"Convert_all_to_async_functions_95066": "Converter todos para funções assíncronas",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:515:"Convert_to_async_function_95065": "Converter para uma função assíncrona",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:641:"Duplicate_identifier_0_Compiler_reserves_name_1_in_top_level_scope_of_a_module_containing_async_func_2529": "Duplicar o identificador '{0}'. O compilador reserva o nome '{1}' em escopo de alto nível de um módulo que contém funções assíncronas.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:643:"Duplicate_identifier_0_Compiler_uses_declaration_1_to_support_async_functions_2520": "Identificador '{0}' duplicado. O compilador usa a declaração '{1}' para dar suporte a funções assíncronas.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:827:"Fix_all_incorrect_return_type_of_an_async_functions_90037": "Corrigir todo tipo de retorno incorreto de uma função assíncrona",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1540:"Synchronously_call_callbacks_and_update_the_state_of_directory_watchers_on_platforms_that_don_t_supp_6704": "Chame sincronicamente retornos de chamadas e atualize o estado de observadores de diretório em plataformas que não têm suporte à observação recursiva nativamente.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1550:"The_0_property_of_an_async_iterator_must_be_a_method_2768": "A propriedade '{0}' de um iterador assíncrono deve ser um método.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1555:"The_arguments_object_cannot_be_referenced_in_an_async_function_or_method_in_ES5_Consider_using_a_sta_2522": "O objeto 'arguments' não pode ser referenciado em uma função assíncrona ou o método no ES5. Considere usar uma função ou um método padrão.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1599:"The_left_hand_side_of_a_for_of_statement_may_not_be_async_1106": "O lado esquerdo de uma instrução 'for...of' não pode ser 'assíncrono'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1620:"The_return_type_of_an_async_function_must_either_be_a_valid_promise_or_must_not_contain_a_callable_t_1058": "O tipo de retorno de uma função assíncrona deve ser uma promessa válida ou não deve conter um membro \"then\" que pode ser chamado.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1621:"The_return_type_of_an_async_function_or_method_must_be_the_global_Promise_T_type_1065": "O tipo de retorno de uma função assíncrona ou método deve ser o tipo <T>Promessa global.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1622:"The_return_type_of_an_async_function_or_method_must_be_the_global_Promise_T_type_Did_you_mean_to_wri_1064": "O tipo de retorno de uma função assíncrona ou método precisa ser o tipo Promise<T> global. Você quis escrever 'Promise<{0}>'?",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1643:"The_type_returned_by_the_0_method_of_an_async_iterator_must_be_a_promise_for_a_type_with_a_value_pro_2547": "O tipo retornado pelo método '{0}()' de um iterador assíncrono deve ser uma promessa para um tipo com a propriedade 'value'.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1680:"This_may_be_converted_to_an_async_function_80006": "Isso pode ser convertido em uma função assíncrona.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1741:"Type_0_is_not_a_valid_async_function_return_type_in_ES5_because_it_does_not_refer_to_a_Promise_compa_1055": "O tipo '{0}' não é um tipo de retorno de função assíncrona válido no ES5, pois não se refere ao valor construtor compatível com a Promessa.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1756:"Type_0_must_have_a_Symbol_asyncIterator_method_that_returns_an_async_iterator_2504": "O tipo '{0}' deve ter um método '[Symbol.asyncIterator]()' que retorna um iterador assíncrono.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:1789:"Type_of_yield_operand_in_an_async_generator_must_either_be_a_valid_promise_or_must_not_contain_a_cal_1321": "O tipo do operando \"yield\" em um gerador assíncrono deve ser uma promessa válida ou não deve conter um membro \"then\" que pode ser chamado.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:2019:"await_expressions_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules_1308": "As expressões 'await' só são permitidas em funções assíncronas e nos níveis superiores de módulos.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:2024:"await_using_statements_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules_2852": "Instruções 'await using' só são permitidas em funções assíncronas e nos níveis superiores de módulos.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:2051:"for_await_loops_are_only_allowed_within_async_functions_and_at_the_top_levels_of_modules_1103": "Os loops 'for await' só são permitidos em funções assíncronas e nos níveis superiores dos módulos.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\typescript\lib\pt-br\diagnosticMessages.generated.json:2118:"with_statements_are_not_allowed_in_an_async_function_block_1300": "As declarações 'with' não são permitidas em blocos de funções assíncronas.",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\.package-lock.json:5058:"scheduler": "^0.27.0"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\.package-lock.json:5385:"node_modules/scheduler": {
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\.package-lock.json:5387:"resolved": "https://registry.npmjs.org/scheduler/-/scheduler-0.27.0.tgz",
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\package-lock.json:5891:"scheduler": "^0.27.0"
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\package-lock.json:6218:"node_modules/scheduler": {
+C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\package-lock.json:6220:"resolved": "https://registry.npmjs.org/scheduler/-/scheduler-0.27.0.tgz",
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:2:Daily Update Scheduler — automated CostView pipeline execution.
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:4:Runs the full FillFetch + processing pipeline on a configurable schedule.
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:11:# Enter schedule loop (runs daily at 18:00)
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:39:"""Configure logging for the scheduler."""
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:144:parser = argparse.ArgumentParser(description="CostView Daily Update Scheduler")
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:162:# Schedule loop
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:164:import schedule
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:167:"The 'schedule' package is required for scheduling mode. "
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:168:"Install it with: pip install schedule\n"
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:169:"Alternatively, use --once with Windows Task Scheduler."
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:174:schedule.every().day.at(args.time).do(run_daily_pipeline)
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:176:logger.info("Scheduler started. Press Ctrl+C to stop.")
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:179:schedule.run_pending()
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\daily_update.py:183:logger.info("Scheduler stopped by user")
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\fetch_macro_calendar.py:19:→ forward-looking scheduled release dates (values are YYYYMMDD strings)
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\fetch_macro_calendar.py:108:scheduled release dates as YYYYMMDD strings.
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:2:Windows Task Scheduler Installer — register CostView daily update as a scheduled task.
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:4:Creates a Windows Scheduled Task that runs the daily_update.py script
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:8:python install_scheduler.py                     # Install with defaults (09:00)
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:9:python install_scheduler.py --time 08:30        # Custom time
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:10:python install_scheduler.py --uninstall         # Remove the task
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:11:python install_scheduler.py --status            # Check task status
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:34:"""Register the daily update task with Windows Task Scheduler.
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:55:print(f"Registering scheduled task: {TASK_NAME}")
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:76:"""Remove the scheduled task."""
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:92:"""Check the current status of the scheduled task."""
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:106:description="Install/manage CostView daily update scheduled task"
+C:\Users\hrchen\Documents\EMSX\CostView\scripts\install_scheduler.py:114:help="Remove the scheduled task",
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:125:# Scheduler (Phase 2C)
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:126:parser.add_argument("--schedule", action="store_true",
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:128:parser.add_argument("--schedule-time", type=str, default="18:00",
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:129:help="Time for scheduled run (HH:MM, default: 18:00)")
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:130:parser.add_argument("--schedule-once", action="store_true",
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:131:help="Run the scheduled pipeline once and exit")
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:206:# -- Schedule mode (Phase 2C) --
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:207:elif args.schedule or args.schedule_once:
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:209:if args.schedule_once:
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:214:import schedule as sched_lib
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:216:print("Install 'schedule' package: pip install schedule")
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:218:logger.info(f"Scheduling daily at {args.schedule_time}")
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:219:sched_lib.every().day.at(args.schedule_time).do(run_daily_pipeline)
+C:\Users\hrchen\Documents\EMSX\CostView\src\__main__.py:226:logger.info("Scheduler stopped")
+C:\Users\hrchen\Documents\EMSX\scripts\mcp\knowledge-server.py:249:trigger: What initiated this iteration (e.g., 'test failure', 'user request', 'scheduled review')

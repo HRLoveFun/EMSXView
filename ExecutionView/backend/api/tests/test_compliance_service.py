@@ -34,7 +34,7 @@ def make_order(**kwargs):
 # USD notional rules
 # ---------------------------------------------------------------------------
 
-def test_notional_below_min_blocks():
+def test_notional_below_min_returns_violation():
     order = make_order(currency="USD", fxRate=1.0)
     # 10 * 100 = 1,000 USD, below 10,000 threshold
     violations = compliance_service.check_route(
@@ -54,7 +54,7 @@ def test_notional_just_at_min_passes():
     assert all(v.code != "NOTIONAL_TOO_LARGE" for v in violations)
 
 
-def test_notional_just_below_min_blocks():
+def test_notional_just_below_min_returns_violation():
     order = make_order(currency="USD", fxRate=1.0)
     violations = compliance_service.check_route(
         order, route_qty=100, limit_price=99.99, stop_price=None, order_type="LMT",

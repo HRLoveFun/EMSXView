@@ -150,12 +150,12 @@ def main():
     # Resolve access tier
     access_tier = None
     if args.db_access:
-        from src.database_access import AccessTier
+        from src.db.connection import AccessTier
         access_tier = AccessTier(args.db_access)
     if args.query or args.status:
         # Query/status commands default to READ access
         if access_tier is None:
-            from src.database_access import AccessTier
+            from src.db.connection import AccessTier
             access_tier = AccessTier.READ
     if access_tier is not None:
         import os

@@ -1,0 +1,149 @@
+# Module Dependencies for: api
+# Generated: 2026-05-05 23:03:54.695257
+# Total Python files: 64
+
+============================================================
+LOCAL MODULES
+============================================================
+  auth
+  config
+  db
+  deps
+  main
+  models.__init__
+  models.execution_state
+  models.parent_child_orders
+  models.route_plan
+  repositories.__init__
+  repositories.audit
+  repositories.orders
+  repositories.parent_child_repository
+  repositories.routes
+  routers.__init__
+  routers._pipeline_jobs
+  routers.auth
+  routers.broker
+  routers.connection
+  routers.costview
+  routers.database
+  routers.debug
+  routers.execution_history
+  routers.market_broker_mapping
+  routers.marketview
+  routers.orders
+  routers.realtime
+  routers.route_plans
+  routers.routes
+  schemas
+  service_provider
+  services.__init__
+  services.algo_scheduler
+  services.auth_service
+  services.batch_route_service
+  services.benchmark_engine
+  services.bloomberg_adapter
+  services.bloomberg_interface
+  services.compliance_service
+  services.config_service
+  services.event_serializers
+  services.order_projections
+  services.realtime_gateway
+  services.route_engine
+  services.route_projections
+  services.route_service
+  start_server
+  tests.test_algo_scheduler
+  tests.test_auth_policy
+  tests.test_batch_route_endpoints
+  tests.test_benchmark_engine
+  tests.test_bloomberg_adapter_refdata
+  tests.test_bloomberg_adapter_routing
+  tests.test_compliance_service
+  tests.test_config_service
+  tests.test_connection_router
+  tests.test_db_bootstrap
+  tests.test_execution_history_router
+  tests.test_marketview_router
+  tests.test_parent_child_execution
+  tests.test_platform_data_access
+  tests.test_projection_repositories
+  tests.test_realtime_gateway
+  tests.test_service_provider
+
+============================================================
+INTERNAL DEPENDENCIES (module -> depends on)
+============================================================
+  db -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  deps -> auth, config, service_provider, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  models.parent_child_orders -> models.__init__, models.execution_state, models.route_plan
+  models.route_plan -> models.__init__, models.execution_state, models.parent_child_orders
+  repositories.audit -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  repositories.orders -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  repositories.parent_child_repository -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  repositories.routes -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  routers.auth -> auth, schemas
+  routers.broker -> deps, schemas
+  routers.connection -> config, db, deps, schemas
+  routers.debug -> config, deps, schemas
+  routers.execution_history -> schemas
+  routers.market_broker_mapping -> deps, schemas
+  routers.orders -> deps, models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, repositories.__init__, repositories.audit, repositories.orders, repositories.parent_child_repository, repositories.routes, schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  routers.realtime -> services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  routers.route_plans -> deps, schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  routers.routes -> deps, schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  service_provider -> db, models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, repositories.__init__, repositories.audit, repositories.orders, repositories.parent_child_repository, repositories.routes
+  services.algo_scheduler -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, repositories.__init__, repositories.audit, repositories.orders, repositories.parent_child_repository, repositories.routes, services.__init__, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  services.auth_service -> auth, config
+  services.batch_route_service -> config, schemas, services.__init__, services.algo_scheduler, services.auth_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  services.benchmark_engine -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  services.bloomberg_interface -> schemas
+  services.compliance_service -> config, schemas
+  services.config_service -> schemas
+  services.order_projections -> schemas
+  services.realtime_gateway -> services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.route_engine, services.route_projections, services.route_service
+  services.route_engine -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_projections, services.route_service
+  services.route_projections -> schemas
+  services.route_service -> schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections
+  tests.test_algo_scheduler -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_auth_policy -> services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_batch_route_endpoints -> deps, routers.__init__, routers._pipeline_jobs, routers.auth, routers.broker, routers.connection, routers.costview, routers.database, routers.debug, routers.execution_history, routers.market_broker_mapping, routers.marketview, routers.orders, routers.realtime, routers.route_plans, routers.routes, schemas
+  tests.test_benchmark_engine -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_bloomberg_adapter_refdata -> schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_bloomberg_adapter_routing -> schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_compliance_service -> services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_config_service -> schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_connection_router -> routers.__init__, routers._pipeline_jobs, routers.auth, routers.broker, routers.connection, routers.costview, routers.database, routers.debug, routers.execution_history, routers.market_broker_mapping, routers.marketview, routers.orders, routers.realtime, routers.route_plans, routers.routes, schemas
+  tests.test_db_bootstrap -> db, models.__init__, models.execution_state, models.parent_child_orders, models.route_plan
+  tests.test_execution_history_router -> routers.__init__, routers._pipeline_jobs, routers.auth, routers.broker, routers.connection, routers.costview, routers.database, routers.debug, routers.execution_history, routers.market_broker_mapping, routers.marketview, routers.orders, routers.realtime, routers.route_plans, routers.routes
+  tests.test_marketview_router -> routers.__init__, routers._pipeline_jobs, routers.auth, routers.broker, routers.connection, routers.costview, routers.database, routers.debug, routers.execution_history, routers.market_broker_mapping, routers.marketview, routers.orders, routers.realtime, routers.route_plans, routers.routes
+  tests.test_parent_child_execution -> models.__init__, models.execution_state, models.parent_child_orders, models.route_plan, schemas, services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_projection_repositories -> repositories.__init__, repositories.audit, repositories.orders, repositories.parent_child_repository, repositories.routes
+  tests.test_realtime_gateway -> services.__init__, services.algo_scheduler, services.auth_service, services.batch_route_service, services.benchmark_engine, services.bloomberg_adapter, services.bloomberg_interface, services.compliance_service, services.config_service, services.event_serializers, services.order_projections, services.realtime_gateway, services.route_engine, services.route_projections, services.route_service
+  tests.test_service_provider -> service_provider
+
+  Modules with no internal deps: auth, config, main, models.__init__, models.execution_state, repositories.__init__, routers.__init__, routers._pipeline_jobs, routers.costview, routers.database, routers.marketview, schemas, services.__init__, services.bloomberg_adapter, services.event_serializers, start_server, tests.test_platform_data_access
+
+============================================================
+STDLIB MODULES USED
+============================================================
+  abc, asyncio, collections, contextlib, dataclasses, datetime, enum, hashlib, importlib, inspect, json, logging, os, pathlib, sqlite3, subprocess, sys, threading, time, types, typing, unittest, uuid
+
+============================================================
+THIRD-PARTY DEPENDENCIES
+============================================================
+  CostView
+  __future__
+  _pipeline_jobs
+  audit
+  blpapi
+  execution_state
+  fastapi
+  fnmatch
+  orders
+  pandas
+  parent_child_orders
+  platform_data
+  pydantic
+  pytest
+  routes
+  sqlalchemy
