@@ -1,4 +1,4 @@
----
+﻿---
 name: schema-designer
 description: "Design SQLite/relational schemas with built-in observability, traceability, and reproducibility. Use when adding new tables, refactoring existing schemas, planning storage for analytical pipelines, or sharing schema patterns across modules."
 ---
@@ -20,11 +20,11 @@ Each principle maps to a concrete schema element. **A schema review is a 9-row c
 | # | Engineering need | Schema element |
 |---|---|---|
 | 1 | Task logic clear | Header comment block on every table: `-- PURPOSE / -- WRITTEN BY / -- READ BY / -- GRAIN`. `GRAIN` must describe row semantics in one sentence. |
-| 2 | Steps build up incrementally | Tables use 4 fixed prefixes: `ref_*` (manual/small) → `daily_*` (per-day batch) → `fill_*` / `event_*` (per-event derived) → `audit_*` (run journals, config versions). Upper layers only read lower layers. |
+| 2 | Steps build up incrementally | Tables use 4 fixed prefixes: `ref_*` (manual/small) â†’ `daily_*` (per-day batch) â†’ `fill_*` / `event_*` (per-event derived) â†’ `audit_*` (run journals, config versions). Upper layers only read lower layers. |
 | 3 | Changes traceable | All non-`ref_*` tables MUST have `ingested_at TIMESTAMP NOT NULL` and `source_version TEXT NOT NULL`. `ref_*` tables are tracked via git on the source file. |
 | 4 | Results verifiable | Every DB ships a `<module>_status` SQL VIEW summarizing row count, min/max date, last ingestion timestamp per table. A `validate_<module>.py` CLI prints this view + integrity diffs. |
-| 5 | Errors discoverable | Use `NOT NULL`, `CHECK` (numeric ranges, enums), `UNIQUE`/`PRIMARY KEY`. Writes use `INSERT ... ON CONFLICT DO UPDATE` (idempotent). DB schema version pinned via `PRAGMA user_version` AND a code constant — both must match at startup. |
-| 6 | Process controllable | All writes inside `BEGIN IMMEDIATE` transactions. Batch size ≤ 5000 rows. On failure → rollback, no half-state. Parameterized analytical tables (`fill_*_labels`) are append-only with `config_version` in PK; old rows preserved. |
+| 5 | Errors discoverable | Use `NOT NULL`, `CHECK` (numeric ranges, enums), `UNIQUE`/`PRIMARY KEY`. Writes use `INSERT ... ON CONFLICT DO UPDATE` (idempotent). DB schema version pinned via `PRAGMA user_version` AND a code constant â€” both must match at startup. |
+| 6 | Process controllable | All writes inside `BEGIN IMMEDIATE` transactions. Batch size â‰¤ 5000 rows. On failure â†’ rollback, no half-state. Parameterized analytical tables (`fill_*_labels`) are append-only with `config_version` in PK; old rows preserved. |
 | 7 | Experience captured | DDL lives in a single module-level `schema.py` (DDL strings + `create_all()` helper). New columns require bumping `user_version` AND adding a `migrations/vN_to_vN+1.sql` file. |
 | 8 | Don't forget what came before | Every DB has `audit_pipeline_runs` (run_id, stage_name, target_date_range, rows_written, status, started_at, finished_at, error_message). Recovery jobs query this first. |
 | 9 | User-friendly | Manual-edit files (json/csv) get a `validate_<file>.py` that prints row + column + expected value on error. CLI/frontend reads `<module>_status` view, not raw tables. |
@@ -97,11 +97,11 @@ CREATE INDEX idx_runs_stage_started ON audit_pipeline_runs(stage_name, run_start
 Directory layout (every analytical DB):
 ```
 CostView/src/<module>/
-├── schema.py                 # DDL strings + create_all() + SCHEMA_VERSION constant
-├── migrations/
-│   ├── __init__.py
-│   ├── v1_to_v2.sql
-│   └── apply.py              # reads PRAGMA user_version, applies pending migrations
+â”œâ”€â”€ schema.py                 # DDL strings + create_all() + SCHEMA_VERSION constant
+â”œâ”€â”€ migrations/
+â”‚   â”œâ”€â”€ __init__.py
+â”‚   â”œâ”€â”€ v1_to_v2.sql
+â”‚   â””â”€â”€ apply.py              # reads PRAGMA user_version, applies pending migrations
 ```
 
 Workflow on any DDL change:
@@ -132,3 +132,4 @@ Workflow on any DDL change:
 - Missing `audit_pipeline_runs` write (recovery becomes guesswork)
 - Hand-rolled INSERT-or-UPDATE logic instead of `ON CONFLICT DO UPDATE`
 - Composite PK ordering chosen by tuple alphabet rather than query patterns
+

@@ -2,53 +2,8 @@
 
 ## Quick Start
 
-### Option 1: Interactive Menu (Recommended)
-```batch
-# From project root
-cd c:\Users\hrchen\Documents\EMSX
-start-services.bat
-```
-
-This will show an interactive menu:
-```
-[1] Start Services (Backend + Frontend)
-[2] Stop Services
-[3] Restart Services
-[4] Check Status
-[5] View Logs
-[6] Exit
-```
-
-### Option 2: Individual Commands
-```batch
-# Start all services
-cd scripts
-powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start
-
-# Stop all services
-powershell -ExecutionPolicy Bypass -File "service-manager.ps1" stop
-
-# Restart all services
-powershell -ExecutionPolicy Bypass -File "service-manager.ps1" restart
-
-# Check status
-powershell -ExecutionPolicy Bypass -File "service-manager.ps1" status
-```
-
-### Option 3: Quick Batch Files
-```batch
-# Start services
-scripts\start-all.bat
-
-# Stop services
-scripts\stop-all.bat
-
-# Restart services
-scripts\restart-all.bat
-
-# Check status
-scripts\check-status.bat
-```
+快速启动指南见 `QUICKSTART.md`（交互菜单）或 `scripts/service-manager.ps1`（命令行）。
+本文档专注服务架构细节和故障排查。
 
 ## Service Architecture
 

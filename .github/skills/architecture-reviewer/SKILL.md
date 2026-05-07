@@ -1,4 +1,4 @@
----
+﻿---
 name: architecture-reviewer
 description: "Review project architecture and propose improvements. Use after major features, for technical debt analysis, weekly architecture health checks, or before starting large refactoring work."
 ---
@@ -46,4 +46,5 @@ For existing features:
 - Append to [iteration-log.md](../../knowledge/iteration-log.md): date, type=architecture, trigger, action, outcome
 
 ## Reference
-- [Review Checklist](./references/review-checklist.md) — EMSX-specific checklist, refactoring patterns, health thresholds
+- [Review Checklist](./references/review-checklist.md) â€” EMSX-specific checklist, refactoring patterns, health thresholds
+

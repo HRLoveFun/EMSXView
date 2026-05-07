@@ -1,4 +1,4 @@
----
+﻿---
 description: "Use when reviewing architecture, proposing structural changes, assessing technical debt, or planning refactoring. Covers architecture decisions and incremental improvement."
 applyTo: ["ExecutionView/backend/api/main.py", "ExecutionView/frontend/src/**", "CostView/src/**"]
 ---
@@ -8,7 +8,7 @@ applyTo: ["ExecutionView/backend/api/main.py", "ExecutionView/frontend/src/**", 
 
 1. Read `.github/knowledge/architecture-decisions.md` for existing decisions that may constrain or guide the change
 2. If the change contradicts an existing decision, document why the decision should be updated before proceeding
-3. Check if the affected area has pending review dates — if overdue, flag it
+3. Check if the affected area has pending review dates â€” if overdue, flag it
 
 ## Code Health Indicators
 
@@ -34,3 +34,4 @@ For existing features, consider:
 - **Brittleness**: Does it depend on undocumented Bloomberg behavior?
 
 If a feature is underutilized or brittle, propose: deprecation, simplification, or rewrite with justification.
+

@@ -1,4 +1,4 @@
-# User Needs Knowledge Base
+﻿# User Needs Knowledge Base
 
 > Auto-maintained by the iterative update mechanism. Tracks recurring user needs, their priority, and automation status.
 
@@ -7,9 +7,9 @@
 ## Need: EMSX Field Additions
 
 - **Frequency**: High (recurring across multiple sessions)
-- **Impact**: High — each new field requires changes across 3-5 files (backend model, parsing, subscription, frontend types, UI columns)
+- **Impact**: High â€” each new field requires changes across 3-5 files (backend model, parsing, subscription, frontend types, UI columns)
 - **Effort**: Medium per field, but repetitive
-- **Current Solution**: Manual multi-file edits following the pattern in docs/CLAUDE.md
+- **Current Solution**: Manual multi-file edits following the pattern in docs/dev-guide.md
 - **Proposed Automation**: A skill/prompt that takes a Bloomberg field name and type, then generates all required changes (subscription, parsing, model, TypeScript interface, UI column) as a coordinated plan
 - **Status**: Identified
 - **Date**: 2026-04-02
@@ -19,7 +19,7 @@
 ## Need: Bloomberg Session Management
 
 - **Frequency**: Medium (encountered during connection issues, restarts)
-- **Impact**: High — incorrect session handling blocks all operations
+- **Impact**: High â€” incorrect session handling blocks all operations
 - **Effort**: High (complex async + threading model)
 - **Current Solution**: Manual debugging with `.codebuddy/skills/emsx-api-test-integrator/` skill
 - **Proposed Automation**: Extend error-resolver to detect session failures and propose targeted fixes based on session type (subscription vs request/response vs market data)
@@ -31,7 +31,7 @@
 ## Need: Backend Restart After Code Changes
 
 - **Frequency**: High (every code change requires restart)
-- **Impact**: Medium — causes confusion when changes don't take effect
+- **Impact**: Medium â€” causes confusion when changes don't take effect
 - **Effort**: Low
 - **Current Solution**: Manual reminder in docs; developer must remember to restart
 - **Proposed Automation**: A hook or instruction that reminds to restart backend after Python file edits in `ExecutionView/backend/`
@@ -106,12 +106,13 @@
 
 ---
 
-## Need: CostView Attribution 模块与数据层解耦
+## Need: CostView Attribution æ¨¡å—ä¸Žæ•°æ®å±‚è§£è€¦
 
 - **Frequency**: 2
 - **Impact**: 5
 - **Effort**: TBD
-- **Current Solution**: attribution 模块业务逻辑（writer/aggregator/recommender/config）直接嵌入 SQL 查询、硬编码 DB 路径、紧耦合 sqlite3.Connection，无法独立测试
-- **Proposed Automation**: 已完成：引入 Protocol 接口抽象层 + DTO 数据类 + Repository 实现 + 依赖注入，业务逻辑与数据访问完全分离
+- **Current Solution**: attribution æ¨¡å—ä¸šåŠ¡é€»è¾‘ï¼ˆwriter/aggregator/recommender/configï¼‰ç›´æŽ¥åµŒå…¥ SQL æŸ¥è¯¢ã€ç¡¬ç¼–ç  DB è·¯å¾„ã€ç´§è€¦åˆ sqlite3.Connectionï¼Œæ— æ³•ç‹¬ç«‹æµ‹è¯•
+- **Proposed Automation**: å·²å®Œæˆï¼šå¼•å…¥ Protocol æŽ¥å£æŠ½è±¡å±‚ + DTO æ•°æ®ç±» + Repository å®žçŽ° + ä¾èµ–æ³¨å…¥ï¼Œä¸šåŠ¡é€»è¾‘ä¸Žæ•°æ®è®¿é—®å®Œå…¨åˆ†ç¦»
 - **Status**: Identified
 - **Date**: 2026-05-07
+

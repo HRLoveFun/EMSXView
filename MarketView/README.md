@@ -1,6 +1,6 @@
 # MarketView Module
 
-> **Pre-Trade Analysis Module**  
+> **Pre-Trade Analysis Module** · 🟡 Shell anchor only
 > Market data analysis, instrument screening, and trade decision support
 
 ---

@@ -13,6 +13,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from CostView.src.db.connection import ConnectionManager
+
 # Pinned schema version. Bump → add new migrations/vN_to_vN+1.sql + apply.py runs it.
 SCHEMA_VERSION: int = 3
 
@@ -26,9 +28,9 @@ _MIGRATIONS_DIR: Path = _THIS.parent / "migrations"
 
 def connect(db_path: Path | str = REGIME_DB_PATH) -> sqlite3.Connection:
     """Open a regime.db connection with project-standard pragmas."""
-    conn = sqlite3.connect(str(db_path), isolation_level=None)  # autocommit; we manage txns
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    overrides = {"regime": Path(db_path)} if db_path != REGIME_DB_PATH else None
+    mgr = ConnectionManager(path_overrides=overrides) if overrides else ConnectionManager()
+    conn = mgr.get_admin_connection("regime")
     conn.row_factory = sqlite3.Row
     return conn
 

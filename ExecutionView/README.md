@@ -1,6 +1,6 @@
 # ExecutionView Module
 
-> **Order ExecutionView Module**  
+> **Order Execution Module** · 🟢 Production-ready
 > Order and route management with Bloomberg EMSX API integration
 
 ---

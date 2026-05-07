@@ -62,6 +62,7 @@ def run_journal(
              host, SCHEMA_VERSION),
         )
         run_id = cur.lastrowid
+        conn.commit()
     finally:
         conn.close()
 
@@ -91,5 +92,6 @@ def _finalize(db_path: Path, run_id: int, status: str, rec: _RunRecord,
             (status, err, rec.rows_written, rec.rows_updated, rec.config_version,
              finished.isoformat(timespec="seconds"), duration, run_id),
         )
+        conn.commit()
     finally:
         conn.close()

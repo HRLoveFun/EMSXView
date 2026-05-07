@@ -21,7 +21,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .db.connection import AccessTier
+from .db.connection import AccessTier, ConnectionManager
 from .outdated_tickers import load_outdated_ticker_set
 from .processed_fills_db import ProcessedFillsDB
 from .processing_config import ProcessingConfig as Config
@@ -45,10 +45,17 @@ class CalculateDailyMetrics:
         db: Optional[RawBDIBDB] = None,
         proc_db: Optional[ProcessedFillsDB] = None,
         history_chunk_size: int = DEFAULT_HISTORY_CHUNK_SIZE,
+        connection_manager: Optional[ConnectionManager] = None,
     ):
         self._db = db or RawBDIBDB()
         self._proc_db = proc_db or ProcessedFillsDB(access_tier=AccessTier.READ)
         self._history_chunk_size = history_chunk_size
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        elif db is not None and hasattr(db, "db_path"):
+            self._mgr = ConnectionManager(path_overrides={"raw_bdib": db.db_path})
+        else:
+            self._mgr = ConnectionManager()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -112,16 +119,14 @@ class CalculateDailyMetrics:
 
     def _load_bars_for_date(self, trade_date: str) -> pd.DataFrame:
         """Return all raw_bdib bars for a given date (all tickers)."""
-        import sqlite3
-        conn = sqlite3.connect(str(self._db.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = self._mgr.get_connection("raw_bdib", AccessTier.READ)
         try:
             df = pd.read_sql_query(
                 f"SELECT equ_ticker, mkt_timestamp, close, volume "
                 f"FROM {Config.RAW_BDIB_TABLE} "
                 "WHERE order_as_of_date = ? "
                 "ORDER BY equ_ticker, mkt_timestamp",
-                conn,
+                conn.raw_connection,
                 params=[trade_date],
             )
         finally:

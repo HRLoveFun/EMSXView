@@ -1,0 +1,77 @@
+﻿# EMSX Documentation Guide
+
+> 当前 docs 目录入口与维护规则
+> Last updated: 2026-05-07
+> 📦 已重组为 spec/api/ops/roadmap 子目录结构
+
+---
+
+## 1. Root Principles
+
+docs 根目录只保留入口导航和当前 handoff，其余按领域划入子目录：
+
+- docs/spec/ — 架构规范（稳定、真相源）
+- docs/api/ — API 接口定义
+- docs/ops/ — 运维部署
+- docs/roadmap/ — 路线图与计划
+
+已完成阶段的实施总结、一次性诊断报告归入 docs/archive/。
+
+---
+
+## 2. Canonical Docs
+
+| 路径 | 用途 | 何时更新 |
+|---|---|---|
+| docs/spec/project-structure.md | 当前仓库结构与权威实现面 | 结构调整、模块边界变化时 |
+| docs/spec/data-domain.md | 逻辑数据域与适配层边界 | 数据所有权或适配层变化时 |
+| docs/spec/memory.md | 稳定架构记忆与长期约束 | 形成新的稳定规则时 |
+| docs/dev-guide.md | 开发指南与验证约束 | 开发流程或权威入口变化时 |
+| docs/handoff.md | 当前阻塞、运行状态、下一步 | 每次阶段性收尾时 |
+| docs/api/database.md | DatabaseView API 契约 | API 变更时 |
+| docs/api/sequence-diagrams.md | 当前模块级时序说明 | ⚠️ 无 CI 保障，修改调用链后应同步更新 |
+| docs/api/emsx-api-guide.md | Bloomberg EMSX API 参考 | 外部分发 |
+| docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
+| docs/roadmap/wbs.md | 活跃路线图与阶段拆解 | 路线图变更时 |
+| docs/roadmap/task-templates.md | WBS 任务开工摘要 | 精简版，详见 wbs.md |
+
+---
+
+## 3. Generated And Reference Material
+
+| 位置 | 说明 |
+|---|---|
+| docs/modular_sequence_diagrams/ | 时序图的 Mermaid 源文件与图片 |
+
+---
+
+## 4. Knowledge Base Outside docs
+
+持续维护的知识库在 .github/knowledge/：
+
+| 文件 | 说明 |
+|---|---|
+| .github/knowledge/architecture-decisions.md | 架构决策 |
+| .github/knowledge/error-patterns.md | 错误模式与解法 |
+| .github/knowledge/user-needs.md | 高频用户需求 |
+| .github/knowledge/iteration-log.md | 迭代日志 |
+| .github/knowledge/metrics.md | 自评估指标 |
+
+Agent 总则见 .github/agent.md，过程指令见 .github/instructions/。
+
+---
+
+## 5. Archive Policy
+
+满足以下任一条件的文档应归档到 docs/archive/YYYY-MM-DD/：
+
+- 主要描述的功能或阶段已经完成
+- 主要内容是一次性诊断或修复报告
+- 仍在引用 app/、emsx-backend/ 等旧路径
+- 已被新的 source-of-truth 文档替代
+
+---
+
+## 6. Maintenance Rule Of Thumb
+
+如果某份文档不能回答"现在开发这项功能应该以哪里为准"，它不该留在 docs/ 下。

@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import warnings
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -34,6 +35,7 @@ import pandas as pd
 from .db.connection import (
     AccessControlledConnection,
     AccessTier,
+    ConnectionManager,
     backup_database,
     resolve_access_tier,
 )
@@ -50,26 +52,33 @@ class RawFillsDB:
         self,
         db_path: Optional[str] = None,
         access_tier: Optional[AccessTier] = None,
+        connection_manager: Optional[ConnectionManager] = None,
     ):
+        warnings.warn(
+            "RawFillsDB is deprecated. Use CostViewDatabase facade or "
+            "db.repositories.raw_fills_read/write via ConnectionManager. "
+            "See docs/spec/data-domain.md for the Data Platform extraction roadmap.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.db_path = Path(db_path or Config.RAW_FILLS_DB)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._access_tier = resolve_access_tier(access_tier)
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        else:
+            overrides = {"raw_fills": self.db_path} if db_path else {}
+            self._mgr = ConnectionManager(path_overrides=overrides)
         # Init always needs full access (CREATE TABLE etc.)
         self._init_db()
 
     def _get_conn(self) -> AccessControlledConnection:
         """Return an access-controlled SQLite connection."""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return AccessControlledConnection(conn, self._access_tier)
+        return self._mgr.get_connection("raw_fills", self._access_tier)
 
     def _get_admin_conn(self) -> sqlite3.Connection:
         """Return a raw connection for schema init/migration (always admin)."""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        return self._mgr.get_admin_connection("raw_fills")
 
     def _init_db(self) -> None:
         """Create tables if they don't exist, then migrate existing tables."""

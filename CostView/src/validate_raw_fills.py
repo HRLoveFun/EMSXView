@@ -24,7 +24,6 @@ Output:
 from __future__ import annotations
 
 import logging
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,8 +32,10 @@ import pandas as pd
 
 try:
     from src.processing_config import ProcessingConfig as Config
+    from src.db.connection import AccessTier, ConnectionManager
 except ImportError:
     from .processing_config import ProcessingConfig as Config
+    from .db.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +281,7 @@ def validate_raw_fills_db(
             tolerance=tolerance,
         )
 
-    conn = sqlite3.connect(str(db_path))
+    conn = ConnectionManager(path_overrides={"raw_fills": db_path} if db_path else {}).get_connection("raw_fills", AccessTier.READ).raw_connection
     try:
         table = Config.RAW_FILLS_TABLE
 
@@ -469,7 +470,7 @@ def validate_all_dates(
         List of ValidationResult, one per date.
     """
     db_path = Path(db_path or Config.RAW_FILLS_DB)
-    conn = sqlite3.connect(str(db_path))
+    conn = ConnectionManager(path_overrides={"raw_fills": db_path} if db_path else {}).get_connection("raw_fills", AccessTier.READ).raw_connection
     try:
         cursor = conn.execute(f"""
             SELECT DISTINCT source_date FROM {Config.RAW_FILLS_TABLE}

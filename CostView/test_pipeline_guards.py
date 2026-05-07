@@ -20,7 +20,7 @@ from CostView.src.processed_fills_db import ProcessedFillsDB
 from CostView.src.processing_config import ProcessingConfig as Config
 from CostView.src.raw_bdib_db import RawBDIBDB
 from CostView.src.tca_query_service import TcaQueryService
-from platform_data import MarketReferenceDataAdapter
+from platform_data.adapters import MarketReferenceDataAdapter
 
 
 class PipelineGuardTests(unittest.TestCase):

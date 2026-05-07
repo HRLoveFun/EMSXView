@@ -19,6 +19,7 @@ import pandas as pd
 from ..db.connection import (
     AccessControlledConnection,
     AccessTier,
+    ConnectionManager,
     resolve_access_tier,
 )
 from ..processing_config import ProcessingConfig as Config
@@ -56,32 +57,24 @@ class BaseProcessedFillsRepo:
         self,
         db_path: Optional[str] = None,
         access_tier: Optional[AccessTier] = None,
+        connection_manager: Optional[ConnectionManager] = None,
     ):
         self.db_path = Path(db_path or Config.PROCESSED_FILLS_DB)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._access_tier = resolve_access_tier(access_tier)
+        if connection_manager is not None:
+            self._mgr = connection_manager
+        else:
+            overrides = {"processed_fills": self.db_path} if db_path else {}
+            self._mgr = ConnectionManager(path_overrides=overrides)
 
     def _get_conn(self) -> AccessControlledConnection:
         """Return an access-controlled SQLite connection."""
-        conn = sqlite3.connect(
-            str(self.db_path),
-            timeout=Config.SQLITE_CONNECT_TIMEOUT_SEC,
-        )
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(f"PRAGMA busy_timeout={Config.SQLITE_BUSY_TIMEOUT_MS}")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return AccessControlledConnection(conn, self._access_tier)
+        return self._mgr.get_connection("processed_fills", self._access_tier)
 
     def _get_admin_conn(self) -> sqlite3.Connection:
         """Return a raw connection for schema init (always admin)."""
-        conn = sqlite3.connect(
-            str(self.db_path),
-            timeout=Config.SQLITE_CONNECT_TIMEOUT_SEC,
-        )
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(f"PRAGMA busy_timeout={Config.SQLITE_BUSY_TIMEOUT_MS}")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        return self._mgr.get_admin_connection("processed_fills")
 
     @staticmethod
     def _build_column_defs(columns: List[str], type_map: Dict[str, str]) -> str:
