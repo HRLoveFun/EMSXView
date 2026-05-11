@@ -266,7 +266,7 @@ def _run_pipeline_subprocess(job_id: str) -> None:
     lock_written = False
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-u", str(daily_update_script), "--once", "--max-duration", "3600"],
+            [sys.executable, "-u", str(daily_update_script), "--once"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
