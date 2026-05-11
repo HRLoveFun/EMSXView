@@ -22,8 +22,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: apiTarget,
           changeOrigin: true,
-          timeout: 120000,  // 120s timeout for long Bloomberg requests
-          proxyTimeout: 120000,
+          timeout: 600000,  // 600s (10 min) timeout for long pipeline/BDIB queries
+          proxyTimeout: 600000,
         },
         '/ws': {
           target: wsTarget,

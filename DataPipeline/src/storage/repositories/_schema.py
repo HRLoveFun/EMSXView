@@ -18,7 +18,7 @@ import sqlite3
 from typing import TYPE_CHECKING, List
 
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.common.schema import (
+from DataPipeline.src.storage.schema.columns import (
     AGG_1MIN_COLUMNS,
     AGG_COLUMNS,
     COLUMN_TYPE_MAP,

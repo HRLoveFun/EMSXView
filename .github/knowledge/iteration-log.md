@@ -250,7 +250,7 @@
 | 2026-04-29 10:32 | session | Stop | Session ended | — | auto |
 | 2026-04-29 10:33 | session | Stop | Session ended | — | auto |
 | 2026-04-29 10:34 | session | Stop | Session ended | — | auto |
-| 2026-04-29 | feat | User request — Database module data tangibility | Added GET /api/db/{key}/tables/{table}/schema and .../sample?limit=N (N<=200) backed by platform_data.repositories.get_schema/get_sample (PRAGMA-driven columns+indexes, date_column DESC or _rowid_ DESC ordering, JSON-safe cell coercion, sample-bounded NULL/all-same anomaly detection). Refactored DatabaseDetailDrawer into 3 Radix tabs (Overview / Schema & Sample / Integrity), added SchemaSamplePanel + SampleTable components. Updated docs/spec/memory.md API contract. | Backend smoke test on 9.97M-row raw_fills returned schema + 3-row sample with 7 anomalies; tsc --noEmit clean. | manual |
+| 2026-04-29 | feat | User request — Database module data tangibility | Added GET /api/db/{key}/tables/{table}/schema and .../sample?limit=N (N<=200) backed by platform_data.database_diagnostics.get_schema/get_sample (PRAGMA-driven columns+indexes, date_column DESC or _rowid_ DESC ordering, JSON-safe cell coercion, sample-bounded NULL/all-same anomaly detection). Refactored DatabaseDetailDrawer into 3 Radix tabs (Overview / Schema & Sample / Integrity), added SchemaSamplePanel + SampleTable components. Updated docs/spec/memory.md API contract. | Backend smoke test on 9.97M-row raw_fills returned schema + 3-row sample with 7 anomalies; tsc --noEmit clean. | manual |
 | 2026-04-29 10:48 | session | Stop | Session ended | — | auto |
 | 2026-04-29 10:53 | session | Stop | Session ended | — | auto |
 | 2026-04-29 10:57 | session | Stop | Session ended | — | auto |
@@ -377,7 +377,7 @@
 | 2026-05-07 22:07 | session | Stop | Session ended | — | auto |
 | 2026-05-07 22:18 | task | Phase 1: Data Platform extraction — zero-DB processing modules | Created DataPipeline/ package structure; migrated fill_cleaner.py, fill_processor.py, fill_aggregator.py, fill_bdib_integrated.py → DataPipeline/src/processing/; migrated bdib_fetcher.py → DataPipeline/src/acquisition/; created re-export stubs in CostView/src/ with DeprecationWarning | 81/81 tests passed. All 5 migrated modules import correctly via both DataPipeline and CostView re-export paths. | manual |
 | 2026-05-07 22:19 | session | Stop | Session ended | — | auto |
-| 2026-05-07 22:32 | task | Phase 2: Storage layer migration (highest risk) | Migrated CostView/src/db/connection.py, protocols.py, dto.py, repositories/ (9 files), schema/ (6 files) → DataPipeline/src/storage/. Updated all consumer imports: platform_data/adapters.py (2 locations), platform_data/repositories.py, CostView/src/db/facade.py (11 imports), CostView/src/db/__init__.py, db/schema/migrations/manager.py (2 locations), regime/ (3 files), attribution/repositories.py, __main__.py, validate_raw_fills.py, database_access.py, processed_fills_db/ (2 files). Deleted all migrated originals from CostView/src/db/ | 81/81 tests passed. platform_data and all CostView consumers import storage classes from DataPipeline.src.storage.*. CostView/src/db/ now only contains __init__.py (re-export) and facade.py (CostViewDatabase). | manual |
+| 2026-05-07 22:32 | task | Phase 2: Storage layer migration (highest risk) | Migrated CostView/src/db/connection.py, protocols.py, dto.py, repositories/ (9 files), schema/ (6 files) → DataPipeline/src/storage/. Updated all consumer imports: platform_data/adapters.py (2 locations), platform_data/repositories.py, DataPipeline/src/storage/facade.py (11 imports), CostView/src/db/__init__.py, db/schema/migrations/manager.py (2 locations), regime/ (3 files), attribution/repositories.py, __main__.py, validate_raw_fills.py, database_access.py, processed_fills_db/ (2 files). Deleted all migrated originals from CostView/src/db/ | 81/81 tests passed. platform_data and all CostView consumers import storage classes from DataPipeline.src.storage.*. CostView/src/db/ now only contains __init__.py (re-export) and facade.py (CostViewDatabase). | manual |
 | 2026-05-07 22:32 | session | Stop | Session ended | — | auto |
 | 2026-05-07 22:41 | task | Phase 3: Migrate fill_fetch.py, fill_ingestion.py, daily_metrics_calculator.py | Migrated fill_ingestion.py to DataPipeline/src/ingestion/ (imports updated to DataPipeline processing modules). Migrated fill_fetch.py to DataPipeline/src/ingestion/ — replaced SQLAlchemy FillFetchDatabase with lightweight FetchHistoryDB using ConnectionManager + pure sqlite3. Migrated daily_metrics_calculator.py to DataPipeline/src/processing/ — replaced RawBDIBDB/ProcessedFillsDB with CostViewDatabase facade. Created re-export stubs in CostView/src/ for all 3 files. | 81/81 tests passed. DataPipeline now fully owns ingestion and daily metrics processing. SQLAlchemy dependency eliminated from fetch history tracking. | manual |
 | 2026-05-07 22:41 | session | Stop | Session ended | — | auto |
@@ -465,3 +465,20 @@
 | 2026-05-09 00:44 | session | Stop | Session ended | — | auto |
 | 2026-05-11 15:18 | session | Stop | Session ended | — | auto |
 | 2026-05-11 15:27 | session | Stop | Session ended | — | auto |
+| 2026-05-11 15:44 | session | Stop | Session ended | — | auto |
+| 2026-05-11 15:57 | session | Stop | Session ended | — | auto |
+| 2026-05-11 16:04 | session | Stop | Session ended | — | auto |
+| 2026-05-11 17:01 | session | Stop | Session ended | — | auto |
+| 2026-05-11 17:53 | session | Stop | Session ended | — | auto |
+| 2026-05-11 18:26 | session | Stop | Session ended | — | auto |
+| 2026-05-11 18:33 | session | Stop | Session ended | — | auto |
+| 2026-05-11 18:35 | session | Stop | Session ended | — | auto |
+| 2026-05-11 18:47 | session | Stop | Session ended | — | auto |
+| 2026-05-11 18:49 | session | Stop | Session ended | — | auto |
+| 2026-05-11 18:52 | session | Stop | Session ended | — | auto |
+| 2026-05-11 19:02 | session | Stop | Session ended | — | auto |
+| 2026-05-11 19:02 | error | 用户报告前端两个 Failed to fetch 错误：Trigger Update 和 Raw BDIB summary | 排查发现 Vite proxy timeout=120s 对长操作不足。修复：①增大 proxy timeout 到 600s；②移除 SQL 中 TRIM() 以允许索引优化；③添加复合索引 (order_as_of_date, equ_ticker)；④为前端 fetch 添加 AbortController 超时控制；⑤添加 stale lock 年龄保护；⑥添加轮询最大时长保护。 | 所有修改无错误验证通过。知识库已记录该错误模式。 | manual |
+| 2026-05-11 19:03 | session | Stop | Session ended | — | auto |
+| 2026-05-11 19:06 | session | Stop | Session ended | — | auto |
+| 2026-05-11 19:08 | session | Stop | Session ended | — | auto |
+| 2026-05-11 19:14 | session | Stop | Session ended | — | auto |

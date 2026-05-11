@@ -31,7 +31,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .../EMSX
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from platform_data import repositories as repo  # noqa: E402
+from platform_data import database_diagnostics as repo  # noqa: E402
 
 from ._pipeline_jobs import get_job, trigger_pipeline  # noqa: E402
 

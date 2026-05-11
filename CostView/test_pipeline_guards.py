@@ -211,7 +211,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertIn("intraday_volatility", columns)
 
     def test_daily_metrics_use_bloomberg_daily_fields_and_preserve_intraday_logic(self) -> None:
-        from CostView.src.db.facade import CostViewDatabase
+        from DataPipeline.src.storage.facade import CostViewDatabase
         from DataPipeline.src.storage.connection import ConnectionManager
 
         class FakeFillsRead:

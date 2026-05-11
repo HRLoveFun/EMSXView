@@ -1,14 +1,19 @@
-"""Column definitions for CostView database tables.
+"""
+Column definitions for CostView database tables.
 
-Migrated from CostView/src/schema.py. This is the single source of truth
-for all column definitions used across the database subsystem.
+Single source of truth for all column definitions used across the
+database subsystem.
+
+``AGG_COLUMNS`` and ``AGG_1MIN_COLUMNS`` live here (not in the
+processed_fills schema module) because they are also referenced by
+aggregation queries in the ingestion pipeline.
 """
 
 from __future__ import annotations
 
 from typing import Dict, List
 
-# ── Raw fill columns (authoritative list) ──────────────────────────────
+# Raw fill columns — keep FILL_FIELD_EXTRACTORS in fill_fetch.py in sync.
 
 EMSX_FILL_COLUMNS: List[str] = [
     "OrderId", "Account", "SecurityName", "Ticker", "Exchange",
@@ -33,8 +38,6 @@ EXECUTION_HISTORY_SOURCE_COLUMNS: List[str] = [
     "primary_source", "source_priority", "refresh_strategy",
     "source_refreshed_at", "source_lineage",
 ]
-
-# ── processed_fills table ──────────────────────────────────────────────
 
 PROCESSED_COLUMNS: List[str] = [
     "FillId", "OrderId", "RouteId", "mkt_timestamp",

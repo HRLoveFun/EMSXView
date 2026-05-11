@@ -1193,9 +1193,9 @@ export function BatchRouteOrderDialog({
                         <div className="text-muted-foreground">{typeof d.message === 'string' ? d.message : JSON.stringify(d.message)}</div>
                         {/Invalid Handling Instruction/i.test(typeof d.message === 'string' ? d.message : JSON.stringify(d.message)) && (
                           <div className="text-amber-700 dark:text-amber-300 mt-0.5">
-                            提示：该 broker 代码未在 EMSX API 中启用 staging
-                            权限。请联系 Bloomberg / broker 开通 API
-                            授权后再路由。
+                            Note: This broker code does not have staging permission enabled in the EMSX API.
+                            Please contact Bloomberg / broker to enable API
+                            authorization before routing.
                           </div>
                         )}
                       </li>

@@ -548,7 +548,7 @@ export function SettingsBoard({
                 role="status"
                 aria-live="polite"
               >
-                ✓ 已保存
+                ✓ Saved
               </span>
             )}
           </div>
@@ -945,10 +945,10 @@ export function SettingsBoard({
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <GitBranch className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base">路由方案管理</CardTitle>
+              <CardTitle className="text-base">Route Plan Management</CardTitle>
             </div>
             <CardDescription>
-              预设路由方案模板：匹配条件 + Broker 分配/时间拆分策略。新订单到达时可自动/手动匹配并生成待确认子订单。
+              Predefined route plan templates: match conditions + Broker allocation / time-split strategies. New orders can be auto/manually matched to generate pending sub-order proposals.
             </CardDescription>
           </CardHeader>
           <CardContent>

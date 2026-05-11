@@ -31,44 +31,44 @@ export function RestartHint() {
           <ChevronRight className="h-3.5 w-3.5" />
         )}
         <Info className="h-3.5 w-3.5" />
-        <span className="font-medium">看到的字段或功能与最新代码不一致？点这里看怎么办</span>
+        <span className="font-medium">See fields or features that don't match the latest code? Click here for help</span>
       </button>
 
       {open && (
         <div className="mt-2 space-y-2 pl-6 leading-relaxed">
           <p>
-            后端 (FastAPI) 修改 Python 代码后需要重启才能生效；前端代码通常会自动热更新，但少数改动也需要重启。
+            After modifying Python code in the backend (FastAPI), a restart is required for changes to take effect. Frontend code usually hot-reloads automatically, but some changes also require a restart.
           </p>
           <p className="font-medium text-sky-900 dark:text-sky-100">
-            最简单的做法：双击项目根目录里的{' '}
+            Easiest way: double-click{' '}
             <code className="rounded bg-sky-100 px-1.5 py-0.5 font-mono dark:bg-sky-900/60">
-              重启服务.bat
+              restart-services.bat
             </code>
           </p>
           <ol className="list-decimal space-y-0.5 pl-5 text-[11px]">
             <li>
-              打开文件夹{' '}
+              Open the folder{' '}
               <code className="font-mono">C:\Users\hrchen\Documents\EMSX</code>
             </li>
             <li>
-              找到{' '}
+              Find{' '}
               <code className="rounded bg-sky-100 px-1.5 py-0.5 font-mono dark:bg-sky-900/60">
-                重启服务.bat
+                restart-services.bat
               </code>{' '}
-              这个文件，<strong>双击</strong>它
+              file, then <strong>double-click</strong> it
             </li>
-            <li>等黑色窗口出现「[成功] 服务已重启完成」后，浏览器会自动刷新到前端页面</li>
+            <li>Wait for the black window to show "[Success] Service has been restarted", then the browser will automatically refresh to the frontend page</li>
             <li>
-              在本页右上角点{' '}
+              In the top-right corner of this page, click{' '}
               <code className="rounded bg-sky-100 px-1.5 py-0.5 font-mono dark:bg-sky-900/60">
                 Refresh
               </code>{' '}
-              即可看到最新数据
+              to see the latest data
             </li>
           </ol>
           <p className="text-[10px] text-sky-700 dark:text-sky-400">
-            提示：建议把这个 .bat 文件{' '}
-            <strong>右键 ▸ 发送到 ▸ 桌面快捷方式</strong>，以后在桌面上一键重启即可。
+            Tip: Right-click this .bat file and select{' '}
+            <strong>Send to ▸ Desktop shortcut</strong> for one-click restart from your desktop.
           </p>
         </div>
       )}

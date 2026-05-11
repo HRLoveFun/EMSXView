@@ -37,7 +37,7 @@ export function WorkspaceModuleTabs({
   const recCount = recommendations.length;
   return (
     <div className="space-y-4">
-      <div role="tablist" aria-label="工作台模块切换" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
+      <div role="tablist" aria-label="Workspace module switcher" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
         <button
           role="tab"
           aria-selected={activeModule === 'marketview'}
@@ -50,7 +50,7 @@ export function WorkspaceModuleTabs({
           onMouseEnter={prefetchMarketView}
           onFocus={prefetchMarketView}
         >
-          市场视图
+          Market View
         </button>
         <button
           role="tab"
@@ -63,29 +63,29 @@ export function WorkspaceModuleTabs({
           onClick={() => onModuleChange('execution')}
           title={
             candidateCount > 0
-              ? `待处理：来自 MarketView 的 ${candidateCount} 个候选标的，以及来自 CostView 的 ${recCount} 条建议`
+              ? `Pending: ${candidateCount} candidate symbol${candidateCount === 1 ? '' : 's'} from Market View, ${recCount} recommendation${recCount === 1 ? '' : 's'} from Cost View`
               : undefined
           }
         >
-          执行视图
+          Execution View
           {/* Spell out the badge meaning instead of using "MV→EV" jargon
               that non-technical users could not parse on first sight. */}
           {candidateCount > 0 && (
             <span
               className="ml-2 inline-flex items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-black"
-              aria-label={`待处理候选 ${candidateCount} 条（来自市场视图）`}
-              title={`待处理候选 ${candidateCount} 条（来自市场视图）`}
+              aria-label={`${candidateCount} pending candidate${candidateCount === 1 ? '' : 's'} (from Market View)`}
+              title={`${candidateCount} pending candidate${candidateCount === 1 ? '' : 's'} (from Market View)`}
             >
-              候选 {candidateCount}
+              Candidates {candidateCount}
             </span>
           )}
           {recCount > 0 && (
             <span
               className="ml-1 inline-flex items-center rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-black"
-              aria-label={`待处理建议 ${recCount} 条（来自成本视图）`}
-              title={`待处理建议 ${recCount} 条（来自成本视图）`}
+              aria-label={`${recCount} pending recommendation${recCount === 1 ? '' : 's'} (from Cost View)`}
+              title={`${recCount} pending recommendation${recCount === 1 ? '' : 's'} (from Cost View)`}
             >
-              建议 {recCount}
+              Recommendations {recCount}
             </span>
           )}
         </button>
@@ -101,7 +101,7 @@ export function WorkspaceModuleTabs({
           onMouseEnter={prefetchCostView}
           onFocus={prefetchCostView}
         >
-          成本视图
+          Cost View
         </button>
         <button
           role="tab"
@@ -115,7 +115,7 @@ export function WorkspaceModuleTabs({
           onMouseEnter={prefetchDatabaseView}
           onFocus={prefetchDatabaseView}
         >
-          数据库
+          Database
         </button>
       </div>
 

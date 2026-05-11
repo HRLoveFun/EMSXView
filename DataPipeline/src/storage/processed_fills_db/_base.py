@@ -23,7 +23,7 @@ from DataPipeline.src.storage.connection import (
     resolve_access_tier,
 )
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.common.schema import (
+from DataPipeline.src.storage.schema.columns import (
     AGG_1MIN_COLUMNS,
     AGG_COLUMNS,
     COLUMN_TYPE_MAP,

@@ -13,10 +13,10 @@ import {
 import type { Violation, ViolationCode } from '@/types';
 
 const VIOLATION_LABELS: Record<ViolationCode, string> = {
-  NOTIONAL_TOO_SMALL: '金额低于 USD 10K（软约束）',
-  NOTIONAL_TOO_LARGE: '金额高于 USD 49M',
-  JP_ODD_LOT: 'JP 不规则手数',
-  NOTIONAL_UNKNOWN: '无法估算金额（缺 last price）',
+  NOTIONAL_TOO_SMALL: 'Notional below USD 10K (soft constraint)',
+  NOTIONAL_TOO_LARGE: 'Notional above USD 49M',
+  JP_ODD_LOT: 'JP odd lot',
+  NOTIONAL_UNKNOWN: 'Cannot estimate notional (last price missing)',
 };
 
 export function violationLabel(code: ViolationCode): string {

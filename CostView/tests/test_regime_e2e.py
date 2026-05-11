@@ -27,7 +27,7 @@ from CostView.src.regime import (
     vol_regime,
 )
 from CostView.src.regime.config import ensure_default_config
-from CostView.src.regime.migrations.apply import apply_pending
+from DataPipeline.src.storage.schema.migrations.apply import apply_pending
 from CostView.src.regime.schema import connect, ensure_schema_current
 
 

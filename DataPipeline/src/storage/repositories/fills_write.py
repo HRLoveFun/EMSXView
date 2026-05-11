@@ -8,7 +8,7 @@ from typing import List, Optional, Set
 import pandas as pd
 
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.common.schema import (
+from DataPipeline.src.storage.schema.columns import (
     COLUMN_TYPE_MAP, PROCESSED_COLUMNS, ROUTE_REGISTRY_COLUMNS, AGG_COLUMNS,
     AGG_1MIN_COLUMNS, ORDER_HISTORY_COLUMNS, ROUTE_HISTORY_COLUMNS,
     ROUTE_EVENT_HISTORY_COLUMNS,

@@ -30,8 +30,8 @@ export function ExecutionViewTabs({
     if (count <= 0) return null;
     const label =
       kind === 'monitor'
-        ? `${count} 个订单触发了告警条件`
-        : `${count} 个订单存在交易异常`;
+        ? `${count} order${count === 1 ? '' : 's'} triggered alert conditions`
+        : `${count} order${count === 1 ? '' : 's'} have trade exceptions`;
     return (
       <span
         className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none"
@@ -45,7 +45,7 @@ export function ExecutionViewTabs({
 
   return (
     <>
-      <div role="tablist" aria-label="ExecutionView 子标签" className="flex items-center gap-1 border-b border-border">
+      <div role="tablist" aria-label="Execution View tabs" className="flex items-center gap-1 border-b border-border">
         <button
           role="tab"
           aria-selected={activeTab === 'monitor'}
@@ -56,7 +56,7 @@ export function ExecutionViewTabs({
           }`}
           onClick={() => onTabChange('monitor')}
         >
-          监控{renderBadge(monitorExceptionCount, 'monitor')}
+          Monitor{renderBadge(monitorExceptionCount, 'monitor')}
         </button>
         <button
           role="tab"
@@ -68,7 +68,7 @@ export function ExecutionViewTabs({
           }`}
           onClick={() => onTabChange('trade')}
         >
-          交易{renderBadge(tradeExceptionCount, 'trade')}
+          Trade{renderBadge(tradeExceptionCount, 'trade')}
         </button>
         <button
           role="tab"
@@ -80,7 +80,7 @@ export function ExecutionViewTabs({
           }`}
           onClick={() => onTabChange('route-engine')}
         >
-          路由引擎
+          Route Engine
         </button>
         <button
           role="tab"
@@ -92,7 +92,7 @@ export function ExecutionViewTabs({
           }`}
           onClick={() => onTabChange('settings')}
         >
-          设置
+          Settings
         </button>
       </div>
 

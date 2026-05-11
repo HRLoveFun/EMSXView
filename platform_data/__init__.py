@@ -17,4 +17,4 @@ from .adapters import (
     MarketReferenceDataAdapter,
     get_shared_handoff_exchange,
 )
-from . import repositories  # noqa: F401 — used by DatabaseView router
+from . import repositories  # noqa: F401 — backward-compat bridge (deprecated); DatabaseView router imports database_diagnostics directly

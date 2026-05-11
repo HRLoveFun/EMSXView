@@ -89,14 +89,14 @@ export function SchemaSamplePanel({ dbKey, tables, dbExists = true }: SchemaSamp
     if (!dbExists) {
       return (
         <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-6 text-center text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-          数据库文件还没生成。这个数据库需要先运行一次完整的数据更新流程（
-          <span className="font-mono">daily_update</span>）才会出现表。
+          The database file has not been created yet. This database requires a full data update run (
+          <span className="font-mono">daily_update</span>) before tables appear.
         </div>
       );
     }
     return (
       <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-        这个数据库目前没有可展示的表。
+        This database currently has no tables to display.
       </div>
     );
   }

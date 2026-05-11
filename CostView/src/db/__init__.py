@@ -7,8 +7,8 @@ Usage:
     # Connection management (new import path)
     from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
 
-    # Unified facade (CostView concept, kept here)
-    from CostView.src.db.facade import CostViewDatabase
+    # Unified facade (CostView concept, migrated to DataPipeline)
+    from DataPipeline.src.storage.facade import CostViewDatabase
 """
 
 from DataPipeline.src.storage.connection import (

@@ -102,3 +102,5 @@ export async function fetchIntradayFeatures(
   const json = await response.json();
   return json.data as IntradayFeatureSnapshot;
 }
+  return json.data as IntradayFeatureSnapshot;
+}

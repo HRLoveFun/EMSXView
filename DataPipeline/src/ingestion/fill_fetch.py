@@ -38,7 +38,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
-from DataPipeline.src.common.schema import EMSX_FILL_COLUMNS
+from DataPipeline.src.storage.schema.columns import EMSX_FILL_COLUMNS
 
 load_dotenv()
 
@@ -379,31 +379,32 @@ class BloombergFillFetcher:
                 event = self._session.nextEvent(self.event_timeout_ms)
             except Exception as e:
                 raise EMSXRequestError(f"Timeout or error waiting for event: {e}")
-            if event.eventType == blpapi.Event.PARTIAL_RESPONSE:
+            et = event.eventType()
+            if et == blpapi.Event.PARTIAL_RESPONSE:
                 consecutive_timeouts = 0
                 for msg in event:
-                    if msg.messageType == GET_FILLS_RESPONSE:
+                    if msg.messageType() == GET_FILLS_RESPONSE:
                         try:
                             fill = _parse_fill_message(msg)
                             fills.append(fill)
                         except Exception as e:
                             all_parse_errors.append(f"Parse error: {e}")
-            elif event.eventType == blpapi.Event.RESPONSE:
+            elif et == blpapi.Event.RESPONSE:
                 consecutive_timeouts = 0
                 for msg in event:
-                    if msg.messageType == GET_FILLS_RESPONSE:
+                    if msg.messageType() == GET_FILLS_RESPONSE:
                         try:
                             fill = _parse_fill_message(msg)
                             fills.append(fill)
                         except Exception as e:
                             all_parse_errors.append(f"Parse error: {e}")
                 done = True
-            elif event.eventType == blpapi.Event.REQUEST_STATUS:
+            elif et == blpapi.Event.REQUEST_STATUS:
                 for msg in event:
                     if msg.hasElement(ERROR_INFO):
                         err = msg.getElement(ERROR_INFO)
                         raise EMSXRequestError(f"Bloomberg request error: {err}")
-            elif event.eventType == blpapi.Event.TIMEOUT:
+            elif et == blpapi.Event.TIMEOUT:
                 consecutive_timeouts += 1
                 logger.warning(
                     f"Bloomberg event timeout #{consecutive_timeouts} "
@@ -420,6 +421,7 @@ class BloombergFillFetcher:
                 raise EMSXRequestError("Event processing exceeded max iterations")
         if all_parse_errors:
             logger.warning(f"Parse errors during fetch: {len(all_parse_errors)} errors")
+        logger.info(f"Fetched {len(fills)} fills from Bloomberg for {from_date.date()}")
         return fills
 
     def __enter__(self):
@@ -477,8 +479,8 @@ class FillFetch:
         # Primary DB: raw_fills.db for upsert + fetch_log
         self.raw_db = None
         try:
-            from CostView.src.db.facade import CostViewDatabase
-            self.raw_db = CostViewDatabase().raw_db
+            from DataPipeline.src.storage.raw_fills_db import RawFillsDB
+            self.raw_db = RawFillsDB()
         except Exception as e:
             logger.warning(f"Failed to initialize raw_fills.db (fetch_log unavailable): {e}")
 
@@ -526,9 +528,9 @@ class FillFetch:
                 logger.debug(f"Could not read fetch_log: {e}")
         last_processed = None
         try:
-            from CostView.src.db.facade import CostViewDatabase
-            proc_db = CostViewDatabase().proc_db
-            dates = proc_db.get_processed_dates(stage="processed")
+            from DataPipeline.src.storage.facade import CostViewDatabase
+            proc_db = CostViewDatabase()
+            dates = proc_db.fills_read.get_processed_dates(stage="processed")
             if dates:
                 last_processed = datetime.strptime(dates[-1], "%Y%m%d").date()
         except Exception as e:
@@ -800,9 +802,9 @@ class FillFetch:
             except Exception:
                 pass
         try:
-            from CostView.src.db.facade import CostViewDatabase
-            proc_db = CostViewDatabase().proc_db
-            stats['execution_history'] = proc_db.get_execution_history_stats()
+            from DataPipeline.src.storage.facade import CostViewDatabase
+            proc_db = CostViewDatabase()
+            stats['execution_history'] = proc_db.fills_read.get_execution_history_stats()
         except Exception:
             pass
         return stats

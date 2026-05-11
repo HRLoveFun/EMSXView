@@ -15,7 +15,7 @@ from DataPipeline.src.storage.fill_bdib_db import FillBDIBDB
 from DataPipeline.src.storage.processed_raw_bdib_db import ProcessedRawBDIBDB
 from DataPipeline.src.storage.raw_bdib_db import RawBDIBDB
 from DataPipeline.src.storage.raw_fills_db import RawFillsDB
-from CostView.src.db.facade import CostViewDatabase
+from DataPipeline.src.storage.facade import CostViewDatabase
 
 logger = logging.getLogger(__name__)
 

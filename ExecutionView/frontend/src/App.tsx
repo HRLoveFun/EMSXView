@@ -36,7 +36,7 @@ function ModuleLoadingSkeleton({ name }: { name: string }) {
       className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground"
     >
       <Spinner className="h-6 w-6" />
-      <div>正在加载 {name} 模块…</div>
+      <div>Loading {name} module…</div>
     </div>
   );
 }
@@ -130,7 +130,7 @@ function App() {
         // look like a config mismatch with no explanation.
         addToast(
           'error',
-          '检测到 VITE_API_URL 为非安全协议（http/ws），已自动切换为同源 WSS。请检查环境配置。',
+          'Insecure VITE_API_URL protocol detected (http/ws). Automatically switched to same-origin WSS. Please check your environment configuration.',
         );
         wsBase = `${proto}//${window.location.host}`;
       } else {
@@ -417,7 +417,7 @@ function App() {
           {/* The connection phase is already prominent in the toolbar; the
               footer keeps a single non-redundant attribution so users still
               know the data source without seeing the same status twice. */}
-          <div>来源：Bloomberg Terminal · {footerConnectionText}</div>
+          <div>Source: Bloomberg Terminal · {footerConnectionText}</div>
         </div>
       </footer>
       </HandoffContractsProvider>

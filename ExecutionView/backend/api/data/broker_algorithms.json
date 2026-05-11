@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "lastUpdated": "2026-05-08T17:19:34.281704",
+  "lastUpdated": "2026-05-11T15:40:15.543419",
   "configs": [
     {
       "broker": "EQ-BHP",
@@ -13696,7 +13696,22 @@
       "strategies": [
         {
           "name": "DMA",
-          "parameters": []
+          "parameters": [
+            {
+              "fieldName": "MaxFloor",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "MaxFloor parameter"
+            },
+            {
+              "fieldName": "TradingSess",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "TradingSess parameter"
+            }
+          ]
         },
         {
           "name": "VWAP.",

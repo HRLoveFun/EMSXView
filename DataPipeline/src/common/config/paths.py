@@ -21,8 +21,10 @@ class PathsConfig:
     # BASE DIRECTORIES
     # ═══════════════════════════════════════════════════════════════════════
 
-    ROOT_DIR: Path = Path(__file__).resolve().parents[2]               # DataPipeline/src/
-    DATA_DIR: Path = ROOT_DIR / "data"
+    # Project root is 4 levels up: .../DataPipeline/src/common/config/paths.py
+    _PROJECT_ROOT: Path = Path(__file__).resolve().parents[4]
+    ROOT_DIR: Path = _PROJECT_ROOT / "DataPipeline" / "src"
+    DATA_DIR: Path = _PROJECT_ROOT / "CostView" / "data"
     LOGGING_DIR: Path = ROOT_DIR / "logs"
 
     # ═══════════════════════════════════════════════════════════════════════

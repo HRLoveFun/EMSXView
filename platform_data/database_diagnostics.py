@@ -1,4 +1,8 @@
-"""Read-only repository layer for the DatabaseView module.
+"""Read-only diagnostic layer for the DatabaseView module.
+
+Renamed from ``platform_data/repositories.py`` to clarify that this is a
+*diagnostic query layer* for the frontend DatabaseView, not a business
+logic repository.
 
 This module exposes *diagnostic* statistics over the CostView SQLite files
 without leaking the underlying DB classes to routing code. It keeps the
@@ -529,7 +533,7 @@ def _per_date_counts(
         rows = conn.execute(
             f"SELECT [{date_column}] AS d, COUNT(*) AS c "
             f"FROM [{table}] "
-            f"WHERE [{date_column}] IS NOT NULL AND [{date_column}] != '' "
+            f"WHERE [{date_column}] IS NOT NULL AND TRIM([{date_column}]) != '' "
             f"GROUP BY [{date_column}] "
             f"ORDER BY d ASC "
             f"LIMIT ?",

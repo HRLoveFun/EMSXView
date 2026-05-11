@@ -63,10 +63,10 @@ export class ErrorBoundary extends Component<Props, State> {
         >
           <AlertTriangle className="h-8 w-8 text-destructive" />
           <div className="text-sm font-semibold text-destructive">
-            {this.props.label || '页面区域'} 遇到错误
+            {this.props.label || 'This area'} encountered an error
           </div>
           <div className="max-w-md text-xs text-muted-foreground">
-            {this.state.error?.message || '未知错误'}
+            {this.state.error?.message || 'Unknown error'}
           </div>
           <button
             type="button"
@@ -74,7 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
             className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             <RefreshCw className="h-3 w-3" />
-            重试
+            Retry
           </button>
         </div>
       );
