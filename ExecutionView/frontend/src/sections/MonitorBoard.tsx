@@ -100,7 +100,7 @@ function ThresholdInput({
       min={0}
       step={step}
       disabled={disabled}
-      title={flashInvalid ? '数值无效，已恢复为原值' : undefined}
+      title={flashInvalid ? 'Invalid value, restored to original' : undefined}
       className={`h-6 rounded border ${flashInvalid ? 'border-amber-500 ring-1 ring-amber-500' : 'border-input'} bg-background px-1.5 text-xs text-foreground tabular-nums
         focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${className ?? ''}`}
     />

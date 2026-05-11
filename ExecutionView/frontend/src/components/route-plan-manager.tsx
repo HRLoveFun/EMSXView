@@ -55,7 +55,7 @@ export function RoutePlanManager() {
   };
 
   const handleDelete = async (planId: number) => {
-    if (!confirm('确认删除此路由方案？')) return;
+    if (!confirm('Are you sure you want to delete this route plan?')) return;
     await apiService.deleteRoutePlan(planId);
     loadPlans();
   };
@@ -80,9 +80,9 @@ export function RoutePlanManager() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">路由方案管理</h3>
+          <h3 className="text-lg font-semibold">Route Plan Management</h3>
           <p className="text-sm text-muted-foreground">
-            预设路由方案模板，自动匹配订单并生成待确认的子订单
+            Predefined route plan templates that automatically match orders and generate pending sub-order proposals
           </p>
         </div>
         <Button
@@ -90,7 +90,7 @@ export function RoutePlanManager() {
           onClick={() => { setEditPlan(null); setIsDialogOpen(true); }}
         >
           <Plus className="h-4 w-4 mr-1" />
-          新建方案
+          New Plan
         </Button>
       </div>
 
@@ -103,20 +103,20 @@ export function RoutePlanManager() {
 
       {plans.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-          <p className="text-sm">暂无路由方案</p>
-          <p className="text-xs mt-1">点击"新建方案"创建第一个路由方案</p>
+          <p className="text-sm">No route plans</p>
+          <p className="text-xs mt-1">Click "New Plan" to create your first route plan</p>
         </div>
       ) : (
         <div className="rounded-md border">
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
-                <th className="text-left px-3 py-2 font-medium">名称</th>
-                <th className="text-left px-3 py-2 font-medium">匹配条件</th>
-                <th className="text-left px-3 py-2 font-medium">拆分方式</th>
-                <th className="text-left px-3 py-2 font-medium">模式</th>
-                <th className="text-left px-3 py-2 font-medium">状态</th>
-                <th className="text-right px-3 py-2 font-medium">操作</th>
+                <th className="text-left px-3 py-2 font-medium">Name</th>
+                <th className="text-left px-3 py-2 font-medium">Match Criteria</th>
+                <th className="text-left px-3 py-2 font-medium">Split Method</th>
+                <th className="text-left px-3 py-2 font-medium">Mode</th>
+                <th className="text-left px-3 py-2 font-medium">Status</th>
+                <th className="text-right px-3 py-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -137,15 +137,15 @@ export function RoutePlanManager() {
                       {plan.matchPortfolio && <Badge variant="outline" className="text-xs">{plan.matchPortfolio}</Badge>}
                       {plan.matchTrader && <Badge variant="outline" className="text-xs">{plan.matchTrader}</Badge>}
                       {!plan.matchSymbol && !plan.matchPortfolio && !plan.matchTrader && (
-                        <span className="text-xs text-muted-foreground">全部</span>
+                        <span className="text-xs text-muted-foreground">All</span>
                       )}
                     </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <Badge variant="secondary" className="text-xs">
-                      {plan.splitType === 'BROKER_SPLIT' ? 'Broker分配' :
-                       plan.splitType === 'TIME_SCHEDULE' ? `时间拆分 (${plan.scheduleType || 'TWAP'})` :
-                       plan.splitType === 'HYBRID' ? 'Broker+时间' : plan.splitType}
+                      {plan.splitType === 'BROKER_SPLIT' ? 'Broker Split' :
+                       plan.splitType === 'TIME_SCHEDULE' ? `Time Split (${plan.scheduleType || 'TWAP'})` :
+                       plan.splitType === 'HYBRID' ? 'Broker+Time' : plan.splitType}
                     </Badge>
                     {plan.allocations.length > 0 && (
                       <div className="text-xs text-muted-foreground mt-0.5">
@@ -155,17 +155,17 @@ export function RoutePlanManager() {
                   </td>
                   <td className="px-3 py-2.5">
                     <Badge variant={plan.activationMode === 'AUTO' ? 'default' : 'outline'} className="text-xs">
-                      {plan.activationMode === 'AUTO' ? '自动' : '手动'}
+                      {plan.activationMode === 'AUTO' ? 'Auto' : 'Manual'}
                     </Badge>
                   </td>
                   <td className="px-3 py-2.5">
                     {testResult?.planId === plan.id ? (
                       <Badge variant="secondary" className="text-xs">
-                        匹配 {testResult.matchCount} 单
+                        {testResult.matchCount} order{testResult.matchCount === 1 ? '' : 's'} matched
                       </Badge>
                     ) : (
                       <Badge variant={plan.enabled ? 'default' : 'secondary'} className="text-xs">
-                        {plan.enabled ? '启用' : '禁用'}
+                        {plan.enabled ? 'Enabled' : 'Disabled'}
                       </Badge>
                     )}
                   </td>
@@ -173,28 +173,28 @@ export function RoutePlanManager() {
                     <div className="flex items-center justify-end gap-0.5">
                       <Button
                         variant="ghost" size="icon" className="h-7 w-7"
-                        title="测试匹配"
+                        title="Test match"
                         onClick={() => handleTestMatch(plan.id)}
                       >
                         <Play className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost" size="icon" className="h-7 w-7"
-                        title={plan.enabled ? '禁用' : '启用'}
+                        title={plan.enabled ? 'Disable' : 'Enable'}
                         onClick={() => handleToggleEnabled(plan)}
                       >
                         {plan.enabled ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
                       </Button>
                       <Button
                         variant="ghost" size="icon" className="h-7 w-7"
-                        title="编辑"
+                        title="Edit"
                         onClick={() => { setEditPlan(plan); setIsDialogOpen(true); }}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                        title="删除"
+                        title="Delete"
                         onClick={() => handleDelete(plan.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -230,9 +230,9 @@ interface RoutePlanDialogProps {
 }
 
 const splitTypeOptions: { value: SplitType; label: string }[] = [
-  { value: 'BROKER_SPLIT', label: 'Broker 分配' },
-  { value: 'TIME_SCHEDULE', label: '时间拆分' },
-  { value: 'HYBRID', label: 'Broker + 时间 (混合)' },
+  { value: 'BROKER_SPLIT', label: 'Broker Split' },
+  { value: 'TIME_SCHEDULE', label: 'Time Split' },
+  { value: 'HYBRID', label: 'Broker + Time (Hybrid)' },
 ];
 
 const scheduleTypeOptions = [
@@ -342,16 +342,16 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
   };
 
   const handleSubmit = async () => {
-    if (!name.trim()) { setError('请输入方案名称'); return; }
-    if (!matchMarket.trim()) { setError('请选择市场'); return; }
+    if (!name.trim()) { setError('Please enter a plan name'); return; }
+    if (!matchMarket.trim()) { setError('Please select a market'); return; }
 
     if (splitType === 'BROKER_SPLIT' || splitType === 'HYBRID') {
-      if (allocations.length === 0) { setError('请至少添加一个 Broker 分配'); return; }
+      if (allocations.length === 0) { setError('Please add at least one Broker allocation'); return; }
       const pctSum = allocations
         .filter(a => a.allocationType === 'PERCENTAGE')
         .reduce((s, a) => s + a.allocationValue, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
-        setError(`百分比分配总和为 ${pctSum.toFixed(1)}%，应为 100%`);
+        setError(`Total percentage allocation is ${pctSum.toFixed(1)}%, expected 100%`);
         return;
       }
     }
@@ -400,7 +400,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
       onSaved();
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败');
+      setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -413,32 +413,32 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editPlan ? '编辑路由方案' : '新建路由方案'}</DialogTitle>
+          <DialogTitle>{editPlan ? 'Edit Route Plan' : 'New Route Plan'}</DialogTitle>
           <DialogDescription>
-            配置匹配条件和拆分策略，用于自动或手动生成子订单提案
+            Configure match conditions and split strategy for auto or manual generation of sub-order proposals
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
           {/* Basic info */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label className="text-right">名称 *</Label>
+            <Label className="text-right">Name *</Label>
             <Input
               value={name}
               onChange={e => setName(e.target.value)}
               className="col-span-3"
-              placeholder="例如：AAPL 多Broker分配"
+              placeholder="e.g. AAPL Multi-Broker Split"
             />
           </div>
 
           {/* Match criteria */}
           <div className="border-t pt-4 mt-2">
-            <Label className="text-sm font-semibold mb-2 block">匹配条件（市场为必选）</Label>
+            <Label className="text-sm font-semibold mb-2 block">Match Conditions (Market is required)</Label>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">市场 *</Label>
+                <Label className="text-xs text-muted-foreground">Market *</Label>
                 <Select value={matchMarket} onValueChange={v => setMatchMarket(v)}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="选择市场..." /></SelectTrigger>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select market..." /></SelectTrigger>
                   <SelectContent>
                     {marketOptions.map(m => (
                       <SelectItem key={m} value={m}>{m}</SelectItem>
@@ -447,50 +447,50 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                 </Select>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">货币（可选）</Label>
+                <Label className="text-xs text-muted-foreground">Currency (optional)</Label>
                 <Input
                   value={matchCurrency}
                   onChange={e => setMatchCurrency(e.target.value.toUpperCase())}
-                  placeholder="如 USD, JPY"
+                  placeholder="e.g. USD, JPY"
                   className="mt-1"
                   maxLength={8}
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">股票代码 (支持 * 通配符)</Label>
+                <Label className="text-xs text-muted-foreground">Symbol (supports * wildcard)</Label>
                 <Input
                   value={matchSymbol}
                   onChange={e => setMatchSymbol(e.target.value)}
-                  placeholder="如 AAPL, 700.*"
+                  placeholder="e.g. AAPL, 700.*"
                   className="mt-1"
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">方向</Label>
+                <Label className="text-xs text-muted-foreground">Side</Label>
                 <Select value={matchSide} onValueChange={v => setMatchSide(v as MatchSide)}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="BOTH">买入+卖出</SelectItem>
-                    <SelectItem value="BUY">仅买入</SelectItem>
-                    <SelectItem value="SELL">仅卖出</SelectItem>
+                    <SelectItem value="BOTH">Buy+Sell</SelectItem>
+                    <SelectItem value="BUY">Buy Only</SelectItem>
+                    <SelectItem value="SELL">Sell Only</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">组合</Label>
+                <Label className="text-xs text-muted-foreground">Portfolio</Label>
                 <Input
                   value={matchPortfolio}
                   onChange={e => setMatchPortfolio(e.target.value)}
-                  placeholder="如 ASIA_EQ"
+                  placeholder="e.g. ASIA_EQ"
                   className="mt-1"
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">交易员</Label>
+                <Label className="text-xs text-muted-foreground">Trader</Label>
                 <Input
                   value={matchTrader}
                   onChange={e => setMatchTrader(e.target.value)}
-                  placeholder="交易员名"
+                  placeholder="Trader name"
                   className="mt-1"
                 />
               </div>
@@ -499,10 +499,10 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
 
           {/* Split strategy */}
           <div className="border-t pt-4 mt-2">
-            <Label className="text-sm font-semibold mb-2 block">拆分策略</Label>
+            <Label className="text-sm font-semibold mb-2 block">Split Strategy</Label>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">拆分方式</Label>
+                <Label className="text-xs text-muted-foreground">Split Method</Label>
                 <Select value={splitType} onValueChange={v => setSplitType(v as SplitType)}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -513,12 +513,12 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                 </Select>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">激活模式</Label>
+                <Label className="text-xs text-muted-foreground">Activation Mode</Label>
                 <Select value={activationMode} onValueChange={v => setActivationMode(v as ActivationMode)}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="MANUAL">手动触发</SelectItem>
-                    <SelectItem value="AUTO">自动匹配</SelectItem>
+                    <SelectItem value="MANUAL">Manual Trigger</SelectItem>
+                    <SelectItem value="AUTO">Auto Match</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -528,10 +528,10 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
           {/* Time config */}
           {needsTimeConfig && (
             <div className="border-t pt-4 mt-2">
-              <Label className="text-sm font-semibold mb-2 block">时间拆分参数</Label>
+              <Label className="text-sm font-semibold mb-2 block">Time Split Parameters</Label>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">算法</Label>
+                  <Label className="text-xs text-muted-foreground">Algorithm</Label>
                   <Select value={scheduleType} onValueChange={setScheduleType}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -542,7 +542,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">切片数</Label>
+                  <Label className="text-xs text-muted-foreground">Slices</Label>
                   <Input
                     type="number"
                     value={numSlices}
@@ -552,7 +552,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                   />
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">结束时间</Label>
+                  <Label className="text-xs text-muted-foreground">End Time</Label>
                   <Input
                     value={defaultEndTimeLocal}
                     onChange={e => setDefaultEndTimeLocal(e.target.value)}
@@ -568,21 +568,21 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
           {needsBrokerConfig && (
             <div className="border-t pt-4 mt-2">
               <div className="flex items-center justify-between mb-2">
-                <Label className="text-sm font-semibold">Broker 分配</Label>
+                <Label className="text-sm font-semibold">Broker Allocation</Label>
                 <div className="flex items-center gap-2">
                   {availableBrokers.length > 0 && (
                     <span className="text-xs text-muted-foreground">
-                      {availableBrokers.length} brokers 可用
+                      {availableBrokers.length} broker{availableBrokers.length === 1 ? '' : 's'} available
                     </span>
                   )}
                   <Button variant="outline" size="sm" onClick={addAllocation}>
-                    <Plus className="h-3 w-3 mr-1" /> 添加
+                    <Plus className="h-3 w-3 mr-1" /> Add
                   </Button>
                 </div>
               </div>
               {allocations.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  {matchMarket ? '点击"添加"按钮添加 Broker 分配' : '请先选择市场以加载可用 Broker 列表'}
+                  {matchMarket ? 'Click "Add" to add a Broker allocation' : 'Please select a market first to load available brokers'}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -610,7 +610,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                         <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="PERCENTAGE">%</SelectItem>
-                          <SelectItem value="FIXED">股</SelectItem>
+                          <SelectItem value="FIXED">shares</SelectItem>
                         </SelectContent>
                       </Select>
                       <Input
@@ -631,7 +631,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                   ))}
                   {allocations.filter(a => a.allocationType === 'PERCENTAGE').length > 0 && (
                     <p className="text-xs text-muted-foreground text-right">
-                      百分比合计: {allocations.filter(a => a.allocationType === 'PERCENTAGE').reduce((s, a) => s + a.allocationValue, 0).toFixed(1)}%
+                      Total percentage: {allocations.filter(a => a.allocationType === 'PERCENTAGE').reduce((s, a) => s + a.allocationValue, 0).toFixed(1)}%
                     </p>
                   )}
                 </div>
@@ -649,11 +649,11 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            取消
+            Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {editPlan ? '保存' : '创建'}
+            {editPlan ? 'Save' : 'Create'}
           </Button>
         </DialogFooter>
       </DialogContent>

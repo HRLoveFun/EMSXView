@@ -217,10 +217,10 @@ export function ExecutionBoard({
         <button
           onClick={() => setShowSubOrderPanel(v => !v)}
           className={`inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors ${algoOrderCount > 0 ? 'ml-2' : 'ml-auto'}`}
-          title="待确认子订单"
+          title="Pending sub-orders"
         >
           <ChevronDown className={`h-3 w-3 transition-transform ${showSubOrderPanel ? '' : '-rotate-90'}`} />
-          子订单
+          Sub-Orders
           {pendingProposalCount > 0 && (
             <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold">
               {pendingProposalCount > 99 ? '99+' : pendingProposalCount}

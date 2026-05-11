@@ -358,3 +358,17 @@
 - **Date**: 2026-05-08
 - **Files**: platform_data/adapters.py, CostView/src/processing_config.py (已删除), scripts/workflow/check_costview_lint.py
 - **Lessons**: 1. 删除任何文件前必须 grep 全量扫描引用。\n2. platform_data/adapters.py 应避免对 CostView 的模块级导入，所有 CostView 引用应惰性化。\n3. 文档状态"已完成"不等于代码实际状态 — 需执行 grep + 测试双重验证。
+
+
+---
+
+## Pattern: 前端 Failed to fetch — Vite proxy timeout
+
+- **Signature**: 前端点击按钮/加载面板后，经过一段时间（30s-数分钟）出现 "Failed to fetch" 错误。后端实际仍在运行。浏览器 Network tab 显示请求 pending 后突然失败，无具体状态码。
+- **Root Cause**: Vite dev server proxy 默认 timeout=120000 (2分钟)。当后端请求（如 raw_bdib 的 GROUP BY 查询或 daily_update.py 子进程）超过此时间时，Vite proxy 中断连接并返回空响应，浏览器报 "Failed to fetch"。后端实际仍在运行，导致前端/后端状态不一致。
+- **Resolution**:
+1. 增大 Vite proxy timeout: ExecutionView/frontend/vite.config.ts 中 /api proxy 的 timeout 从 120000 改为 600000 (10分钟)。2. 优化慢查询：移除 SQL WHERE 子句中的 TRIM() 函数调用以允许 SQLite 使用索引覆盖扫描 (platform_data/repositories.py 中的 _per_date_counts, _sum_per_date_count, _date_coverage)。3. 添加复合索引: 在 raw_bdib 表上创建 idx_raw_bdib_date_ticker (order_as_of_date, equ_ticker) 覆盖 intraday-features 查询。4. 为前端 fetch 添加 AbortController 超时控制，给用户明确超时提示而非 "Failed to fetch"。
+- **Status**: Resolved
+- **Date**: 2026-05-11
+- **Files**: ExecutionView/frontend/vite.config.ts, platform_data/repositories.py, DataPipeline/src/storage/raw_bdib_db.py, DataPipeline/src/storage/schema/inline_ddl.py, ExecutionView/frontend/src/modules/databaseview/services/api.ts, ExecutionView/frontend/src/modules/marketview/services/api.ts, ExecutionView/frontend/src/modules/databaseview/DatabaseViewModule.tsx, ExecutionView/backend/api/routers/_pipeline_jobs.py
+- **Lessons**: Vite proxy timeout 是前端 "Failed to fetch" 的常见但容易被忽略的根因。排查时先查看浏览器 Network tab 确认请求 pending 时间与 proxy timeout 设置是否吻合。对耗时操作(>2min)的 API 端点应采用异步模式（立即返回 job_id + 前端轮询状态），或增大 proxy timeout。SQL 中的 TRIM() 会阻止 SQLite 索引优化，对清洗过的数据应使用直接的比较操作。

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.common.schema import ALL_RAW_COLUMNS, EMSX_FILL_COLUMNS
+from DataPipeline.src.storage.schema.columns import ALL_RAW_COLUMNS, EMSX_FILL_COLUMNS
 from ._base import BaseRepository
 
 logger = logging.getLogger(__name__)

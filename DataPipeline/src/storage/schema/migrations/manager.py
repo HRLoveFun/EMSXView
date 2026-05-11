@@ -85,11 +85,15 @@ class MigrationManager:
             self._ensure_inline_schema(database)
 
     def _ensure_regime_current(self) -> None:
-        """Apply regime.db migrations using its formal system."""
+        """Apply regime.db migrations using the consolidated migration runner.
+
+        Calls ``apply_pending`` from the DataPipeline migration module directly,
+        eliminating the dependency on CostView.src.regime.schema.
+        """
         try:
-            from CostView.src.regime.schema import ensure_schema_current
+            from DataPipeline.src.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
             db_path = self._mgr.get_path("regime")
-            ensure_schema_current(db_path)
+            apply_pending(db_path)
             logger.info("regime.db schema ensured current")
         except Exception as e:
             logger.warning(f"Failed to ensure regime.db schema: {e}")

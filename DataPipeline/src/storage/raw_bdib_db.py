@@ -94,6 +94,9 @@ class RawBDIBDB:
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_raw_bdib_ticker ON {Config.RAW_BDIB_TABLE} (equ_ticker)"
             )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_raw_bdib_date_ticker ON {Config.RAW_BDIB_TABLE} (order_as_of_date, equ_ticker)"
+            )
 
             # Schema migration: add source column if missing (for existing DBs)
             cursor = conn.execute(f"PRAGMA table_info({Config.RAW_BDIB_TABLE})")

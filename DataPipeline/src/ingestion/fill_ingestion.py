@@ -31,7 +31,7 @@ from DataPipeline.src.processing.fill_cleaner import clean_emsx_fills
 from DataPipeline.src.processing.fill_processor import process_fills
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 from DataPipeline.src.storage.raw_fills_db import RawFillsDB, compute_fills_hash
-from CostView.src.db.facade import CostViewDatabase
+from DataPipeline.src.storage.facade import CostViewDatabase
 
 logger = logging.getLogger(__name__)
 

@@ -43,6 +43,7 @@ _LOCK_FILE = _PROJECT_ROOT / ".pipeline.lock"
 _WATCHDOG_INTERVAL_SECS = 15          # check every 15 s
 _STALL_TIMEOUT_SECS    = 600           # 10 min without activity → stalled (must be > per_fetch_timeout_secs in fill_fetch.py)
 _MAX_RUNTIME_SECS      = 7200          # 2 h total → timeout
+_LOCK_STALE_AGE_SECS  = 14400         # 4 h → lock file considered stale even if PID is alive
 
 
 # ── Stage definitions (must match daily_update.py STAGE_MARKERS) ──────────────
@@ -98,13 +99,12 @@ def _parse_stage_line(line: str):
     rest = line[len(_STAGE_PREFIX):].strip()
     parts = rest.split()
     if len(parts) >= 2:
+        detail = " ".join(parts[2:]) if len(parts) > 2 else None
         try:
             pct = min(100, max(0, int(parts[1])))
-            detail = " ".join(parts[2:]) if len(parts) > 2 else None
-            return parts[0], pct, detail
         except ValueError:
-            detail = " ".join(parts[2:]) if len(parts) > 2 else None
-            return parts[0], 0, detail
+            pct = 0
+        return parts[0], pct, detail
     if len(parts) == 1:
         return parts[0], 0, None
     return None
@@ -120,7 +120,6 @@ def _write_lock(job_id: str) -> Path:
         "started_at": datetime.now().isoformat(),
     }
     _LOCK_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    _LOCK_FILE.chmod(0o644)
     logger.info("Lock file written: %s (pid=%s, job=%s)", _LOCK_FILE, os.getpid(), job_id)
     return _LOCK_FILE
 
@@ -140,6 +139,8 @@ def _check_lock() -> Optional[str]:
     * If no lock file exists → ``None``.
     * If lock file exists and the recorded PID is alive → return that job_id.
     * If lock file exists but PID is dead → remove stale lock and return ``None``.
+    * If lock file is older than ``_LOCK_STALE_AGE_SECS`` (4 h) → treat as stale
+      even if the PID happens to be alive (pid-reuse after reboot scenario).
     """
     if not _LOCK_FILE.exists():
         return None
@@ -152,6 +153,24 @@ def _check_lock() -> Optional[str]:
 
     pid = payload.get("pid")
     job_id = payload.get("job_id")
+
+    # Check lock age — protects against PID reuse after reboot
+    started_at_str = payload.get("started_at")
+    if started_at_str:
+        try:
+            started_at = datetime.fromisoformat(started_at_str)
+            age_secs = (datetime.now() - started_at).total_seconds()
+            if age_secs > _LOCK_STALE_AGE_SECS:
+                logger.warning(
+                    "Stale lock file — age %.0fs exceeds %ss threshold, removing. "
+                    "pid=%s job=%s",
+                    age_secs, _LOCK_STALE_AGE_SECS, pid, job_id,
+                )
+                _remove_lock()
+                return None
+        except (ValueError, TypeError):
+            logger.warning("Could not parse lock started_at=%s, ignoring age check", started_at_str)
+
     if pid and _is_pid_alive(pid):
         logger.info("Lock file valid: pid=%s job=%s", pid, job_id)
         return job_id
@@ -179,7 +198,6 @@ def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Ev
     * No activity from subprocess for ``_STALL_TIMEOUT_SECS``.
     * Total runtime exceeds ``_MAX_RUNTIME_SECS``.
     """
-    last_activity_seen = datetime.now()
     started_at = datetime.now()
     logger.info("Watchdog started for job %s", job_id)
 

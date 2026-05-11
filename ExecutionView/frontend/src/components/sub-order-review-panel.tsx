@@ -135,7 +135,7 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h4 className="text-sm font-semibold">待确认子订单</h4>
+          <h4 className="text-sm font-semibold">Pending Sub-Orders</h4>
           {proposals.length > 0 && (
             <Badge variant="default" className="text-xs">{proposals.length}</Badge>
           )}
@@ -144,10 +144,10 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
           {selectedIds.size > 0 && (
             <Button size="sm" onClick={handleBatchConfirm}>
               <Send className="h-3.5 w-3.5 mr-1" />
-              批量确认 ({selectedIds.size})
+              Batch Confirm ({selectedIds.size})
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadProposals} title="刷新">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadProposals} title="Refresh">
             <Loader2 className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
@@ -163,9 +163,9 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
       {batchResult && (
         <Alert variant={batchResult.failed > 0 ? 'destructive' : 'default'} className="py-2">
           <AlertDescription className="text-xs">
-            批量提交完成: {batchResult.succeeded} 成功
-            {batchResult.blocked > 0 && `, ${batchResult.blocked} 拦截`}
-            {batchResult.failed > 0 && `, ${batchResult.failed} 失败`}
+            Batch submit complete: {batchResult.succeeded} succeeded
+            {batchResult.blocked > 0 && `, ${batchResult.blocked} blocked`}
+            {batchResult.failed > 0 && `, ${batchResult.failed} failed`}
           </AlertDescription>
         </Alert>
       )}
@@ -173,8 +173,8 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
       {proposals.length === 0 ? (
         <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
           <EyeOff className="h-5 w-5 mx-auto mb-1 opacity-50" />
-          <p className="text-xs">暂无待确认子订单</p>
-          <p className="text-xs mt-0.5">新订单匹配路由方案后将在此显示</p>
+          <p className="text-xs">No pending sub-orders</p>
+          <p className="text-xs mt-0.5">New orders matching route plans will appear here</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -200,7 +200,7 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
                   {groupProposals[0]?.parentSide || ''}
                 </Badge>
                 <span className="text-xs text-muted-foreground ml-auto">
-                  总 {groupProposals.reduce((s, p) => s + p.quantity, 0).toLocaleString()} 股
+                  Total {groupProposals.reduce((s, p) => s + p.quantity, 0).toLocaleString()} shares
                 </span>
               </div>
               <div className="divide-y">
@@ -231,7 +231,7 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
                     <div className="flex items-center gap-0.5 ml-auto">
                       <Button
                         variant="ghost" size="icon" className="h-6 w-6 text-green-600"
-                        title="确认并提交"
+                        title="Confirm & Submit"
                         onClick={() => handleConfirmOne(p.id)}
                         disabled={submittingIds.has(p.id)}
                       >
@@ -243,7 +243,7 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
                       </Button>
                       <Button
                         variant="ghost" size="icon" className="h-6 w-6 text-destructive"
-                        title="拒绝"
+                        title="Reject"
                         onClick={() => handleRejectOne(p.id)}
                         disabled={submittingIds.has(p.id)}
                       >

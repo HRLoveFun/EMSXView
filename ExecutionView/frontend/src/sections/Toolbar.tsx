@@ -108,21 +108,21 @@ export function Toolbar({
 
   const getConnectionText = () => {
     if (!startupStatus) {
-      return '检查启动状态…';
+      return 'Checking startup status…';
     }
     switch (startupStatus.phase) {
       case 'ready':
-        return '已就绪';
+        return 'Ready';
       case 'backend_starting':
-        return '后端启动中';
+        return 'Backend starting';
       case 'bloomberg_connecting':
-        return '连接 Bloomberg';
+        return 'Connecting to Bloomberg';
       case 'subscriptions_warming':
-        return '订阅热身';
+        return 'Warming up subscriptions';
       case 'error':
-        return '需要人工检查';
+        return 'Manual check needed';
       default:
-        return '启动中…';
+        return 'Starting…';
     }
   };
 
@@ -131,13 +131,13 @@ export function Toolbar({
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <Database className="h-5 w-5 text-primary" />
-          <h1 className="text-lg font-semibold">EMSX 交易工作台</h1>
+          <h1 className="text-lg font-semibold">EMSX Trading Workbench</h1>
         </div>
 
         <div className="h-6 w-px bg-border mx-2" />
 
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>订单数：</span>
+          <span>Orders: </span>
           <Badge variant="secondary" className="font-mono-numbers">
             {orderCount.toLocaleString()}
           </Badge>
@@ -145,9 +145,9 @@ export function Toolbar({
 
         <div
           className={`flex items-center gap-2 text-sm ${isStale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
-          title={isStale ? '数据已超过 30 秒未刷新，可能已断流' : undefined}
+          title={isStale ? "Data hasn't refreshed in 30+ seconds, stream may be disconnected" : undefined}
         >
-          <span>最近更新：</span>
+          <span>Last updated: </span>
           <span className="font-mono-numbers">{lastUpdatedLabel.abs}</span>
           <span className="text-xs opacity-80">({lastUpdatedLabel.rel})</span>
         </div>
@@ -170,10 +170,10 @@ export function Toolbar({
           onClick={handleRefresh}
           disabled={isLoading}
           className="gap-2"
-          title="重新拉取订单与路由（R）"
+          title="Refresh orders & routes (R)"
         >
           {isLoading ? <Spinner className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
-          刷新
+          Refresh
         </Button>
 
         {onClearCache && (
@@ -184,8 +184,8 @@ export function Toolbar({
                 size="sm"
                 disabled={isLoading}
                 className="px-2"
-                title="更多操作"
-                aria-label="更多操作"
+                title="More actions"
+                aria-label="More actions"
               >
                 ⋯
               </Button>
@@ -193,7 +193,7 @@ export function Toolbar({
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={onClearCache}>
                 <Trash2 className="h-4 w-4 mr-2" />
-                清空本地缓存
+                Clear local cache
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -204,28 +204,28 @@ export function Toolbar({
           size="sm"
           onClick={() => setShowLogoutConfirm(true)}
           className="gap-2 text-muted-foreground hover:text-destructive"
-          title="退出登录"
+          title="Logout"
         >
           <LogOut className="h-4 w-4" />
-          退出
+          Logout
         </Button>
       </div>
 
       <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认退出登录？</AlertDialogTitle>
+            <AlertDialogTitle>Confirm logout?</AlertDialogTitle>
             <AlertDialogDescription>
-              退出后将关闭与后端的会话。任何未提交的改单 / 路由编辑将会丢失，需要重新登录后再操作。
+              This will close the session with the backend. Any unsaved order modifications / route edits will be lost. You will need to log in again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => { setShowLogoutConfirm(false); onLogout(); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              确认退出
+              Confirm Logout
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

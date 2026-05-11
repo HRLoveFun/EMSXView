@@ -40,7 +40,7 @@ from DataPipeline.src.storage.connection import (
     resolve_access_tier,
 )
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.common.schema import ALL_RAW_COLUMNS, EMSX_FILL_COLUMNS, RAW_METADATA_COLUMNS
+from DataPipeline.src.storage.schema.columns import ALL_RAW_COLUMNS, EMSX_FILL_COLUMNS, RAW_METADATA_COLUMNS
 
 logger = logging.getLogger(__name__)
 

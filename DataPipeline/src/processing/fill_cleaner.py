@@ -25,7 +25,7 @@ from DataPipeline.src.common.exchange_tz import (
     convert_ny_to_local,
 )
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.common.schema import EMSX_FILL_COLUMNS
+from DataPipeline.src.storage.schema.columns import EMSX_FILL_COLUMNS
 
 logger = logging.getLogger(__name__)
 

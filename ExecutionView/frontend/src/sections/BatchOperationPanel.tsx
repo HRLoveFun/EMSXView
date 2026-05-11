@@ -202,11 +202,11 @@ export function BatchOperationPanel({
           <div className="flex items-center gap-2">
             <CheckSquare className="h-5 w-5 text-primary" />
             <span className="font-medium">
-              已选 {selectedCount} 个订单
+              {selectedCount} order{selectedCount === 1 ? '' : 's'} selected
             </span>
           </div>
           <Badge variant="secondary" className="text-xs">
-            可执行批量操作
+            Batch actions available
           </Badge>
         </div>
 
@@ -218,7 +218,7 @@ export function BatchOperationPanel({
             disabled={isLoading}
           >
             <X className="h-4 w-4 mr-1.5" />
-            清空选择
+            Clear selection
           </Button>
           <Button
             variant="default"
@@ -228,7 +228,7 @@ export function BatchOperationPanel({
             className="gap-1.5"
           >
             <Edit3 className="h-4 w-4" />
-            批量改单
+            Batch Modify
           </Button>
         </div>
       </div>
@@ -238,10 +238,10 @@ export function BatchOperationPanel({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit3 className="h-5 w-5" />
-              批量改单
+              Batch Modify
             </DialogTitle>
             <DialogDescription>
-              将对已选择的 {selectedCount} 个订单进行批量修改
+              Modify {selectedCount} selected order{selectedCount === 1 ? '' : 's'}
             </DialogDescription>
           </DialogHeader>
 
@@ -250,22 +250,22 @@ export function BatchOperationPanel({
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
                 <div className="font-semibold">
-                  即将取消 {selectedCount} 个订单
+                  About to cancel {selectedCount} order{selectedCount === 1 ? '' : 's'}
                   {cancelSummary.tickerCount > 0
-                    ? `，涉及 ${cancelSummary.tickerCount} 个标的`
+                    ? `, across ${cancelSummary.tickerCount} ticker${cancelSummary.tickerCount === 1 ? '' : 's'}`
                     : ''}
                 </div>
                 {cancelSummary.tickerCount > 0 && (
                   <div className="mt-1 text-xs opacity-90">
-                    {cancelSummary.buys > 0 && <>买入 × {cancelSummary.buys}</>}
+                    {cancelSummary.buys > 0 && <>Buy × {cancelSummary.buys}</>}
                     {cancelSummary.buys > 0 && cancelSummary.sells > 0 && ' · '}
-                    {cancelSummary.sells > 0 && <>卖出 × {cancelSummary.sells}</>}
+                    {cancelSummary.sells > 0 && <>Sell × {cancelSummary.sells}</>}
                     {cancelSummary.sample && (
                       <> · {cancelSummary.sample}{cancelSummary.hasMore ? ' …' : ''}</>
                     )}
                   </div>
                 )}
-                <div className="mt-1 text-xs">此操作不可撤销，请确认。</div>
+                <div className="mt-1 text-xs">This action cannot be undone. Please confirm.</div>
               </AlertDescription>
             </Alert>
           )}
@@ -318,7 +318,7 @@ export function BatchOperationPanel({
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={handleCloseModal} disabled={isLoading}>
-              取消
+              Cancel
             </Button>
             <Button
               onClick={handleSubmit}
@@ -328,17 +328,17 @@ export function BatchOperationPanel({
               {isLoading ? (
                 <>
                   <div className="spinner h-4 w-4 mr-2" />
-                  处理中…
+                  Processing…
                 </>
               ) : confirmCancel ? (
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  确认取消 {selectedCount} 个订单
+                  Confirm Cancel {selectedCount} Order{selectedCount === 1 ? '' : 's'}
                 </>
               ) : (
                 <>
                   <CheckSquare className="h-4 w-4 mr-2" />
-                  应用修改
+                  Apply Changes
                 </>
               )}
             </Button>

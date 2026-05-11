@@ -24,9 +24,9 @@ export function ToastContainer({ toasts, onRemove, droppedCount = 0, onClearDrop
           type="button"
           onClick={onClearDropped}
           className="self-end pointer-events-auto rounded-full bg-amber-500/90 text-black text-xs font-semibold px-3 py-1 shadow-md hover:bg-amber-500"
-          title="忽略折叠的提示"
+          title="Dismiss collapsed notifications"
         >
-          + {droppedCount} 条更早提示已折叠
+          + {droppedCount} earlier notification{droppedCount === 1 ? '' : 's'} collapsed
         </button>
       )}
       {toasts.map((toast) => (
@@ -97,7 +97,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       <button
         onClick={() => onRemove(toast.id)}
         className="opacity-70 hover:opacity-100 transition-opacity shrink-0"
-        aria-label="关闭通知"
+        aria-label="Close notification"
       >
         <X className="h-4 w-4" />
       </button>

@@ -15,12 +15,16 @@ export default function DatabaseViewModule() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusResponse | null>(null);
   const [triggerPending, setTriggerPending] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const pollStartedRef = useRef<number | null>(null);
+  /** Max polling duration (30 min) — prevents endless polling against a phantom job. */
+  const MAX_POLL_DURATION_MS = 30 * 60 * 1000;
 
   const clearPoll = useCallback(() => {
     if (pollRef.current !== null) {
       window.clearTimeout(pollRef.current);
       pollRef.current = null;
     }
+    pollStartedRef.current = null;
   }, []);
 
   const loadOverview = useCallback(async () => {
@@ -44,6 +48,25 @@ export default function DatabaseViewModule() {
 
   const pollStatus = useCallback(
     async (jobId: string) => {
+      // Check max polling duration
+      if (pollStartedRef.current !== null) {
+        const elapsed = Date.now() - pollStartedRef.current;
+        if (elapsed > MAX_POLL_DURATION_MS) {
+          clearPoll();
+          setUpdateStatus((prev) => ({
+            job_id: prev?.job_id ?? jobId,
+            status: 'failed',
+            started_at: prev?.started_at ?? new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            error: `Polling timed out after ${MAX_POLL_DURATION_MS / 60000} minutes — the pipeline may have stalled or the backend restarted`,
+            stage: prev?.stage ?? null,
+            overall_progress: prev?.overall_progress ?? 0,
+            last_activity_at: new Date().toISOString(),
+          }));
+          return;
+        }
+      }
+
       try {
         const status = await fetchUpdateStatus(jobId);
         setUpdateStatus(status);
@@ -77,6 +100,7 @@ export default function DatabaseViewModule() {
     clearPoll();
     try {
       const job = await triggerUpdate();
+      pollStartedRef.current = Date.now();
       setUpdateStatus({
         job_id: job.job_id,
         status: (job.status as UpdateStatusResponse['status']) || 'started',

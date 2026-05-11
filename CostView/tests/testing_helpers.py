@@ -66,7 +66,7 @@ def _bootstrap_schema(db_key: str, db_path: Path, mgr: ConnectionManager) -> Non
             from DataPipeline.src.storage.fill_bdib_db import FillBDIBDB
             FillBDIBDB(db_path=str(db_path), connection_manager=mgr)
         elif db_key == "regime":
-            from CostView.src.regime.migrations.apply import apply_pending
+            from DataPipeline.src.storage.schema.migrations.apply import apply_pending
             apply_pending(db_path)
             # Add tables not managed by regime migrations (attribution, pipeline runs)
             _ensure_regime_extra_tables(mgr)

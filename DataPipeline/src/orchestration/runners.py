@@ -13,7 +13,7 @@ import pandas as pd
 from .context import PipelineContext
 from .core import FinancialPipeline, PipelineFactory
 from .stages import AggregateFillsStage, GenerateOrderLabelsStage
-from CostView.src.db.facade import CostViewDatabase
+from DataPipeline.src.storage.facade import CostViewDatabase
 
 logger = logging.getLogger(__name__)
 

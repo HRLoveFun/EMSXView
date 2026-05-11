@@ -40,8 +40,10 @@ def create_all(db_path: Path | str = REGIME_DB_PATH) -> None:
 
     Idempotent: re-running on an existing DB is a no-op (apply.py honors
     PRAGMA user_version).
+
+    Delegates to the consolidated migration runner in DataPipeline.
     """
-    from .migrations.apply import apply_pending  # local import to avoid cycle
+    from DataPipeline.src.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
     apply_pending(db_path)
 
 
@@ -49,17 +51,16 @@ def ensure_schema_current(db_path: Path | str = REGIME_DB_PATH) -> None:
     """Guard: raise if PRAGMA user_version != SCHEMA_VERSION.
 
     Call this at process startup of any regime stage.
+
+    Delegates to the consolidated migration runner in DataPipeline.
     """
-    conn = connect(db_path)
-    try:
-        actual = conn.execute("PRAGMA user_version").fetchone()[0]
-    finally:
-        conn.close()
-    if actual != SCHEMA_VERSION:
+    from DataPipeline.src.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
+    final = apply_pending(db_path)
+    if final != SCHEMA_VERSION:
         raise RuntimeError(
-            f"regime.db schema mismatch: PRAGMA user_version={actual} "
+            f"regime.db schema mismatch: PRAGMA user_version={final} "
             f"but code SCHEMA_VERSION={SCHEMA_VERSION}. "
-            f"Run: python -m CostView.src.regime.migrations.apply"
+            f"Run: python -m DataPipeline.src.storage.schema.migrations.apply"
         )
 
 

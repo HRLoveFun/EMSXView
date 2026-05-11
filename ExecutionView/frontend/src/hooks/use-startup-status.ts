@@ -20,8 +20,8 @@ function buildSyntheticStartupStatus(elapsedMs: number, timeoutMs: number, error
     phase: timedOut ? 'error' : 'backend_starting',
     ready: false,
     message: timedOut
-      ? error || '前端已经启动，但 backend HTTP 仍未就绪。'
-      : '前端已经启动，正在等待 backend HTTP 服务响应。',
+      ? error || 'Frontend is up, but the backend HTTP service is not ready yet.'
+      : 'Frontend is up, waiting for the backend HTTP service to respond.',
     backend: {
       httpReady: false,
       startedAt: undefined,

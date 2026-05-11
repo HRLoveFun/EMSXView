@@ -25,7 +25,7 @@ import pandas as pd
 
 from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 from DataPipeline.src.common.outdated_tickers import load_outdated_ticker_set
-from CostView.src.db.facade import CostViewDatabase
+from DataPipeline.src.storage.facade import CostViewDatabase
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)

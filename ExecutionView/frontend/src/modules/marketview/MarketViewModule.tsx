@@ -16,17 +16,17 @@ import type {
 const capabilityCards = [
   {
     title: 'Stock Pools',
-    description: '股票池定义统一挂在 MarketView contract 上，由同一条日级 snapshot 路径驱动，而不是散落在页面本地状态。',
+    description: 'Stock pool definitions are centralized on the MarketView contract, driven by a single daily snapshot path rather than scattered across local page state.',
     icon: Activity,
   },
   {
     title: 'Risk Filters',
-    description: '按 ADV、日成交量、日波动率和盘中波动率做盘前筛选，并直接暴露流动性与波动率告警等级。',
+    description: 'Pre-market screening by ADV, daily volume, daily volatility, and intraday volatility, with direct exposure of liquidity and volatility alert levels.',
     icon: Gauge,
   },
   {
     title: 'Candidate Hand-Off',
-    description: '候选 payload 已经有清晰 contract，可在不引入推荐模型的前提下 handoff 到 ExecutionView。',
+    description: 'Candidate payload already has a clear contract and can be handed off to ExecutionView without requiring a recommendation model.',
     icon: ArrowUpDown,
   },
 ];
@@ -274,7 +274,7 @@ export default function MarketViewModule() {
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">Pre-trade workspace</h2>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            这里继续使用同一条日级快照路径，但不再只是固定表格。MarketView 现在以股票池为入口，把筛选、排序、流动性和波动率告警，以及后续 handoff 的候选 contract 放到一个盘前工作台里。
+            Here we continue to use the same daily snapshot path, but it is no longer just a fixed table. MarketView now uses stock pools as the entry point, bringing together filtering, sorting, liquidity and volatility alerts, and the candidate contract for subsequent handoff into a pre-trade workspace.
           </p>
         </div>
       </div>
@@ -293,23 +293,23 @@ export default function MarketViewModule() {
         <article className="rounded-2xl border border-border/70 bg-background/70 p-5">
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Visible rows</div>
           <div className="mt-3 text-3xl font-semibold text-foreground">{snapshot?.row_count ?? 0}</div>
-          <p className="mt-2 text-sm text-muted-foreground">当前股票池经过筛选和排序后的候选数。</p>
+          <p className="mt-2 text-sm text-muted-foreground">Number of candidates in the current stock pool after filtering and sorting.</p>
         </article>
         <article className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
           <div className="text-xs uppercase tracking-[0.2em] text-red-700/80">Critical alerts</div>
           <div className="mt-3 text-3xl font-semibold text-red-700">{criticalCount}</div>
-          <p className="mt-2 text-sm text-red-700/80">任一维度达到 critical 的标的数。</p>
+          <p className="mt-2 text-sm text-red-700/80">Number of symbols reaching critical level on any dimension.</p>
         </article>
         <article className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
           <div className="text-xs uppercase tracking-[0.2em] text-amber-700/80">Warning alerts</div>
           <div className="mt-3 text-3xl font-semibold text-amber-700">{warningCount}</div>
-          <p className="mt-2 text-sm text-amber-700/80">至少有一个 warning，但未到 critical 的盘前关注标的。</p>
+          <p className="mt-2 text-sm text-amber-700/80">Symbols with at least one warning but not reaching critical level, worth pre-trade attention.</p>
         </article>
         <article className="rounded-2xl border border-border/70 bg-background/70 p-5">
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Hand-off candidates</div>
           <div className="mt-3 text-3xl font-semibold text-foreground">{handoffPayload?.row_count ?? 0}</div>
           <p className="mt-2 text-sm text-muted-foreground">
-            {selectedTickers.length ? '已按显式勾选范围生成 handoff payload。' : '未勾选时默认使用当前筛选结果。'}
+            {selectedTickers.length ? 'Handoff payload generated based on explicitly selected tickers.' : 'Defaults to current filter results when nothing is selected.'}
           </p>
           <button
             type="button"
@@ -325,23 +325,23 @@ export default function MarketViewModule() {
                   tickers: selectedTickers.length ? selectedTickers : undefined,
                 });
                 setPublishStatus(
-                  `已送达 ExecutionView：${result.candidate_payload.row_count} 个标的 (trace_id=${result.metadata.trace_id.slice(0, 12)}…)`,
+                  `Delivered to ExecutionView: ${result.candidate_payload.row_count} symbols (trace_id=${result.metadata.trace_id.slice(0, 12)}…)`,
                 );
               } catch (err) {
-                setPublishStatus(err instanceof Error ? `发送失败：${err.message}` : '发送失败');
+                setPublishStatus(err instanceof Error ? `Send failed: ${err.message}` : 'Send failed');
               } finally {
                 setIsPublishing(false);
               }
             }}
           >
-            {isPublishing ? '发送中…' : 'Send to ExecutionView →'}
+            {isPublishing ? 'Sending…' : 'Send to ExecutionView →'}
           </button>
           {publishStatus && (
             <p className="mt-2 text-xs text-muted-foreground">{publishStatus}</p>
           )}
           {activeCandidateHandoff && (
             <p className="mt-1 text-[11px] text-muted-foreground">
-              上一次 handoff: {activeCandidateHandoff.candidate_payload.row_count} 个候选，
+              Last handoff: {activeCandidateHandoff.candidate_payload.row_count} candidates,
               {new Date(activeCandidateHandoff.metadata.generated_at).toLocaleString()}
             </p>
           )}
@@ -353,7 +353,7 @@ export default function MarketViewModule() {
           <div>
             <p className="text-sm font-medium text-foreground">Stock-pool workstation</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              数据源仍然是 `bdib_daily_summary` 的最新交易日快照，通过 `platform_data` 适配层暴露给 MarketView。这里的所有过滤和告警都基于日级数据，不代表实时行情。
+              The data source is still the latest trading day snapshot from `bdib_daily_summary`, exposed to MarketView through the `platform_data` adapter layer. All filtering and alerts here are based on daily data and do not represent real-time market conditions.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -542,7 +542,7 @@ export default function MarketViewModule() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-3 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <AlertTriangle className="h-4 w-4" />
-                  每一行都来自最新日级 snapshot，不含实时盘口。
+                  Each row comes from the latest daily snapshot and does not include real-time order book data.
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -642,7 +642,7 @@ export default function MarketViewModule() {
               <div>
                 <p className="text-sm font-medium text-foreground">ExecutionView hand-off preview</p>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  这就是预留给 ExecutionView 的候选 payload contract。未勾选时使用当前筛选结果；勾选后只带显式候选标的。
+                  This is the candidate payload contract reserved for ExecutionView. When nothing is selected, the current filter results are used; when tickers are selected, only the explicit candidates are included.
                 </p>
               </div>
 
@@ -668,7 +668,7 @@ export default function MarketViewModule() {
               </div>
 
               <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                当前 contract 只承载日级候选和风险标签，不推导执行建议，也不把 snapshot 误当成实时行情流。
+                The current contract only carries daily candidates and risk labels. It does not derive execution recommendations, nor does it mistake the snapshot for a real-time market data stream.
               </div>
             </aside>
           </div>
@@ -727,7 +727,7 @@ function IntradayFeaturePanel({
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Intraday feature drill-down</div>
           <h3 className="mt-1 text-lg font-semibold text-foreground">{ticker}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            来自 raw BDIB 的交易所本地时间窗口特征；不是实时行情流，仅用于盘前复盘。
+            Exchange-local time-window features from raw BDIB; not a real-time data stream, for pre-market review only.
           </p>
         </div>
         <div className="flex items-center gap-2">

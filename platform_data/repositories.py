@@ -529,7 +529,7 @@ def _per_date_counts(
         rows = conn.execute(
             f"SELECT [{date_column}] AS d, COUNT(*) AS c "
             f"FROM [{table}] "
-            f"WHERE [{date_column}] IS NOT NULL AND TRIM([{date_column}]) != '' "
+            f"WHERE [{date_column}] IS NOT NULL AND [{date_column}] != '' "
             f"GROUP BY [{date_column}] "
             f"ORDER BY d ASC "
             f"LIMIT ?",
