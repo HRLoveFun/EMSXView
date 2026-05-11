@@ -161,10 +161,10 @@
               "owner": "unassigned",
               "dependencies": [],
               "files": [
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/docker-compose.yml",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/requirements.txt",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/Dockerfile",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/.env.example"
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/docker-compose.yml",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/requirements.txt",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/Dockerfile",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/.env.example"
               ],
               "checkpoints": [
                 {
@@ -188,10 +188,10 @@
                 "P1-S1-01"
               ],
               "files": [
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/db.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/models/execution_state.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/migrations/001_init_execution_schema.sql",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_db_bootstrap.py"
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/db.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/models/execution_state.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/migrations/001_init_execution_schema.sql",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_db_bootstrap.py"
               ],
               "checkpoints": [
                 {
@@ -215,10 +215,10 @@
                 "P1-S1-02"
               ],
               "files": [
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/orders.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/routes.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/repositories/audit.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_projection_repositories.py"
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/orders.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/routes.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/audit.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_projection_repositories.py"
               ],
               "checkpoints": [
                 {
@@ -242,10 +242,10 @@
                 "P1-S1-03"
               ],
               "files": [
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/main.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/auth.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/service_provider.py",
-                "c:/Users/hrchen/Documents/EMSX/Execution/backend/api/tests/test_service_provider.py"
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/auth.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/service_provider.py",
+                "c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_service_provider.py"
               ],
               "checkpoints": [
                 {
@@ -275,10 +275,10 @@
               "owner": "unassigned",
               "dependencies": [],
               "files": [
-                "Execution/backend/api/services/realtime_gateway.py",
-                "Execution/backend/api/services/event_serializers.py",
-                "Execution/backend/api/main.py",
-                "Execution/backend/api/tests/test_realtime_gateway.py"
+                "ExecutionView/backend/api/services/realtime_gateway.py",
+                "ExecutionView/backend/api/services/event_serializers.py",
+                "ExecutionView/backend/api/main.py",
+                "ExecutionView/backend/api/tests/test_realtime_gateway.py"
               ],
               "checkpoints": [
                 {
@@ -302,11 +302,11 @@
                 "P1-S2-01"
               ],
               "files": [
-                "Execution/frontend/src/services/realtime.ts",
-                "Execution/frontend/src/hooks/use-orders-stream.ts",
-                "Execution/frontend/src/hooks/use-routes-stream.ts",
-                "Execution/frontend/src/stores/order-stream-store.ts",
-                "Execution/frontend/src/stores/route-stream-store.ts"
+                "ExecutionView/frontend/src/services/realtime.ts",
+                "ExecutionView/frontend/src/hooks/use-orders-stream.ts",
+                "ExecutionView/frontend/src/hooks/use-routes-stream.ts",
+                "ExecutionView/frontend/src/stores/order-stream-store.ts",
+                "ExecutionView/frontend/src/stores/route-stream-store.ts"
               ],
               "checkpoints": [
                 {
@@ -330,8 +330,8 @@
                 "P1-S2-02"
               ],
               "files": [
-                "Execution/frontend/src/App.tsx",
-                "Execution/frontend/src/services/api.ts"
+                "ExecutionView/frontend/src/App.tsx",
+                "ExecutionView/frontend/src/services/api.ts"
               ],
               "checkpoints": [
                 {
@@ -356,9 +356,9 @@
                 "P1-S2-03"
               ],
               "files": [
-                "Execution/backend/api/tests/test_realtime_gateway.py",
-                "Execution/frontend/src/services/realtime.test.ts",
-                "Execution/frontend/package.json"
+                "ExecutionView/backend/api/tests/test_realtime_gateway.py",
+                "ExecutionView/frontend/src/services/realtime.test.ts",
+                "ExecutionView/frontend/package.json"
               ],
               "checkpoints": [
                 {
@@ -396,9 +396,9 @@
               "owner": "unassigned",
               "dependencies": [],
               "files": [
-                "Execution/backend/api/models.py",
-                "Execution/backend/api/services/bloomberg_adapter.py",
-                "Execution/backend/api/services/bloomberg_interface.py"
+                "ExecutionView/backend/api/models.py",
+                "ExecutionView/backend/api/services/bloomberg_adapter.py",
+                "ExecutionView/backend/api/services/bloomberg_interface.py"
               ],
               "checkpoints": [
                 {
@@ -422,7 +422,7 @@
                 "P2-S3-01"
               ],
               "files": [
-                "Execution/backend/api/services/order_projections.py"
+                "ExecutionView/backend/api/services/order_projections.py"
               ],
               "checkpoints": [
                 {
@@ -446,7 +446,7 @@
                 "P2-S3-01"
               ],
               "files": [
-                "Execution/backend/api/services/route_projections.py"
+                "ExecutionView/backend/api/services/route_projections.py"
               ],
               "checkpoints": [
                 {
@@ -472,8 +472,8 @@
                 "P2-S3-03"
               ],
               "files": [
-                "Execution/backend/api/main.py",
-                "Execution/backend/api/services/__init__.py"
+                "ExecutionView/backend/api/main.py",
+                "ExecutionView/backend/api/services/__init__.py"
               ],
               "checkpoints": [
                 {
@@ -503,18 +503,18 @@
               "owner": "unassigned",
               "dependencies": [],
               "files": [
-                "Execution/backend/api/routers/__init__.py",
-                "Execution/backend/api/routers/orders.py",
-                "Execution/backend/api/routers/routes.py",
-                "Execution/backend/api/routers/auth.py",
-                "Execution/backend/api/routers/broker.py",
-                "Execution/backend/api/routers/connection.py",
-                "Execution/backend/api/routers/debug.py",
-                "Execution/backend/api/routers/realtime.py",
-                "Execution/backend/api/config.py",
-                "Execution/backend/api/deps.py",
-                "Execution/backend/api/schemas.py",
-                "Execution/backend/api/main.py"
+                "ExecutionView/backend/api/routers/__init__.py",
+                "ExecutionView/backend/api/routers/orders.py",
+                "ExecutionView/backend/api/routers/routes.py",
+                "ExecutionView/backend/api/routers/auth.py",
+                "ExecutionView/backend/api/routers/broker.py",
+                "ExecutionView/backend/api/routers/connection.py",
+                "ExecutionView/backend/api/routers/debug.py",
+                "ExecutionView/backend/api/routers/realtime.py",
+                "ExecutionView/backend/api/config.py",
+                "ExecutionView/backend/api/deps.py",
+                "ExecutionView/backend/api/schemas.py",
+                "ExecutionView/backend/api/main.py"
               ],
               "checkpoints": [
                 {
@@ -538,8 +538,8 @@
                 "P2-S4-01"
               ],
               "files": [
-                "Execution/backend/api/services/auth_service.py",
-                "Execution/backend/api/deps.py"
+                "ExecutionView/backend/api/services/auth_service.py",
+                "ExecutionView/backend/api/deps.py"
               ],
               "checkpoints": [
                 {
@@ -563,8 +563,8 @@
                 "P2-S4-01"
               ],
               "files": [
-                "Execution/backend/api/services/config_service.py",
-                "Execution/backend/api/routers/broker.py"
+                "ExecutionView/backend/api/services/config_service.py",
+                "ExecutionView/backend/api/routers/broker.py"
               ],
               "checkpoints": [
                 {
@@ -589,8 +589,8 @@
                 "P2-S4-03"
               ],
               "files": [
-                "Execution/backend/api/tests/test_auth_policy.py",
-                "Execution/backend/api/tests/test_config_service.py"
+                "ExecutionView/backend/api/tests/test_auth_policy.py",
+                "ExecutionView/backend/api/tests/test_config_service.py"
               ],
               "checkpoints": [
                 {
@@ -628,9 +628,9 @@
               "owner": "unassigned",
               "dependencies": [],
               "files": [
-                "Execution/backend/api/models/parent_child_orders.py",
-                "Execution/backend/api/repositories/parent_child_repository.py",
-                "Execution/backend/api/migrations/002_parent_child_execution.sql"
+                "ExecutionView/backend/api/models/parent_child_orders.py",
+                "ExecutionView/backend/api/repositories/parent_child_repository.py",
+                "ExecutionView/backend/api/migrations/002_parent_child_execution.sql"
               ],
               "checkpoints": [
                 {
@@ -654,10 +654,10 @@
                 "P3-S5-01"
               ],
               "files": [
-                "Execution/backend/api/services/route_service.py",
-                "Execution/backend/api/schemas.py",
-                "Execution/backend/api/routers/routes.py",
-                "Execution/backend/api/services/bloomberg_adapter.py"
+                "ExecutionView/backend/api/services/route_service.py",
+                "ExecutionView/backend/api/schemas.py",
+                "ExecutionView/backend/api/routers/routes.py",
+                "ExecutionView/backend/api/services/bloomberg_adapter.py"
               ],
               "checkpoints": [
                 {
@@ -682,10 +682,10 @@
                 "P3-S5-02"
               ],
               "files": [
-                "Execution/frontend/src/types/index.ts",
-                "Execution/frontend/src/components/order-route-dialog.tsx",
-                "Execution/frontend/src/sections/OrderTable.tsx",
-                "Execution/frontend/src/sections/RouteTable.tsx"
+                "ExecutionView/frontend/src/types/index.ts",
+                "ExecutionView/frontend/src/components/order-route-dialog.tsx",
+                "ExecutionView/frontend/src/sections/OrderTable.tsx",
+                "ExecutionView/frontend/src/sections/RouteTable.tsx"
               ],
               "checkpoints": [
                 {
@@ -711,7 +711,7 @@
                 "P3-S5-03"
               ],
               "files": [
-                "Execution/backend/api/tests/test_parent_child_execution.py"
+                "ExecutionView/backend/api/tests/test_parent_child_execution.py"
               ],
               "checkpoints": [
                 {
@@ -741,7 +741,7 @@
               "owner": "unassigned",
               "dependencies": [],
               "files": [
-                "Execution/backend/api/services/benchmark_engine.py"
+                "ExecutionView/backend/api/services/benchmark_engine.py"
               ],
               "checkpoints": [
                 {
@@ -770,8 +770,8 @@
                 "P3-S6-01"
               ],
               "files": [
-                "Execution/backend/api/services/algo_scheduler.py",
-                "Execution/backend/api/routers/orders.py"
+                "ExecutionView/backend/api/services/algo_scheduler.py",
+                "ExecutionView/backend/api/routers/orders.py"
               ],
               "checkpoints": [
                 {
@@ -796,10 +796,10 @@
                 "P3-S6-02"
               ],
               "files": [
-                "Execution/frontend/src/components/algo-launch-dialog.tsx",
-                "Execution/frontend/src/sections/ExecutionBoard.tsx",
-                "Execution/frontend/src/sections/RouteTable.tsx",
-                "Execution/frontend/src/types/index.ts"
+                "ExecutionView/frontend/src/components/algo-launch-dialog.tsx",
+                "ExecutionView/frontend/src/sections/ExecutionBoard.tsx",
+                "ExecutionView/frontend/src/sections/RouteTable.tsx",
+                "ExecutionView/frontend/src/types/index.ts"
               ],
               "checkpoints": [
                 {
@@ -824,9 +824,9 @@
                 "P3-S6-02"
               ],
               "files": [
-                "Execution/backend/api/tests/test_benchmark_engine.py",
-                "Execution/backend/api/tests/test_algo_scheduler.py",
-                "Execution/frontend/src/components/algo-launch-dialog.test.tsx"
+                "ExecutionView/backend/api/tests/test_benchmark_engine.py",
+                "ExecutionView/backend/api/tests/test_algo_scheduler.py",
+                "ExecutionView/frontend/src/components/algo-launch-dialog.test.tsx"
               ],
               "checkpoints": [
                 {

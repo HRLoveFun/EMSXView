@@ -31,11 +31,21 @@ import os
 import re
 import shutil
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
+from DataPipeline.src.common.table_registry import (
+    DB_RAW_FILLS,
+    DB_PROCESSED_FILLS,
+    DB_RAW_BDIB,
+    DB_PROCESSED_RAW_BDIB,
+    DB_FILL_BDIB,
+    DB_REGIME,
+    DB_FETCH_HISTORY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -216,14 +226,9 @@ def backup_database(db_path: Path) -> Path:
 # ConnectionManager — centralized connection lifecycle
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Database name constants (used as keys in ConnectionManager)
-DB_RAW_FILLS = "raw_fills"
-DB_PROCESSED_FILLS = "processed_fills"
-DB_RAW_BDIB = "raw_bdib"
-DB_PROCESSED_RAW_BDIB = "processed_raw_bdib"
-DB_FILL_BDIB = "fill_bdib"
-DB_REGIME = "regime"
-
+# Database name constants — sourced from centralized table_registry.
+# Local aliases kept for backward compatibility.
+# New code should import from DataPipeline.src.common.table_registry directly.
 ALL_DATABASE_NAMES = [
     DB_RAW_FILLS,
     DB_PROCESSED_FILLS,
@@ -231,6 +236,7 @@ ALL_DATABASE_NAMES = [
     DB_PROCESSED_RAW_BDIB,
     DB_FILL_BDIB,
     DB_REGIME,
+    DB_FETCH_HISTORY,
 ]
 
 
@@ -271,11 +277,21 @@ class ConnectionManager:
             DB_PROCESSED_RAW_BDIB: self._config.PROCESSED_RAW_BDIB_DB,
             DB_FILL_BDIB: self._config.FILL_BDIB_DB,
             DB_REGIME: self._resolve_regime_db_path(),
+            DB_FETCH_HISTORY: self._config.FETCH_HISTORY_DB,
         }
         if path_overrides:
             for key, path in path_overrides.items():
                 if key in self._registry:
                     self._registry[key] = Path(path)
+
+        # Thread-local connection cache (Iteration 6.3 optimization).
+        # For read-only / short-query workloads (e.g. regime tagger,
+        # pipeline guards), the first get_connection(READ) call per
+        # thread creates a connection and caches it; subsequent calls
+        # within the same thread reuse it. This avoids the ~50µs per
+        # call overhead of creating new sqlite3.Connection objects.
+        # The cache is cleared on close() or when the thread dies.
+        self._thread_local = threading.local()
 
     def _resolve_regime_db_path(self) -> Path:
         """Resolve regime.db path.
@@ -306,11 +322,14 @@ class ConnectionManager:
         tier: Optional[AccessTier] = None,
         row_factory: Optional[type] = None,
     ) -> AccessControlledConnection:
-        """Create a new access-controlled connection to the named database.
+        """Get an access-controlled connection to the named database.
 
-        Each call creates a fresh sqlite3.Connection (SQLite connections
-        cannot be shared across threads). The caller is responsible for
-        closing the connection when done.
+        For READ-tier connections, reuses a thread-local cache when possible
+        to avoid the overhead of creating new sqlite3.Connection objects
+        on every call.  The cache key is ``(database, row_factory)`` so
+        calls with different row factories get separate cached connections.
+
+        For WRITE and ADMIN tiers, always creates a fresh connection.
 
         Args:
             database: One of the DB_* constants or a name in the registry.
@@ -319,14 +338,53 @@ class ConnectionManager:
                 sqlite3.Connection (e.g. sqlite3.Row for dict-like rows).
 
         Returns:
-            AccessControlledConnection wrapping a new sqlite3.Connection.
+            AccessControlledConnection wrapping an sqlite3.Connection.
 
         Raises:
             KeyError: If database name is not registered.
         """
         db_path = self.get_path(database)
         effective_tier = resolve_access_tier(tier)
+
+        # READ connections: reuse thread-local cache if available.
+        if effective_tier == AccessTier.READ:
+            cache_key = (database, row_factory)
+            cache = getattr(self._thread_local, 'read_conns', None)
+            if cache is not None and cache_key in cache:
+                cached = cache[cache_key]
+                try:
+                    cached.raw_connection.execute("SELECT 1")
+                    return cached
+                except Exception:
+                    # Connection stale — discard and create new.
+                    cache.pop(cache_key, None)
+
+            conn = self._create_connection(db_path, effective_tier, row_factory=row_factory)
+            if cache is None:
+                self._thread_local.read_conns = {cache_key: conn}
+            else:
+                cache[cache_key] = conn
+            return conn
+
+        # WRITE / ADMIN connections: always fresh.
         return self._create_connection(db_path, effective_tier, row_factory=row_factory)
+
+    def close_thread_cached_connections(self) -> None:
+        """Close all cached READ connections for the current thread.
+
+        After calling this, the next get_connection(READ) call in this
+        thread will create fresh connections.  Useful when databases
+        have been rebuilt or migrated and cached read handles are stale.
+        """
+        cache = getattr(self._thread_local, 'read_conns', None)
+        if cache is None:
+            return
+        for key, conn in list(cache.items()):
+            try:
+                conn.close()
+            except Exception:
+                pass
+        self._thread_local.read_conns = {}
 
     def get_admin_connection(self, database: str) -> sqlite3.Connection:
         """Create a raw admin connection for schema init/migration.

@@ -11,7 +11,16 @@ Ownership rule:
     an explicit version bump so downstream breakage is caught early.
 """
 
-from .fill_contracts import SCORECARD_COHORTS
+from .tca_contracts import (
+    SCORECARD_COHORTS,
+    ScorecardCohortMetrics,
+    ScorecardFilters,
+    ScorecardReport,
+    TcaFilters,
+    TcaOrderSummary,
+    TcaReport,
+    TcaRouteDetail,
+)
 from .data_platform_contracts import (
     IngestionConfig,
     IngestionResult,

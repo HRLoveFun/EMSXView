@@ -20,10 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from DataPipeline.src.storage.connection import AccessTier
-from .outdated_tickers import load_outdated_ticker_set
-from .processed_fills_db import ProcessedFillsDB
-from .processing_config import ProcessingConfig as Config
+from DataPipeline.src.storage.repositories.fills_read import SqliteFillReadRepository
+from DataPipeline.src.common.outdated_tickers import load_outdated_ticker_set
+from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)
 
@@ -37,29 +36,21 @@ def _filter_outdated_equ_tickers(tickers: List[str]) -> List[str]:
 
 def get_active_tickers(
     ticker_type: str = "all",
-    proc_db: Optional[ProcessedFillsDB] = None,
+    fills_repo: Optional[SqliteFillReadRepository] = None,
 ) -> List[str]:
-    """Return current ticker registry entries.
-
-    Args:
-        ticker_type: 'equ', 'ccy', or 'all'.
-        proc_db: Optional ProcessedFillsDB instance.
-
-    Returns:
-        List of ticker strings.
-    """
-    if proc_db is None:
-        proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
+    """Return current ticker registry entries."""
+    if fills_repo is None:
+        fills_repo = SqliteFillReadRepository()
 
     tickers: List[str] = []
 
     if ticker_type in ("equ", "all"):
-        equ_df = proc_db.get_equ_ticker_registry()
+        equ_df = fills_repo.get_equ_ticker_registry()
         if not equ_df.empty:
             tickers.extend(_filter_outdated_equ_tickers(equ_df["equ_ticker"].tolist()))
 
     if ticker_type in ("ccy", "all"):
-        ccy_df = proc_db.get_ccy_ticker_registry()
+        ccy_df = fills_repo.get_ccy_ticker_registry()
         if not ccy_df.empty:
             tickers.extend(ccy_df["ccy_ticker"].tolist())
 
@@ -68,28 +59,21 @@ def get_active_tickers(
 
 def get_tickers_for_date(
     date_str: str,
-    proc_db: Optional[ProcessedFillsDB] = None,
+    fills_repo: Optional[SqliteFillReadRepository] = None,
 ) -> Dict[str, List[str]]:
-    """Return equity and currency tickers active on a specific date.
-
-    Args:
-        date_str: Date in YYYYMMDD format.
-
-    Returns:
-        {"equ": ["7203 JP Equity", ...], "ccy": ["USDEUR Curncy", ...]}
-    """
-    if proc_db is None:
-        proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
+    """Return equity and currency tickers active on a specific date."""
+    if fills_repo is None:
+        fills_repo = SqliteFillReadRepository()
 
     result: Dict[str, List[str]] = {"equ": [], "ccy": []}
 
-    equ_map = proc_db.get_ticker_dates("equ_ticker")
+    equ_map = fills_repo.get_ticker_dates("equ_ticker")
     outdated = load_outdated_ticker_set()
     for ticker, dates in equ_map.items():
         if ticker not in outdated and date_str in dates:
             result["equ"].append(ticker)
 
-    ccy_map = proc_db.get_ticker_dates("ccy_ticker")
+    ccy_map = fills_repo.get_ticker_dates("ccy_ticker")
     for ticker, dates in ccy_map.items():
         if date_str in dates:
             result["ccy"].append(ticker)
@@ -99,25 +83,17 @@ def get_tickers_for_date(
 
 def get_unfetched_ticker_dates(
     fetched_set: Set[Tuple[str, str]],
-    proc_db: Optional[ProcessedFillsDB] = None,
+    fills_repo: Optional[SqliteFillReadRepository] = None,
 ) -> List[Tuple[str, str]]:
-    """Compute ticker-date pairs that haven't been fetched by MarketFetch.
-
-    Args:
-        fetched_set: Set of (ticker, date) tuples already fetched downstream.
-        proc_db: Optional ProcessedFillsDB instance.
-
-    Returns:
-        List of (ticker, date) tuples that need fetching.
-    """
-    if proc_db is None:
-        proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
+    """Compute ticker-date pairs that haven't been fetched by MarketFetch."""
+    if fills_repo is None:
+        fills_repo = SqliteFillReadRepository()
 
     all_pairs: List[Tuple[str, str]] = []
     outdated = load_outdated_ticker_set()
 
     for ticker_type in ("equ_ticker", "ccy_ticker"):
-        ticker_map = proc_db.get_ticker_dates(ticker_type)
+        ticker_map = fills_repo.get_ticker_dates(ticker_type)
         for ticker, dates in ticker_map.items():
             if ticker_type == "equ_ticker" and ticker in outdated:
                 continue
@@ -130,25 +106,16 @@ def get_unfetched_ticker_dates(
 
 
 def write_manifest(
-    proc_db: Optional[ProcessedFillsDB] = None,
+    fills_repo: Optional[SqliteFillReadRepository] = None,
     updated_dates: Optional[List[str]] = None,
     new_tickers: Optional[List[str]] = None,
 ) -> Path:
-    """Write the market_fetch_manifest.json for downstream consumers.
+    """Write the market_fetch_manifest.json for downstream consumers."""
+    if fills_repo is None:
+        fills_repo = SqliteFillReadRepository()
 
-    Args:
-        proc_db: Optional ProcessedFillsDB instance.
-        updated_dates: List of dates that were updated in this pipeline run.
-        new_tickers: List of newly added tickers in this run.
-
-    Returns:
-        Path to the written manifest file.
-    """
-    if proc_db is None:
-        proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
-
-    equ_tickers = get_active_tickers("equ", proc_db)
-    ccy_tickers = get_active_tickers("ccy", proc_db)
+    equ_tickers = get_active_tickers("equ", fills_repo)
+    ccy_tickers = get_active_tickers("ccy", fills_repo)
 
     manifest: Dict[str, Any] = {
         "last_updated": datetime.now().isoformat(),

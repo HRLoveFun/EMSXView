@@ -1,37 +1,21 @@
 """
-Processed Fills Database — modular repository package.
+DEPRECATED — processed_fills_db package.
 
-Provides domain-specific repositories for the processed_fills.db SQLite database.
-The legacy ``ProcessedFillsDB`` class is preserved as a Facade that delegates
-to the individual repositories for backward compatibility.
+All functionality has been migrated to DataPipeline.src.storage.repositories.
+Use SqliteFillReadRepository / SqliteFillWriteRepository instead.
 
-Usage (new code — prefer specific repositories):
-    from processed_fills_db.fills_repository import ProcessedFillsRepository
-    from processed_fills_db.aggregation_repository import AggregationRepository
-
-Usage (legacy — still works):
-    from processed_fills_db import ProcessedFillsDB
+This stub re-exports only init_processed_fills_schema (still needed for
+schema bootstrap). All other imports will emit a DeprecationWarning.
 """
 
-from ._base import BaseProcessedFillsRepo, init_processed_fills_schema  # noqa: F401
-from .aggregation_repository import AggregationRepository  # noqa: F401
-from .execution_history_repository import ExecutionHistoryRepository  # noqa: F401
-from .facade import ProcessedFillsDB  # noqa: F401 — backward-compatible entry point
-from .fills_repository import ProcessedFillsRepository  # noqa: F401
-from .legacy_repository import LegacyRepository  # noqa: F401
-from .order_label_repository import OrderLabelRepository  # noqa: F401
-from .processing_log_repository import ProcessingLogRepository  # noqa: F401
-from .ticker_repository import TickerRepository  # noqa: F401
+import warnings as _w
 
-__all__ = [
-    "ProcessedFillsDB",
-    "BaseProcessedFillsRepo",
-    "ProcessedFillsRepository",
-    "AggregationRepository",
-    "ExecutionHistoryRepository",
-    "OrderLabelRepository",
-    "ProcessingLogRepository",
-    "TickerRepository",
-    "LegacyRepository",
-    "init_processed_fills_schema",
-]
+from ..repositories._schema import init_processed_fills_schema  # noqa: F401 — re-exported for legacy callers
+
+_w.warn(
+    "processed_fills_db package is deprecated. "
+    "Use DataPipeline.src.storage.repositories.fills_read / fills_write "
+    "or the CostViewDatabase facade instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)

@@ -24,18 +24,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from DataPipeline.src.storage.connection import ConnectionManager as _ConnectionManager
+from DataPipeline.src.storage.connection import (
+    ConnectionManager as _ConnectionManager,
+    DB_FETCH_HISTORY,
+)
+from DataPipeline.src.common.table_registry import (
+    RAW_FILLS_TABLE as _RAW_FILLS_TABLE,
+    FETCH_LOG_TABLE as _FETCH_LOG_TABLE,
+    PROCESSED_FILLS_TABLE as _PROCESSED_FILLS_TABLE,
+    RAW_BDIB_TABLE as _RAW_BDIB_TABLE,
+    FILL_BDIB_TABLE as _FILL_BDIB_TABLE,
+)
 
 logger = logging.getLogger(__name__)
-
-# ── Table name constants (stable, from ProcessingConfig) ──────────────────────
-# These are duplicated here to avoid importing ProcessingConfig.
-# If CostView ever changes table names, these must be updated in sync.
-_RAW_FILLS_TABLE = "raw_fills"
-_FETCH_LOG_TABLE = "fetch_log"
-_PROCESSED_FILLS_TABLE = "processed_fills"
-_RAW_BDIB_TABLE = "raw_bdib"
-_FILL_BDIB_TABLE = "fill_bdib"
 
 
 def _get_db_paths() -> dict[str, Path]:
@@ -143,7 +144,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
         _DatabaseSpec(
             key="fill_fetch_history",
             label="Fill Fetch History",
-            path=paths.get("raw_fills", Path("raw_fills.db")).parent / "fill_fetch_history.db",
+            path=paths.get(DB_FETCH_HISTORY, Path("fill_fetch_history.db")),
             description="Historical fetch-job records (deduplication + audit).",
             tables=(
                 _TableSpec(

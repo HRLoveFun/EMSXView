@@ -330,3 +330,31 @@
 - **Date**: 2026-05-06
 - **Files**: ExecutionView/frontend/src/components/error-boundary.tsx, ExecutionView/frontend/src/App.tsx, ExecutionView/frontend/src/components/batch-operation-dialogs.tsx, ExecutionView/frontend/src/services/api.ts
 - **Lessons**: 1. 所有 React 项目必须有 ErrorBoundary 包裹 2. 所有异步提交函数必须包裹 try-catch 3. setState 异步更新后不能立即读取状态值，应使用 ref 或 onSummary 回调 4. NDJSON 流式请求必须有超时机制
+
+
+---
+
+## Pattern: Missing re-export stub after DataPipeline migration
+
+- **Signature**: ModuleNotFoundError: No module named 'src.XXX' — occurs in CostView/scripts/ scripts when a module was migrated from CostView/src/ to DataPipeline/src/ but no backward-compatibility re-export stub was left behind.
+- **Root Cause**: When a module is migrated from CostView/src/ to DataPipeline/src/, a re-export stub must be created at CostView/src/XXX.py that imports from the new DataPipeline location. Without this stub, any code still using the old import path (from src.XXX import ...) crashes with ModuleNotFoundError. The daily_update.py script adds CostView/ to sys.path so src.XXX resolves to CostView/src/XXX.py.
+- **Resolution**:
+1. Create CostView/src/XXX.py as a re-export stub following the pattern in CostView/src/processing_config.py (deprecation warning + wildcard re-export from DataPipeline). 2. OR update the importing script to use the canonical DataPipeline path directly (e.g., from DataPipeline.src.ingestion.fill_fetch import FillFetch), and ensure the EMSX root is on sys.path rather than just CostView/.
+- **Status**: Resolved
+- **Date**: 2026-05-07
+- **Files**: CostView/scripts/daily_update.py, CostView/src/fill_fetch.py (created), DataPipeline/src/ingestion/fill_fetch.py
+- **Lessons**: When migrating modules from CostView to DataPipeline, always create a backward-compatibility re-export stub in the old location. Check all scripts under CostView/scripts/ for imports of the migrated module and update them to use the new path. Verify with a test run of the affected scripts.
+
+
+---
+
+## Pattern: 平台适配器引用已删除的 CostView stub 文件导致 API 返回 FAILED
+
+- **Signature**: 在 platform_data/adapters.py 中 import 或引用 CostView/src/ 下已删除的迁移 stub 文件（如 processing_config.py、pipeline.py 等），导致导入时抛出 ModuleNotFoundError，API 端点静默返回 PipelineState.FAILED
+- **Root Cause**: 迭代 4.7 删除了 5 个迁移 stub 文件（原为 re-export 占位符），但 platform_data/adapters.py 仍保留了对其中 processing_config.py 的导入引用，未同步更新
+- **Resolution**:
+1. 始终使用 grep 全量扫描确认所有调用方后再删除迁移 stub 文件。\n2. 删除前执行: grep -rn "from CostView.src.processing_config\|from CostView.src.pipeline\|import processing_config" 确认零引用。\n3. 删除后运行 CI lint + 后端测试套件验证。\n4. adapters.py 中 CostView 导入应通过惰性工厂模式（import 包裹在函数调用内）而非模块级 import。
+- **Status**: Resolved
+- **Date**: 2026-05-08
+- **Files**: platform_data/adapters.py, CostView/src/processing_config.py (已删除), scripts/workflow/check_costview_lint.py
+- **Lessons**: 1. 删除任何文件前必须 grep 全量扫描引用。\n2. platform_data/adapters.py 应避免对 CostView 的模块级导入，所有 CostView 引用应惰性化。\n3. 文档状态"已完成"不等于代码实际状态 — 需执行 grep + 测试双重验证。

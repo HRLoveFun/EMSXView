@@ -10,6 +10,9 @@ on:
       - 'scripts/workflow/**'
       - 'ExecutionView/backend/**'
       - 'ExecutionView/frontend/**'
+      - 'CostView/src/**'
+      - 'DataPipeline/src/**'
+      - 'platform_data/**'
   push:
     branches:
       - main
@@ -21,6 +24,9 @@ on:
       - 'scripts/workflow/**'
       - 'ExecutionView/backend/**'
       - 'ExecutionView/frontend/**'
+      - 'CostView/src/**'
+      - 'DataPipeline/src/**'
+      - 'platform_data/**'
 
 permissions:
   contents: read
@@ -63,6 +69,21 @@ jobs:
 
       - name: Compile backend and workflow scripts
         run: python -m compileall ExecutionView/backend/api scripts/workflow
+
+  costview-lint:
+    needs: validate-plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check CostView module constraints
+        run: python scripts/workflow/check_costview_lint.py
 
   frontend-check:
     needs: validate-plan

@@ -31,10 +31,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 try:
-    from src.processing_config import ProcessingConfig as Config
+    from DataPipeline.src.common.processing_config import ProcessingConfig as Config
     from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 except ImportError:
-    from .processing_config import ProcessingConfig as Config
+    from DataPipeline.src.common.processing_config import ProcessingConfig as Config
     from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)

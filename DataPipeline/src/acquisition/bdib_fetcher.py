@@ -359,3 +359,62 @@ def fetch_bdib_batch(
         return combined
 
     return pd.DataFrame()
+
+
+def fetch_bdib_for_fills(
+    ticker_dates: dict[str, list[str]],
+    ticker_exchange_map: Optional[dict[str, str]] = None,
+    interval: int = 10,
+    max_workers: int = 4,
+) -> dict[str, pd.DataFrame]:
+    """Fetch BDIB data for fill processing, skipping outdated tickers.
+
+    Orchestrates parallel BDIB fetches for the given ticker-date pairs,
+    filters out tickers known to be outdated, and returns results keyed
+    by ``"TICKER|DATE"`` so that callers can determine per-pair success.
+
+    Args:
+        ticker_dates: Mapping of ticker -> list of YYYYMMDD date strings.
+        ticker_exchange_map: Optional mapping of ticker -> Bloomberg exchange code.
+        interval: Bar interval in seconds (default 10).
+        max_workers: Max parallel workers (default 4).
+
+    Returns:
+        Dict mapping ``"{ticker}|{date_str}"`` -> BDIB DataFrame, containing
+        only pairs that were actually fetched (i.e. non-outdated, non-empty).
+    """
+    outdated = load_outdated_ticker_set()
+
+    # Build the list of (ticker, date) pairs, skipping outdated tickers entirely
+    pairs: list[tuple[str, str]] = []
+    for ticker, dates in ticker_dates.items():
+        if ticker in outdated:
+            logger.info(f"fetch_bdib_for_fills: skipping outdated ticker {ticker}")
+            continue
+        for date_str in dates:
+            pairs.append((ticker, date_str))
+
+    if not pairs:
+        logger.info("fetch_bdib_for_fills: no non-outdated pairs to fetch")
+        return {}
+
+    combined = fetch_bdib_batch(
+        pairs,
+        max_workers=max_workers,
+        interval=interval,
+        exchange_map=ticker_exchange_map,
+    )
+
+    result: dict[str, pd.DataFrame] = {}
+    if not combined.empty and "equ_ticker" in combined.columns and "order_as_of_date" in combined.columns:
+        for (ticker, date_str), group in combined.groupby(
+            ["equ_ticker", "order_as_of_date"], sort=False
+        ):
+            key = f"{ticker}|{date_str}"
+            result[key] = group.reset_index(drop=True)
+
+    logger.info(
+        f"fetch_bdib_for_fills: {len(result)} ticker-dates fetched "
+        f"({len(pairs) - len(result)} empty/failed)"
+    )
+    return result

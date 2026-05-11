@@ -21,16 +21,19 @@ import argparse
 import json
 import logging
 import logging.handlers
+import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
-# Add CostView root to path
+# Add EMSX root to path (parent of CostView/ and DataPipeline/)
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _COSTVIEW_ROOT = _SCRIPT_DIR.parent
-sys.path.insert(0, str(_COSTVIEW_ROOT))
+_EMSX_ROOT = _COSTVIEW_ROOT.parent
+sys.path.insert(0, str(_EMSX_ROOT))
 
-from src.processing_config import ProcessingConfig as Config
+from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger("daily_update")
 
@@ -76,7 +79,7 @@ def run_daily_pipeline() -> dict:
     try:
         # Stage A: Auto-fetch new fills
         print("[STAGE] fill_fetch 10")
-        from src.fill_fetch import FillFetch
+        from DataPipeline.src.ingestion.fill_fetch import FillFetch
 
         logger.info("=" * 60)
         logger.info("DAILY UPDATE: Starting auto-fetch")
@@ -92,17 +95,25 @@ def run_daily_pipeline() -> dict:
                 print("[STAGE] fill_fetch 100")
             else:
                 start, end = fetch_range
-                logger.info(f"Auto-fetch: {start} -> {end}")
-                print("[STAGE] fill_fetch 60")
-                fetch_result = fetcher.fetch_range_aggregated(start, end)
+                total_calendar_days = (end - start).days + 1
+                logger.info(f"Auto-fetch: {start} -> {end} ({total_calendar_days} calendar days)")
+
+                def _on_fetch_progress(day_idx: int, total_days: int, date_str: str, rows: int, detail: str) -> None:
+                    # Map per-day progress to fill_fetch stage percentage (range 40–95)
+                    pct = 40 + int((day_idx / total_days) * 55) if total_days > 0 else 95
+                    pct = min(95, max(40, pct))
+                    print(f"[STAGE] fill_fetch {pct} Day {day_idx}/{total_days}: {date_str} — {detail}")
+
+                print(f"[STAGE] fill_fetch 40 Total: {total_calendar_days} calendar days to scan")
+                fetch_result = fetcher.fetch_range_aggregated(start, end, progress_callback=_on_fetch_progress)
                 summary["fetch"] = fetch_result
-                print("[STAGE] fill_fetch 100")
+                print("[STAGE] fill_fetch 100 Fill fetch complete")
         finally:
             fetcher.close()
 
         # Stage B: Run incremental pipeline (with BDIB integration enabled)
         print("[STAGE] processing 10")
-        from src.pipeline import run_incremental
+        from DataPipeline.src.orchestration.pipeline import run_incremental
 
         logger.info("=" * 60)
         logger.info("DAILY UPDATE: Running incremental pipeline (BDIB enabled)")
@@ -150,13 +161,39 @@ def main():
         "--time", type=str, default="18:00",
         help="Time to run daily (HH:MM format, default: 18:00)",
     )
+    parser.add_argument(
+        "--max-duration", type=int, default=3600,
+        help="Maximum execution time in seconds (default: 3600 = 1h). "
+             "Process self-terminates if pipeline exceeds this limit.",
+    )
     args = parser.parse_args()
 
     _setup_logging()
 
     if args.once:
         logger.info("Running once (--once mode)")
-        result = run_daily_pipeline()
+
+        # ── Watchdog: hard kill if pipeline exceeds max-duration ──────────
+        def _watchdog_kill():
+            logger.critical(
+                "Pipeline exceeded --max-duration=%ss. Forcing exit.",
+                args.max_duration,
+            )
+            # Print final stage marker so the backend subprocess reader
+            # captures a meaningful error.
+            print("[STAGE] completion 0 Watchdog: pipeline exceeded max duration -- aborting")
+            sys.stdout.flush()
+            # Hard exit — kills process immediately, even if threads hang
+            os._exit(1)
+
+        timer = threading.Timer(args.max_duration, _watchdog_kill)
+        timer.daemon = True
+        timer.start()
+
+        try:
+            result = run_daily_pipeline()
+        finally:
+            timer.cancel()
         sys.exit(0 if result["status"] == "success" else 1)
 
     # Schedule loop

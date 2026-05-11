@@ -73,7 +73,7 @@
     "steps": [
       {
         "id": "compile-check",
-        "command": "python -m compileall Execution/backend/api scripts/workflow -q",
+        "command": "python -m compileall ExecutionView/backend/api scripts/workflow -q",
         "error_code": "E_VERIFY_BUILD_FAILED",
         "retryable": false
       },

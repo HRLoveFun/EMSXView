@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.storage.raw_bdib_db import RAW_BDIB_COLUMNS
+from ._base import RAW_BDIB_COLUMNS
 from ._base import BaseRepository
 
 logger = logging.getLogger(__name__)

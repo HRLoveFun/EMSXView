@@ -447,7 +447,7 @@ def init_processed_fills_schema(repo: BaseProcessedFillsRepo) -> None:
         """)
 
         conn.commit()
-        logger.debug(f"Processed fills DB initialized at {repo.db_path}")
+        logger.debug("Processed fills DB schema initialized")
     finally:
         conn.close()
 

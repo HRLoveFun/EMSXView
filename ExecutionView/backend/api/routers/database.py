@@ -160,6 +160,7 @@ class StageInfoModel(BaseModel):
     name: str
     label: str
     progress: int = 0
+    detail: Optional[str] = None
 
 
 class UpdateStatusResponse(BaseModel):

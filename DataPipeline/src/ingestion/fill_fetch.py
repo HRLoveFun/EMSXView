@@ -30,7 +30,7 @@ import time
 import sqlite3
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import Callable, List, Dict, Any, Optional, Tuple, Set
 from collections import defaultdict
 
 import blpapi
@@ -253,13 +253,15 @@ class BloombergFillFetcher:
     """EMSX History fill fetcher using blpapi."""
 
     def __init__(self, host: str = None, port: int = None,
-                 max_retries: int = 3, event_timeout_ms: int = 30000):
+                 max_retries: int = 2, event_timeout_ms: int = 30000,
+                 session_reconnect_on_timeout: bool = True):
         self.host = host or os.getenv('BLOOMBERG_HOST', DEFAULT_HOST)
         self.port = port or int(os.getenv('BLOOMBERG_PORT', str(DEFAULT_PORT)))
         self.use_uat = os.getenv('USE_UAT', 'false').lower() == 'true'
         self.service_name = self._resolve_service()
         self.max_retries = max_retries
         self.event_timeout_ms = event_timeout_ms
+        self.session_reconnect_on_timeout = session_reconnect_on_timeout
         self._session: Optional[blpapi.Session] = None
         self._connected = False
 
@@ -297,19 +299,58 @@ class BloombergFillFetcher:
 
     def fetch_fills(self, from_date: datetime, to_date: datetime,
                     team: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch fills from Bloomberg EMSX history.
+
+        Uses ``nextEvent(timeout_ms)`` internally so each event waits at most
+        ``event_timeout_ms`` ms.  After consecutive TIMEOUT events the call
+        raises ``EMSXRequestError`` and optionally recreates the Bloomberg
+        session to clear any bbcomm backlog.
+
+        NOTE: ``concurrent.futures`` / ``signal.alarm`` cannot interrupt
+        ``blpapi.Session.nextEvent()`` because it is a blocking C extension
+        call that holds the GIL.  All timeout logic is therefore cooperative
+        and event-driven.
+        """
         self._ensure_connected()
         last_error: Exception = EMSXRequestError("No fetch attempts made")
         for attempt in range(1, self.max_retries + 1):
+            is_timeout = False
             try:
                 return self._fetch_fills_once(from_date, to_date, team)
-            except (EMSXRequestError, RuntimeError) as exc:
+            except EMSXRequestError as exc:
                 last_error = exc
-                if attempt < self.max_retries:
-                    wait = attempt * 2
-                    logger.warning(f"Fetch attempt {attempt}/{self.max_retries} failed: {exc}. Retrying in {wait}s...")
-                    time.sleep(wait)
-                else:
-                    logger.error(f"All {self.max_retries} fetch attempts failed")
+                is_timeout = (
+                    "timeout" in str(exc).lower()
+                    or "not responding" in str(exc).lower()
+                    or "timed out" in str(exc).lower()
+                )
+                if is_timeout and self.session_reconnect_on_timeout:
+                    logger.warning(
+                        "Bloomberg timeout detected — force-reconnecting session "
+                        "to clear bbcomm queue (%s)",
+                        exc,
+                    )
+                    try:
+                        self.disconnect()
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                    try:
+                        self.connect()
+                        logger.info("Bloomberg session reconnected after timeout")
+                    except Exception as conn_err:
+                        raise EMSXRequestError(
+                            f"Timeout recovery failed: session reconnect error: {conn_err}"
+                        ) from conn_err
+            if attempt < self.max_retries:
+                wait = attempt * 2
+                logger.warning(
+                    f"Fetch attempt {attempt}/{self.max_retries} failed: {last_error}."
+                    f"{' [TIMEOUT]' if is_timeout else ''} Retrying in {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                logger.error(f"All {self.max_retries} fetch attempts failed")
         raise last_error
 
     def _fetch_fills_once(self, from_date: datetime, to_date: datetime,
@@ -333,13 +374,15 @@ class BloombergFillFetcher:
         fills: List[Dict[str, Any]] = []
         done = False
         all_parse_errors: List[str] = []
-        max_event_iterations = 500
+        max_event_iterations = 50
+        consecutive_timeouts = 0
         while not done:
             try:
                 event = self._session.nextEvent(self.event_timeout_ms)
             except Exception as e:
                 raise EMSXRequestError(f"Timeout or error waiting for event: {e}")
             if event.eventType == blpapi.Event.PARTIAL_RESPONSE:
+                consecutive_timeouts = 0
                 for msg in event:
                     if msg.messageType == GET_FILLS_RESPONSE:
                         try:
@@ -348,6 +391,7 @@ class BloombergFillFetcher:
                         except Exception as e:
                             all_parse_errors.append(f"Parse error: {e}")
             elif event.eventType == blpapi.Event.RESPONSE:
+                consecutive_timeouts = 0
                 for msg in event:
                     if msg.messageType == GET_FILLS_RESPONSE:
                         try:
@@ -361,6 +405,18 @@ class BloombergFillFetcher:
                     if msg.hasElement(ERROR_INFO):
                         err = msg.getElement(ERROR_INFO)
                         raise EMSXRequestError(f"Bloomberg request error: {err}")
+            elif event.eventType == blpapi.Event.TIMEOUT:
+                consecutive_timeouts += 1
+                logger.warning(
+                    f"Bloomberg event timeout #{consecutive_timeouts} "
+                    f"(max={max_event_iterations}, fills_so_far={len(fills)})"
+                )
+                if consecutive_timeouts >= 1:
+                    raise EMSXRequestError(
+                        f"Bloomberg API not responding after {consecutive_timeouts} "
+                        f"consecutive timeouts ({fills_so_far_str(len(fills))})"
+                    )
+                continue
             max_event_iterations -= 1
             if max_event_iterations <= 0:
                 raise EMSXRequestError("Event processing exceeded max iterations")
@@ -395,6 +451,11 @@ def compute_data_hash(fills: List[Dict[str, Any]]) -> str:
     import hashlib, json
     raw = json.dumps(fills, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def fills_so_far_str(count: int) -> str:
+    """Return a human-readable description of partial fetch progress."""
+    return f"{count} fill(s) received so far"
 
 
 # ── Main FillFetch Class ─────────────────────────────────────────────────
@@ -605,7 +666,8 @@ class FillFetch:
     def fetch_range_aggregated(self, start_date: date, end_date: date,
                                team: Optional[str] = None,
                                skip_duplicates: bool = True, force: bool = False,
-                               archive_excel: bool = False) -> Dict[str, Any]:
+                               archive_excel: bool = False,
+                               progress_callback: Optional[Callable[[int, int, str, int, str], None]] = None) -> Dict[str, Any]:
         if force:
             skip_duplicates = False
         scope_desc = f"team={team}" if team else "TradingSystem (login-based)"
@@ -625,13 +687,19 @@ class FillFetch:
                 day_idx += 1
                 order_date = current.strftime('%Y-%m-%d')
                 date_compact = current.strftime('%Y%m%d')
-                logger.info(f"[{day_idx}/{total_days}] Processing {order_date}...")
+                weekdays_in_range = max(1, sum(1 for i in range((end_date - start_date).days + 1)
+                                               if (start_date + timedelta(days=i)).weekday() < 5))
+                logger.info(f"[{day_idx}/{weekdays_in_range}] Processing {order_date}...")
+                if progress_callback:
+                    progress_callback(day_idx - 1, weekdays_in_range, order_date, 0, "Fetching from EMSX/Bloomberg…")
                 try:
                     from_dt, to_dt = self._get_date_range(current)
                     fills = client.fetch_fills(from_dt, to_dt, team=team)
                     if not fills:
                         day_summaries.append({'order_date': order_date, 'rows': 0, 'status': 'empty'})
                         no_fill_days += 1
+                        if progress_callback:
+                            progress_callback(day_idx, weekdays_in_range, order_date, 0, "No fills found")
                         current += timedelta(days=1)
                         continue
                     hash_value = compute_data_hash(fills)
@@ -639,6 +707,8 @@ class FillFetch:
                         if self._is_duplicate_in_memory(date_compact, hash_value):
                             day_summaries.append({'order_date': order_date, 'rows': len(fills), 'status': 'skipped'})
                             skipped_days += 1
+                            if progress_callback:
+                                progress_callback(day_idx, weekdays_in_range, order_date, len(fills), "Duplicate (memory)")
                             current += timedelta(days=1)
                             continue
                         if self.raw_db is not None:
@@ -646,6 +716,8 @@ class FillFetch:
                                 self._record_hash_in_memory(date_compact, hash_value)
                                 day_summaries.append({'order_date': order_date, 'rows': len(fills), 'status': 'skipped'})
                                 skipped_days += 1
+                                if progress_callback:
+                                    progress_callback(day_idx, weekdays_in_range, order_date, len(fills), "Duplicate (DB)")
                                 current += timedelta(days=1)
                                 continue
                     all_records.extend(fills)
@@ -674,6 +746,9 @@ class FillFetch:
                             saved_files.append(str(day_file_path))
                     day_summaries.append({'order_date': order_date, 'rows': len(fills), 'rows_upserted': rows_upserted, 'status': 'fetched'})
                     logger.info(f"  Fetched {len(fills)} fills for {order_date} (upserted {rows_upserted})")
+                    if progress_callback:
+                        detail = f"{len(fills)} rows, upserted {rows_upserted}" if rows_upserted else f"{len(fills)} rows"
+                        progress_callback(day_idx, weekdays_in_range, order_date, len(fills), detail)
                     if self.db is not None:
                         try:
                             fetch_time = f"{from_dt.strftime('%H:%M:%S')}-{to_dt.strftime('%H:%M:%S')}"
@@ -686,6 +761,8 @@ class FillFetch:
                     logger.error(f"  Error fetching {order_date}: {e}")
                     day_summaries.append({'order_date': order_date, 'rows': 0, 'status': 'error', 'error': str(e)})
                     error_days += 1
+                    if progress_callback:
+                        progress_callback(day_idx, weekdays_in_range, order_date, 0, f"Error: {e}")
                 current += timedelta(days=1)
         summary = {
             'start_date': start_date.strftime('%Y%m%d'),
