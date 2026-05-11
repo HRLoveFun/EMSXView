@@ -5,14 +5,24 @@ DatabaseView router (`/api/db/update`, `/api/db/update-status/{job_id}`) and
 the legacy CostView aliases (`/api/tca/trigger-update`,
 `/api/tca/update-status/{job_id}`) share a single in-memory registry — one
 active pipeline at a time, reported consistently to both frontends.
+
+Features
+--------
+- **Watchdog** — monitors subprocess for stall (no activity for > 5 min)
+  and total runtime (max 2 h), kills unresponsive processes automatically.
+- **Lock file** — ``.pipeline.lock`` in the project root prevents concurrent
+  pipeline processes across backend restarts.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +36,13 @@ _jobs_lock = threading.Lock()
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .../EMSX
 _COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
+_LOCK_FILE = _PROJECT_ROOT / ".pipeline.lock"
+
+# ── Watchdog / safety thresholds ────────────────────────────────────────────
+
+_WATCHDOG_INTERVAL_SECS = 15          # check every 15 s
+_STALL_TIMEOUT_SECS    = 600           # 10 min without activity → stalled (must be > per_fetch_timeout_secs in fill_fetch.py)
+_MAX_RUNTIME_SECS      = 7200          # 2 h total → timeout
 
 
 # ── Stage definitions (must match daily_update.py STAGE_MARKERS) ──────────────
@@ -66,18 +83,165 @@ def _mark_job_activity(job_id: str) -> None:
 
 
 def _parse_stage_line(line: str):
+    """Parse a ``[STAGE]`` marker line.
+
+    Expected format::
+
+        [STAGE] <stage_name> <progress_pct> [<freeform detail text>]
+
+    Returns ``(name, pct, detail)`` where *detail* is the rest of the line
+    after the percentage (or ``None`` if not present).
+    """
     line = line.strip()
     if not line.startswith(_STAGE_PREFIX):
         return None
-    parts = line[len(_STAGE_PREFIX):].strip().split()
+    rest = line[len(_STAGE_PREFIX):].strip()
+    parts = rest.split()
     if len(parts) >= 2:
         try:
-            return parts[0], min(100, max(0, int(parts[1])))
+            pct = min(100, max(0, int(parts[1])))
+            detail = " ".join(parts[2:]) if len(parts) > 2 else None
+            return parts[0], pct, detail
         except ValueError:
-            return parts[0], 0
+            detail = " ".join(parts[2:]) if len(parts) > 2 else None
+            return parts[0], 0, detail
     if len(parts) == 1:
-        return parts[0], 0
+        return parts[0], 0, None
     return None
+
+
+# ── Lock file helpers ────────────────────────────────────────────────────────
+
+def _write_lock(job_id: str) -> Path:
+    """Write pipeline lock file and return its path."""
+    payload = {
+        "pid": os.getpid(),
+        "job_id": job_id,
+        "started_at": datetime.now().isoformat(),
+    }
+    _LOCK_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _LOCK_FILE.chmod(0o644)
+    logger.info("Lock file written: %s (pid=%s, job=%s)", _LOCK_FILE, os.getpid(), job_id)
+    return _LOCK_FILE
+
+
+def _remove_lock() -> None:
+    try:
+        if _LOCK_FILE.exists():
+            _LOCK_FILE.unlink()
+            logger.info("Lock file removed: %s", _LOCK_FILE)
+    except PermissionError:
+        logger.warning("Could not remove lock file (permission): %s", _LOCK_FILE)
+
+
+def _check_lock() -> Optional[str]:
+    """Return existing job_id from lock file if it is still valid, else ``None``.
+
+    * If no lock file exists → ``None``.
+    * If lock file exists and the recorded PID is alive → return that job_id.
+    * If lock file exists but PID is dead → remove stale lock and return ``None``.
+    """
+    if not _LOCK_FILE.exists():
+        return None
+    try:
+        payload = json.loads(_LOCK_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Corrupt lock file — removing: %s", _LOCK_FILE)
+        _remove_lock()
+        return None
+
+    pid = payload.get("pid")
+    job_id = payload.get("job_id")
+    if pid and _is_pid_alive(pid):
+        logger.info("Lock file valid: pid=%s job=%s", pid, job_id)
+        return job_id
+
+    logger.warning("Stale lock file — pid %s not alive, removing", pid)
+    _remove_lock()
+    return None
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with *pid* is still running (cross-platform)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+# ── Watchdog ─────────────────────────────────────────────────────────────────
+
+def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Event) -> None:
+    """Background thread that monitors the pipeline subprocess.
+
+    Kills the subprocess if:
+    * No activity from subprocess for ``_STALL_TIMEOUT_SECS``.
+    * Total runtime exceeds ``_MAX_RUNTIME_SECS``.
+    """
+    last_activity_seen = datetime.now()
+    started_at = datetime.now()
+    logger.info("Watchdog started for job %s", job_id)
+
+    while not stop_event.is_set():
+        stop_event.wait(_WATCHDOG_INTERVAL_SECS)
+        if stop_event.is_set():
+            break
+
+        # Check if subprocess already exited naturally
+        if proc.poll() is not None:
+            logger.info("Watchdog: subprocess for job %s has exited (rc=%s)", job_id, proc.returncode)
+            break
+
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+
+        if job is None:
+            logger.warning("Watchdog: job %s vanished from registry", job_id)
+            break
+
+        # --- Stall detection ---
+        last_activity_str = job.get("last_activity_at")
+        if last_activity_str:
+            try:
+                last_ts = datetime.fromisoformat(last_activity_str)
+                stall_secs = (datetime.now() - last_ts).total_seconds()
+            except ValueError:
+                stall_secs = 0
+        else:
+            stall_secs = 0
+
+        # --- Total runtime check ---
+        runtime_secs = (datetime.now() - started_at).total_seconds()
+
+        reason = None
+        if runtime_secs > _MAX_RUNTIME_SECS:
+            reason = f"Pipeline exceeded max runtime of {_MAX_RUNTIME_SECS // 60} minutes"
+        elif stall_secs > _STALL_TIMEOUT_SECS:
+            reason = (
+                f"No activity for {stall_secs:.0f}s "
+                f"(threshold: {_STALL_TIMEOUT_SECS}s) — subprocess stalled"
+            )
+
+        if reason:
+            logger.warning("Watchdog killing subprocess (job=%s): %s", job_id, reason)
+            try:
+                proc.kill()
+                proc.wait(timeout=10)
+            except Exception:
+                pass
+            with _jobs_lock:
+                if job_id in _jobs:
+                    _jobs[job_id]["status"] = "failed"
+                    _jobs[job_id]["completed_at"] = datetime.now().isoformat()
+                    _jobs[job_id]["error"] = reason
+                    _jobs[job_id]["overall_progress"] = job.get("overall_progress", 0)
+                    _mark_job_activity(job_id)
+            _remove_lock()
+            logger.info("Watchdog: job %s marked as failed (stalled)", job_id)
+            break
+
+    logger.info("Watchdog stopped for job %s", job_id)
 
 
 def _run_pipeline_subprocess(job_id: str) -> None:
@@ -90,20 +254,40 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                 "name": "initialization",
                 "label": "Initialization",
                 "progress": 0,
+                "detail": None,
             }
             _jobs[job_id]["overall_progress"] = 0
             _mark_job_activity(job_id)
 
     proc: Optional[subprocess.Popen] = None
     captured_lines: list[str] = []
+    stop_event = threading.Event()
+    watchdog_thread: Optional[threading.Thread] = None
+    lock_written = False
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-u", str(daily_update_script), "--once"],
+            [sys.executable, "-u", str(daily_update_script), "--once", "--max-duration", "3600"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(_PROJECT_ROOT),
         )
+
+        # Start watchdog thread
+        watchdog_thread = threading.Thread(
+            target=_watchdog_loop,
+            args=(job_id, proc, stop_event),
+            daemon=True,
+        )
+        watchdog_thread.start()
+
+        # Write lock file (best-effort)
+        try:
+            _write_lock(job_id)
+            lock_written = True
+        except Exception:
+            logger.exception("Failed to write pipeline lock file")
+
         while True:
             line = proc.stdout.readline() if proc.stdout else ""
             if not line and proc.poll() is not None:
@@ -117,7 +301,7 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                 captured_lines = captured_lines[-400:]
             parsed = _parse_stage_line(line)
             if parsed:
-                stage_name, stage_pct = parsed
+                stage_name, stage_pct, stage_detail = parsed
                 label = next(
                     (s["label"] for s in PIPELINE_STAGES if s["name"] == stage_name),
                     stage_name,
@@ -129,6 +313,7 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                             "name": stage_name,
                             "label": label,
                             "progress": stage_pct,
+                            "detail": stage_detail,
                         }
                         _jobs[job_id]["overall_progress"] = overall
                         _mark_job_activity(job_id)
@@ -155,12 +340,21 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             error = tail_block or f"Pipeline exited with code {proc.returncode} (no output captured)"
     except subprocess.TimeoutExpired:
         if proc is not None:
-            proc.kill()
+            try:
+                proc.kill()
+            except Exception:
+                pass
         status = "failed"
         error = "Pipeline timed out after 3600 seconds"
     except Exception as exc:  # noqa: BLE001
         status = "failed"
         error = str(exc)
+    finally:
+        # Stop watchdog
+        stop_event.set()
+        # Remove lock file
+        if lock_written:
+            _remove_lock()
 
     with _jobs_lock:
         if job_id in _jobs:
@@ -174,6 +368,7 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                     "name": "completion",
                     "label": "Completion",
                     "progress": 100,
+                    "detail": None,
                 }
     logger.info("Pipeline job %s finished: %s", job_id, status)
 
@@ -183,7 +378,12 @@ def trigger_pipeline(client_host: str) -> dict[str, Any]:
 
     Returns a dict with keys ``job_id``, ``status``, ``message``.
     Caller is responsible for enforcing localhost restriction.
+
+    The lock file (``.pipeline.lock``) provides cross-restart idempotency:
+    if a process crashes without cleaning up, the lock is detected as stale
+    and replaced.
     """
+    # 1. Check in-memory registry for active jobs
     with _jobs_lock:
         for existing_id, existing_job in _jobs.items():
             if existing_job.get("status") in ("started", "running"):
@@ -197,6 +397,28 @@ def trigger_pipeline(client_host: str) -> dict[str, Any]:
                     "message": "Pipeline already running — returning existing job",
                 }
 
+    # 2. Check file-based lock (handles stale processes from before restart)
+    existing_job_id = _check_lock()
+    if existing_job_id:
+        # Re-hydrate into in-memory registry
+        with _jobs_lock:
+            if existing_job_id not in _jobs:
+                _jobs[existing_job_id] = {
+                    "status": "running",
+                    "started_at": datetime.now().isoformat(),
+                    "completed_at": None,
+                    "error": None,
+                    "stage": {"name": "initialization", "label": "Initialization", "progress": 0, "detail": None},
+                    "overall_progress": 0,
+                    "last_activity_at": datetime.now().isoformat(),
+                }
+        return {
+            "job_id": existing_job_id,
+            "status": "running",
+            "message": "Pipeline already running (lock file) — returning existing job",
+        }
+
+    # 3. All clear — create a new job
     job_id = str(uuid.uuid4())
     with _jobs_lock:
         _jobs[job_id] = {
@@ -204,7 +426,7 @@ def trigger_pipeline(client_host: str) -> dict[str, Any]:
             "started_at": datetime.now().isoformat(),
             "completed_at": None,
             "error": None,
-            "stage": {"name": "initialization", "label": "Initialization", "progress": 0},
+            "stage": {"name": "initialization", "label": "Initialization", "progress": 0, "detail": None},
             "overall_progress": 0,
             "last_activity_at": datetime.now().isoformat(),
         }

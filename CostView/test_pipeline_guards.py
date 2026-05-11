@@ -11,14 +11,16 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from CostView.src.bdib_fetcher import _is_safe_bdib_query_date
-from CostView.src.daily_metrics_calculator import CalculateDailyMetrics
-from CostView.src.exchange_tz import batch_convert_ny_to_local
-from CostView.src.outdated_tickers import load_outdated_ticker_records, record_outdated_ticker
-from CostView.src.pipeline import BaseStage, FinancialPipeline, IntegrateBDIBStage, PipelineContext
-from CostView.src.processed_fills_db import ProcessedFillsDB
-from CostView.src.processing_config import ProcessingConfig as Config
-from CostView.src.raw_bdib_db import RawBDIBDB
+from DataPipeline.src.acquisition.bdib_fetcher import _is_safe_bdib_query_date
+from DataPipeline.src.processing.daily_metrics_calculator import CalculateDailyMetrics
+from DataPipeline.src.common.exchange_tz import batch_convert_ny_to_local
+from DataPipeline.src.common.outdated_tickers import load_outdated_ticker_records, record_outdated_ticker
+from DataPipeline.src.orchestration.pipeline import BaseStage, FinancialPipeline, IntegrateBDIBStage, PipelineContext
+from DataPipeline.src.common.processing_config import ProcessingConfig as Config
+from DataPipeline.src.storage.connection import ConnectionManager
+from DataPipeline.src.storage.repositories.fills_read import SqliteFillReadRepository
+from DataPipeline.src.storage.repositories._schema import init_processed_fills_schema
+from DataPipeline.src.storage.raw_bdib_db import RawBDIBDB
 from CostView.src.tca_query_service import TcaQueryService
 from platform_data.adapters import MarketReferenceDataAdapter
 
@@ -54,8 +56,10 @@ class PipelineGuardTests(unittest.TestCase):
 
     def test_processed_fills_db_sets_busy_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            db = ProcessedFillsDB(db_path=f"{tmp_dir}/processed_fills.db")
-            conn = db._get_conn()
+            mgr = ConnectionManager(path_overrides={"processed_fills": f"{tmp_dir}/processed_fills.db"})
+            init_processed_fills_schema(SqliteFillReadRepository(mgr))
+            repo = SqliteFillReadRepository(mgr)
+            conn = repo._get_read_conn()
             try:
                 busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
             finally:
@@ -65,8 +69,10 @@ class PipelineGuardTests(unittest.TestCase):
 
     def test_processed_fills_db_initializes_execution_history_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            db = ProcessedFillsDB(db_path=f"{tmp_dir}/processed_fills.db")
-            conn = db._get_conn()
+            mgr = ConnectionManager(path_overrides={"processed_fills": f"{tmp_dir}/processed_fills.db"})
+            init_processed_fills_schema(SqliteFillReadRepository(mgr))
+            repo = SqliteFillReadRepository(mgr)
+            conn = repo._get_read_conn()
             try:
                 table_names = {
                     row[0]
@@ -103,10 +109,10 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertIn("1CO GR Equity", records)
         self.assertEqual(records["1CO GR Equity"]["reason"], "cannot_find_exchange_info")
 
-    @patch("CostView.src.bdib_fetcher.fetch_bdib_for_ticker_date")
-    @patch("CostView.src.bdib_fetcher.load_outdated_ticker_set")
-    @patch("CostView.src.bdib_fetcher._is_safe_bdib_query_date", return_value=True)
-    @patch("CostView.src.bdib_fetcher._is_trading_day", return_value=True)
+    @patch("DataPipeline.src.acquisition.bdib_fetcher.fetch_bdib_for_ticker_date")
+    @patch("DataPipeline.src.acquisition.bdib_fetcher.load_outdated_ticker_set")
+    @patch("DataPipeline.src.acquisition.bdib_fetcher._is_safe_bdib_query_date", return_value=True)
+    @patch("DataPipeline.src.acquisition.bdib_fetcher._is_trading_day", return_value=True)
     def test_fetch_bdib_skips_outdated_tickers(
         self,
         _mock_trading_day,
@@ -114,11 +120,24 @@ class PipelineGuardTests(unittest.TestCase):
         mock_load_outdated,
         mock_fetch_one,
     ) -> None:
-        from CostView.src.bdib_fetcher import fetch_bdib_for_fills
+        from DataPipeline.src.acquisition.bdib_fetcher import fetch_bdib_for_fills
 
         mock_load_outdated.return_value = {"1CO GR Equity"}
         mock_fetch_one.return_value = pd.DataFrame(
-            [{"mkt_timestamp": "09:30:00", "close": 100.0, "equ_ticker": "AAPL US Equity"}]
+            [
+                {
+                    "mkt_timestamp": "09:30:00",
+                    "close": 100.0,
+                    "equ_ticker": "AAPL US Equity",
+                    "order_as_of_date": "20260420",
+                    "open": 99.0,
+                    "high": 101.0,
+                    "low": 98.0,
+                    "volume": 10.0,
+                    "num_trds": 1.0,
+                    "value": 1000.0,
+                }
+            ]
         )
 
         result = fetch_bdib_for_fills(
@@ -168,7 +187,7 @@ class PipelineGuardTests(unittest.TestCase):
             with patch.object(Config, "OUTDATED_TICKERS_FILE", outdated_path), patch.object(
                 Config, "MARKET_FETCH_MANIFEST", manifest_path
             ):
-                write_manifest(proc_db=FakeProcDb(), updated_dates=["20260420"])
+                write_manifest(fills_repo=FakeProcDb(), updated_dates=["20260420"])
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertNotIn("1CO GR Equity", manifest["equ_tickers"])
@@ -192,7 +211,11 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertIn("intraday_volatility", columns)
 
     def test_daily_metrics_use_bloomberg_daily_fields_and_preserve_intraday_logic(self) -> None:
-        class FakeProcDb:
+        from CostView.src.db.facade import CostViewDatabase
+        from DataPipeline.src.storage.connection import ConnectionManager
+
+        class FakeFillsRead:
+            """Minimal stub to provide ticker dates for the new facade."""
             @staticmethod
             def get_ticker_dates(ticker_type: str = "equ_ticker") -> dict[str, list[str]]:
                 if ticker_type != "equ_ticker":
@@ -200,8 +223,21 @@ class PipelineGuardTests(unittest.TestCase):
                 return {"AAPL US Equity": ["20260421"]}
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            db = RawBDIBDB(db_path=f"{tmp_dir}/raw_bdib.db")
-            db.upsert_bdib_data(
+            mgr = ConnectionManager(path_overrides={
+                "raw_bdib": Path(tmp_dir) / "raw_bdib.db",
+            })
+            # Initialize schema via legacy RawBDIBDB (its _init_db creates tables)
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                RawBDIBDB(connection_manager=mgr)
+
+            db = CostViewDatabase(connection_manager=mgr)
+
+            # Inject fake fills_read so _get_active_tickers_for_date works
+            db.fills_read = FakeFillsRead()  # type: ignore[assignment]
+
+            db.market_data_write.upsert_bdib_data(
                 pd.DataFrame(
                     [
                         {
@@ -229,7 +265,7 @@ class PipelineGuardTests(unittest.TestCase):
                 )
             )
 
-            calc = CalculateDailyMetrics(db=db, proc_db=FakeProcDb())
+            calc = CalculateDailyMetrics(connection_manager=mgr, db=db)
             history_df = pd.DataFrame(
                 [
                     {
@@ -273,7 +309,7 @@ class PipelineGuardTests(unittest.TestCase):
             with patch.object(CalculateDailyMetrics, "_fetch_daily_history", return_value=history_df):
                 upserted = calc.run_for_date("20260421")
 
-            summary_df = db.get_daily_summary("AAPL US Equity", end_date="20260421")
+            summary_df = db.market_data_read.get_daily_summary("AAPL US Equity", end_date="20260421")
             row = summary_df[summary_df["trade_date"] == "20260421"].iloc[0]
 
         self.assertEqual(upserted, 1)
@@ -460,9 +496,10 @@ class MarketViewIntradayFeatureTests(unittest.TestCase):
                 )
             )
 
-            result = db.get_bdib_bars_for_pool_on_date(
+            result = db.get_bdib_bars_for_tickers_and_dates(
                 ["AAPL US Equity", "MSFT US Equity"],
-                "20260421",
+                start_date="20260421",
+                end_date="20260421",
             )
 
         self.assertEqual(set(result["equ_ticker"].unique()), {"AAPL US Equity", "MSFT US Equity"})
@@ -471,8 +508,11 @@ class MarketViewIntradayFeatureTests(unittest.TestCase):
 
     def test_intraday_feature_adapter_produces_bucketed_features(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            db = self._build_db_with_bars(tmp_dir)
-            adapter = MarketReferenceDataAdapter(daily_summary_db_factory=lambda: db)
+            self._build_db_with_bars(tmp_dir)
+            mgr = ConnectionManager(path_overrides={
+                "raw_bdib": Path(tmp_dir) / "raw_bdib.db",
+            })
+            adapter = MarketReferenceDataAdapter(connection_manager=mgr)
 
             snapshot = adapter.get_intraday_features(
                 equ_tickers=["AAPL US Equity", "MSFT US Equity", "MISSING US Equity"],

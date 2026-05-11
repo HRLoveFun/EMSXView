@@ -16,7 +16,6 @@ downstream services can audit where a suggestion originated from.
 
 from __future__ import annotations
 
-import itertools
 import math
 import threading
 import uuid
@@ -25,28 +24,46 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Optional
 
 from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
-from CostView.src.tca_query_service import (
+from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
-    TcaQueryService,
     TcaReport,
 )
 
-try:  # pragma: no cover - graceful when ExecutionHistoryQueryService is absent
-    from CostView.src.execution_history_service import (
-        ExecutionHistoryQueryService as _DefaultExecutionHistoryService,
-    )
-except Exception:  # pragma: no cover - defensive fallback
-    _DefaultExecutionHistoryService = None  # type: ignore[assignment]
+# Lazy service factories — resolved at call time, not import time, to avoid
+# circular chains (platform_data → CostView → platform_data → ...)
+# and to keep imports live even when stub files are deleted during migration.
+
+
+def _default_tca_factory():
+    import CostView.src.tca_query_service as _tca_svc
+    return _tca_svc.TcaQueryService()
+
+
+def _default_execution_history_factory():
+    try:
+        from CostView.src.execution_history_service import (
+            ExecutionHistoryQueryService,
+        )
+        return ExecutionHistoryQueryService()
+    except Exception as exc:
+        raise FileNotFoundError(
+            "ExecutionHistoryQueryService is not available; "
+            f"CostView.src.execution_history_service failed to import: {exc}"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Daily summary reader — replaces RawBDIBDB direct import
 # ---------------------------------------------------------------------------
 
+_RAW_BDIB_TABLE = "raw_bdib"
 _BDIB_DAILY_SUMMARY_TABLE = "bdib_daily_summary"
+
+# Annualization factor for 10-second bars used in intraday realized vol.
+_BARS_PER_YEAR = 252 * 6.5 * 3600 / 10  # approx 589,680
 
 
 class _ConnectionManagerDailySummaryReader:
@@ -475,7 +492,7 @@ class ExecutionOperationalDataAdapter:
 class CostViewAnalyticsAdapter:
     """Canonical adapter for CostView-owned analytical data."""
 
-    query_service_factory: Callable[[], TcaQueryService] = TcaQueryService
+    query_service_factory: Callable[[], Any] = _default_tca_factory
 
     def describe(self) -> dict[str, str]:
         return {
@@ -567,6 +584,7 @@ class MarketReferenceDataAdapter:
     """Canonical adapter for MarketView-facing market reference data."""
 
     daily_summary_db_factory: Callable[[], Any] = _ConnectionManagerDailySummaryReader
+    connection_manager: ConnectionManager | None = field(default=None, compare=False)
 
     def describe(self) -> dict[str, str]:
         return {
@@ -776,15 +794,207 @@ class MarketReferenceDataAdapter:
             raise ValueError(
                 f"Too many tickers requested ({len(equ_tickers)}); max {INTRADAY_MAX_TICKERS}"
             )
-        # Intraday bar retrieval is not implemented at this scope (WBS-05
-        # introduced the API shape; full bucketing is deferred). Return an
-        # empty snapshot so the router can respond without crashing.
+
+        if trade_date is None or self.connection_manager is None:
+            return IntradayFeatureSnapshot(
+                trade_date=trade_date,
+                bucket_minutes=bucket_minutes,
+                ticker_count=0,
+                missing_tickers=list(equ_tickers),
+                tickers=[],
+            )
+
+        import pandas as pd
+
+        mgr = self.connection_manager
+        bucket_seconds = bucket_minutes * 60
+
+        # ── Query raw BDIB bars ──────────────────────────────────────
+        conn = mgr.get_connection("raw_bdib")
+        try:
+            placeholders = ",".join(["?"] * len(equ_tickers))
+            bars_df = pd.read_sql_query(
+                f"SELECT equ_ticker, mkt_timestamp, open, high, low, close, volume, num_trds, value "
+                f"FROM {_RAW_BDIB_TABLE} "
+                f"WHERE equ_ticker IN ({placeholders}) AND order_as_of_date = ? "
+                f"ORDER BY equ_ticker, mkt_timestamp",
+                conn.raw_connection,
+                params=[*equ_tickers, trade_date],
+            )
+        finally:
+            conn.close()
+
+        # ── Query daily summary ──────────────────────────────────────
+        summary_conn = mgr.get_connection("raw_bdib")
+        try:
+            summary_df = pd.read_sql_query(
+                f"SELECT equ_ticker, total_volume, daily_vwap, daily_close, "
+                f"daily_volatility, intraday_volatility, adv_5d, adv_20d "
+                f"FROM {_BDIB_DAILY_SUMMARY_TABLE} "
+                f"WHERE trade_date = ?",
+                summary_conn.raw_connection,
+                params=[trade_date],
+            )
+        finally:
+            summary_conn.close()
+
+        # ── Build ticker features ────────────────────────────────────
+        ticker_features: list[IntradayTickerFeatures] = []
+        tickers_with_data: set[str] = set()
+
+        for ticker in equ_tickers:
+            ticker_bars = bars_df[bars_df["equ_ticker"] == ticker].copy()
+            if ticker_bars.empty:
+                continue
+            tickers_with_data.add(ticker)
+
+            ticker_summary = summary_df[summary_df["equ_ticker"] == ticker]
+            total_volume = float(ticker_bars["volume"].sum()) if "volume" in ticker_bars.columns else None
+            bar_count = len(ticker_bars)
+
+            first_bar_time: str | None = None
+            last_bar_time: str | None = None
+            if bar_count > 0:
+                fb = str(ticker_bars["mkt_timestamp"].iloc[0])
+                lb = str(ticker_bars["mkt_timestamp"].iloc[-1])
+                first_bar_time = fb[:5] if len(fb) >= 5 else fb
+                last_bar_time = lb[:5] if len(lb) >= 5 else lb
+
+            # Daily VWAP from bars
+            daily_vwap: float | None = None
+            if total_volume and total_volume > 0 and "close" in ticker_bars.columns:
+                daily_vwap = float((ticker_bars["close"] * ticker_bars["volume"]).sum() / total_volume)
+
+            daily_close = _to_optional_float(ticker_summary["daily_close"].iloc[0]) if not ticker_summary.empty else None
+            daily_volatility = _to_optional_float(ticker_summary["daily_volatility"].iloc[0]) if not ticker_summary.empty else None
+            intraday_vol = _to_optional_float(ticker_summary["intraday_volatility"].iloc[0]) if not ticker_summary.empty else None
+            adv_20d = _to_optional_float(ticker_summary["adv_20d"].iloc[0]) if not ticker_summary.empty else None
+
+            # ── Bucketing ────────────────────────────────────────────
+            buckets: list[IntradayFeatureBucket] = []
+            if bar_count > 0 and "mkt_timestamp" in ticker_bars.columns:
+                ticker_bars["_ts_seconds"] = ticker_bars["mkt_timestamp"].apply(
+                    lambda t: sum(int(x) * 60 ** i for i, x in enumerate(reversed(str(t).split(":"))))
+                )
+                ticker_bars["_bucket"] = ticker_bars["_ts_seconds"] // bucket_seconds
+
+                running_volume = 0.0
+                for bucket_idx, (_, bdf) in enumerate(ticker_bars.groupby("_bucket", sort=True)):
+                    running_volume += float(bdf["volume"].sum()) if "volume" in bdf.columns else 0.0
+
+                    bucket_bar_count = len(bdf)
+                    bucket_volume = float(bdf["volume"].sum()) if "volume" in bdf.columns else 0.0
+                    cum_vol = running_volume if running_volume > 0 else None
+                    cum_pct = (running_volume / total_volume * 100.0) if total_volume and total_volume > 0 else None
+
+                    # Bucket VWAP
+                    b_vwap: float | None = None
+                    if bucket_volume > 0 and "close" in bdf.columns:
+                        b_vwap = float((bdf["close"] * bdf["volume"]).sum() / bucket_volume)
+
+                    b_close = _to_optional_float(bdf["close"].iloc[-1]) if "close" in bdf.columns and not bdf.empty else None
+                    b_high = float(bdf["high"].max()) if "high" in bdf.columns and not bdf.empty else None
+                    b_low = float(bdf["low"].min()) if "low" in bdf.columns and not bdf.empty else None
+
+                    # Realized vol within bucket
+                    closes = bdf["close"].dropna() if "close" in bdf.columns else pd.Series(dtype=float)
+                    realized_vol: float | None = None
+                    if len(closes) >= 2:
+                        import numpy as np
+                        log_returns = np.log(closes / closes.shift(1)).dropna()
+                        if len(log_returns) >= 2:
+                            realized_vol = float(log_returns.std() * math.sqrt(_BARS_PER_YEAR))
+
+                    # Bucket time boundaries
+                    min_ts = int(bdf["_ts_seconds"].min())
+                    # bucket_idx tracks ordinal within this ticker; compute wall clock bucket boundary
+                    wall_bucket_start = (min_ts // bucket_seconds) * bucket_seconds
+                    wall_bucket_end = wall_bucket_start + bucket_seconds
+                    b_start = f"{wall_bucket_start // 3600:02d}:{(wall_bucket_start % 3600) // 60:02d}"
+                    b_end = f"{wall_bucket_end // 3600:02d}:{(wall_bucket_end % 3600) // 60:02d}"
+
+                    vol_vs_adv20 = (running_volume / adv_20d * 100.0) if adv_20d and adv_20d > 0 else None
+
+                    buckets.append(IntradayFeatureBucket(
+                        bucket_start=b_start,
+                        bucket_end=b_end,
+                        bar_count=bucket_bar_count,
+                        volume=bucket_volume if bucket_volume > 0 else None,
+                        cumulative_volume=cum_vol,
+                        cumulative_volume_pct=round(cum_pct, 4) if cum_pct is not None else None,
+                        vwap=_round_or_none(b_vwap, 6),
+                        close=b_close,
+                        high=b_high,
+                        low=b_low,
+                        realized_vol_annualized=realized_vol,
+                        volume_vs_adv20_pct=vol_vs_adv20,
+                    ))
+
+            # ── Open / close window shares (relative to first/last bar) ──
+            open_window_volume: float | None = None
+            open_window_vwap: float | None = None
+            open_window_share_pct: float | None = None
+            close_window_volume: float | None = None
+            close_window_vwap: float | None = None
+            close_window_share_pct: float | None = None
+
+            if bar_count > 0 and "_ts_seconds" in ticker_bars.columns:
+                min_ts = ticker_bars["_ts_seconds"].min()
+                max_ts = ticker_bars["_ts_seconds"].max()
+                window_seconds = 10 * 60  # 10-minute window
+
+                # Open window: first 10 minutes from first bar
+                open_cutoff = min_ts + window_seconds
+                open_bars = ticker_bars[ticker_bars["_ts_seconds"] <= open_cutoff]
+                open_vol = float(open_bars["volume"].sum()) if not open_bars.empty and "volume" in open_bars.columns else 0.0
+                open_window_volume = open_vol if open_vol > 0 else None
+                if open_vol > 0 and "close" in open_bars.columns:
+                    open_window_vwap = float((open_bars["close"] * open_bars["volume"]).sum() / open_vol)
+                if total_volume and total_volume > 0:
+                    open_window_share_pct = open_vol / total_volume * 100.0 if open_vol > 0 else 0.0
+
+                # Close window: last 10 minutes before last bar
+                close_cutoff = max_ts - window_seconds
+                close_bars = ticker_bars[ticker_bars["_ts_seconds"] > close_cutoff]
+                close_vol = float(close_bars["volume"].sum()) if not close_bars.empty and "volume" in close_bars.columns else 0.0
+                close_window_volume = close_vol if close_vol > 0 else None
+                if close_vol > 0 and "close" in close_bars.columns:
+                    close_window_vwap = float((close_bars["close"] * close_bars["volume"]).sum() / close_vol)
+                if total_volume and total_volume > 0:
+                    close_window_share_pct = close_vol / total_volume * 100.0 if close_vol > 0 else 0.0
+
+            volume_vs_adv20_pct = (total_volume / adv_20d * 100.0) if total_volume and adv_20d and adv_20d > 0 else None
+
+            ticker_features.append(IntradayTickerFeatures(
+                equ_ticker=ticker,
+                trade_date=trade_date,
+                bar_count=bar_count,
+                first_bar_time=first_bar_time,
+                last_bar_time=last_bar_time,
+                total_volume=total_volume,
+                daily_vwap=daily_vwap,
+                daily_close=daily_close,
+                daily_volatility=daily_volatility,
+                intraday_volatility=intraday_vol,
+                adv_20d=adv_20d,
+                open_window_volume=open_window_volume,
+                open_window_vwap=open_window_vwap,
+                open_window_share_pct=open_window_share_pct,
+                close_window_volume=close_window_volume,
+                close_window_vwap=close_window_vwap,
+                close_window_share_pct=close_window_share_pct,
+                volume_vs_adv20_pct=volume_vs_adv20_pct,
+                buckets=buckets,
+            ))
+
+        missing = [t for t in equ_tickers if t not in tickers_with_data]
+
         return IntradayFeatureSnapshot(
             trade_date=trade_date,
             bucket_minutes=bucket_minutes,
-            ticker_count=0,
-            missing_tickers=list(equ_tickers),
-            tickers=[],
+            ticker_count=len(ticker_features),
+            missing_tickers=missing,
+            tickers=ticker_features,
         )
 
 
@@ -1160,7 +1370,7 @@ def build_platform_data_access(
     repository_provider: Any | None = None,
     *,
     market_db_factory: Callable[[], Any] = _ConnectionManagerDailySummaryReader,
-    query_service_factory: Callable[[], TcaQueryService] = TcaQueryService,
+    query_service_factory: Callable[[], Any] = _default_tca_factory,
     execution_history_service_factory: Callable[[], Any] | None = None,
     handoff_exchange: HandoffExchangeAdapter | None = None,
     data_platform_factory: Callable[[], Any] | None = None,
@@ -1176,15 +1386,8 @@ def build_platform_data_access(
     resolved_history_factory: Callable[[], Any]
     if execution_history_service_factory is not None:
         resolved_history_factory = execution_history_service_factory
-    elif _DefaultExecutionHistoryService is not None:
-        resolved_history_factory = _DefaultExecutionHistoryService  # type: ignore[assignment]
     else:
-        def _raise_missing() -> Any:
-            raise FileNotFoundError(
-                "ExecutionHistoryQueryService is not available; "
-                "CostView.src.execution_history_service failed to import."
-            )
-        resolved_history_factory = _raise_missing
+        resolved_history_factory = _default_execution_history_factory
 
     execution_history = ExecutionHistoryAdapter(service_factory=resolved_history_factory)
     database = CostViewDatabaseAdapter()
@@ -1361,7 +1564,6 @@ class DataPlatformIngestionAdapter:
                 )
 
         try:
-            from CostView.src.processing_config import ProcessingConfig as Cfg
             raw_result = pipeline.run(
                 start_date=config.start_date,
                 end_date=config.end_date,

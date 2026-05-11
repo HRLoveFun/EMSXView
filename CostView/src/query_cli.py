@@ -25,8 +25,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
-from .processed_fills_db import ProcessedFillsDB
-from .processing_config import ProcessingConfig as Config
+from DataPipeline.src.storage.repositories.fills_read import SqliteFillReadRepository
+from DataPipeline.src.storage.repositories.raw_fills_read import SqliteRawFillReadRepository
+from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 from .raw_fills_db import RawFillsDB
 
 logger = logging.getLogger(__name__)
@@ -36,9 +37,10 @@ class QueryEngine:
     """Prebuilt read-only queries against CostView databases."""
 
     def __init__(self):
-        self.raw_db = RawFillsDB(access_tier=AccessTier.READ)
-        self.proc_db = ProcessedFillsDB(access_tier=AccessTier.READ)
         self._mgr = ConnectionManager()
+        self.raw_db = RawFillsDB(access_tier=AccessTier.READ, connection_manager=self._mgr)
+        self.fills_read = SqliteFillReadRepository(self._mgr)
+        self.raw_fills_read = SqliteRawFillReadRepository(self._mgr)
 
     def query_fills(
         self,
@@ -132,8 +134,8 @@ class QueryEngine:
     ) -> pd.DataFrame:
         """Query order labels, optionally filtered by date."""
         if date:
-            return self.proc_db.get_order_labels_for_date(date)
-        return self.proc_db.get_order_labels()
+            return self.fills_read.get_order_labels_for_date(date)
+        return self.fills_read.get_order_labels()
 
     def query_tickers(self, ticker_type: str = "all") -> pd.DataFrame:
         """List all tracked tickers from ticker_date_mapping."""
@@ -179,7 +181,7 @@ class QueryEngine:
             summary["raw_fills_dates"] = len(raw_counts)
 
         # Processing stats
-        proc_stats = self.proc_db.get_processing_stats()
+        proc_stats = self.fills_read.get_processing_stats()
         summary["processed_fills"] = proc_stats.get(Config.PROCESSED_FILLS_TABLE, 0)
         summary["agg_fills_10s"] = proc_stats.get(Config.AGG_10S_TABLE, 0)
         summary["order_labels"] = proc_stats.get(Config.ORDER_LABEL_TABLE, 0)

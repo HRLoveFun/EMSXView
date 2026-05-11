@@ -1,16 +1,13 @@
-"""Fill read repository — read access to processed_fills.db.
-
-Implements FillReadRepository Protocol using ConnectionManager.
-"""
+"""Fill read repository — read access to processed_fills.db."""
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from DataPipeline.src.storage.connection import AccessTier
+from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 from ._base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -141,5 +138,166 @@ class SqliteFillReadRepository(BaseRepository):
             return pd.read_sql_query(
                 "SELECT * FROM order_label", conn.raw_connection,
             )
+        finally:
+            conn.close()
+
+    # ── Ticker registry (migrated from ProcessedFillsDB) ──────────────────────
+
+    def get_equ_ticker_registry(self) -> pd.DataFrame:
+        """Get all equity tickers from the registry."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                "SELECT * FROM equ_ticker_registry ORDER BY equ_ticker",
+                conn.raw_connection,
+            )
+        finally:
+            conn.close()
+
+    def get_ccy_ticker_registry(self) -> pd.DataFrame:
+        """Get all currency tickers from the registry."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                "SELECT * FROM ccy_ticker_registry ORDER BY ccy_ticker",
+                conn.raw_connection,
+            )
+        finally:
+            conn.close()
+
+    def get_ticker_dates(
+        self, ticker_type: str = "equ_ticker",
+    ) -> Dict[str, List[str]]:
+        """Get ticker→dates mapping from ticker_date_mapping table."""
+        conn = self._get_read_conn()
+        try:
+            cur = conn.execute(
+                "SELECT ticker, order_as_of_date FROM ticker_date_mapping "
+                "WHERE ticker_type = ? ORDER BY ticker, order_as_of_date",
+                (ticker_type,),
+            )
+            result: Dict[str, List[str]] = {}
+            for ticker, date_str in cur.fetchall():
+                result.setdefault(ticker, []).append(date_str)
+            return result
+        finally:
+            conn.close()
+
+    # ── Range queries (migrated from ProcessedFillsRepository) ──────────────
+
+    def get_processed_fills_for_date_range(
+        self, start: str, end: str,
+    ) -> pd.DataFrame:
+        """Get processed fills for a date range (inclusive, YYYYMMDD)."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                """SELECT * FROM processed_fills
+                    WHERE order_as_of_date >= ? AND order_as_of_date <= ?
+                    ORDER BY order_as_of_date, mkt_timestamp""",
+                conn.raw_connection,
+                params=[start, end],
+            )
+        finally:
+            conn.close()
+
+    # ── Order labels by date (migrated from OrderLabelRepository) ──────────
+
+    def get_order_labels_for_date(self, date_str: str) -> pd.DataFrame:
+        """Get order labels for a specific date."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                "SELECT * FROM order_label WHERE order_as_of_date = ?",
+                conn.raw_connection,
+                params=[date_str],
+            )
+        finally:
+            conn.close()
+
+    # ── Execution history stats (migrated from ExecutionHistoryRepository) ──
+
+    def get_execution_history_stats(self) -> Dict[str, Any]:
+        """Return row counts and source policy metadata for execution history tables."""
+        conn = self._get_read_conn()
+        try:
+            return {
+                "order_history_rows": conn.execute(
+                    "SELECT COUNT(*) FROM order_history"
+                ).fetchone()[0],
+                "route_history_rows": conn.execute(
+                    "SELECT COUNT(*) FROM route_history"
+                ).fetchone()[0],
+                "route_event_history_rows": conn.execute(
+                    "SELECT COUNT(*) FROM route_event_history"
+                ).fetchone()[0],
+                "source_policy": dict(Config.EXECUTION_HISTORY_SOURCE_POLICY),
+                "refresh_policy": dict(Config.EXECUTION_HISTORY_REFRESH_POLICY),
+            }
+        finally:
+            conn.close()
+
+    # ── 1-minute aggregation reads (migrated from AggregationRepository) ────
+
+    def get_agg_fills_1min_for_date(self, date_str: str) -> pd.DataFrame:
+        """[DEPRECATED v3] Get route-level 1min aggregated fills for a date."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                "SELECT * FROM agg_fills_1min WHERE order_as_of_date = ?",
+                conn.raw_connection,
+                params=[date_str],
+            )
+        finally:
+            conn.close()
+
+    # ── Legacy reads (migrated from LegacyRepository) ──────────────────────
+
+    def get_1min_fills_for_date(self, date_str: str) -> pd.DataFrame:
+        """[DEPRECATED] Legacy: get 1min aggregated fills for a date from old table."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                "SELECT * FROM processed_fills_1min WHERE order_as_of_date = ?",
+                conn.raw_connection,
+                params=[date_str],
+            )
+        finally:
+            conn.close()
+
+    # ── Cross-table stats (migrated from processed_fills_db.stats) ─────────
+
+    def get_processing_stats(self) -> Dict[str, Any]:
+        """Get summary statistics across all tables in processed_fills.db."""
+        conn = self._get_read_conn()
+        try:
+            stats: Dict[str, Any] = {}
+            for table in [
+                Config.PROCESSED_FILLS_TABLE,
+                Config.AGG_10S_TABLE,
+                Config.AGG_1MIN_TABLE,
+                Config.ORDER_HISTORY_TABLE,
+                Config.ROUTE_HISTORY_TABLE,
+                Config.ROUTE_EVENT_HISTORY_TABLE,
+                Config.AGG_PROCESSED_FILLS_TABLE,
+                Config.PROCESSED_FILLS_1MIN_TABLE,
+                Config.ORDER_LABEL_TABLE,
+            ]:
+                try:
+                    cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
+                    stats[table] = cursor.fetchone()[0]
+                except Exception:
+                    stats[table] = 0
+
+            try:
+                cursor = conn.execute(
+                    f"SELECT stage, COUNT(DISTINCT order_as_of_date) "
+                    f"FROM {Config.PROCESSING_LOG_TABLE} GROUP BY stage"
+                )
+                stats["processing_stages"] = {r[0]: r[1] for r in cursor.fetchall()}
+            except Exception:
+                stats["processing_stages"] = {}
+
+            return stats
         finally:
             conn.close()

@@ -29,19 +29,9 @@ from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 
 logger = logging.getLogger(__name__)
 
-# ── Bloomberg-native BDIB columns (no derived fields) ──
-RAW_BDIB_COLUMNS = [
-    "equ_ticker",
-    "order_as_of_date",
-    "mkt_timestamp",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "num_trds",
-    "value",
-]
+# RAW_BDIB_COLUMNS moved to DataPipeline.src.storage.repositories._base
+# to break the circular dependency: market_data_write → raw_bdib_db → ...
+from DataPipeline.src.storage.repositories._base import RAW_BDIB_COLUMNS
 
 
 class RawBDIBDB:

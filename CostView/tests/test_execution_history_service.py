@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from CostView.src.execution_history_service import ExecutionHistoryQueryService
-from CostView.src.processing_config import ProcessingConfig as Config
+from DataPipeline.src.common.processing_config import ProcessingConfig as Config
 
 
 def _seed_processed_db(db_path: Path) -> None:

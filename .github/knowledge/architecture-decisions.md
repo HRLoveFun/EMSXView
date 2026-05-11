@@ -217,3 +217,92 @@
 - **Consequences**: Zero `from CostView.src.*` imports remain in ExecutionView. `platform_data/repositories.py` no longer depends on `CostView.src.processing_config`. Cross-module data access flows exclusively through `platform_data` adapters and contracts. The `CostViewDatabaseAdapter` provides a clean read-only interface for regime/fills/market data queries. Internal CostView code (`tca_query_service.py`) still has its own `SCORECARD_COHORTS` for backward compatibility; the contracts layer is the canonical cross-module source.
 - **Review Date**: 2026-08-01
 
+
+---
+
+## Decision: Migration Stub Cleanup — Delete Re-Export Stubs (Iteration 4)
+
+- **Date**: 2026-05-08
+- **Context**: Iterations 1-3 migrated logic to DataPipeline, leaving backward-compatible re-export stubs at old import paths. All internal callers had been updated.
+- **Decision**: Delete 5 re-export stub files (pipeline.py, processing_config.py, schema.py, daily_metrics_calculator.py, bdib_fetcher.py). Migrate remaining 8 files still importing old processing_config path. Add CI lint script enforcing sqlite3.connect() only in allowed directories.
+- **Consequences**: Cleaner import graph; no more deprecation warnings from internal modules. CI enforces the rule.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: FillFetchDatabase SQLAlchemy → ConnectionManager Migration (Iteration 5.1)
+
+- **Date**: 2026-05-08
+- **Context**: FillFetchDatabase used standalone SQLAlchemy engine outside ConnectionManager. Database path via env var, not ProcessingConfig.
+- **Decision**: Rewrite FillFetchDatabase to use ConnectionManager + native sqlite3. Register DB_FETCH_HISTORY as 7th managed database. Keep 100% backward-compatible API.
+- **Consequences**: Zero SQLAlchemy dependency. fill_fetch_history.db is first-class managed database.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: downstream_interface → FillReadRepository Protocol (Iteration 5.2)
+
+- **Date**: 2026-05-08
+- **Context**: downstream_interface had 4 functions defaulting to ProcessedFillsDB() concrete class.
+- **Decision**: Add ticker registry methods to FillReadRepository Protocol. Change function signatures to accept FillReadRepository. Default: SqliteFillReadRepository().
+- **Consequences**: Zero direct ProcessedFillsDB references. Accepts any FillReadRepository implementation.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: ProcessingConfig Instance Injection Support (Iteration 6.1)
+
+- **Date**: 2026-05-08
+- **Context**: ProcessingConfig was purely static class — no instance override possible.
+- **Decision**: Add __init__(**overrides) + __getattribute__. Instance attribs take precedence. Static access fully backward-compatible.
+- **Consequences**: Testing with isolated config instances now possible. Gradual DI migration enabled.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: Centralized Table Name Registry (Iteration 6.2)
+
+- **Date**: 2026-05-08
+- **Context**: Table names duplicated across processing_config.py, platform_data/repositories.py (5 repeated), and connection.py.
+- **Decision**: Create DataPipeline/src/common/table_registry.py as single source of truth for 22 table + 7 DB key constants.
+- **Consequences**: Single change point for table renames. Zero duplicate string literals.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: tca_query_service Module Split (Iteration 6.3)
+
+- **Date**: 2026-05-08
+- **Context**: tca_query_service.py had 1,435 lines combining 7 dataclasses, SQL builders, fallback logic, and orchestrator.
+- **Decision**: Extract 7 dataclasses + 2 constants into tca_types.py. Keep backward compat via rom .tca_types import *.
+- **Consequences**: File drops to ~1,230 lines. Types isolable for future contract migration. 42/42 TCA tests pass.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: Eliminate platform_data Reverse Imports via TCA Contracts (Iteration 7.1)
+
+- **Date**: 2026-05-08
+- **Context**: platform_data/adapters.py imported TCA dataclasses from CostView, creating circular import when tca_types referenced contracts.
+- **Decision**: Create platform_data/contracts/tca_contracts.py as canonical TCA type home. tca_types imports from contracts. adapters imports types from contracts and uses lazy TcaQueryService factory. Fix 3 remaining broken CostView.src references.
+- **Consequences**: Zero CostView src imports in platform_data for types. Circular chain broken. Single contract type source.
+- **Review Date**: 2026-08-01
+
+---
+
+## Decision: ConnectionManager Thread-Local Connection Cache (Iteration 6.3 optimization)
+
+- **Date**: 2026-05-08
+- **Context**: High-frequency short-query workloads (regime tagger, pipeline guards)
+  created a new ``sqlite3.Connection`` per call (~50µs overhead).  The original
+  Phase 1 design chose "fresh connection per call" deliberately because SQLite
+  connections cannot be shared across threads.
+- **Decision**: Add ``threading.local()`` connection cache to ``ConnectionManager``.
+  Only READ-tier connections are cached, keyed by ``(database_name, row_factory)``.
+  WRITE and ADMIN connections always create a fresh connection.  The cache is
+  per-thread so no cross-thread sharing.  A ``close_thread_cached_connections()``
+  method allows explicit invalidation.  Stale connections (e.g. after DB rebuild)
+  are detected via a ``SELECT 1`` ping and automatically evicted.
+- **Consequences**: Read workloads reuse connections within a thread, avoiding
+  ~50µs/connection overhead.  Thread safety preserved.  Zero API change.
+- **Review Date**: 2026-11-01

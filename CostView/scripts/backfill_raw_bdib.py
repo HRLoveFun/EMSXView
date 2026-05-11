@@ -51,7 +51,7 @@ sys.path.insert(0, str(_COSTVIEW_ROOT))
 from src.processing_config import ProcessingConfig as Config
 from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date, _is_trading_day
 from src.raw_bdib_db import RawBDIBDB
-from src.processed_fills_db import ProcessedFillsDB
+from src.db.facade import CostViewDatabase
 
 logger = logging.getLogger("backfill_raw_bdib")
 
@@ -105,9 +105,12 @@ def _get_previous_weekday(ref: Optional[date] = None) -> date:
 
 def load_ticker_exchange_map() -> dict:
     """Load equ_ticker -> exchange mapping from processed_fills ticker_repository."""
-    proc_db = ProcessedFillsDB()
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        db = CostViewDatabase()
     bdid_exchange = [str(e).strip().upper() for e in Config.BDID_EXCHANGE if str(e).strip()]
-    mapping = proc_db.get_ticker_exchange_map(exchanges=bdid_exchange)
+    mapping = db.fills_read.get_ticker_exchange_map(exchanges=bdid_exchange)
     logger.info(f"Loaded {len(mapping)} tickers from ticker_repository (exchanges={bdid_exchange})")
     return mapping
 

@@ -134,6 +134,7 @@ export interface StageInfo {
   name: string;
   label: string;
   progress: number;
+  detail: string | null;
 }
 
 export interface UpdateStatusResponse {

@@ -138,6 +138,7 @@ class StageInfo(BaseModel):
     name: str        # "initialization" | "fill_fetch" | "processing" | "completion"
     label: str       # human-readable label
     progress: int = 0  # 0-100 within this stage
+    detail: Optional[str] = None  # freeform detail (e.g. "Day 3/7: 2026-04-29 — 1245 rows, upserted 1245")
 
 
 class UpdateStatusResponse(BaseModel):

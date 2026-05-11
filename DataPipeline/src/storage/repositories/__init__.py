@@ -1,8 +1,7 @@
-"""Repository implementations for the CostView database subsystem.
+"""Concrete SQLite repository implementations.
 
 All SQL and sqlite3 knowledge is encapsulated here. Business logic
-depends on Protocol interfaces (db.protocols), never on these concrete
-classes directly.
+imports these classes directly (no Protocol indirection).
 
 Each repository uses ConnectionManager for connections, ensuring
 standard pragmas and access tier enforcement.

@@ -107,9 +107,12 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
 
     # 4. Determine tickers from processed_fills ticker_repository
     try:
-        from src.processed_fills_db import ProcessedFillsDB
-        proc_db = ProcessedFillsDB()
-        ticker_exchange_map = proc_db.get_ticker_exchange_map()
+        from src.db.facade import CostViewDatabase
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            db = CostViewDatabase()
+        ticker_exchange_map = db.fills_read.get_ticker_exchange_map()
         tickers = list(ticker_exchange_map.keys())
     except Exception as e:
         logger.error(f"Could not load ticker list: {e}")
