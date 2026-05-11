@@ -21,9 +21,7 @@ import argparse
 import json
 import logging
 import logging.handlers
-import os
 import sys
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -161,39 +159,13 @@ def main():
         "--time", type=str, default="18:00",
         help="Time to run daily (HH:MM format, default: 18:00)",
     )
-    parser.add_argument(
-        "--max-duration", type=int, default=3600,
-        help="Maximum execution time in seconds (default: 3600 = 1h). "
-             "Process self-terminates if pipeline exceeds this limit.",
-    )
     args = parser.parse_args()
 
     _setup_logging()
 
     if args.once:
         logger.info("Running once (--once mode)")
-
-        # ── Watchdog: hard kill if pipeline exceeds max-duration ──────────
-        def _watchdog_kill():
-            logger.critical(
-                "Pipeline exceeded --max-duration=%ss. Forcing exit.",
-                args.max_duration,
-            )
-            # Print final stage marker so the backend subprocess reader
-            # captures a meaningful error.
-            print("[STAGE] completion 0 Watchdog: pipeline exceeded max duration -- aborting")
-            sys.stdout.flush()
-            # Hard exit — kills process immediately, even if threads hang
-            os._exit(1)
-
-        timer = threading.Timer(args.max_duration, _watchdog_kill)
-        timer.daemon = True
-        timer.start()
-
-        try:
-            result = run_daily_pipeline()
-        finally:
-            timer.cancel()
+        result = run_daily_pipeline()
         sys.exit(0 if result["status"] == "success" else 1)
 
     # Schedule loop

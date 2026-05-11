@@ -253,15 +253,13 @@ class BloombergFillFetcher:
     """EMSX History fill fetcher using blpapi."""
 
     def __init__(self, host: str = None, port: int = None,
-                 max_retries: int = 2, event_timeout_ms: int = 30000,
-                 session_reconnect_on_timeout: bool = True):
+                 max_retries: int = 2, event_timeout_ms: int = 30000):
         self.host = host or os.getenv('BLOOMBERG_HOST', DEFAULT_HOST)
         self.port = port or int(os.getenv('BLOOMBERG_PORT', str(DEFAULT_PORT)))
         self.use_uat = os.getenv('USE_UAT', 'false').lower() == 'true'
         self.service_name = self._resolve_service()
         self.max_retries = max_retries
         self.event_timeout_ms = event_timeout_ms
-        self.session_reconnect_on_timeout = session_reconnect_on_timeout
         self._session: Optional[blpapi.Session] = None
         self._connected = False
 
@@ -303,8 +301,8 @@ class BloombergFillFetcher:
 
         Uses ``nextEvent(timeout_ms)`` internally so each event waits at most
         ``event_timeout_ms`` ms.  After consecutive TIMEOUT events the call
-        raises ``EMSXRequestError`` and optionally recreates the Bloomberg
-        session to clear any bbcomm backlog.
+        raises ``EMSXRequestError`` and recreates the Bloomberg session to
+        clear any bbcomm backlog.
 
         NOTE: ``concurrent.futures`` / ``signal.alarm`` cannot interrupt
         ``blpapi.Session.nextEvent()`` because it is a blocking C extension
@@ -324,7 +322,7 @@ class BloombergFillFetcher:
                     or "not responding" in str(exc).lower()
                     or "timed out" in str(exc).lower()
                 )
-                if is_timeout and self.session_reconnect_on_timeout:
+                if is_timeout:
                     logger.warning(
                         "Bloomberg timeout detected — force-reconnecting session "
                         "to clear bbcomm queue (%s)",
@@ -411,7 +409,7 @@ class BloombergFillFetcher:
                     f"Bloomberg event timeout #{consecutive_timeouts} "
                     f"(max={max_event_iterations}, fills_so_far={len(fills)})"
                 )
-                if consecutive_timeouts >= 1:
+                if consecutive_timeouts >= 2:
                     raise EMSXRequestError(
                         f"Bloomberg API not responding after {consecutive_timeouts} "
                         f"consecutive timeouts ({fills_so_far_str(len(fills))})"
