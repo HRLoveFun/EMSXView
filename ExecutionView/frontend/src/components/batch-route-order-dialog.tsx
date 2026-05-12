@@ -71,6 +71,9 @@ import {
   useStrategyFields,
 } from '@/components/broker-strategy-fields';
 import { ViolationList, violationLabel } from '@/components/compliance-violation';
+import { getVolumeCapField, VOLUME_CAP_MULTIPLIER } from '@/data/broker-volume-cap-mapping';
+import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@/data/broker-time-mapping';
+import { hhmmToEmsxInt } from '@/data/broker-common-params';
 import type {
   Order,
   Route,
@@ -206,6 +209,10 @@ export function BatchRouteOrderDialog({
   const [summary, setSummary] = useState<BatchOperationResult | null>(null);
   // Quick-fill toolbar custom % input (free form). Defaults to 100.
   const [customPct, setCustomPct] = useState('100');
+  // Shared start/end time for all selected brokers (HH:MM:SS).
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [releaseTime, setReleaseTime] = useState('');
 
   // Per-broker strategy-params builders, keyed by broker.
   // Registered by BrokerStrategyParamsEditor on mount; deregistered on unmount.
@@ -221,6 +228,17 @@ export function BatchRouteOrderDialog({
   >;
   const paramsCacheRef = useRef<Map<string, ParamsSnapshot>>(new Map());
   const cacheKey = (broker: string, strategy: string) => `${broker}#${strategy}`;
+  // Field setter registry: allows programmatic updates to strategy param fields
+  // (e.g. auto-setting volume cap after validation).
+  type FieldSetter = (fieldName: string, value: string) => void;
+  const fieldSettersRef = useRef<Map<string, FieldSetter>>(new Map());
+  const registerFieldSetter = useCallback(
+    (broker: string, setter: FieldSetter | null) => {
+      if (setter === null) fieldSettersRef.current.delete(broker);
+      else fieldSettersRef.current.set(broker, setter);
+    },
+    [],
+  );
   const registerParamsBuilder = useCallback(
     (broker: string, builder: ParamsBuilder | null) => {
       if (builder === null) paramsBuildersRef.current.delete(broker);
@@ -324,6 +342,9 @@ export function BatchRouteOrderDialog({
       setProgress(0);
       setSummary(null);
       setCustomPct('100');
+      setStartTime('');
+      setEndTime('');
+      setReleaseTime('');
       paramsBuildersRef.current.clear();
       paramsCacheRef.current.clear();
       const init: Record<string, RowState> = {};
@@ -589,6 +610,40 @@ export function BatchRouteOrderDialog({
     });
   };
 
+  /** Apply start/end time to all selected brokers' strategy parameters. */
+  const applyTimeToAll = () => {
+    if (selectedBrokers.length === 0) {
+      setError('Pick at least one broker first.');
+      return;
+    }
+    if (startTime && !isValidTimeFormat(startTime)) {
+      setError('Start time must be in HH:MM:SS format.');
+      return;
+    }
+    if (endTime && !isValidTimeFormat(endTime)) {
+      setError('End time must be in HH:MM:SS format.');
+      return;
+    }
+    if (!startTime && !endTime) {
+      setError('Enter a start time and/or end time.');
+      return;
+    }
+    setError('');
+    for (const b of selectedBrokers) {
+      const strat = brokerStrategies[b] || '';
+      const setter = fieldSettersRef.current.get(b);
+      if (!setter) continue;
+      if (startTime) {
+        const fieldName = getStartTimeField(b, strat);
+        if (fieldName) setter(fieldName, startTime);
+      }
+      if (endTime) {
+        const fieldName = getEndTimeField(b, strat);
+        if (fieldName) setter(fieldName, endTime);
+      }
+    }
+  };
+
   // ── Build the API request payload ───────────────────────────────────────
   const buildRequest = (dryRun: boolean): BatchRouteOrderRequest => {
     // Template carries shared TIF + notes only. Everything broker- and
@@ -611,14 +666,16 @@ export function BatchRouteOrderDialog({
         // destination will be omitted; avoids re-submitting a known reject.
         if (!dryRun && alloc?.status === 'BLOCKED') continue;
         const strat = brokerStrategies[b] || '';
+        const rt = releaseTime ? hhmmToEmsxInt(releaseTime) : null;
         const override: Partial<BatchRouteOrderRequest['template']> & {
           quantity?: number;
         } = {
           broker: b,
           quantity: qty,
           orderType: o.orderType, // inherit per parent
+          ...(strat ? { strategy: strat } : {}),
+          ...(rt !== null ? { releaseTime: rt } : {}),
         };
-        if (strat) override.strategy = strat;
         // Inherit limit price from parent order for LIMIT/STOP_LIMIT.
         if ((o.orderType === 'LIMIT' || o.orderType === 'STOP_LIMIT')
             && o.price != null) {
@@ -784,6 +841,40 @@ export function BatchRouteOrderDialog({
       return;
     }
     applyResults(res.data.items);
+    // ── Auto-set volume cap for each broker based on allocation % ──
+    // volume cap = 19 * broker's percentage of total allocated quantity
+    const brokerTotalQty: Record<string, number> = {};
+    let grandTotalQty = 0;
+    for (const o of selectedOrders) {
+      const r = rows[o.id];
+      if (!r) continue;
+      for (const b of selectedBrokers) {
+        const qty = computeAllocQty(r.allocations[b]);
+        if (qty <= 0) continue;
+        brokerTotalQty[b] = (brokerTotalQty[b] ?? 0) + qty;
+        grandTotalQty += qty;
+      }
+    }
+    if (grandTotalQty > 0) {
+      for (const b of selectedBrokers) {
+        const bTotal = brokerTotalQty[b] ?? 0;
+        if (bTotal <= 0) continue;
+        const pct = bTotal / grandTotalQty;
+        const INTEGER_CAP_BROKERS = new Set(['EQ-CITI', 'EQ-JPM', 'EQ-UBS', 'EQ-SEB']);
+        const cap = INTEGER_CAP_BROKERS.has(b)
+          ? Math.round(VOLUME_CAP_MULTIPLIER * pct)
+          : Math.round(VOLUME_CAP_MULTIPLIER * pct * 10) / 10;
+        const capStr = INTEGER_CAP_BROKERS.has(b) ? String(cap) : cap.toFixed(1);
+        const strat = brokerStrategies[b] || '';
+        const fieldName = getVolumeCapField(b, strat);
+        if (fieldName) {
+          const setter = fieldSettersRef.current.get(b);
+          if (setter) {
+            setter(fieldName, capStr);
+          }
+        }
+      }
+    }
     // Don't auto-deselect blocked rows — the user may want to fix the qty
     // and re-validate. The Submit step only sends destinations whose qty is
     // > 0; blocked-but-still-selected rows surface in the banner so the
@@ -868,6 +959,37 @@ export function BatchRouteOrderDialog({
                 ? 'Pick one or more brokers — each becomes its own destination per order.'
                 : `${selectedBrokers.length} broker${selectedBrokers.length === 1 ? '' : 's'} selected`}
             </span>
+            {editable && visibleBrokers.length > 0 && (
+              <div className="ml-auto flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allSelected = visibleBrokers.every(b => selectedBrokers.includes(b));
+                    if (allSelected) {
+                      setSelectedBrokers([]);
+                    } else {
+                      setSelectedBrokers(prev => {
+                        const next = new Set([...prev, ...visibleBrokers]);
+                        return Array.from(next);
+                      });
+                      setBrokerStrategies(prev => {
+                        const next = { ...prev };
+                        for (const b of visibleBrokers) {
+                          if (!(b in next)) {
+                            next[b] = defaultStrategyFor(strategiesFor(b), b);
+                          }
+                        }
+                        return next;
+                      });
+                    }
+                  }}
+                  className="text-[11px] text-primary hover:underline"
+                  title={visibleBrokers.every(b => selectedBrokers.includes(b)) ? 'Deselect all brokers' : 'Select all brokers'}
+                >
+                  {visibleBrokers.every(b => selectedBrokers.includes(b)) ? 'Deselect all' : 'Select all'}
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap gap-1.5">
             {visibleBrokers.map(b => {
@@ -934,6 +1056,7 @@ export function BatchRouteOrderDialog({
                 onStrategyChange={(s) => setBrokerStrategy(b, s)}
                 registerParamsBuilder={registerParamsBuilder}
                 getCachedSnapshot={(br, st) => paramsCacheRef.current.get(cacheKey(br, st))}
+                registerFieldSetter={registerFieldSetter}
                 disabled={!editable}
               />
             ))}
@@ -956,6 +1079,50 @@ export function BatchRouteOrderDialog({
             <Input value={notes} onChange={(e) => setNotes(e.target.value)}
               className="h-8" disabled={!editable} />
           </div>
+        </div>
+
+        {/* ── RlsTm + Shared Start / End time ───────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-secondary/30 border border-border rounded text-xs">
+          <span className="text-muted-foreground">RlsTm:</span>
+          <Input
+            type="text"
+            placeholder="HH:MM"
+            value={releaseTime}
+            onChange={e => setReleaseTime(e.target.value)}
+            className="h-6 w-20 text-xs font-mono"
+            disabled={!editable}
+            title="Release time (HH:MM) — sent as EMSX_RELEASE_TIME on every route"
+          />
+          <div className="w-px h-4 bg-border mx-1" />
+          <span className="text-muted-foreground">Start / End time:</span>
+          <Input
+            type="text"
+            placeholder="HH:MM:SS"
+            value={startTime}
+            onChange={e => setStartTime(e.target.value)}
+            className="h-6 w-24 text-xs font-mono"
+            disabled={!editable || selectedBrokers.length === 0}
+            title="Start time (HH:MM:SS) — applied to all selected brokers"
+          />
+          <span className="text-muted-foreground/50">~</span>
+          <Input
+            type="text"
+            placeholder="HH:MM:SS"
+            value={endTime}
+            onChange={e => setEndTime(e.target.value)}
+            className="h-6 w-24 text-xs font-mono"
+            disabled={!editable || selectedBrokers.length === 0}
+            title="End time (HH:MM:SS) — applied to all selected brokers"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={applyTimeToAll}
+            disabled={!editable || selectedBrokers.length === 0 || (!startTime && !endTime)}
+          >
+            Apply to all
+          </Button>
         </div>
 
         {/* ── Quick-fill / equal-split toolbar ──────────────────────────── */}
@@ -1452,6 +1619,12 @@ interface BrokerStrategyParamsEditorProps {
     ReturnType<typeof useStrategyFields>['toStrategyParams']
   > | undefined;
   disabled: boolean;
+  /** Register a setter that allows the parent dialog to programmatically
+   *  update a specific strategy parameter field (e.g. volume cap). */
+  registerFieldSetter?: (
+    broker: string,
+    setter: ((fieldName: string, value: string) => void) | null,
+  ) => void;
 }
 
 function BrokerStrategyParamsEditor({
@@ -1462,8 +1635,26 @@ function BrokerStrategyParamsEditor({
   registerParamsBuilder,
   getCachedSnapshot,
   disabled,
+  registerFieldSetter,
 }: BrokerStrategyParamsEditorProps) {
   const state = useStrategyFields(broker, strategy, 'EQTY');
+
+  // Register a setter so the parent dialog can programmatically update
+  // strategy parameter fields (e.g. auto-set volume cap after validate).
+  useEffect(() => {
+    if (!registerFieldSetter) return;
+    const setter = (fieldName: string, value: string) => {
+      state.setFields(prev =>
+        prev.map(f =>
+          f.fieldName === fieldName
+            ? { ...f, value, disabled: false }
+            : f,
+        ),
+      );
+    };
+    registerFieldSetter(broker, setter);
+    return () => registerFieldSetter(broker, null);
+  }, [broker, state.setFields, registerFieldSetter]);
 
   // Restore cached params after the catalog finishes loading the defaults.
   // Tracked by `restoredKeyRef` so we restore exactly once per

@@ -10,8 +10,8 @@ import unittest
 
 import pandas as pd
 
-from DataPipeline.src.storage.repositories.market_data_read import SqliteMarketDataReadRepository
-from DataPipeline.src.storage.repositories.market_data_write import SqliteMarketDataWriteRepository
+from DataPipeline.storage.repositories.market_data import SqliteMarketDataReadRepository
+from DataPipeline.storage.repositories.market_data import SqliteMarketDataWriteRepository
 from CostView.tests.testing_helpers import create_temp_db, make_bdib_dataframe
 
 

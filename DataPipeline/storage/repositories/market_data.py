@@ -201,8 +201,11 @@ class SqliteMarketDataWriteRepository(BaseRepository):
         if df is None or df.empty:
             return 0
 
-        from DataPipeline.storage.processed_raw_bdib_db import PROCESSED_RAW_BDIB_COLUMNS
-        cols = list(PROCESSED_RAW_BDIB_COLUMNS)
+        cols = [
+            "equ_ticker", "order_as_of_date", "mkt_timestamp",
+            "open", "high", "low", "close", "volume", "num_trds",
+            "value", "vwap", "fluctuation", "log_chg_pct_10s",
+        ]
         for col in cols:
             if col not in df.columns:
                 return 0

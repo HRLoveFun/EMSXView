@@ -198,6 +198,7 @@ export interface RouteOrderRequest {
     strategyName: string;
     fields: { value: string; disabled: boolean }[];
   };
+  releaseTime?: number | null;
 }
 
 // Trader identity

@@ -28,11 +28,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from DataPipeline.src.storage.connection import (
+from DataPipeline.storage.connection import (
     ConnectionManager as _ConnectionManager,
     DB_FETCH_HISTORY,
 )
-from DataPipeline.src.common.table_registry import (
+from DataPipeline.config import (
     RAW_FILLS_TABLE as _RAW_FILLS_TABLE,
     FETCH_LOG_TABLE as _FETCH_LOG_TABLE,
     PROCESSED_FILLS_TABLE as _PROCESSED_FILLS_TABLE,

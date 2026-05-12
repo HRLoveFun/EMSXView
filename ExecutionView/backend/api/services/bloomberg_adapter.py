@@ -2611,6 +2611,8 @@ class BloombergEMSXService:
                 request.set("EMSX_EXCHANGE_DESTINATION", request_data.exchangeDestination)
             if request_data.notes:
                 request.set("EMSX_NOTES", request_data.notes)
+            if request_data.releaseTime is not None:
+                request.set("EMSX_RELEASE_TIME", request_data.releaseTime)
 
             self._apply_strategy_params(request, request_data.strategyParams)
 

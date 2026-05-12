@@ -95,6 +95,10 @@ Legacy surfaces (all migrated — original files deleted from `CostView/src/`):
 - ✅ `mapping.py` → `DataPipeline/src/common/mapping.py`
 - ✅ `outdated_tickers.py` → `DataPipeline/src/common/outdated_tickers.py`
 - ✅ `schema.py` → `DataPipeline/src/common/schema.py`
+- ✅ `emsx_client.py` → `DataPipeline/src/acquisition/emsx_client.py`
+- ✅ `order_label.py` → `DataPipeline/src/processing/order_label.py`
+- ✅ `validate_raw_fills.py` → `DataPipeline/src/processing/validate_raw_fills.py`
+- 🗑️ `tca_query_service.py.bak` — deleted (leftover backup file)
 
 Canonical shared adapter:
 

@@ -63,7 +63,7 @@ def _modify_key(item: BatchModifyRouteItem) -> str:
 
 _ROUTE_FIELDS = {
     "broker", "quantity", "orderType", "price", "stopPrice", "timeInForce",
-    "exchangeDestination", "notes", "strategyParams",
+    "exchangeDestination", "notes", "strategyParams", "releaseTime",
 }
 
 _MODIFY_FIELDS = {

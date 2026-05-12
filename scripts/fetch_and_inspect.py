@@ -34,7 +34,7 @@ COSTVIEW_DIR = PROJECT_ROOT / "CostView"
 if str(COSTVIEW_DIR) not in sys.path:
     sys.path.insert(0, str(COSTVIEW_DIR))
 
-from src.fill_fetch import FillFetch, setup_logging
+from DataPipeline.ingestion.fill_fetch import FillFetch, setup_logging
 from src.fill_cleaner import clean_emsx_fills
 from src.fill_processor import (
     process_fills,

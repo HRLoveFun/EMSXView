@@ -16,6 +16,7 @@ Features
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import os
@@ -44,6 +45,9 @@ _WATCHDOG_INTERVAL_SECS = 15          # check every 15 s
 _STALL_TIMEOUT_SECS    = 600           # 10 min without activity → stalled (must be > per_fetch_timeout_secs in fill_fetch.py)
 _MAX_RUNTIME_SECS      = 7200          # 2 h total → timeout
 _LOCK_STALE_AGE_SECS  = 14400         # 4 h → lock file considered stale even if PID is alive
+_SUBPROCESS_STARTUP_TIMEOUT_SECS = 120  # 2 min without ANY stdout → assume startup failed
+# Memory warning threshold (GB) — watchdog logs warning when subprocess exceeds this
+_MEM_WARN_GB = 12.0
 
 
 # ── Stage definitions (must match daily_update.py STAGE_MARKERS) ──────────────
@@ -131,6 +135,25 @@ def _remove_lock() -> None:
             logger.info("Lock file removed: %s", _LOCK_FILE)
     except PermissionError:
         logger.warning("Could not remove lock file (permission): %s", _LOCK_FILE)
+
+
+def _log_subprocess_mem(proc: Optional[subprocess.Popen], label: str = "") -> None:
+    """Log subprocess RSS memory usage if psutil is available."""
+    if proc is None or proc.pid is None:
+        return
+    try:
+        import psutil
+        p = psutil.Process(proc.pid)
+        rss_gb = p.memory_info().rss / (1024 ** 3)
+        if rss_gb >= _MEM_WARN_GB:
+            logger.warning("[RSS] subprocess pid=%s %s — %.2f GB (>= %.1f GB threshold)",
+                           proc.pid, label, rss_gb, _MEM_WARN_GB)
+        else:
+            logger.info("[RSS] subprocess pid=%s %s — %.2f GB", proc.pid, label, rss_gb)
+    except ImportError:
+        pass  # psutil not installed, skip
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
 
 
 def _check_lock() -> Optional[str]:
@@ -232,6 +255,10 @@ def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Ev
         # --- Total runtime check ---
         runtime_secs = (datetime.now() - started_at).total_seconds()
 
+        # --- Periodic RSS monitoring (every 30s) ---
+        if int(runtime_secs) % 30 < _WATCHDOG_INTERVAL_SECS:
+            _log_subprocess_mem(proc, f"job={job_id} runtime={runtime_secs:.0f}s")
+
         reason = None
         if runtime_secs > _MAX_RUNTIME_SECS:
             reason = f"Pipeline exceeded max runtime of {_MAX_RUNTIME_SECS // 60} minutes"
@@ -282,6 +309,9 @@ def _run_pipeline_subprocess(job_id: str) -> None:
     stop_event = threading.Event()
     watchdog_thread: Optional[threading.Thread] = None
     lock_written = False
+    started_at = datetime.now()
+    have_seen_first_output = False
+    startup_timeout_hit = False
     try:
         proc = subprocess.Popen(
             [sys.executable, "-u", str(daily_update_script), "--once"],
@@ -290,6 +320,7 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             text=True,
             cwd=str(_PROJECT_ROOT),
         )
+        logger.info("Pipeline subprocess launched: pid=%s job=%s script=%s", proc.pid, job_id, daily_update_script)
 
         # Start watchdog thread
         watchdog_thread = threading.Thread(
@@ -307,11 +338,33 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             logger.exception("Failed to write pipeline lock file")
 
         while True:
+            # ── Startup timeout: if first output hasn't arrived in time, fail fast ──
+            if not have_seen_first_output:
+                elapsed = (datetime.now() - started_at).total_seconds()
+                if elapsed > _SUBPROCESS_STARTUP_TIMEOUT_SECS:
+                    reason = (
+                        f"Subprocess pid={proc.pid} produced no output within "
+                        f"{_SUBPROCESS_STARTUP_TIMEOUT_SECS}s — killed"
+                    )
+                    logger.warning("Pipeline startup timeout (%s)", reason)
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=10)
+                    except Exception:
+                        pass
+                    status = "failed"
+                    error = reason
+                    startup_timeout_hit = True
+                    break
+
             line = proc.stdout.readline() if proc.stdout else ""
             if not line and proc.poll() is not None:
                 break
             if not line:
                 continue
+            if not have_seen_first_output:
+                have_seen_first_output = True
+                logger.info("Pipeline first output received (job=%s, pid=%s): %.80s", job_id, proc.pid, line.rstrip())
             # Keep a bounded tail for failure diagnosis — the readline loop
             # drains stdout, so proc.communicate() below would return empty.
             captured_lines.append(line.rstrip())
@@ -342,20 +395,24 @@ def _run_pipeline_subprocess(job_id: str) -> None:
 
         # Make sure the process has exited and pick up any final bytes flushed
         # after our readline loop saw EOF.
-        try:
-            tail, _ = proc.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            raise
+        if not startup_timeout_hit:
+            try:
+                tail, _ = proc.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                raise
+        else:
+            tail = None
         if tail:
             for t_line in tail.splitlines():
                 captured_lines.append(t_line)
-        status = "completed" if proc.returncode == 0 else "failed"
-        error = None
-        if proc.returncode != 0:
-            non_marker = [l for l in captured_lines if not l.startswith(_STAGE_PREFIX)]
-            tail_block = "\n".join((non_marker or captured_lines)[-20:])
-            error = tail_block or f"Pipeline exited with code {proc.returncode} (no output captured)"
+        if not startup_timeout_hit:
+            status = "completed" if proc.returncode == 0 else "failed"
+            error = None
+            if proc.returncode != 0:
+                non_marker = [l for l in captured_lines if not l.startswith(_STAGE_PREFIX)]
+                tail_block = "\n".join((non_marker or captured_lines)[-20:])
+                error = tail_block or f"Pipeline exited with code {proc.returncode} (no output captured)"
     except subprocess.TimeoutExpired:
         if proc is not None:
             try:
@@ -388,6 +445,8 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                     "progress": 100,
                     "detail": None,
                 }
+    gc.collect()
+    _log_subprocess_mem(None, f"(parent after subprocess) job={job_id} status={status}")
     logger.info("Pipeline job %s finished: %s", job_id, status)
 
 

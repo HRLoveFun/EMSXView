@@ -28,8 +28,8 @@ from platform_data.contracts import (
     TcaReport,
     TcaRouteDetail,
 )
-from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
+from DataPipeline.storage.connection import AccessTier, ConnectionManager
+from DataPipeline.config import Config
 
 from .tca_utils import (
     aggregate_cohorts as _aggregate_cohorts,

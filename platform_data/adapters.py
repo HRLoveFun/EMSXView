@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Optional
 
-from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
+from DataPipeline.storage.connection import ConnectionManager, AccessTier
 from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -1439,7 +1439,7 @@ class CostViewDatabaseAdapter:
             if self._mgr_factory is not None:
                 self._mgr = self._mgr_factory()
             else:
-                from DataPipeline.src.storage.connection import ConnectionManager
+                from DataPipeline.storage.connection import ConnectionManager
                 self._mgr = ConnectionManager()
         return self._mgr
 
@@ -1554,7 +1554,7 @@ class DataPlatformIngestionAdapter:
             pipeline = self._factory()
         else:
             try:
-                from DataPipeline.src.orchestration.pipeline import FinancialPipeline
+                from DataPipeline.orchestration.core import FinancialPipeline
                 pipeline = FinancialPipeline()
             except Exception as exc:
                 return IngestionResult(

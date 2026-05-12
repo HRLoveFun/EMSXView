@@ -10,7 +10,7 @@ import unittest
 
 import pandas as pd
 
-from DataPipeline.src.storage.repositories.integrated import (
+from DataPipeline.storage.repositories.integrated import (
     SqliteIntegratedReadRepository,
     SqliteIntegratedWriteRepository,
 )

@@ -311,6 +311,7 @@ class RouteOrderRequest(BaseModel):
     exchangeDestination: Optional[str] = Field(None, description="Exchange destination")
     notes: Optional[str] = Field(None, description="Route notes")
     strategyParams: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters (same format as ModifyRouteRequest)")
+    releaseTime: Optional[int] = Field(None, description="EMSX_RELEASE_TIME in HHMM format (e.g. 1101 = 11:01)")
 
 class ApiResponse(BaseModel):
     """Standard API response wrapper"""

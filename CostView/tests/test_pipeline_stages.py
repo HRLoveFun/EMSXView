@@ -14,27 +14,22 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from DataPipeline.src.orchestration.pipeline import (
-    IngestExcelStage,
-    ProcessRawFillsStage,
-    AggregateFillsStage,
-    GenerateOrderLabelsStage,
-    IntegrateBDIBStage,
-    WriteManifestStage,
-    CalculateDailyMetricsStage,
-    RegimeDailyFeaturesStage,
-    RegimeFillTaggerStage,
-    AttributionMetricsStage,
-    PipelineContext,
+from DataPipeline.orchestration.context import PipelineContext
+from DataPipeline.orchestration.base import _to_iso_safe
+from DataPipeline.orchestration.core import (
     PipelineFactory,
-    _to_iso_safe,
-    run_ingest,
-    run_process,
-    run_aggregate,
-    run_order_labels,
-    run_bdib_integration,
-    run_full_pipeline,
-    run_incremental,
+    run_ingest, run_process, run_aggregate, run_order_labels,
+    run_bdib_integration, run_full_pipeline, run_incremental,
+)
+from DataPipeline.orchestration.stages_ingest import (
+    IngestExcelStage, ProcessRawFillsStage,
+    AggregateFillsStage, GenerateOrderLabelsStage,
+)
+from DataPipeline.orchestration.stages_process import (
+    IntegrateBDIBStage, WriteManifestStage, CalculateDailyMetricsStage,
+)
+from DataPipeline.orchestration.stages_analysis import (
+    RegimeDailyFeaturesStage, RegimeFillTaggerStage, AttributionMetricsStage,
 )
 from CostView.tests.testing_helpers import FakePipelineContext
 
@@ -50,7 +45,7 @@ class TestIngestExcelStage(unittest.TestCase):
         stage = IngestExcelStage()
         self.assertEqual(stage.name, "1. Ingest Excel (Legacy)")
 
-    @patch("DataPipeline.src.orchestration.stages.ingest_all_excel_files")
+    @patch("DataPipeline.orchestration.stages.ingest_all_excel_files")
     def test_process_calls_ingest_all(self, mock_ingest):
         mock_ingest.return_value = [
             {"new_rows": 10, "skipped": False},
@@ -62,7 +57,7 @@ class TestIngestExcelStage(unittest.TestCase):
         self.assertTrue(result)
         mock_ingest.assert_called_once()
 
-    @patch("DataPipeline.src.orchestration.stages.ingest_all_excel_files")
+    @patch("DataPipeline.orchestration.stages.ingest_all_excel_files")
     def test_process_populates_summary(self, mock_ingest):
         mock_ingest.return_value = [
             {"new_rows": 10, "skipped": False},
@@ -76,7 +71,7 @@ class TestIngestExcelStage(unittest.TestCase):
         self.assertEqual(ctx.summary["ingestion"]["new_rows"], 15)
         self.assertEqual(ctx.summary["ingestion"]["skipped"], 1)
 
-    @patch("DataPipeline.src.orchestration.stages.ingest_all_excel_files")
+    @patch("DataPipeline.orchestration.stages.ingest_all_excel_files")
     def test_process_without_excel_dir(self, mock_ingest):
         mock_ingest.return_value = []
         ctx = FakePipelineContext()
@@ -105,7 +100,7 @@ class TestProcessRawFillsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["processing"]["rows_processed"], 0)
 
-    @patch("DataPipeline.src.orchestration.stages.process_raw_fills_for_date")
+    @patch("DataPipeline.orchestration.stages.process_raw_fills_for_date")
     def test_processes_selected_dates(self, mock_process):
         mock_process.return_value = {
             "success": True, "rows_processed": 10,
@@ -118,7 +113,7 @@ class TestProcessRawFillsStage(unittest.TestCase):
         self.assertTrue(result)
         mock_process.assert_called_once()
 
-    @patch("DataPipeline.src.orchestration.stages.process_raw_fills_for_date")
+    @patch("DataPipeline.orchestration.stages.process_raw_fills_for_date")
     def test_error_date_does_not_block_others(self, mock_process):
         mock_process.side_effect = [
             {"success": False, "error": "bad date"},
@@ -132,7 +127,7 @@ class TestProcessRawFillsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(mock_process.call_count, 2)
 
-    @patch("DataPipeline.src.orchestration.stages.process_raw_fills_for_date")
+    @patch("DataPipeline.orchestration.stages.process_raw_fills_for_date")
     def test_summary_contains_row_counts(self, mock_process):
         mock_process.return_value = {
             "success": True, "rows_processed": 25,
@@ -175,7 +170,7 @@ class TestAggregateFillsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["aggregation"]["dates"], 0)
 
-    @patch("DataPipeline.src.orchestration.stages.generate_agg_fills_10s")
+    @patch("DataPipeline.orchestration.stages.generate_agg_fills_10s")
     def test_empty_processed_df_skipped(self, mock_gen):
         mock_gen.return_value = pd.DataFrame()
         ctx = FakePipelineContext(target_dates=["20260408"])
@@ -218,7 +213,7 @@ class TestGenerateOrderLabelsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["order_labels"]["orders"], 0)
 
-    @patch("DataPipeline.src.orchestration.stages.generate_order_label_incremental")
+    @patch("DataPipeline.orchestration.stages.generate_order_label_incremental")
     def test_generates_labels_for_dates(self, mock_gen):
         mock_gen.return_value = pd.DataFrame({"OrderId": ["ORD001"], "order_as_of_date": ["20260408"]})
         ctx = FakePipelineContext(target_dates=["20260408"])
@@ -232,7 +227,7 @@ class TestGenerateOrderLabelsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["order_labels"]["orders"], 1)
 
-    @patch("DataPipeline.src.orchestration.stages.generate_order_label_incremental")
+    @patch("DataPipeline.orchestration.stages.generate_order_label_incremental")
     def test_force_regenerates_all(self, mock_gen):
         mock_gen.return_value = pd.DataFrame()
         ctx = FakePipelineContext(target_dates=["20260408"], force=True)
@@ -395,7 +390,7 @@ class TestRegimeDailyFeaturesStage(unittest.TestCase):
 
     def test_iso_date_conversion(self):
         """YYYYMMDD is correctly converted to ISO format."""
-        from DataPipeline.src.orchestration.pipeline import _to_iso_safe
+        from DataPipeline.orchestration.base import _to_iso_safe
         self.assertEqual(_to_iso_safe("20260408"), "2026-04-08")
         self.assertEqual(_to_iso_safe("2026-04-08"), "2026-04-08")
         self.assertIsNone(_to_iso_safe(""))
@@ -483,11 +478,11 @@ class TestLegacyRunners(unittest.TestCase):
 
     def setUp(self):
         self.ingest_patcher = patch(
-            "DataPipeline.src.orchestration.stages.ingest_all_excel_files",
+            "DataPipeline.orchestration.stages.ingest_all_excel_files",
             return_value=[],
         )
         self.process_patcher = patch(
-            "DataPipeline.src.orchestration.stages.process_raw_fills_for_date",
+            "DataPipeline.orchestration.stages.process_raw_fills_for_date",
             return_value={"success": True, "rows_processed": 0,
                           "order_history_rows": 0, "route_history_rows": 0,
                           "route_event_rows": 0},
@@ -520,7 +515,7 @@ class TestLegacyRunners(unittest.TestCase):
         ctx.proc_db.get_processed_dates.return_value = ["20260408"]
         ctx.proc_db.get_unprocessed_dates.return_value = []
         # run_aggregate creates its own context, so we need to patch PipelineContext
-        with patch("DataPipeline.src.orchestration.runners.PipelineContext",
+        with patch("DataPipeline.orchestration.runners.PipelineContext",
                    return_value=ctx):
             run_aggregate(dates=["20260408"])
 
@@ -533,7 +528,7 @@ class TestLegacyRunners(unittest.TestCase):
         ctx.proc_db.get_processed_dates.return_value = ["20260408"]
         ctx.proc_db.get_all_processed_fills.return_value = pd.DataFrame()
 
-        with patch("DataPipeline.src.orchestration.runners.PipelineContext",
+        with patch("DataPipeline.orchestration.runners.PipelineContext",
                    return_value=ctx):
             result = run_order_labels(dates=["20260408"])
             self.assertIsInstance(result, pd.DataFrame)
@@ -542,7 +537,7 @@ class TestLegacyRunners(unittest.TestCase):
         """run_bdib_integration does not crash (imports fail gracefully)."""
         run_bdib_integration(dates=["20260408"])
 
-    @patch("DataPipeline.src.orchestration.runners.PipelineFactory.create_daily_e2e_pipeline")
+    @patch("DataPipeline.orchestration.runners.PipelineFactory.create_daily_e2e_pipeline")
     def test_run_full_pipeline_default(self, mock_factory):
         """run_full_pipeline with defaults returns summary dict."""
         mock_pipeline = MagicMock()
@@ -552,7 +547,7 @@ class TestLegacyRunners(unittest.TestCase):
         result = run_full_pipeline()
         self.assertIsInstance(result, dict)
 
-    @patch("DataPipeline.src.orchestration.runners.PipelineFactory.create_daily_e2e_pipeline")
+    @patch("DataPipeline.orchestration.runners.PipelineFactory.create_daily_e2e_pipeline")
     def test_run_full_pipeline_with_params(self, mock_factory):
         """run_full_pipeline passes parameters through."""
         mock_pipeline = MagicMock()
@@ -570,7 +565,7 @@ class TestLegacyRunners(unittest.TestCase):
         )
         self.assertIsInstance(result, dict)
 
-    @patch("DataPipeline.src.orchestration.runners.run_full_pipeline")
+    @patch("DataPipeline.orchestration.runners.run_full_pipeline")
     def test_run_incremental_calls_through(self, mock_run):
         """run_incremental delegates to run_full_pipeline."""
         mock_run.return_value = {"incremental": True}

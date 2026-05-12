@@ -372,3 +372,73 @@
 - **Date**: 2026-05-11
 - **Files**: ExecutionView/frontend/vite.config.ts, platform_data/repositories.py, DataPipeline/src/storage/raw_bdib_db.py, DataPipeline/src/storage/schema/inline_ddl.py, ExecutionView/frontend/src/modules/databaseview/services/api.ts, ExecutionView/frontend/src/modules/marketview/services/api.ts, ExecutionView/frontend/src/modules/databaseview/DatabaseViewModule.tsx, ExecutionView/backend/api/routers/_pipeline_jobs.py
 - **Lessons**: Vite proxy timeout 是前端 "Failed to fetch" 的常见但容易被忽略的根因。排查时先查看浏览器 Network tab 确认请求 pending 时间与 proxy timeout 设置是否吻合。对耗时操作(>2min)的 API 端点应采用异步模式（立即返回 job_id + 前端轮询状态），或增大 proxy timeout。SQL 中的 TRIM() 会阻止 SQLite 索引优化，对清洗过的数据应使用直接的比较操作。
+
+
+---
+
+## Pattern: 重启服务后浏览器黑屏（前端 Vite 未就绪）
+
+- **Signature**: 重启服务.bat 自动打开 http://localhost:5173 显示黑屏；手动刷新后正常。Vite 冷启动编译未完成时浏览器已打开。
+- **Root Cause**: 重启服务.bat 在 service-manager.ps1 重启完成后仅等待固定 3 秒就打开浏览器，但 Vite dev server 首次请求时需要时间编译/bundle 整个前端应用。浏览器打开时 Vite 尚未完成编译，页面无法加载 JS 模块，只显示黑/空背景。
+- **Resolution**:
+1) 在重启服务.bat 中用 HTTP 轮询替代固定 timeout：用 PowerShell 的 System.Net.WebRequest 循环检测 http://localhost:5173/ 是否返回 200，最多等 30 秒，就绪后才 start 浏览器。2) 在 service-manager.ps1 的 Start-FrontendService 函数中同样用 HTTP 轮询替代盲等 Start-Sleep，确认前端真正就绪。
+- **Status**: Resolved
+- **Date**: 2026-05-11
+- **Files**: 重启服务.bat, scripts/service-manager.ps1
+- **Lessons**: 不要用固定 timeout 等待前端 dev server 就绪。Vite 冷启动时间受项目大小和机器性能影响，必须主动轮询 HTTP 200 才能确保真正就绪。
+
+
+---
+
+## Pattern: 重启服务.bat 自动打开页面黑屏（前端未就绪）
+
+- **Signature**: 启动脚本：重启服务.bat → service-manager.ps1 restart。现象：自动打开的 http://localhost:5173 页面全程黑屏，手动通过快捷方式打开的页面正常，刷新黑屏页面后也正常。
+- **Root Cause**: service-manager.ps1 的 Start-FrontendService 只需固定等待 StartupDelay=5 秒即返回，重启服务.bat 在 PS 脚本退出后再固定等待 3 秒。Vite 冷启动（依赖预打包+首次编译）通常需要 10~30 秒。浏览器在 Vite 尚未监听 5173 端口时打开，无法加载任何内容，表现为黑屏。
+- **Resolution**:
+1. 将重启服务.bat 的固定 3 秒等待改为主动轮询 http://localhost:5173 直至返回 HTTP 200（最多 90 秒）\n2. 使用 System.Net.HttpWebRequest 每 1 秒探测一次，每 10 秒输出一次进度提示\n3. 仅当前端确认就绪后才 start 打开浏览器
+- **Status**: Resolved
+- **Date**: 2026-05-11
+- **Files**: 重启服务.bat, scripts/service-manager.ps1
+- **Lessons**: 1. 前端 dev server 冷启动时间不可预测，永远不要用固定 sleep 替代健康检查\n2. 自动打开浏览器前应确认服务真实就绪\n3. Vite 监听端口到真正可服务之间有延迟，HTTP 200 是可靠就绪信号
+
+
+---
+
+## Pattern: 前端进度条 Stalled — 子进程启动后无任何 stdout 输出
+
+- **Signature**: Trigger Update 后前端显示 "running · ⚠️ Stalled"，5分钟无任何进度更新。后端日志无 daily_update 子进程输出。最终由看门狗杀死进程。
+- **Root Cause**: _pipeline_jobs.py 中子进程启动后通过 readline() 阻塞等待 stdout，现有看门狗(10分钟无活动→kill) 在子进程启动卡死时不生效，因为 start()→run_daily_pipeline() 在输出第一个 [STAGE] 标记之前卡在了某个操作（如 BloombergFillFetcher 初始化→blpapi.Session 阻塞）。没有"启动期超时"保护，后端无限等待导致前端 5分钟后显示 Stalled。
+- **Resolution**:
+在 _pipeline_jobs.py 的 _run_pipeline_subprocess() 中添加：1) have_seen_first_output 标记判断子进程是否输出过内容；2) _SUBPROCESS_STARTUP_TIMEOUT_SECS=120 (2分钟) 启动超时阈值；3) 超时后 kill 子进程并标记 failed，自定义 error 消息含 PID；4) startup_timeout_hit 闸门防止后续代码覆盖自定义 status/error；5) 子进程 Popen 后立即 log PID 便于运维 kill。
+- **Status**: Resolved
+- **Date**: 2026-05-11
+- **Files**: ExecutionView/backend/api/routers/_pipeline_jobs.py
+- **Lessons**: 1) 子进程启动后可能卡在最早期——甚至在打印第一个 [STAGE] 标记之前，此时看门狗(基于 last_activity_at 判断)不生效，必须用专门的启动超时检测；2) while 循环中 break 后必须保护自定义 status/error 不被后续逻辑覆盖；3) 子进程 PID 日志在排查卡死问题时至关重要。
+
+
+---
+
+## Pattern: 重启服务.bat 自动打开页面黑屏（.NET 管道缓冲区死锁）
+
+- **Signature**: 启动脚本：重启服务.bat → service-manager.ps1 restart。现象：自动打开的 http://localhost:5173 页面永久黑屏，无论等多久都是黑屏；手动通过快捷方式打开新页面正常显示；刷新黑屏页面后也正常显示。
+- **Root Cause**: service-manager.ps1 的 Start-BackendService 和 Start-FrontendService 使用 .NET Process.RedirectStandardOutput/RedirectStandardError = true 创建匿名管道，但从未读取管道内容。.NET 匿名管道缓冲区约 4KB，Vite/Python 输出日志很快填满缓冲区后，进程的 Console.Write() 调用被永久阻塞，导致 Vite 无法处理 HTTP 请求。浏览器加载了 HTML（暗色背景），但 JS 模块请求被阻塞，React 无法渲染，表现为永久黑屏。
+- **Resolution**:
+1. 将 Start-BackendService 和 Start-FrontendService 改为使用 cmd.exe 的 >> logfile 2>&1 重定向，避免 .NET 管道缓冲区问题\n2. 添加 wait-frontend 轮询动作，确认前端 HTTP 200 后再打开浏览器\n3. 重启服务.bat 调用 wait-frontend 替代固定等待
+- **Status**: Resolved
+- **Date**: 2026-05-11
+- **Files**: 重启服务.bat, scripts/service-manager.ps1
+- **Lessons**: 1. .NET Process.RedirectStandardOutput/RedirectStandardError 创建的管道缓冲区只有约 4KB，如果无人读取，子进程会永久阻塞\n2. 永远不要创建重定向管道但不读取 — 要么读取（BeginOutputReadLine），要么通过 shell 重定向到文件（cmd /c ... > logfile 2>&1）\n3. 黑屏+刷新可复现 = 服务端阻塞/卡死，不是简单的前端就绪时间问题
+
+
+---
+
+## Pattern: Pipeline OOM crash during processing stage (81% stall)
+
+- **Signature**: Pipeline subprocess killed silently at "processing 81%" after 15+ min. Backend process disappears (port 3000 unreachable). No error in pipeline logs — Windows OOM killer terminates the Python process.
+- **Root Cause**: Pipeline S5 (IntegrateBDIBStage) fetches ALL BDIB data for ALL tickers into a single pandas DataFrame (~69GB raw_bdib.db). Combined with MAX_PARALLEL_DATES=4 (S2/S3 process 4 dates concurrently, each with full DataFrame in memory) and MAX_PARALLEL_TICKERS=3 (concurrent Bloomberg BDIB fetches), peak memory exceeds available RAM, causing OS OOM killer to terminate the subprocess silently.
+- **Resolution**:
+1) Reduce MAX_PARALLEL_DATES to 1, MAX_PARALLEL_TICKERS to 1 (max memory reduction); 2) Add explicit gc.collect() + del after each per-date processing in S2, S3, S5; 3) Chunk BDIB ticker processing in S5 (50 tickers per batch) to avoid loading ALL 69GB BDIB data into one DataFrame; 4) Add batch writes (50K rows/batch) in integrated_write.upsert_integrated_data(); 5) Add [MEM] RSS logging per stage in daily_update.py for OOM diagnosis; 6) Add watchdog RSS monitoring in _pipeline_jobs.py (_MEM_WARN_GB=12.0).
+- **Status**: Resolved
+- **Date**: 2026-05-12
+- **Files**: CostView/scripts/daily_update.py, DataPipeline/src/common/config/defaults.py, DataPipeline/src/orchestration/stages_ingest.py, DataPipeline/src/orchestration/stages_process.py, DataPipeline/src/storage/repositories/integrated.py, ExecutionView/backend/api/routers/_pipeline_jobs.py
+- **Lessons**: 1) 8M+ fills + 69GB BDIB requires sequential (not parallel) processing — MAX_PARALLEL_DATES=1 is essential; 2) Pandas concat of all BDIB data into one DataFrame is the #1 memory killer — chunk by 50 tickers; 3) gc.collect() after each per-date operation is insufficient by itself without also reducing parallelism; 4) Pipeline monitoring must include RSS tracking — silent OOM kills are indistinguishable from stalls without it; 5) Batch DB writes (50K rows) reduce intermediate memory accumulation.

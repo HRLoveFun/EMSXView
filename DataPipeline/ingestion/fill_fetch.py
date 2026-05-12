@@ -103,7 +103,6 @@ class FillFetch:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Primary DB access via repositories
-        self.raw_db = None
         self.raw_fill_read = None
         self.raw_fill_write = None
         try:
@@ -129,7 +128,7 @@ class FillFetch:
                      f"preloaded_hashes={sum(len(s) for s in self._known_hashes.values())}")
 
     def _preload_known_hashes(self):
-        if self.raw_db is not None:
+        if self.raw_fill_read is not None:
             try:
                 stats = self.raw_fill_read.get_fetch_log_stats()
                 for record in stats:
@@ -152,7 +151,7 @@ class FillFetch:
         today = date.today()
         prev_wd = get_previous_weekday(today)
         last_fetch = None
-        if self.raw_db is not None:
+        if self.raw_fill_read is not None:
             try:
                 last_fetch = self.raw_fill_read.get_last_fetch_date()
             except Exception as e:
@@ -229,7 +228,7 @@ class FillFetch:
                     result['skipped'] = True; result['success'] = True
                     result['message'] = f"Duplicate (hash={hash_value[:16]}...)"
                     return result
-                if self.raw_db is not None:
+                if self.raw_fill_read is not None:
                     if self.raw_fill_write.check_fetch_duplicate(date_compact, hash_value):
                         logger.info(f"Duplicate data found for {order_date} (DB), skipping")
                         self._record_hash_in_memory(date_compact, hash_value)
@@ -252,10 +251,10 @@ class FillFetch:
                 logger.warning(f"Fill-share validation skipped (error): {val_err}")
                 result['validation'] = {'error': str(val_err)}
             rows_upserted = 0
-            if self.raw_db is not None:
+            if self.raw_fill_read is not None:
                 rows_upserted = self.raw_fill_write.upsert_raw_api_data(fills, source_date=date_compact)
             result['rows_upserted'] = rows_upserted
-            if self.raw_db is not None:
+            if self.raw_fill_read is not None:
                 self.raw_fill_write.add_fetch_log_record(source_date=date_compact, row_count=len(fills), data_hash=hash_value)
                 self.raw_fill_write.upsert_order_fetch_log(fills, source_date=date_compact)
                 self._record_hash_in_memory(date_compact, hash_value)
@@ -342,7 +341,7 @@ class FillFetch:
                                 progress_callback(day_idx, weekdays_in_range, order_date, len(fills), "Duplicate (memory)")
                             current += timedelta(days=1)
                             continue
-                        if self.raw_db is not None:
+                        if self.raw_fill_read is not None:
                             if self.raw_fill_write.check_fetch_duplicate(date_compact, hash_value):
                                 self._record_hash_in_memory(date_compact, hash_value)
                                 day_summaries.append({'order_date': order_date, 'rows': len(fills), 'status': 'skipped'})
@@ -363,7 +362,7 @@ class FillFetch:
                     except Exception as val_err:
                         logger.warning(f"Fill-share validation skipped (error): {val_err}")
                     rows_upserted = 0
-                    if self.raw_db is not None:
+                    if self.raw_fill_read is not None:
                         rows_upserted = self.raw_fill_write.upsert_raw_api_data(fills, source_date=date_compact)
                         self.raw_fill_write.add_fetch_log_record(source_date=date_compact, row_count=len(fills), data_hash=hash_value)
                         self.raw_fill_write.upsert_order_fetch_log(fills, source_date=date_compact)
@@ -407,7 +406,7 @@ class FillFetch:
         return summary
 
     def get_history(self, order_date: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
-        if self.raw_db is not None:
+        if self.raw_fill_read is not None:
             try:
                 stats = self.raw_fill_read.get_fetch_log_stats()
                 if order_date:
@@ -421,7 +420,7 @@ class FillFetch:
 
     def get_stats(self) -> Dict[str, Any]:
         stats: Dict[str, Any] = {}
-        if self.raw_db is not None:
+        if self.raw_fill_read is not None:
             try:
                 stats['raw_fills_rows'] = self.raw_fill_read.get_row_count()
                 stats['raw_fills_dates'] = self.raw_fill_read.get_date_row_counts()

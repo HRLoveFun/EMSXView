@@ -5,13 +5,13 @@ This module re-exports them for backward compatibility.
 
 Usage:
     # Connection management (new import path)
-    from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
+    from DataPipeline.storage.connection import ConnectionManager, AccessTier
 
     # Unified facade (CostView concept, migrated to DataPipeline)
-    from DataPipeline.src.storage.facade import CostViewDatabase
+    from DataPipeline.storage.facade import CostViewDatabase
 """
 
-from DataPipeline.src.storage.connection import (
+from DataPipeline.storage.connection import (
     AccessControlledConnection,
     AccessTier,
     ConnectionManager,

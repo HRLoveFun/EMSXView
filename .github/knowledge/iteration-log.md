@@ -482,3 +482,59 @@
 | 2026-05-11 19:06 | session | Stop | Session ended | — | auto |
 | 2026-05-11 19:08 | session | Stop | Session ended | — | auto |
 | 2026-05-11 19:14 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:10 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:13 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:17 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:45 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:48 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:50 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:51 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:53 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:54 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:55 | session | Stop | Session ended | — | auto |
+| 2026-05-11 20:56 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:05 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:08 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:21 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:22 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:22 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:25 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:27 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:37 | error | 用户报告重启服务.bat 自动打开的页面黑屏 | 分析发现是固定 timeout 等待前端 Vite 就绪不够，改为 HTTP 轮询探测 200 后再开浏览器。同时修复 service-manager.ps1 中 Start-FrontendService 的盲等逻辑。 | 重启服务.bat 现在会轮询 http://localhost:5173/ 直到返回 200（最多 30 秒），确保 Vite 编译完成后再打开浏览器。service-manager.ps1 同理改用 HTTP 探测。 | manual |
+| 2026-05-11 21:37 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:37 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:42 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:43 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:47 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:48 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:48 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:50 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:50 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:51 | session | 用户请求排查前端数据同步问题和 pipeline stalling 问题 | 三轮修复：1) Vite proxy timeout 120s→600s + raw_bdib 复合索引 + SQL TRIM 移除 + stale lock 年龄保护 + 前端轮询最大时长 + AbortController 清理；2) WAL checkpoint 在 completion 前强制执行 + await loadOverview；3) completion 100 添加 detail 行数和日志；4) 子进程启动超时保护(120s) + PID 日志 | 修复了 3 个问题：Failed to fetch(proxy超时)、数据显示同步(WAL落盘+await)、pipeline stalling(启动超时保护)。清理了多处非必要改动。记录了一个新的错误模式。 | manual |
+| 2026-05-11 21:52 | session | Stop | Session ended | — | auto |
+| 2026-05-11 21:57 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:00 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:01 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:04 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:07 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:10 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:15 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:28 | architecture | architecture review — DataPipeline module file structure optimization | Executed 第一刀: (1) Deleted 5 common/ re-export stubs (exceptions, schema, exchange_tz, mapping, outdated_tickers), migrated all 8 callers to common.utils.X; (2) Deleted 4 storage/ deprecated DB wrappers (raw_fills_db, raw_bdib_db, processed_raw_bdib_db, fill_bdib_db), migrated test_pipeline_guards.py and testing_helpers.py to inline_ddl + ConnectionManager + repositories; (3) Added DeprecationWarning to orchestration/runners.py | 15/17 test_pipeline_guards.py passed (2 pre-existing TcaQueryService API mismatches). Zero new regressions. 9 files deleted, 8 import paths updated, 1 DeprecationWarning added. | manual |
+| 2026-05-11 22:28 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:38 | architecture | architecture review — issue ④ (acquisition overlap) + ⑤ (src/data dir pollution) | Executed 第二刀: (④) Created DataPipeline/src/acquisition/_constants.py — centralized location for shared Bloomberg constants (GET_FILLS_RESPONSE, ERROR_INFO, EXPECTED_FILL_COLUMNS, FILL_FIELD_EXTRACTORS). Removed 95 lines of duplicated constants from emsx_client.py and bloomberg_fill_fetcher.py. Updated fill_fetch.py import to source from _constants. (⑤) Deleted DataPipeline/src/data/ (stale DB files that duplicated CostView/data/). Fixed PathsConfig.LOGGING_DIR from DataPipeline/src/logs/ → CostView/logs/. Removed dead ROOT_DIR constant. | 15/17 test_pipeline_guards.py passed (2 pre-existing). All 3 acquisition module imports verified. PathsConfig now points DATA_DIR=CostView/data, LOGGING_DIR=CostView/logs. DataPipeline/src/data/ directory deleted. Zero new regressions. | manual |
+| 2026-05-11 22:38 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:42 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:47 | session | Stop | Session ended | — | auto |
+| 2026-05-11 22:52 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:06 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:07 | task | user requested Trigger Update test plan implementation | Executed 6-phase test plan: (0) fixed api.ts esbuild syntax error (duplicate return); (1) pre-flight checks and DB state baseline; (2) Trigger Update pipeline polling monitored across all stages (init→fill_fetch→processing→completion); (3) post-update DB verification showing raw_fills=8.1M/20260429, processed_fills=8.8M/20260429, raw_bdib=349M/20260428, fill_bdib=164K/20260428, regime=8.7M; (4-5) error scenario documentation; (6) vite build verified | Build error fixed successfully. Pipeline trigger+monitoring works end-to-end. Discovered backend crashes under memory pressure (~15GB processed_fills, ~69GB raw_bdib) during pipeline processing stage after 15+ minutes. Full pipeline completion requires addressing memory constraints. | manual |
+| 2026-05-11 23:07 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:19 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:31 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:35 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:43 | session | Stop | Session ended | — | auto |
+| 2026-05-11 23:49 | session | Stop | Session ended | — | auto |
+| 2026-05-12 00:24 | task | Pipeline backend crash during processing (81% stage) — user requested fix plan implementation | Implemented 5-phase OOM fix: Phase 1 — [MEM] RSS logging per pipeline stage in daily_update.py + gc/import psutil; Phase 2 — MAX_PARALLEL_DATES 4→1, MAX_PARALLEL_TICKERS 3→1, explicit gc.collect() in S2/S3/S4/S5, S4 changed from full-table load to per-date processing; Phase 3 — BDIB ticker chunking (50/batch) in S5 + batch writes (50K) in integrated_write; Phase 4 — watchdog RSS monitoring (_MEM_WARN_GB=12) and _log_subprocess_mem() in _pipeline_jobs.py; Phase 5 — full pipeline verification ran to completion (2014s, status=completed). | Pipeline now completes successfully without backend crash. Previous failure (OOM kill at 81%, ~15 min) resolved — pipeline ran to 100% in ~33 min. All 5 databases accessible post-update. Error pattern recorded in knowledge base. | manual |
+| 2026-05-12 00:25 | session | Stop | Session ended | — | auto |
+| 2026-05-12 15:03 | session | Stop | Session ended | — | auto |
+| 2026-05-12 15:09 | session | Stop | Session ended | — | auto |

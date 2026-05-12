@@ -33,7 +33,7 @@
 
 param(
     [Parameter(Position=0)]
-    [ValidateSet("start", "stop", "restart", "status", "logs", "kill")]
+    [ValidateSet("start", "stop", "restart", "status", "logs", "kill", "wait-frontend")]
     [string]$Action = "status",
 
     [Parameter()]
@@ -54,8 +54,8 @@ $Config = @{
         HealthUrl = "http://localhost:3000/api/health"
         StartupStatusScript = "scripts\diagnose\check-startup-status.ps1"
         RequestTimeoutSec = 5
-        StartupDelay = 3
-        StartupPollInterval = 1
+        StartupDelay = 30
+        StartupPollInterval = 2
     }
     Frontend = @{
         DevPort = 5173
@@ -63,7 +63,7 @@ $Config = @{
         DevScript = "npm run dev"
         ProdScript = "npm run preview"
         ProcessName = "node"
-        StartupDelay = 5
+        StartupDelay = 30
     }
     LogDir = "logs"
 }
@@ -88,15 +88,52 @@ function Write-Separator {
     Write-Host "-" * 60 -ForegroundColor DarkGray
 }
 
-function Test-PortInUse {
+function Test-PortActiveListen {
+    <#
+    .SYNOPSIS
+        Returns $true only when a process is actively LISTENING on the given port.
+        Ignores TIME_WAIT / CLOSE_WAIT / stale orphaned connections.
+    #>
+    param([int]$Port)
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    return $null -ne $connection
+}
+
+function Test-PortHasAnyConnection {
+    <#
+    .SYNOPSIS
+        Returns $true if the port has ANY TCP state (LISTEN, ESTABLISHED, TIME_WAIT, etc.).
+        Used to wait for TIME_WAIT to clear before rebinding.
+    #>
     param([int]$Port)
     $connection = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
     return $null -ne $connection
 }
 
-function Get-ProcessUsingPort {
+function Wait-PortCompletelyFree {
+    <#
+    .SYNOPSIS
+        Polls until the given port has zero TCP connections of any state.
+        Returns $true once free, $false on timeout.
+    #>
+    param([int]$Port, [int]$MaxWaitSeconds = 60)
+    for ($i = 0; $i -lt $MaxWaitSeconds; $i++) {
+        if (-not (Test-PortHasAnyConnection -Port $Port)) {
+            return $true
+        }
+        Start-Sleep -Seconds 1
+    }
+    return (-not (Test-PortHasAnyConnection -Port $Port))
+}
+
+function Get-ProcessUsingPortListening {
+    <#
+    .SYNOPSIS
+        Returns the process that is actively LISTENING on the given port.
+        Unlike Get-ProcessUsingPort, this correctly ignores stale orphaned connections.
+    #>
     param([int]$Port)
-    $connection = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if ($connection) {
         return Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
     }
@@ -200,9 +237,9 @@ function Get-ServiceStatus {
         $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*ExecutionView\frontend*"
     } | Select-Object -First 1
 
-    $backendPortInUse = Test-PortInUse -Port $Config.Backend.Port
+    $backendPortInUse = Test-PortActiveListen -Port $Config.Backend.Port
     $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
-    $frontendPortInUse = Test-PortInUse -Port $frontendPort
+    $frontendPortInUse = Test-PortActiveListen -Port $frontendPort
     $backendStartup = if ($backendPortInUse) { Get-BackendStartupSnapshot } else { $null }
 
     return @{
@@ -296,15 +333,13 @@ function Stop-BackendService {
         }
     }
 
-    $retryCount = 0
-    while ((Test-PortInUse -Port $Config.Backend.Port) -and $retryCount -lt 10) {
-        Write-Status "Waiting for port $($Config.Backend.Port) to be released..." "Warning"
-        Start-Sleep -Milliseconds 500
-        $retryCount++
+    # Wait up to 60s for any stale TIME_WAIT connection to clear
+    if (-not (Wait-PortCompletelyFree -Port $Config.Backend.Port -MaxWaitSeconds 60)) {
+        Write-Status "Port $($Config.Backend.Port) still has stale connections after 60s timeout." "Warning"
     }
 
-    if (Test-PortInUse -Port $Config.Backend.Port) {
-        $proc = Get-ProcessUsingPort -Port $Config.Backend.Port
+    if (Test-PortActiveListen -Port $Config.Backend.Port) {
+        $proc = Get-ProcessUsingPortListening -Port $Config.Backend.Port
         if ($proc) {
             Write-Status "Force killing process using port $($Config.Backend.Port) (PID: $($proc.Id))" "Warning"
             Stop-Process -Id $proc.Id -Force
@@ -350,11 +385,23 @@ function Stop-FrontendService {
 function Start-BackendService {
     Write-Status "Starting backend service..." "Info"
 
-    if (Test-PortInUse -Port $Config.Backend.Port) {
-        $proc = Get-ProcessUsingPort -Port $Config.Backend.Port
+    # First check: is someone actively listening?  If so, bail out early.
+    if (Test-PortActiveListen -Port $Config.Backend.Port) {
+        $proc = Get-ProcessUsingPortListening -Port $Config.Backend.Port
         Write-Status "Port $($Config.Backend.Port) is already in use by process: $($proc.ProcessName) (PID: $($proc.Id))" "Error"
         Write-Status "Please stop the existing service first or use 'restart' action" "Warning"
         return $false
+    }
+
+    # Second check: could be TIME_WAIT from a recently killed process.
+    # Wait up to 60s for it to clear.
+    if (Test-PortHasAnyConnection -Port $Config.Backend.Port) {
+        Write-Status "Port $($Config.Backend.Port) has stale connections (TIME_WAIT). Waiting up to 60s..." "Warning"
+        if (-not (Wait-PortCompletelyFree -Port $Config.Backend.Port -MaxWaitSeconds 60)) {
+            Write-Status "Port $($Config.Backend.Port) still busy after 60s. Aborting." "Error"
+            return $false
+        }
+        Write-Status "Port $($Config.Backend.Port) is now free." "Success"
     }
 
     $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
@@ -367,25 +414,28 @@ function Start-BackendService {
 
     Write-Status "Starting backend (log: $logFile)..." "Info"
 
+    # Use cmd.exe to redirect stdout/stderr to the log file.
+    # This avoids .NET's redirected pipe buffers which nobody reads —
+    # when the 4 KB pipe fills, the child process blocks on Console.Write
+    # and can no longer serve HTTP requests, causing the black-screen bug.
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "python"
-    $startInfo.Arguments = "`"$backendScript`""
+    $startInfo.FileName = "cmd"
+    $startInfo.Arguments = "/c python `"$backendScript`" >> `"$logFile`" 2>&1"
     $startInfo.WorkingDirectory = Split-Path $backendScript -Parent
     $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
     $startInfo.CreateNoWindow = $true
 
     $process = [System.Diagnostics.Process]::Start($startInfo)
 
     Write-Status "Waiting for backend to start (up to $($Config.Backend.StartupDelay) seconds)..." "Info"
-    $attempts = 0
+    $elapsed = 0
     $started = $false
     $startupSnapshot = $null
     $startupError = $null
 
-    while ($attempts -lt ($Config.Backend.StartupDelay * 2)) {
+    while ($elapsed -lt $Config.Backend.StartupDelay) {
         Start-Sleep -Milliseconds 500
+        $elapsed += 0.5
 
         $startupResult = Get-BackendStartupSnapshot
         if ($startupResult.Available -and [bool]$startupResult.Snapshot.httpReady) {
@@ -402,8 +452,6 @@ function Start-BackendService {
             Write-Status "Backend process exited unexpectedly!" "Error"
             return $false
         }
-
-        $attempts++
     }
 
     if ($started) {
@@ -449,10 +497,21 @@ function Start-FrontendService {
         }
     }
 
-    if (Test-PortInUse -Port $frontendPort) {
-        $proc = Get-ProcessUsingPort -Port $frontendPort
+    # Active listen check — someone else is really holding the port
+    if (Test-PortActiveListen -Port $frontendPort) {
+        $proc = Get-ProcessUsingPortListening -Port $frontendPort
         Write-Status "Port $frontendPort is already in use by process: $($proc.ProcessName) (PID: $($proc.Id))" "Error"
         return $false
+    }
+
+    # TIME_WAIT check — wait for it to clear before starting the new dev server
+    if (Test-PortHasAnyConnection -Port $frontendPort) {
+        Write-Status "Port $frontendPort has stale connections (TIME_WAIT). Waiting up to 60s..." "Warning"
+        if (-not (Wait-PortCompletelyFree -Port $frontendPort -MaxWaitSeconds 60)) {
+            Write-Status "Port $frontendPort still busy after 60s. Aborting." "Error"
+            return $false
+        }
+        Write-Status "Port $frontendPort is now free." "Success"
     }
 
     $frontendDir = Join-Path $Config.ProjectRoot "ExecutionView\frontend"
@@ -462,13 +521,15 @@ function Start-FrontendService {
 
     Write-Status "Starting frontend (log: $logFile)..." "Info"
 
+    # Use cmd.exe to redirect stdout/stderr to the log file.
+    # This avoids .NET's redirected pipe buffers which nobody reads —
+    # when the 4 KB pipe fills, Vite blocks on Console.Write and can no
+    # longer serve HTTP requests, causing the black-screen bug.
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "powershell"
-    $startInfo.Arguments = "-Command `"cd '$frontendDir'; $script`""
+    $startInfo.FileName = "cmd"
+    $startInfo.Arguments = "/c cd /d `"$frontendDir`" && $script >> `"$logFile`" 2>&1"
     $startInfo.WorkingDirectory = $frontendDir
     $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
     $startInfo.CreateNoWindow = $true
 
     $process = [System.Diagnostics.Process]::Start($startInfo)
@@ -589,10 +650,12 @@ switch ($Action) {
             Show-BackendStartupSummary -BackendStatus $serviceStatus.Backend -IncludeHealthLine
             if (-not $frontendStarted) {
                 Write-Status "Frontend failed to start cleanly. Backend summary shown above." "Warning"
+                exit 1
             }
         }
         else {
             Write-Status "Backend failed to start. Frontend will not be started." "Error"
+            exit 1
         }
     }
     "stop" {
@@ -605,15 +668,18 @@ switch ($Action) {
         Write-Status "Waiting for services to fully stop..." "Info"
         Start-Sleep -Seconds 2
         $backendStarted = Start-BackendService
-        if ($backendStarted) {
-            $frontendStarted = Start-FrontendService -WaitForBackend $true
-            $serviceStatus = Get-ServiceStatus
-            Write-Separator
-            Write-Status "Backend Startup Summary" "Info"
-            Show-BackendStartupSummary -BackendStatus $serviceStatus.Backend -IncludeHealthLine
-            if (-not $frontendStarted) {
-                Write-Status "Frontend failed to start cleanly. Backend summary shown above." "Warning"
-            }
+        if (-not $backendStarted) {
+            Write-Status "Backend failed to start. Aborting." "Error"
+            exit 1
+        }
+        $frontendStarted = Start-FrontendService -WaitForBackend $true
+        $serviceStatus = Get-ServiceStatus
+        Write-Separator
+        Write-Status "Backend Startup Summary" "Info"
+        Show-BackendStartupSummary -BackendStatus $serviceStatus.Backend -IncludeHealthLine
+        if (-not $frontendStarted) {
+            Write-Status "Frontend failed to start cleanly. Backend summary shown above." "Warning"
+            exit 1
         }
     }
     "status" {
@@ -621,6 +687,38 @@ switch ($Action) {
     }
     "logs" {
         Show-Logs
+    }
+    "wait-frontend" {
+        $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
+        $url = "http://localhost:$frontendPort"
+        $maxSec = 90
+
+        Write-Status "Waiting for frontend to be ready at $url (up to ${maxSec}s)..." "Info"
+
+        for ($i = 0; $i -lt $maxSec; $i++) {
+            try {
+                $req = [System.Net.HttpWebRequest]::Create($url)
+                $req.Timeout = 3000
+                $resp = $req.GetResponse()
+                $code = [int]$resp.StatusCode
+                $resp.Close()
+                if ($code -eq 200) {
+                    Write-Status "Frontend is ready (HTTP 200 after ${i}s)" "Success"
+                    exit 0
+                }
+            }
+            catch {
+                # Not ready yet
+            }
+
+            if ($i % 5 -eq 0 -and $i -gt 0) {
+                Write-Status "  ... still waiting ($i s elapsed)" "Warning"
+            }
+            Start-Sleep -Seconds 1
+        }
+
+        Write-Status "Frontend did not become ready within ${maxSec}s" "Error"
+        exit 1
     }
     "kill" {
         Write-Status "Force killing all related processes..." "Warning"
