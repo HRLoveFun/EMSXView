@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -303,6 +304,12 @@ class SqliteRegimeWriteRepository(BaseRepository):
             ensure_schema_current(self._mgr.get_path("regime"))
         except Exception:
             pass
+
+    @contextmanager
+    def _ensure_schema_context(self):
+        """Context manager that ensures regime schema exists before proceeding."""
+        self._ensure_schema()
+        yield
 
     def upsert_regime_labels(self, df: pd.DataFrame) -> int:
         """Upsert regime label rows. Returns row count."""

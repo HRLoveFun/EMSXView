@@ -105,6 +105,17 @@ class SqliteRawFillReadRepository(BaseRepository):
         finally:
             conn.close()
 
+    def get_last_fetch_date(self) -> Optional[str]:
+        """Return the most recent source_date in fetch_log."""
+        conn = self._get_read_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT MAX(source_date) FROM fetch_log WHERE status = 'fetched'"
+            )
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
 
 class SqliteRawFillWriteRepository(BaseRepository):
     """Write access to raw fills and fetch logs."""

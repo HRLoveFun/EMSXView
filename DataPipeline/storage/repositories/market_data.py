@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 from DataPipeline.config import Config
@@ -154,6 +155,33 @@ class SqliteMarketDataWriteRepository(BaseRepository):
 
     def __init__(self, connection_manager=None, database: str = "raw_bdib"):
         super().__init__(connection_manager, database=database)
+
+    @staticmethod
+    def compute_derived_fields(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty or "close" not in df.columns:
+            return df
+        result = df.copy()
+        if "value" in result.columns and "volume" in result.columns:
+            safe_vol = result["volume"].fillna(0).replace(0, np.nan)
+            result["vwap"] = np.where(
+                safe_vol > 0,
+                result["value"] / safe_vol,
+                result["close"],
+            )
+        elif "close" in result.columns:
+            result["vwap"] = result["close"]
+        if all(c in result.columns for c in ("high", "low", "close")):
+            safe_close = result["close"].replace(0, np.nan)
+            result["fluctuation"] = (
+                (result["high"].fillna(result["close"])
+                 - result["low"].fillna(result["close"]))
+                / safe_close
+            ).fillna(0)
+        if "close" in result.columns:
+            result["log_chg_pct_10s"] = (
+                np.log(result["close"] / result["close"].shift(1)).fillna(0)
+            )
+        return result
 
     def upsert_bdib_data(
         self, df: pd.DataFrame, date_str: Optional[str] = None,
