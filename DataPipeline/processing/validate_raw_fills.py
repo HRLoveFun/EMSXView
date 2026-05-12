@@ -263,7 +263,7 @@ def validate_raw_fills_db(
     Optionally filters by source_date.
 
     Args:
-        db_path: Path to raw_fills.db (default: from ProcessingConfig).
+        db_path: Path to raw_fills.db (default: from Config).
         source_date: If set, only validate rows matching this source_date (YYYYMMDD).
         tolerance: Absolute numeric tolerance for comparison.
 

@@ -36,16 +36,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from DataPipeline.config import Config
-from DataPipeline.db_config import (
-    DB_RAW_FILLS,
-    DB_PROCESSED_FILLS,
-    DB_RAW_BDIB,
-    DB_PROCESSED_RAW_BDIB,
-    DB_FILL_BDIB,
-    DB_REGIME,
-    DB_FETCH_HISTORY,
-)
+from DataPipeline.config import Config, DB_RAW_FILLS, DB_PROCESSED_FILLS, DB_RAW_BDIB, DB_PROCESSED_RAW_BDIB, DB_FILL_BDIB, DB_REGIME, DB_FETCH_HISTORY
 
 logger = logging.getLogger(__name__)
 
@@ -226,9 +217,7 @@ def backup_database(db_path: Path) -> Path:
 # ConnectionManager — centralized connection lifecycle
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Database name constants — sourced from centralized table_registry.
-# Local aliases kept for backward compatibility.
-# New code should import from DataPipeline.common.table_registry directly.
+# Database name constants (sourced from DataPipeline.config)
 ALL_DATABASE_NAMES = [
     DB_RAW_FILLS,
     DB_PROCESSED_FILLS,
@@ -244,7 +233,7 @@ class ConnectionManager:
     """Unified database connection manager for all CostView databases.
 
     Responsibilities:
-    1. Map database names to file paths (from ProcessingConfig)
+    1. Map database names to file paths (from Config)
     2. Provide access-controlled connections with standard pragmas
     3. Manage connection lifecycle (create, use, close)
     4. Thread-safe: each get_connection() call creates a fresh connection
