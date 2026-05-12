@@ -27,7 +27,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_COSTVIEW_ROOT))
 
-from src.processing_config import ProcessingConfig as Config
+from DataPipeline.config import Config
 from src.raw_bdib_db import RawBDIBDB
 from src.raw_fills_db import RawFillsDB
 
@@ -107,7 +107,7 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
 
     # 4. Determine tickers from processed_fills ticker_repository
     try:
-        from src.db.facade import CostViewDatabase
+        from DataPipeline.storage.facade import CostViewDatabase
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)

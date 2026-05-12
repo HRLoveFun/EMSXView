@@ -21,7 +21,7 @@ echo  ║                                                    ║
 echo  ╚════════════════════════════════════════════════════╝
 echo.
 echo   正在重启 后端 (端口 3000) 与 前端 (端口 5173)...
-echo   重启过程会持续 10 ─ 30 秒，请勿关闭此窗口。
+echo   重启过程会持续 10 ─ 60 秒，请勿关闭此窗口。
 echo.
 echo  ──────────────────────────────────────────────────────
 echo.
@@ -46,8 +46,21 @@ echo   [成功]  服务已重启完成。
 echo            后端  ^>  http://localhost:3000
 echo            前端  ^>  http://localhost:5173
 echo.
-echo   3 秒后将自动在浏览器中打开前端页面...
-timeout /t 3 /nobreak >nul
+echo   正在等待前端就绪（最多等待 90 秒，请耐心等待...）
+echo.
+
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\service-manager.ps1" wait-frontend -Environment dev
+set "WAIT_EXIT=%ERRORLEVEL%"
+
+if not "%WAIT_EXIT%"=="0" (
+    echo.
+    echo   [警告] 前端服务未在 90 秒内就绪，将尝试打开页面（可能仍为空白）。
+    echo.
+) else (
+    echo.
+    echo   [就绪] 前端已就绪，正在打开页面...
+    echo.
+)
 
 start "" "http://localhost:5173"
 

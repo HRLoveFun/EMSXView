@@ -59,9 +59,15 @@ class SqliteIntegratedWriteRepository(BaseRepository):
         if df is None or df.empty:
             return 0
 
-        from DataPipeline.storage.fill_bdib_db import FillBDIBDB
-        # Use the STORED_COLUMNS from FillBDIBDB for column list
-        stored_cols = FillBDIBDB.STORED_COLUMNS
+        stored_cols = [
+            "OrderId", "RouteId", "order_as_of_date", "mkt_timestamp",
+            "equ_ticker", "ccy_ticker", "fill_volume", "fill_px",
+            "open", "high", "low", "close", "volume", "value", "vwap",
+            "log_chg_pct_10s", "fx_rate", "cum_vwap", "cum_fill_vwap",
+            "cum_slippage_bps", "cum_slippage_usd", "cum_volume_pct",
+            "cum_tracking_error", "cum_info_ratio", "cum_interval_volatility",
+            "standard_cum_interval_volatility",
+        ]
         insert_cols = [c for c in stored_cols if c in df.columns]
         if not insert_cols:
             return 0

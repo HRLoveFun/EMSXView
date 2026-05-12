@@ -11,8 +11,8 @@ from typing import Any, Optional
 import pandas as pd
 import sqlite3
 
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
+from DataPipeline.config import Config
+from DataPipeline.storage.connection import AccessTier, ConnectionManager
 
 from .tca_utils import (
     derive_local_exchange_datetime as _derive_local_exchange_datetime,

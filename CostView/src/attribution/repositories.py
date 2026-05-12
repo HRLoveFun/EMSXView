@@ -20,8 +20,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
+from DataPipeline.config import Config
+from DataPipeline.storage.connection import ConnectionManager, AccessTier
 from CostView.src.regime.schema import (
     REGIME_DB_PATH,
     connect as connect_regime,

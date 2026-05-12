@@ -11,13 +11,13 @@ from datetime import datetime
 
 import pandas as pd
 
-from DataPipeline.src.storage.dto import (
+from DataPipeline.storage.dto import (
     AttributionRowDTO,
     FillMetricsQueryDTO,
     PipelineRunDTO,
     PipelineRunResultDTO,
 )
-from DataPipeline.src.storage.repositories.regime import (
+from DataPipeline.storage.repositories.regime import (
     SqliteRegimeReadRepository,
     SqliteRegimeWriteRepository,
 )

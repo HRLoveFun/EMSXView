@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from DataPipeline.src.storage.connection import ConnectionManager
+from DataPipeline.storage.connection import ConnectionManager
 
 # Pinned schema version. Bump → add new migrations/vN_to_vN+1.sql + apply.py runs it.
 SCHEMA_VERSION: int = 3
@@ -43,7 +43,7 @@ def create_all(db_path: Path | str = REGIME_DB_PATH) -> None:
 
     Delegates to the consolidated migration runner in DataPipeline.
     """
-    from DataPipeline.src.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
+    from DataPipeline.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
     apply_pending(db_path)
 
 
@@ -54,13 +54,13 @@ def ensure_schema_current(db_path: Path | str = REGIME_DB_PATH) -> None:
 
     Delegates to the consolidated migration runner in DataPipeline.
     """
-    from DataPipeline.src.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
+    from DataPipeline.storage.schema.migrations.apply import apply_pending  # noqa: PLC0415
     final = apply_pending(db_path)
     if final != SCHEMA_VERSION:
         raise RuntimeError(
             f"regime.db schema mismatch: PRAGMA user_version={final} "
             f"but code SCHEMA_VERSION={SCHEMA_VERSION}. "
-            f"Run: python -m DataPipeline.src.storage.schema.migrations.apply"
+            f"Run: python -m DataPipeline.storage.schema.migrations.apply"
         )
 
 

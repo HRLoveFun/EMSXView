@@ -48,10 +48,10 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_COSTVIEW_ROOT))
 
-from src.processing_config import ProcessingConfig as Config
+from DataPipeline.config import Config
 from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date, _is_trading_day
 from src.raw_bdib_db import RawBDIBDB
-from src.db.facade import CostViewDatabase
+from DataPipeline.storage.facade import CostViewDatabase
 
 logger = logging.getLogger("backfill_raw_bdib")
 

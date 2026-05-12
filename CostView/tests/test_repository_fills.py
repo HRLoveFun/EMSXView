@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from DataPipeline.src.storage.repositories.fills_read import SqliteFillReadRepository
-from DataPipeline.src.storage.repositories.fills_write import SqliteFillWriteRepository
+from DataPipeline.storage.repositories.fills import SqliteFillReadRepository
+from DataPipeline.storage.repositories.fills import SqliteFillWriteRepository
 from CostView.tests.testing_helpers import (
     create_temp_db,
     make_fills_dataframe,

@@ -15,8 +15,8 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Optional
 
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
-from DataPipeline.src.storage.connection import AccessTier, ConnectionManager
+from DataPipeline.config import Config
+from DataPipeline.storage.connection import AccessTier, ConnectionManager
 from platform_data.contracts import TcaFilters
 
 from .tca_utils import (

@@ -27,7 +27,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
+from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -150,12 +150,12 @@ def main():
     # Resolve access tier
     access_tier = None
     if args.db_access:
-        from DataPipeline.src.storage.connection import AccessTier
+        from DataPipeline.storage.connection import AccessTier
         access_tier = AccessTier(args.db_access)
     if args.query or args.status:
         # Query/status commands default to READ access
         if access_tier is None:
-            from DataPipeline.src.storage.connection import AccessTier
+            from DataPipeline.storage.connection import AccessTier
             access_tier = AccessTier.READ
     if access_tier is not None:
         import os
@@ -226,12 +226,12 @@ def main():
                     logger.info("Scheduler stopped")
 
         elif args.status:
-            from DataPipeline.src.orchestration.pipeline import get_pipeline_status
+            from DataPipeline.orchestration.core import get_pipeline_status
             status = get_pipeline_status()
             print(json.dumps(status, indent=2, default=str))
 
         elif args.fetch_auto:
-            from DataPipeline.src.ingestion.fill_fetch import FillFetch
+            from DataPipeline.ingestion.fill_fetch import FillFetch
             fetcher = FillFetch()
             try:
                 fetch_range = fetcher.determine_fetch_range()
@@ -248,11 +248,11 @@ def main():
                 fetcher.close()
 
         elif args.fetch:
-            from DataPipeline.src.ingestion.fill_fetch import main as fetch_main
+            from DataPipeline.ingestion.fill_fetch import main as fetch_main
             fetch_main()
 
         elif args.pipeline:
-            from DataPipeline.src.orchestration.pipeline import run_full_pipeline
+            from DataPipeline.orchestration.core import run_full_pipeline
             summary = run_full_pipeline(
                 dates=dates,
                 force=args.force,
@@ -265,7 +265,7 @@ def main():
             if not args.confirm_delete:
                 print("Rebuild requires --confirm-delete flag (destructive operation)")
                 sys.exit(1)
-            from DataPipeline.src.orchestration.pipeline import run_process
+            from DataPipeline.orchestration.core import run_process
             print("Rebuilding processed_fills from raw_fills.db...")
             df = run_process(dates=dates, force=True)
             print(f"Rebuilt {len(df)} processed fills")
@@ -274,29 +274,29 @@ def main():
             if not args.confirm_delete:
                 print("Rebuild requires --confirm-delete flag (destructive operation)")
                 sys.exit(1)
-            from DataPipeline.src.orchestration.pipeline import run_aggregate
+            from DataPipeline.orchestration.core import run_aggregate
             print("Rebuilding aggregated tables from processed_fills...")
             run_aggregate(dates=dates, force=True)
             print("Rebuild complete")
 
         elif args.ingest:
-            from DataPipeline.src.orchestration.pipeline import run_ingest
+            from DataPipeline.orchestration.core import run_ingest
             results = run_ingest()
             ingested = sum(1 for r in results if r["success"] and not r["skipped"])
             print(f"Ingested {ingested} files")
 
         elif args.process:
-            from DataPipeline.src.orchestration.pipeline import run_process
+            from DataPipeline.orchestration.core import run_process
             df = run_process(dates=dates, force=args.force)
             print(f"Processed {len(df)} fills")
 
         elif args.aggregate:
-            from DataPipeline.src.orchestration.pipeline import run_aggregate
+            from DataPipeline.orchestration.core import run_aggregate
             run_aggregate(dates=dates, force=args.force)
             print("Aggregation complete (route-level)")
 
         elif args.labels:
-            from DataPipeline.src.orchestration.pipeline import run_order_labels
+            from DataPipeline.orchestration.core import run_order_labels
             labels = run_order_labels(dates=dates, force=args.force)
             print(f"Generated {len(labels)} order labels")
 

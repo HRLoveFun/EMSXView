@@ -10,8 +10,8 @@ import unittest
 
 import pandas as pd
 
-from DataPipeline.src.storage.repositories.raw_fills_read import SqliteRawFillReadRepository
-from DataPipeline.src.storage.repositories.raw_fills_write import SqliteRawFillWriteRepository
+from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
+from DataPipeline.storage.repositories.raw_fills import SqliteRawFillWriteRepository
 from CostView.tests.testing_helpers import create_temp_db
 
 

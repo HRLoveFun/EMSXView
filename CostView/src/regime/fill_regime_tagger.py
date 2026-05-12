@@ -25,9 +25,9 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from DataPipeline.src.common.processing_config import ProcessingConfig as PCConfig
-from DataPipeline.src.storage.connection import ConnectionManager, AccessTier
-from DataPipeline.src.common.exchange_tz import convert_ny_to_local, get_exchange_timezone
+from DataPipeline.config import Config
+from DataPipeline.storage.connection import ConnectionManager, AccessTier
+from DataPipeline.common.exchange_tz import convert_ny_to_local, get_exchange_timezone
 from CostView.src.regime.config import get_active_config, get_config
 from CostView.src.regime.market_code import derive_market_code
 from CostView.src.regime.schema import REGIME_DB_PATH, connect, ensure_schema_current
@@ -113,7 +113,7 @@ def tag_fills(
     start_date: str,
     end_date: str,
     db_path: Path = REGIME_DB_PATH,
-    fills_db_path: Path = PCConfig.PROCESSED_FILLS_DB,
+    fills_db_path: Path = Config.PROCESSED_FILLS_DB,
     config_version: Optional[str] = None,
 ) -> Dict[str, int]:
     """Tag fills whose order_as_of_date falls in [start_date, end_date] (ISO).
@@ -134,7 +134,7 @@ def tag_fills(
     fconn = fconn_mgr.get_connection("processed_fills", AccessTier.READ).raw_connection
     try:
         cols = {c[1] for c in fconn.execute(
-            f"PRAGMA table_info({PCConfig.PROCESSED_FILLS_TABLE})"
+            f"PRAGMA table_info({Config.PROCESSED_FILLS_TABLE})"
         ).fetchall()}
         has_currency = "Currency" in cols
         currency_col = "Currency" if has_currency else "NULL AS Currency"
@@ -145,7 +145,7 @@ def tag_fills(
         # them here.
         df = pd.read_sql_query(
             f"""SELECT OrderId, RouteId, FillId, order_as_of_date, Exchange, {currency_col}, DateTimeOfFill
-                FROM {PCConfig.PROCESSED_FILLS_TABLE}
+                FROM {Config.PROCESSED_FILLS_TABLE}
                 WHERE order_as_of_date BETWEEN ? AND ?""",
             fconn,
             params=(start_legacy, end_legacy),

@@ -13,21 +13,18 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from DataPipeline.src.orchestration.pipeline import (
-    BaseStage,
-    FinancialPipeline,
-    IngestExcelStage,
-    PipelineContext,
-    PipelineFactory,
-    ProcessRawFillsStage,
-    AggregateFillsStage,
-    GenerateOrderLabelsStage,
-    IntegrateBDIBStage,
-    WriteManifestStage,
-    CalculateDailyMetricsStage,
-    RegimeDailyFeaturesStage,
-    RegimeFillTaggerStage,
-    AttributionMetricsStage,
+from DataPipeline.orchestration.context import PipelineContext
+from DataPipeline.orchestration.base import BaseStage
+from DataPipeline.orchestration.core import FinancialPipeline, PipelineFactory
+from DataPipeline.orchestration.stages_ingest import (
+    IngestExcelStage, ProcessRawFillsStage,
+    AggregateFillsStage, GenerateOrderLabelsStage,
+)
+from DataPipeline.orchestration.stages_process import (
+    IntegrateBDIBStage, WriteManifestStage, CalculateDailyMetricsStage,
+)
+from DataPipeline.orchestration.stages_analysis import (
+    RegimeDailyFeaturesStage, RegimeFillTaggerStage, AttributionMetricsStage,
 )
 
 

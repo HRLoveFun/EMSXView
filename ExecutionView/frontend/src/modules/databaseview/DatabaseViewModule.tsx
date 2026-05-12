@@ -76,9 +76,15 @@ export default function DatabaseViewModule() {
           return;
         }
         if (status.status === 'completed') {
+          console.log('[DB Sync] Pipeline completed — refreshing overview', {
+            job_id: status.job_id,
+            stage: status.stage,
+            overall_progress: status.overall_progress,
+          });
           void loadOverview();
         }
       } catch (err) {
+        console.error('[DB Sync] Polling failed for job', jobId, err);
         setUpdateStatus((prev) => ({
           job_id: prev?.job_id ?? jobId,
           status: 'failed',
@@ -113,6 +119,7 @@ export default function DatabaseViewModule() {
       });
       void pollStatus(job.job_id);
     } catch (err) {
+      console.error('[DB Sync] Trigger update failed', err);
       setError(err instanceof Error ? err.message : 'Failed to trigger update');
     } finally {
       setTriggerPending(false);

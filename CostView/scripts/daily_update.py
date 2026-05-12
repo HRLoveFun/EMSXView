@@ -18,9 +18,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import logging
 import logging.handlers
+import os
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -31,9 +34,55 @@ _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 _EMSX_ROOT = _COSTVIEW_ROOT.parent
 sys.path.insert(0, str(_EMSX_ROOT))
 
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
+from DataPipeline.config import Config
 
 logger = logging.getLogger("daily_update")
+
+
+_KNOWN_DBS = [
+    "raw_fills.db",
+    "processed_fills.db",
+    "raw_bdib.db",
+    "fill_bdib.db",
+    "regime.db",
+]
+
+
+def _log_mem(stage_label: str = "") -> None:
+    """Log current RSS memory usage for OOM diagnosis."""
+    try:
+        import psutil
+        proc = psutil.Process(os.getpid())
+        rss_gb = proc.memory_info().rss / (1024 ** 3)
+        logger.info("[MEM] %s — RSS=%.2f GB", stage_label, rss_gb)
+        print(f"[MEM] {stage_label} — RSS={rss_gb:.2f} GB", flush=True)
+    except ImportError:
+        pass  # psutil not installed — skip memory logging
+
+
+def _checkpoint_wal() -> None:
+    """Force WAL checkpoint on all known CostView databases.
+
+    After a subprocess write, data may reside only in the WAL file and not
+    yet be visible to read-only connections that open via ``?mode=ro`` (as
+    ``repositories.py`` does).  Running ``wal_checkpoint(TRUNCATE)`` writes
+    all WAL pages into the main DB and resets the WAL, guaranteeing that
+    subsequent reads see the latest committed data.
+
+    This is called just before the ``[STAGE] completion 100`` marker so
+    that the backend's ``/api/db/overview`` endpoint will see fresh data.
+    """
+    data_dir = _COSTVIEW_ROOT / "data"
+    for db_name in _KNOWN_DBS:
+        db_path = data_dir / db_name
+        if not db_path.exists():
+            continue
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=2.0)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+        except Exception as exc:
+            logger.warning("WAL checkpoint failed for %s: %s", db_name, exc)
 
 
 def _setup_logging() -> None:
@@ -73,11 +122,14 @@ def run_daily_pipeline() -> dict:
 
     # ── Stage marker: Initialization ──
     print("[STAGE] initialization 50")
+    _log_mem("initialization")
+    gc.collect()
 
     try:
         # Stage A: Auto-fetch new fills
         print("[STAGE] fill_fetch 10")
-        from DataPipeline.src.ingestion.fill_fetch import FillFetch
+        _log_mem("fill_fetch_before")
+        from DataPipeline.ingestion.fill_fetch import FillFetch
 
         logger.info("=" * 60)
         logger.info("DAILY UPDATE: Starting auto-fetch")
@@ -109,24 +161,38 @@ def run_daily_pipeline() -> dict:
         finally:
             fetcher.close()
 
+        gc.collect()
+        _log_mem("fill_fetch_after")
+
         # Stage B: Run incremental pipeline (with BDIB integration enabled)
         print("[STAGE] processing 10")
-        from DataPipeline.src.orchestration.pipeline import run_incremental
+        _log_mem("processing_before")
+        from DataPipeline.orchestration.core import run_incremental
 
         logger.info("=" * 60)
         logger.info("DAILY UPDATE: Running incremental pipeline (BDIB enabled)")
         logger.info("=" * 60)
 
+        fetch_status = summary.get("fetch")
+        if fetch_status is None:
+            logger.info("fetch_range returned None — no new fills beyond last fetched date")
+        elif isinstance(fetch_status, dict):
+            logger.info("Fetch result: %s", json.dumps(fetch_status, default=str))
+
         print("[STAGE] processing 50")
+        _log_mem("pipeline_before")
         pipeline_result = run_incremental(
             skip_bdib=False,
             stage_marker_name="processing",
             stage_marker_start=55,
             stage_marker_end=95,
         )
+        gc.collect()
+        _log_mem("pipeline_after")
         summary["pipeline"] = pipeline_result
+        logger.info("Pipeline result: %s", json.dumps(pipeline_result, default=str))
 
-        # Stage C: Write downstream manifest
+        # Stage C: Write downstream manifest and flush databases to disk
         print("[STAGE] completion 20")
         try:
             from src.downstream_interface import write_manifest
@@ -135,14 +201,38 @@ def run_daily_pipeline() -> dict:
         except Exception as e:
             logger.warning(f"Manifest write skipped: {e}")
 
+        # ── Force WAL checkpoint so /api/db/overview sees fresh data ──
+        _checkpoint_wal()
+        gc.collect()
+        _log_mem("completion_before_checkpoint")
+
+        # ── Build human-readable completion detail for the frontend ──
+        fetch_result = summary.get("fetch") or {}
+        if isinstance(fetch_result, dict) and fetch_result.get("status") == "up-to-date":
+            detail = "Already up to date — no new fills to fetch"
+        else:
+            fetch_rows = fetch_result.get("total_rows", 0) if isinstance(fetch_result, dict) else 0
+            pipeline_processing = (pipeline_result or {}).get("processing", {}) if isinstance(pipeline_result, dict) else {}
+            pipeline_rows = pipeline_processing.get("rows_processed", 0) if isinstance(pipeline_processing, dict) else 0
+            agg_result = (pipeline_result or {}).get("aggregation", {}) if isinstance(pipeline_result, dict) else {}
+            agg_dates = agg_result.get("dates", 0) if isinstance(agg_result, dict) else 0
+            if fetch_rows or pipeline_rows:
+                detail = f"Fetched {fetch_rows} fills · processed {pipeline_rows} rows · aggregated {agg_dates} dates"
+            else:
+                detail = "Pipeline ran with no data changes"
+
         summary["status"] = "success"
-        print("[STAGE] completion 100")
+        print(f"[STAGE] completion 100 {detail}")
         logger.info(f"DAILY UPDATE complete: {json.dumps(summary, indent=2, default=str)}")
+        gc.collect()
+        _log_mem("completion_done")
 
     except Exception as e:
         summary["status"] = "failed"
         summary["error"] = str(e)
         logger.critical(f"DAILY UPDATE FAILED: {e}", exc_info=True)
+        gc.collect()
+        _log_mem("failed")
 
     # Write structured summary to log
     logger.info(f"pipeline.summary: {json.dumps(summary, default=str)}")

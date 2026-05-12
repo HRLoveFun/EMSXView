@@ -20,9 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from DataPipeline.src.storage.repositories.fills_read import SqliteFillReadRepository
-from DataPipeline.src.common.outdated_tickers import load_outdated_ticker_set
-from DataPipeline.src.common.processing_config import ProcessingConfig as Config
+from DataPipeline.storage.repositories.fills import SqliteFillReadRepository
+from DataPipeline.common.outdated_tickers import load_outdated_ticker_set
+from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
 

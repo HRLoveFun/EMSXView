@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from DataPipeline.src.storage.connection import ConnectionManager
+from DataPipeline.storage.connection import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,36 +42,35 @@ def create_temp_db(db_key: str, tmp_dir: str | Path) -> ConnectionManager:
 
 
 def _bootstrap_schema(db_key: str, db_path: Path, mgr: ConnectionManager) -> None:
-    """Delegate schema creation to production DB classes (no DDL duplication)."""
-    # Each legacy class creates its own schema as a side-effect of __init__.
-    # We catch and discard the DeprecationWarning they emit.
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        if db_key == "raw_fills":
-            from DataPipeline.src.storage.raw_fills_db import RawFillsDB
-            RawFillsDB(db_path=str(db_path), connection_manager=mgr)
-        elif db_key == "processed_fills":
-            # Initialize schema via the production schema function.
-            from DataPipeline.src.storage.repositories._schema import init_processed_fills_schema
-            from DataPipeline.src.storage.repositories.fills_write import SqliteFillWriteRepository
-            init_processed_fills_schema(SqliteFillWriteRepository(mgr))
-        elif db_key == "raw_bdib":
-            from DataPipeline.src.storage.raw_bdib_db import RawBDIBDB
-            RawBDIBDB(db_path=str(db_path), connection_manager=mgr)
-        elif db_key == "processed_raw_bdib":
-            from DataPipeline.src.storage.processed_raw_bdib_db import ProcessedRawBDIBDB
-            ProcessedRawBDIBDB(db_path=str(db_path), connection_manager=mgr)
-        elif db_key == "fill_bdib":
-            from DataPipeline.src.storage.fill_bdib_db import FillBDIBDB
-            FillBDIBDB(db_path=str(db_path), connection_manager=mgr)
-        elif db_key == "regime":
-            from DataPipeline.src.storage.schema.migrations.apply import apply_pending
-            apply_pending(db_path)
-            # Add tables not managed by regime migrations (attribution, pipeline runs)
-            _ensure_regime_extra_tables(mgr)
-        else:
-            raise ValueError(f"Unknown db_key: {db_key}")
+    """Delegate schema creation to production schema functions (no DDL duplication)."""
+    if db_key == "raw_fills":
+        from DataPipeline.storage.schema.inline_ddl import init_raw_fills_schema
+        with mgr.get_admin_connection("raw_fills") as conn:
+            init_raw_fills_schema(conn)
+    elif db_key == "processed_fills":
+        # Initialize schema via the production schema function.
+        from DataPipeline.storage.repositories._schema import init_processed_fills_schema
+        from DataPipeline.storage.repositories.fills import SqliteFillWriteRepository
+        init_processed_fills_schema(SqliteFillWriteRepository(mgr))
+    elif db_key == "raw_bdib":
+        from DataPipeline.storage.schema.inline_ddl import init_raw_bdib_schema
+        with mgr.get_admin_connection("raw_bdib") as conn:
+            init_raw_bdib_schema(conn)
+    elif db_key == "processed_raw_bdib":
+        from DataPipeline.storage.schema.inline_ddl import init_processed_raw_bdib_schema
+        with mgr.get_admin_connection("processed_raw_bdib") as conn:
+            init_processed_raw_bdib_schema(conn)
+    elif db_key == "fill_bdib":
+        from DataPipeline.storage.schema.inline_ddl import init_fill_bdib_schema
+        with mgr.get_admin_connection("fill_bdib") as conn:
+            init_fill_bdib_schema(conn)
+    elif db_key == "regime":
+        from DataPipeline.storage.schema.migrations.apply import apply_pending
+        apply_pending(db_path)
+        # Add tables not managed by regime migrations (attribution, pipeline runs)
+        _ensure_regime_extra_tables(mgr)
+    else:
+        raise ValueError(f"Unknown db_key: {db_key}")
 
 
 def _ensure_regime_extra_tables(mgr: ConnectionManager) -> None:

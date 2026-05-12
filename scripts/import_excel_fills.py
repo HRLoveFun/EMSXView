@@ -75,7 +75,7 @@ from src.schema import (
     RAW_METADATA_COLUMNS,
     ALL_RAW_COLUMNS,
 )
-from src.processing_config import ProcessingConfig as Config
+from DataPipeline.config import Config
 
 
 logger = logging.getLogger(__name__)

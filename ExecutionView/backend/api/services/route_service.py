@@ -225,6 +225,8 @@ def build_route_request_fields(
         fields["EMSX_EXCHANGE_DESTINATION"] = request.exchangeDestination
     if request.notes:
         fields["EMSX_NOTES"] = request.notes
+    if request.releaseTime is not None:
+        fields["EMSX_RELEASE_TIME"] = request.releaseTime
 
     return fields
 

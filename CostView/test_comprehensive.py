@@ -8,9 +8,8 @@ from dataclasses import asdict
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.fill_fetch import FillFetch
-from src.database import FillFetchDatabase, compute_data_hash
 from src.secure_config import get_config_manager
+from DataPipeline.ingestion.fill_fetch import FillFetch
 
 
 def test_basic():
