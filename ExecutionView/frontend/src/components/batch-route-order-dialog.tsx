@@ -1094,26 +1094,31 @@ export function BatchRouteOrderDialog({
             title="Release time (HH:MM) — sent as EMSX_RELEASE_TIME on every route"
           />
           <div className="w-px h-4 bg-border mx-1" />
-          <span className="text-muted-foreground">Start / End time:</span>
-          <Input
-            type="text"
-            placeholder="HH:MM:SS"
-            value={startTime}
-            onChange={e => setStartTime(e.target.value)}
-            className="h-6 w-24 text-xs font-mono"
-            disabled={!editable || selectedBrokers.length === 0}
-            title="Start time (HH:MM:SS) — applied to all selected brokers"
-          />
-          <span className="text-muted-foreground/50">~</span>
-          <Input
-            type="text"
-            placeholder="HH:MM:SS"
-            value={endTime}
-            onChange={e => setEndTime(e.target.value)}
-            className="h-6 w-24 text-xs font-mono"
-            disabled={!editable || selectedBrokers.length === 0}
-            title="End time (HH:MM:SS) — applied to all selected brokers"
-          />
+          <span className="text-muted-foreground mr-1">Start / End time:</span>
+          <div className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded px-1.5 py-0.5">
+            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase">S</span>
+            <Input
+              type="text"
+              placeholder="HH:MM:SS"
+              value={startTime}
+              onChange={e => setStartTime(e.target.value)}
+              className="h-5 w-[68px] text-[11px] font-mono border-0 bg-transparent p-0 focus-visible:ring-0"
+              disabled={!editable || selectedBrokers.length === 0}
+              title="Start time (HH:MM:SS) — applied to all selected brokers"
+            />
+          </div>
+          <div className="flex items-center gap-1 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/40 rounded px-1.5 py-0.5">
+            <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 uppercase">E</span>
+            <Input
+              type="text"
+              placeholder="HH:MM:SS"
+              value={endTime}
+              onChange={e => setEndTime(e.target.value)}
+              className="h-5 w-[68px] text-[11px] font-mono border-0 bg-transparent p-0 focus-visible:ring-0"
+              disabled={!editable || selectedBrokers.length === 0}
+              title="End time (HH:MM:SS) — applied to all selected brokers"
+            />
+          </div>
           <Button
             variant="outline"
             size="sm"
