@@ -281,7 +281,7 @@ def fetch_bdib_for_ticker_date(
             # NOTE: Derived fields (vwap, fluctuation, log_chg_pct_10s) are NOT
             # computed here. They belong to the processed_raw_bdib layer per
             # D:\Evaluation convention: raw_bdib → processed_bdib → fill_bdib.
-            # Use ProcessedRawBDIBDB.compute_derived_fields(df) when needed.
+            # Compute derived fields at the processed_raw_bdib layer.
 
             logger.debug(f"Fetched {len(df)} raw BDIB bars for {ticker} on {date_str}")
             return df
