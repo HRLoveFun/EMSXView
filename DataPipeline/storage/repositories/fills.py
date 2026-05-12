@@ -457,19 +457,6 @@ class SqliteFillWriteRepository(BaseRepository):
         return self._upsert(df, Config.ROUTE_EVENT_HISTORY_TABLE,
                             ["event_id"], ROUTE_EVENT_HISTORY_COLUMNS, conn)
 
-    def upsert_processing_log(self, stage: str, date_str: str, rows: int) -> None:
-        """Record a processing log entry."""
-        conn = self._get_write_conn()
-        try:
-            conn.execute(
-                f"INSERT OR REPLACE INTO {Config.PROCESSING_LOG_TABLE} "
-                f"(order_as_of_date, row_count, stage) VALUES (?, ?, ?)",
-                (date_str, rows, stage),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
     def get_route_registry_for_date(self, date_str: str) -> pd.DataFrame:
         """Return route_registry rows joined with processed fills for a date."""
         conn = self._get_read_conn()
