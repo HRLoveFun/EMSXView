@@ -12,7 +12,6 @@ from .fill_ingestion import (  # noqa: F401
 
 __all__ = [
     "FillFetch",
-    "FetchHistoryDB",
     "compute_data_hash",
     "setup_logging",
     "ingest_all_excel_files",

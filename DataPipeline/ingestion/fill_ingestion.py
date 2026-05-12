@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+RawFillsDB = Any  # backward compat alias; was CostView/src/raw_fills_db.py
+
 import pandas as pd
 
 from DataPipeline.processing.fill_cleaner import clean_emsx_fills

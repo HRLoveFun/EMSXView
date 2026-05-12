@@ -7,7 +7,7 @@ Handles the low-level Bloomberg EMSX History API communication:
   - Response parsing with field extraction
   - Retry with exponential backoff on transient failures
 
-Extracted from DataPipeline/src/ingestion/fill_fetch.py (2026-05-11).
+Extracted from DataPipeline.ingestion.fill_fetch (2026-05-11).
 """
 
 from __future__ import annotations

@@ -139,14 +139,6 @@ class PipelineFactory:
 # Legacy backward-compatibility runner functions
 # ═══════════════════════════════════════════════════════════════════════
 
-import logging
-from pathlib import Path
-from typing import Dict, List, Optional
-
-import pandas as pd
-
-from .context import PipelineContext
-from .stages_ingest import AggregateFillsStage, GenerateOrderLabelsStage
 from DataPipeline.storage.facade import CostViewDatabase
 
 _log = logging.getLogger(__name__)
