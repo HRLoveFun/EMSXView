@@ -32,11 +32,11 @@ from DataPipeline.storage.schema.migrations.manager import MigrationManager
 logger = logging.getLogger(__name__)
 
 
-class DatabaseFacade:
+class CostViewDatabase:
     """Unified entry point for all CostView database repositories.
 
     Usage:
-        db = DatabaseFacade()
+        db = CostViewDatabase()
         fills = db.fills_read.get_fills_for_date("20260408")
         df = db.fills_write.upsert_processed_fills(df)
     """
@@ -75,7 +75,3 @@ class DatabaseFacade:
         """Return health status for all databases."""
         return self.migrations.health_check()
 
-
-# ── Backward-compatible alias ──────────────────────────────────────────
-
-CostViewDatabase = DatabaseFacade

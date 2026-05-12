@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 
 from DataPipeline.storage.connection import ConnectionManager, AccessTier
 from DataPipeline.storage.schema.columns import EMSX_FILL_COLUMNS
-from DataPipeline.storage.fetch_history_db import FillFetchDatabase, compute_data_hash
+from DataPipeline.storage.repositories.fetch_history import SqliteFetchHistoryRepository, compute_data_hash
 from DataPipeline.acquisition._constants import (
     FILL_FIELD_EXTRACTORS,
 )
@@ -114,10 +114,16 @@ class FillFetch:
         except Exception as e:
             logger.warning(f"raw_fill_read/raw_fill_write init unavailable: {e}")
 
-        # Legacy fetch history DB
-        self.db: Optional[FillFetchDatabase] = None
+        # Fetch history DB
+        self.db: Optional[SqliteFetchHistoryRepository] = None
         try:
-            self.db = FillFetchDatabase(db_path)
+            if db_path is not None:
+                p = Path(db_path).resolve()
+                p.parent.mkdir(parents=True, exist_ok=True)
+                mgr = ConnectionManager(path_overrides={"fill_fetch_history": p})
+                self.db = SqliteFetchHistoryRepository(connection_manager=mgr)
+            else:
+                self.db = SqliteFetchHistoryRepository()
         except Exception:
             pass
 
