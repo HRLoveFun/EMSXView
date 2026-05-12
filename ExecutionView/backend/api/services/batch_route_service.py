@@ -5,7 +5,7 @@ Centralises:
   - Trader-ownership and status guards via existing ``route_service``
   - Concurrent blpapi submission bounded by ``settings.BATCH_CONCURRENCY``
     (the bloomberg adapter still serialises EMSX requests via
-    ``_request_lock`` internally, so real throughput is empirical — see
+    ``_request_locks[]`` internally, so real throughput is empirical — see
     docs/knowledge/metrics.md for the live observation entry)
   - NDJSON streaming of per-item results, yielded as each completes
 
@@ -139,6 +139,20 @@ def _evaluate_route_item(
     if hasattr(bloomberg, "_orders"):
         with getattr(bloomberg, "_data_lock"):
             parent_order = bloomberg._orders.get(item.orderId)
+        # ── Inject permfail last price for permanently-failed tickers ──────
+        # LN Equity and similar tickers can't get real-time mktdata, so
+        # PX_LAST is fetched via //blp/refdata and cached in
+        # _permfail_last_prices.  We inject it here because the batch-route
+        # path reads directly from the subscription cache (not get_orders()),
+        # so the usual get_orders() enrichment hasn't run.
+        if parent_order is not None and not getattr(parent_order, "lastPrice", None):
+            symbol = getattr(parent_order, "symbol", None)
+            if symbol:
+                permfail_prices = getattr(bloomberg, "_permfail_last_prices", {})
+                permfail_px = permfail_prices.get(symbol)
+                if permfail_px is not None and permfail_px > 0:
+                    parent_order.lastPrice = permfail_px
+        # ──────────────────────────────────────────────────────────────────
 
     rkey = _route_key(item)
     if parent_order is None:
@@ -266,6 +280,15 @@ def _evaluate_modify_item(
             cached_route = bloomberg._routes.get(cache_key)
             if cached_route is not None:
                 parent_order = bloomberg._orders.get(str(item.sequence))
+        # ── Inject permfail last price (same rationale as _evaluate_route_item) ──
+        if parent_order is not None and not getattr(parent_order, "lastPrice", None):
+            symbol = getattr(parent_order, "symbol", None)
+            if symbol:
+                permfail_prices = getattr(bloomberg, "_permfail_last_prices", {})
+                permfail_px = permfail_prices.get(symbol)
+                if permfail_px is not None and permfail_px > 0:
+                    parent_order.lastPrice = permfail_px
+        # ────────────────────────────────────────────────────────────────────────
 
     if cached_route is None:
         return (

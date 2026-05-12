@@ -107,6 +107,18 @@ class SqliteFetchHistoryRepository(BaseRepository):
         finally:
             conn.close()
 
+    def add_fetch_record(
+        self, order_date: str, fetch_time: str, row_count: int,
+        hash_value: str, file_path: Optional[str] = None,
+    ) -> None:
+        """Legacy-compatible wrapper for record_fetch."""
+        self.record_fetch(
+            source_date=order_date.replace("-", ""),
+            data_hash=hash_value,
+            row_count=row_count,
+            file_path=file_path,
+        )
+
     def get_latest_fetch(self, source_date: str) -> Optional[Dict[str, Any]]:
         """Return the most recent fetch record for a source date."""
         conn = self._get_read_conn()

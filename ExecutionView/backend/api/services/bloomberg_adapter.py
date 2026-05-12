@@ -32,6 +32,9 @@ from services.realtime_gateway import realtime_gw
 from services.order_projections import enrich_orders, filter_orders
 from services.route_projections import enrich_routes
 
+
+
+
 logger = logging.getLogger("main")
 
 # ---------------------------------------------------------------------------
@@ -209,14 +212,13 @@ class BloombergEMSXService:
         self.service: Optional[Service] = None
         self._service_started_at: datetime = datetime.now()
 
-        # Dedicated session for request/response operations (get_brokers,
-        # route_order, etc.).  Bloomberg's nextEvent() is NOT thread-safe:
-        # calling it concurrently on the same session from the subscription
-        # thread and request handler causes the subscription thread to steal
-        # response events, making requests time out.
-        self._request_session: Optional[Session] = None
+        # Dedicated request session pool for request/response operations.
+        # Multiple sessions allow concurrent EMSX requests (N=1 = legacy
+        # single-session behaviour). Each session has its own lock.
+        self._request_sessions: List[Session] = []
+        self._request_locks: List[threading.Lock] = []
         self._request_service: Optional[Service] = None
-        self._request_lock = threading.Lock()
+        self._pool_index: int = 0
 
         # Separate session for //blp/mktdata subscriptions (market data, FX rates)
         # Using a separate session avoids nextEvent() races with the EMSX
@@ -374,36 +376,21 @@ class BloombergEMSXService:
                 self._last_order_api_seq_num = 0
                 self._last_route_api_seq_num = 0
 
-                # Open dedicated request session for request/response operations
+                # Open dedicated request session pool
                 # (avoids nextEvent race with EMSX subscription thread on main session)
-                request_session = None
-                try:
-                    req_opts = SessionOptions()
-                    req_opts.setServerAddress(settings.BLOOMBERG_HOST, settings.BLOOMBERG_PORT, 0)
-                    req_opts.setAutoRestartOnDisconnection(True)
-                    request_session = Session(req_opts)
-                    if request_session.start() and request_session.openService(opened_svc):
-                        self._request_session = request_session
-                        self._request_service = request_session.getService(opened_svc)
-                        logger.info(f"Opened dedicated request session for {opened_svc}")
-                    else:
-                        logger.warning("Could not open request session — falling back to shared session")
-                        if request_session:
-                            try:
-                                request_session.stop()
-                            except Exception:
-                                pass
-                        self._request_session = None
-                        self._request_service = None
-                except Exception as e:
-                    logger.warning(f"Failed to open request session: {e}")
-                    if request_session:
-                        try:
-                            request_session.stop()
-                        except Exception:
-                            pass
-                    self._request_session = None
-                    self._request_service = None
+                pool_size = max(1, int(settings.REQUEST_SESSION_POOL_SIZE))
+                sessions: List[Session] = []
+                locks: List[threading.Lock] = []
+                for i in range(pool_size):
+                    sess = self._create_request_session(i)
+                    if sess:
+                        sessions.append(sess)
+                        locks.append(threading.Lock())
+                if sessions:
+                    self._request_sessions = sessions
+                    self._request_locks = locks
+                    self._request_service = sessions[0].getService(opened_svc)
+                    self._pool_index = 0
 
                 # Open separate mktdata session for streaming market data + FX rates
                 # (avoids nextEvent race with EMSX subscription thread on main session)
@@ -504,16 +491,17 @@ class BloombergEMSXService:
                 self._mktdata_session = None
                 self._mktdata_connected = False
         
-        # Stop request session
-        if self._request_session:
+        # Stop request session pool
+        for i, sess in enumerate(self._request_sessions):
             try:
-                self._request_session.stop()
-                logger.info("Request session stopped")
+                sess.stop()
+                logger.info("request-session[%d] stopped", i)
             except Exception as e:
-                logger.warning(f"Error stopping request session: {e}")
-            finally:
-                self._request_session = None
-                self._request_service = None
+                logger.warning("Error stopping request-session[%d]: %s", i, e)
+        self._request_sessions.clear()
+        self._request_locks.clear()
+        self._request_service = None
+        self._pool_index = 0
         
         # Stop main session
         if self.session:
@@ -1535,7 +1523,9 @@ class BloombergEMSXService:
                             # via //blp/mktdata. Mark them permanently failed
                             # so the retry loop skips them and a refdata fallback
                             # (PX_LAST via ReferenceDataRequest) is used instead.
-                            _permanent_rcodes = {"-11", "-1", "2"}
+                            # LN Equity with malformed topics can also return
+                            # rcode=7 ("Unknown/Invalid Security").
+                            _permanent_rcodes = {"-11", "-1", "2", "7"}
                             if cid_val and any(
                                 f"rcode = {rc}" in r for r in reasons for rc in _permanent_rcodes
                             ):
@@ -2068,6 +2058,26 @@ class BloombergEMSXService:
             logger.warning(f"Error processing permfail refdata response: {e}")
 
     # ------------------------------------------------------------------
+    # Request session pool helpers
+    # ------------------------------------------------------------------
+
+    def _create_request_session(self, index: int) -> Optional[Session]:
+        """Create, start and open service for one request session."""
+        opts = SessionOptions()
+        opts.setServerAddress(settings.BLOOMBERG_HOST, settings.BLOOMBERG_PORT, 0)
+        opts.setAutoRestartOnDisconnection(True)
+        session = Session(opts)
+        if not session.start():
+            logger.error("request-session[%d] failed to start", index)
+            return None
+        if not session.openService(self.active_service_name or "//blp/emapisvc_beta"):
+            logger.error("request-session[%d] failed to open service", index)
+            session.stop()
+            return None
+        logger.info("request-session[%d] ready", index)
+        return session
+
+    # ------------------------------------------------------------------
     # Request/response helpers (for ModifyOrder, CancelOrder, etc.)
     # ------------------------------------------------------------------
 
@@ -2081,17 +2091,20 @@ class BloombergEMSXService:
 
     def _send_request(self, request: Request) -> List[Message]:
         """Send a synchronous EMSX request and collect all response messages.
-        
-        Uses the dedicated _request_session to avoid nextEvent() races
-        with the subscription thread on the main session.
-        """
-        req_session = self._request_session or self.session
-        if not req_session or not self.connected:
-            raise HTTPException(503, "Bloomberg not connected")
 
-        with self._request_lock:
+        Picks a session from the pool in round-robin fashion (each has its own
+        lock so different sessions may run concurrently).
+        """
+        if not self.connected or not self._request_sessions:
+            raise HTTPException(503, "Bloomberg not connected (no request sessions)")
+
+        idx = self._pool_index
+        self._pool_index = (self._pool_index + 1) % len(self._request_sessions)
+        sess = self._request_sessions[idx]
+
+        with self._request_locks[idx]:
             cid = blpapi.CorrelationId()
-            req_session.sendRequest(request, correlationId=cid)
+            sess.sendRequest(request, correlationId=cid)
 
             messages: List[Message] = []
             timeout_ms = settings.BLOOMBERG_TIMEOUT
@@ -2099,7 +2112,7 @@ class BloombergEMSXService:
 
             while True:
                 remaining = max(0, int(deadline - datetime.now().timestamp() * 1000))
-                event = req_session.nextEvent(remaining)
+                event = sess.nextEvent(remaining)
                 etype = event.eventType()
 
                 if etype in (Event.PARTIAL_RESPONSE, Event.RESPONSE):
