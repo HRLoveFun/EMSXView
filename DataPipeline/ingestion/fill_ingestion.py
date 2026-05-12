@@ -34,6 +34,7 @@ from DataPipeline.processing.fill_processor import process_fills
 from DataPipeline.config import Config
 from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
 from DataPipeline.storage.facade import CostViewDatabase
+from DataPipeline.storage.repositories.fetch_history import compute_data_hash
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ def ingest_excel_file(
             logger.info(f"Empty file: {file_path.name}")
             return result
 
-        hash_value = compute_fills_hash(fills)
+        hash_value = compute_data_hash(fills)
         source_date = _extract_date_from_filename(file_path.name)
 
         if source_date and db.check_ingestion_duplicate(source_date, hash_value):

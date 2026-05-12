@@ -457,6 +457,49 @@ class SqliteFillWriteRepository(BaseRepository):
         return self._upsert(df, Config.ROUTE_EVENT_HISTORY_TABLE,
                             ["event_id"], ROUTE_EVENT_HISTORY_COLUMNS, conn)
 
+    def upsert_processing_log(self, stage: str, date_str: str, rows: int) -> None:
+        """Record a processing log entry."""
+        conn = self._get_write_conn()
+        try:
+            conn.execute(
+                f"INSERT OR REPLACE INTO {Config.PROCESSING_LOG_TABLE} "
+                f"(order_as_of_date, row_count, stage) VALUES (?, ?, ?)",
+                (date_str, rows, stage),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_route_registry_for_date(self, date_str: str) -> pd.DataFrame:
+        """Return route_registry rows joined with processed fills for a date."""
+        conn = self._get_read_conn()
+        try:
+            return pd.read_sql_query(
+                "SELECT DISTINCT r.* FROM route_registry r "
+                "INNER JOIN processed_fills p ON r.OrderId = p.OrderId AND r.RouteId = p.RouteId "
+                "WHERE p.order_as_of_date = ?",
+                conn.raw_connection,
+                params=[date_str],
+            )
+        finally:
+            conn.close()
+
+    def upsert_execution_history(
+        self, order_df: pd.DataFrame, route_df: pd.DataFrame, event_df: pd.DataFrame,
+    ) -> None:
+        """Upsert order/route/event history tables."""
+        conn = self._get_write_conn()
+        try:
+            if not order_df.empty:
+                self.upsert_order_history(order_df, conn)
+            if not route_df.empty:
+                self.upsert_route_history(route_df, conn)
+            if not event_df.empty:
+                self.upsert_route_event_history(event_df, conn)
+            conn.commit()
+        finally:
+            conn.close()
+
     def update_ticker_date_mapping(
         self, df: pd.DataFrame, conn: Optional[object] = None,
     ) -> None:
