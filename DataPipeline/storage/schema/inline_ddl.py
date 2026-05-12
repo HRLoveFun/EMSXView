@@ -21,6 +21,8 @@ import sqlite3
 
 from DataPipeline.config import Config
 from .columns import (
+    AGG_1MIN_COLUMNS,
+    AGG_COLUMNS,
     COLUMN_TYPE_MAP,
     ORDER_HISTORY_COLUMNS,
     PROCESSED_COLUMNS,
@@ -347,52 +349,127 @@ def init_processed_fills_schema(conn: sqlite3.Connection) -> None:
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {Config.ROUTE_EVENT_HISTORY_TABLE} (
             {route_event_history_cols},
-            PRIMARY KEY (event_id, OrderId, RouteId, order_as_of_date)
+            PRIMARY KEY (event_id)
         )
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_route_event_history_date
         ON {Config.ROUTE_EVENT_HISTORY_TABLE} (order_as_of_date)
     """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_route_event_history_route
+        ON {Config.ROUTE_EVENT_HISTORY_TABLE} (OrderId, RouteId)
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_route_event_history_timestamp
+        ON {Config.ROUTE_EVENT_HISTORY_TABLE} (event_timestamp)
+    """)
 
     # ── processing_log ──
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {Config.PROCESSING_LOG_TABLE} (
-            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-            processing_date       TEXT NOT NULL,
-            stage                 TEXT NOT NULL,
-            status                TEXT DEFAULT 'started',
-            started_at            TEXT DEFAULT (datetime('now')),
-            finished_at           TEXT,
-            rows_processed        INTEGER,
-            error_message         TEXT,
-            UNIQUE(processing_date, stage)
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_as_of_date TEXT NOT NULL,
+            processing_timestamp TEXT DEFAULT (datetime('now')),
+            row_count INTEGER,
+            stage TEXT DEFAULT 'processed',
+            UNIQUE(order_as_of_date, stage)
         )
     """)
 
-    # ── ticker_registry ──
+    # ── ticker_date_mapping ──
     conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {Config.TICKER_REGISTRY_TABLE} (
-            equ_ticker       TEXT NOT NULL PRIMARY KEY,
-            ccy_ticker       TEXT,
-            first_seen_date  TEXT,
-            last_seen_date   TEXT,
-            total_fill_count INTEGER DEFAULT 0
+        CREATE TABLE IF NOT EXISTS {Config.TICKER_DATE_MAPPING_TABLE} (
+            ticker TEXT NOT NULL,
+            ticker_type TEXT NOT NULL,
+            order_as_of_date TEXT NOT NULL,
+            PRIMARY KEY (ticker, ticker_type, order_as_of_date)
+        )
+    """)
+
+    # ── order_label ──
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.ORDER_LABEL_TABLE} (
+            OrderId TEXT PRIMARY KEY,
+            order_as_of_date TEXT
+        )
+    """)
+
+    # ── ticker_repository ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ticker_repository (
+            equ_ticker TEXT PRIMARY KEY,
+            exchange   TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # ── equ_ticker_registry ──
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.EQU_TICKER_REGISTRY_TABLE} (
+            equ_ticker      TEXT PRIMARY KEY,
+            first_seen_date TEXT,
+            last_seen_date  TEXT,
+            order_count     INTEGER DEFAULT 0
+        )
+    """)
+
+    # ── ccy_ticker_registry ──
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.CCY_TICKER_REGISTRY_TABLE} (
+            ccy_ticker      TEXT PRIMARY KEY,
+            first_seen_date TEXT,
+            last_seen_date  TEXT,
+            order_count     INTEGER DEFAULT 0
         )
     """)
 
     # ── agg_fills_10s ──
-    from .columns import AGG_COLUMNS
     agg_cols = _build_column_defs(AGG_COLUMNS, COLUMN_TYPE_MAP)
     conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS agg_fills_10s (
+        CREATE TABLE IF NOT EXISTS {Config.AGG_10S_TABLE} (
             {agg_cols},
             PRIMARY KEY (OrderId, RouteId, mkt_timestamp, order_as_of_date)
         )
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_agg_10s_date
-        ON agg_fills_10s (order_as_of_date)
+        ON {Config.AGG_10S_TABLE} (order_as_of_date)
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_agg_10s_order_route
+        ON {Config.AGG_10S_TABLE} (OrderId, RouteId)
+    """)
+
+    # ── agg_fills_1min ──
+    agg_1min_cols = _build_column_defs(AGG_1MIN_COLUMNS, COLUMN_TYPE_MAP)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.AGG_1MIN_TABLE} (
+            {agg_1min_cols},
+            PRIMARY KEY (OrderId, RouteId, mkt_timestamp_1min, order_as_of_date)
+        )
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_agg_1min_date
+        ON {Config.AGG_1MIN_TABLE} (order_as_of_date)
+    """)
+
+    # ── Legacy tables ──
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.AGG_PROCESSED_FILLS_TABLE} (
+            OrderId TEXT NOT NULL,
+            mkt_timestamp TEXT NOT NULL,
+            order_as_of_date TEXT,
+            PRIMARY KEY (OrderId, mkt_timestamp, order_as_of_date)
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.PROCESSED_FILLS_1MIN_TABLE} (
+            OrderId TEXT NOT NULL,
+            mkt_timestamp_1min TEXT NOT NULL,
+            order_as_of_date TEXT,
+            PRIMARY KEY (OrderId, mkt_timestamp_1min, order_as_of_date)
+        )
     """)
 
     conn.commit()

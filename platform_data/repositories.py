@@ -28,13 +28,7 @@ from DataPipeline.storage.connection import (
     ConnectionManager as _ConnectionManager,
     DB_FETCH_HISTORY,
 )
-from DataPipeline.config import (
-    RAW_FILLS_TABLE as _RAW_FILLS_TABLE,
-    FETCH_LOG_TABLE as _FETCH_LOG_TABLE,
-    PROCESSED_FILLS_TABLE as _PROCESSED_FILLS_TABLE,
-    RAW_BDIB_TABLE as _RAW_BDIB_TABLE,
-    FILL_BDIB_TABLE as _FILL_BDIB_TABLE,
-)
+from DataPipeline.config import Config as _Config
 
 logger = logging.getLogger(__name__)
 
@@ -80,13 +74,13 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="EMSX GetFills raw rows (28 original + 5 derived columns).",
             tables=(
                 _TableSpec(
-                    name=_RAW_FILLS_TABLE,
+                    name=_Config.RAW_FILLS_TABLE,
                     date_column="source_date",
                     primary_key="(OrderId, RouteId, FillId)",
                     description="Bloomberg EMSX fills, INSERT OR REPLACE for late corrections.",
                 ),
                 _TableSpec(
-                    name=_FETCH_LOG_TABLE,
+                    name=_Config.FETCH_LOG_TABLE,
                     date_column="fetch_date",
                     primary_key="(fetch_date, fetch_started_at)",
                     description="Per-day fetch tracking (records_fetched, status).",
@@ -100,7 +94,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="Cleaned 27-column fact table + route registry.",
             tables=(
                 _TableSpec(
-                    name=_PROCESSED_FILLS_TABLE,
+                    name=_Config.PROCESSED_FILLS_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, FillId, order_as_of_date)",
                     description="TCA-ready fills (deduplicated, typed).",
@@ -120,7 +114,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="10-second intraday BDIB bars (Bloomberg-native columns).",
             tables=(
                 _TableSpec(
-                    name=_RAW_BDIB_TABLE,
+                    name=_Config.RAW_BDIB_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(equ_ticker, order_as_of_date, mkt_timestamp)",
                     description="OHLC + volume + num_trds + value per 10s bar.",
@@ -134,7 +128,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="Fills enriched with BDIB intraday metrics (TCA input).",
             tables=(
                 _TableSpec(
-                    name=_FILL_BDIB_TABLE,
+                    name=_Config.FILL_BDIB_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, order_as_of_date, mkt_timestamp)",
                     description="Integrated fill × BDIB view used by TCA analysis.",
@@ -951,11 +945,11 @@ def get_integrity(key: str) -> IntegrityReport:
                 # on multi-GB raw_bdib.db files.
                 try:
                     latest_rowid = conn.execute(
-                        f"SELECT MAX(_rowid_) FROM [{_RAW_BDIB_TABLE}]"
+                        f"SELECT MAX(_rowid_) FROM [{_Config.RAW_BDIB_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
                         n = conn.execute(
-                            f"SELECT COUNT(*) FROM [{_RAW_BDIB_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_Config.RAW_BDIB_TABLE}] "
                             f"WHERE _rowid_ > ? AND close IS NULL",
                             (max(0, int(latest_rowid) - 200_000),),
                         ).fetchone()[0]
@@ -988,7 +982,7 @@ def get_integrity(key: str) -> IntegrityReport:
                         )
                         cutoff_row = conn.execute(
                             f"SELECT MAX(order_as_of_date) "
-                            f"FROM pf.[{_PROCESSED_FILLS_TABLE}] "
+                            f"FROM pf.[{_Config.PROCESSED_FILLS_TABLE}] "
                             f"WHERE order_as_of_date IS NOT NULL"
                         ).fetchone()
                         cutoff = cutoff_row[0] if cutoff_row else None
@@ -996,8 +990,8 @@ def get_integrity(key: str) -> IntegrityReport:
                             n = conn.execute(
                                 f"""
                                 SELECT COUNT(DISTINCT pf.OrderId || '|' || pf.order_as_of_date)
-                                FROM pf.[{_PROCESSED_FILLS_TABLE}] pf
-                                LEFT JOIN [{_FILL_BDIB_TABLE}] fb
+                                FROM pf.[{_Config.PROCESSED_FILLS_TABLE}] pf
+                                LEFT JOIN [{_Config.FILL_BDIB_TABLE}] fb
                                   ON fb.OrderId = pf.OrderId
                                  AND fb.order_as_of_date = pf.order_as_of_date
                                 WHERE pf.order_as_of_date >= ?
@@ -1033,11 +1027,11 @@ def get_integrity(key: str) -> IntegrityReport:
                 try:
                     today_ymd = datetime.now().strftime("%Y%m%d")
                     latest_rowid = conn.execute(
-                        f"SELECT MAX(_rowid_) FROM [{_RAW_FILLS_TABLE}]"
+                        f"SELECT MAX(_rowid_) FROM [{_Config.RAW_FILLS_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
                         n = conn.execute(
-                            f"SELECT COUNT(*) FROM [{_RAW_FILLS_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_Config.RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
                             f"AND source_date < ? "
                             f"AND (order_as_of_date IS NULL "
@@ -1048,7 +1042,7 @@ def get_integrity(key: str) -> IntegrityReport:
                             ),
                         ).fetchone()[0]
                         pending = conn.execute(
-                            f"SELECT COUNT(*) FROM [{_RAW_FILLS_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_Config.RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
                             f"AND source_date >= ? "
                             f"AND (order_as_of_date IS NULL "
