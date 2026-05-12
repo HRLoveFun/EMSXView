@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emsx-datapipeline"
+version = "1.0.0"
+description = "EMSX Data Acquisition, Processing, and Storage Pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "blpapi>=3.19",
+    "numpy",
+    "pandas",
+    "python-dotenv",
+    "xbbg>=0.7.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["DataPipeline*"]
