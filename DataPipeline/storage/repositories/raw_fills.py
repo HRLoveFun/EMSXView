@@ -112,6 +112,18 @@ class SqliteRawFillWriteRepository(BaseRepository):
     def __init__(self, connection_manager=None):
         super().__init__(connection_manager, database="raw_fills")
 
+    def check_fetch_duplicate(self, source_date: str, data_hash: str) -> bool:
+        """Check if a fetch with the given date and hash already exists."""
+        conn = self._get_read_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT 1 FROM fetch_log WHERE source_date = ? AND data_hash = ?",
+                (source_date, data_hash),
+            )
+            return cursor.fetchone() is not None
+        finally:
+            conn.close()
+
     def upsert_raw_api_data(
         self, fills: List[Dict[str, Any]], source_date: str,
     ) -> int:

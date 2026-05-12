@@ -446,7 +446,7 @@ class FillFetch:
         return stats
 
     def close(self):
-        if self.db is not None:
+        if self.db is not None and hasattr(self.db, 'close'):
             self.db.close()
 
 
