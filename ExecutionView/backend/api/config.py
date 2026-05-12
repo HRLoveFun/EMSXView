@@ -47,10 +47,12 @@ class Settings:
     # is used by /api/orders/batch-update for legacy reasons).
     BATCH_ROUTE_MAX_SIZE: int = int(os.getenv("BATCH_ROUTE_MAX_SIZE", "500"))
 
-    # Concurrent in-flight EMSX submissions per batch. blpapi serialises
-    # requests internally via _request_lock, so the practical ceiling is
-    # observed empirically; see metrics.md for the live observation entry.
+    # Concurrent in-flight EMSX submissions per batch.
     BATCH_CONCURRENCY: int = int(os.getenv("BATCH_CONCURRENCY", "5"))
+
+    # Size of the dedicated request session pool (N=1 = legacy single-session).
+    # Multiple sessions allow concurrent EMSX RouteEx submissions.
+    REQUEST_SESSION_POOL_SIZE: int = int(os.getenv("REQUEST_SESSION_POOL_SIZE", "1"))
 
     # Pre-trade compliance thresholds (USD). Values failing these bounds are
     # hard-blocked. See services/compliance_service.py.

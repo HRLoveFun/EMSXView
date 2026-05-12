@@ -356,7 +356,9 @@ async def test_get_asset_class_defaults_to_eqty_when_response_missing():
 def test_send_request_filters_messages_by_correlation_id():
     service = BloombergEMSXService()
     service.connected = True
-    service._request_session = FakeRequestSession()
+    service._request_sessions = [FakeRequestSession()]
+    service._request_locks = [threading.Lock()]
+    service._pool_index = 0
     bloomberg_adapter.settings = SimpleNamespace(BLOOMBERG_TIMEOUT=1000)
 
     messages = service._send_request(FakeRequest("GetBrokersWithAssetClass"))

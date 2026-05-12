@@ -156,6 +156,43 @@ class SqliteRawFillWriteRepository(BaseRepository):
         finally:
             conn.close()
 
+    def add_fetch_log_record(
+        self, source_date: str, row_count: int, data_hash: str,
+    ) -> None:
+        """Record a fetch operation in the fetch_log table."""
+        conn = self._get_write_conn()
+        try:
+            conn.execute(
+                "INSERT INTO fetch_log (source_date, row_count, data_hash) VALUES (?, ?, ?)",
+                (source_date, row_count, data_hash),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def upsert_order_fetch_log(
+        self, fills: list[dict], source_date: str,
+    ) -> None:
+        """Record per-order fetch log entries."""
+        if not fills:
+            return
+        conn = self._get_write_conn()
+        try:
+            seen = set()
+            rows = []
+            for f in fills:
+                oid = f.get("OrderId", "")
+                if oid and oid not in seen:
+                    seen.add(oid)
+                    rows.append((oid, source_date))
+            conn.executemany(
+                "INSERT OR IGNORE INTO order_fetch_log (order_id, source_date) VALUES (?, ?)",
+                rows,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def upsert_fills(self, df: pd.DataFrame) -> int:
         """Insert or replace cleaned fill records. Returns count of new rows."""
         if df.empty:
