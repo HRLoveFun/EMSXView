@@ -159,7 +159,9 @@ class FillFetch:
         last_fetch = None
         if self.raw_fill_read is not None:
             try:
-                last_fetch = self.raw_fill_read.get_last_fetch_date()
+                last_fetch_str = self.raw_fill_read.get_last_fetch_date()
+                if last_fetch_str is not None:
+                    last_fetch = datetime.strptime(last_fetch_str, "%Y%m%d").date()
             except Exception as e:
                 logger.debug(f"Could not read fetch_log: {e}")
         last_processed = None
