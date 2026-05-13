@@ -100,8 +100,7 @@ Transaction cost analysis, performance reporting, and execution quality metrics.
 EMSX/
 ├── README.md                      # This file
 ├── QUICKSTART.md                  # One-command quick start guide
-├── package.json                   # Root package manifest
-├── start-services.bat             # Interactive Windows service launcher
+├── 重启服务.bat                   # One-click restart
 ├── MarketView/
 │   └── README.md                  # Pre-trade module contract and docs
 ├── ExecutionView/

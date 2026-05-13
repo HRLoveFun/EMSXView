@@ -171,7 +171,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
         "  <h2>快速修复</h2>" & vbCrLf & _
         "  <ul>" & vbCrLf & _
         "    <li>打开 PowerShell，运行 <code>cd " & EMSX_ROOT & "\scripts</code> 然后 <code>.\stop-all.bat</code> 停止残留进程</li>" & vbCrLf & _
-        "    <li>用 <code>start-services.bat</code> 可见窗口模式启动，查看具体报错</li>" & vbCrLf & _
+        "    <li>用 <code>scripts\restart-all.bat</code> 可见窗口模式启动，查看具体报错</li>" & vbCrLf & _
         "  </ul>" & vbCrLf & _
         "  <div class='actions'>" & vbCrLf & _
         "    <a class='btn btn-primary' href='file:///" & Replace(ERROR_PAGE_PATH, "\", "/") & "' onclick='location.reload()'>刷新重试</a>" & vbCrLf & _

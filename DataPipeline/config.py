@@ -33,7 +33,7 @@ class Config:
     _PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 
     DATA_DIR: Path = _PROJECT_ROOT / "CostView" / "data"
-    LOGGING_DIR: Path = _PROJECT_ROOT / "CostView" / "logs"
+    LOGGING_DIR: Path = _PROJECT_ROOT / "logs" / "costview"
     RAW_EXCEL_DIR: Path = DATA_DIR / "fills"
 
     FETCH_HISTORY_DB: Path = DATA_DIR / "fill_fetch_history.db"

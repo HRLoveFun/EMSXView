@@ -65,7 +65,7 @@ $Config = @{
         ProcessName = "node"
         StartupDelay = 30
     }
-    LogDir = "logs"
+    LogDir = "logs/service"
 }
 
 # Colors for output
@@ -382,6 +382,25 @@ function Stop-FrontendService {
     Write-Status "Frontend service stopped" "Success"
 }
 
+function Clear-OldServiceLogs {
+    param([string]$LogDir, [string]$Prefix, [int]$MaxAgeDays = 7, [int]$MaxFiles = 10)
+    if (-not (Test-Path $LogDir)) { return }
+    $cutoff = (Get-Date).AddDays(-$MaxAgeDays)
+
+    # 删除超出保留天数的文件
+    Get-ChildItem -Path $LogDir -Filter "${Prefix}-*.log" -File |
+        Where-Object { $_.LastWriteTime -lt $cutoff } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+
+    # 如仍超出最大文件数，删掉最旧的
+    $remaining = Get-ChildItem -Path $LogDir -Filter "${Prefix}-*.log" -File |
+                 Sort-Object LastWriteTime -Descending
+    if ($remaining.Count -gt $MaxFiles) {
+        $remaining | Select-Object -Skip $MaxFiles |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Start-BackendService {
     Write-Status "Starting backend service..." "Info"
 
@@ -408,6 +427,8 @@ function Start-BackendService {
     if (-not (Test-Path $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     }
+
+    Clear-OldServiceLogs -LogDir $logDir -Prefix "backend"
 
     $backendScript = Join-Path $Config.ProjectRoot $Config.Backend.Script
     $logFile = Join-Path $logDir "backend-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
@@ -516,6 +537,12 @@ function Start-FrontendService {
 
     $frontendDir = Join-Path $Config.ProjectRoot "ExecutionView\frontend"
     $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+
+    Clear-OldServiceLogs -LogDir $logDir -Prefix "frontend"
+
     $logFile = Join-Path $logDir "frontend-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     $script = if ($Environment -eq "dev") { $Config.Frontend.DevScript } else { $Config.Frontend.ProdScript }
 
@@ -598,14 +625,14 @@ function Show-ServiceStatus {
 }
 
 function Show-Logs {
-    $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
+    $logRoot = Join-Path $Config.ProjectRoot "logs"
 
-    if (-not (Test-Path $logDir)) {
-        Write-Status "Log directory not found: $logDir" "Error"
+    if (-not (Test-Path $logRoot)) {
+        Write-Status "Log directory not found: $logRoot" "Error"
         return
     }
 
-    $logFiles = Get-ChildItem -Path $logDir -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 10
+    $logFiles = Get-ChildItem -Path $logRoot -Recurse -Filter "*.log" -File | Sort-Object LastWriteTime -Descending | Select-Object -First 15
 
     if ($logFiles.Count -eq 0) {
         Write-Status "No log files found" "Warning"
@@ -618,18 +645,21 @@ function Show-Logs {
 
     $index = 1
     foreach ($file in $logFiles) {
+        $relDir = $file.DirectoryName.Substring($logRoot.Length).TrimStart('\')
         $size = if ($file.Length -gt 1MB) {
             "{0:N2} MB" -f ($file.Length / 1MB)
         }
         else {
             "{0:N2} KB" -f ($file.Length / 1KB)
         }
-        Write-Host "$index. $($file.Name)" -ForegroundColor Cyan -NoNewline
+        $label = if ($relDir) { "$relDir/$($file.Name)" } else { $file.Name }
+        Write-Host "$index. $label" -ForegroundColor Cyan -NoNewline
         Write-Host " ($size, $($file.LastWriteTime))" -ForegroundColor Gray
         $index++
     }
 
     Write-Separator
+    Write-Host "Log root: $logRoot" -ForegroundColor Gray
     Write-Host "Use 'Get-Content <logfile> -Tail 50' to view recent entries" -ForegroundColor Yellow
 }
 
