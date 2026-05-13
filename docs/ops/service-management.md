@@ -328,8 +328,8 @@ Main PowerShell script with comprehensive service management.
 - `restart-all.bat`: Quick restart both services
 - `check-status.bat`: Quick status check
 
-### start-services.bat
-Interactive menu-based launcher with ASCII art header.
+### 重启服务.bat
+One-click restart wrapper that delegates to `service-manager.ps1 restart` and waits for frontend readiness.
 
 ## Best Practices
 

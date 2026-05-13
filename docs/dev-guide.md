@@ -6,7 +6,7 @@
 
 推荐入口：
 
-- 仓库根目录运行 start-services.bat
+- 双击 重启服务.bat（一键重启）
 - 或使用 scripts 下的 start-all.bat / restart-all.bat / check-status.bat
 
 按模块单独启动：

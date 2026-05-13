@@ -30,7 +30,7 @@ docs 根目录只保留入口导航和当前 handoff，其余按领域划入子�
 | docs/handoff.md | 当前阻塞、运行状态、下一步 | 每次阶段性收尾时 |
 | docs/api/database.md | DatabaseView API 契约 | API 变更时 |
 | docs/api/sequence-diagrams.md | 当前模块级时序说明 | ⚠️ 无 CI 保障，修改调用链后应同步更新 |
-| docs/api/emsx-api-guide.md | Bloomberg EMSX API 参考 | 外部分发 |
+| docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
 | docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
 | docs/roadmap/wbs.md | 活跃路线图与阶段拆解 | 路线图变更时 |
 | docs/roadmap/task-templates.md | WBS 任务开工摘要 | 精简版，详见 wbs.md |

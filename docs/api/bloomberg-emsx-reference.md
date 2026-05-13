@@ -1,3 +1,7 @@
+> **Bloomberg EMSX API Developer's Reference** — official proprietary reference document from Bloomberg, NOT auto-generated project documentation.
+> This is the authoritative source for EMSX API behavior (sessions, services, subscriptions, topics, data types).
+> Keep this file; it is a critical development reference that cannot be obtained from public URLs.
+
 ## EMSX API Developer's Guide
 
 ---

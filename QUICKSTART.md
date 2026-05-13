@@ -7,17 +7,17 @@
 cd c:\Users\hrchen\Documents\EMSX
 
 # Launch interactive service manager
-start-services.bat
+scripts\restart-all.bat
 ```
 
 ## Common Commands
 
 | Action | Command |
 |--------|---------|
-| **Start** | `start-services.bat` → Select [1] |
-| **Stop** | `start-services.bat` → Select [2] |
-| **Restart** | `start-services.bat` → Select [3] |
-| **Status** | `start-services.bat` → Select [4] |
+| **Start** | `scripts\start-all.bat` or `重启服务.bat` |
+| **Stop** | `scripts\stop-all.bat` |
+| **Restart** | `scripts\restart-all.bat` or `重启服务.bat` |
+| **Status** | `scripts\check-status.bat` |
 
 ## Service URLs
 
@@ -32,7 +32,7 @@ start-services.bat
 ### Port Already in Use
 ```batch
 # Stop all services first
-start-services.bat → Select [2]
+scripts\stop-all.bat
 
 # Or force kill
 scripts\restart-all.bat
@@ -41,10 +41,10 @@ scripts\restart-all.bat
 ### Services Won't Start
 ```batch
 # Check status
-start-services.bat → Select [4]
+scripts\check-status.bat
 
 # View logs
-start-services.bat → Select [5]
+scripts\service-manager.ps1 logs
 ```
 
 ### Connection Errors
@@ -56,7 +56,7 @@ start-services.bat → Select [5]
 
 ```
 EMSX/
-├── start-services.bat      # Interactive launcher
+├── 重启服务.bat            # One-click restart
 ├── ExecutionView/
 │   ├── backend/api/        # Python backend
 │   └── frontend/           # React frontend

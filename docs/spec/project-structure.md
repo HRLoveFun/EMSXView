@@ -74,9 +74,8 @@ Key runtime truth:
 ```text
 EMSX/
 ├── README.md
-├── package.json
 ├── QUICKSTART.md
-├── start-services.bat
+├── 重启服务.bat
 ├── MarketView/
 │   └── README.md
 ├── ExecutionView/
@@ -159,8 +158,8 @@ EMSX/
 │   ├── PROJECT_STRUCTURE.md
 │   ├── DATA_DOMAIN.md
 │   ├── MEMORY.md
-│   ├── HANDOFF.md
-│   ├── EXECUTION_PLATFORM_WBS.md
+│   ├── handoff.md
+│   ├── roadmap/wbs.md
 │   └── archive/
 ├── scripts/
 ├── data/

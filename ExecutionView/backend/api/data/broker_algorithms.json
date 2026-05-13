@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "lastUpdated": "2026-05-11T15:40:15.543419",
+  "lastUpdated": "2026-05-13T17:17:52.474810",
   "configs": [
     {
       "broker": "EQ-BHP",
@@ -13698,18 +13698,18 @@
           "name": "DMA",
           "parameters": [
             {
-              "fieldName": "MaxFloor",
+              "fieldName": "MaxFloor(US)",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "MaxFloor parameter"
+              "description": "MaxFloor(US) parameter"
             },
             {
-              "fieldName": "TradingSess",
+              "fieldName": "TradSess(US)",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "TradingSess parameter"
+              "description": "TradSess(US) parameter"
             }
           ]
         },

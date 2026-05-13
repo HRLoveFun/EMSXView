@@ -259,7 +259,7 @@ def fetch_bdib_for_ticker_date(
                     )
 
             df["equ_ticker"] = ticker
-            df["Order As of Date"] = date_str
+            df["order_as_of_date"] = date_str
 
             # Standardize column names
             col_map = {
