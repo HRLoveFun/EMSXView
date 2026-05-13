@@ -173,6 +173,10 @@ class FillFetch:
                 last_processed = datetime.strptime(dates[-1], "%Y%m%d").date()
         except Exception as e:
             logger.debug(f"Could not read processing_log: {e}")
+        logger.info(
+            f"Fetch range decision: last_fetch={last_fetch}, "
+            f"last_processed={last_processed}, prev_wd={prev_wd}"
+        )
         if last_fetch is None and last_processed is None:
             first_day = today - timedelta(days=Cfg.FIRST_RUN_LOOKBACK_DAYS)
             logger.info(f"FIRST RUN: fetching {first_day} -> {prev_wd}")

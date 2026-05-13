@@ -83,6 +83,11 @@ def _checkpoint_wal() -> None:
             conn.close()
         except Exception as exc:
             logger.warning("WAL checkpoint failed for %s: %s", db_name, exc)
+    for _db_name in _KNOWN_DBS:
+        _db_path = data_dir / _db_name
+        if _db_path.exists():
+            _mtime = datetime.fromtimestamp(os.path.getmtime(_db_path))
+            logger.info(f"DB state: {_db_name} modified={_mtime}")
 
 
 def _setup_logging() -> None:
