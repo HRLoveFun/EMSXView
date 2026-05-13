@@ -46,17 +46,33 @@ class EMSXRequestError(Exception):
 
 # ── Parse Helpers ──────────────────────────────────────────────────────────
 
-def _parse_fill_message(msg) -> Dict[str, Any]:
-    """Parse a single GetFillsResponse message into a flat dict."""
-    fill: Dict[str, Any] = {}
-    for field, getter_name in FILL_FIELD_EXTRACTORS.items():
-        try:
-            getter = getattr(msg, getter_name)
-            value = getter(field)
-            fill[field] = value
-        except Exception:
-            fill[field] = None
-    return fill
+def _parse_fill_messages(msg) -> List[Dict[str, Any]]:
+    """Parse GetFillsResponse message into a list of fill dicts.
+
+    The message contains a single ``Fills`` array element. Each fill
+    in the array is parsed using the field names in
+    ``FILL_FIELD_EXTRACTORS`` via ``getElementAsString`` /
+    ``getElementAsInteger`` / ``getElementAsFloat`` as appropriate.
+    """
+    getter_map = {
+        "getElementAsString": lambda e, f: e.getElementAsString(f),
+        "getElementAsInteger": lambda e, f: e.getElementAsInteger(f),
+        "getElementAsFloat": lambda e, f: e.getElementAsFloat(f),
+    }
+    fills_out: List[Dict[str, Any]] = []
+    fills_el = msg.getElement("Fills")
+    for i in range(fills_el.numValues()):
+        fill_el = fills_el.getValueAsElement(i)
+        fill: Dict[str, Any] = {}
+        for field, getter_name in FILL_FIELD_EXTRACTORS.items():
+            try:
+                getter = getter_map[getter_name]
+                value = getter(fill_el, field)
+                fill[field] = value
+            except Exception:
+                fill[field] = None
+        fills_out.append(fill)
+    return fills_out
 
 
 # ── Bloomberg Fill Fetcher ───────────────────────────────────────────────
@@ -188,7 +204,7 @@ class BloombergFillFetcher:
                 for msg in event:
                     if msg.messageType() == GET_FILLS_RESPONSE:
                         try:
-                            fills.append(_parse_fill_message(msg))
+                            fills.extend(_parse_fill_messages(msg))
                         except Exception:
                             pass
             elif et == blpapi.Event.RESPONSE:
@@ -196,7 +212,7 @@ class BloombergFillFetcher:
                 for msg in event:
                     if msg.messageType() == GET_FILLS_RESPONSE:
                         try:
-                            fills.append(_parse_fill_message(msg))
+                            fills.extend(_parse_fill_messages(msg))
                         except Exception:
                             pass
                 done = True
