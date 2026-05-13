@@ -46,7 +46,6 @@ from DataPipeline.acquisition.bloomberg_fill_fetcher import (
     EMSXSessionError,
     EMSXServiceError,
     EMSXRequestError,
-    _parse_fill_message,
 )
 
 load_dotenv()
