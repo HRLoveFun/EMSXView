@@ -226,7 +226,7 @@ def normalize_fill_columns(df: pd.DataFrame) -> pd.DataFrame:
     # Numeric columns: coerce to numeric
     numeric_cols = [
         "OrderId", "Amount", "LimitPrice", "StopPrice", "TraderUuid",
-        "RouteId", "RouteShares", "FillId", "FillPrice", "FillShares",
+        "RouteShares", "FillPrice", "FillShares",
     ]
     for col in numeric_cols:
         if col in df.columns:
