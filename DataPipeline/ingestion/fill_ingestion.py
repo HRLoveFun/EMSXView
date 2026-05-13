@@ -379,7 +379,7 @@ def process_raw_fills_for_date(
         result["rows_processed"] = len(processed)
 
         # Step 4: Upsert to processed_fills.db
-        db.fills_write.upsert_processed_fills(processed, date_str)
+        db.fills_write.upsert_processed_fills(processed)
         db.fills_write.upsert_route_registry(processed)
         db.fills_write.mark_date_processed(
             date_str=date_str, stage="processed",
