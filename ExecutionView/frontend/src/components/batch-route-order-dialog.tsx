@@ -213,6 +213,56 @@ export function BatchRouteOrderDialog({
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [releaseTime, setReleaseTime] = useState('');
+  // Per-broker allocation ratios (%). Keyed by broker code.
+  const [ratios, setRatios] = useState<Record<string, number>>({});
+
+  // ── Broker ratio helpers ───────────────────────────────────────────────
+  const ratioSum = useMemo(
+    () => Object.values(ratios).reduce((s, v) => s + v, 0),
+    [ratios],
+  );
+  const ratioTotalValid = ratioSum === 100;
+  const setRatioForBroker = (broker: string, value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    setRatios(prev => ({ ...prev, [broker]: Math.round(value) }));
+  };
+  const resetRatios = () => {
+    if (selectedBrokers.length === 0) return;
+    const N = selectedBrokers.length;
+    const base = Math.floor(100 / N);
+    const rem = 100 - base * N;
+    const next: Record<string, number> = {};
+    selectedBrokers.forEach((b, i) => { next[b] = base + (i < rem ? 1 : 0); });
+    setRatios(next);
+  };
+  // Initialize / reconcile ratios when selectedBrokers changes.
+  const prevBrokersRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    const prev = prevBrokersRef.current;
+    if (
+      prev.length === selectedBrokers.length &&
+      prev.every((b, i) => b === selectedBrokers[i])
+    ) return;
+    prevBrokersRef.current = [...selectedBrokers];
+    setRatios(prev => {
+      const next = { ...prev };
+      for (const b of selectedBrokers) {
+        if (!(b in next)) next[b] = 0;
+      }
+      for (const b of Object.keys(next)) {
+        if (!selectedBrokers.includes(b)) delete next[b];
+      }
+      const hasZero = selectedBrokers.some(b => (next[b] ?? 0) === 0);
+      if (hasZero && selectedBrokers.length > 0) {
+        const N = selectedBrokers.length;
+        const base = Math.floor(100 / N);
+        const rem = 100 - base * N;
+        selectedBrokers.forEach((b, i) => { next[b] = base + (i < rem ? 1 : 0); });
+      }
+      return next;
+    });
+  }, [selectedBrokers, open]);
 
   // Per-broker strategy-params builders, keyed by broker.
   // Registered by BrokerStrategyParamsEditor on mount; deregistered on unmount.
@@ -644,6 +694,62 @@ export function BatchRouteOrderDialog({
     }
   };
 
+  /** Apply current ratios to all selected orders' broker allocations. */
+  const applyRatios = () => {
+    if (selectedBrokers.length === 0 || selectedOrders.length === 0) return;
+    setRows(prev => {
+      const next: Record<string, RowState> = {};
+      for (const [oid, r] of Object.entries(prev)) {
+        if (!r.selected) { next[oid] = r; continue; }
+        const o = orders.find(x => x.id === oid);
+        if (!o) { next[oid] = r; continue; }
+        const remain = effectiveRemainingOf(o);
+        const lot = lotSizeOf(o);
+        const totalLots = Math.floor(remain / lot);
+        const allocs: Record<string, AllocState> = {};
+        if (totalLots <= 0) {
+          selectedBrokers.forEach(b => {
+            const cur = r.allocations[b];
+            allocs[b] = {
+              qty: '0',
+              violations: cur?.violations ?? [],
+              status: cur?.status,
+              message: cur?.message,
+              routeId: cur?.routeId,
+            };
+          });
+        } else {
+          // 1. proportional lot distribution
+          const rawLots = selectedBrokers.map(b => (ratios[b] ?? 0) / 100 * totalLots);
+          const baseLots = rawLots.map(v => Math.floor(v));
+          const used = baseLots.reduce((s, v) => s + v, 0);
+          const extra = totalLots - used;
+
+          // 2. assign residual lots to brokers with largest fractional part
+          if (extra > 0) {
+            const indices = selectedBrokers.map((_, i) => i)
+              .sort((a, b) => (rawLots[b] - baseLots[b]) - (rawLots[a] - baseLots[a]));
+            for (let i = 0; i < extra; i++) baseLots[indices[i]] += 1;
+          }
+
+          // 3. convert lots → qty string
+          selectedBrokers.forEach((b, i) => {
+            const cur = r.allocations[b];
+            allocs[b] = {
+              qty: String(baseLots[i] * lot),
+              violations: cur?.violations ?? [],
+              status: cur?.status,
+              message: cur?.message,
+              routeId: cur?.routeId,
+            };
+          });
+        }
+        next[oid] = { ...r, allocations: allocs };
+      }
+      return next;
+    });
+  };
+
   // ── Build the API request payload ───────────────────────────────────────
   const buildRequest = (dryRun: boolean): BatchRouteOrderRequest => {
     // Template carries shared TIF + notes only. Everything broker- and
@@ -841,37 +947,24 @@ export function BatchRouteOrderDialog({
       return;
     }
     applyResults(res.data.items);
-    // ── Auto-set volume cap for each broker based on allocation % ──
-    // volume cap = 19 * broker's percentage of total allocated quantity
-    const brokerTotalQty: Record<string, number> = {};
-    let grandTotalQty = 0;
-    for (const o of selectedOrders) {
-      const r = rows[o.id];
-      if (!r) continue;
-      for (const b of selectedBrokers) {
-        const qty = computeAllocQty(r.allocations[b]);
-        if (qty <= 0) continue;
-        brokerTotalQty[b] = (brokerTotalQty[b] ?? 0) + qty;
-        grandTotalQty += qty;
-      }
-    }
-    if (grandTotalQty > 0) {
-      for (const b of selectedBrokers) {
-        const bTotal = brokerTotalQty[b] ?? 0;
-        if (bTotal <= 0) continue;
-        const pct = bTotal / grandTotalQty;
-        const INTEGER_CAP_BROKERS = new Set(['EQ-CITI', 'EQ-JPM', 'EQ-UBS', 'EQ-SEB']);
-        const cap = INTEGER_CAP_BROKERS.has(b)
-          ? Math.round(VOLUME_CAP_MULTIPLIER * pct)
-          : Math.round(VOLUME_CAP_MULTIPLIER * pct * 10) / 10;
-        const capStr = INTEGER_CAP_BROKERS.has(b) ? String(cap) : cap.toFixed(1);
-        const strat = brokerStrategies[b] || '';
-        const fieldName = getVolumeCapField(b, strat);
-        if (fieldName) {
-          const setter = fieldSettersRef.current.get(b);
-          if (setter) {
-            setter(fieldName, capStr);
-          }
+    // ── Auto-set volume cap for each broker based on allocation ratio ──
+    // volume cap = 18 * (broker ratio / 100)
+    const INTEGER_CAP_BROKERS = new Set(['EQ-CITI', 'EQ-JPM', 'EQ-UBS', 'EQ-SEB']);
+    for (const b of selectedBrokers) {
+      const r = ratios[b] ?? 0;
+      if (r <= 0) continue;
+      const raw = VOLUME_CAP_MULTIPLIER * r / 100;
+      const rounded3 = Math.round(raw * 1000) / 1000;
+      const cap = INTEGER_CAP_BROKERS.has(b)
+        ? Math.max(1, Math.round(rounded3))
+        : Math.max(1, Math.round(rounded3 * 10) / 10);
+      const capStr = INTEGER_CAP_BROKERS.has(b) ? String(cap) : cap.toFixed(1);
+      const strat = brokerStrategies[b] || '';
+      const fieldName = getVolumeCapField(b, strat);
+      if (fieldName) {
+        const setter = fieldSettersRef.current.get(b);
+        if (setter) {
+          setter(fieldName, capStr);
         }
       }
     }
@@ -1188,6 +1281,47 @@ export function BatchRouteOrderDialog({
             Each qty cell is editable. Cells turn red on odd-lot or row over-allocation.
           </span>
         </div>
+
+        {/* ── Broker ratio bar ──────────────────────────────────────────── */}
+        {selectedBrokers.length > 0 && editable && (
+          <div className="border border-border rounded p-2 space-y-1.5 bg-secondary/20">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground">Allocation ratios</span>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-mono font-semibold ${ratioTotalValid ? 'text-emerald-600' : 'text-red-600'}`}>
+                  Total = {ratioSum}% {ratioTotalValid ? '✅' : '❌'}
+                </span>
+                <button type="button" onClick={resetRatios}
+                  className="text-[11px] text-primary hover:underline">Reset to equal</button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {selectedBrokers.map(b => {
+                const pct = ratios[b] ?? 0;
+                return (
+                  <div key={b} className="flex items-center gap-1.5 min-w-[180px]">
+                    <span className="text-[11px] font-mono text-muted-foreground w-24 truncate" title={b}>{b}</span>
+                    <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden max-w-[80px]">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                    </div>
+                    <button type="button" onClick={() => setRatioForBroker(b, pct - 1)}
+                      className="h-5 w-5 inline-flex items-center justify-center rounded border border-border text-[11px] hover:bg-accent disabled:opacity-30">−</button>
+                    <input type="number" value={pct}
+                      onChange={e => setRatioForBroker(b, Number(e.target.value))}
+                      className="h-5 w-14 text-[11px] font-mono text-center border border-border rounded bg-background" />
+                    <button type="button" onClick={() => setRatioForBroker(b, pct + 1)}
+                      className="h-5 w-5 inline-flex items-center justify-center rounded border border-border text-[11px] hover:bg-accent disabled:opacity-30">+</button>
+                  </div>
+                );
+              })}
+              <Button variant="outline" size="sm" className="h-6 px-3 text-xs ml-auto"
+                disabled={!ratioTotalValid}
+                onClick={applyRatios}>
+                Apply ratios
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* ── Per-row table ─────────────────────────────────────────────── */}
         <div className="border border-border rounded overflow-hidden">

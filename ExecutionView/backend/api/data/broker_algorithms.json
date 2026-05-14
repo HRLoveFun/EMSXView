@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "lastUpdated": "2026-05-13T17:17:52.474810",
+  "lastUpdated": "2026-05-14T15:15:36.991087",
   "configs": [
     {
       "broker": "EQ-BHP",
@@ -10046,6 +10046,303 @@
       ]
     },
     {
+      "broker": "EQ-RBC",
+      "strategies": [
+        {
+          "name": "",
+          "parameters": []
+        }
+      ]
+    },
+    {
+      "broker": "EQ-ABCI",
+      "strategies": [
+        {
+          "name": "NONE",
+          "parameters": []
+        },
+        {
+          "name": "VWAP",
+          "parameters": [
+            {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "End Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "End Time parameter"
+            },
+            {
+              "fieldName": "AlgoSuite",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "AlgoSuite parameter"
+            },
+            {
+              "fieldName": "Pricing",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Pricing parameter"
+            },
+            {
+              "fieldName": "Urgency",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Urgency parameter"
+            },
+            {
+              "fieldName": "Max % of Vol",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % of Vol parameter"
+            },
+            {
+              "fieldName": "OpeningPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OpeningPrint parameter"
+            },
+            {
+              "fieldName": "ClosingPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "ClosingPrint parameter"
+            },
+            {
+              "fieldName": "Layering",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Layering parameter"
+            }
+          ]
+        },
+        {
+          "name": "TWAP",
+          "parameters": [
+            {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "End Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "End Time parameter"
+            },
+            {
+              "fieldName": "AlgoSuite",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "AlgoSuite parameter"
+            },
+            {
+              "fieldName": "Pricing",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Pricing parameter"
+            },
+            {
+              "fieldName": "Urgency",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Urgency parameter"
+            },
+            {
+              "fieldName": "Max % of Vol",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % of Vol parameter"
+            },
+            {
+              "fieldName": "OpeningPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OpeningPrint parameter"
+            },
+            {
+              "fieldName": "ClosingPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "ClosingPrint parameter"
+            },
+            {
+              "fieldName": "Layering",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Layering parameter"
+            }
+          ]
+        },
+        {
+          "name": "POV",
+          "parameters": [
+            {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "End Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "End Time parameter"
+            },
+            {
+              "fieldName": "AlgoSuite",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "AlgoSuite parameter"
+            },
+            {
+              "fieldName": "Participate",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Participate parameter"
+            },
+            {
+              "fieldName": "Pricing",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Pricing parameter"
+            },
+            {
+              "fieldName": "Urgency",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Urgency parameter"
+            },
+            {
+              "fieldName": "OpeningPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OpeningPrint parameter"
+            },
+            {
+              "fieldName": "ClosingPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "ClosingPrint parameter"
+            },
+            {
+              "fieldName": "Pivot Up Px",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Pivot Up Px parameter"
+            },
+            {
+              "fieldName": "Pivot Up %",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Pivot Up % parameter"
+            },
+            {
+              "fieldName": "PivotDown Px",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PivotDown Px parameter"
+            },
+            {
+              "fieldName": "Pivot Down %",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Pivot Down % parameter"
+            },
+            {
+              "fieldName": "Layering",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Layering parameter"
+            }
+          ]
+        },
+        {
+          "name": "CLOSE",
+          "parameters": [
+            {
+              "fieldName": "AlgoSuite",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "AlgoSuite parameter"
+            },
+            {
+              "fieldName": "RelaStOffset",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelaStOffset parameter"
+            },
+            {
+              "fieldName": "Get Done",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Get Done parameter"
+            },
+            {
+              "fieldName": "Max % of Vol",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % of Vol parameter"
+            },
+            {
+              "fieldName": "ClosingPrint",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "ClosingPrint parameter"
+            },
+            {
+              "fieldName": "Max%InForce",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max%InForce parameter"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "broker": "EQ-CLSA-EU",
       "strategies": [
         {
@@ -12560,303 +12857,6 @@
               "disable": "0",
               "dataType": "string",
               "description": "POD parameter"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "broker": "EQ-RBC",
-      "strategies": [
-        {
-          "name": "",
-          "parameters": []
-        }
-      ]
-    },
-    {
-      "broker": "EQ-ABCI",
-      "strategies": [
-        {
-          "name": "NONE",
-          "parameters": []
-        },
-        {
-          "name": "VWAP",
-          "parameters": [
-            {
-              "fieldName": "Start Time",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Start Time parameter"
-            },
-            {
-              "fieldName": "End Time",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "End Time parameter"
-            },
-            {
-              "fieldName": "AlgoSuite",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "AlgoSuite parameter"
-            },
-            {
-              "fieldName": "Pricing",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Pricing parameter"
-            },
-            {
-              "fieldName": "Urgency",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "Max % of Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max % of Vol parameter"
-            },
-            {
-              "fieldName": "OpeningPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "OpeningPrint parameter"
-            },
-            {
-              "fieldName": "ClosingPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "ClosingPrint parameter"
-            },
-            {
-              "fieldName": "Layering",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Layering parameter"
-            }
-          ]
-        },
-        {
-          "name": "TWAP",
-          "parameters": [
-            {
-              "fieldName": "Start Time",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Start Time parameter"
-            },
-            {
-              "fieldName": "End Time",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "End Time parameter"
-            },
-            {
-              "fieldName": "AlgoSuite",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "AlgoSuite parameter"
-            },
-            {
-              "fieldName": "Pricing",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Pricing parameter"
-            },
-            {
-              "fieldName": "Urgency",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "Max % of Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max % of Vol parameter"
-            },
-            {
-              "fieldName": "OpeningPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "OpeningPrint parameter"
-            },
-            {
-              "fieldName": "ClosingPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "ClosingPrint parameter"
-            },
-            {
-              "fieldName": "Layering",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Layering parameter"
-            }
-          ]
-        },
-        {
-          "name": "POV",
-          "parameters": [
-            {
-              "fieldName": "Start Time",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Start Time parameter"
-            },
-            {
-              "fieldName": "End Time",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "End Time parameter"
-            },
-            {
-              "fieldName": "AlgoSuite",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "AlgoSuite parameter"
-            },
-            {
-              "fieldName": "Participate",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Participate parameter"
-            },
-            {
-              "fieldName": "Pricing",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Pricing parameter"
-            },
-            {
-              "fieldName": "Urgency",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "OpeningPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "OpeningPrint parameter"
-            },
-            {
-              "fieldName": "ClosingPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "ClosingPrint parameter"
-            },
-            {
-              "fieldName": "Pivot Up Px",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Pivot Up Px parameter"
-            },
-            {
-              "fieldName": "Pivot Up %",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Pivot Up % parameter"
-            },
-            {
-              "fieldName": "PivotDown Px",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "PivotDown Px parameter"
-            },
-            {
-              "fieldName": "Pivot Down %",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Pivot Down % parameter"
-            },
-            {
-              "fieldName": "Layering",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Layering parameter"
-            }
-          ]
-        },
-        {
-          "name": "CLOSE",
-          "parameters": [
-            {
-              "fieldName": "AlgoSuite",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "AlgoSuite parameter"
-            },
-            {
-              "fieldName": "RelaStOffset",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "RelaStOffset parameter"
-            },
-            {
-              "fieldName": "Get Done",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Get Done parameter"
-            },
-            {
-              "fieldName": "Max % of Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max % of Vol parameter"
-            },
-            {
-              "fieldName": "ClosingPrint",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "ClosingPrint parameter"
-            },
-            {
-              "fieldName": "Max%InForce",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max%InForce parameter"
             }
           ]
         }

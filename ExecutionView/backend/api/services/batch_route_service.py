@@ -152,6 +152,29 @@ def _evaluate_route_item(
                 permfail_px = permfail_prices.get(symbol)
                 if permfail_px is not None and permfail_px > 0:
                     parent_order.lastPrice = permfail_px
+        # ── Inject currency + fxRate from bloomberg's fx cache ───────────
+        # The batch-route path reads from the subscription cache directly,
+        # so enrich_orders() (which sets fxRate) has not run.  Without this,
+        # compliance_service._check_notional treats non-USD notional as USD
+        # when currency is empty / fxRate is None.
+        if parent_order is not None:
+            ccy = getattr(parent_order, "currency", None) or ""
+            ticker_currencies = getattr(bloomberg, "_ticker_currencies", {})
+            symbol = getattr(parent_order, "symbol", None)
+            auth_ccy = ticker_currencies.get(symbol) or ccy or ""
+            if auth_ccy:
+                # Patch currency if cache has an empty or different value
+                if not ccy or ccy != auth_ccy:
+                    parent_order.currency = auth_ccy
+                # Inject fxRate (skip if already set)
+                if not getattr(parent_order, "fxRate", None):
+                    if auth_ccy == "USD":
+                        parent_order.fxRate = 1.0
+                    else:
+                        fx_rates = getattr(bloomberg, "_fx_rates", {})
+                        rate = fx_rates.get(auth_ccy)
+                        if rate is not None:
+                            parent_order.fxRate = round(rate, 6)
         # ──────────────────────────────────────────────────────────────────
 
     rkey = _route_key(item)

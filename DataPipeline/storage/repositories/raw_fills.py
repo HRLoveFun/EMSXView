@@ -142,20 +142,30 @@ class SqliteRawFillWriteRepository(BaseRepository):
         if not fills:
             return 0
 
+        # Compute order_as_of_date from DateTimeOfFill via derive_exchange_times
+        df = pd.DataFrame(fills)
+        if "DateTimeOfFill" in df.columns:
+            from DataPipeline.processing.fill_cleaner import derive_exchange_times
+            df = derive_exchange_times(df)
+            oaod = df["order_as_of_date"].fillna("").astype(str).tolist()
+        else:
+            oaod = [""] * len(fills)
+
         conn = self._get_write_conn()
         try:
-            cols = list(EMSX_FILL_COLUMNS) + ["source_date", "fetched_at"]
+            cols = list(EMSX_FILL_COLUMNS) + ["order_as_of_date", "source_date", "fetched_at"]
             placeholders = ", ".join(["?"] * len(cols))
             col_names = ", ".join(cols)
             sql = f"INSERT OR REPLACE INTO raw_fills ({col_names}) VALUES ({placeholders})"
 
             now = datetime.now().isoformat()
             rows = []
-            for f in fills:
+            for i, f in enumerate(fills):
                 row = []
                 for col in EMSX_FILL_COLUMNS:
                     val = f.get(col)
                     row.append(None if val is None else str(val))
+                row.append(oaod[i])
                 row.append(source_date)
                 row.append(now)
                 rows.append(tuple(row))

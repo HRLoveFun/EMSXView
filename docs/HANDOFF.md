@@ -2,26 +2,48 @@
 
 ## 当前在做什么
 
-DataPipeline 模块大规模重构已基本完成。当前处于**修复阶段 B（processing pipeline）的最后一个报错**的状态。Pipeline 整体可运行但 S2 processing 有 `RouteId` merge 类型错误的遗留问题。
+Pipeline 整体可运行。当前已完成两个关键修复：
 
-**当前阻塞项：** `fill_processor.py` 中 `clean_emsx_fills` 将 `RouteId` 转为 numeric → processing 阶段 merge `RouteId` 时报 `int64 vs object` 类型不匹配。修复方案：
+### 修复 1：BDIB 集成 `raw_bdib_rows=0`（2026-05-13）
 
-```python
-# fill_cleaner.py:227-230 — 已执行
-numeric_cols = [
-    "OrderId", "Amount", "LimitPrice", "StopPrice", "TraderUuid",
-    # "RouteId" ← 已删除
-    "RouteShares",
-    # "FillId"  ← 已删除
-    "FillPrice", "FillShares",
-]
-```
+`bdib_fetcher.py` 中列名不一致导致 S5（IntegrateBDIBStage）始终跳过数据写入：
 
-该改动已提交（commit `055e0db`），但**需要在部署后重新触发一次 pipeline 验证**。
+| 位置 | 原值 | 修复值 |
+|------|------|--------|
+| `bdib_fetcher.py:262` (写入) | `df["Order As of Date"] = date_str` | `df["order_as_of_date"] = date_str` |
+| `bdib_fetcher.py:409` (检查) | 查 `"order_as_of_date"`（小写蛇形） | — |
+
+列名不匹配 → `fetch_bdib_for_fills()` groupby 条件永远为 False → 返回空 dict → S5 认为无数据可写。
+**修复后验证：** `raw_bdib_rows=10,005,601`，`fill_bdib_rows=177,121`。
+
+同时执行了 `fill_bdib` 历史回填：基于已有 raw_bdib 数据，对所有缺失日期重新执行 merge 集成（89 天，2,632,976 行）。`fill_bdib` 覆盖 108 天（2025-09-26 ~ 2026-05-08）。
+
+### 修复 2：raw_fills 空 `order_as_of_date`（2026-05-13）
+
+`upsert_raw_api_data()` 设计上只写入 28 个 EMSX 原始字段（`EMSX_FILL_COLUMNS`），不包含衍生字段 `order_as_of_date`，导致 SQLite 写入 NULL（2,218,512 行）或空字符串（57,339 行）。
+
+| 改动 | 说明 |
+|------|------|
+| `raw_fills.py:145-152` | `upsert_raw_api_data()` 内对 `DateTimeOfFill` 执行 `derive_exchange_times()` 推导 `order_as_of_date` |
+| `raw_fills.py:156` | INSERT 列集新增 `order_as_of_date` |
+| 历史回填 | 2,275,851 行 UPDATE 回填（49 个 source_date，2026-03-05 ~ 2026-05-12） |
+| 边缘处理 | Exchange=`MUMBAI`（240 行，不在 `EXCHANGE_TIMEZONE` 中）→ 保持 NULL 暴露异常 |
+
+### 当前数据库状态
+
+| 表 | 行数 | 日期范围 |
+|------|------|---------|
+| `raw_fills` | 8,697,160 | 2025-09-15 ~ 2026-05-12 |
+| `processed_fills` | ~9,341,604 | 2025-09-15 ~ 2026-05-12 |
+| `raw_bdib` | ~366M | 2025-09-25 ~ 2026-05-08（159 天） |
+| `fill_bdib` | 3,478,602 | 2025-09-26 ~ 2026-05-08（108 天） |
+| `order_as_of_date` 空值 | 240 行 | Exchange=`MUMBAI` 未映射 |
+
+**当前阻塞项：** 无。所有 pipeline stage 均通过（S5 BDIB 回报 `"completed": true`，`raw_bdib_rows > 0`）。
 
 ## 已经试过的方案和结果（含失败的）
 
-### 阶段 1-6：计划性重构（全部成功）
+### 阶段 1-6：计划性重构（上一 session，全部成功）
 
 | Phase | 内容 | 结果 |
 |-------|------|------|
@@ -32,7 +54,7 @@ numeric_cols = [
 | 5 | 添加 `pyproject.toml` | ✅ |
 | 6 | 合并 Config 回单文件 | ✅ |
 
-### 运行时 BUG 修复（全部成功）
+### 运行时 BUG 修复（上一 session，全部成功）
 
 | Bug | 根因 | 修复 |
 |-----|------|------|
@@ -44,100 +66,91 @@ numeric_cols = [
 | L4: core.py 重复 import | 前序重构残留 | 删除第 142-150 行重复导入 |
 | M2: fetch_history_db wrapper | 20 行适配器类 | 删除，`fill_fetch.py` 直连 `SqliteFetchHistoryRepository` |
 | M1: facade.py 类名不一致 | `DatabaseFacade` 别名 `CostViewDatabase` | 重命名 `DatabaseFacade` → `CostViewDatabase` |
-| M4: DDL 重复 | `_schema.py` 和 `inline_ddl.py` 各自定义 `init_processed_fills_schema` | `inline_ddl.py` 成为单来源，`_schema.py` 委派 + 增量 |
+| M4: DDL 重复 | `_schema.py` 和 `inline_ddl.py` 各自定义 | `inline_ddl.py` 成为单来源 |
 
-### 数据库获取（FillFetch）修复链
+### 数据库获取（FillFetch）修复链（上一 session）
 
-| 问题 | 修复 | 阶段 |
-|------|------|------|
-| `check_fetch_duplicate` 不存在 | 添加方法到 `SqliteRawFillWriteRepository` | P0 |
-| `add_fetch_log_record` 不存在 | 添加方法 | P0 |
-| `upsert_order_fetch_log` 不存在 | 添加方法 | P0 |
-| `add_fetch_record` 不存在 | 添加方法到 `SqliteFetchHistoryRepository` | P0 |
-| `compute_derived_fields` 不存在 | 添加方法到 `SqliteMarketDataWriteRepository` | P1 |
-| `_ensure_schema_context` 不存在 | 添加方法到 `SqliteRegimeWriteRepository` | P2 |
-| `get_last_fetch_date()` 返回 str vs 调用方期望 date | `strptime().date()` 包装 | 第 8 轮 |
-| `max(str, date)` TypeError | 同上 | 第 8 轮 |
-| **`NOT NULL constraint failed: raw_fills.OrderId`** — OrderId 为 None | 见下 | 核心 bug |
+| 问题 | 修复 |
+|------|------|
+| `check_fetch_duplicate` 不存在 | 添加方法到 `SqliteRawFillWriteRepository` |
+| `add_fetch_log_record` 不存在 | 添加方法 |
+| `upsert_order_fetch_log` 不存在 | 添加方法 |
+| `add_fetch_record` 不存在 | 添加方法到 `SqliteFetchHistoryRepository` |
+| `compute_derived_fields` 不存在 | 添加方法到 `SqliteMarketDataWriteRepository` |
+| `_ensure_schema_context` 不存在 | 添加方法到 `SqliteRegimeWriteRepository` |
+| `get_last_fetch_date()` 返回 str | `strptime().date()` 包装 |
+| `NOT NULL constraint failed: raw_fills.OrderId` | `FILL_FIELD_EXTRACTORS` getter 方法名修复 |
 
-### OrderId 提取失败的根因（关键）
+### BDIB 列名不一致导致 rows=0（本 session，已修复 ✅）
 
-`FILL_FIELD_EXTRACTORS` 中所有 getter 方法名都错了：
-
-| 问题 | 错误值 | 修复值 |
+| 位置 | 错误值 | 修复值 |
 |------|--------|--------|
-| `getValueAsString` → `Message` 对象没有此方法 | 全部 28 个字段 | `getElementAsString` |
-| `getValueAsInteger` → `Message` 对象没有此方法 | `OrderId`, `RouteId`, `FillId` 等 | `getElementAsInteger` |
-| `getValueAsFloat` → `Message` 对象没有此方法 | `Amount`, `FillPrice` 等 | `getElementAsFloat` |
-| `GetValueAsFloat`（大小写笔误） | `StopPrice` | `getElementAsFloat` |
+| `bdib_fetcher.py:262` | `df["Order As of Date"] = date_str` | `df["order_as_of_date"] = date_str` |
 
-确认于 `docs/api/emsx-api-guide.md` line 5335-5404。
+**失败尝试：** `run_bdib_integration(force=True)` → 1 小时超时。原因：强制重跑对所有 180 天重新从 Bloomberg fetch 完整 BDIB 数据（~1700 ticker/天），耗时不可接受。改用按日从本地 `raw_bdib.db` 读取 + 直接集成脚本，89 天在 ~25 分钟内完成。
 
-### GetFillsResponse 消息结构（第 2 个关键 bug）
+### raw_fills `order_as_of_date` NULL/空填充（本 session，已修复 ✅）
 
-```python
-# 错误：把消息当扁平 dict 解析
-def _parse_fill_message(msg):
-    fill[field] = msg.getValueAsString(field)  # ❌
-
-# 正确：消息有 Fills 数组
-def _parse_fill_messages(msg):
-    fills_el = msg.getElement("Fills")
-    for i in range(fills_el.numValues()):
-        fill_el = fills_el.getValueAsElement(i)
-        fill[field] = fill_el.getElementAsString(field)  # ✅
-```
-
-### 上一个 session 遗留的报错
-
-`upsert_processed_fills(processed, date_str)` — 第二个位置参数 `date_str` 被传给了 `conn` 参数 → `'str' object has no attribute 'executemany'`。已修复为 `upsert_processed_fills(processed)`。
+| 层面 | 改前 | 改后 |
+|------|------|------|
+| 新数据写入 | `upsert_raw_api_data()` 不写 `order_as_of_date` → NULL | 在 INSERT 前对 `DateTimeOfFill` 执行 `derive_exchange_times()` 推导 |
+| 历史回填 | 2,275,851 行 NULL/空 | `derive_exchange_times()` 逐 source_date 回填 |
+| 异常保留 | — | Exchange 不在时区映射表 → 保持 NULL（240 行 `MUMBAI`） |
 
 ## 下一步计划（3-5条 actionable）
 
-1. **部署所有 commit，重启后端，点击 Trigger Update，观察日志确认 Stage B 完整跑通**。关注 Stage 2 (Process Raw Fills) 的 `upsert_processed_fills` 是否成功写入 processed_fills.db。
 
-2. **验证前端 database 模块的统计信息是否正常显示**——检查 raw_fills 和 processed_fills 的 "Updated" 时间戳是否刷新到最新。
+1. **统一 raw_fills 的 `order_as_of_date` 格式**——当前混合两种格式：
+   - Excel 导入行（6,390,388 行）：`YYYY-MM-DD HH:MM:SS`（如 `2025-09-15 00:00:00`）
+   - API fetch + 回填行（~2,275,851 行）：`YYYYMMDD`（如 `20260512`）
+   Pipeline 的 `get_fills_for_date()` 先按 `order_as_of_date=?` 查，若为空会 fallback 到 `source_date`。格式不统一可能导致部分按 `order_as_of_date` 的查询漏掉旧格式行。建议统一清洗：
+   ```sql
+   UPDATE raw_fills SET order_as_of_date = REPLACE(SUBSTR(order_as_of_date, 1, 10), '-', '')
+   WHERE order_as_of_date LIKE '____-__-__%';
+   ```
 
-3. **修复 `fill_cleaner.py:227-230` 中 RouteId/FillId 不再转 numeric 后的数据一致性**——commit `055e0db` 已提交，但部署后才能验证效果。观察 `_build_execution_history_frames` 的 merge 是否不再报类型错误。
+2. **验证 `RouteId` merge 类型修复（commit `055e0db`）**——部署后重新触发 pipeline，观察 Stage 2 是否仍报 `int64 vs object` 类型错误。参见上一 session 的 `numeric_cols` 修改 (`fill_cleaner.py:227-230`)。
 
-4. **处理 `CostView/src/query_cli.py:31` 引用已删除的 `RawFillsDB`**—该文件目前的 import 会崩溃（`from .raw_fills_db import RawFillsDB`），但当前不在 pipeline 路径中。如果需要修复，改为使用 `SqliteRawFillReadRepository`。
+3. **部署所有 commit，重启后端，点击 Trigger Update，观察 pipeline 全链路是否完整跑通**——重点关注：
+   - Stage S2 (Process Raw Fills)：`upsert_processed_fills` 写入正常
+   - Stage S5 (BDIB Integration)：`raw_bdib_rows > 0`
+   - Stage S7 (Daily Metrics)：`rows > 0`
+   - 前端 database 模块统计信息的 "Updated" 时间戳
 
-5. **清理临时调试文件**：`C:\Users\hrchen\AppData\Local\Temp\opencode\check_data.py`、`check_data2.py`。
+4. **处理 `CostView/src/query_cli.py:31` 引用已删除的 `RawFillsDB`**——该文件导入会崩溃（`from .raw_fills_db import RawFillsDB`），当前不在 pipeline 路径中，但若有人使用 CLI 工具会报错。改为使用 `SqliteRawFillReadRepository`。
 
 ## 关键文件路径（相对路径，一行一个）
 
 ```
-# 最近改动的文件
-DataPipeline/acquisition/_constants.py             — FILL_FIELD_EXTRACTORS 定义，修复 getter 方法名
-DataPipeline/acquisition/bloomberg_fill_fetcher.py  — _parse_fill_messages，修复 Fills 数组解析
-DataPipeline/ingestion/fill_fetch.py                — FillFetch 主流程，H1 修复 + 方法补全
-DataPipeline/ingestion/fill_ingestion.py            — process_raw_fills_for_date，修复 upsert_processed_fills 传参
-DataPipeline/processing/fill_cleaner.py             — numeric_cols，RouteId/FillId 不再转 numeric
-DataPipeline/storage/repositories/raw_fills.py      — 添加 add_fetch_log_record / check_fetch_duplicate 等方法
-DataPipeline/storage/repositories/fills.py          — 添加 upsert_execution_history / get_route_registry_for_date 等方法
-DataPipeline/storage/repositories/market_data.py    — 添加 compute_derived_fields
-DataPipeline/storage/repositories/regime.py         — 添加 _ensure_schema_context
-DataPipeline/storage/repositories/fetch_history.py  — 添加 add_fetch_record
-DataPipeline/storage/connection.py                  — 修复 import（删除已废弃模块引用）
-DataPipeline/storage/facade.py                      — DatabaseFacade → CostViewDatabase 重命名
-DataPipeline/storage/schema/inline_ddl.py           — DDL 单来源，补齐缺失表
-DataPipeline/storage/repositories/_schema.py        — 委派 inline_ddl + 增量逻辑
-DataPipeline/config.py                              — 合并后单文件配置
-DataPipeline/pyproject.toml                         — 包定义
-platform_data/repositories.py                       — 修复 import（模块级常量→Config 类）
-platform_data/database_diagnostics.py               — 同上
-CostView/scripts/daily_update.py                    — DB state 日志（添加 mtime 记录）
-docs/api/emsx-api-guide.md                          — Bloomberg EMSX API 文档（确认了 getElement* 的正确用法）
+# 本 session 改动的文件
+DataPipeline/acquisition/bdib_fetcher.py              — line 262: "Order As of Date" → "order_as_of_date"
+DataPipeline/storage/repositories/raw_fills.py         — upsert_raw_api_data() 新增 derive_exchange_times() 推导 oaod
+
+# 上一 session 改动的文件（仍相关）
+DataPipeline/acquisition/_constants.py                 — FILL_FIELD_EXTRACTORS getter 方法名修复
+DataPipeline/acquisition/bloomberg_fill_fetcher.py      — _parse_fill_messages 修复 Fills 数组解析
+DataPipeline/ingestion/fill_fetch.py                   — FillFetch 主流程
+DataPipeline/ingestion/fill_ingestion.py               — process_raw_fills_for_date，修复 upsert_processed_fills 传参
+DataPipeline/processing/fill_cleaner.py                — numeric_cols（RouteId/FillId 不再转 numeric）
+DataPipeline/storage/repositories/fills.py             — upsert_execution_history 等方法
+DataPipeline/storage/repositories/market_data.py       — compute_derived_fields
+DataPipeline/storage/repositories/regime.py            — _ensure_schema_context
+DataPipeline/storage/repositories/fetch_history.py     — add_fetch_record
+DataPipeline/common/exchange_tz.py                     — EXCHANGE_TIMEZONE 时区映射表
+DataPipeline/storage/schema/inline_ddl.py              — DDL 定义
+docs/api/emsx-api-guide.md                             — Bloomberg EMSX API 文档
+
+# 临时脚本（已删除，参考用）
+Temp\opencode\backfill_fill_bdib.py                    — fill_bdib 回填（89 天）
+Temp\opencode\backfill_raw_fills_oaod.py               — raw_fills order_as_of_date 回填（49 天）
 ```
 
 ## 还没搞清楚的问题
 
-1. **`upsert_processed_fills(processed)` 去掉 `date_str` 后，`_upsert` 是否需要 `date_str`？** ——从代码看 `_upsert` 只接收 `(df, table, key_columns, expected_columns, conn)`，不接收 `date_str`。但在 `process_raw_fills_for_date` 中，如果 `upsert_processed_fills` 不需要 `date_str`，那么 upsert 到 processed_fills 表的数据里是否缺少某个日期字段？需要验证 `upsert_processed_fills` 使用 `_upsert`，该方法通过 `key_columns` 匹配更新行，不依赖 `date_str`。如果 processed_fills 表中有 `order_as_of_date` 字段，它在 `PROCESSED_COLUMNS` 列表里，由 `processed` DataFrame 提供。所以 `date_str` 对 `upsert_processed_fills` 是多余的。
+1. **raw_fills 格式不一致的查询影响**——现有 6,390,388 行 `order_as_of_date` 是 `YYYY-MM-DD HH:MM:SS` 格式，而 pipeline 查询用 `YYYYMMDD` 参数与 TEXT 字段比较。SQLite 是字符串比较，`"2025-09-15 00:00:00" != "20250915"`。当前 `get_fills_for_date()` 有 `source_date` fallback 才勉强可用。统一格式（下一步计划 2）是否会影响任何下游调用？
 
-2. **Stage S5 (BDIB integration) 的 `raw_bdib_rows=0` 和 `processed_raw_bdib_rows=0`、`fill_bdib_rows=0`** — 可能意味着 BDIB 市场数据 fetch 为空。日志中有 `fetch_bdib_for_fills: 0 ticker-dates fetched` 的大量记录。这可能是因为 xbbg Bloomberg 连接在 BDIB fetch 时不可用。需要确认是否是 Bloomberg 终端权限问题。
+2. **`RouteId` merge 类型修复是否完整**——commit `055e0db` 从 `numeric_cols` 删除了 `RouteId` 和 `FillId`，但 `fill_cleaner.py` 中其他位置是否还有对 `RouteId` 做 `pd.to_numeric()` 的调用？建议 grep 确认。
 
-3. **Stage S7 (CalculateDailyMetrics) `rows=3065, dates=8`** — 这 8 天是从哪里来的？可能是从之前的旧数据中计算得出的。这部分是否随着新 raw_fills 数据的增加而更新，需要通过 pipeline 验证。
+3. **xbbg `"too close to current time"` 保护机制**——BDIB fetch 时 xbbg 内部拒绝查询昨日数据（返回 `Intraday Bar Error: NOT_AVAILABLE`），导致增量运行时最新 1-2 天无 BDIB 数据。这是 xbbg 的行为，非代码 bug。但如果用户需要在当天收盘后尽早看到 BDIB 数据，可考虑将每日 pipeline 触发时间推迟到凌晨（xbbg 通常在次日 UTC 凌晨解锁昨日数据）。
 
-4. **`CostView/src/query_cli.py`** — 导入已删除的 `RawFillsDB`，当前不在 pipeline 路径中，但如果有用户使用该 CLI 工具会崩溃。是否要修复？
-
-5. **`CostView/tests/test_pipeline_stages.py` 的 `@patch("DataPipeline.orchestration.stages.xxx")` 路径错误** — 测试模块名是 `stages_ingest` 不是 `stages`。这些测试从未正确工作过。是否要修复或标记为预期失败？
+4. **`CostView/tests/test_pipeline_stages.py` 的 `@patch` 路径错误**——测试模块名是 `stages_ingest` 不是 `stages`。这些测试从未正确工作过。是否要修复或标记为预期失败？
