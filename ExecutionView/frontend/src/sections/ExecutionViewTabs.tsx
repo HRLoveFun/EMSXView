@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { ExecutionViewTab } from '../hooks/use-app-shell-state';
+import type { ExecutionViewTab } from '@execution/hooks/use-execution-state';
 
 interface ExecutionViewTabsProps {
   activeTab: ExecutionViewTab;

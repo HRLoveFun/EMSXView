@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { fmtNum } from '@/lib/format-utils';
+import { fmtNum } from '@shared/lib/format-utils';
 import { getHighestOrderSeverity, getOrderAlertDetails, getSeverityText, getSeverityTone } from '../lib/thresholds';
 import type { CostViewConfig, TcaOrderSummary, TcaReport } from '../types';
 import { TcaRouteTable } from './TcaRouteTable';

@@ -9,9 +9,10 @@
     "skipLibCheck": true,
 
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"],
+      "@app/*": ["./src/app/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@execution/*": ["./src/modules/execution/*"]
     },
     /* Bundler mode */
     "moduleResolution": "bundler",

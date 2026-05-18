@@ -1,6 +1,6 @@
 {
-  "version": "1.0",
-  "description": "Autopilot policy — defines which actions are auto-approved vs require manual gate.",
+  "version": "1.1",
+  "description": "Autopilot policy — defines which actions are auto-approved vs require manual gate. Includes architecture refactor workflow integration.",
 
   "auto_approve": {
     "description": "Actions that proceed without human confirmation.",
@@ -15,7 +15,11 @@
       "set_issue_status_in_progress",
       "set_issue_status_blocked",
       "update_program_last_synced_at",
-      "git_add_commit_push"
+      "git_add_commit_push",
+      "workflow_engine run --mode dry-run",
+      "workflow_engine status",
+      "workflow_engine dag",
+      "verify_refactor_step"
     ]
   },
 
@@ -53,6 +57,20 @@
         "description": "Setting continue-on-error or weakening a CI quality gate.",
         "entity": "workflow",
         "condition": "quality_gate_weakened"
+      },
+      {
+        "id": "high-risk-refactor-step",
+        "description": "Executing a high-risk architecture refactoring step (S06, S09, S12, S14). Requires explicit approval gate.",
+        "entity": "workflow_step",
+        "condition": "risk_level_equals",
+        "risk_level": "high"
+      },
+      {
+        "id": "bridge-cleanup",
+        "description": "Removing bridge re-exports and switching all imports to new paths (S12).",
+        "entity": "workflow_step",
+        "condition": "step_id_equals",
+        "step_id": "S12"
       }
     ]
   },
@@ -64,7 +82,8 @@
       "E_TRANSIENT_NETWORK",
       "E_CI_TIMEOUT",
       "E_CI_API",
-      "E_LOCK_CONFLICT"
+      "E_LOCK_CONFLICT",
+      "E_VERIFY_BUILD_FAILED"
     ]
   },
 
@@ -96,5 +115,27 @@
         "retryable": false
       }
     ]
+  },
+
+  "architecture_refactor": {
+    "description": "Policy overrides for the architecture refactoring workflow engine.",
+    "workflow_definition": "plans/architecture-refactor-workflow.yaml",
+    "workflow_engine": "scripts/workflow/workflow_engine.py",
+    "step_verifier": "scripts/workflow/verify_refactor_step.py",
+    "integration_with_auto_runner": {
+      "description": "When auto_runner encounters an issue tagged as an architecture-refactor step, it delegates to the workflow engine.",
+      "tag_pattern": "arch-refactor:*",
+      "delegate_command": "python scripts/workflow/workflow_engine.py run --max-steps 1"
+    },
+    "approval_workflow": {
+      "description": "Approval gates for high-risk steps. Use 'workflow_engine approve <gate_id>' to grant.",
+      "approval_state_file": "plans/architecture-refactor-approvals.json",
+      "timeout_seconds": 86400,
+      "approval_commands": {
+        "approve": "python scripts/workflow/workflow_engine.py approve <GATE_ID>",
+        "reject": "python scripts/workflow/workflow_engine.py reject <GATE_ID>",
+        "status": "python scripts/workflow/workflow_engine.py status"
+      }
+    }
   }
 }

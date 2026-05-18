@@ -9,7 +9,7 @@ import {
   Layers,
   RotateCcw,
 } from 'lucide-react';
-import type { BoolConditionConfig, ConditionConfig } from '@/lib/monitor-conditions';
+import type { BoolConditionConfig, ConditionConfig } from '@execution/lib/monitor-conditions';
 import {
   HEALTH_PALETTE,
   HEALTH_RANK,
@@ -17,14 +17,14 @@ import {
   isLazyOrder,
   type HealthLevel,
   type LazyContext,
-} from '@/lib/health-palette';
+} from '@execution/lib/health-palette';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { fmtNum, fmtInt, fmtDollar } from '@/lib/format-utils';
-import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, type OrderGroupByValue } from '@/lib/table-constants';
+import { fmtNum, fmtInt, fmtDollar } from '@shared/lib/format-utils';
+import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, type OrderGroupByValue } from '@shared/lib/table-constants';
 import {
   CONDITION_DEFS,
   DEFAULT_CONDITIONS,
@@ -32,8 +32,8 @@ import {
   getOrderFlags,
   type MonitorConditions,
   type ConditionId,
-} from '@/lib/monitor-conditions';
-import type { Order, OrderStatus, Route } from '@/types';
+} from '@execution/lib/monitor-conditions';
+import type { Order, OrderStatus, Route } from '@execution/types'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TOTAL_COLS = 26; // Health strip + 25 data cols (see ColHeader list below)

@@ -15,8 +15,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cachedApiService } from '@/services/api';
-import type { BrokerStrategyField } from '@/types';
+import { cachedApiService } from '@execution/services/execution-api';
+import type { BrokerStrategyField } from '@execution/types'
 
 export interface StrategyFieldState {
   fieldName: string;

@@ -1,6 +1,6 @@
 import { evaluateThreshold, getSeverityText, getSeverityTone } from '../lib/thresholds';
 import type { ThresholdRule, TcaRouteDetail } from '../types';
-import { fmtNum } from '@/lib/format-utils';
+import { fmtNum } from '@shared/lib/format-utils';
 
 interface TcaRouteTableProps {
   routes: TcaRouteDetail[];

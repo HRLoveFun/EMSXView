@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { apiService } from '@/services/api';
+import { apiService } from '@execution/services/execution-api';
 import type {
   SubOrderProposal, BatchOperationItemResult, BatchOperationResult,
 } from '@/types';

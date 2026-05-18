@@ -20,7 +20,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { UpdateableField, BatchUpdateRequest, Order } from '@/types';
+import type { UpdateableField, BatchUpdateRequest, Order } from '@execution/types'
 
 interface BatchOperationPanelProps {
   /** Authoritative list of currently-selected order IDs. Replaces the previous

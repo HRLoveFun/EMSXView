@@ -10,7 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import type { Violation, ViolationCode } from '@/types';
+import type { Violation, ViolationCode } from '@execution/types'
 
 const VIOLATION_LABELS: Record<ViolationCode, string> = {
   NOTIONAL_TOO_SMALL: 'Notional below USD 10K (soft constraint)',

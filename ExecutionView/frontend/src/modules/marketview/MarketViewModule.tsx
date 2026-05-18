@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, ArrowUpDown, Gauge } from 'lucide-react';
 
 import { buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
 import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
-import { useHandoffContracts } from '../../hooks/use-handoff-contracts';
+import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
 import type {
   IntradayBucketMinutes,
   IntradayFeatureSnapshot,

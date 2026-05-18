@@ -2,8 +2,8 @@ import { useMemo, useState, Fragment } from 'react';
 import { ChevronDown, ChevronRight, Coffee } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { fmtNum, fmtInt, fmtDollar } from '@/lib/format-utils';
-import type { Order, OrderStatus } from '@/types';
+import { fmtNum, fmtInt, fmtDollar } from '@shared/lib/format-utils';
+import type { Order, OrderStatus } from '@execution/types'
 
 // Statuses considered "active" — orders with these are excluded from the lazy board
 const ACTIVE_STATUSES = new Set<OrderStatus>([

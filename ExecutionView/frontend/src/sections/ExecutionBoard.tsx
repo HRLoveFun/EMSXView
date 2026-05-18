@@ -5,7 +5,7 @@ import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
 import { AlgoLaunchDialog } from '@/components/algo-launch-dialog';
 import { SubOrderReviewPanel } from '@/components/sub-order-review-panel';
-import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@/hooks/use-trade-hotkeys';
+import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@execution/hooks/use-trade-hotkeys';
 import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
   CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,

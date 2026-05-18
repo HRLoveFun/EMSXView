@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { apiService } from '@/services/api';
+import { apiService } from '@execution/services/execution-api';
 import {
   BrokerStrategyFields,
   useStrategyFields,

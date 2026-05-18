@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Route } from '@/types';
+import type { Route } from '@execution/types'
 
 // Route statuses that allow modification
 const MODIFIABLE_STATUSES = ['SENT', 'WORKING', 'PARTFILLED', 'PARTFILL', 'QUEUED', 'HOLD'];
