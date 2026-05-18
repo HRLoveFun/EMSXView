@@ -24,8 +24,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { formatNumber, formatInt, getSideClass } from '@/lib/format-utils';
-import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@/lib/table-constants';
+import { formatNumber, formatInt, getSideClass } from '@shared/lib/format-utils';
+import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@shared/lib/table-constants';
 import { RouteActionMenu } from '@/components/route-action-menu';
 import {
   CancelRouteDialog,
@@ -33,7 +33,7 @@ import {
 import { UnifiedModifyRouteDialog } from '@/components/unified-modify-route-dialog';
 import { RateDiagnosticDialog } from '@/components/rate-diagnostic-dialog';
 import { BatchCancelDialog, BatchModifyDialog } from '@/components/batch-operation-dialogs';
-import type { Route, CancelRouteRequest, ModifyRouteRequest } from '@/types';
+import type { Route, CancelRouteRequest, ModifyRouteRequest } from '@execution/types'
 
 type SortField = keyof Route | null;
 type SortDirection = 'asc' | 'desc';

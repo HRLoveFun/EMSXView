@@ -33,8 +33,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Route, ModifyRouteRequest } from '@/types';
-import { cachedApiService, apiService } from '@/services/api';
+import type { Route, ModifyRouteRequest } from '@execution/types'
+import { cachedApiService, apiService } from '@execution/services/execution-api';
 import { BrokerStrategyFields, useStrategyFields } from '@/components/broker-strategy-fields';
 
 /**

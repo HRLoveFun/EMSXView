@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { fetchScorecard } from '../services/api';
-import { useHandoffContracts } from '../../../hooks/use-handoff-contracts';
+import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
 import {
   DEFAULT_SCORECARD_FORM_STATE,
   loadCostViewScorecardForm,

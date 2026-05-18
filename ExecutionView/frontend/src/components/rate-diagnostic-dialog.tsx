@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { apiService } from '@/services/api';
+import { apiService } from '@execution/services/execution-api';
 
 interface DiagnosticRoute {
   sequence: number;

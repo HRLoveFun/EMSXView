@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { apiService } from '@/services/api';
+import { apiService } from '@execution/services/execution-api';
 import type {
   RoutePlan, RoutePlanAllocation, CreateRoutePlanRequest, UpdateRoutePlanRequest,
   SplitType, ActivationMode, MatchSide,

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import type { AppModule } from '../hooks/use-app-shell-state';
-import { useHandoffContracts } from '../hooks/use-handoff-contracts';
+import type { AppModule } from '@app/hooks/use-module-navigation';
+import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
 
 // Hover-prefetch helpers — trigger the dynamic import early so that clicking
 // the tab does not block on the first network round-trip. Each import() is

@@ -46,14 +46,14 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useBrokerAlgorithms } from '@/hooks/use-broker-algorithms';
-import type { StrategyParameter } from '@/types';
+import { useBrokerAlgorithms } from '@execution/hooks/use-broker-algorithms';
+import type { StrategyParameter } from '@execution/types'
 import {
   RECONCILE_INTERVAL_OPTIONS,
   getReconcileIntervalSec,
   setReconcileIntervalSec,
   type ReconcileIntervalSec,
-} from '@/lib/reconcile-settings';
+} from '@shared/lib/reconcile-settings';
 import {
   CONDITION_DEFS,
   DEFAULT_CONDITIONS,
@@ -61,14 +61,14 @@ import {
   type ConditionConfig,
   type BoolConditionConfig,
   type ConditionId,
-} from '@/lib/monitor-conditions';
+} from '@execution/lib/monitor-conditions';
 import {
   getFileCacheStatus,
   clearFileCache,
   exportConfiguration,
   importConfiguration,
   getAvailableBrokersFromFile,
-} from '@/services/strategy-data-service';
+} from '@execution/services/strategy-data-service';
 import { MarketBrokerMappingSection } from '@/components/market-broker-mapping-section';
 import { RoutePlanManager } from '@/components/route-plan-manager';
 

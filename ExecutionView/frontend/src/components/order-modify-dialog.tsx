@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { Order, OrderType, TimeInForce } from '@/types';
+import type { Order, OrderType, TimeInForce } from '@execution/types'
 
 // ============================================================================
 // Order Modify Dialog

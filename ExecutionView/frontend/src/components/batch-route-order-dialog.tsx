@@ -59,21 +59,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { apiService } from '@/services/api';
-import { useBrokerAlgorithms } from '@/hooks/use-broker-algorithms';
+import { apiService } from '@execution/services/execution-api';
+import { useBrokerAlgorithms } from '@execution/hooks/use-broker-algorithms';
 import {
   useMarketBrokerMapping,
   applyMappingFilter,
   deriveMarketKey,
-} from '@/hooks/use-market-broker-mapping';
+} from '@execution/hooks/use-market-broker-mapping';
 import {
   BrokerStrategyFields,
   useStrategyFields,
 } from '@/components/broker-strategy-fields';
 import { ViolationList, violationLabel } from '@/components/compliance-violation';
-import { getVolumeCapField, VOLUME_CAP_MULTIPLIER } from '@/data/broker-volume-cap-mapping';
-import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@/data/broker-time-mapping';
-import { hhmmToEmsxInt } from '@/data/broker-common-params';
+import { getVolumeCapField, VOLUME_CAP_MULTIPLIER } from '@execution/data/broker-volume-cap-mapping';
+import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@execution/data/broker-time-mapping';
+import { hhmmToEmsxInt } from '@execution/data/broker-common-params';
 import type {
   Order,
   Route,
@@ -1406,6 +1406,7 @@ export function BatchRouteOrderDialog({
                       onPatchAlloc={(b, patch) => patchAlloc(o.id, b, patch)}
                       editable={editable}
                       phase={phase}
+                      ratios={ratios}
                     />
                   );
                 })}
@@ -1594,12 +1595,13 @@ interface OrderRowProps {
   onPatchAlloc: (broker: string, patch: Partial<AllocState>) => void;
   editable: boolean;
   phase: Phase;
+  ratios: Record<string, number>;
 }
 
 function OrderRow(p: OrderRowProps) {
   const { order: o, row: r, lot, total, effectiveRemaining, pendingWorking,
     overAlloc, anyAlloc, selectedBrokers, isBrokerAllowedFor,
-    onPatchRow, onPatchAlloc, editable, phase } = p;
+    onPatchRow, onPatchAlloc, editable, phase, ratios } = p;
 
   const aggregateStatus: AllocStatus | undefined = useMemo(() => {
     const statuses = Object.values(r.allocations).map(a => a.status).filter(Boolean) as AllocStatus[];
@@ -1660,37 +1662,49 @@ function OrderRow(p: OrderRowProps) {
         return (
           <td key={b} className="px-2 py-1 text-right">
             {allowed ? (
-              <Input
-                type="number"
-                min={0}
-                step={lot}
-                value={a?.qty ?? '0'}
-                onChange={(e) => onPatchAlloc(b, { qty: e.target.value })}
-                onWheel={e => e.currentTarget.blur()}
-                className={
-                  'h-7 w-24 text-right font-mono text-xs ' +
-                  // Use ring instead of bg to avoid contrast issues with the
-                  // input's text color in either light or dark mode.
-                  // Dashed ring during 'review' (dry-run preview) so the
-                  // user can tell pre-flight result apart from a real route.
-                  (cellInvalid
-                    ? 'ring-2 ring-red-500/70 ring-inset'
-                    : (allocStatus === 'SUCCESS'
-                      ? (phase === 'review'
-                        ? 'ring-2 ring-emerald-500/40 ring-inset ring-dashed'
-                        : 'ring-2 ring-emerald-500/40 ring-inset')
-                      : (allocStatus === 'BLOCKED'
+              <div className="inline-flex flex-col items-end gap-0">
+                <Input
+                  type="number"
+                  min={0}
+                  step={lot}
+                  value={a?.qty ?? '0'}
+                  onChange={(e) => onPatchAlloc(b, { qty: e.target.value })}
+                  onWheel={e => e.currentTarget.blur()}
+                  className={
+                    'h-7 w-24 text-right font-mono text-xs ' +
+                    // Use ring instead of bg to avoid contrast issues with the
+                    // input's text color in either light or dark mode.
+                    // Dashed ring during 'review' (dry-run preview) so the
+                    // user can tell pre-flight result apart from a real route.
+                    (cellInvalid
+                      ? 'ring-2 ring-red-500/70 ring-inset'
+                      : (allocStatus === 'SUCCESS'
                         ? (phase === 'review'
-                          ? 'ring-2 ring-red-500/40 ring-inset ring-dashed'
-                          : 'ring-2 ring-red-500/40 ring-inset')
-                        : (allocStatus === 'FAILED'
-                          ? 'ring-2 ring-amber-500/40 ring-inset'
-                          : ''))))
-                }
-                disabled={!editable}
-                placeholder="0"
-                title={oddLot ? `Odd lot — must be a multiple of ${lot}` : undefined}
-              />
+                          ? 'ring-2 ring-emerald-500/40 ring-inset ring-dashed'
+                          : 'ring-2 ring-emerald-500/40 ring-inset')
+                        : (allocStatus === 'BLOCKED'
+                          ? (phase === 'review'
+                            ? 'ring-2 ring-red-500/40 ring-inset ring-dashed'
+                            : 'ring-2 ring-red-500/40 ring-inset')
+                          : (allocStatus === 'FAILED'
+                            ? 'ring-2 ring-amber-500/40 ring-inset'
+                            : ''))))
+                  }
+                  disabled={!editable}
+                  placeholder="0"
+                  title={oddLot ? `Odd lot — must be a multiple of ${lot}` : undefined}
+                />
+                {q > 0 && effectiveRemaining > 0 && (() => {
+                  const actualPct = Math.round(q / effectiveRemaining * 1000) / 10;
+                  const targetPct = ratios[b] ?? 0;
+                  const deviated = targetPct > 0 && Math.abs(actualPct - targetPct) > 2;
+                  return (
+                    <span className={`text-[10px] font-mono ${deviated ? 'text-red-500 font-semibold' : 'text-muted-foreground/60'}`}>
+                      {actualPct}%
+                    </span>
+                  );
+                })()}
+              </div>
             ) : (
               <span className="text-[10px] text-muted-foreground italic" title="Broker not allowed for this order's market in Settings → Market Broker Mapping">
                 n/a

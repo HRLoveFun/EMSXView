@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Loader2, RotateCcw, Server } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import type { BloombergConnectionState, StartupPhase } from '@/types';
+import type { BloombergConnectionState, StartupPhase } from '@shared/types'
 
 interface StartupGateProps {
   phase: StartupPhase;

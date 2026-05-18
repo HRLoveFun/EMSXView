@@ -19,8 +19,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import type { Route, BrokerStrategyField } from '@/types';
-import { cachedApiService } from '@/services/api';
+import type { Route, BrokerStrategyField } from '@execution/types'
+import { cachedApiService } from '@execution/services/execution-api';
 
 // ============================================================================
 // Cancel Route Dialog

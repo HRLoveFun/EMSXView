@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ConnectionStatus, StartupStatusSnapshot } from '@/types';
+import type { ConnectionStatus, StartupStatusSnapshot } from '@shared/types'
 
 interface ToolbarProps {
   onRefresh: () => void;

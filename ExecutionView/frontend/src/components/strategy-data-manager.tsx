@@ -35,8 +35,8 @@ import {
   exportConfiguration,
   importConfiguration,
   getAvailableBrokersFromFile,
-} from '@/services/strategy-data-service';
-import { cachedApiService } from '@/services/api';
+} from '@execution/services/strategy-data-service';
+import { cachedApiService } from '@execution/services/execution-api';
 
 interface CacheStatus {
   initialized: boolean;

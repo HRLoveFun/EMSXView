@@ -31,10 +31,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { apiService } from '@/services/api';
-import { notifyMarketBrokerMappingUpdated } from '@/hooks/use-market-broker-mapping';
-import { getBrokerExchangeMapping } from '@/data/broker-exchange-mapping';
-import { EXCHANGE_REGION, REGION_ORDER, REGION_LABELS } from '@/data/exchange-region-mapping';
+import { apiService } from '@execution/services/execution-api';
+import { notifyMarketBrokerMappingUpdated } from '@execution/hooks/use-market-broker-mapping';
+import { getBrokerExchangeMapping } from '@execution/data/broker-exchange-mapping';
+import { EXCHANGE_REGION, REGION_ORDER, REGION_LABELS } from '@execution/data/exchange-region-mapping';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

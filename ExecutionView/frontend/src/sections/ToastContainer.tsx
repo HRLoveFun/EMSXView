@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { CheckCircle2, XCircle, Info, X } from 'lucide-react';
-import type { Toast } from '@/types';
+import type { Toast } from '@shared/types'
 
 interface ToastContainerProps {
   toasts: Toast[];
