@@ -1,18 +1,18 @@
 // AppShell — layout and state orchestration
-// Consumes provider contexts (Auth, Realtime, Toast) and renders the full UI
-import { Suspense, lazy, useState, useCallback, useMemo } from 'react';
+// All shell-level state lives here. No hidden contexts.
+import { Suspense, lazy, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Toolbar } from '@/sections/Toolbar';
 import { ToastContainer } from '@/sections/ToastContainer';
 import { StartupGate } from '@/components/startup-gate';
 import { WorkspaceModuleTabs } from '@/sections/WorkspaceModuleTabs';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { useModuleNavigation, type AppModule } from '@app/hooks/use-module-navigation';
+import { useModuleNavigation } from '@app/hooks/use-module-navigation';
 import { useStartupStatus } from '@app/hooks/use-startup-status';
-import { useAuth } from './providers/AuthProvider';
-import { useRealtime } from './providers/RealtimeProvider';
-import { useToast } from './providers/ToastProvider';
-import type { ExecutionModuleInfo } from '@execution/ExecutionModule';
+import { createRealtimeClient, type RealtimeClient } from '@execution/services/realtime';
+import { tokenService } from '@execution/services/execution-api';
+import { HandoffContractsProvider } from '@shared/hooks/use-handoff-contracts';
+import type { Toast } from '@shared/types';
 
 const ExecutionModule = lazy(() => import('@execution/ExecutionModule'));
 const CostViewModule = lazy(() => import('@/modules/costview/CostViewModule'));
@@ -33,25 +33,106 @@ function ModuleLoadingSkeleton({ name }: { name: string }) {
   );
 }
 
-export function AppShell() {
-  const { isAuthenticated, handleLogout } = useAuth();
-  const { streamConnected, streamEverConnected } = useRealtime();
-  const { toasts, addToast, removeToast, droppedToastCount, clearDroppedToastCount } = useToast();
+const MAX_TOASTS = 5;
 
-  // Execution module info (provided by ExecutionModule via callback)
-  const [executionInfo, setExecutionInfo] = useState<ExecutionModuleInfo>({
+export function AppShell() {
+  // ─── Auth state ────────────────────────────────────────────────────────
+  // Bloomberg Terminal is already authenticated locally — no login required.
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const handleLogout = useCallback(() => {
+    tokenService.clearToken();
+    setIsAuthenticated(false);
+  }, []);
+
+  // ─── Toast state ───────────────────────────────────────────────────────
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [droppedToastCount, setDroppedToastCount] = useState(0);
+
+  const addToast = useCallback((type: Toast['type'], message: string) => {
+    const id =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    setToasts(prev => {
+      const next = [...prev, { id, type, message }];
+      if (next.length > MAX_TOASTS) {
+        setDroppedToastCount(c => c + (next.length - MAX_TOASTS));
+        return next.slice(next.length - MAX_TOASTS);
+      }
+      return next;
+    });
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const clearDroppedToastCount = useCallback(() => setDroppedToastCount(0), []);
+
+  // ─── Realtime WS connection ────────────────────────────────────────────
+  const [streamConnected, setStreamConnected] = useState(false);
+  const [streamEverConnected, setStreamEverConnected] = useState(false);
+  const rtClientRef = useRef<RealtimeClient | null>(null);
+
+  useEffect(() => {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const envUrl = import.meta.env.VITE_API_URL;
+    let wsBase: string;
+    if (envUrl) {
+      const isPageSecure = window.location.protocol === 'https:';
+      const envIsInsecure = /^http:\/\//i.test(envUrl) || /^ws:\/\//i.test(envUrl);
+      if (isPageSecure && envIsInsecure) {
+        console.error('[realtime] Refusing to use insecure VITE_API_URL on https page');
+        addToast(
+          'error',
+          'Insecure VITE_API_URL protocol detected (http/ws). Automatically switched to same-origin WSS. Please check your environment configuration.',
+        );
+        wsBase = `${proto}//${window.location.host}`;
+      } else {
+        wsBase = envUrl.replace(/^http/i, 'ws');
+      }
+    } else {
+      wsBase = `${proto}//${window.location.host}`;
+    }
+    const client = createRealtimeClient({ url: `${wsBase}/ws/orders` });
+    rtClientRef.current = client;
+
+    client.onStatus((s) => {
+      const isConnected = s === 'connected';
+      setStreamConnected(isConnected);
+      if (isConnected) {
+        setStreamEverConnected(true);
+      }
+    });
+    client.connect();
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const c = rtClientRef.current;
+      if (c && !c.connected) {
+        c.forceReconnect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      client.disconnect();
+      rtClientRef.current = null;
+    };
+  }, [addToast]);
+
+  // ─── Execution module info (provided by ExecutionModule via callback) ───
+  const [executionInfo, setExecutionInfo] = useState({
     orderCount: 0,
     routeCount: 0,
     isLoading: true,
-    lastUpdatedAt: null,
+    lastUpdatedAt: null as number | null,
     refresh: () => {},
     clearCache: () => {},
   });
-  const handleExecutionInfoUpdate = useCallback((info: ExecutionModuleInfo) => {
-    setExecutionInfo(info);
-  }, []);
 
-  // Startup status
+  // ─── Startup status ───────────────────────────────────────────────────
   const {
     startupStatus,
     connectionStatus,
@@ -61,7 +142,7 @@ export function AppShell() {
     isReady: isBackendReady,
   } = useStartupStatus({ enabled: isAuthenticated });
 
-  // Module navigation (shell-level only, execution state is inside ExecutionModule)
+  // ─── Module navigation ─────────────────────────────────────────────────
   const {
     activeModule,
     setActiveModule,
@@ -77,7 +158,6 @@ export function AppShell() {
     routeCount: executionInfo.routeCount,
   });
 
-  // Toolbar order count depends on active module
   const toolbarOrderCount = useMemo(() => {
     if (activeModule !== 'execution') return 0;
     return executionInfo.orderCount;
@@ -85,6 +165,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      <HandoffContractsProvider>
       <Toolbar
         onRefresh={executionInfo.refresh}
         onClearCache={executionInfo.clearCache}
@@ -122,7 +203,12 @@ export function AppShell() {
               <Suspense fallback={<ModuleLoadingSkeleton name="Execution" />}>
                 <ExecutionModule
                   onNavigateToDatabase={() => setActiveModule('database')}
-                  onInfoUpdate={handleExecutionInfoUpdate}
+                  onInfoUpdate={setExecutionInfo}
+                  onLogout={handleLogout}
+                  addToast={addToast}
+                  realtimeClient={rtClientRef.current}
+                  streamConnected={streamConnected}
+                  streamEverConnected={streamEverConnected}
                 />
               </Suspense>
             }
@@ -154,6 +240,7 @@ export function AppShell() {
           <div>Source: Bloomberg Terminal · {footerConnectionText}</div>
         </div>
       </footer>
+      </HandoffContractsProvider>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 // ExecutionModule — self-contained entry point for the Execution domain
-// Manages its own data fetching, state, and rendering.
-// Communicates with the shell via onNavigateToDatabase + onInfoUpdate callbacks.
-import { useState, useCallback, useEffect, useMemo } from 'react';
+// Receives shell capabilities via explicit props, NOT hidden contexts.
+import { useState, useEffect, useMemo } from 'react';
 import { MonitorBoard } from '@/sections/MonitorBoard';
 import { ExecutionBoard } from '@/sections/ExecutionBoard';
 import { ExecutionViewTabs } from '@/sections/ExecutionViewTabs';
@@ -11,11 +10,9 @@ import { useExecutionViewData } from '@execution/hooks/use-execution-view-data';
 import { useOrdersStream } from '@execution/hooks/use-orders-stream';
 import { useRoutesStream } from '@execution/hooks/use-routes-stream';
 import { useExecutionState } from '@execution/hooks/use-execution-state';
-import { useAuth } from '@app/providers/AuthProvider';
-import { useRealtime } from '@app/providers/RealtimeProvider';
-import { useToast } from '@app/providers/ToastProvider';
 import { useStartupStatus } from '@app/hooks/use-startup-status';
 import type { SubscriptionsWarmingMode } from '@app/hooks/use-module-navigation';
+import type { RealtimeClient } from '@execution/services/realtime';
 import type { Toast } from '@shared/types';
 
 /** Info that ExecutionModule exposes to the shell for toolbar integration. */
@@ -31,12 +28,24 @@ export interface ExecutionModuleInfo {
 interface ExecutionModuleProps {
   onNavigateToDatabase: () => void;
   onInfoUpdate: (info: ExecutionModuleInfo) => void;
+  onLogout: () => void;
+  addToast: (type: Toast['type'], message: string) => void;
+  realtimeClient: RealtimeClient | null;
+  streamConnected: boolean;
+  streamEverConnected: boolean;
 }
 
-export function ExecutionModule({ onNavigateToDatabase, onInfoUpdate }: ExecutionModuleProps) {
-  const { isAuthenticated, handleLogout } = useAuth();
-  const { client, streamConnected, streamEverConnected } = useRealtime();
-  const { addToast } = useToast();
+export function ExecutionModule({
+  onNavigateToDatabase,
+  onInfoUpdate,
+  onLogout,
+  addToast,
+  realtimeClient,
+  streamConnected,
+  streamEverConnected,
+}: ExecutionModuleProps) {
+  // Bloomberg Terminal is already authenticated locally
+  const isAuthenticated = true;
 
   // Local UI state
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
@@ -79,18 +88,18 @@ export function ExecutionModule({ onNavigateToDatabase, onInfoUpdate }: Executio
     isBackendReady,
     streamConnected,
     allowFallbackFetch: subscriptionsWarmingTimedOut,
-    onAuthenticationFailure: handleLogout,
+    onAuthenticationFailure: onLogout,
     onToast: addToast,
   });
 
-  // Stream hooks — merge deltas into local state
+  // Stream hooks
   const { orders: streamOrders } = useOrdersStream({
-    client,
+    client: realtimeClient,
     initialOrders: allOrders,
     enabled: streamConnected,
   });
   const { routes: streamRoutes } = useRoutesStream({
-    client,
+    client: realtimeClient,
     initialRoutes: allRoutes,
     enabled: streamConnected,
   });
@@ -110,7 +119,7 @@ export function ExecutionModule({ onNavigateToDatabase, onInfoUpdate }: Executio
     }
   }, [effectiveOrders, effectiveRoutes]);
 
-  // Execution domain state (tabs, filters, monitor conditions)
+  // Execution domain state
   const {
     activeTab,
     setActiveTab,
@@ -146,20 +155,17 @@ export function ExecutionModule({ onNavigateToDatabase, onInfoUpdate }: Executio
     }
   }, [activeTab, effectiveOrders.length, filteredOrders.length, monitorCount]);
 
-  // Expose info to shell for toolbar integration
-  const stableRefresh = useCallback(() => { handleRefresh(); }, [handleRefresh]);
-  const stableClearCache = useCallback(() => { handleClearCache(); }, [handleClearCache]);
-
+  // Expose info to shell for toolbar
   useEffect(() => {
     onInfoUpdate({
       orderCount: toolbarOrderCount,
       routeCount: effectiveRoutes.length,
       isLoading,
       lastUpdatedAt,
-      refresh: stableRefresh,
-      clearCache: stableClearCache,
+      refresh: handleRefresh,
+      clearCache: handleClearCache,
     });
-  }, [toolbarOrderCount, effectiveRoutes.length, isLoading, lastUpdatedAt, stableRefresh, stableClearCache, onInfoUpdate]);
+  }, [toolbarOrderCount, effectiveRoutes.length, isLoading, lastUpdatedAt, handleRefresh, handleClearCache, onInfoUpdate]);
 
   return (
     <div className="space-y-3">

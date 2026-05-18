@@ -1,4 +1,2 @@
-// App providers — centralized re-export
-export { AuthProvider, useAuth } from './AuthProvider';
-export { ToastProvider, useToast } from './ToastProvider';
-export { RealtimeProvider, useRealtime } from './RealtimeProvider';
+// App providers — no custom contexts needed
+// All state lives in AppShell and flows via explicit props.
