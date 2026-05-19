@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRealtimeClient, type DeltaEvent } from './realtime';
+import { createRealtimeClient, type DeltaEvent } from '@execution/services/realtime';
 import { createOrderStreamStore } from '@execution/stores/order-stream-store';
 import { createRouteStreamStore } from '@execution/stores/route-stream-store';
 

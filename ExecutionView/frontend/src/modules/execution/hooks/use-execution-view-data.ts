@@ -11,9 +11,9 @@ import type {
   Order,
   Route,
   RouteOrderRequest,
-  Toast,
   TraderInfo,
-} from '@/types';
+} from '@execution/types';
+import type { Toast } from '@shared/types';
 
 interface UseExecutionViewDataOptions {
   isAuthenticated: boolean;

@@ -11,25 +11,19 @@ import {
   Layers,
   ChevronDown,
   ChevronRight,
-  Filter,
-  Search,
-  X,
   RotateCcw,
   Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Checkbox } from '@/components/ui/checkbox';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatNumber, formatInt, getSideClass } from '@shared/lib/format-utils';
 import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@shared/lib/table-constants';
+import { TextFilterPopover } from '@execution/components/filters/TextFilterPopover';
+import { MultiSelectFilterPopover } from '@execution/components/filters/MultiSelectFilterPopover';
 import { RouteActionMenu } from '@execution/components/route-action-menu';
-import {
-  CancelRouteDialog,
-} from '@execution/components/route-modify-dialogs';
+import { CancelRouteDialog } from '@execution/components/route-modify-dialogs';
 import { UnifiedModifyRouteDialog } from '@execution/components/unified-modify-route-dialog';
 import { RateDiagnosticDialog } from '@execution/components/rate-diagnostic-dialog';
 import { BatchCancelDialog, BatchModifyDialog } from '@execution/components/batch-operation-dialogs';
@@ -360,102 +354,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
     return Array.from(traders).sort();
   }, [routes]);
 
-  // Generic multi-select filter popover with include/exclude mode
-  const multiSelectFilterPopover = (
-    label: string,
-    options: string[],
-    selected: string[],
-    setSelected: (vals: string[]) => void,
-    mode: 'include' | 'exclude',
-    setMode: (mode: 'include' | 'exclude') => void
-  ) => {
-    const active = selected.length > 0;
-    return (
-      <Popover>
-        <PopoverTrigger asChild>
-          <button className={`inline-flex items-center ${active ? 'text-primary' : 'text-muted-foreground/50'}`}>
-            <Filter className="h-3 w-3" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-52 p-2" align="start">
-          {/* Include/Exclude toggle */}
-          <div className="flex items-center gap-1 mb-2 p-1 bg-secondary/50 rounded">
-            <button
-              className={`flex-1 text-xs py-1 px-2 rounded ${mode === 'include' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
-              onClick={() => setMode('include')}
-            >
-              Include
-            </button>
-            <button
-              className={`flex-1 text-xs py-1 px-2 rounded ${mode === 'exclude' ? 'bg-destructive text-destructive-foreground' : 'hover:bg-secondary'}`}
-              onClick={() => setMode('exclude')}
-            >
-              Exclude
-            </button>
-          </div>
-          <div className="space-y-1 max-h-52 overflow-y-auto">
-            {options.length === 0 ? (
-              <div className="px-1 py-2 text-xs text-muted-foreground">No {label} available</div>
-            ) : (
-              options.map(opt => (
-                <label key={opt} className="flex items-center gap-2 px-1 py-0.5 text-xs cursor-pointer hover:bg-accent rounded">
-                  <Checkbox
-                    checked={selected.includes(opt)}
-                    onCheckedChange={(checked) => {
-                      if (checked) setSelected([...selected, opt]);
-                      else setSelected(selected.filter(x => x !== opt));
-                    }}
-                    className="h-3.5 w-3.5"
-                  />
-                  {opt}
-                </label>
-              ))
-            )}
-          </div>
-          {active && (
-            <button
-              className="mt-2 w-full text-xs text-destructive hover:underline"
-              onClick={() => setSelected([])}
-            >Clear</button>
-          )}
-        </PopoverContent>
-      </Popover>
-    );
-  };
-
-  const textFilterPopover = (
-    value: string,
-    onChange: (v: string) => void,
-    placeholder: string,
-  ) => {
-    const active = !!value;
-    return (
-      <Popover>
-        <PopoverTrigger asChild>
-          <button className={`inline-flex items-center ${active ? 'text-primary' : 'text-muted-foreground/50'}`}>
-            <Filter className="h-3 w-3" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-44 p-2" align="start">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              value={value}
-              onChange={e => onChange(e.target.value)}
-              placeholder={placeholder}
-              className="pl-7 h-7 text-xs"
-              autoFocus
-            />
-            {active && (
-              <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => onChange('')}>
-                <X className="h-3 w-3 text-muted-foreground" />
-              </button>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
-    );
-  };
+  // Shared filter components in components/filters/
 
   const getPercentFilled = (route: Route) => {
     if (route.amount <= 0) return '';
@@ -709,7 +608,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors">
                   <div className="flex items-center gap-1">
                     <span onClick={() => handleSort('ticker')}>Ticker{getSortIcon('ticker')}</span>
-                    {textFilterPopover(tickerFilter, setTickerFilter, 'Filter ticker...')}
+                    <TextFilterPopover value={tickerFilter} onChange={setTickerFilter} placeholder="Filter ticker..." />
                   </div>
                 </th>
                 {/* Exchange */}
@@ -724,7 +623,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors">
                   <div className="flex items-center gap-1">
                     <span onClick={() => handleSort('status')}>Status{getSortIcon('status')}</span>
-                    {multiSelectFilterPopover('status', availableStatuses, statusFilter, setStatusFilter, statusFilterMode, setStatusFilterMode)}
+                    <MultiSelectFilterPopover label="status" options={availableStatuses} selected={statusFilter} onChange={setStatusFilter} mode={statusFilterMode} onModeChange={setStatusFilterMode} />
                   </div>
                 </th>
                 {/* Type */}
@@ -767,14 +666,14 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors">
                   <div className="flex items-center gap-1">
                     <span onClick={() => handleSort('broker')}>Broker{getSortIcon('broker')}</span>
-                    {multiSelectFilterPopover('broker', availableBrokers, brokerFilter, setBrokerFilter, brokerFilterMode, setBrokerFilterMode)}
+                    <MultiSelectFilterPopover label="broker" options={availableBrokers} selected={brokerFilter} onChange={setBrokerFilter} mode={brokerFilterMode} onModeChange={setBrokerFilterMode} />
                   </div>
                 </th>
                 {/* Trader */}
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors">
                   <div className="flex items-center gap-1">
                     <span onClick={() => handleSort('trader')}>Trader{getSortIcon('trader')}</span>
-                    {multiSelectFilterPopover('trader', availableTraders, traderFilter, setTraderFilter, traderFilterMode, setTraderFilterMode)}
+                    <MultiSelectFilterPopover label="trader" options={availableTraders} selected={traderFilter} onChange={setTraderFilter} mode={traderFilterMode} onModeChange={setTraderFilterMode} />
                   </div>
                 </th>
                 {/* Strategy */}

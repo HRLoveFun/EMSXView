@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { MonitorBoard } from '@execution/views/MonitorBoard';
 import { ExecutionBoard } from '@execution/views/ExecutionBoard';
 import { ExecutionViewTabs } from '@execution/views/ExecutionViewTabs';
-import { SettingsBoard } from '@execution/views/SettingsBoard';
+import { SettingsBoard } from '@execution/views/settings/SettingsBoard';
 import { SubOrderReviewPanel } from '@execution/components/sub-order-review-panel';
 import { useExecutionViewData } from '@execution/hooks/use-execution-view-data';
 import { useOrdersStream } from '@execution/hooks/use-orders-stream';
