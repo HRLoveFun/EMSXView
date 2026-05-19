@@ -33,34 +33,11 @@ import {
   type MonitorConditions,
   type ConditionId,
 } from '@execution/lib/monitor-conditions';
-import type { Order, OrderStatus, Route } from '@execution/types'
+import { OrderStatusBadge } from '@execution/components/order-status-badge';
+import type { Order, Route } from '@execution/types'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TOTAL_COLS = 26; // Health strip + 25 data cols (see ColHeader list below)
-
-// ─── Status badge ────────────────────────────────────────────────────────────
-function getStatusBadge(status: OrderStatus) {
-  // Each status gets a visually distinct treatment so traders never confuse
-  // FILLED (final, success) with COMPLETED (post-trade reconciled) or
-  // mistake PENDING_CANCEL (high-risk, irreversible) for the milder
-  // REJECTED. Colour + weight + border style together encode the meaning.
-  const map: Record<OrderStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }> = {
-    NEW:            { variant: 'outline' },
-    ASSIGN:         { variant: 'outline', className: 'border-cyan-500 text-cyan-600' },
-    WORKING:        { variant: 'default', className: 'bg-blue-500/90 hover:bg-blue-600' },
-    PARTIAL:        { variant: 'default', className: 'bg-amber-500/90 hover:bg-amber-600' },
-    FILLED:         { variant: 'default', className: 'bg-emerald-500/90 hover:bg-emerald-600' },
-    CANCELLED:      { variant: 'secondary', className: 'border border-dashed border-muted-foreground/40 italic' },
-    COMPLETED:      { variant: 'outline', className: 'border-emerald-700 text-emerald-700 dark:text-emerald-400 font-semibold' },
-    QUEUED:         { variant: 'default', className: 'bg-purple-500/90 hover:bg-purple-600' },
-    SUSPENDED:      { variant: 'default', className: 'bg-orange-500/90 hover:bg-orange-600' },
-    PENDING_CANCEL: { variant: 'destructive', className: 'bg-red-600 ring-2 ring-red-300 animate-pulse' },
-    REJECTED:       { variant: 'destructive', className: 'bg-red-700/90' },
-    SENT:           { variant: 'default', className: 'bg-sky-500/90 hover:bg-sky-600' },
-  };
-  const s = map[status] ?? { variant: 'outline' as const };
-  return <Badge variant={s.variant} className={`text-[10px] px-1.5 py-0 leading-4 ${s.className ?? ''}`}>{status}</Badge>;
-}
 
 // ─── Threshold input (commit on blur / Enter) ───────────────────────────────
 function ThresholdInput({
@@ -407,7 +384,7 @@ export function MonitorBoard({
           <td className="px-2 py-1.5 font-mono text-xs">{order.id}</td>
           <td className="px-2 py-1.5 font-mono font-medium whitespace-nowrap">{order.symbol}</td>
           <td className={`px-2 py-1.5 font-medium ${order.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{order.side}</td>
-          <td className="px-2 py-1.5">{getStatusBadge(order.status)}</td>
+          <td className="px-2 py-1.5"><OrderStatusBadge status={order.status} /></td>
           <td className="px-2 py-1.5 text-muted-foreground">{order.orderType}</td>
           <td className={`px-2 py-1.5 text-right font-mono ${order.side === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
             <Tooltip>

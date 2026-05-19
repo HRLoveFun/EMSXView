@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig, loadEnv } from "vite"
@@ -18,6 +19,12 @@ export default defineConfig(({ mode }) => {
         "@shared": path.resolve(__dirname, "./src/shared"),
         "@execution": path.resolve(__dirname, "./src/modules/execution"),
       },
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['./src/test-setup.ts'],
+      include: ['src/**/*.test.{ts,tsx}'],
     },
     server: {
       port: 5173,

@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "lastUpdated": "2026-05-18T15:21:56.900844",
+  "lastUpdated": "2026-05-19T09:17:41.604017",
   "configs": [
     {
       "broker": "EQ-BHP",
@@ -3950,18 +3950,18 @@
           "name": "AQUA",
           "parameters": [
             {
-              "fieldName": "StartTime",
+              "fieldName": "Start Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "StartTime parameter"
+              "description": "Start Time parameter"
             },
             {
-              "fieldName": "EndTime",
+              "fieldName": "End Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "EndTime parameter"
+              "description": "End Time parameter"
             },
             {
               "fieldName": "Min % Vol.",
@@ -3971,11 +3971,11 @@
               "description": "Min % Vol. parameter"
             },
             {
-              "fieldName": "Max%Vol",
+              "fieldName": "Max % Vol.",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max%Vol parameter"
+              "description": "Max % Vol. parameter"
             },
             {
               "fieldName": "Urgency",
@@ -4128,18 +4128,18 @@
           "name": "DYNAMIC",
           "parameters": [
             {
-              "fieldName": "StartTime",
+              "fieldName": "Start Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "StartTime parameter"
+              "description": "Start Time parameter"
             },
             {
-              "fieldName": "EndTime",
+              "fieldName": "End Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "EndTime parameter"
+              "description": "End Time parameter"
             },
             {
               "fieldName": "Min % Vol.",
@@ -4149,11 +4149,11 @@
               "description": "Min % Vol. parameter"
             },
             {
-              "fieldName": "Max%Vol",
+              "fieldName": "Max % Vol.",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max%Vol parameter"
+              "description": "Max % Vol. parameter"
             },
             {
               "fieldName": "Benchmark",
@@ -4238,25 +4238,18 @@
           "name": "IS",
           "parameters": [
             {
-              "fieldName": "Urgency",
+              "fieldName": "Start Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Urgency parameter"
+              "description": "Start Time parameter"
             },
             {
-              "fieldName": "StartTime",
+              "fieldName": "End Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "StartTime parameter"
-            },
-            {
-              "fieldName": "EndTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "EndTime parameter"
+              "description": "End Time parameter"
             },
             {
               "fieldName": "Min % Vol.",
@@ -4266,11 +4259,18 @@
               "description": "Min % Vol. parameter"
             },
             {
-              "fieldName": "Max%Vol",
+              "fieldName": "Max % Vol.",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max%Vol parameter"
+              "description": "Max % Vol. parameter"
+            },
+            {
+              "fieldName": "Urgency",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Urgency parameter"
             },
             {
               "fieldName": "Benchmark",
@@ -4383,18 +4383,18 @@
           "name": "LADDER",
           "parameters": [
             {
-              "fieldName": "StartTime",
+              "fieldName": "Start Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "StartTime parameter"
+              "description": "Start Time parameter"
             },
             {
-              "fieldName": "EndTime",
+              "fieldName": "End Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "EndTime parameter"
+              "description": "End Time parameter"
             },
             {
               "fieldName": "Base Rate",
@@ -4458,18 +4458,25 @@
           "name": "PEG",
           "parameters": [
             {
-              "fieldName": "StartTime",
+              "fieldName": "Start Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "StartTime parameter"
+              "description": "Start Time parameter"
             },
             {
-              "fieldName": "EndTime",
+              "fieldName": "End Time",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "EndTime parameter"
+              "description": "End Time parameter"
+            },
+            {
+              "fieldName": "Max % Vol.",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % Vol. parameter"
             },
             {
               "fieldName": "Urgency",
@@ -4477,13 +4484,6 @@
               "disable": "0",
               "dataType": "string",
               "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "Max%Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Display Size",
@@ -4540,6 +4540,20 @@
           "name": "POV",
           "parameters": [
             {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "End Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "End Time parameter"
+            },
+            {
               "fieldName": "Urgency",
               "stringValue": "",
               "disable": "0",
@@ -4547,25 +4561,11 @@
               "description": "Urgency parameter"
             },
             {
-              "fieldName": "StartTime",
+              "fieldName": "% Volume",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "StartTime parameter"
-            },
-            {
-              "fieldName": "EndTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "EndTime parameter"
-            },
-            {
-              "fieldName": "%OfVolume",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "%OfVolume parameter"
+              "description": "% Volume parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4671,32 +4671,32 @@
           "name": "TWAP",
           "parameters": [
             {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "End Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "End Time parameter"
+            },
+            {
+              "fieldName": "Max % Vol.",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % Vol. parameter"
+            },
+            {
               "fieldName": "Urgency",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
               "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "StartTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "StartTime parameter"
-            },
-            {
-              "fieldName": "EndTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "EndTime parameter"
-            },
-            {
-              "fieldName": "Max%Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4795,32 +4795,32 @@
           "name": "VWAP",
           "parameters": [
             {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "End Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "End Time parameter"
+            },
+            {
+              "fieldName": "Max % Vol.",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % Vol. parameter"
+            },
+            {
               "fieldName": "Urgency",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
               "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "StartTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "StartTime parameter"
-            },
-            {
-              "fieldName": "EndTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "EndTime parameter"
-            },
-            {
-              "fieldName": "Max%Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4926,25 +4926,25 @@
           "name": "CLOSE",
           "parameters": [
             {
+              "fieldName": "Start Time",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Start Time parameter"
+            },
+            {
+              "fieldName": "Max % Vol.",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max % Vol. parameter"
+            },
+            {
               "fieldName": "Urgency",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
               "description": "Urgency parameter"
-            },
-            {
-              "fieldName": "StartTime",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "StartTime parameter"
-            },
-            {
-              "fieldName": "Max%Vol",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "MaxAuction%",

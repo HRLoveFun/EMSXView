@@ -14,7 +14,6 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -25,6 +24,7 @@ import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TY
 import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, Route } from '@execution/types'
 import { OrderModifyDialog, type OrderUpdates } from '@execution/components/order-modify-dialog';
 import { BatchRouteOrderDialog } from '@execution/components/batch-route-order-dialog';
+import { OrderStatusBadge } from '@execution/components/order-status-badge';
 
 type SortField = keyof Order | null;
 type SortDirection = 'asc' | 'desc';
@@ -164,25 +164,6 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
     return sortConfig.direction === 'asc'
       ? <ArrowUp className="h-3.5 w-3.5 text-primary" />
       : <ArrowDown className="h-3.5 w-3.5 text-primary" />;
-  };
-
-  const getStatusBadge = (status: OrderStatus) => {
-    const map: Record<OrderStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }> = {
-      NEW:            { variant: 'outline' },
-      ASSIGN:         { variant: 'outline', className: 'border-cyan-500 text-cyan-600' },
-      WORKING:        { variant: 'default', className: 'bg-blue-500/90 hover:bg-blue-600' },
-      PARTIAL:        { variant: 'default', className: 'bg-amber-500/90 hover:bg-amber-600' },
-      FILLED:         { variant: 'default', className: 'bg-emerald-500/90 hover:bg-emerald-600' },
-      CANCELLED:      { variant: 'secondary' },
-      COMPLETED:      { variant: 'default', className: 'bg-green-600/90 hover:bg-green-700' },
-      QUEUED:         { variant: 'default', className: 'bg-purple-500/90 hover:bg-purple-600' },
-      SUSPENDED:      { variant: 'default', className: 'bg-orange-500/90 hover:bg-orange-600' },
-      PENDING_CANCEL: { variant: 'destructive', className: 'bg-red-400/90' },
-      REJECTED:       { variant: 'destructive' },
-      SENT:           { variant: 'default', className: 'bg-sky-500/90 hover:bg-sky-600' },
-    };
-    const s = map[status] ?? { variant: 'outline' as const };
-    return <Badge variant={s.variant} className={`text-[10px] px-1.5 py-0 leading-4 ${s.className ?? ''}`}>{status}</Badge>;
   };
 
   const getSideClass = (side: OrderSide) => side === 'BUY' ? 'side-buy' : 'side-sell';
@@ -659,7 +640,7 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                       <td className="font-mono text-xs">{order.id}</td>
                       <td className="font-semibold">{order.symbol}</td>
                       <td className={getSideClass(order.side)}>{order.side}</td>
-                      <td>{getStatusBadge(order.status)}</td>
+                      <td><OrderStatusBadge status={order.status} /></td>
                       <td className="text-muted-foreground">{order.orderType}</td>
                       <td className={`text-right font-mono-numbers ${order.side === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
                         <Tooltip>

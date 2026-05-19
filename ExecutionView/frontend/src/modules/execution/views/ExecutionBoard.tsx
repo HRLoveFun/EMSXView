@@ -1,11 +1,12 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown, ChevronRight } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
 import { AlgoLaunchDialog } from '@execution/components/algo-launch-dialog';
 import { SubOrderReviewPanel } from '@execution/components/sub-order-review-panel';
-import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@execution/hooks/use-trade-hotkeys';
+import { useTradeHotkeys, HotkeyCheatsheet } from '@execution/hooks/use-trade-hotkeys';
+import { useBoardNavigation } from '@execution/hooks/use-board-navigation';
 import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
   CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,
@@ -60,94 +61,27 @@ export function ExecutionBoard({
     }
   }, [onLaunchExecution]);
 
-  // Count orders with active algo executions
   const algoOrderCount = orders.filter(o => o.parentExecutionId != null).length;
 
-  // ── Order \u2192 Route linkage ─────────────────────────────────────────────
-  // When orders are selected in the top pane, filter the Route pane to routes
-  // belonging to those orders. Routes are linked to their parent via `sequence`
-  // which matches `order.id` (stringified). Clearing selection shows all routes.
   const displayedRoutes = useMemo(() => {
     if (selectedOrders.size === 0) return routes;
-    const sequences = new Set<string>();
-    for (const id of selectedOrders) sequences.add(String(id));
+    const sequences = new Set(Array.from(selectedOrders, id => String(id)));
     return routes.filter(r => sequences.has(String(r.sequence)));
   }, [routes, selectedOrders]);
 
+  const isRouteFiltered = selectedOrders.size > 0;
   const selectedOrderCount = selectedOrders.size;
-  const isRouteFiltered = selectedOrderCount > 0;
 
-  // ── Keyboard flow ─────────────────────────────────────────────────────
-  const [activePane, setActivePane] = useState<TradePane>('orders');
-  // Cursor indices for j/k navigation in each pane
-  const [cursorOrderIdx, setCursorOrderIdx] = useState(0);
-  const [cursorRouteIdx, setCursorRouteIdx] = useState(0);
-
-  // Clamp cursor indices when underlying lists change
-  useEffect(() => {
-    if (cursorOrderIdx >= orders.length) setCursorOrderIdx(Math.max(0, orders.length - 1));
-  }, [orders.length, cursorOrderIdx]);
-  useEffect(() => {
-    if (cursorRouteIdx >= displayedRoutes.length) setCursorRouteIdx(Math.max(0, displayedRoutes.length - 1));
-  }, [displayedRoutes.length, cursorRouteIdx]);
-
-  const moveCursor = useCallback((pane: TradePane, delta: number) => {
-    if (pane === 'orders') {
-      setCursorOrderIdx(i => {
-        const n = orders.length;
-        if (n === 0) return 0;
-        return Math.max(0, Math.min(n - 1, i + delta));
-      });
-    } else if (pane === 'routes') {
-      setCursorRouteIdx(i => {
-        const n = displayedRoutes.length;
-        if (n === 0) return 0;
-        return Math.max(0, Math.min(n - 1, i + delta));
-      });
-    }
-  }, [orders.length, displayedRoutes.length]);
-
-  // When cursor moves in orders pane, single-select that order so the Route
-  // pane filters to its child routes (Bloomberg-style linkage). Only fires
-  // on actual cursor movement (keyboard nav) — not on initial mount, and
-  // not when the user already has a multi-selection from clicking checkboxes
-  // (otherwise this effect would stomp on the user's selection on every
-  // data refresh by re-asserting the cursor's single-selection).
-  const prevCursorRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (activePane !== 'orders') return;
-    // Skip the very first run after mount so we don't auto-select orders[0].
-    if (prevCursorRef.current === null) {
-      prevCursorRef.current = cursorOrderIdx;
-      return;
-    }
-    if (prevCursorRef.current === cursorOrderIdx) return;
-    prevCursorRef.current = cursorOrderIdx;
-    const target = orders[cursorOrderIdx];
-    if (!target) return;
-    // If the user has a multi-selection (>1) we don't override — they're
-    // building a batch. The cursor still moves (and Routes pane keeps using
-    // its own filter), but selection is left intact.
-    if (selectedOrders.size > 1) return;
-    const next = new Set<string>([target.id]);
-    if (selectedOrders.size !== 1 || !selectedOrders.has(target.id)) {
-      onSelectionChange(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursorOrderIdx, activePane]);
-
-  // Scroll cursor row into view (best-effort; rows tagged with data-cursor-row)
-  useEffect(() => {
-    const pane = activePane;
-    const idx = pane === 'orders' ? cursorOrderIdx : cursorRouteIdx;
-    const scope = pane === 'orders'
-      ? document.querySelector('[aria-label="Orders"]')
-      : document.querySelector('[aria-label="Routes"]');
-    if (!scope) return;
-    const rows = scope.querySelectorAll('tbody tr');
-    const el = rows[idx] as HTMLElement | undefined;
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [activePane, cursorOrderIdx, cursorRouteIdx]);
+  const {
+    activePane, setActivePane,
+    cursorOrderIdx, cursorRouteIdx,
+    moveCursor, resetCursors,
+  } = useBoardNavigation({
+    orders,
+    displayedRoutesLength: displayedRoutes.length,
+    selectedOrders,
+    onSelectionChange,
+  });
 
   const { cheatsheetOpen, setCheatsheetOpen } = useTradeHotkeys(
     true,
@@ -167,14 +101,10 @@ export function ExecutionBoard({
       onEscape: () => {
         if (isRouteFiltered) {
           onClearSelection();
-          // Send the cursor back to the top so the next j/k keystroke does not
-          // resume from a stale row that may now be invisible after re-filter.
-          setCursorOrderIdx(0);
-          setCursorRouteIdx(0);
+          resetCursors();
         }
       },
       onFocusSearch: () => {
-        // Best-effort: focus the first visible input[aria-label*="Filter"] in the active pane
         const scope = activePane === 'orders'
           ? document.querySelector('[aria-label="Orders"]')
           : document.querySelector('[aria-label="Routes"]');
