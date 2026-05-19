@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { apiService } from '@execution/services/execution-api';
 import type {
   SubOrderProposal, BatchOperationItemResult, BatchOperationResult,
-} from '@/types';
+} from '@execution/types';
 
 // ============================================================================
 // Sub-order Review Panel

@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/select';
 import type { Route, ModifyRouteRequest } from '@execution/types'
 import { cachedApiService, apiService } from '@execution/services/execution-api';
-import { BrokerStrategyFields, useStrategyFields } from '@/components/broker-strategy-fields';
+import { BrokerStrategyFields, useStrategyFields } from '@execution/components/broker-strategy-fields';
 
 /**
  * Order-type / TIF option metadata. The values come from the backend

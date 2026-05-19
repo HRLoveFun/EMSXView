@@ -69,8 +69,8 @@ import {
 import {
   BrokerStrategyFields,
   useStrategyFields,
-} from '@/components/broker-strategy-fields';
-import { ViolationList, violationLabel } from '@/components/compliance-violation';
+} from '@execution/components/broker-strategy-fields';
+import { ViolationList, violationLabel } from '@execution/components/compliance-violation';
 import { getVolumeCapField, VOLUME_CAP_MULTIPLIER } from '@execution/data/broker-volume-cap-mapping';
 import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@execution/data/broker-time-mapping';
 import { hhmmToEmsxInt } from '@execution/data/broker-common-params';
@@ -83,7 +83,7 @@ import type {
   BatchOperationItemResult,
   BatchOperationResult,
   Violation,
-} from '@/types';
+} from '@execution/types';
 
 const tifOptions: { value: TimeInForce; label: string }[] = [
   { value: 'DAY', label: 'Day' },

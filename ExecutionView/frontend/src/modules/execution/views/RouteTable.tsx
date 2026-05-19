@@ -26,13 +26,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatNumber, formatInt, getSideClass } from '@shared/lib/format-utils';
 import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@shared/lib/table-constants';
-import { RouteActionMenu } from '@/components/route-action-menu';
+import { RouteActionMenu } from '@execution/components/route-action-menu';
 import {
   CancelRouteDialog,
-} from '@/components/route-modify-dialogs';
-import { UnifiedModifyRouteDialog } from '@/components/unified-modify-route-dialog';
-import { RateDiagnosticDialog } from '@/components/rate-diagnostic-dialog';
-import { BatchCancelDialog, BatchModifyDialog } from '@/components/batch-operation-dialogs';
+} from '@execution/components/route-modify-dialogs';
+import { UnifiedModifyRouteDialog } from '@execution/components/unified-modify-route-dialog';
+import { RateDiagnosticDialog } from '@execution/components/rate-diagnostic-dialog';
+import { BatchCancelDialog, BatchModifyDialog } from '@execution/components/batch-operation-dialogs';
 import type { Route, CancelRouteRequest, ModifyRouteRequest } from '@execution/types'
 
 type SortField = keyof Route | null;

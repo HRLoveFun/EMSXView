@@ -1,10 +1,10 @@
 // AppShell — layout and state orchestration
 // All shell-level state lives here. No hidden contexts.
 import { Suspense, lazy, useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Toolbar } from '@/sections/Toolbar';
-import { ToastContainer } from '@/sections/ToastContainer';
+import { Toolbar } from '@app/Toolbar';
+import { ToastContainer } from '@app/ToastContainer';
 import { StartupGate } from '@/components/startup-gate';
-import { WorkspaceModuleTabs } from '@/sections/WorkspaceModuleTabs';
+import { WorkspaceModuleTabs } from '@app/WorkspaceModuleTabs';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { useModuleNavigation } from '@app/hooks/use-module-navigation';
@@ -147,6 +147,8 @@ export function AppShell() {
     activeModule,
     setActiveModule,
     shouldShowStartupGate,
+    subscriptionsWarming,
+    subscriptionsWarmingMode,
     footerConnectionText,
   } = useModuleNavigation({
     startupStatus,
@@ -209,6 +211,8 @@ export function AppShell() {
                   realtimeClient={rtClientRef.current}
                   streamConnected={streamConnected}
                   streamEverConnected={streamEverConnected}
+                  subscriptionsWarming={subscriptionsWarming}
+                  subscriptionsWarmingMode={subscriptionsWarmingMode}
                 />
               </Suspense>
             }
