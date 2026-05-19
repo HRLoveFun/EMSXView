@@ -19,7 +19,7 @@ import { apiService } from '@execution/services/execution-api';
 import type {
   RoutePlan, RoutePlanAllocation, CreateRoutePlanRequest, UpdateRoutePlanRequest,
   SplitType, ActivationMode, MatchSide,
-} from '@/types';
+} from '@execution/types';
 
 // ============================================================================
 // Route Plan Manager

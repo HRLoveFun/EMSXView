@@ -24,7 +24,7 @@ import type {
   Order,
   ScheduleType,
   CreateParentExecutionRequest,
-} from '@/types';
+} from '@execution/types';
 
 // ============================================================================
 // Algo Launch Dialog

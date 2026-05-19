@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "lastUpdated": "2026-05-14T15:15:36.991087",
+  "lastUpdated": "2026-05-18T15:21:56.900844",
   "configs": [
     {
       "broker": "EQ-BHP",
@@ -3950,25 +3950,32 @@
           "name": "AQUA",
           "parameters": [
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
-              "fieldName": "Max % Vol.",
+              "fieldName": "Min % Vol.",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max % Vol. parameter"
+              "description": "Min % Vol. parameter"
+            },
+            {
+              "fieldName": "Max%Vol",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Urgency",
@@ -3978,6 +3985,13 @@
               "description": "Urgency parameter"
             },
             {
+              "fieldName": "Min Drk Fill",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Min Drk Fill parameter"
+            },
+            {
               "fieldName": "Would Price",
               "stringValue": "",
               "disable": "0",
@@ -3985,18 +3999,95 @@
               "description": "Would Price parameter"
             },
             {
+              "fieldName": "Would %",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Would % parameter"
+            },
+            {
+              "fieldName": "WouldDrkPx",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "WouldDrkPx parameter"
+            },
+            {
+              "fieldName": "WouldDark%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "WouldDark% parameter"
+            },
+            {
+              "fieldName": "PostingStyle",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PostingStyle parameter"
+            },
+            {
+              "fieldName": "POO",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "POO parameter"
+            },
+            {
+              "fieldName": "POC",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "POC parameter"
+            },
+            {
+              "fieldName": "RelIndexType",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndexType parameter"
+            },
+            {
+              "fieldName": "RelIndexLmt",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndexLmt parameter"
+            },
+            {
+              "fieldName": "RelIndxBench",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndxBench parameter"
+            },
+            {
+              "fieldName": "TradeAtLast",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "TradeAtLast parameter"
+            },
+            {
+              "fieldName": "CCrossWould",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "CCrossWould parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
+            },
+            {
               "fieldName": "Algo Instr.",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
               "description": "Algo Instr. parameter"
-            },
-            {
-              "fieldName": "Min Drk Fill",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "Min Drk Fill parameter"
             }
           ]
         },
@@ -4018,6 +4109,13 @@
               "description": "SOR Pref parameter"
             },
             {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
+            },
+            {
               "fieldName": "Algo Instr.",
               "stringValue": "",
               "disable": "0",
@@ -4030,18 +4128,18 @@
           "name": "DYNAMIC",
           "parameters": [
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
               "fieldName": "Min % Vol.",
@@ -4051,25 +4149,11 @@
               "description": "Min % Vol. parameter"
             },
             {
-              "fieldName": "Max % Vol.",
+              "fieldName": "Max%Vol",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max % Vol. parameter"
-            },
-            {
-              "fieldName": "POO",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "POO parameter"
-            },
-            {
-              "fieldName": "POC",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "POC parameter"
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Benchmark",
@@ -4077,6 +4161,13 @@
               "disable": "0",
               "dataType": "string",
               "description": "Benchmark parameter"
+            },
+            {
+              "fieldName": "Strike Price",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Strike Price parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4093,11 +4184,46 @@
               "description": "Would % parameter"
             },
             {
-              "fieldName": "Strike Price",
+              "fieldName": "WouldDrkPx",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Strike Price parameter"
+              "description": "WouldDrkPx parameter"
+            },
+            {
+              "fieldName": "WouldDark%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "WouldDark% parameter"
+            },
+            {
+              "fieldName": "PostingStyle",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PostingStyle parameter"
+            },
+            {
+              "fieldName": "POO",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "POO parameter"
+            },
+            {
+              "fieldName": "POC",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "POC parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
             },
             {
               "fieldName": "Algo Instr.",
@@ -4119,18 +4245,18 @@
               "description": "Urgency parameter"
             },
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
               "fieldName": "Min % Vol.",
@@ -4140,11 +4266,11 @@
               "description": "Min % Vol. parameter"
             },
             {
-              "fieldName": "Max % Vol.",
+              "fieldName": "Max%Vol",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max % Vol. parameter"
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Benchmark",
@@ -4175,18 +4301,18 @@
               "description": "Would % parameter"
             },
             {
-              "fieldName": "WouldDark%",
-              "stringValue": "",
-              "disable": "0",
-              "dataType": "string",
-              "description": "WouldDark% parameter"
-            },
-            {
               "fieldName": "WouldDrkPx",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
               "description": "WouldDrkPx parameter"
+            },
+            {
+              "fieldName": "WouldDark%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "WouldDark% parameter"
             },
             {
               "fieldName": "POO",
@@ -4203,32 +4329,46 @@
               "description": "POC parameter"
             },
             {
-              "fieldName": "Rel.Idx",
+              "fieldName": "PostingStyle",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.Idx parameter"
+              "description": "PostingStyle parameter"
             },
             {
-              "fieldName": "Rel.IdxLmt",
+              "fieldName": "RelIndexType",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxLmt parameter"
+              "description": "RelIndexType parameter"
             },
             {
-              "fieldName": "Rel.IdxBmrk",
+              "fieldName": "RelIndexLmt",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxBmrk parameter"
+              "description": "RelIndexLmt parameter"
             },
             {
-              "fieldName": "Rel.IdxStkPr",
+              "fieldName": "RelIndxBench",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxStkPr parameter"
+              "description": "RelIndxBench parameter"
+            },
+            {
+              "fieldName": "RelIndxStkPr",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndxStkPr parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
             },
             {
               "fieldName": "Algo Instr.",
@@ -4243,18 +4383,18 @@
           "name": "LADDER",
           "parameters": [
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
               "fieldName": "Base Rate",
@@ -4299,6 +4439,13 @@
               "description": "Would Price parameter"
             },
             {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
+            },
+            {
               "fieldName": "Algo Instr.",
               "stringValue": "",
               "disable": "0",
@@ -4311,18 +4458,18 @@
           "name": "PEG",
           "parameters": [
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
               "fieldName": "Urgency",
@@ -4330,6 +4477,13 @@
               "disable": "0",
               "dataType": "string",
               "description": "Urgency parameter"
+            },
+            {
+              "fieldName": "Max%Vol",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Display Size",
@@ -4367,6 +4521,13 @@
               "description": "POC parameter"
             },
             {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
+            },
+            {
               "fieldName": "Algo Instr.",
               "stringValue": "",
               "disable": "0",
@@ -4386,25 +4547,25 @@
               "description": "Urgency parameter"
             },
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
-              "fieldName": "% Volume",
+              "fieldName": "%OfVolume",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "% Volume parameter"
+              "description": "%OfVolume parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4433,6 +4594,13 @@
               "disable": "0",
               "dataType": "string",
               "description": "WouldDark% parameter"
+            },
+            {
+              "fieldName": "PostingStyle",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PostingStyle parameter"
             },
             {
               "fieldName": "POO",
@@ -4456,32 +4624,39 @@
               "description": "Session Pref parameter"
             },
             {
-              "fieldName": "Rel.Idx",
+              "fieldName": "RelIndexType",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.Idx parameter"
+              "description": "RelIndexType parameter"
             },
             {
-              "fieldName": "Rel.IdxLmt",
+              "fieldName": "RelIndexLmt",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxLmt parameter"
+              "description": "RelIndexLmt parameter"
             },
             {
-              "fieldName": "Rel.IdxBmrk",
+              "fieldName": "RelIndxBench",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxBmrk parameter"
+              "description": "RelIndxBench parameter"
             },
             {
-              "fieldName": "Rel.IdxStkPr",
+              "fieldName": "RelIndxStkPr",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxStkPr parameter"
+              "description": "RelIndxStkPr parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
             },
             {
               "fieldName": "Algo Instr.",
@@ -4503,25 +4678,25 @@
               "description": "Urgency parameter"
             },
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
-              "fieldName": "Max % Vol.",
+              "fieldName": "Max%Vol",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max % Vol. parameter"
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4552,6 +4727,13 @@
               "description": "WouldDark% parameter"
             },
             {
+              "fieldName": "PostingStyle",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PostingStyle parameter"
+            },
+            {
               "fieldName": "POO",
               "stringValue": "",
               "disable": "0",
@@ -4566,32 +4748,39 @@
               "description": "POC parameter"
             },
             {
-              "fieldName": "Rel.Idx",
+              "fieldName": "RelIndexType",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.Idx parameter"
+              "description": "RelIndexType parameter"
             },
             {
-              "fieldName": "Rel.IdxLmt",
+              "fieldName": "RelIndexLmt",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxLmt parameter"
+              "description": "RelIndexLmt parameter"
             },
             {
-              "fieldName": "Rel.IdxBmrk",
+              "fieldName": "RelIndxBench",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxBmrk parameter"
+              "description": "RelIndxBench parameter"
             },
             {
-              "fieldName": "Rel.IdxStkPr",
+              "fieldName": "RelIndxStkPr",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxStkPr parameter"
+              "description": "RelIndxStkPr parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
             },
             {
               "fieldName": "Algo Instr.",
@@ -4613,25 +4802,25 @@
               "description": "Urgency parameter"
             },
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "End Time",
+              "fieldName": "EndTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "End Time parameter"
+              "description": "EndTime parameter"
             },
             {
-              "fieldName": "Max % Vol.",
+              "fieldName": "Max%Vol",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max % Vol. parameter"
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "Would Price",
@@ -4662,6 +4851,20 @@
               "description": "WouldDark% parameter"
             },
             {
+              "fieldName": "PostingStyle",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PostingStyle parameter"
+            },
+            {
+              "fieldName": "PlResiInDark",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "PlResiInDark parameter"
+            },
+            {
               "fieldName": "POO",
               "stringValue": "",
               "disable": "0",
@@ -4676,32 +4879,39 @@
               "description": "POC parameter"
             },
             {
-              "fieldName": "Rel.Idx",
+              "fieldName": "RelIndexType",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.Idx parameter"
+              "description": "RelIndexType parameter"
             },
             {
-              "fieldName": "Rel.IdxLmt",
+              "fieldName": "RelIndexLmt",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxLmt parameter"
+              "description": "RelIndexLmt parameter"
             },
             {
-              "fieldName": "Rel.IdxBmrk",
+              "fieldName": "RelIndxBench",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxBmrk parameter"
+              "description": "RelIndxBench parameter"
             },
             {
-              "fieldName": "Rel.IdxStkPr",
+              "fieldName": "RelIndxStkPr",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Rel.IdxStkPr parameter"
+              "description": "RelIndxStkPr parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
             },
             {
               "fieldName": "Algo Instr.",
@@ -4723,18 +4933,18 @@
               "description": "Urgency parameter"
             },
             {
-              "fieldName": "Start Time",
+              "fieldName": "StartTime",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Start Time parameter"
+              "description": "StartTime parameter"
             },
             {
-              "fieldName": "Max % Vol.",
+              "fieldName": "Max%Vol",
               "stringValue": "",
               "disable": "0",
               "dataType": "string",
-              "description": "Max % Vol. parameter"
+              "description": "Max%Vol parameter"
             },
             {
               "fieldName": "MaxAuction%",
@@ -4742,6 +4952,13 @@
               "disable": "0",
               "dataType": "string",
               "description": "MaxAuction% parameter"
+            },
+            {
+              "fieldName": "RelTiAucMax%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelTiAucMax% parameter"
             },
             {
               "fieldName": "Only @ Close",
@@ -4756,6 +4973,90 @@
               "disable": "0",
               "dataType": "string",
               "description": "Close Shares parameter"
+            },
+            {
+              "fieldName": "ClsAucLimit%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "ClsAucLimit% parameter"
+            },
+            {
+              "fieldName": "OpportuClose",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OpportuClose parameter"
+            },
+            {
+              "fieldName": "OpporClPrice",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OpporClPrice parameter"
+            },
+            {
+              "fieldName": "OppClOffset%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OppClOffset% parameter"
+            },
+            {
+              "fieldName": "OppClMax%",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "OppClMax% parameter"
+            },
+            {
+              "fieldName": "RelIndexType",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndexType parameter"
+            },
+            {
+              "fieldName": "RelIndexLmt",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndexLmt parameter"
+            },
+            {
+              "fieldName": "RelIndxBench",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "RelIndxBench parameter"
+            },
+            {
+              "fieldName": "TradeAtLast",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "TradeAtLast parameter"
+            },
+            {
+              "fieldName": "CCrossWould",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "CCrossWould parameter"
+            },
+            {
+              "fieldName": "GMOC Enabled",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "GMOC Enabled parameter"
+            },
+            {
+              "fieldName": "Flag To HT",
+              "stringValue": "",
+              "disable": "0",
+              "dataType": "string",
+              "description": "Flag To HT parameter"
             },
             {
               "fieldName": "Algo Instr.",

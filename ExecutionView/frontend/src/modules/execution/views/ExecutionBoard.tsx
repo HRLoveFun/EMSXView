@@ -3,14 +3,14 @@ import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown, Chevro
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
-import { AlgoLaunchDialog } from '@/components/algo-launch-dialog';
-import { SubOrderReviewPanel } from '@/components/sub-order-review-panel';
+import { AlgoLaunchDialog } from '@execution/components/algo-launch-dialog';
+import { SubOrderReviewPanel } from '@execution/components/sub-order-review-panel';
 import { useTradeHotkeys, HotkeyCheatsheet, type TradePane } from '@execution/hooks/use-trade-hotkeys';
 import type {
   Order, Route, OrderFilters, BatchUpdateRequest,
   CancelRouteRequest, ModifyRouteRequest, ModifyOrderRequest,
   CreateParentExecutionRequest,
-} from '@/types';
+} from '@execution/types';
 
 interface ExecutionBoardProps {
   orders: Order[];

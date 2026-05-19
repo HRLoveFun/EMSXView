@@ -69,8 +69,8 @@ import {
   importConfiguration,
   getAvailableBrokersFromFile,
 } from '@execution/services/strategy-data-service';
-import { MarketBrokerMappingSection } from '@/components/market-broker-mapping-section';
-import { RoutePlanManager } from '@/components/route-plan-manager';
+import { MarketBrokerMappingSection } from '@execution/components/market-broker-mapping-section';
+import { RoutePlanManager } from '@execution/components/route-plan-manager';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface ParameterFrequency {

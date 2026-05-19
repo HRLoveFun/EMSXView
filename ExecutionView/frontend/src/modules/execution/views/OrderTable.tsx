@@ -23,8 +23,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatNumber } from '@shared/lib/format-utils';
 import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TYPE_OPTIONS, type OrderGroupByValue } from '@shared/lib/table-constants';
 import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, Route } from '@execution/types'
-import { OrderModifyDialog, type OrderUpdates } from '@/components/order-modify-dialog';
-import { BatchRouteOrderDialog } from '@/components/batch-route-order-dialog';
+import { OrderModifyDialog, type OrderUpdates } from '@execution/components/order-modify-dialog';
+import { BatchRouteOrderDialog } from '@execution/components/batch-route-order-dialog';
 
 type SortField = keyof Order | null;
 type SortDirection = 'asc' | 'desc';

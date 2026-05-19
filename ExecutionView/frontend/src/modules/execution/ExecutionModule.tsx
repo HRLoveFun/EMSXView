@@ -1,11 +1,11 @@
 // ExecutionModule — self-contained entry point for the Execution domain
 // Receives shell capabilities via explicit props, NOT hidden contexts.
 import { useState, useEffect, useMemo } from 'react';
-import { MonitorBoard } from '@/sections/MonitorBoard';
-import { ExecutionBoard } from '@/sections/ExecutionBoard';
-import { ExecutionViewTabs } from '@/sections/ExecutionViewTabs';
-import { SettingsBoard } from '@/sections/SettingsBoard';
-import { SubOrderReviewPanel } from '@/components/sub-order-review-panel';
+import { MonitorBoard } from '@execution/views/MonitorBoard';
+import { ExecutionBoard } from '@execution/views/ExecutionBoard';
+import { ExecutionViewTabs } from '@execution/views/ExecutionViewTabs';
+import { SettingsBoard } from '@execution/views/SettingsBoard';
+import { SubOrderReviewPanel } from '@execution/components/sub-order-review-panel';
 import { useExecutionViewData } from '@execution/hooks/use-execution-view-data';
 import { useOrdersStream } from '@execution/hooks/use-orders-stream';
 import { useRoutesStream } from '@execution/hooks/use-routes-stream';
@@ -33,9 +33,11 @@ interface ExecutionModuleProps {
   realtimeClient: RealtimeClient | null;
   streamConnected: boolean;
   streamEverConnected: boolean;
+  subscriptionsWarming: boolean;
+  subscriptionsWarmingMode: SubscriptionsWarmingMode;
 }
 
-export function ExecutionModule({
+export default function ExecutionModule({
   onNavigateToDatabase,
   onInfoUpdate,
   onLogout,
@@ -43,6 +45,8 @@ export function ExecutionModule({
   realtimeClient,
   streamConnected,
   streamEverConnected,
+  subscriptionsWarming,
+  subscriptionsWarmingMode,
 }: ExecutionModuleProps) {
   // Bloomberg Terminal is already authenticated locally
   const isAuthenticated = true;
@@ -56,16 +60,9 @@ export function ExecutionModule({
 
   // Startup status
   const {
-    startupStatus,
     elapsedSeconds: backendBootstrapElapsedSec,
     isReady: isBackendReady,
   } = useStartupStatus({ enabled: isAuthenticated });
-
-  // Degraded-mode flag
-  const subscriptionsWarmingTimedOut =
-    (startupStatus?.backend.httpReady ?? false)
-    && !isBackendReady
-    && backendBootstrapElapsedSec > 60;
 
   // Execution data
   const {
@@ -87,7 +84,7 @@ export function ExecutionModule({
     isAuthenticated,
     isBackendReady,
     streamConnected,
-    allowFallbackFetch: subscriptionsWarmingTimedOut,
+    allowFallbackFetch: subscriptionsWarmingMode === 'timed-out',
     onAuthenticationFailure: onLogout,
     onToast: addToast,
   });
@@ -130,20 +127,6 @@ export function ExecutionModule({
     monitorCount,
     handleFilterChange,
   } = useExecutionState({ effectiveOrders });
-
-  // Subscription warming
-  const subscriptionsWarming =
-    (startupStatus?.backend.httpReady ?? false)
-    && !isBackendReady
-    && !streamConnected
-    && effectiveOrders.length === 0
-    && effectiveRoutes.length === 0;
-
-  const subscriptionsWarmingMode: SubscriptionsWarmingMode = subscriptionsWarmingTimedOut
-    ? 'timed-out'
-    : streamEverConnected
-      ? 'reconnecting'
-      : 'initial';
 
   // Toolbar order count
   const toolbarOrderCount = useMemo(() => {

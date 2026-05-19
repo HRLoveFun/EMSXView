@@ -36,8 +36,8 @@ import { apiService } from '@execution/services/execution-api';
 import {
   BrokerStrategyFields,
   useStrategyFields,
-} from '@/components/broker-strategy-fields';
-import { ViolationList } from '@/components/compliance-violation';
+} from '@execution/components/broker-strategy-fields';
+import { ViolationList } from '@execution/components/compliance-violation';
 import type {
   Route,
   CancelRouteRequest,
@@ -46,7 +46,7 @@ import type {
   BatchOperationItemResult,
   BatchOperationResult,
   Violation,
-} from '@/types';
+} from '@execution/types';
 
 interface OrderTypeOption { value: string; label: string; needsLimit: boolean; needsStop: boolean }
 interface TifOption { value: string; label: string }
