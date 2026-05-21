@@ -1,5 +1,5 @@
 """
-CostView attribution layer (M2).
+Attribution layer (M2).
 
 Computes per-fill execution-quality metrics:
   - IS slippage vs arrival mid
@@ -9,7 +9,7 @@ Computes per-fill execution-quality metrics:
 Joinable to fill_regime_labels for regime-conditional analysis.
 
 Architecture (v2 — repository-decoupled):
-  - dto.py: Data Transfer Objects (pure data, no DB knowledge) → now in DataPipeline/storage/dto.py
+  - dto.py: Data Transfer Objects (pure data, no DB knowledge)
   - protocols.py: Repository Protocol interfaces (structural subtyping)
   - repositories.py: Concrete SQL implementations (all sqlite3 knowledge here)
   - writer.py, aggregator.py, recommender.py: Business logic depends on protocols

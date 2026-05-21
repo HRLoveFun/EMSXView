@@ -8,8 +8,6 @@ Sub-package responsibilities
 - Classify daily regimes (vol / liquidity / trend) — parameterized by config_version
 - Tag fills with regime labels (fill_regime_labels) — append-only
 
-Storage: CostView/data/regime.db (SQLite, WAL, foreign_keys=ON)
-
 DDL: lives in ``DataPipeline/storage/schema/migrations/vN_to_vN+1.sql``.
 Code constant ``schema.SCHEMA_VERSION`` MUST equal ``PRAGMA user_version`` after migrations.
 """

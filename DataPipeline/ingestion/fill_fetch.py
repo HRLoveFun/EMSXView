@@ -161,8 +161,8 @@ class FillFetch:
                 logger.debug(f"Could not read fetch_log: {e}")
         last_processed = None
         try:
-            from DataPipeline.storage.facade import CostViewDatabase
-            proc_db = CostViewDatabase()
+            from DataPipeline.storage.facade import DatabaseFacade
+            proc_db = DatabaseFacade()
             dates = proc_db.fills_read.get_processed_dates(stage="processed")
             if dates:
                 last_processed = datetime.strptime(dates[-1], "%Y%m%d").date()
@@ -439,8 +439,8 @@ class FillFetch:
             except Exception:
                 pass
         try:
-            from DataPipeline.storage.facade import CostViewDatabase
-            proc_db = CostViewDatabase()
+            from DataPipeline.storage.facade import DatabaseFacade
+            proc_db = DatabaseFacade()
             stats['execution_history'] = proc_db.fills_read.get_execution_history_stats()
         except Exception:
             pass

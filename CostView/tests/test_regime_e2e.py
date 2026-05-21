@@ -19,16 +19,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from CostView.src.regime import (
+from DataPipeline.analysis.regime import (
     fill_regime_tagger,
     liquidity_regime,
     market_index_loader,
     trend_regime,
     vol_regime,
 )
-from CostView.src.regime.config import ensure_default_config
+from DataPipeline.analysis.regime.config import ensure_default_config
 from DataPipeline.storage.schema.migrations.apply import apply_pending
-from CostView.src.regime.schema import connect, ensure_schema_current
+from DataPipeline.analysis.regime.schema import connect, ensure_schema_current
 
 
 def make_mock_fetcher(seed: int = 42):
@@ -176,7 +176,7 @@ class RegimeE2ETest(unittest.TestCase):
         self.assertEqual(count2, 3)
 
     def test_audit_run_journal(self):
-        from CostView.src.regime.run_journal import run_journal
+        from DataPipeline.analysis.regime.run_journal import run_journal
         ensure_default_config(self.regime_db)
         with run_journal("smoke_test", config_version="v0_default",
                          start="2026-04-01", end="2026-04-02",

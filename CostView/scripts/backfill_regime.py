@@ -22,15 +22,15 @@ import logging
 import sys
 from typing import Optional
 
-from CostView.src.regime import (
+from DataPipeline.analysis.regime import (
     fill_regime_tagger,
     liquidity_regime,
     market_index_loader,
     trend_regime,
     vol_regime,
 )
-from CostView.src.regime.config import ensure_default_config
-from CostView.src.regime.run_journal import run_journal
+from DataPipeline.analysis.regime.config import ensure_default_config
+from DataPipeline.analysis.regime.run_journal import run_journal
 
 
 def _wrap(stage_name: str, fn, start: str, end: str, version: str, **kwargs) -> int:

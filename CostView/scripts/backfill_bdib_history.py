@@ -107,11 +107,11 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
 
     # 4. Determine tickers from processed_fills ticker_repository
     try:
-        from DataPipeline.storage.facade import CostViewDatabase
+        from DataPipeline.storage.facade import DatabaseFacade
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            db = CostViewDatabase()
+            db = DatabaseFacade()
         ticker_exchange_map = db.fills_read.get_ticker_exchange_map()
         tickers = list(ticker_exchange_map.keys())
     except Exception as e:

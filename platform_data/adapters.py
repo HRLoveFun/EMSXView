@@ -31,14 +31,14 @@ def _default_tca_factory():
 
 def _default_execution_history_factory():
     try:
-        from CostView.src.execution_history_service import (
+        from platform_data.execution_history_service import (
             ExecutionHistoryQueryService,
         )
         return ExecutionHistoryQueryService()
     except Exception as exc:
         raise FileNotFoundError(
             "ExecutionHistoryQueryService is not available; "
-            f"CostView.src.execution_history_service failed to import: {exc}"
+            f"platform_data.execution_history_service failed to import: {exc}"
         )
 
 
@@ -985,9 +985,9 @@ def _round_or_none(value: float | None, digits: int) -> float | None:
 
 @dataclass(frozen=True)
 class ExecutionHistoryAdapter:
-    """Canonical adapter for CostView-owned execution history."""
+    """Canonical adapter for execution history."""
 
-    service_factory: Callable[[], Any]
+    service_factory: Callable[[], Any] = field(default_factory=lambda: _default_execution_history_factory)
 
     def describe(self) -> dict[str, str]:
         return {

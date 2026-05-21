@@ -200,7 +200,7 @@ def run_daily_pipeline() -> dict:
         # Stage C: Write downstream manifest and flush databases to disk
         print("[STAGE] completion 20")
         try:
-            from src.downstream_interface import write_manifest
+            from DataPipeline.analysis.downstream_interface import write_manifest
             write_manifest()
             logger.info("Downstream manifest updated")
         except Exception as e:

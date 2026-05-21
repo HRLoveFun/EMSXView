@@ -1,4 +1,4 @@
-﻿"""Unified entry point for all CostView database repositories.
+﻿"""Unified entry point for all database repositories.
 
 Provides ``fills_read``, ``fills_write``, ``raw_fills_read``, etc.
 as direct attributes.
@@ -30,11 +30,11 @@ from DataPipeline.storage.schema.migrations.manager import MigrationManager
 
 logger = logging.getLogger(__name__)
 
-class CostViewDatabase:
-    """Unified entry point for all CostView database repositories.
+class DatabaseFacade:
+    """Unified entry point for all database repositories.
 
     Usage:
-        db = CostViewDatabase()
+        db = DatabaseFacade()
         fills = db.fills_read.get_fills_for_date("20260408")
         df = db.fills_write.upsert_processed_fills(df)
     """

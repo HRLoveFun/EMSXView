@@ -32,7 +32,7 @@ from DataPipeline.processing.fill_cleaner import clean_emsx_fills
 from DataPipeline.processing.fill_processor import process_fills
 from DataPipeline.config import Config
 from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
-from DataPipeline.storage.facade import CostViewDatabase
+from DataPipeline.storage.facade import DatabaseFacade
 from DataPipeline.storage.repositories.fetch_history import compute_data_hash
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,7 @@ def ingest_excel_file(
         return result
 
     if db is None:
-        db = CostViewDatabase().raw_db
+        db = DatabaseFacade().raw_db
 
     try:
         df_raw = pd.read_excel(file_path, engine="openpyxl")
@@ -290,7 +290,7 @@ def ingest_all_excel_files(
         excel_dir = Path(excel_dir)
 
     if db is None:
-        db = CostViewDatabase().raw_db
+        db = DatabaseFacade().raw_db
 
     if not excel_dir.exists():
         logger.warning(f"Excel directory not found: {excel_dir}")
@@ -312,7 +312,7 @@ def ingest_all_excel_files(
 
 def process_raw_fills_for_date(
     date_str: str,
-    db: Optional[CostViewDatabase] = None,
+    db: Optional[DatabaseFacade] = None,
     raw_db: Optional[SqliteRawFillReadRepository] = None,
     skip_if_processed: bool = True,
 ) -> Dict[str, Any]:
@@ -322,7 +322,7 @@ def process_raw_fills_for_date(
 
     Args:
         date_str: YYYYMMDD date string.
-        db: CostViewDatabase facade (or None to create default).
+        db: DatabaseFacade facade (or None to create default).
         raw_db: RawFillsDB instance (or None to use db.raw_db).
         skip_if_processed: If True, skip dates that already have processed data.
 
@@ -331,7 +331,7 @@ def process_raw_fills_for_date(
         error (if any).
     """
     if db is None:
-        db = CostViewDatabase()
+        db = DatabaseFacade()
     if raw_db is None:
         raw_db = SqliteRawFillReadRepository()
 

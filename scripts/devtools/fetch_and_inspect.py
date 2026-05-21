@@ -35,8 +35,8 @@ if str(COSTVIEW_DIR) not in sys.path:
     sys.path.insert(0, str(COSTVIEW_DIR))
 
 from DataPipeline.ingestion.fill_fetch import FillFetch, setup_logging
-from src.fill_cleaner import clean_emsx_fills
-from src.fill_processor import (
+from DataPipeline.processing.fill_cleaner import clean_emsx_fills
+from DataPipeline.processing.fill_processor import (
     process_fills,
     add_algo_column,
     add_currency_columns,
@@ -44,7 +44,7 @@ from src.fill_processor import (
     add_mkt_timestamp_columns,
     add_route_mkt_timestamp_columns,
 )
-from src.fill_aggregator import generate_agg_fills_10s, generate_agg_fills_1min
+from DataPipeline.processing.fill_aggregator import generate_agg_fills_10s, generate_agg_fills_1min
 
 logger = logging.getLogger(__name__)
 

@@ -16,17 +16,17 @@ import json
 import logging
 import sys
 
-from CostView.src.attribution.aggregator import (
+from DataPipeline.analysis.attribution.aggregator import (
     aggregate_cells, load_fill_metrics, pairwise_welch_bh, METRICS,
 )
-from CostView.src.attribution.config import get_active_config, seed_default_config
-from CostView.src.attribution.repositories import (
+from DataPipeline.analysis.attribution.config import get_active_config, seed_default_config
+from DataPipeline.analysis.attribution.repositories import (
     SqliteAttributionConfigRepository,
     SqliteBarDataRepository,
     SqliteFillRepository,
     SqliteRegimeRepository,
 )
-from CostView.src.attribution.writer import run_metrics
+from DataPipeline.analysis.attribution.writer import run_metrics
 
 
 def main(argv=None) -> int:

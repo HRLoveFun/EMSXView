@@ -65,7 +65,7 @@ Pipeline 整体可运行。当前已完成两个关键修复：
 | H4: ingestion/__init__.py __all__ 导出不存在符号 | 前序迁移残留 | 删除 `FetchHistoryDB` |
 | L4: core.py 重复 import | 前序重构残留 | 删除第 142-150 行重复导入 |
 | M2: fetch_history_db wrapper | 20 行适配器类 | 删除，`fill_fetch.py` 直连 `SqliteFetchHistoryRepository` |
-| M1: facade.py 类名不一致 | `DatabaseFacade` 别名 `CostViewDatabase` | 重命名 `DatabaseFacade` → `CostViewDatabase` |
+| M1: facade.py 类名不一致 | `DatabaseFacade` 别名 `CostViewDatabase` | 重命名 `CostViewDatabase` → `DatabaseFacade` |
 | M4: DDL 重复 | `_schema.py` 和 `inline_ddl.py` 各自定义 | `inline_ddl.py` 成为单来源 |
 
 ### 数据库获取（FillFetch）修复链（上一 session）

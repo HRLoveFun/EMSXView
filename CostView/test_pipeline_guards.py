@@ -162,7 +162,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertNotIn("1CO GR Equity|20260420", result)
 
     def test_manifest_excludes_outdated_equity_tickers(self) -> None:
-        from CostView.src.downstream_interface import write_manifest
+        from DataPipeline.analysis.downstream_interface import write_manifest
 
         class FakeProcDb:
             @staticmethod
@@ -218,7 +218,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertIn("intraday_volatility", columns)
 
     def test_daily_metrics_use_bloomberg_daily_fields_and_preserve_intraday_logic(self) -> None:
-        from DataPipeline.storage.facade import CostViewDatabase
+        from DataPipeline.storage.facade import DatabaseFacade
         from DataPipeline.storage.connection import ConnectionManager
 
         class FakeFillsRead:
@@ -240,7 +240,7 @@ class PipelineGuardTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            db = CostViewDatabase(connection_manager=mgr)
+            db = DatabaseFacade(connection_manager=mgr)
 
             # Inject fake fills_read so _get_active_tickers_for_date works
             db.fills_read = FakeFillsRead()  # type: ignore[assignment]

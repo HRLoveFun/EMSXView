@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-from CostView.src.regime.schema import REGIME_DB_PATH
+from DataPipeline.analysis.regime.schema import REGIME_DB_PATH
 
 logger = logging.getLogger(__name__)
 
