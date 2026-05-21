@@ -121,18 +121,18 @@ class PipelineContextTest(unittest.TestCase):
                 for warning in w
             ))
 
-    def test_get_connection_manager_lazy(self):
+    def test_connection_manager_lazy(self):
         """Connection manager is lazily created."""
         ctx = PipelineContext()
-        self.assertIsNone(ctx.connection_manager)
-        mgr = ctx.get_connection_manager()
+        self.assertIsNone(ctx._cm)
+        mgr = ctx.connection_manager
         self.assertIsNotNone(mgr)
 
-    def test_get_connection_manager_reuses(self):
+    def test_connection_manager_reuses(self):
         """Same ConnectionManager returned from repeated calls."""
         ctx = PipelineContext()
-        mgr1 = ctx.get_connection_manager()
-        mgr2 = ctx.get_connection_manager()
+        mgr1 = ctx.connection_manager
+        mgr2 = ctx.connection_manager
         self.assertIs(mgr1, mgr2)
 
 
@@ -265,27 +265,7 @@ class FinancialPipelineTest(unittest.TestCase):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class PipelineFactoryTest(unittest.TestCase):
-    """Tests for PipelineFactory stage assembly."""
-
-    def test_create_data_sync_legacy(self):
-        """Legacy data sync includes IngestExcelStage."""
-        pipeline = PipelineFactory.create_data_sync_legacy()
-        self.assertIsInstance(pipeline, FinancialPipeline)
-        self.assertEqual(len(pipeline._stages), 1)
-        self.assertIsInstance(pipeline._stages[0], IngestExcelStage)
-
-    def test_create_data_processing_trade_model(self):
-        """Data processing includes ProcessRawFillsStage."""
-        pipeline = PipelineFactory.create_data_processing_trade_model()
-        self.assertEqual(len(pipeline._stages), 1)
-        self.assertIsInstance(pipeline._stages[0], ProcessRawFillsStage)
-
-    def test_create_aggregation_order_route(self):
-        """Aggregation pipeline has 2 stages."""
-        pipeline = PipelineFactory.create_aggregation_order_route()
-        self.assertEqual(len(pipeline._stages), 2)
-        self.assertIsInstance(pipeline._stages[0], AggregateFillsStage)
-        self.assertIsInstance(pipeline._stages[1], GenerateOrderLabelsStage)
+    """Tests for PipelineFactory.create_daily_e2e_pipeline."""
 
     def test_create_daily_e2e_pipeline_default(self):
         """Default E2E pipeline (skip_ingest=True, skip_bdib=True)."""
@@ -301,7 +281,7 @@ class PipelineFactoryTest(unittest.TestCase):
         """E2E pipeline with BDIB includes extra stages."""
         pipeline = PipelineFactory.create_daily_e2e_pipeline(skip_bdib=False)
         stages = pipeline._stages
-        self.assertEqual(len(stages), 6)  # process + agg + labels + bdib + metrics + manifest (no ingest)
+        self.assertEqual(len(stages), 6)
         self.assertIsInstance(stages[3], IntegrateBDIBStage)
         self.assertIsInstance(stages[4], CalculateDailyMetricsStage)
 
@@ -311,37 +291,9 @@ class PipelineFactoryTest(unittest.TestCase):
             skip_ingest=False, skip_bdib=True,
         )
         stages = pipeline._stages
-        self.assertEqual(len(stages), 5)  # ingest + process + agg + labels + manifest
+        self.assertEqual(len(stages), 5)
         self.assertIsInstance(stages[0], IngestExcelStage)
 
-    def test_create_attribution(self):
-        """Attribution pipeline includes AttributionMetricsStage."""
-        pipeline = PipelineFactory.create_attribution()
-        self.assertEqual(len(pipeline._stages), 1)
-        self.assertIsInstance(pipeline._stages[0], AttributionMetricsStage)
-
-    def test_create_regime_classification(self):
-        """Regime pipeline includes 2 stages."""
-        pipeline = PipelineFactory.create_regime_classification()
-        self.assertEqual(len(pipeline._stages), 2)
-        self.assertIsInstance(pipeline._stages[0], RegimeDailyFeaturesStage)
-        self.assertIsInstance(pipeline._stages[1], RegimeFillTaggerStage)
-
     def test_factory_returns_FinancialPipeline(self):
-        """All factory methods return FinancialPipeline."""
-        self.assertIsInstance(
-            PipelineFactory.create_data_sync_legacy(), FinancialPipeline)
-        self.assertIsInstance(
-            PipelineFactory.create_data_processing_trade_model(), FinancialPipeline)
-        self.assertIsInstance(
-            PipelineFactory.create_aggregation_order_route(), FinancialPipeline)
-        self.assertIsInstance(
-            PipelineFactory.create_integration_tca_analysis(), FinancialPipeline)
-        self.assertIsInstance(
-            PipelineFactory.create_contract_downstream(), FinancialPipeline)
         self.assertIsInstance(
             PipelineFactory.create_daily_e2e_pipeline(), FinancialPipeline)
-        self.assertIsInstance(
-            PipelineFactory.create_regime_classification(), FinancialPipeline)
-        self.assertIsInstance(
-            PipelineFactory.create_attribution(), FinancialPipeline)

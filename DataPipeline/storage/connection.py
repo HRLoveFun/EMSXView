@@ -1,13 +1,12 @@
 """Unified database connection management for CostView.
 
 Migrated from database_access.py with the addition of ConnectionManager,
-which provides centralized connection lifecycle management for all six
+which provides centralized connection lifecycle management for all
 CostView SQLite databases.
 
-Three access tiers:
+Two access tiers:
     READ  — SELECT only (query/status commands)
     WRITE — SELECT + INSERT/UPDATE (fetch, pipeline processing)
-    ADMIN — All operations including DELETE/DROP/ALTER (rebuild, purge)
 
 Usage:
     from DataPipeline.storage.connection import ConnectionManager, AccessTier
@@ -49,7 +48,6 @@ class AccessTier(enum.Enum):
     """Database access permission levels."""
     READ = "read"
     WRITE = "write"
-    ADMIN = "admin"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -111,9 +109,8 @@ def _check_permission(tier: AccessTier, sql_category: str, sql: str) -> None:
         if sql_category == "destructive":
             raise PermissionError(
                 f"WRITE access: destructive '{sql_category}' operation denied. "
-                f"Use ADMIN tier or --db-access admin. SQL: {sql[:120]}..."
+                f"SQL: {sql[:120]}..."
             )
-    # ADMIN: everything allowed
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -144,7 +141,7 @@ class AccessControlledConnection:
         category = _classify_sql(sql)
         _check_permission(self._tier, category, sql)
         if category == "destructive":
-            logger.warning(f"ADMIN destructive operation: {sql[:200]}")
+            logger.warning(f"Destructive operation: {sql[:200]}")
         return self._conn.execute(sql, parameters)
 
     def executemany(self, sql: str, seq_of_parameters: Iterable) -> sqlite3.Cursor:
@@ -180,7 +177,7 @@ def resolve_access_tier(
     """Resolve the effective access tier from explicit param or environment.
 
     Priority:
-        1. Explicit parameter (from CLI --db-access flag)
+        1. Explicit parameter
         2. COSTVIEW_DB_ACCESS environment variable
         3. Default: WRITE
     """
@@ -188,7 +185,7 @@ def resolve_access_tier(
         return explicit
 
     env_val = os.environ.get("COSTVIEW_DB_ACCESS", "").lower().strip()
-    if env_val in ("read", "write", "admin"):
+    if env_val in ("read", "write"):
         return AccessTier(env_val)
 
     return AccessTier.WRITE
@@ -318,7 +315,7 @@ class ConnectionManager:
         on every call.  The cache key is ``(database, row_factory)`` so
         calls with different row factories get separate cached connections.
 
-        For WRITE and ADMIN tiers, always creates a fresh connection.
+        For WRITE tier, always creates a fresh connection.
 
         Args:
             database: One of the DB_* constants or a name in the registry.
@@ -355,7 +352,7 @@ class ConnectionManager:
                 cache[cache_key] = conn
             return conn
 
-        # WRITE / ADMIN connections: always fresh.
+        # WRITE connections: always fresh.
         return self._create_connection(db_path, effective_tier, row_factory=row_factory)
 
     def close_thread_cached_connections(self) -> None:
