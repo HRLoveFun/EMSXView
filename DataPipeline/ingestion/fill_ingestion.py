@@ -1,4 +1,4 @@
-"""
+﻿"""
 Fill Ingestion — bridge between raw fetched data and the processing pipeline.
 
 Provides two modes:
@@ -15,7 +15,6 @@ Provides two modes:
         LAYER 1 entry point: reads raw_fills from DB, runs cleaning + enrichment,
         upserts to processed_fills.db with a fixed 27-column schema.
 
-Migrated from CostView/src/fill_ingestion.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -38,7 +37,6 @@ from DataPipeline.storage.repositories.fetch_history import compute_data_hash
 
 logger = logging.getLogger(__name__)
 
-
 def _first_non_empty(series: pd.Series) -> Optional[str]:
     for value in series:
         if pd.isna(value) or value is None:
@@ -48,7 +46,6 @@ def _first_non_empty(series: pd.Series) -> Optional[str]:
             continue
         return text
     return None
-
 
 def _weighted_average(frame: pd.DataFrame, value_col: str, weight_col: str) -> Optional[float]:
     if value_col not in frame.columns or weight_col not in frame.columns:
@@ -62,7 +59,6 @@ def _weighted_average(frame: pd.DataFrame, value_col: str, weight_col: str) -> O
     if total_weight <= 0:
         return None
     return float((values[valid] * weights[valid]).sum() / total_weight)
-
 
 def _first_last_event_time(group: pd.DataFrame) -> tuple[Optional[str], Optional[str]]:
     candidates: list[str] = []
@@ -80,7 +76,6 @@ def _first_last_event_time(group: pd.DataFrame) -> tuple[Optional[str], Optional
     if not candidates:
         return None, None
     return min(candidates), max(candidates)
-
 
 def _build_execution_history_frames(
     processed_df: pd.DataFrame,
@@ -196,9 +191,7 @@ def _build_execution_history_frames(
         pd.DataFrame(event_records),
     )
 
-
 # -- Legacy: Excel -> raw_fills.db (kept for backward compatibility) --
-
 
 def _extract_date_from_filename(filename: str) -> Optional[str]:
     """Extract YYYYMMDD date from filename like fills_20260408.xlsx."""
@@ -209,7 +202,6 @@ def _extract_date_from_filename(filename: str) -> Optional[str]:
         if p.isdigit() and len(p) == 8:
             return p
     return None
-
 
 def ingest_excel_file(
     file_path: Path,
@@ -287,7 +279,6 @@ def ingest_excel_file(
 
     return result
 
-
 def ingest_all_excel_files(
     excel_dir: Optional[Path] = None,
     db: Optional[RawFillsDB] = None,
@@ -317,9 +308,7 @@ def ingest_all_excel_files(
 
     return results
 
-
 # -- Active: raw_fills.db -> processed_fills.db --
-
 
 def process_raw_fills_for_date(
     date_str: str,

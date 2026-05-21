@@ -7,10 +7,15 @@ Usage::
     path = Config.RAW_FILLS_DB
     date_fmt = Config.DATE_FORMAT
     table = Config.PROCESSED_FILLS_TABLE
+
+Data directory is configurable via the ``EMSX_DATA_DIR`` environment variable.
+When not set the default ``{PROJECT_ROOT}/CostView/data`` is used (backwards
+compatible with the legacy layout).
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -32,8 +37,13 @@ DB_FETCH_HISTORY = "fill_fetch_history"
 class Config:
     _PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 
-    DATA_DIR: Path = _PROJECT_ROOT / "CostView" / "data"
-    LOGGING_DIR: Path = _PROJECT_ROOT / "logs" / "costview"
+    # Configurable data root; defaults to the legacy CostView/data layout.
+    # Set EMSX_DATA_DIR to relocate all SQLite files to a shared location
+    # (e.g. ``EMSX/data/``) without changing any consumer code.
+    DATA_DIR: Path = Path(
+        os.getenv("EMSX_DATA_DIR", str(_PROJECT_ROOT / "CostView" / "data"))
+    )
+    LOGGING_DIR: Path = _PROJECT_ROOT / "logs" / "pipeline"
     RAW_EXCEL_DIR: Path = DATA_DIR / "fills"
 
     FETCH_HISTORY_DB: Path = DATA_DIR / "fill_fetch_history.db"

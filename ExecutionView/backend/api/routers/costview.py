@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -24,30 +23,23 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
-# ── CostView sys.path setup ──────────────────────────────────────────────────
-# __file__ = .../EMSX/ExecutionView/backend/api/routers/costview.py
-# parents:  [0]=routers  [1]=api  [2]=backend  [3]=ExecutionView  [4]=EMSX root
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .../EMSX
-_COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
-
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
 from platform_data.adapters import (
+    CostViewAnalyticsAdapter,
+    CostViewDatabaseAdapter,
     ScorecardCohortMetrics,
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
     TcaReport,
 )
-from platform_data import build_platform_data_access
 from platform_data.contracts import SCORECARD_COHORTS
 
 from ._pipeline_jobs import get_job, trigger_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
-platform_data = build_platform_data_access()
+_analytics = CostViewAnalyticsAdapter()
+_database = CostViewDatabaseAdapter()
 
 
 # ── Pydantic request/response models ─────────────────────────────────────────
@@ -179,7 +171,7 @@ async def analyze_tca(request: TcaAnalyzeRequest):
     )
 
     try:
-        report = platform_data.analytics.build_tca_report(filters)
+        report = _analytics.build_tca_report(filters)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
@@ -224,7 +216,7 @@ async def analyze_scorecard(request: ScorecardRequest):
         max_orders=request.max_orders,
     )
     try:
-        report = platform_data.analytics.build_scorecard(filters)
+        report = _analytics.build_scorecard(filters)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
@@ -436,7 +428,7 @@ async def regime_distribution(
     if not (len(start_date) == 10 and len(end_date) == 10):
         raise HTTPException(status_code=400, detail="dates must be ISO YYYY-MM-DD")
 
-    db_adapter = platform_data.database
+    db_adapter = _database
     if db_adapter is None:
         raise HTTPException(status_code=503, detail="CostView database adapter not configured")
 

@@ -1,4 +1,4 @@
-"""Daily metrics calculator for CostView Stage 7.
+﻿"""Daily metrics calculator for CostView Stage 7.
 
 Bloomberg daily history is the source of truth for:
     - total_volume      <- PX_VOLUME
@@ -10,7 +10,6 @@ The original intraday-volatility logic is preserved separately by computing
 annualized volatility from raw 10-second BDIB bars and storing it in the
 `intraday_volatility` column.
 
-Migrated from CostView/src/daily_metrics_calculator.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ BARS_PER_YEAR = 252 * 6.5 * 3600 / 10  # approx 589,680
 DAILY_HISTORY_FIELDS = ["PX_VOLUME", "VOLATILITY_30D", "PX_LAST"]
 LOOKBACK_CALENDAR_DAYS = 60
 DEFAULT_HISTORY_CHUNK_SIZE = 50
-
 
 class CalculateDailyMetrics:
     """Compute and persist Bloomberg daily metrics plus intraday carry-over metrics."""

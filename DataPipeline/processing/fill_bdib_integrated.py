@@ -1,4 +1,4 @@
-"""
+﻿"""
 Fill-BDIB Integration — merge processed fills with intraday bar data.
 
 Adapted from D:\\Evaluation\\src\\trading_data_processing\\fill_bdib_integrated.py.
@@ -7,7 +7,6 @@ daily equity metrics, and computes TCA-related derived metrics.
 
 All functions use EMSX column names (OrderId, FillShares, FillPrice, etc.).
 
-Migrated from CostView/src/fill_bdib_integrated.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ from DataPipeline.acquisition.bdib_fetcher import fetch_bdib_for_ticker_date
 from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
-
 
 def integrate_fills_bdib_for_date(
     agg_fills_df: pd.DataFrame,
@@ -49,7 +47,6 @@ def integrate_fills_bdib_for_date(
         fx_rates: FX rates DataFrame (long format: ccy_ticker, Order As of Date, fx_rate)
         daily_equity_data: Dict with keys 'chg_pct_1d', 'bid_ask_spread' → DataFrames
         ticker_exchange_map: equ_ticker -> Exchange mapping from ticker_repository
-
 
     Returns:
         Integrated DataFrame with all TCA metrics
@@ -187,7 +184,6 @@ def integrate_fills_bdib_for_date(
 
     logger.info(f"Integrated fills+BDIB for {date_str}: {len(df_merged)} rows")
     return df_merged
-
 
 def _compute_derived_metrics(df: pd.DataFrame) -> None:
     """Compute TCA derived metrics in place, grouped by OrderId."""

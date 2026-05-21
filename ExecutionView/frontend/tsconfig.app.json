@@ -12,7 +12,10 @@
       "@/*": ["./src/*"],
       "@app/*": ["./src/app/*"],
       "@shared/*": ["./src/shared/*"],
-      "@execution/*": ["./src/modules/execution/*"]
+      "@execution/*": ["./src/modules/execution/*"],
+      "@costview/*": ["./src/modules/costview/*"],
+      "@marketview/*": ["./src/modules/marketview/*"],
+      "@databaseview/*": ["./src/modules/databaseview/*"]
     },
     /* Bundler mode */
     "moduleResolution": "bundler",

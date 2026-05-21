@@ -200,12 +200,6 @@ async def get_broker_recommendations(
     reads them here when composing a new order/route so trader decisions stay
     backed by post-trade evidence instead of gut feel.
     """
-    import sys
-    from pathlib import Path
-
-    _ROOT = Path(__file__).resolve().parents[4]
-    if str(_ROOT) not in sys.path:
-        sys.path.insert(0, str(_ROOT))
     from platform_data import get_shared_handoff_exchange
 
     recs = get_shared_handoff_exchange().list_cost_to_execution(

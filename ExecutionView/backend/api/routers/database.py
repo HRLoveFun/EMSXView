@@ -19,17 +19,11 @@ GET    /api/db/update-status/{job_id}            — poll a triggered pipeline j
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-
-# ── sys.path setup (mirrors routers/costview.py) ─────────────────────────────
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .../EMSX
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from platform_data import database_diagnostics as repo  # noqa: E402
 

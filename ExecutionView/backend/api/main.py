@@ -328,35 +328,22 @@ app.include_router(realtime_router)
 app.include_router(market_broker_mapping_router)
 app.include_router(route_plans_router)
 
-# CostView TCA 路由 — 可选模块，不影响 ExecutionView 核心启动
-# MarketView / ExecutionView / CostView 是三个独立模块，任一模块
-# 的异常不应导致其他模块无法启动。
-try:
-    from routers.costview import router as costview_router
-    app.include_router(costview_router)
-except Exception as _costview_err:  # noqa: BLE001
-    import logging as _log
-    _log.getLogger("main").warning(
-        "CostView TCA router 未加载（ExecutionView 不受影响）: %s", _costview_err
-    )
+# CostView / DatabaseView / ExecutionHistory 路由 — 可选模块
+# 任一模块异常不应导致其他模块无法启动。
+def _register_optional(module_name: str, router_label: str) -> None:
+    """Lazily import and register an optional router; log warning on failure."""
+    import importlib
+    try:
+        mod = importlib.import_module(f"routers.{module_name}")
+        app.include_router(mod.router)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("main").warning(
+            "%s router 未加载（ExecutionView 不受影响）: %s", router_label, exc
+        )
 
-try:
-    from routers.database import router as database_router
-    app.include_router(database_router)
-except Exception as _database_err:  # noqa: BLE001
-    import logging as _log
-    _log.getLogger("main").warning(
-        "DatabaseView router 未加载（ExecutionView 不受影响）: %s", _database_err
-    )
-
-try:
-    from routers.execution_history import router as execution_history_router
-    app.include_router(execution_history_router)
-except Exception as _execution_history_err:  # noqa: BLE001
-    import logging as _log
-    _log.getLogger("main").warning(
-        "Execution history router 未加载（ExecutionView 不受影响）: %s", _execution_history_err
-    )
+_register_optional("costview", "CostView TCA")
+_register_optional("database", "DatabaseView")
+_register_optional("execution_history", "Execution history")
 
 # ============================================================================
 # Error Handlers

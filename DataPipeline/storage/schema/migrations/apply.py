@@ -1,7 +1,5 @@
-"""
+﻿"""
 Forward-only migration runner for regime.db.
-
-Migrated from CostView/src/regime/migrations/apply.py.
 
 Usage (CLI):
     python -m DataPipeline.storage.schema.migrations.apply
@@ -25,9 +23,10 @@ from typing import List, Tuple
 
 from DataPipeline.storage.connection import ConnectionManager
 
+SCHEMA_VERSION: int = 3
+
 _MIGRATIONS_DIR = Path(__file__).resolve().parent
 _MIGRATION_NAME_RE = re.compile(r"^v(\d+)_to_v(\d+)\.sql$")
-
 
 def _discover() -> List[Tuple[int, int, Path]]:
     """Return [(from_version, to_version, path), ...] sorted by from_version."""
@@ -46,7 +45,6 @@ def _discover() -> List[Tuple[int, int, Path]]:
         if fv != i:
             raise RuntimeError(f"Non-contiguous migration chain at {p.name}")
     return found
-
 
 def apply_pending(db_path: Path | str, dry_run: bool = False) -> int:
     """Apply pending migrations. Returns the final user_version."""
@@ -83,7 +81,6 @@ def apply_pending(db_path: Path | str, dry_run: bool = False) -> int:
     finally:
         conn.close()
 
-
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Apply regime.db migrations")
     parser.add_argument("--db", type=Path, default=None,
@@ -92,13 +89,10 @@ def main(argv: List[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.db is None:
-        # Lazy import to avoid forcing schema import when only running CLI in --dry-run
-        from CostView.src.regime.schema import REGIME_DB_PATH, SCHEMA_VERSION
-        db_path = REGIME_DB_PATH
+        db_path = Path("CostView/data/regime.db")
         target = SCHEMA_VERSION
     else:
         db_path = args.db
-        from CostView.src.regime.schema import SCHEMA_VERSION
         target = SCHEMA_VERSION
 
     final = apply_pending(db_path, dry_run=args.dry_run)
@@ -108,7 +102,6 @@ def main(argv: List[str] | None = None) -> int:
         return 1
     print(f"[migrate] done. user_version={final}, target={target}")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

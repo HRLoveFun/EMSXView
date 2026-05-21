@@ -1,20 +1,14 @@
 """
-Regime classification layer (M1).
+Regime classification stubs — redirected to DataPipeline.
 
-Sub-package responsibilities
-----------------------------
-- Read market reference (ref_market_mapping, ref_macro_event_*)
-- Compute daily market features (daily_market_index)
-- Classify daily regimes (vol / liquidity / trend) — parameterized by config_version
-- Tag fills with regime labels (fill_regime_labels) — append-only
-
-Storage: CostView/data/regime.db (SQLite, WAL, foreign_keys=ON)
-
-DDL: lives in `regime/migrations/vN_to_vN+1.sql`.
-Code constant `schema.SCHEMA_VERSION` MUST equal `PRAGMA user_version` after migrations.
+Core implementation moved to DataPipeline/analysis/regime/.
+This package re-exports for backward compatibility with existing scripts.
 """
-from __future__ import annotations
+from DataPipeline.analysis.regime import *
 
-from .schema import SCHEMA_VERSION, REGIME_DB_PATH, create_all, ensure_schema_current
-
-__all__ = ["SCHEMA_VERSION", "REGIME_DB_PATH", "create_all", "ensure_schema_current"]
+# Explicit re-exports for common direct imports
+from DataPipeline.analysis.regime import fill_regime_tagger
+from DataPipeline.analysis.regime import liquidity_regime
+from DataPipeline.analysis.regime import market_index_loader
+from DataPipeline.analysis.regime import trend_regime
+from DataPipeline.analysis.regime import vol_regime

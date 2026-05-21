@@ -244,7 +244,7 @@ class WriteManifestStage(BaseStage):
 
     def process(self, context: PipelineContext) -> bool:
         try:
-            from CostView.src.downstream_interface import write_manifest
+            from DataPipeline.analysis.downstream_interface import write_manifest
             write_manifest(updated_dates=context.target_dates)
             context.summary["manifest"] = {"written": True}
             return True

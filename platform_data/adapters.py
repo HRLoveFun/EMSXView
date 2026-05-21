@@ -1,18 +1,4 @@
-"""Unified adapter entry points for the logical data domain.
-
-This module does not collapse storage technologies into a single database.
-Instead, it defines a stable entry layer that separates:
-
-- operational execution data owned by Execution
-- analytical market/fill/TCA data owned by CostView
-- post-trade execution history read-path owned by CostView
-- cross-module handoff contracts (MarketView <-> ExecutionView <-> CostView)
-
-WBS-08 introduced three handoff contracts that materialise the closed loop
-between the three business domains. All contracts are versioned and carry
-`source`/`handoff_target`/`generated_at`/`trace_id` so that both the UI and
-downstream services can audit where a suggestion originated from.
-"""
+"""Adapter entry points for the logical data domain."""
 
 from __future__ import annotations
 
@@ -21,6 +7,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Callable, Iterable, Optional
 
 from DataPipeline.storage.connection import ConnectionManager, AccessTier
@@ -266,10 +253,6 @@ class IntradayFeatureSnapshot:
 
 
 # ── Execution history (CostView read path) ────────────────────────────────────
-# Contract metadata (owner, data lineage) documented in docs/DATA_DOMAIN.md
-# rather than embedded as runtime objects.
-
-EXECUTION_HISTORY_CONTRACT_VERSION: str = "1.0"
 
 
 @dataclass(frozen=True)
@@ -337,7 +320,7 @@ class ExecutionHistoryFillSnapshot:
     end_date: str | None
     row_count: int
     rows: list[ExecutionHistoryFillRow]
-    contract_version: str | None = EXECUTION_HISTORY_CONTRACT_VERSION
+    contract_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -346,7 +329,7 @@ class ExecutionHistoryOrderSummarySnapshot:
     end_date: str | None
     row_count: int
     rows: list[ExecutionHistoryOrderSummaryRow]
-    contract_version: str | None = EXECUTION_HISTORY_CONTRACT_VERSION
+    contract_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -355,7 +338,7 @@ class ExecutionHistoryRouteSummarySnapshot:
     end_date: str | None
     row_count: int
     rows: list[ExecutionHistoryRouteSummaryRow]
-    contract_version: str | None = EXECUTION_HISTORY_CONTRACT_VERSION
+    contract_version: str | None = None
 
 
 # Backwards-compatible aliases (pre-WBS-08 naming)
@@ -455,39 +438,6 @@ class BrokerStrategyRecommendation:
 
 
 @dataclass(frozen=True)
-class ExecutionOperationalDataAdapter:
-    """Canonical adapter for Execution-owned operational data."""
-
-    provider: Any
-
-    @property
-    def is_active(self) -> bool:
-        return bool(self.provider and self.provider.is_active)
-
-    def describe(self) -> dict[str, str]:
-        return {
-            "domain": "execution-operational",
-            "owner": "Execution",
-            "storage": "PostgreSQL + in-memory fallback",
-            "entrypoint": "RepositoryProvider",
-        }
-
-    async def load_orders(self, limit: int = 5000) -> list[dict[str, Any]]:
-        return await self.provider.load_orders(limit=limit)
-
-    async def load_routes(self, limit: int = 10000) -> list[dict[str, Any]]:
-        return await self.provider.load_routes(limit=limit)
-
-    async def persist_order(self, **kwargs: Any) -> bool:
-        return await self.provider.persist_order(**kwargs)
-
-    async def persist_route(self, **kwargs: Any) -> bool:
-        return await self.provider.persist_route(**kwargs)
-
-    async def persist_audit_event(self, **kwargs: Any) -> bool:
-        return await self.provider.persist_audit_event(**kwargs)
-
-
 @dataclass(frozen=True)
 class CostViewAnalyticsAdapter:
     """Canonical adapter for CostView-owned analytical data."""
@@ -1343,67 +1293,6 @@ def get_shared_handoff_exchange() -> HandoffExchangeAdapter:
 # ── Platform data access ──────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class PlatformDataAccess:
-    """Unified logical data-domain entry point for platform code."""
-
-    operational: ExecutionOperationalDataAdapter | None
-    execution_history: ExecutionHistoryAdapter
-    market: MarketReferenceDataAdapter
-    analytics: CostViewAnalyticsAdapter
-    handoff: HandoffExchangeAdapter
-    database: CostViewDatabaseAdapter | None = None
-    data_platform: DataPlatformIngestionAdapter | None = None
-
-    @property
-    def live_execution(self) -> ExecutionOperationalDataAdapter | None:
-        """Alias for the operational adapter.
-
-        `live_execution` makes the WBS-08 loop explicit: ExecutionView writes
-        to `live_execution`, then post-trade routes consume the mirrored data
-        via `execution_history` and `analytics`.
-        """
-        return self.operational
-
-
-def build_platform_data_access(
-    repository_provider: Any | None = None,
-    *,
-    market_db_factory: Callable[[], Any] = _ConnectionManagerDailySummaryReader,
-    query_service_factory: Callable[[], Any] = _default_tca_factory,
-    execution_history_service_factory: Callable[[], Any] | None = None,
-    handoff_exchange: HandoffExchangeAdapter | None = None,
-    data_platform_factory: Callable[[], Any] | None = None,
-) -> PlatformDataAccess:
-    operational = (
-        ExecutionOperationalDataAdapter(repository_provider)
-        if repository_provider is not None
-        else None
-    )
-    market = MarketReferenceDataAdapter(daily_summary_db_factory=market_db_factory)
-    analytics = CostViewAnalyticsAdapter(query_service_factory=query_service_factory)
-
-    resolved_history_factory: Callable[[], Any]
-    if execution_history_service_factory is not None:
-        resolved_history_factory = execution_history_service_factory
-    else:
-        resolved_history_factory = _default_execution_history_factory
-
-    execution_history = ExecutionHistoryAdapter(service_factory=resolved_history_factory)
-    database = CostViewDatabaseAdapter()
-    data_platform = DataPlatformIngestionAdapter(
-        pipeline_factory=data_platform_factory,
-    )
-    return PlatformDataAccess(
-        operational=operational,
-        execution_history=execution_history,
-        market=market,
-        analytics=analytics,
-        handoff=handoff_exchange or _SHARED_HANDOFF_EXCHANGE,
-        database=database,
-        data_platform=data_platform,
-    )
-
 
 def _to_optional_float(value: Any) -> float | None:
     if value is None:
@@ -1514,6 +1403,39 @@ class CostViewDatabaseAdapter:
 # ── Data Platform ingestion adapter ──────────────────────────────────────────
 
 
+# ── Data Platform ingestion contracts (inlined from data_platform_contracts.py) ──
+
+
+class PipelineState(Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    FAILED = "failed"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+
+
+@dataclass(frozen=True)
+class IngestionConfig:
+    start_date: str
+    end_date: str
+    parallel_sessions: int = 1
+    force_reprocess: bool = False
+    include_bdib: bool = True
+    include_daily_metrics: bool = True
+    team: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class IngestionResult:
+    dates_requested: list[str]
+    dates_processed: list[str] = field(default_factory=list)
+    dates_skipped: list[str] = field(default_factory=list)
+    dates_failed: list[str] = field(default_factory=list)
+    rows_ingested: int = 0
+    errors: list[str] = field(default_factory=list)
+    pipeline_state: PipelineState = PipelineState.COMPLETED
+
+
 class DataPlatformIngestionAdapter:
     """Canonical adapter for triggering data ingestion and querying pipeline state.
 
@@ -1544,11 +1466,7 @@ class DataPlatformIngestionAdapter:
         Returns:
             IngestionResult dataclass with dates_processed, rows_ingested, errors.
         """
-        # Lazy import to decouple adapter init from DataPipeline availability
-        from platform_data.contracts.data_platform_contracts import (
-            IngestionResult,
-            PipelineState,
-        )
+        # Types defined inline above — no cross-module import needed
 
         if self._factory is not None:
             pipeline = self._factory()

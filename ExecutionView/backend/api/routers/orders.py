@@ -18,6 +18,7 @@ from schemas import (
 from deps import verify_token, audit_log, get_bloomberg
 from services import batch_route_service
 from fastapi.responses import StreamingResponse
+from _paths import PROJECT_ROOT  # noqa: F401  path + sys.path setup
 
 router = APIRouter(tags=["Orders"])
 
@@ -530,12 +531,6 @@ def _serialize_metadata(metadata) -> _HandoffMetadata:
 )
 async def get_active_candidate_handoff():
     """Peek the latest MarketView → ExecutionView candidate handoff."""
-    import sys
-    from pathlib import Path
-
-    _ROOT = Path(__file__).resolve().parents[4]
-    if str(_ROOT) not in sys.path:
-        sys.path.insert(0, str(_ROOT))
     from platform_data import get_shared_handoff_exchange
 
     handoff = get_shared_handoff_exchange().get_market_to_execution()
@@ -586,12 +581,6 @@ async def get_active_candidate_handoff():
 )
 async def publish_post_trade_handoff(request: PostTradeHandoffRequest):
     """Publish an ExecutionView → CostView post-trade context handoff."""
-    import sys
-    from pathlib import Path
-
-    _ROOT = Path(__file__).resolve().parents[4]
-    if str(_ROOT) not in sys.path:
-        sys.path.insert(0, str(_ROOT))
     from platform_data import get_shared_handoff_exchange
 
     handoff = get_shared_handoff_exchange().publish_execution_to_cost(

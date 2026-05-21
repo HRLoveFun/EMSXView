@@ -1,8 +1,7 @@
-"""
+﻿"""
 EMSX API Client for FillFetch
 Handles Bloomberg EMSX History API communication.
 
-Migrated from CostView/src/emsx_client.py (2026-05-11).
 """
 
 import os
@@ -27,7 +26,6 @@ GET_TEAMS = blpapi.Name("GetTeams")
 
 EMSX_API_SERVICE = "//blp/emapisvc"
 EMSX_API_SERVICE_BETA = "//blp/emapisvc_beta"
-
 
 class EMSXHistoryClient:
     """Client for Bloomberg EMSX History API."""

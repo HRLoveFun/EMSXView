@@ -1,19 +1,14 @@
-"""Read-only execution history router backed by platform_data.execution_history."""
+"""Read-only execution history router backed by ExecutionHistoryAdapter."""
 
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-from platform_data import build_platform_data_access
+from platform_data.adapters import ExecutionHistoryAdapter
 from schemas import (
     ExecutionHistoryFillData,
     ExecutionHistoryFillResponse,
@@ -25,7 +20,7 @@ from schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Execution History"])
-platform_data = build_platform_data_access()
+_execution_history = ExecutionHistoryAdapter()
 
 
 @router.get("/api/execution-history/fills", response_model=ExecutionHistoryFillResponse)
@@ -38,7 +33,7 @@ async def get_fill_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        snapshot = platform_data.execution_history.list_fill_history(
+        snapshot = _execution_history.list_fill_history(
             limit=limit,
             order_id=order_id,
             route_id=route_id,
@@ -67,7 +62,7 @@ async def get_order_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        snapshot = platform_data.execution_history.list_order_history(
+        snapshot = _execution_history.list_order_history(
             limit=limit,
             order_id=order_id,
             start_date=start_date,
@@ -96,7 +91,7 @@ async def get_route_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        snapshot = platform_data.execution_history.list_route_history(
+        snapshot = _execution_history.list_route_history(
             limit=limit,
             order_id=order_id,
             route_id=route_id,

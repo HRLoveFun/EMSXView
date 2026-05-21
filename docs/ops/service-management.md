@@ -2,7 +2,7 @@
 
 ## Quick Start
 
-快速启动指南见 `QUICKSTART.md`（交互菜单）或 `scripts/service-manager.ps1`（命令行）。
+快速启动指南见 `QUICKSTART.md`（交互菜单）或 `scripts/ops/service-manager.ps1`（命令行）。
 本文档专注服务架构细节和故障排查。
 
 ## Service Architecture
@@ -253,7 +253,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 ## Advanced Usage
 
 ### Custom Startup Delay
-Edit `scripts/service-manager.ps1`:
+Edit `scripts/ops/service-manager.ps1`:
 ```powershell
 $Config = @{
     Backend = @{
@@ -278,7 +278,7 @@ server: {
 }
 ```
 
-Then update `scripts/service-manager.ps1`:
+Then update `scripts/ops/service-manager.ps1`:
 ```powershell
 $Config = @{
     Backend = @{

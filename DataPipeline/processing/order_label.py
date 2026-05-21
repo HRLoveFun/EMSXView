@@ -1,11 +1,9 @@
-"""
+﻿"""
 Order Label Generation — order-level summary from processed EMSX fills.
 
 Adapted from D:\\Evaluation\\src\\trading_data_processing\\fill.py:
   - generate_order_label()
   - generate_order_label_incremental()
-
-Migrated from CostView/src/order_label.py (2026-05-11).
 
 All functions use EMSX column names:
   - OrderId (not "Order Number")
@@ -23,7 +21,6 @@ from typing import Optional
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-
 
 def generate_order_label(processed_fills: pd.DataFrame) -> pd.DataFrame:
     """Generate order-level summary labels from processed fills.
@@ -88,7 +85,6 @@ def generate_order_label(processed_fills: pd.DataFrame) -> pd.DataFrame:
 
     logger.info(f"Generated order labels for {len(order_label)} orders")
     return order_label
-
 
 def generate_order_label_incremental(
     processed_fills: pd.DataFrame,

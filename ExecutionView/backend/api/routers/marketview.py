@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from platform_data.adapters import (
     INTRADAY_BUCKET_OPTIONS,
@@ -23,15 +18,15 @@ from platform_data.adapters import (
     MarketAlert,
     MarketCandidatePayload,
     MarketCandidateRow,
+    MarketReferenceDataAdapter,
     MarketSnapshot,
     MarketSnapshotFilters,
     MarketSnapshotSort,
     MarketStockPool,
 )
-from platform_data import build_platform_data_access
 
 router = APIRouter(tags=["MarketView"])
-platform_data = build_platform_data_access()
+market = MarketReferenceDataAdapter()
 
 MarketAlertFilter = Literal["all", "warning", "critical"]
 MarketSortField = Literal[
@@ -151,7 +146,7 @@ async def get_market_snapshot(
     sort_direction: MarketSortDirection = Query(default="desc"),
 ):
     try:
-        snapshot = platform_data.market.get_market_snapshot(
+        snapshot = market.get_market_snapshot(
             limit=limit,
             trade_date=trade_date,
             pool_id=pool_id,
@@ -366,7 +361,7 @@ async def get_intraday_features(
         )
 
     try:
-        snapshot = platform_data.market.get_intraday_features(
+        snapshot = market.get_intraday_features(
             equ_tickers=ticker_list,
             trade_date=trade_date,
             bucket_minutes=bucket_minutes,
@@ -461,7 +456,7 @@ async def publish_execution_handoff(request: MarketToExecutionPublishRequest):
     GET /api/executions/handoff/candidates.
     """
     try:
-        snapshot = platform_data.market.get_market_snapshot(
+        snapshot = market.get_market_snapshot(
             limit=request.limit,
             trade_date=request.trade_date,
             pool_id=request.pool_id,

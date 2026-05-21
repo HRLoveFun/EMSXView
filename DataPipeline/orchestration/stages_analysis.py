@@ -30,9 +30,9 @@ class RegimeDailyFeaturesStage(BaseStage):
             context.summary["regime_daily"] = {"skipped": True}
             return True
         try:
-            from CostView.src.regime import liquidity_regime, market_index_loader, trend_regime, vol_regime
-            from CostView.src.regime.config import ensure_default_config
-            from CostView.src.regime.run_journal import run_journal
+            from DataPipeline.analysis.regime import liquidity_regime, market_index_loader, trend_regime, vol_regime
+            from DataPipeline.analysis.regime.config import ensure_default_config
+            from DataPipeline.analysis.regime.run_journal import run_journal
         except ImportError as e:
             logger.warning(f"Skipping regime daily stage: {e}")
             context.summary["regime_daily"] = {"skipped": True, "error": str(e)}
@@ -81,9 +81,9 @@ class RegimeFillTaggerStage(BaseStage):
             logger.info("Stage 9: no target_dates; skipping")
             return True
         try:
-            from CostView.src.regime import fill_regime_tagger
-            from CostView.src.regime.config import ensure_default_config
-            from CostView.src.regime.run_journal import run_journal
+            from DataPipeline.analysis.regime import fill_regime_tagger
+            from DataPipeline.analysis.regime.config import ensure_default_config
+            from DataPipeline.analysis.regime.run_journal import run_journal
         except ImportError as e:
             logger.warning(f"Skipping regime tagger stage: {e}")
             context.summary["regime_tagger"] = {"skipped": True, "error": str(e)}
@@ -118,8 +118,8 @@ class AttributionMetricsStage(BaseStage):
             logger.info("Stage 10: no target_dates; skipping")
             return True
         try:
-            from CostView.src.attribution.writer import run_metrics
-            from CostView.src.attribution.repositories import (
+            from DataPipeline.analysis.attribution.writer import run_metrics
+            from DataPipeline.analysis.attribution.repositories import (
                 SqliteFillRepository, SqliteBarDataRepository,
                 SqliteRegimeRepository, SqliteAttributionConfigRepository,
             )

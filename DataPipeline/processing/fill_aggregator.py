@@ -1,4 +1,4 @@
-"""
+﻿"""
 Fill Aggregator — route-level 10-second aggregation of processed fills.
 
 Aggregation level changed from order-level to route-level:
@@ -15,7 +15,6 @@ Deprecated functions (not called by current pipeline):
         storage overhead. Function body retained for future re-enablement or
         manual ad-hoc use via processed_fills_db.upsert_agg_fills_1min().
 
-Migrated from CostView/src/fill_aggregator.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -30,12 +29,10 @@ from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
 
-
 def _unique_or_mult(x: pd.Series):
     """Return unique value or 'Mult' if multiple distinct values."""
     u = x.unique()
     return u[0] if len(u) == 1 else "Mult"
-
 
 def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
     """Generate route-level 10-second aggregated fills.
@@ -147,7 +144,6 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
 
     logger.info(f"Generated route-level 10s aggregation: {len(res)} rows")
     return res
-
 
 def generate_agg_fills_1min(agg_10s_df: pd.DataFrame) -> pd.DataFrame:
     """Generate route-level 1-minute aggregated fills from 10-second data.
