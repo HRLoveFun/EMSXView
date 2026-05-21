@@ -85,18 +85,30 @@ Current fields:
 - Correlation analysis
 - Value-at-Risk (VaR) calculations
 
-## Directory Structure
+## Code Location Convention
 
-```
-MarketView/
-├── README.md              # This file
-├── src/                   # Source code (to be added)
-│   ├── components/        # React components
-│   ├── services/          # API services
-│   └── types/             # TypeScript types
-├── tests/                 # Unit and integration tests
-└── docs/                  # Module-specific documentation
-```
+MarketView code currently lives inside `ExecutionView/` following the Shell + Module pattern:
+
+| Layer        | Actual location                                                                 |
+|--------------|----------------------------------------------------------------------------------|
+| Frontend UI  | `ExecutionView/frontend/src/modules/marketview/MarketViewModule.tsx`             |
+| Backend API  | `ExecutionView/backend/api/routers/marketview.py`                                |
+| Data adapter | `platform_data/adapters.py` → `MarketReferenceDataAdapter`                       |
+| Data source  | `DataPipeline/storage/repositories/` → `bdib_daily_summary` table               |
+
+This directory (`MarketView/`) serves as the **domain contract and documentation home**
+for pre-trade capabilities. It does not contain runnable code.
+
+### Why this layout
+
+- The shared frontend shell (`ExecutionView/frontend/`) mounts all business modules, not just ExecutionView.
+- The shared backend assembly layer (`ExecutionView/backend/api/`) registers all domain routers.
+- Keeping domain contracts here avoids deep coupling between modules while keeping a clear
+  source-of-truth for MarketView capabilities and interfaces.
+
+When MarketView complexity grows enough to warrant an independent build artifact,
+it may be extracted into `MarketView/src/` and consumed via npm workspace. Until then,
+this directory defines the contract; the code ships through the platform shell.
 
 ## Integration with Execution Module
 

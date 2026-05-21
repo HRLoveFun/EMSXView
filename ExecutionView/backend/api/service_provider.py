@@ -192,14 +192,6 @@ class RepositoryProvider:
             logger.warning("load_orders from DB failed, falling back to empty: %s", exc)
             return []
 
-    async def load_order_snapshots(self, limit: int = 5000) -> List[Dict[str, Any]]:
-        """Return latest order projections as a read-only history backfill seed."""
-        return await self.load_orders(limit=limit)
-
-    # ------------------------------------------------------------------
-    #  Read path: warm-start route cache from DB
-    # ------------------------------------------------------------------
-
     async def load_routes(self, limit: int = 10000) -> List[Dict[str, Any]]:
         """Return route payloads from DB (newest first)."""
         if not self.is_active:
@@ -220,9 +212,6 @@ class RepositoryProvider:
             logger.warning("load_routes from DB failed, falling back to empty: %s", exc)
             return []
 
-    async def load_route_snapshots(self, limit: int = 10000) -> List[Dict[str, Any]]:
-        """Return latest route projections as a read-only history backfill seed."""
-        return await self.load_routes(limit=limit)
 
     async def load_audit_events(
         self,

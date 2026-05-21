@@ -1,11 +1,9 @@
-"""
+﻿"""
 Raw Fills Database Validation Script — fill share integrity checker.
 
 Validates that SUM(FillShares) grouped by OrderId equals the Amount field
 for each order. This ensures data completeness and accuracy after fetching
 from Bloomberg EMSX API.
-
-Migrated from CostView/src/validate_raw_fills.py (2026-05-11).
 
 Note: raw_fills.db uses composite PRIMARY KEY (OrderId, RouteId, FillId).
 Bloomberg may send multiple corrections for the same (OrderId, FillId) on
@@ -36,7 +34,6 @@ from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Result Data Structures
@@ -110,7 +107,6 @@ class ValidationResult:
             parts.append(f"error={self.error_message}")
         return ", ".join(parts)
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Core Validation Logic
 # ═══════════════════════════════════════════════════════════════════════
@@ -128,7 +124,6 @@ def _safe_float(val) -> Optional[float]:
         return float(s)
     except (ValueError, TypeError):
         return None
-
 
 def _compute_aggregation(
     df: pd.DataFrame,
@@ -183,7 +178,6 @@ def _compute_aggregation(
     ].copy()
 
     return result
-
 
 def validate_fill_data(
     fills: List[Dict[str, Any]],
@@ -250,7 +244,6 @@ def validate_fill_data(
             source_date=source_date,
             tolerance=tolerance,
         )
-
 
 def validate_raw_fills_db(
     db_path: Optional[str] = None,
@@ -343,7 +336,6 @@ def validate_raw_fills_db(
     finally:
         conn.close()
 
-
 def save_anomaly_report(
     result: ValidationResult,
     output_dir: Optional[str] = None,
@@ -403,7 +395,6 @@ def save_anomaly_report(
     logger.info(f"Anomaly report saved: {filepath} ({len(result.anomalies_df)} orders)")
     return filepath
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Reporting & Display Helpers
 # ═══════════════════════════════════════════════════════════════════════
@@ -446,7 +437,6 @@ def print_validation_report(result: ValidationResult) -> None:
     status = "PASS" if result.success else "FAIL"
     icon = "OK" if result.success else "** CHECK REQUIRED **"
     print(f"\n  Overall Status: [{status}] {icon}\n")
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Batch Date Validation (scan all dates in DB)
@@ -497,7 +487,6 @@ def validate_all_dates(
 
     return results
 
-
 def print_batch_summary(results: List[ValidationResult]) -> None:
     """Print a consolidated summary across all validated dates."""
     sep = "=" * 72
@@ -532,7 +521,6 @@ def print_batch_summary(results: List[ValidationResult]) -> None:
             )
 
     print(sep)
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # CLI Entry Point
@@ -609,7 +597,6 @@ Examples:
             save_anomaly_report(result, output_dir=args.output)
 
     return 0 if (result.success if not args.all_dates else all(r.success for r in results)) else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

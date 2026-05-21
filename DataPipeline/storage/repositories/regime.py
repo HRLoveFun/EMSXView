@@ -90,8 +90,8 @@ class SqliteRegimeReadRepository(BaseRepository):
     def _ensure_schema(self):
         """Ensure regime.db schema is current before reads."""
         try:
-            from CostView.src.regime.schema import ensure_schema_current
-            ensure_schema_current(self._mgr.get_path("regime"))
+            from DataPipeline.storage.schema.migrations.apply import apply_pending
+            apply_pending(self._mgr.get_path("regime"))
         except Exception:
             pass  # schema init may fail if regime module not fully loaded
 
@@ -300,8 +300,8 @@ class SqliteRegimeWriteRepository(BaseRepository):
     def _ensure_schema(self):
         """Ensure regime.db schema is current before writes."""
         try:
-            from CostView.src.regime.schema import ensure_schema_current
-            ensure_schema_current(self._mgr.get_path("regime"))
+            from DataPipeline.storage.schema.migrations.apply import apply_pending
+            apply_pending(self._mgr.get_path("regime"))
         except Exception:
             pass
 
@@ -320,7 +320,7 @@ class SqliteRegimeWriteRepository(BaseRepository):
         try:
             # Delegate to regime module for upsert logic
             # (regime label schema is managed by regime/fill_regime_tagger.py)
-            from CostView.src.regime.fill_regime_tagger import _upsert_labels
+            from DataPipeline.analysis.regime.fill_regime_tagger import _upsert_labels
             result = _upsert_labels(df, self._mgr.get_path("regime"))
             return result
         finally:

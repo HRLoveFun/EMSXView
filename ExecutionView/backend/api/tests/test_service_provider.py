@@ -84,19 +84,10 @@ def test_load_orders_returns_empty_when_inactive():
     assert asyncio.run(prov.load_orders()) == []
 
 
-def test_load_order_snapshots_returns_empty_when_inactive():
-    prov = RepositoryProvider(enabled=False)
-    assert asyncio.run(prov.load_order_snapshots()) == []
-
 
 def test_load_routes_returns_empty_when_inactive():
     prov = RepositoryProvider(enabled=False)
     assert asyncio.run(prov.load_routes()) == []
-
-
-def test_load_route_snapshots_returns_empty_when_inactive():
-    prov = RepositoryProvider(enabled=False)
-    assert asyncio.run(prov.load_route_snapshots()) == []
 
 
 def test_load_audit_events_returns_empty_when_inactive():

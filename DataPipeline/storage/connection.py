@@ -10,7 +10,7 @@ Three access tiers:
     ADMIN — All operations including DELETE/DROP/ALTER (rebuild, purge)
 
 Usage:
-    from CostView.src.db.connection import ConnectionManager, AccessTier
+    from DataPipeline.storage.connection import ConnectionManager, AccessTier
 
     mgr = ConnectionManager()
     conn = mgr.get_connection("raw_fills", AccessTier.READ)

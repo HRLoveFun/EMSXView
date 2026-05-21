@@ -1,11 +1,10 @@
-"""
+﻿"""
 BDIB Fetcher — fetch intraday bar data for tickers from processed fills.
 
 Adapted from D:\\Evaluation\\src\\trading_data_processing\\fill_bdib_integrated.py.
 Uses xbbg blp.bdib() to fetch 10-second intraday bars and stores results
 in processed_fills.db.
 
-Migrated from CostView/src/bdib_fetcher.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -33,7 +32,6 @@ LIST_EXHC_TZ: Set[str] = {"ID", "FH", "GA", "PL"}
 _BLOOMBERG_KNOWN_HOLIDAYS: Set[str] = set()
 _OUTDATED_TICKER_REASON = "cannot_find_exchange_info"
 
-
 def _is_trading_day(dt: date) -> bool:
     """Check if a given date is likely a valid trading day.
 
@@ -52,13 +50,11 @@ def _is_trading_day(dt: date) -> bool:
         return False
     return True
 
-
 def _get_previous_weekday(today: date) -> date:
     candidate = today - timedelta(days=1)
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate
-
 
 def _latest_safe_bdib_date(now: Optional[datetime] = None) -> date:
     ref_dt = now or datetime.now()
@@ -69,10 +65,8 @@ def _latest_safe_bdib_date(now: Optional[datetime] = None) -> date:
 
     return safe_date
 
-
 def _is_safe_bdib_query_date(dt: date, now: Optional[datetime] = None) -> bool:
     return dt <= _latest_safe_bdib_date(now)
-
 
 def _flatten_bdib_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Flatten xbbg MultiIndex columns to simple field names.
@@ -84,7 +78,6 @@ def _flatten_bdib_columns(df: pd.DataFrame) -> pd.DataFrame:
         # Drop ticker level, keep only field name level
         df.columns = [col[1] if len(col) > 1 else col[0] for col in df.columns.values]
     return df
-
 
 def _validate_bdib_response(
     df: pd.DataFrame,
@@ -140,19 +133,14 @@ def _validate_bdib_response(
 
     return df
 
-
-
 def _extract_exchange_from_ticker(ticker: str) -> Optional[str]:
     parts = str(ticker).split()
     if len(parts) >= 2:
         return parts[1].strip().upper()
     return None
 
-
 def _is_outdated_ticker_error(exc: Exception) -> bool:
     return "Cannot find exchange info" in str(exc)
-
-
 
 def fetch_bdib_for_ticker_date(
     ticker: str,
@@ -315,7 +303,6 @@ def fetch_bdib_for_ticker_date(
         )
     return None
 
-
 def fetch_bdib_batch(
     ticker_date_pairs: List[Tuple[str, str]],
     max_workers: int = 4,
@@ -359,7 +346,6 @@ def fetch_bdib_batch(
         return combined
 
     return pd.DataFrame()
-
 
 def fetch_bdib_for_fills(
     ticker_dates: dict[str, list[str]],

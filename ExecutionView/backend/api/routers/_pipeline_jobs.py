@@ -34,9 +34,10 @@ logger = logging.getLogger(__name__)
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 
+# Project-root anchor: this file = .../EMSX/ExecutionView/backend/api/routers/_pipeline_jobs.py
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .../EMSX
-_COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
 _LOCK_FILE = _PROJECT_ROOT / ".pipeline.lock"
 
 # ── Watchdog / safety thresholds ────────────────────────────────────────────
@@ -290,7 +291,7 @@ def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Ev
 
 
 def _run_pipeline_subprocess(job_id: str) -> None:
-    daily_update_script = _COSTVIEW_ROOT / "scripts" / "daily_update.py"
+    daily_update_script = COSTVIEW_ROOT / "scripts" / "daily_update.py"
 
     with _jobs_lock:
         if job_id in _jobs:

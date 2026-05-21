@@ -1,4 +1,4 @@
-"""
+﻿"""
 FillFetch Module — Bloomberg EMSX History API data retrieval.
 
 Pipeline:
@@ -19,7 +19,6 @@ Note on parallelism:
     the server-side PARTIAL_RESPONSE streaming (~4000 rows/s fixed rate). Multiple
     sessions share the same server bandwidth. This has been verified by benchmarking.
 
-Migrated from CostView/src/fill_fetch.py.
 BloombergFillFetcher extracted to DataPipeline.acquisition.bloomberg_fill_fetcher.
 SQLAlchemy FillFetchDatabase replaced with ConnectionManager-based FillFetchDatabase.
 """
@@ -67,7 +66,6 @@ def get_previous_weekday(today: Optional[date] = None) -> date:
         candidate -= timedelta(days=1)
     return candidate
 
-
 # ── Bloomberg EMSX Constants ─────────────────────────────────────────────
 
     raise RuntimeError(
@@ -77,11 +75,9 @@ def get_previous_weekday(today: Optional[date] = None) -> date:
 
 EXPECTED_FILL_COLUMNS: List[str] = EMSX_FILL_COLUMNS
 
-
 def fills_so_far_str(count: int) -> str:
     """Return a human-readable description of partial fetch progress."""
     return f"{count} fill(s) received so far"
-
 
 # ── Main FillFetch Class ─────────────────────────────────────────────────
 
@@ -454,7 +450,6 @@ class FillFetch:
         if self.db is not None and hasattr(self.db, 'close'):
             self.db.close()
 
-
 def setup_logging(level: str = "INFO"):
     root = logging.getLogger()
     if root.handlers:
@@ -464,7 +459,6 @@ def setup_logging(level: str = "INFO"):
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[logging.StreamHandler(sys.stdout)]
     )
-
 
 def main():
     import argparse
@@ -541,7 +535,6 @@ def main():
     finally:
         fetcher.close()
 
-
 def _print_result(result: Dict[str, Any]):
     print(f"\n=== Fetch Result: {result['order_date']} ===")
     print(f"  Success: {result['success']}")
@@ -552,7 +545,6 @@ def _print_result(result: Dict[str, Any]):
     if result.get('validation'):
         print(f"  Validation: {result['validation']}")
 
-
 def _print_summary(summary: Dict[str, Any]):
     print(f"\n=== Range Fetch Summary ===")
     print(f"  Range: {summary['start_date']} -> {summary['end_date']}")
@@ -560,7 +552,6 @@ def _print_summary(summary: Dict[str, Any]):
     print(f"  Fetched: {summary['days_fetched']}, Skipped: {summary['days_skipped']}")
     print(f"  Empty: {summary['days_empty']}, Errors: {summary['days_error']}")
     print(f"  Total rows: {summary['total_rows']}")
-
 
 if __name__ == "__main__":
     main()

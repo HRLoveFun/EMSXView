@@ -1,4 +1,4 @@
-"""
+﻿"""
 Fill Cleaner — clean and enrich raw EMSX fill data.
 
 Provides three independent operations:
@@ -8,7 +8,6 @@ Provides three independent operations:
 
 The combined pipeline clean_emsx_fills() runs all three in sequence.
 
-Migrated from CostView/src/fill_cleaner.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -28,7 +27,6 @@ from DataPipeline.config import Config
 from DataPipeline.storage.schema.columns import EMSX_FILL_COLUMNS
 
 logger = logging.getLogger(__name__)
-
 
 # ── Step 1: Filter ─────────────────────────────────────────────────────────
 
@@ -63,7 +61,6 @@ def filter_out_dfd(df: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"Filtered {filtered} DFD records ({before} → {len(result)})")
 
     return result
-
 
 # ── Step 2: Derive exchange times ──────────────────────────────────────────
 
@@ -102,7 +99,6 @@ def _parse_emsx_datetime(value: Any) -> Optional[datetime]:
 
     logger.debug(f"Could not parse EMSX datetime: {value!r}")
     return None
-
 
 def derive_exchange_times(df: pd.DataFrame) -> pd.DataFrame:
     """Derive local exchange time columns from NY-timezone EMSX datetime fields.
@@ -203,7 +199,6 @@ def derive_exchange_times(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ── Step 3: Normalize columns ─────────────────────────────────────────────
 
 def normalize_fill_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -239,7 +234,6 @@ def normalize_fill_columns(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     return df
-
 
 # ── Combined pipeline ─────────────────────────────────────────────────────
 
@@ -292,7 +286,6 @@ def clean_emsx_fills(
 
     logger.info(f"Cleaned {n_rows} EMSX fills → {len(df)} rows")
     return df
-
 
 def clean_emsx_fills_from_excel(file_path: str) -> pd.DataFrame:
     """Read an EMSX fills Excel file and clean it.

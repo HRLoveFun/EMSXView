@@ -1,11 +1,10 @@
-"""
+﻿"""
 Fill Processor — transform cleaned EMSX fills into processed fills.
 
 Adapted from D:\\Evaluation\\src\\trading_data_processing\\fill.py.
 All functions use EMSX column names (e.g. StrategyType not "Strategy Type",
 FillPrice not "Exec Last Fill Px", exchange_exec_time not "Exchange Exec Time").
 
-Migrated from CostView/src/fill_processor.py as part of Data Platform extraction.
 """
 
 from __future__ import annotations
@@ -28,7 +27,6 @@ from DataPipeline.common.mapping import (
 from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
-
 
 # ── Algo Classification ─────────────────────────────────────────────────────
 
@@ -55,7 +53,6 @@ def add_algo_column(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ── Currency Columns ─────────────────────────────────────────────────────────
 
 def add_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -69,7 +66,6 @@ def add_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["region"] = df["Currency"].map(currency_region)
     return df
-
 
 # ── Equity Ticker ────────────────────────────────────────────────────────────
 
@@ -109,7 +105,6 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.drop(columns=["_processed_ticker"])
 
-
 def _fetch_composite_tickers(
     tickers: List[str], chunk_size: int = 100, max_retries: int = 3
 ) -> Dict[str, str]:
@@ -135,7 +130,6 @@ def _fetch_composite_tickers(
                         f"EUR composite fetch failed for chunk {i // chunk_size}: {e}"
                     )
     return results
-
 
 # ── Market Timestamp (10-second floor) ───────────────────────────────────────
 
@@ -188,7 +182,6 @@ def add_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ── Route Market Timestamp ───────────────────────────────────────────────────
 
 def add_route_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -236,7 +229,6 @@ def add_route_mkt_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 # ── Pipeline: Process a DataFrame ───────────────────────────────────────────
 
 def process_fills(df: pd.DataFrame) -> pd.DataFrame:
@@ -270,7 +262,6 @@ def process_fills(df: pd.DataFrame) -> pd.DataFrame:
 
     logger.info(f"Processed {len(processed)} fills -> added algo/ccy/ticker/timestamp columns")
     return processed
-
 
 def process_raw_fills(df: pd.DataFrame) -> pd.DataFrame:
     """Full pipeline: clean then process.

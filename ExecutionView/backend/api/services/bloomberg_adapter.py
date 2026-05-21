@@ -32,6 +32,12 @@ from services.realtime_gateway import realtime_gw
 from services.order_projections import enrich_orders, filter_orders
 from services.route_projections import enrich_routes
 
+from ._bloomberg_parsing import (
+    msg_safe_int, msg_safe_float, msg_safe_str,
+    format_strategy_time, derive_currency, derive_exchange,
+    order_type_uses_limit_price, order_type_uses_stop_price,
+)
+
 
 
 
@@ -1153,139 +1159,25 @@ class BloombergEMSXService:
             return None
 
     def _msg_safe_int(self, msg, name: str, default: int = 0) -> int:
-        try:
-            if msg.hasElement(name):
-                return msg.getElementAsInteger(name)
-        except Exception:
-            pass
-        return default
+        return msg_safe_int(msg, name, default)
 
     def _msg_safe_float(self, msg, name: str, default: float = 0.0) -> float:
-        try:
-            if msg.hasElement(name):
-                return msg.getElementAsFloat(name)
-        except Exception:
-            pass
-        return default
+        return msg_safe_float(msg, name, default)
 
     def _msg_safe_str(self, msg, name: str, default: str = "") -> str:
-        try:
-            if msg.hasElement(name):
-                return msg.getElementAsString(name)
-        except Exception:
-            pass
-        return default
+        return msg_safe_str(msg, name, default)
 
     @staticmethod
     def _format_strategy_time(raw: int) -> str:
-        """Convert Bloomberg strategy time integer to HH:MM string.
-
-        Bloomberg encodes strategy start/end times as integers in HHMM format
-        (e.g. 930 = 09:30, 1600 = 16:00) or as seconds from midnight.
-        Returns empty string for 0 (unset).
-        """
-        if not raw or raw <= 0:
-            return ""
-        # If value looks like seconds from midnight (> 2400), convert
-        if raw > 2400:
-            h = raw // 3600
-            m = (raw % 3600) // 60
-        else:
-            # HHMM format
-            h = raw // 100
-            m = raw % 100
-        return f"{h:02d}:{m:02d}"
-
-    # Mapping of Bloomberg exchange suffixes to trading currencies
-    _EXCHANGE_CURRENCY_MAP = {
-        "US": "USD", "UN": "USD", "UQ": "USD", "UW": "USD", "UA": "USD", "UP": "USD",
-        "CT": "USD", "UF": "USD",
-        "CN": "CAD", "CF": "CAD",
-        "LN": "GBP", "LI": "GBP",
-        "JP": "JPY", "JT": "JPY",
-        "HK": "HKD",
-        "CH": "CNY", "CS": "CNY", "CG": "CNY", "CI": "CNY", "C1": "CNY", "C2": "CNY",
-        "SS": "CNY", "SZ": "CNY",
-        "GR": "EUR", "GY": "EUR", "GF": "EUR",
-        "FP": "EUR", "PA": "EUR",
-        "IM": "EUR", "NA": "EUR", "SM": "EUR", "BB": "EUR",
-        "SQ": "EUR", "PL": "EUR", "ID": "EUR", "GA": "EUR",
-        "AU": "AUD", "AT": "AUD",
-        "SP": "SGD", "SI": "SGD",
-        "KS": "KRW", "KQ": "KRW",
-        "TT": "TWD",
-        "TB": "THB",
-        "IJ": "IDR",
-        "MK": "MYR",
-        "PM": "PHP",
-        "IN": "INR", "IB": "INR", "IS": "INR",
-        "BZ": "BRL",
-        "MM": "MXN",
-        "NZ": "NZD",
-        "ST": "SEK", "NO": "NOK", "DC": "DKK", "FH": "EUR",
-        "SW": "CHF", "SE": "CHF",
-        "SJ": "ZAR",
-        "AB": "AED",
-    }
+        return format_strategy_time(raw)
 
     @classmethod
     def _derive_currency(cls, currency_pair: str, ticker: str) -> str:
-        """Derive the **trading currency** of the security.
-
-        EMSX_CURRENCY_PAIR is unreliable for this purpose because:
-          - It may return the settlement/user currency ("USD") for non-USD securities.
-          - It may return a 6-char pair code ("HKDUSD") which is not a valid 3-char ccy.
-        Therefore we **prioritise the ticker exchange suffix** (always reliable for
-        exchange-listed instruments) and only fall back to EMSX_CURRENCY_PAIR when
-        the ticker cannot be resolved.
-
-        Priority:
-          1. Ticker exchange suffix → _EXCHANGE_CURRENCY_MAP  (most reliable)
-          2. EMSX_CURRENCY_PAIR parsed intelligently               (fallback)
-          3. Empty string                                           (last resort)
-        """
-        # ── Step 1: Ticker exchange suffix (most reliable) ──────────────
-        ticker_ccy = ""
-        parts = ticker.strip().split() if ticker else []
-        if len(parts) >= 2:
-            asset_types = ("EQUITY", "GOVT", "CORP", "COMDTY", "INDEX", "CURNCY", "PREF", "MTGE")
-            exch_code = parts[-2].upper() if parts[-1].upper() in asset_types else parts[-1].upper()
-            ticker_ccy = cls._EXCHANGE_CURRENCY_MAP.get(exch_code, "")
-
-        if ticker_ccy:
-            return ticker_ccy
-
-        # ── Step 2: Parse EMSX_CURRENCY_PAIR ────────────────────────────
-        if currency_pair:
-            cp = currency_pair.strip()
-            # Handle 6-char pair codes like "HKDUSD", "JPYUSD" → extract first 3 chars
-            if len(cp) == 6 and cp[3:].upper() == "USD":
-                return cp[:3].upper()            # "HKDUSD" → "HKD"
-            if len(cp) == 6 and cp[:3].upper() == "USD":
-                return cp[3:].upper()            # "USDHKD" → "HKD"
-            # Handle slash-separated pairs
-            if "/" in cp:
-                parts_pair = [p.strip() for p in cp.split("/")]
-                # Return the non-USD side, preferring first token
-                for p in parts_pair:
-                    if p.upper() != "USD" and len(p) == 3:
-                        return p.upper()
-                # Both sides might be the same or both USD — return first
-                return parts_pair[0].upper() if parts_pair[0] else ""
-            # Plain 3-char code (e.g. "HKD", "JPY", "USD")
-            if len(cp) <= 3:
-                return cp.upper()
-
-        return ""
+        return derive_currency(currency_pair, ticker)
 
     @classmethod
     def _derive_exchange(cls, ticker: str) -> str:
-        """Derive exchange code from Bloomberg ticker suffix (e.g., '7203 JP Equity' → 'JP')."""
-        parts = ticker.strip().split() if ticker else []
-        if len(parts) >= 2:
-            asset_types = ("EQUITY", "GOVT", "CORP", "COMDTY", "INDEX", "CURNCY", "PREF", "MTGE")
-            return parts[-2].upper() if parts[-1].upper() in asset_types else parts[-1].upper()
-        return ""
+        return derive_exchange(ticker)
 
     def _parse_order_message(self, msg, seq: int) -> Optional[Order]:
         """Parse an OrderRouteFields subscription message into an Order."""
@@ -2193,11 +2085,11 @@ class BloombergEMSXService:
 
     @staticmethod
     def _order_type_uses_limit_price(order_type: str) -> bool:
-        return order_type in {"LMT", "STPLMT"}
+        return order_type_uses_limit_price(order_type)
 
     @staticmethod
     def _order_type_uses_stop_price(order_type: str) -> bool:
-        return order_type in {"STP", "STPLMT"}
+        return order_type_uses_stop_price(order_type)
 
     def _apply_strategy_params(self, request: Request, strategy_params: Optional[Dict[str, Any]]) -> None:
         if not strategy_params:

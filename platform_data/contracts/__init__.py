@@ -21,8 +21,6 @@ from .tca_contracts import (
     TcaReport,
     TcaRouteDetail,
 )
-from .data_platform_contracts import (
-    IngestionConfig,
-    IngestionResult,
-    PipelineState,
-)
+
+# Data platform contracts (IngestionConfig, IngestionResult, PipelineState)
+# were inlined into platform_data/adapters.py to reduce over-abstraction.

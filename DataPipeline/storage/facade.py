@@ -1,4 +1,4 @@
-"""Unified entry point for all CostView database repositories.
+﻿"""Unified entry point for all CostView database repositories.
 
 Provides ``fills_read``, ``fills_write``, ``raw_fills_read``, etc.
 as direct attributes.
@@ -6,7 +6,6 @@ as direct attributes.
 Legacy properties (``raw_db``, ``raw_bdib_db``, etc.) removed — use
 the corresponding repository attributes.
 
-Migrated from CostView/src/db/facade.py.
 """
 
 from __future__ import annotations
@@ -30,7 +29,6 @@ from DataPipeline.storage.repositories.regime import (
 from DataPipeline.storage.schema.migrations.manager import MigrationManager
 
 logger = logging.getLogger(__name__)
-
 
 class CostViewDatabase:
     """Unified entry point for all CostView database repositories.
