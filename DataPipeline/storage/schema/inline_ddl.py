@@ -79,10 +79,7 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
             fetched_at            TEXT DEFAULT (datetime('now')),
             ingested_at           TEXT DEFAULT (datetime('now')),
             order_as_of_date      TEXT DEFAULT '',
-            order_as_of_time      TEXT DEFAULT '',
             exchange_exec_time    TEXT DEFAULT '',
-            route_as_of_time      TEXT DEFAULT '',
-            local_fill_datetime   TEXT DEFAULT '',
             PRIMARY KEY (OrderId, RouteId, FillId)
         )
     """)

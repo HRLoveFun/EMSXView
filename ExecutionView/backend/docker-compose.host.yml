@@ -1,4 +1,4 @@
-﻿# EMSX Trading Platform - Docker Compose (Host Network Mode)
+# EMSX Trading Platform - Docker Compose (Host Network Mode)
 # Use on Linux when Bloomberg runs on the host machine.
 # docker-compose -f docker-compose.host.yml up -d
 

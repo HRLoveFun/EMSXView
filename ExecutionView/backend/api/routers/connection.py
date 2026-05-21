@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 from fastapi import APIRouter, Depends
 
 from schemas import ApiResponse
@@ -10,6 +13,9 @@ from config import settings
 from db import check_database_connection
 
 router = APIRouter(tags=["Connection"])
+
+# Reconnect rate limiter: at most one background reconnect attempt per 30s.
+_last_reconnect_ts: float = 0.0
 
 
 @router.get("/", tags=["Health"])
@@ -54,8 +60,17 @@ async def get_connection_status(user: dict = Depends(verify_token)):
 
 @router.get("/api/startup-status", response_model=ApiResponse)
 async def get_startup_status(user: dict = Depends(verify_token)):
-    """Get layered startup status for backend, Bloomberg, and EMSX subscriptions."""
-    status = get_bloomberg().get_startup_status()
+    """Get layered startup status for backend, Bloomberg, and EMSX subscriptions.
+    Fires a background reconnect if Bloomberg is disconnected (rate-limited to
+    once per 30s) so the system self-heals without waiting for a user action."""
+    global _last_reconnect_ts
+    bb = get_bloomberg()
+    if not bb.connected:
+        now = time.monotonic()
+        if now - _last_reconnect_ts > 30:
+            _last_reconnect_ts = now
+            asyncio.create_task(bb.connect())
+    status = bb.get_startup_status()
     return ApiResponse(success=True, data=status.model_dump(), message=status.message)
 
 
