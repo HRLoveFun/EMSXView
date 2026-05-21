@@ -118,7 +118,7 @@ EMSX/
 │   │   │   ├── connection.py            # ConnectionManager + AccessTier
 │   │   │   ├── protocols.py             # Repository Protocols (12)
 │   │   │   ├── dto.py                   # Data transfer objects
-│   │   │   ├── facade.py                # CostViewDatabase unified entry
+│   │   │   ├── facade.py                # DatabaseFacade unified entry
 │   │   │   ├── repositories/            # Concrete Repository implementations
 │   │   │   │   ├── fills_read.py
 │   │   │   │   ├── fills_write.py
@@ -218,7 +218,7 @@ Canonical entries:
 
 - `CostView/src/pipeline.py`
 - `CostView/src/tca_query_service.py`
-- `CostView/src/db/facade.py` (CostViewDatabase — unified DB entry point)
+- `CostView/src/db/facade.py` (DatabaseFacade — unified DB entry point)
 
 Responsibilities:
 
@@ -232,7 +232,7 @@ Database subsystem (`CostView/src/db/`):
 - `connection.py` — ConnectionManager with AccessTier enforcement across 6 SQLite DBs
 - `protocols.py` — 12 Repository Protocols (read/write/admin per domain)
 - `dto.py` — Data transfer objects for cross-layer communication
-- `facade.py` — CostViewDatabase facade holding all repositories
+- `facade.py` — DatabaseFacade facade holding all repositories
 - `repositories/` — 10 concrete repository implementations
 - `schema/` — Unified column definitions + MigrationManager
 

@@ -9,7 +9,7 @@ from DataPipeline.config import Config
 
 
 class ExecutionHistoryQueryService:
-    """Read fills-centric execution history from CostView-owned stores."""
+    """Read fills-centric execution history from processed_fills.db."""
 
     def __init__(
         self,

@@ -9,7 +9,7 @@ import datetime as dt
 import sqlite3
 from pathlib import Path
 
-from CostView.src.regime.schema import REGIME_DB_PATH
+from DataPipeline.analysis.regime.schema import REGIME_DB_PATH
 
 # Real / projected FOMC announcement dates 2025-09 .. 2026-04.
 FOMC_DATES = [

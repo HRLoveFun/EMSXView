@@ -15,7 +15,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from CostView.src.attribution.aggregator import (
+from DataPipeline.analysis.attribution.aggregator import (
     METRICS,
     DEFAULT_BUCKET_SPECS,
     add_bucket_columns,
@@ -23,8 +23,8 @@ from CostView.src.attribution.aggregator import (
     bootstrap_ci_mean,
     pairwise_welch_bh,
 )
-from CostView.src.attribution.config import ActiveAttributionConfig
-from CostView.src.attribution.metrics import (
+from DataPipeline.analysis.attribution.config import ActiveAttributionConfig
+from DataPipeline.analysis.attribution.metrics import (
     parse_side,
     reversal_bps,
     slippage_bps,

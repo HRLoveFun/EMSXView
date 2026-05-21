@@ -139,7 +139,7 @@ class PipelineFactory:
 # Legacy backward-compatibility runner functions
 # ═══════════════════════════════════════════════════════════════════════
 
-from DataPipeline.storage.facade import CostViewDatabase
+from DataPipeline.storage.facade import DatabaseFacade
 
 _log = logging.getLogger(__name__)
 
@@ -238,7 +238,7 @@ def run_incremental(
 def get_pipeline_status() -> Dict[str, Any]:
     """Get current status of the processing pipeline."""
     status: Dict[str, Any] = {}
-    db = CostViewDatabase()
+    db = DatabaseFacade()
     try:
         status["raw_fills"] = {
             "total_rows": db.raw_fills_read.get_row_count(),

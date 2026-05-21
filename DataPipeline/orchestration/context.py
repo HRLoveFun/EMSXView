@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from DataPipeline.storage.connection import ConnectionManager
-from DataPipeline.storage.facade import CostViewDatabase
+from DataPipeline.storage.facade import DatabaseFacade
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class PipelineContext:
     config: Dict[str, Any] = field(default_factory=dict)
 
     # 数据库子系统统一入口
-    _db: Optional[CostViewDatabase] = field(default=None, init=False, repr=False)
+    _db: Optional[DatabaseFacade] = field(default=None, init=False, repr=False)
 
     # 数据库连接管理器
     connection_manager: Optional[ConnectionManager] = None
@@ -39,7 +39,7 @@ class PipelineContext:
     errors: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
-    def db(self) -> CostViewDatabase:
+    def db(self) -> DatabaseFacade:
         """统一的数据库访问入口（懒初始化）。
 
         所有新的 Repository 访问应通过此属性获取，例如:
@@ -47,7 +47,7 @@ class PipelineContext:
             context.db.market_data_write.upsert_bdib_data(df)
         """
         if self._db is None:
-            self._db = CostViewDatabase(self.get_connection_manager())
+            self._db = DatabaseFacade(self.get_connection_manager())
         return self._db
 
     def get_connection_manager(self) -> ConnectionManager:

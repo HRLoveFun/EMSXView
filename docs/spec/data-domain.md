@@ -174,7 +174,7 @@ Current adapters:
 - `ExecutionOperationalDataAdapter` \â€\” live execution state (owner: ExecutionView)
 - `MarketReferenceDataAdapter` \â€\” market snapshots and intraday features (owner: Data Platform, consumed by MarketView/CostView)
 - `CostViewAnalyticsAdapter` \â€\” TCA and scorecard reports (owner: CostView)
-- `CostViewDatabaseAdapter` \â€\” read-only database queries via `CostViewDatabase` (owner: CostView)
+- `CostViewDatabaseAdapter` \â€\” read-only database queries via `DatabaseFacade` (owner: CostView)
 - `ExecutionHistoryAdapter` \â€\” fill/order/route history (owner: Data Platform, consumed by CostView)
 - `HandoffExchangeAdapter` \â€\” cross-module handoff contracts (owner: platform_data)
 - `PlatformDataAccess` \â€\” unified entry point holding all adapters
@@ -250,7 +250,7 @@ ends at clean, well-structured data delivery.
 
 - No immediate rewrite into a single monorepo Python package layout.
 - No immediate migration of SQLite analytical stores into PostgreSQL.
-- The Data Platform extraction from CostView will be incremental; existing `CostView/src/` surfaces remain functional during the transition.
+- The Data Platform has been extracted from CostView. Analysis modules (regime/attribution) and execution history service now live in DataPipeline and platform_data respectively.
 
 ---
 

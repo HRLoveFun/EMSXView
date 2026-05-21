@@ -24,7 +24,7 @@ import pandas as pd
 
 from DataPipeline.storage.connection import AccessTier, ConnectionManager
 from DataPipeline.common.outdated_tickers import load_outdated_ticker_set
-from DataPipeline.storage.facade import CostViewDatabase
+from DataPipeline.storage.facade import DatabaseFacade
 from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
@@ -42,11 +42,11 @@ class CalculateDailyMetrics:
     def __init__(
         self,
         connection_manager: Optional[ConnectionManager] = None,
-        db: Optional[CostViewDatabase] = None,
+        db: Optional[DatabaseFacade] = None,
         history_chunk_size: int = DEFAULT_HISTORY_CHUNK_SIZE,
     ):
         self._mgr = connection_manager or ConnectionManager()
-        self._db = db or CostViewDatabase(self._mgr)
+        self._db = db or DatabaseFacade(self._mgr)
         self._history_chunk_size = history_chunk_size
 
     # ── Public API ────────────────────────────────────────────────────────────

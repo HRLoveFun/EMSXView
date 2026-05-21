@@ -51,7 +51,7 @@ sys.path.insert(0, str(_COSTVIEW_ROOT))
 from DataPipeline.config import Config
 from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date, _is_trading_day
 from src.raw_bdib_db import RawBDIBDB
-from DataPipeline.storage.facade import CostViewDatabase
+from DataPipeline.storage.facade import DatabaseFacade
 
 logger = logging.getLogger("backfill_raw_bdib")
 
@@ -108,7 +108,7 @@ def load_ticker_exchange_map() -> dict:
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        db = CostViewDatabase()
+        db = DatabaseFacade()
     bdid_exchange = [str(e).strip().upper() for e in Config.BDID_EXCHANGE if str(e).strip()]
     mapping = db.fills_read.get_ticker_exchange_map(exchanges=bdid_exchange)
     logger.info(f"Loaded {len(mapping)} tickers from ticker_repository (exchanges={bdid_exchange})")
