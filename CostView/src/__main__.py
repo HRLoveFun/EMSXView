@@ -117,7 +117,7 @@ def main():
 
     # Database access control (Phase 1)
     parser.add_argument("--db-access", type=str, default=None,
-                        choices=["read", "write", "admin"],
+                        choices=["read", "write"],
                         help="Database access tier (default: auto)")
     parser.add_argument("--confirm-delete", action="store_true",
                         help="Confirm destructive DB operations (required for admin)")

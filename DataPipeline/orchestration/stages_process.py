@@ -72,7 +72,7 @@ class IntegrateBDIBStage(BaseStage):
         from DataPipeline.storage.repositories.market_data import (
             SqliteMarketDataWriteRepository,
         )
-        cm = context.get_connection_manager()
+        cm = context.connection_manager
         market_write = SqliteMarketDataWriteRepository(connection_manager=cm) if cm else context.db.market_data_write
         fills_reader = context.db.fills_read
         fills_writer = context.db.fills_write
@@ -271,7 +271,7 @@ class CalculateDailyMetricsStage(BaseStage):
             return True
 
         calc = CalculateDailyMetrics(
-            connection_manager=context.get_connection_manager(), db=context.db,
+            connection_manager=context.connection_manager, db=context.db,
         )
 
         if context.target_dates:

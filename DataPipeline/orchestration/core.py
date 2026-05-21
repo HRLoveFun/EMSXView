@@ -71,38 +71,11 @@ class FinancialPipeline:
 
 
 class PipelineFactory:
-    """流水线工厂类，使用'功能描述-业务领域'规范命名并装配流水线。"""
-
-    @staticmethod
-    def create_data_sync_legacy() -> FinancialPipeline:
-        """创建【数据同步-历史Excel流水】流水线"""
-        return FinancialPipeline("数据同步-历史Excel流水").add_stage(IngestExcelStage())
-
-    @staticmethod
-    def create_data_processing_trade_model() -> FinancialPipeline:
-        """创建【数据清洗与加工-交易核心模型】流水线"""
-        return FinancialPipeline("数据清洗与加工-交易核心模型").add_stage(ProcessRawFillsStage())
-
-    @staticmethod
-    def create_aggregation_order_route() -> FinancialPipeline:
-        """创建【降频聚合与特征提取-订单路由视角】流水线"""
-        return (FinancialPipeline("降频聚合与特征提取-订单路由视角")
-                .add_stage(AggregateFillsStage())
-                .add_stage(GenerateOrderLabelsStage()))
-
-    @staticmethod
-    def create_integration_tca_analysis() -> FinancialPipeline:
-        """创建【多源融合-TCA成本分析】流水线"""
-        return FinancialPipeline("多源融合-TCA成本分析").add_stage(IntegrateBDIBStage())
-
-    @staticmethod
-    def create_contract_downstream() -> FinancialPipeline:
-        """创建【契约分发-下游行情依赖】流水线"""
-        return FinancialPipeline("契约分发-下游行情依赖").add_stage(WriteManifestStage())
+    """流水线工厂 — 提供每日端到端处理流水线。"""
 
     @staticmethod
     def create_daily_e2e_pipeline(skip_ingest: bool = True, skip_bdib: bool = True) -> FinancialPipeline:
-        """每日端到端总控调度 (组合多个子Pipeline的阶段)"""
+        """每日端到端总控调度"""
         pipeline = FinancialPipeline("端到端全链路-日终批处理")
 
         if not skip_ingest:
@@ -114,24 +87,9 @@ class PipelineFactory:
 
         if not skip_bdib:
             pipeline.add_stage(IntegrateBDIBStage())
-            pipeline.add_stage(CalculateDailyMetricsStage())  # Stage 7: ADV + volatility
+            pipeline.add_stage(CalculateDailyMetricsStage())
 
         pipeline.add_stage(WriteManifestStage())
-        return pipeline
-
-    @staticmethod
-    def create_regime_classification(skip_fetch: bool = False) -> FinancialPipeline:
-        """Regime layer: market_index → vol/liq/trend → fill labels."""
-        pipeline = FinancialPipeline("行情分类与标签-Regime层")
-        pipeline.add_stage(RegimeDailyFeaturesStage())
-        pipeline.add_stage(RegimeFillTaggerStage())
-        return pipeline
-
-    @staticmethod
-    def create_attribution() -> FinancialPipeline:
-        """Attribution layer: per-fill IS/VWAP/reversal metrics."""
-        pipeline = FinancialPipeline("绩效归因-Attribution层")
-        pipeline.add_stage(AttributionMetricsStage())
         return pipeline
 
 
