@@ -218,7 +218,7 @@ def fetch_bdib_for_ticker_date(
                 interval=interval,
                 intervalHasSeconds=True,
                 ref=ref_exchange,
-                batch=True,
+                batch=False,
             )
 
             # Flatten xbbg MultiIndex columns FIRST (before any column-level logic)

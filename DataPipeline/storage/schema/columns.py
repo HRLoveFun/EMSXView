@@ -26,8 +26,7 @@ EMSX_FILL_COLUMNS: List[str] = [
 ]
 
 DERIVED_COLUMNS: List[str] = [
-    "order_as_of_date", "order_as_of_time", "exchange_exec_time",
-    "route_as_of_time", "local_fill_datetime",
+    "order_as_of_date", "exchange_exec_time",
 ]
 
 ALL_RAW_COLUMNS: List[str] = EMSX_FILL_COLUMNS + DERIVED_COLUMNS

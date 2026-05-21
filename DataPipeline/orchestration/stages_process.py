@@ -195,7 +195,17 @@ class IntegrateBDIBStage(BaseStage):
                     gc.collect()
                     continue
 
-                integrated_df = integrate_fills_bdib_for_date(agg_df, date_str, bdib_data=bdib_enriched, ticker_exchange_map=ticker_exchange_map_all)
+                # ── Phase FX: Fetch FX rates for this date ──
+                from DataPipeline.acquisition.fx_fetcher import fetch_fx_rates_for_date, fx_rates_to_dataframe
+                ccy_tickers = agg_df["ccy_ticker"].dropna().unique().tolist() if "ccy_ticker" in agg_df.columns else []
+                if ccy_tickers:
+                    fx_dict = fetch_fx_rates_for_date(ccy_tickers, date_str)
+                    fx_rates = fx_rates_to_dataframe(fx_dict, date_str)
+                    logger.info("Fetched FX rates for %s: %d ccy_tickers", date_str, len(fx_rates))
+                else:
+                    fx_rates = None
+
+                integrated_df = integrate_fills_bdib_for_date(agg_df, date_str, bdib_data=bdib_enriched, ticker_exchange_map=ticker_exchange_map_all, fx_rates=fx_rates)
                 total_raw_bdib_rows += date_raw_rows
                 total_processed_raw_bdib_rows += date_proc_raw_rows
 

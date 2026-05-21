@@ -1,4 +1,4 @@
-﻿"""
+"""
 Bloomberg EMSX Service — extracted from main.py for modular architecture.
 
 Provides the BloombergEMSXService class that manages Bloomberg API connections,
@@ -244,6 +244,7 @@ class BloombergEMSXService:
 
         # Subscription state tracking
         self._subscription_failed: bool = False
+        self._subscription_failed_at: Optional[datetime] = None
 
         # Background subscription thread
         self._sub_thread: Optional[threading.Thread] = None
@@ -300,7 +301,7 @@ class BloombergEMSXService:
             if self.connected and self.session:
                 return True
 
-            session = None  # Local variable for proper cleanup
+            session = None
             try:
                 logger.info(f"Connecting to Bloomberg at {settings.BLOOMBERG_HOST}:{settings.BLOOMBERG_PORT}")
 
@@ -351,6 +352,7 @@ class BloombergEMSXService:
                 # Reset subscription state for fresh connection
                 with self._data_lock:
                     self._subscription_failed = False
+                    self._subscription_failed_at = None
                     self._init_paint_done = False
                     self._orders = {}
                     self._routes = {}
@@ -403,7 +405,6 @@ class BloombergEMSXService:
                         self._mktdata_session = mktdata_session
                         self._mktdata_connected = True
                         logger.info("Opened dedicated mktdata session for real-time market data subscriptions")
-                        # Also open //blp/refdata for periodic FX rate queries
                         try:
                             if mktdata_session.openService("//blp/refdata"):
                                 self._refdata_service_available = True
@@ -438,7 +439,7 @@ class BloombergEMSXService:
                 )
                 self._sub_thread.start()
 
-                # Start background mktdata subscription thread (real-time market data + FX)
+                # Start background mktdata subscription thread
                 self._mktdata_thread = threading.Thread(
                     target=self._mktdata_subscription_loop,
                     daemon=True,
@@ -453,7 +454,6 @@ class BloombergEMSXService:
                 self.last_error = f"Connection error: {str(e)}"
                 logger.exception(self.last_error)
                 self.connected = False
-                # Ensure session cleanup on error
                 if session:
                     try:
                         session.stop()
@@ -553,12 +553,25 @@ class BloombergEMSXService:
                 ),
             )
 
-        if subscriptions.subscriptionFailed:
+        # Auto-clear subscription failure if stuck > 5 min.
+        # Allows transition from "error" back to "bloomberg_connecting" after
+        # a transient disconnect, without requiring an API call to connect().
+        if self._subscription_failed and self._subscription_failed_at:
+            stuck_seconds = (datetime.now() - self._subscription_failed_at).total_seconds()
+            if stuck_seconds > 300:
+                logger.warning(
+                    f"Subscription failed for {stuck_seconds:.0f}s — "
+                    "auto-clearing flag (lazy reconnect triggers on next request)"
+                )
+                self._subscription_failed = False
+                self._subscription_failed_at = None
+
+        if bloomberg.status != "connected":
+            phase = "error" if bloomberg.message else "bloomberg_connecting"
+            message = bloomberg.message or "Backend 已启动，正在连接 Bloomberg EMSX..."
+        elif subscriptions.subscriptionFailed:
             phase = "error"
             message = "Bloomberg 已连接，但 EMSX 订阅失败；请检查日志并重试。"
-        elif bloomberg.status != "connected":
-            phase = "error" if bloomberg.message else "bloomberg_connecting"
-            message = bloomberg.message or "Backend 已启动，正在连接 Bloomberg EMSX。"
         elif subscriptions.ready:
             phase = "ready"
             message = "Backend、Bloomberg 与 EMSX 订阅均已就绪。"
@@ -640,6 +653,7 @@ class BloombergEMSXService:
                             # Mark subscription as failed and stop this thread
                             # so get_orders() can retry with the next service
                             self._subscription_failed = True
+                            self._subscription_failed_at = datetime.now()
                             self.connected = False
                             logger.warning(f"Subscription failed for {self.active_service_name}, will retry with fallback service")
                             return
@@ -648,7 +662,18 @@ class BloombergEMSXService:
                     for msg in event:
                         mtype = str(msg.messageType())
                         if "SessionTerminated" in mtype or "SessionStartupFailure" in mtype:
-                            logger.error("Bloomberg session terminated")
+                            logger.error(f"Bloomberg session event: {mtype}")
+                            try:
+                                if msg.hasElement("reason"):
+                                    reason = msg.getElement("reason")
+                                    if reason.hasElement("description"):
+                                        desc = reason.getElementAsString("description")
+                                    else:
+                                        desc = reason.getValueAsString()
+                                    logger.error(f"Session error detail: {desc}")
+                                    self.last_error = desc
+                            except Exception:
+                                pass
                             self.connected = False
                             return
 
@@ -2346,12 +2371,15 @@ class BloombergEMSXService:
                     await asyncio.sleep(0.5)
                     with self._data_lock:
                         has_routes = len(self._routes) > 0
-                    if self._route_init_paint_done or has_routes:
+                    if self._route_init_paint_done or has_routes or self._subscription_failed:
                         break
                 with self._data_lock:
                     route_count = len(self._routes)
                 if route_count > 0 and not self._route_init_paint_done:
                     self._route_init_paint_done = True
+                if self._subscription_failed:
+                    logger.warning("Route subscription failed — resetting for reconnect")
+                    self.connected = False
 
         # Thread-safe: copy data under lock
         with self._data_lock:
