@@ -28,9 +28,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   GitBranch,
   AlertTriangle,
+  Info,
   Loader2,
   CheckCircle2,
-  Scale,
 } from 'lucide-react';
 import {
   Dialog,
@@ -431,9 +431,9 @@ export function BatchRouteOrderDialog({
   }, [open, orders]);
 
   // ── Reconcile allocations when selectedBrokers changes ──────────────────
-  // For each row: add allocations for new brokers (qty = equal split based
-  // on remaining / N), drop allocations for removed brokers (preserves any
-  // user edits on still-present brokers).
+  // For each row: add allocations for new brokers (qty = '0' by default),
+  // drop allocations for removed brokers (preserves any user edits on
+  // still-present brokers). User must click "Apply ratios" to fill qty.
   useEffect(() => {
     if (!open) return;
     setRows(prev => {
@@ -441,19 +441,12 @@ export function BatchRouteOrderDialog({
       for (const [oid, r] of Object.entries(prev)) {
         const o = orders.find(x => x.id === oid);
         if (!o) { next[oid] = r; continue; }
-        const lot = lotSizeOf(o);
-        const splits = equalSplit(effectiveRemainingOf(o), lot, selectedBrokers.length);
         const allocs: Record<string, AllocState> = {};
-        selectedBrokers.forEach((b, i) => {
+        selectedBrokers.forEach((b) => {
           const existing = r.allocations[b];
-          // Preserve user edits if a non-default qty was entered. We treat
-          // the equal-split value as "default" — if the existing qty equals
-          // the prior equal-split for that broker (or is empty), we replace
-          // with the fresh split; otherwise we keep the user's value.
-          const fresh = String(splits[i] ?? 0);
           allocs[b] = existing
             ? existing
-            : { qty: fresh, violations: [] };
+            : { qty: '0', violations: [] };
         });
         next[oid] = { selected: r.selected, allocations: allocs };
       }
@@ -485,6 +478,16 @@ export function BatchRouteOrderDialog({
     () => orders.filter(o => rows[o.id]?.selected),
     [orders, rows],
   );
+
+  /** Distinct markets among selected orders. */
+  const orderMarkets = useMemo(() => {
+    const m = new Set<string>();
+    for (const o of selectedOrders) {
+      const key = deriveMarketKey(o.exchange, o.currency);
+      if (key) m.add(key);
+    }
+    return Array.from(m);
+  }, [selectedOrders]);
 
   const computeAllocQty = (a: AllocState | undefined): number => {
     if (!a || a.qty === '') return 0;
@@ -544,39 +547,6 @@ export function BatchRouteOrderDialog({
         },
       };
     });
-
-  /** Re-equal-split the remaining quantity across all selected brokers for
-   *  every selected row. Wipes user qty edits — that's the explicit intent. */
-  const equalSplitAllSelected = () => {
-    if (selectedBrokers.length === 0) {
-      setError('Pick at least one broker first.');
-      return;
-    }
-    setError('');
-    setRows(prev => {
-      const next: Record<string, RowState> = {};
-      for (const [oid, r] of Object.entries(prev)) {
-        if (!r.selected) { next[oid] = r; continue; }
-        const o = orders.find(x => x.id === oid);
-        if (!o) { next[oid] = r; continue; }
-        const lot = lotSizeOf(o);
-        const splits = equalSplit(effectiveRemainingOf(o), lot, selectedBrokers.length);
-        const allocs: Record<string, AllocState> = { ...r.allocations };
-        selectedBrokers.forEach((b, i) => {
-          const cur = allocs[b];
-          allocs[b] = {
-            qty: String(splits[i] ?? 0),
-            violations: cur?.violations ?? [],
-            status: cur?.status,
-            message: cur?.message,
-            routeId: cur?.routeId,
-          };
-        });
-        next[oid] = { ...r, allocations: allocs };
-      }
-      return next;
-    });
-  };
 
   /** % Quick-fill: each selected order's *total* qty becomes pct% of remaining
    *  (lot-floored at the order level), then equally split across the chosen
@@ -813,6 +783,7 @@ export function BatchRouteOrderDialog({
   const canValidate = useMemo(() => {
     if (selectedOrders.length === 0) return false;
     if (selectedBrokers.length === 0) return false;
+    if (orderMarkets.length > 1) return false;
     for (const o of selectedOrders) {
       const r = rows[o.id];
       if (!r) return false;
@@ -831,7 +802,7 @@ export function BatchRouteOrderDialog({
       if (total > effectiveRemainingOf(o)) return false;
     }
     return true;
-  }, [selectedOrders, selectedBrokers, rows, effectiveRemainingOf]);
+  }, [selectedOrders, selectedBrokers, rows, effectiveRemainingOf, orderMarkets]);
 
   // ── Blocked-destination details for inline banner ──────────────────────
   // Derived from rows after dry-run / submit fills in violations + status.
@@ -1112,6 +1083,18 @@ export function BatchRouteOrderDialog({
           </div>
         </div>
 
+        {/* ── Multi-market block ────────────────────────────────────────── */}
+        {orderMarkets.length > 1 && (
+          <Alert variant="destructive" className="py-2 text-xs">
+            <AlertTriangle className="h-3 w-3" />
+            <AlertDescription>
+              Batch route cannot process orders from multiple markets simultaneously.
+              Selected orders span: <strong>{orderMarkets.join(', ')}</strong>.
+              Please select orders from a single market and route each market separately.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* ── Per-broker strategy + params ──────────────────────────────── */}
         {selectedBrokers.length > 0 && (
           <div className="border border-border rounded p-3 space-y-3">
@@ -1264,18 +1247,6 @@ export function BatchRouteOrderDialog({
             disabled={!editable || selectedBrokers.length === 0 || selectedOrders.length === 0}
           >
             Apply %
-          </Button>
-          <div className="w-px h-4 bg-border mx-1" />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={equalSplitAllSelected}
-            disabled={!editable || selectedBrokers.length === 0 || selectedOrders.length === 0}
-            title="Equally divide each selected order's remaining quantity across the chosen brokers (lot-rounded)"
-          >
-            <Scale className="h-3 w-3 mr-1" />
-            Equal-split 100%
           </Button>
           <span className="ml-auto text-muted-foreground/70">
             Each qty cell is editable. Cells turn red on odd-lot or row over-allocation.
