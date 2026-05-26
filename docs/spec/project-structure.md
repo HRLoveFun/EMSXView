@@ -154,11 +154,13 @@ EMSX/
 │       ├── market_data_contracts.py
 │       └── regime_contracts.py
 ├── docs/
-│   ├── README.md
-│   ├── PROJECT_STRUCTURE.md
-│   ├── DATA_DOMAIN.md
-│   ├── MEMORY.md
+│   ├── index.md
+│   ├── dev-guide.md
 │   ├── handoff.md
+│   ├── spec/
+│   │   ├── project-structure.md
+│   │   ├── data-domain.md
+│   │   └── memory.md
 │   ├── roadmap/wbs.md
 │   └── archive/
 ├── scripts/

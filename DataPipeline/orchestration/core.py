@@ -25,19 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 class FinancialPipeline:
-    """管理和按顺序执行所有处理阶段的调度器。"""
+    """Orchestrator that manages and executes stage sequences in order."""
 
-    def __init__(self, name: str = "默认-综合处理流水线"):
+    def __init__(self, name: str = "Default-Comprehensive"):
         self.name = name
         self._stages: List[BaseStage] = []
 
     def add_stage(self, stage: BaseStage) -> 'FinancialPipeline':
-        """添加一个新的处理阶段，支持链式调用。"""
+        """Add a processing stage, supports chaining."""
         self._stages.append(stage)
         return self
 
     def run(self, context: PipelineContext) -> PipelineContext:
-        """顺序执行所有阶段。"""
+        """Execute all stages sequentially."""
         logger.info("=" * 60)
         logger.info(f"EMSX Pipeline Execution: [{self.name}]")
         logger.info("=" * 60)
@@ -71,12 +71,12 @@ class FinancialPipeline:
 
 
 class PipelineFactory:
-    """流水线工厂 — 提供每日端到端处理流水线。"""
+    """Pipeline factory — provides daily end-to-end processing pipelines."""
 
     @staticmethod
     def create_daily_e2e_pipeline(skip_ingest: bool = True, skip_bdib: bool = True) -> FinancialPipeline:
-        """每日端到端总控调度"""
-        pipeline = FinancialPipeline("端到端全链路-日终批处理")
+        """Daily end-to-end orchestration."""
+        pipeline = FinancialPipeline("E2E-FullChain-DailyBatch")
 
         if not skip_ingest:
             pipeline.add_stage(IngestExcelStage())
@@ -105,7 +105,7 @@ _log = logging.getLogger(__name__)
 def run_ingest(excel_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """Legacy compatibility: Ingest Excel files."""
     ctx = PipelineContext(excel_dir=excel_dir)
-    pipe = FinancialPipeline("数据同步-历史Excel流水").add_stage(IngestExcelStage())
+    pipe = FinancialPipeline("Ingest-HistoricalExcel").add_stage(IngestExcelStage())
     pipe.run(ctx)
     return ctx.summary.get("ingestion", {}).get("results", [])
 
@@ -116,7 +116,7 @@ def run_process(
 ) -> pd.DataFrame:
     """Legacy compatibility: Process raw fills."""
     ctx = PipelineContext(target_dates=dates or [], force=force)
-    pipe = FinancialPipeline("数据清洗与加工-交易核心模型").add_stage(ProcessRawFillsStage())
+    pipe = FinancialPipeline("Process-CoreModel").add_stage(ProcessRawFillsStage())
     pipe.run(ctx)
     return pd.DataFrame()
 
@@ -127,7 +127,7 @@ def run_aggregate(
 ) -> None:
     """Legacy compatibility: Aggregate fills."""
     ctx = PipelineContext(target_dates=dates or [], force=force)
-    pipe = FinancialPipeline("降频聚合-订单路由视角(单阶段)").add_stage(AggregateFillsStage())
+    pipe = FinancialPipeline("Aggregate-OrderRoute").add_stage(AggregateFillsStage())
     pipe.run(ctx)
 
 
@@ -137,7 +137,7 @@ def run_order_labels(
 ) -> pd.DataFrame:
     """Legacy compatibility: Generate order labels."""
     ctx = PipelineContext(target_dates=dates or [], force=force)
-    pipe = FinancialPipeline("特征提取-全局订单标签(单阶段)").add_stage(GenerateOrderLabelsStage())
+    pipe = FinancialPipeline("Label-GlobalOrder").add_stage(GenerateOrderLabelsStage())
     pipe.run(ctx)
     return ctx.db.fills_read.get_order_labels()
 
@@ -148,7 +148,7 @@ def run_bdib_integration(
 ) -> None:
     """Legacy compatibility: Integrate BDIB data."""
     ctx = PipelineContext(target_dates=dates or [], force=force)
-    pipe = FinancialPipeline("多源融合-TCA成本分析").add_stage(IntegrateBDIBStage())
+    pipe = FinancialPipeline("Integrate-BDIB-TCA").add_stage(IntegrateBDIBStage())
     pipe.run(ctx)
 
 

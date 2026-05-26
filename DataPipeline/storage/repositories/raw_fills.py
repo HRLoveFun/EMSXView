@@ -105,6 +105,33 @@ class SqliteRawFillReadRepository(BaseRepository):
         finally:
             conn.close()
 
+    def get_order_fetch_log(
+        self,
+        source_date: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """Return order-level fetch log entries, optionally filtered by date."""
+        conn = self._get_read_conn()
+        try:
+            if source_date:
+                cursor = conn.execute(
+                    "SELECT order_id, source_date "
+                    "FROM order_fetch_log WHERE source_date = ? "
+                    "ORDER BY source_date DESC LIMIT ?",
+                    (source_date, limit),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT order_id, source_date "
+                    "FROM order_fetch_log "
+                    "ORDER BY source_date DESC LIMIT ?",
+                    (limit,),
+                )
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def get_last_fetch_date(self) -> Optional[str]:
         """Return the most recent source_date in fetch_log."""
         conn = self._get_read_conn()

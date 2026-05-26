@@ -84,7 +84,7 @@ All module UIs are mounted in the **single** ExecutionView/frontend React shell 
   - `databaseview/` — database admin/diagnostics
 - Vite manual chunking ensures each module gets its own bundle (`module-costview`, `module-marketview`, etc.)
 - Shared code lives in `src/shared/` (hooks, lib, services, types) and `src/components/` (React components)
-- API client services in `src/services/`
+- API client services live in each module's `services/` directory (e.g. `modules/execution/services/execution-api.ts`, `modules/costview/services/api.ts`)
 
 **Path aliases** (configured in both vite.config.ts and tsconfig.app.json):
 - `@/*` → `./src/*`

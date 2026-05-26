@@ -107,13 +107,14 @@ EMSX/
 │   ├── README.md                  # Execution module documentation
 │   ├── frontend/                  # Active React shell for platform modules
 │   │   └── src/
-│   │       ├── sections/          # Execution workspace (OrderTable, RouteTable, etc.)
 │   │       ├── modules/
+│   │       │   ├── execution/     # Order/Route management workspace
+│   │       │   ├── costview/      # Post-trade TCA UI
 │   │       │   ├── marketview/    # Pre-trade shell anchor
-│   │       │   └── costview/      # Post-trade integrated UI
-│   │       ├── services/          # API clients
-│   │       ├── hooks/             # React hooks
-│   │       └── types/             # TypeScript definitions
+│   │       │   └── databaseview/  # Database admin UI
+│   │       ├── app/               # Shell layout, toolbar, hooks
+│   │       ├── shared/            # Cross-module hooks, lib, services, types
+│   │       └── components/        # Shared React components
 │   └── backend/
 │       └── api/                   # Active FastAPI assembly layer
 │           ├── main.py            # Application entry point
@@ -124,25 +125,30 @@ EMSX/
 ├── CostView/
 │   ├── README.md                  # CostView module documentation
 │   ├── requirements.txt           # Python dependencies
-│   ├── src/                       # Active post-trade data pipeline and query services
-│   │   ├── pipeline.py            # Data ingestion pipeline
+│   ├── src/                       # TCA query service and CLI
 │   │   ├── tca_query_service.py   # TCA analytical queries
-│   │   ├── fill_fetch.py          # EMSX fill fetcher
+│   │   ├── tca_query_builder.py   # TCA query builder
+│   │   ├── query_cli.py           # CLI query interface
 │   │   └── ...
 │   ├── tests/                     # Unit tests
 │   ├── data/                      # Pipeline data stores
 │   └── frontend/                  # Legacy prototype UI (non-canonical)
 ├── platform_data/
 │   ├── __init__.py
-│   ├── adapters.py                # Shared logical data-domain adapters
-│   └── repositories.py            # Cross-domain data repositories
+│   ├── adapters.py                # Cross-domain data adapters
+│   ├── execution_history_service.py  # Historical execution queries
+│   └── database_diagnostics.py    # DB diagnostics utility
 ├── docs/                          # Project documentation
-│   ├── PROJECT_STRUCTURE.md       # Canonical architecture reference
-│   ├── DATA_DOMAIN.md             # Data domain documentation
-│   ├── SERVICE_MANAGEMENT.md      # Service operations guide
+│   ├── spec/                      # Architecture specs
+│   │   ├── project-structure.md   # Canonical architecture reference
+│   │   ├── data-domain.md         # Data domain documentation
+│   │   └── memory.md              # Architecture memory & constraints
+│   ├── ops/                       # Operations docs
+│   │   └── service-management.md  # Service operations guide
+│   ├── roadmap/                   # Roadmap & WBS
 │   └── ...
 ├── scripts/                       # Shared automation and utility scripts
-│   ├── service-manager.ps1        # PowerShell service manager
+│   ├── ops/service-manager.ps1    # PowerShell service manager
 │   ├── start-all.bat / stop-all.bat
 │   └── ...
 ├── data/                          # Shared runtime data
@@ -238,9 +244,8 @@ MarketView ──────▶ ExecutionView ──────▶ CostView
 | [ExecutionView/README.md](./ExecutionView/README.md) | Execution module details |
 | [CostView/README.md](./CostView/README.md) | CostView module details |
 | [MarketView/README.md](./MarketView/README.md) | MarketView module details |
-| [项目功能构建规划.md](./项目功能构建规划.md) | 下一步功能构建路线图 (中文) |
 
 ---
 
-*Last updated: April 28, 2026*
+*Last updated: May 26, 2026*
 
