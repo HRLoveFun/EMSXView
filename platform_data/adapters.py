@@ -438,7 +438,6 @@ class BrokerStrategyRecommendation:
 
 
 @dataclass(frozen=True)
-@dataclass(frozen=True)
 class CostViewAnalyticsAdapter:
     """Canonical adapter for CostView-owned analytical data."""
 

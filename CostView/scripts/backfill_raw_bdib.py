@@ -109,7 +109,7 @@ def load_ticker_exchange_map() -> dict:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         db = DatabaseFacade()
-    bdid_exchange = [str(e).strip().upper() for e in Config.BDID_EXCHANGE if str(e).strip()]
+    bdid_exchange = [str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()]
     mapping = db.fills_read.get_ticker_exchange_map(exchanges=bdid_exchange)
     logger.info(f"Loaded {len(mapping)} tickers from ticker_repository (exchanges={bdid_exchange})")
     return mapping

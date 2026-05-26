@@ -114,7 +114,7 @@ class IntegrateBDIBStage(BaseStage):
         except Exception:
             already_integrated = set()
 
-        bdid_exchange = [str(e).strip().upper() for e in Config.BDID_EXCHANGE if str(e).strip()]
+        bdid_exchange = [str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()]
         ticker_exchange_map_all = fills_reader.get_ticker_exchange_map(exchanges=bdid_exchange)
         if not ticker_exchange_map_all:
             context.summary["bdib"] = {

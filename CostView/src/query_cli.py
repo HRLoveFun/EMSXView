@@ -20,6 +20,7 @@ import csv
 import io
 import json
 import logging
+import sqlite3
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -28,7 +29,6 @@ from DataPipeline.storage.connection import AccessTier, ConnectionManager
 from DataPipeline.storage.repositories.fills import SqliteFillReadRepository
 from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
 from DataPipeline.config import Config
-from .raw_fills_db import RawFillsDB
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,6 @@ class QueryEngine:
 
     def __init__(self):
         self._mgr = ConnectionManager()
-        self.raw_db = RawFillsDB(access_tier=AccessTier.READ, connection_manager=self._mgr)
         self.fills_read = SqliteFillReadRepository(self._mgr)
         self.raw_fills_read = SqliteRawFillReadRepository(self._mgr)
 
@@ -116,7 +115,7 @@ class QueryEngine:
 
     def query_fetch_log(self, last: int = 10) -> List[Dict[str, Any]]:
         """Get recent fetch log entries."""
-        return self.raw_db.get_fetch_log_stats()[:last]
+        return self.raw_fills_read.get_fetch_log_stats()[:last]
 
     def query_order_fetch_log(
         self,
@@ -124,7 +123,7 @@ class QueryEngine:
         last: int = 50,
     ) -> List[Dict[str, Any]]:
         """Get order-level fetch log entries."""
-        return self.raw_db.get_order_fetch_log(source_date=date, limit=last)
+        return self.raw_fills_read.get_order_fetch_log(source_date=date, limit=last)
 
     def query_orders(
         self,
@@ -173,7 +172,7 @@ class QueryEngine:
         summary: Dict[str, Any] = {}
 
         # Raw fills stats
-        raw_counts = self.raw_db.get_date_row_counts()
+        raw_counts = self.raw_fills_read.get_date_row_counts()
         if date:
             summary["raw_fills"] = raw_counts.get(date, 0)
         else:

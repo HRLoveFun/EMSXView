@@ -36,7 +36,6 @@ _jobs_lock = threading.Lock()
 
 # Project-root anchor: this file = .../EMSX/ExecutionView/backend/api/routers/_pipeline_jobs.py
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
-COSTVIEW_ROOT = _PROJECT_ROOT / "CostView"
 
 _LOCK_FILE = _PROJECT_ROOT / ".pipeline.lock"
 
@@ -291,7 +290,6 @@ def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Ev
 
 
 def _run_pipeline_subprocess(job_id: str) -> None:
-    daily_update_script = COSTVIEW_ROOT / "scripts" / "daily_update.py"
 
     with _jobs_lock:
         if job_id in _jobs:
@@ -315,13 +313,13 @@ def _run_pipeline_subprocess(job_id: str) -> None:
     startup_timeout_hit = False
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-u", str(daily_update_script), "--once"],
+            [sys.executable, "-u", "-m", "DataPipeline", "--once"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(_PROJECT_ROOT),
         )
-        logger.info("Pipeline subprocess launched: pid=%s job=%s script=%s", proc.pid, job_id, daily_update_script)
+        logger.info("Pipeline subprocess launched: pid=%s job=%s", proc.pid, job_id)
 
         # Start watchdog thread
         watchdog_thread = threading.Thread(

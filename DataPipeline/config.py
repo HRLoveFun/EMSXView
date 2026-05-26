@@ -52,7 +52,6 @@ class Config:
     RAW_BDIB_DB: Path = DATA_DIR / "raw_bdib.db"
     PROCESSED_RAW_BDIB_DB: Path = DATA_DIR / "processed_raw_bdib.db"
     FILL_BDIB_DB: Path = DATA_DIR / "fill_bdib.db"
-    PROCESSED_BDIB_DB: Path = DATA_DIR / "fill_bdib.db"
 
     LOG_FILE: Path = LOGGING_DIR / "fillfetch.log"
     LOG_DEBUG_FILE: Path = LOGGING_DIR / "fillfetch_debug.log"
@@ -77,7 +76,7 @@ class Config:
     INT_TYPE: type = np.int32
     EXECTYPE_FILTER_OUT: set = {"DFD"}
     FIRST_RUN_LOOKBACK_DAYS: int = 60
-    BDID_EXCHANGE: list[str] = [
+    BDIB_EXCHANGE: list[str] = [
         "AU", "AV", "BB", "FH", "FP", "GA", "GR", "ID", "IJ", "IM",
         "IN", "JP", "KS", "LN", "MK", "NA", "NO", "PL", "SJ", "SM",
         "SP", "SS", "SW", "US",
@@ -116,7 +115,6 @@ class Config:
     BDIB_DAILY_SUMMARY_TABLE: str = "bdib_daily_summary"
     PROCESSED_RAW_BDIB_TABLE: str = "processed_raw_bdib"
     FILL_BDIB_TABLE: str = "fill_bdib"
-    PROCESSED_BDIB_TABLE: str = "fill_bdib"
     AGG_PROCESSED_FILLS_TABLE: str = "agg_processed_fills"
     PROCESSED_FILLS_1MIN_TABLE: str = "processed_fills_1min"
     ORDER_LABEL_TABLE: str = "order_label"
