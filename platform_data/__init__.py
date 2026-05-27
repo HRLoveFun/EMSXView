@@ -6,10 +6,6 @@ platform_data.adapters.
 """
 
 from .adapters import (
-    CostViewAnalyticsAdapter,
-    CostViewDatabaseAdapter,
-    DataPlatformIngestionAdapter,
-    ExecutionHistoryAdapter,
     HandoffExchangeAdapter,
     MarketReferenceDataAdapter,
     get_shared_handoff_exchange,

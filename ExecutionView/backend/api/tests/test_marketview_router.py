@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -121,8 +120,8 @@ def _build_client(monkeypatch) -> TestClient:
     app = FastAPI()
     monkeypatch.setattr(
         marketview_router_module,
-        "platform_data",
-        SimpleNamespace(market=_FakeMarketAdapter()),
+        "market",
+        _FakeMarketAdapter(),
     )
     app.include_router(marketview_router_module.router)
     return TestClient(app)

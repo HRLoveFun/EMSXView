@@ -67,7 +67,6 @@ import {
   deriveMarketKey,
 } from '@execution/hooks/use-market-broker-mapping';
 import {
-  BrokerStrategyFields,
   useStrategyFields,
 } from '@execution/components/broker-strategy-fields';
 import { ViolationList, violationLabel } from '@execution/components/compliance-violation';
@@ -76,7 +75,6 @@ import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@executio
 import { hhmmToEmsxInt } from '@execution/data/broker-common-params';
 import type {
   Order,
-  Route,
   TimeInForce,
   BatchRouteOrderRequest,
   BatchRouteOrderItem,
@@ -85,108 +83,27 @@ import type {
   Violation,
 } from '@execution/types';
 
-const tifOptions: { value: TimeInForce; label: string }[] = [
-  { value: 'DAY', label: 'Day' },
-  { value: 'GTC', label: 'GTC' },
-  { value: 'IOC', label: 'IOC' },
-  { value: 'FOK', label: 'FOK' },
-];
-
-const QUICK_PCT_PRESETS = [25, 50, 75, 100] as const;
-
-type Phase = 'configure' | 'review' | 'submitting' | 'result';
-type AllocStatus = 'BLOCKED' | 'SUCCESS' | 'FAILED';
-
-interface AllocState {
-  qty: string;            // user-editable; '' or '0' means skip this destination
-  violations: Violation[];
-  status?: AllocStatus;
-  message?: string;
-  routeId?: number | null;
-}
-
-interface RowState {
-  selected: boolean;
-  /** Keyed by broker code. Auto-managed by selectedBrokers reconciliation. */
-  allocations: Record<string, AllocState>;
-}
-
-interface BatchRouteOrderDialogProps {
-  orders: Order[];
-  /** All known routes — used to subtract pending WORKING quantity from each
-   *  parent order's nominal remainingQuantity so users cannot double-route
-   *  what is already out at the broker. */
-  routes?: Route[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onComplete?: () => void;
-}
-
-/** Route statuses that still consume parent order capacity (i.e. quantity
- *  is at the broker, not yet filled or cancelled). */
-const PENDING_ROUTE_STATUSES = new Set([
-  'SENT', 'WORKING', 'PARTFILLED', 'QUEUED', 'HOLD',
-  'CXLREQ', 'CXLREJ', 'CXLREP', 'CXLRPRQ', 'CXLRPRJ',
-  'REPPEN', 'A-SENT', 'OA-SENT',
-]);
-
-/** Lot size for an order (PX_ROUND_LOT_SIZE refdata; fallback 100 for JP, else 1). */
-function lotSizeOf(o: Order): number {
-  if (o.roundLotSize && o.roundLotSize > 0) return o.roundLotSize;
-  return (o.exchange ?? '').toUpperCase() === 'JP' ? 100 : 1;
-}
-
-function floorToLot(qty: number, lot: number): number {
-  if (!Number.isFinite(qty) || qty <= 0 || lot <= 0) return 0;
-  return Math.floor(qty / lot) * lot;
-}
-
-/** Equally split `remaining` across `n` destinations, lot-floored.
- *  Last bucket absorbs the residual lots so ∑ == floorToLot(remaining, lot). */
-function equalSplit(remaining: number, lot: number, n: number): number[] {
-  if (n <= 0) return [];
-  const totalLots = Math.floor(remaining / lot);
-  if (totalLots <= 0) return Array(n).fill(0);
-  const baseLots = Math.floor(totalLots / n);
-  const extra = totalLots - baseLots * n;
-  return Array.from({ length: n }, (_, i) =>
-    (baseLots + (i < extra ? 1 : 0)) * lot,
-  );
-}
-
-/** Broker-specific default strategy overrides.
- *  Key = broker code, value = preferred default strategy name. */
-const BROKER_DEFAULT_STRATEGY: Record<string, string> = {
-  'EQ-BARCLAY': 'VWAP-EU',
-};
-
-/** Pick a default strategy for a broker.
- *  Priority:
- *    1. Broker-specific override (BROKER_DEFAULT_STRATEGY), if available
- *    2. Exact `VWAP` match (normalized to alphanumerics)
- *    3. Empty string — no default, user must pick manually
- *  If a broker-specific override exists and the override is among the
- *  available strategies, it takes precedence over exact VWAP. */
-function defaultStrategyFor(strategies: string[], broker?: string): string {
-  if (strategies.length === 0) return '';
-
-  // Broker-specific override (e.g. EQ-BARCLAY → VWAP-EU)
-  if (broker && broker in BROKER_DEFAULT_STRATEGY) {
-    const preferred = BROKER_DEFAULT_STRATEGY[broker];
-    if (strategies.includes(preferred)) return preferred;
-  }
-
-  // Exact VWAP match only — no fuzzy fallback
-  const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const exact = strategies.find(s => norm(s) === 'VWAP');
-  if (exact) return exact;
-
-  return '';
-}
-
-function clientKeyOf(orderId: string, broker: string): string {
-  return `${orderId}#${broker}`;
-}
+import type {
+  Phase,
+  AllocStatus,
+  AllocState,
+  RowState,
+  BatchRouteOrderDialogProps,
+} from './batch-route-order/types';
+import {
+  tifOptions,
+  QUICK_PCT_PRESETS,
+  PENDING_ROUTE_STATUSES,
+} from './batch-route-order/types';
+import {
+  lotSizeOf,
+  floorToLot,
+  equalSplit,
+  defaultStrategyFor,
+  clientKeyOf,
+} from './batch-route-order/utils';
+import { OrderRow } from './batch-route-order/order-row';
+import { BrokerStrategyParamsEditor } from './batch-route-order/broker-strategy-params-editor';
 
 export function BatchRouteOrderDialog({
   orders,
@@ -1540,303 +1457,5 @@ export function BatchRouteOrderDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OrderRow — single parent order row with one editable qty cell per broker.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface OrderRowProps {
-  order: Order;
-  row: RowState;
-  lot: number;
-  total: number;
-  /** o.remainingQuantity − pending working at the broker. The number actually
-   *  available to the user. */
-  effectiveRemaining: number;
-  /** Pending working qty already at the broker, surfaced inline so the user
-   *  can see *why* the available capacity is less than nominal remaining. */
-  pendingWorking: number;
-  overAlloc: boolean;
-  anyAlloc: boolean;
-  selectedBrokers: string[];
-  isBrokerAllowedFor: (broker: string, o: Order) => boolean;
-  onPatchRow: (patch: Partial<RowState>) => void;
-  onPatchAlloc: (broker: string, patch: Partial<AllocState>) => void;
-  editable: boolean;
-  phase: Phase;
-  ratios: Record<string, number>;
-}
-
-function OrderRow(p: OrderRowProps) {
-  const { order: o, row: r, lot, total, effectiveRemaining, pendingWorking,
-    overAlloc, anyAlloc, selectedBrokers, isBrokerAllowedFor,
-    onPatchRow, onPatchAlloc, editable, phase, ratios } = p;
-
-  const aggregateStatus: AllocStatus | undefined = useMemo(() => {
-    const statuses = Object.values(r.allocations).map(a => a.status).filter(Boolean) as AllocStatus[];
-    if (statuses.length === 0) return undefined;
-    if (statuses.includes('BLOCKED')) return 'BLOCKED';
-    if (statuses.includes('FAILED')) return 'FAILED';
-    if (statuses.every(s => s === 'SUCCESS')) return 'SUCCESS';
-    return undefined;
-  }, [r.allocations]);
-
-  const aggregateViolations: Violation[] = useMemo(() => {
-    const seen = new Set<string>();
-    const out: Violation[] = [];
-    for (const a of Object.values(r.allocations)) {
-      for (const v of a.violations ?? []) {
-        const key = (v as { code?: string; message?: string }).code
-          || (v as { message?: string }).message
-          || JSON.stringify(v);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(v);
-      }
-    }
-    return out;
-  }, [r.allocations]);
-
-  return (
-    <tr className="border-t border-border">
-      <td className="text-center">
-        <Checkbox
-          checked={r.selected}
-          onCheckedChange={(v) => onPatchRow({ selected: !!v })}
-          disabled={phase === 'submitting' || phase === 'result'}
-        />
-      </td>
-      <td className="px-2 py-1 font-mono">{o.id}</td>
-      <td className="px-2 py-1">{o.symbol}</td>
-      <td className={`px-2 py-1 font-semibold ${o.side === 'BUY' ? 'text-green-600' : 'text-red-600'}`}>{o.side}</td>
-      <td className="px-2 py-1 text-[11px] text-muted-foreground">{o.orderType}</td>
-      <td className="px-2 py-1 text-right font-mono-numbers">
-        {o.price != null ? o.price.toFixed(2) : '—'}
-      </td>
-      <td className="px-2 py-1 text-right font-mono-numbers">
-        {effectiveRemaining.toLocaleString()}
-        <div className="text-[10px] text-muted-foreground/70">
-          {pendingWorking > 0
-            ? `−${pendingWorking.toLocaleString()} working · lot ${lot}`
-            : `lot ${lot}`}
-        </div>
-      </td>
-      {selectedBrokers.map(b => {
-        const a = r.allocations[b];
-        const q = a ? parseInt(a.qty || '0', 10) : 0;
-        const allowed = isBrokerAllowedFor(b, o);
-        const oddLot = q > 0 && lot > 1 && q % lot !== 0;
-        const cellInvalid = oddLot || (overAlloc && q > 0);
-        const allocStatus = a?.status;
-        return (
-          <td key={b} className="px-2 py-1 text-right">
-            {allowed ? (
-              <div className="inline-flex flex-col items-end gap-0">
-                <Input
-                  type="number"
-                  min={0}
-                  step={lot}
-                  value={a?.qty ?? '0'}
-                  onChange={(e) => onPatchAlloc(b, { qty: e.target.value })}
-                  onWheel={e => e.currentTarget.blur()}
-                  className={
-                    'h-7 w-24 text-right font-mono text-xs ' +
-                    // Use ring instead of bg to avoid contrast issues with the
-                    // input's text color in either light or dark mode.
-                    // Dashed ring during 'review' (dry-run preview) so the
-                    // user can tell pre-flight result apart from a real route.
-                    (cellInvalid
-                      ? 'ring-2 ring-red-500/70 ring-inset'
-                      : (allocStatus === 'SUCCESS'
-                        ? (phase === 'review'
-                          ? 'ring-2 ring-emerald-500/40 ring-inset ring-dashed'
-                          : 'ring-2 ring-emerald-500/40 ring-inset')
-                        : (allocStatus === 'BLOCKED'
-                          ? (phase === 'review'
-                            ? 'ring-2 ring-red-500/40 ring-inset ring-dashed'
-                            : 'ring-2 ring-red-500/40 ring-inset')
-                          : (allocStatus === 'FAILED'
-                            ? 'ring-2 ring-amber-500/40 ring-inset'
-                            : ''))))
-                  }
-                  disabled={!editable}
-                  placeholder="0"
-                  title={oddLot ? `Odd lot — must be a multiple of ${lot}` : undefined}
-                />
-                {q > 0 && effectiveRemaining > 0 && (() => {
-                  const actualPct = Math.round(q / effectiveRemaining * 1000) / 10;
-                  const targetPct = ratios[b] ?? 0;
-                  const deviated = targetPct > 0 && Math.abs(actualPct - targetPct) > 2;
-                  return (
-                    <span className={`text-[10px] font-mono ${deviated ? 'text-red-500 font-semibold' : 'text-muted-foreground/60'}`}>
-                      {actualPct}%
-                    </span>
-                  );
-                })()}
-              </div>
-            ) : (
-              <span className="text-[10px] text-muted-foreground italic" title="Broker not allowed for this order's market in Settings → Market Broker Mapping">
-                n/a
-              </span>
-            )}
-          </td>
-        );
-      })}
-      <td className={'px-2 py-1 text-right font-mono-numbers ' + (overAlloc ? 'text-red-600 font-semibold' : '')}>
-        {total.toLocaleString()}{overAlloc ? ' ⚠' : ''}
-        {effectiveRemaining > 0 && (
-          <div className="text-[10px] text-muted-foreground/70">
-            {Math.round((total / effectiveRemaining) * 100)}% of avail
-          </div>
-        )}
-      </td>
-      <td className="px-2 py-1">
-        {aggregateStatus === 'SUCCESS' && (
-          <>
-            <span className="text-emerald-600 inline-flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" />Routed
-            </span>
-            {/* Show soft-warn violations on successful routes */}
-            {aggregateViolations.length > 0 && (
-              <div className="mt-0.5">
-                <ViolationList violations={aggregateViolations} />
-              </div>
-            )}
-          </>
-        )}
-        {aggregateStatus === 'BLOCKED' && <ViolationList violations={aggregateViolations} />}
-        {aggregateStatus === 'FAILED' && <span className="text-amber-600 text-xs">Some failed</span>}
-        {!aggregateStatus && overAlloc && (
-          <span className="text-red-600 text-[11px]">Over-allocated</span>
-        )}
-        {!aggregateStatus && !overAlloc && !anyAlloc && selectedBrokers.length > 0 && (
-          <span className="text-muted-foreground text-[11px]">No qty allocated</span>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BrokerStrategyParamsEditor — top-level editor for one broker.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface BrokerStrategyParamsEditorProps {
-  broker: string;
-  strategy: string;
-  strategies: string[];
-  onStrategyChange: (s: string) => void;
-  registerParamsBuilder: (
-    broker: string,
-    builder: (() => ReturnType<
-      ReturnType<typeof useStrategyFields>['toStrategyParams']
-    >) | null,
-  ) => void;
-  /** Returns a previously-cached params snapshot for {broker, strategy}, if
-   *  any \u2014 used to restore user edits after a toggle off/on cycle. */
-  getCachedSnapshot: (broker: string, strategy: string) => ReturnType<
-    ReturnType<typeof useStrategyFields>['toStrategyParams']
-  > | undefined;
-  disabled: boolean;
-  /** Register a setter that allows the parent dialog to programmatically
-   *  update a specific strategy parameter field (e.g. volume cap). */
-  registerFieldSetter?: (
-    broker: string,
-    setter: ((fieldName: string, value: string) => void) | null,
-  ) => void;
-}
-
-function BrokerStrategyParamsEditor({
-  broker,
-  strategy,
-  strategies,
-  onStrategyChange,
-  registerParamsBuilder,
-  getCachedSnapshot,
-  disabled,
-  registerFieldSetter,
-}: BrokerStrategyParamsEditorProps) {
-  const state = useStrategyFields(broker, strategy, 'EQTY');
-
-  // Register a setter so the parent dialog can programmatically update
-  // strategy parameter fields (e.g. auto-set volume cap after validate).
-  useEffect(() => {
-    if (!registerFieldSetter) return;
-    const setter = (fieldName: string, value: string) => {
-      state.setFields(prev =>
-        prev.map(f =>
-          f.fieldName === fieldName
-            ? { ...f, value, disabled: false }
-            : f,
-        ),
-      );
-    };
-    registerFieldSetter(broker, setter);
-    return () => registerFieldSetter(broker, null);
-  }, [broker, state.setFields, registerFieldSetter]);
-
-  // Restore cached params after the catalog finishes loading the defaults.
-  // Tracked by `restoredKeyRef` so we restore exactly once per
-  // {broker, strategy} pair \u2014 not on every render of `state.fields`.
-  const restoredKeyRef = useRef<string>('');
-  useEffect(() => {
-    const key = `${broker}#${strategy}`;
-    if (!strategy || state.isLoading || state.fields.length === 0) return;
-    if (restoredKeyRef.current === key) return;
-    const snap = getCachedSnapshot(broker, strategy);
-    if (snap && snap.fields && snap.fields.length === state.fields.length) {
-      state.setFields(prev => prev.map((f, i) => ({
-        ...f,
-        value: snap.fields[i]?.value ?? f.value,
-        disabled: snap.fields[i]?.disabled ?? f.disabled,
-      })));
-    }
-    restoredKeyRef.current = key;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [broker, strategy, state.isLoading, state.fields.length]);
-
-  // Register a stable builder for this broker so the dialog can collect
-  // strategy params at request-build time.
-  useEffect(() => {
-    registerParamsBuilder(broker, () => state.toStrategyParams(strategy));
-    return () => registerParamsBuilder(broker, null);
-    // We intentionally re-register whenever the field state or strategy
-    // changes so the latest values are captured.
-  }, [broker, strategy, state, registerParamsBuilder]);
-
-  return (
-    <div className="grid grid-cols-12 gap-3 items-start">
-      <div className="col-span-3">
-        <Label className="text-xs font-mono">{broker}</Label>
-      </div>
-      <div className="col-span-3">
-        <Select
-          value={strategy || '__none__'}
-          onValueChange={(v) => onStrategyChange(v === '__none__' ? '' : v)}
-          disabled={disabled}
-        >
-          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Strategy..." /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">(none / DMA)</SelectItem>
-            {strategies.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="col-span-6">
-        {strategy ? (
-          <BrokerStrategyFields
-            fields={state.fields}
-            setFields={state.setFields}
-            isLoading={state.isLoading}
-            title=""
-            hideWhenEmpty
-          />
-        ) : (
-          <div className="text-[11px] text-muted-foreground italic">No strategy selected — routes will be sent without strategy params.</div>
-        )}
-      </div>
-    </div>
   );
 }

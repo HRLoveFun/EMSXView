@@ -1,0 +1,72 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-8.4.2, pluggy-1.5.0 -- D:\anaconda3\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api
+plugins: anyio-4.7.0, asyncio-0.25.3
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collecting ... collected 3 items
+
+tests/test_execution_history_router.py::test_execution_history_router_returns_fill_history FAILED [ 33%]
+tests/test_execution_history_router.py::test_execution_history_router_returns_order_and_route_summaries FAILED [ 66%]
+tests/test_execution_history_router.py::test_execution_history_router_rejects_inverted_date_window PASSED [100%]
+
+================================== FAILURES ===================================
+_____________ test_execution_history_router_returns_fill_history ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001AEE25CC2B0>
+
+    def test_execution_history_router_returns_fill_history(monkeypatch):
+        client = _build_client(monkeypatch)
+    
+        response = client.get("/api/execution-history/fills", params={"order_id": "1001", "limit": 25})
+    
+>       assert response.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests\test_execution_history_router.py:124: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    routers.execution_history:execution_history.py:110 Execution history fills query failed: 'ExecutionHistoryFillSnapshot' object is not iterable
+Traceback (most recent call last):
+  File "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\routers\execution_history.py", line 106, in get_fill_history
+    snapshot = _build_fill_snapshot(raw, start_date, end_date)
+  File "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\routers\execution_history.py", line 42, in _build_fill_snapshot
+    rows = [_project_into(ExecutionHistoryFillRow, r) for r in raw]
+                                                               ^^^
+TypeError: 'ExecutionHistoryFillSnapshot' object is not iterable
+_______ test_execution_history_router_returns_order_and_route_summaries _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001AEFE6F5CD0>
+
+    def test_execution_history_router_returns_order_and_route_summaries(monkeypatch):
+        client = _build_client(monkeypatch)
+    
+        order_response = client.get("/api/execution-history/orders", params={"order_id": "1001"})
+        route_response = client.get("/api/execution-history/routes", params={"order_id": "1001"})
+    
+>       assert order_response.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests\test_execution_history_router.py:137: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    routers.execution_history:execution_history.py:139 Execution history orders query failed: 'ExecutionHistoryOrderSummarySnapshot' object is not iterable
+Traceback (most recent call last):
+  File "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\routers\execution_history.py", line 135, in get_order_history
+    snapshot = _build_order_summary_snapshot(raw, start_date, end_date)
+  File "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\routers\execution_history.py", line 56, in _build_order_summary_snapshot
+    rows = [_project_into(ExecutionHistoryOrderSummaryRow, r) for r in raw]
+                                                                       ^^^
+TypeError: 'ExecutionHistoryOrderSummarySnapshot' object is not iterable
+ERROR    routers.execution_history:execution_history.py:170 Execution history routes query failed: 'ExecutionHistoryRouteSummarySnapshot' object is not iterable
+Traceback (most recent call last):
+  File "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\routers\execution_history.py", line 166, in get_route_history
+    snapshot = _build_route_summary_snapshot(raw, start_date, end_date)
+  File "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\routers\execution_history.py", line 70, in _build_route_summary_snapshot
+    rows = [_project_into(ExecutionHistoryRouteSummaryRow, r) for r in raw]
+                                                                       ^^^
+TypeError: 'ExecutionHistoryRouteSummarySnapshot' object is not iterable
+=========================== short test summary info ===========================
+FAILED tests/test_execution_history_router.py::test_execution_history_router_returns_fill_history
+FAILED tests/test_execution_history_router.py::test_execution_history_router_returns_order_and_route_summaries
+========================= 2 failed, 1 passed in 0.80s =========================

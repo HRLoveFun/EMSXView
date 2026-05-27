@@ -7,8 +7,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Iterable
 
 from DataPipeline.storage.connection import ConnectionManager, AccessTier
 from platform_data.contracts import (
@@ -22,24 +21,6 @@ from platform_data.contracts import (
 # Lazy service factories — resolved at call time, not import time, to avoid
 # circular chains (platform_data → CostView → platform_data → ...)
 # and to keep imports live even when stub files are deleted during migration.
-
-
-def _default_tca_factory():
-    import CostView.src.tca_query_service as _tca_svc
-    return _tca_svc.TcaQueryService()
-
-
-def _default_execution_history_factory():
-    try:
-        from platform_data.execution_history_service import (
-            ExecutionHistoryQueryService,
-        )
-        return ExecutionHistoryQueryService()
-    except Exception as exc:
-        raise FileNotFoundError(
-            "ExecutionHistoryQueryService is not available; "
-            f"platform_data.execution_history_service failed to import: {exc}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -341,14 +322,6 @@ class ExecutionHistoryRouteSummarySnapshot:
     contract_version: str | None = None
 
 
-# Backwards-compatible aliases (pre-WBS-08 naming)
-FillHistoryRow = ExecutionHistoryFillRow
-FillHistorySnapshot = ExecutionHistoryFillSnapshot
-OrderHistoryRow = ExecutionHistoryOrderSummaryRow
-OrderHistorySnapshot = ExecutionHistoryOrderSummarySnapshot
-RouteHistoryRow = ExecutionHistoryRouteSummaryRow
-RouteHistorySnapshot = ExecutionHistoryRouteSummarySnapshot
-
 
 # ── Handoff contract types (WBS-08) ───────────────────────────────────────────
 
@@ -434,30 +407,6 @@ class BrokerStrategyRecommendation:
     source_report_trace_id: str | None = None
 
 
-# ── Adapters ──────────────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class CostViewAnalyticsAdapter:
-    """Canonical adapter for CostView-owned analytical data."""
-
-    query_service_factory: Callable[[], Any] = _default_tca_factory
-
-    def describe(self) -> dict[str, str]:
-        return {
-            "domain": "costview-analytics",
-            "owner": "CostView",
-            "storage": "SQLite analytical stores",
-            "entrypoint": "TcaQueryService",
-        }
-
-    def build_tca_report(self, filters: TcaFilters) -> TcaReport:
-        return self.query_service_factory().build_tca_report(filters)
-
-    def build_scorecard(self, filters: ScorecardFilters) -> ScorecardReport:
-        return self.query_service_factory().build_scorecard(filters)
-
-
 # ── Market reference adapter ──────────────────────────────────────────────────
 
 _LIQ_HIGH_CRITICAL = 500.0  # >= 5x ADV20 burst
@@ -532,8 +481,13 @@ _DEFAULT_STOCK_POOLS: tuple[MarketStockPool, ...] = (
 class MarketReferenceDataAdapter:
     """Canonical adapter for MarketView-facing market reference data."""
 
-    daily_summary_db_factory: Callable[[], Any] = _ConnectionManagerDailySummaryReader
+    _reader: Any = field(default=None, repr=False)
     connection_manager: ConnectionManager | None = field(default=None, compare=False)
+
+    def _get_reader(self):
+        if self._reader is None:
+            object.__setattr__(self, '_reader', _ConnectionManagerDailySummaryReader())
+        return self._reader
 
     def describe(self) -> dict[str, str]:
         return {
@@ -575,7 +529,7 @@ class MarketReferenceDataAdapter:
         )
         sort_spec = MarketSnapshotSort(field=sort_by, direction=sort_direction)
 
-        db = self.daily_summary_db_factory()
+        db = self._get_reader()
         # Request a larger universe than `limit` so filtering + pool bucketing
         # doesn't starve the final page.
         fetch_limit = max(limit * 4, 200)
@@ -979,118 +933,6 @@ def _round_or_none(value: float | None, digits: int) -> float | None:
         return None
 
 
-# ── Execution history adapter ─────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class ExecutionHistoryAdapter:
-    """Canonical adapter for execution history."""
-
-    service_factory: Callable[[], Any] = field(default_factory=lambda: _default_execution_history_factory)
-
-    def describe(self) -> dict[str, str]:
-        return {
-            "domain": "execution-history",
-            "owner": "CostView",
-            "storage": "processed_fills.db + raw_fills.db",
-            "entrypoint": "ExecutionHistoryQueryService",
-        }
-
-    def list_fill_history(
-        self,
-        *,
-        limit: int = 100,
-        order_id: str | None = None,
-        route_id: str | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-    ) -> FillHistorySnapshot:
-        raw = self.service_factory().list_fill_history(
-            limit=limit,
-            order_id=order_id,
-            route_id=route_id,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        rows = [
-            ExecutionHistoryFillRow(**_project_row(row, ExecutionHistoryFillRow))
-            for row in raw
-        ]
-        return ExecutionHistoryFillSnapshot(
-            start_date=start_date,
-            end_date=end_date,
-            row_count=len(rows),
-            rows=rows,
-        )
-
-    def list_order_history(
-        self,
-        *,
-        limit: int = 100,
-        order_id: str | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-    ) -> OrderHistorySnapshot:
-        raw = self.service_factory().list_order_history(
-            limit=limit,
-            order_id=order_id,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        rows = [
-            ExecutionHistoryOrderSummaryRow(
-                **_project_row(row, ExecutionHistoryOrderSummaryRow)
-            )
-            for row in raw
-        ]
-        return ExecutionHistoryOrderSummarySnapshot(
-            start_date=start_date,
-            end_date=end_date,
-            row_count=len(rows),
-            rows=rows,
-        )
-
-    def list_route_history(
-        self,
-        *,
-        limit: int = 100,
-        order_id: str | None = None,
-        route_id: str | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-    ) -> RouteHistorySnapshot:
-        raw = self.service_factory().list_route_history(
-            limit=limit,
-            order_id=order_id,
-            route_id=route_id,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        rows = [
-            ExecutionHistoryRouteSummaryRow(
-                **_project_row(row, ExecutionHistoryRouteSummaryRow)
-            )
-            for row in raw
-        ]
-        return ExecutionHistoryRouteSummarySnapshot(
-            start_date=start_date,
-            end_date=end_date,
-            row_count=len(rows),
-            rows=rows,
-        )
-
-
-def _project_row(row: dict[str, Any], dataclass_type: type) -> dict[str, Any]:
-    """Project a dict onto the fields of a dataclass (ignoring extras)."""
-    allowed = {f for f in dataclass_type.__dataclass_fields__}
-    projected = {k: v for k, v in row.items() if k in allowed}
-    # Cast ID fields to str for safety since SQLite may return ints.
-    for key in ("order_id", "route_id", "fill_id"):
-        if key in projected and projected[key] is not None:
-            projected[key] = str(projected[key])
-    return projected
-
-
 # ── Handoff exchange adapter (WBS-08) ─────────────────────────────────────────
 
 
@@ -1305,220 +1147,7 @@ def _to_optional_float(value: Any) -> float | None:
     return numeric
 
 
-# ── CostView database subsystem adapter ───────────────────────────────────────
 
 
-class CostViewDatabaseAdapter:
-    """Canonical adapter for the CostView database subsystem.
-
-    Provides read-only query access to regime data through the new
-    db subsystem (ConnectionManager). This is the **only legal entry
-    point** for cross-module database queries — ExecutionView and other
-    consumers must use this adapter instead of importing
-    CostView.src.db.* directly.
-    """
-
-    def __init__(self, connection_manager_factory: Callable[[], Any] | None = None):
-        self._mgr_factory = connection_manager_factory
-        self._mgr: Any | None = None
-
-    def _get_manager(self) -> Any:
-        if self._mgr is None:
-            if self._mgr_factory is not None:
-                self._mgr = self._mgr_factory()
-            else:
-                from DataPipeline.storage.connection import ConnectionManager
-                self._mgr = ConnectionManager()
-        return self._mgr
-
-    def describe(self) -> dict[str, str]:
-        return {
-            "domain": "costview-database",
-            "owner": "CostView",
-            "storage": "SQLite (6 databases)",
-            "entrypoint": "CostViewDatabaseAdapter",
-        }
-
-    def get_regime_distribution(
-        self,
-        start_date: str,
-        end_date: str,
-        regime_dim: str = "vol_regime",
-    ) -> list[dict[str, Any]]:
-        """Query regime distribution from regime.db.
-
-        Returns a list of dicts with keys:
-          date, market_code, low, normal, high, extreme, none_count, total,
-          config_version
-
-        Raises FileNotFoundError if regime.db does not exist.
-        """
-        mgr = self._get_manager()
-        if not mgr.database_exists("regime"):
-            raise FileNotFoundError("regime.db not built yet")
-
-        with mgr.connection("regime") as conn:
-            cfg_row = conn.execute(
-                "SELECT version_id FROM audit_regime_config_versions "
-                "WHERE is_active=1 LIMIT 1"
-            ).fetchone()
-            cfg_version = cfg_row[0] if cfg_row else None
-            if cfg_version is None:
-                return []
-
-            sql = f"""
-                SELECT trade_date AS date, market_code,
-                       COALESCE({regime_dim}, 'none') AS regime, COUNT(*) AS n
-                FROM fill_regime_labels
-                WHERE config_version = ?
-                  AND trade_date BETWEEN ? AND ?
-                GROUP BY trade_date, market_code, COALESCE({regime_dim}, 'none')
-                ORDER BY trade_date, market_code
-            """
-            cur = conn.execute(sql, (cfg_version, start_date, end_date))
-            rows_raw = cur.fetchall()
-
-        grouped: dict[tuple[str, str], dict[str, int]] = {}
-        for d, mc, regime, n in rows_raw:
-            grouped.setdefault((d, mc), {})[str(regime)] = int(n)
-
-        result: list[dict[str, Any]] = []
-        for (d, mc), counts in grouped.items():
-            total = sum(counts.values())
-            result.append({
-                "date": d,
-                "market_code": mc,
-                "low": counts.get("low", 0),
-                "normal": counts.get("normal", 0),
-                "high": counts.get("high", 0),
-                "extreme": counts.get("extreme", 0),
-                "none_count": counts.get("none", 0),
-                "total": total,
-                "config_version": cfg_version,
-            })
-        return result
 
 
-# ── Data Platform ingestion adapter ──────────────────────────────────────────
-
-
-# ── Data Platform ingestion contracts (inlined from data_platform_contracts.py) ──
-
-
-class PipelineState(Enum):
-    IDLE = "idle"
-    RUNNING = "running"
-    FAILED = "failed"
-    COMPLETED = "completed"
-    PARTIAL = "partial"
-
-
-@dataclass(frozen=True)
-class IngestionConfig:
-    start_date: str
-    end_date: str
-    parallel_sessions: int = 1
-    force_reprocess: bool = False
-    include_bdib: bool = True
-    include_daily_metrics: bool = True
-    team: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class IngestionResult:
-    dates_requested: list[str]
-    dates_processed: list[str] = field(default_factory=list)
-    dates_skipped: list[str] = field(default_factory=list)
-    dates_failed: list[str] = field(default_factory=list)
-    rows_ingested: int = 0
-    errors: list[str] = field(default_factory=list)
-    pipeline_state: PipelineState = PipelineState.COMPLETED
-
-
-class DataPlatformIngestionAdapter:
-    """Canonical adapter for triggering data ingestion and querying pipeline state.
-
-    CostView and ExecutionView use this adapter to initiate data acquisition
-    and processing without directly importing DataPipeline internals.
-
-    The adapter is kept intentionally simple — it wraps the pipeline factory
-    and returns stable contract types (IngestionConfig, IngestionResult,
-    PipelineState) defined in platform_data.contracts.data_platform_contracts.
-    """
-
-    def __init__(self, pipeline_factory: Callable[[], Any] | None = None):
-        self._factory = pipeline_factory
-
-    def describe(self) -> dict[str, str]:
-        return {
-            "domain": "data-platform",
-            "owner": "DataPlatform",
-            "entrypoint": "DataPlatformIngestionAdapter",
-        }
-
-    def trigger_ingestion(self, config: Any) -> Any:
-        """Trigger a pipeline run with the given config.
-
-        Args:
-            config: IngestionConfig dataclass with start_date, end_date, etc.
-
-        Returns:
-            IngestionResult dataclass with dates_processed, rows_ingested, errors.
-        """
-        # Types defined inline above — no cross-module import needed
-
-        if self._factory is not None:
-            pipeline = self._factory()
-        else:
-            try:
-                from DataPipeline.orchestration.core import FinancialPipeline
-                pipeline = FinancialPipeline()
-            except Exception as exc:
-                return IngestionResult(
-                    dates_requested=[config.start_date, config.end_date],
-                    errors=[f"Failed to create pipeline: {exc}"],
-                    pipeline_state=PipelineState.FAILED,
-                )
-
-        try:
-            raw_result = pipeline.run(
-                start_date=config.start_date,
-                end_date=config.end_date,
-                force=config.force_reprocess,
-                include_bdib=config.include_bdib,
-                include_daily_metrics=config.include_daily_metrics,
-                team=config.team,
-            )
-            # Convert pipeline dict to IngestionResult
-            if not isinstance(raw_result, dict):
-                return IngestionResult(
-                    dates_requested=[config.start_date, config.end_date],
-                    pipeline_state=PipelineState.FAILED,
-                    errors=["Pipeline returned non-dict result"],
-                )
-            errs = raw_result.get("errors", []) if isinstance(raw_result.get("errors"), list) else []
-            if errs:
-                state = PipelineState.PARTIAL if raw_result.get("days_fetched", 0) > 0 else PipelineState.FAILED
-            elif raw_result.get("success", False):
-                state = PipelineState.COMPLETED
-            else:
-                state = PipelineState.FAILED
-            return IngestionResult(
-                dates_requested=[config.start_date, config.end_date],
-                dates_processed=raw_result.get("days_fetched", []),
-                dates_skipped=raw_result.get("days_skipped", []),
-                dates_failed=raw_result.get("days_error", []),
-                rows_ingested=raw_result.get("total_rows", 0),
-                errors=errs,
-                pipeline_state=state,
-            )
-        except Exception as exc:
-            return IngestionResult(
-                dates_requested=[config.start_date, config.end_date],
-                errors=[f"Ingestion failed: {exc}"],
-                pipeline_state=PipelineState.FAILED,
-            )
-
-    def get_pipeline_status(self) -> dict:
-        """Return current pipeline execution status as a simple status dict."""
-        return {"state": "idle", "last_run": None}

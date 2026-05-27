@@ -24,8 +24,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from platform_data.adapters import (
-    CostViewAnalyticsAdapter,
-    CostViewDatabaseAdapter,
     ScorecardCohortMetrics,
     ScorecardFilters,
     ScorecardReport,
@@ -33,13 +31,14 @@ from platform_data.adapters import (
     TcaReport,
 )
 from platform_data.contracts import SCORECARD_COHORTS
+from platform_data.regime_query import get_regime_distribution
+from CostView.src.tca_query_service import TcaQueryService
 
 from ._pipeline_jobs import get_job, trigger_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
-_analytics = CostViewAnalyticsAdapter()
-_database = CostViewDatabaseAdapter()
+_analytics = TcaQueryService()
 
 
 # ── Pydantic request/response models ─────────────────────────────────────────
@@ -428,12 +427,8 @@ async def regime_distribution(
     if not (len(start_date) == 10 and len(end_date) == 10):
         raise HTTPException(status_code=400, detail="dates must be ISO YYYY-MM-DD")
 
-    db_adapter = _database
-    if db_adapter is None:
-        raise HTTPException(status_code=503, detail="CostView database adapter not configured")
-
     try:
-        rows_data = db_adapter.get_regime_distribution(
+        rows_data = get_regime_distribution(
             start_date=start_date,
             end_date=end_date,
             regime_dim=regime_dim,

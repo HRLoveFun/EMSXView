@@ -1,14 +1,23 @@
-"""Read-only execution history router backed by ExecutionHistoryAdapter."""
+"""Read-only execution history router backed by ExecutionHistoryQueryService."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from platform_data.adapters import ExecutionHistoryAdapter
+from platform_data.adapters import (
+    ExecutionHistoryFillRow,
+    ExecutionHistoryFillSnapshot,
+    ExecutionHistoryOrderSummaryRow,
+    ExecutionHistoryOrderSummarySnapshot,
+    ExecutionHistoryRouteSummaryRow,
+    ExecutionHistoryRouteSummarySnapshot,
+)
+from platform_data.execution_history_service import ExecutionHistoryQueryService
 from schemas import (
     ExecutionHistoryFillData,
     ExecutionHistoryFillResponse,
@@ -20,7 +29,61 @@ from schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Execution History"])
-_execution_history = ExecutionHistoryAdapter()
+_execution_history = ExecutionHistoryQueryService()
+
+
+# ── Row projection helpers (replacing ExecutionHistoryAdapter's _project_row) ──
+
+def _build_fill_snapshot(
+    raw: list[dict[str, Any]],
+    start_date: str | None,
+    end_date: str | None,
+) -> ExecutionHistoryFillSnapshot:
+    rows = [_project_into(ExecutionHistoryFillRow, r) for r in raw]
+    return ExecutionHistoryFillSnapshot(
+        start_date=start_date,
+        end_date=end_date,
+        row_count=len(rows),
+        rows=rows,
+    )
+
+
+def _build_order_summary_snapshot(
+    raw: list[dict[str, Any]],
+    start_date: str | None,
+    end_date: str | None,
+) -> ExecutionHistoryOrderSummarySnapshot:
+    rows = [_project_into(ExecutionHistoryOrderSummaryRow, r) for r in raw]
+    return ExecutionHistoryOrderSummarySnapshot(
+        start_date=start_date,
+        end_date=end_date,
+        row_count=len(rows),
+        rows=rows,
+    )
+
+
+def _build_route_summary_snapshot(
+    raw: list[dict[str, Any]],
+    start_date: str | None,
+    end_date: str | None,
+) -> ExecutionHistoryRouteSummarySnapshot:
+    rows = [_project_into(ExecutionHistoryRouteSummaryRow, r) for r in raw]
+    return ExecutionHistoryRouteSummarySnapshot(
+        start_date=start_date,
+        end_date=end_date,
+        row_count=len(rows),
+        rows=rows,
+    )
+
+
+def _project_into(dataclass_type: type, row: dict[str, Any]) -> Any:
+    """Project a dict onto the fields of a dataclass (ignoring extras)."""
+    allowed = {f for f in dataclass_type.__dataclass_fields__}
+    projected = {k: v for k, v in row.items() if k in allowed}
+    for key in ("order_id", "route_id", "fill_id"):
+        if key in projected and projected[key] is not None:
+            projected[key] = str(projected[key])
+    return dataclass_type(**projected)
 
 
 @router.get("/api/execution-history/fills", response_model=ExecutionHistoryFillResponse)
@@ -33,13 +96,14 @@ async def get_fill_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        snapshot = _execution_history.list_fill_history(
+        raw = _execution_history.list_fill_history(
             limit=limit,
             order_id=order_id,
             route_id=route_id,
             start_date=start_date,
             end_date=end_date,
         )
+        snapshot = _build_fill_snapshot(raw, start_date, end_date)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=f"Execution history store not found: {exc}")
     except Exception as exc:
@@ -62,12 +126,13 @@ async def get_order_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        snapshot = _execution_history.list_order_history(
+        raw = _execution_history.list_order_history(
             limit=limit,
             order_id=order_id,
             start_date=start_date,
             end_date=end_date,
         )
+        snapshot = _build_order_summary_snapshot(raw, start_date, end_date)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=f"Execution history store not found: {exc}")
     except Exception as exc:
@@ -91,13 +156,14 @@ async def get_route_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        snapshot = _execution_history.list_route_history(
+        raw = _execution_history.list_route_history(
             limit=limit,
             order_id=order_id,
             route_id=route_id,
             start_date=start_date,
             end_date=end_date,
         )
+        snapshot = _build_route_summary_snapshot(raw, start_date, end_date)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=f"Execution history store not found: {exc}")
     except Exception as exc:

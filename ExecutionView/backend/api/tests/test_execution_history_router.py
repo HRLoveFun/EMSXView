@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -13,105 +12,63 @@ for path in (PROJECT_ROOT, API_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from platform_data.adapters import (
-    ExecutionHistoryFillRow,
-    ExecutionHistoryFillSnapshot,
-    ExecutionHistoryOrderSummaryRow,
-    ExecutionHistoryOrderSummarySnapshot,
-    ExecutionHistoryRouteSummaryRow,
-    ExecutionHistoryRouteSummarySnapshot,
-)
 from routers import execution_history as execution_history_router_module
 
 
 class _FakeExecutionHistoryAdapter:
+    """Mimics ExecutionHistoryQueryService interface — returns raw dicts."""
+
     def list_fill_history(self, **kwargs):
-        return ExecutionHistoryFillSnapshot(
-            start_date="20260422",
-            end_date="20260422",
-            row_count=1,
-            rows=[
-                ExecutionHistoryFillRow(
-                    order_id="1001",
-                    route_id="7",
-                    fill_id="F1",
-                    order_as_of_date="20260422",
-                    source_date="20260422",
-                    local_fill_datetime="2026-04-22T10:00:00",
-                    exchange_exec_time="10:00:00",
-                    route_as_of_time="09:45:00",
-                    ny_fill_datetime="2026-04-22T22:00:00",
-                    broker="BMTB",
-                    strategy_type="VWAP",
-                    algo="VWAP",
-                    trader_name="TRADER1",
-                    exchange="US",
-                    side="BUY",
-                    equ_ticker="AAPL US Equity",
-                    ccy_ticker="USD Curncy",
-                    exec_type="TRADE",
-                    amount=1000.0,
-                    route_shares=100.0,
-                    fill_price=189.25,
-                    fill_shares=100.0,
-                    fetched_at="2026-04-22T10:06:00",
-                )
-            ],
-        )
+        return [
+            {
+                "order_id": "1001", "route_id": "7", "fill_id": "F1",
+                "order_as_of_date": "20260422", "source_date": "20260422",
+                "local_fill_datetime": "2026-04-22T10:00:00",
+                "exchange_exec_time": "10:00:00", "route_as_of_time": "09:45:00",
+                "ny_fill_datetime": "2026-04-22T22:00:00",
+                "broker": "BMTB", "strategy_type": "VWAP", "algo": "VWAP",
+                "trader_name": "TRADER1", "exchange": "US", "side": "BUY",
+                "equ_ticker": "AAPL US Equity", "ccy_ticker": "USD Curncy",
+                "exec_type": "TRADE", "amount": 1000.0, "route_shares": 100.0,
+                "fill_price": 189.25, "fill_shares": 100.0,
+                "fetched_at": "2026-04-22T10:06:00",
+            }
+        ]
 
     def list_order_history(self, **kwargs):
-        return ExecutionHistoryOrderSummarySnapshot(
-            start_date="20260422",
-            end_date="20260422",
-            row_count=1,
-            rows=[
-                ExecutionHistoryOrderSummaryRow(
-                    order_id="1001",
-                    order_as_of_date="20260422",
-                    equ_ticker="AAPL US Equity",
-                    side="BUY",
-                    route_count=1,
-                    fill_count=1,
-                    total_fill_shares=100.0,
-                    average_fill_price=189.25,
-                    first_fill_time="2026-04-22T10:00:00",
-                    last_fill_time="2026-04-22T10:00:00",
-                )
-            ],
-        )
+        return [
+            {
+                "order_id": "1001", "order_as_of_date": "20260422",
+                "equ_ticker": "AAPL US Equity", "side": "BUY",
+                "route_count": 1, "fill_count": 1,
+                "total_fill_shares": 100.0, "average_fill_price": 189.25,
+                "first_fill_time": "2026-04-22T10:00:00",
+                "last_fill_time": "2026-04-22T10:00:00",
+            }
+        ]
 
     def list_route_history(self, **kwargs):
-        return ExecutionHistoryRouteSummarySnapshot(
-            start_date="20260422",
-            end_date="20260422",
-            row_count=1,
-            rows=[
-                ExecutionHistoryRouteSummaryRow(
-                    order_id="1001",
-                    route_id="7",
-                    order_as_of_date="20260422",
-                    broker="BMTB",
-                    algo="VWAP",
-                    trader_name="TRADER1",
-                    exchange="US",
-                    side="BUY",
-                    equ_ticker="AAPL US Equity",
-                    fill_count=1,
-                    total_fill_shares=100.0,
-                    average_fill_price=189.25,
-                    first_fill_time="2026-04-22T10:00:00",
-                    last_fill_time="2026-04-22T10:00:00",
-                )
-            ],
-        )
+        return [
+            {
+                "order_id": "1001", "route_id": "7",
+                "order_as_of_date": "20260422",
+                "broker": "BMTB", "algo": "VWAP", "trader_name": "TRADER1",
+                "exchange": "US", "side": "BUY",
+                "equ_ticker": "AAPL US Equity",
+                "fill_count": 1, "total_fill_shares": 100.0,
+                "average_fill_price": 189.25,
+                "first_fill_time": "2026-04-22T10:00:00",
+                "last_fill_time": "2026-04-22T10:00:00",
+            }
+        ]
 
 
 def _build_client(monkeypatch) -> TestClient:
     app = FastAPI()
     monkeypatch.setattr(
         execution_history_router_module,
-        "platform_data",
-        SimpleNamespace(execution_history=_FakeExecutionHistoryAdapter()),
+        "_execution_history",
+        _FakeExecutionHistoryAdapter(),
     )
     app.include_router(execution_history_router_module.router)
     return TestClient(app)

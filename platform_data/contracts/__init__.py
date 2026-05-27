@@ -21,6 +21,3 @@ from .tca_contracts import (
     TcaReport,
     TcaRouteDetail,
 )
-
-# Data platform contracts (IngestionConfig, IngestionResult, PipelineState)
-# were inlined into platform_data/adapters.py to reduce over-abstraction.
