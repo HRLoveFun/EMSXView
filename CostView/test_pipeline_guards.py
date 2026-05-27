@@ -586,7 +586,7 @@ class MarketViewIntradayFeatureTests(unittest.TestCase):
             finally:
                 conn.close()
             adapter = MarketReferenceDataAdapter(
-                daily_summary_db_factory=lambda: _ConnectionManagerDailySummaryReader(mgr)
+                _reader=_ConnectionManagerDailySummaryReader(mgr)
             )
 
             with self.assertRaises(ValueError):
@@ -618,7 +618,7 @@ class MarketViewIntradayFeatureTests(unittest.TestCase):
             finally:
                 conn.close()
             adapter = MarketReferenceDataAdapter(
-                daily_summary_db_factory=lambda: _ConnectionManagerDailySummaryReader(mgr)
+                _reader=_ConnectionManagerDailySummaryReader(mgr)
             )
 
             snapshot = adapter.get_intraday_features(
