@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    EMSX Log Cleanup and Maintenance Script
+    EMSXView Log Cleanup and Maintenance Script
     Cleans up log files across all subdirectories with independent retention policies.
 
 .DESCRIPTION
     Manages log retention for four log categories under the logs/ directory:
-    - api/       Backend API logs (emsx_api.log*)
+    - api/       Backend API logs (emsxview_api.log*)
     - service/   Service Manager logs (backend-*.log, frontend-*.log)
     - costview/  CostView pipeline logs (fillfetch.log*, backfill_raw_bdib.log)
     - backfill/  Manual backfill script logs (attribution_*.log, regime_*.log)
@@ -15,7 +15,7 @@
     Actually delete files (default is dry-run mode).
 
 .PARAMETER LogRoot
-    Root log directory (default: EMSX project logs/).
+    Root log directory (default: EMSXView project logs/).
 
 .PARAMETER ApiMaxAgeDays
     Retention days for api/ logs (default: 3).
@@ -59,7 +59,7 @@
 
 param(
     [switch]$Force = $false,
-    [string]$LogRoot = "C:\Users\hrchen\Documents\EMSX\logs",
+    [string]$LogRoot = "C:\Users\hrchen\Documents\EMSXView\logs",
     [int]$ApiMaxAgeDays = 3,
     [int]$ApiMaxFiles = 3,
     [int]$ServiceMaxAgeDays = 7,
@@ -73,7 +73,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "=== EMSX Log Cleanup Script ===" -ForegroundColor Cyan
+Write-Host "=== EMSXView Log Cleanup Script ===" -ForegroundColor Cyan
 Write-Host "Log Root: $LogRoot"
 Write-Host "Mode: $(if ($Force) { 'EXECUTE' } else { 'DRY-RUN (add -Force to execute)' })" -ForegroundColor $(if ($Force) { 'Red' } else { 'Yellow' })
 Write-Host ""

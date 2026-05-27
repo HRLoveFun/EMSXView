@@ -1,10 +1,10 @@
-﻿# EMSX Trading Tool - Quick Start
+﻿# EMSXView Trading Tool - Quick Start
 
 ## One-Command Start
 
 ```batch
 # Navigate to project root
-cd c:\Users\hrchen\Documents\EMSX
+cd c:\Users\hrchen\Documents\EMSXView
 
 # Launch interactive service manager
 scripts\restart-all.bat
@@ -55,7 +55,7 @@ scripts\service-manager.ps1 logs
 ## Directory Structure
 
 ```
-EMSX/
+EMSXView/
 ├── 重启服务.bat            # One-click restart
 ├── ExecutionView/
 │   ├── backend/api/        # Python backend

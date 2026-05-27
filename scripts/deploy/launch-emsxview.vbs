@@ -1,5 +1,5 @@
 ' ============================================================
-' EMSX Trading Platform - One-Click Launcher (Robust Version)
+' EMSXView Trading Platform - One-Click Launcher (Robust Version)
 ' 双击此文件即可启动，无需任何其他操作
 ' 1. 并行启动 Python 后端和 Vite 前端
 ' 2. 前端就绪后立即打开浏览器，不再被后端 60s 等待阻塞
@@ -15,17 +15,17 @@ Const FRONTEND_PORT   = 5173
 Const POLL_INTERVAL   = 1000      ' 每 1 秒检测一次
 Const BACKEND_TIMEOUT   = 60000   ' 后端最多等 60 秒
 Const FRONTEND_TIMEOUT  = 120000  ' 前端最多等 120 秒
-Const EMSX_ROOT        = "C:\Users\hrchen\Documents\EMSX"
+Const EMSXVIEW_ROOT        = "C:\Users\hrchen\Documents\EMSXView"
 Dim ERROR_PAGE_PATH
-ERROR_PAGE_PATH  = EMSX_ROOT & "\logs\startup-error.html"
+ERROR_PAGE_PATH  = EMSXVIEW_ROOT & "\logs\startup-error.html"
 Dim FRONTEND_OPENED
 FRONTEND_OPENED = False
 
 ' ---- 并行启动后端与前端（完全隐藏窗口）----
 WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass " & _
-    "-File """ & EMSX_ROOT & "\scripts\deploy\start-backend.ps1""", 0, False
+    "-File """ & EMSXVIEW_ROOT & "\scripts\deploy\start-backend.ps1""", 0, False
 WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass " & _
-    "-File """ & EMSX_ROOT & "\scripts\deploy\start-frontend.ps1""", 0, False
+    "-File """ & EMSXVIEW_ROOT & "\scripts\deploy\start-frontend.ps1""", 0, False
 
 ' ---- 前端优先就绪并打开浏览器 ----
 If Not WaitForPort(FRONTEND_PORT, FRONTEND_TIMEOUT, "Frontend") Then
@@ -65,7 +65,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
     ' 尝试读取最近日志
     logHint = ""
     Dim logDir
-    Set logDir = fso.GetFolder(EMSX_ROOT & "\logs")
+    Set logDir = fso.GetFolder(EMSXVIEW_ROOT & "\logs")
     If logDir.Files.Count > 0 Then
         Dim latestLog, latestDate, f
         Set latestLog = Nothing
@@ -123,7 +123,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
         "<html lang='zh-CN'>" & vbCrLf & _
         "<head>" & vbCrLf & _
         "<meta charset='UTF-8'>" & vbCrLf & _
-        "<title>EMSX - " & serviceName & " 启动失败</title>" & vbCrLf & _
+        "<title>EMSXView - " & serviceName & " 启动失败</title>" & vbCrLf & _
         "<style>" & vbCrLf & _
         "* { margin: 0; padding: 0; box-sizing: border-box; }" & vbCrLf & _
         "body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }" & vbCrLf & _
@@ -152,7 +152,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
         "<body>" & vbCrLf & _
         "<div class='card'>" & vbCrLf & _
         "  <div class='icon'>🚫</div>" & vbCrLf & _
-        "  <h1>EMSX " & serviceName & " 启动失败</h1>" & vbCrLf & _
+        "  <h1>EMSXView " & serviceName & " 启动失败</h1>" & vbCrLf & _
         "  <p class='subtitle'>服务在 " & (timeoutMs / 1000) & " 秒内未能就绪 (localhost:" & port & ")</p>" & vbCrLf & _
         frontendHint & _
         portCheck & _
@@ -170,7 +170,7 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
         logHint & _
         "  <h2>快速修复</h2>" & vbCrLf & _
         "  <ul>" & vbCrLf & _
-        "    <li>打开 PowerShell，运行 <code>cd " & EMSX_ROOT & "\scripts</code> 然后 <code>.\stop-all.bat</code> 停止残留进程</li>" & vbCrLf & _
+        "    <li>打开 PowerShell，运行 <code>cd " & EMSXVIEW_ROOT & "\scripts</code> 然后 <code>.\stop-all.bat</code> 停止残留进程</li>" & vbCrLf & _
         "    <li>用 <code>scripts\restart-all.bat</code> 可见窗口模式启动，查看具体报错</li>" & vbCrLf & _
         "  </ul>" & vbCrLf & _
         "  <div class='actions'>" & vbCrLf & _
@@ -178,15 +178,15 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
         "    <a class='btn btn-secondary' href='http://localhost:" & port & "'>重新连接</a>" & vbCrLf & _
         "  </div>" & vbCrLf & _
         "  <div class='footer'>" & vbCrLf & _
-        "    EMSX Trading Platform &middot; " & Now() & vbCrLf & _
+        "    EMSXView Trading Platform &middot; " & Now() & vbCrLf & _
         "  </div>" & vbCrLf & _
         "</div>" & vbCrLf & _
         "</body>" & vbCrLf & _
         "</html>"
 
     ' 确保目录存在
-    If Not fso.FolderExists(EMSX_ROOT & "\logs") Then
-        fso.CreateFolder EMSX_ROOT & "\logs"
+    If Not fso.FolderExists(EMSXVIEW_ROOT & "\logs") Then
+        fso.CreateFolder EMSXVIEW_ROOT & "\logs"
     End If
 
     ' 写入文件

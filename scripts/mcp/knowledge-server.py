@@ -1,5 +1,5 @@
 """
-EMSX Knowledge Base MCP Server.
+EMSXView Knowledge Base MCP Server.
 
 A Model Context Protocol (stdio) server that provides tools for reading and
 writing the iterative update knowledge base in .github/knowledge/.
@@ -66,7 +66,7 @@ def _append_file(filename: str, text: str):
 mcp = FastMCP(
     "emsx-knowledge",
     version="1.0.0",
-    description="EMSX Trading Platform — Iterative Update Knowledge Base",
+    description="EMSXView Trading Platform — Iterative Update Knowledge Base",
 )
 
 

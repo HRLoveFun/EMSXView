@@ -1,4 +1,4 @@
-﻿# EMSX Trading Platform
+﻿# EMSXView Trading Platform
 
 > **Enterprise-grade execution management system with pre-trade analysis and post-trade analytics**
 
@@ -6,11 +6,11 @@
 
 ## Architecture Overview
 
-The EMSX Trading Platform converges on one frontend shell, three business modules, and one logical data domain that covers the full trade lifecycle:
+The EMSXView Trading Platform converges on one frontend shell, three business modules, and one logical data domain that covers the full trade lifecycle:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           EMSX Trading Platform                              │
+│                          EMSXView Trading Platform                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐      │
@@ -19,7 +19,7 @@ The EMSX Trading Platform converges on one frontend shell, three business module
 │  │                  │    │                  │    │                  │      │
 │  │ • Market Data    │    │ • Order Mgmt     │    │ • TCA Analysis   │      │
 │  │ • Pre-trade Risk │    │ • Route Mgmt     │    │ • Performance    │      │
-│  │ • Analytics      │    │ • EMSX API       │    │ • Reporting      │      │
+│  │ • Analytics      │    │ • Bloomberg API  │    │ • Reporting      │      │
 │  └──────────────────┘    └──────────────────┘    └──────────────────┘      │
 │           │                       │                       │                │
 │           ▼                       ▼                       ▼                │
@@ -97,7 +97,7 @@ Transaction cost analysis, performance reporting, and execution quality metrics.
 ## Directory Structure
 
 ```
-EMSX/
+EMSXView/
 ├── README.md                      # This file
 ├── QUICKSTART.md                  # One-command quick start guide
 ├── 重启服务.bat                   # One-click restart

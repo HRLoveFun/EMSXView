@@ -2721,9 +2721,9 @@ class BloombergEMSXService:
 
     def get_terminal_trader_name(self) -> str:
         """Return the terminal trader name.
-        Priority: 1) EMSX_TRADER_NAME from config, 2) most common trader in order cache."""
-        if settings.EMSX_TRADER_NAME:
-            return settings.EMSX_TRADER_NAME
+        Priority: 1) EMSXVIEW_TRADER_NAME from config, 2) most common trader in order cache."""
+        if settings.EMSXVIEW_TRADER_NAME:
+            return settings.EMSXVIEW_TRADER_NAME
         # Fallback: most common trader in order cache (may be inaccurate on shared desks)
         votes: Dict[str, int] = {}
         for order in self._orders.values():

@@ -1,5 +1,5 @@
 #!/bin/bash
-# EMSX Trading Platform - Deployment Script
+# EMSXView Trading Platform - Deployment Script
 # Usage: ./deploy.sh [install|start|stop|restart|status|logs|update|backup]
 
 set -e
@@ -94,7 +94,7 @@ check_bloomberg() {
 }
 
 install() {
-    print_header "EMSX Trading Platform - Installation"
+    print_header "EMSXView Trading Platform - Installation"
     
     check_docker
     
@@ -116,7 +116,7 @@ install() {
 }
 
 start() {
-    print_header "Starting EMSX Trading Platform"
+    print_header "Starting EMSXView Trading Platform"
     
     check_docker
     check_env_file
@@ -139,7 +139,7 @@ start() {
         exit 1
     fi
     
-    print_success "EMSX Trading Platform is running!"
+    print_success "EMSXView Trading Platform is running!"
     echo ""
     echo "Access URLs:"
     echo "  Frontend: http://localhost:80"
@@ -148,13 +148,13 @@ start() {
 }
 
 stop() {
-    print_header "Stopping EMSX Trading Platform"
+    print_header "Stopping EMSXView Trading Platform"
     $COMPOSE_CMD -f "$COMPOSE_FILE" down
     print_success "Services stopped"
 }
 
 restart() {
-    print_header "Restarting EMSX Trading Platform"
+    print_header "Restarting EMSXView Trading Platform"
     stop
     start
 }
@@ -179,7 +179,7 @@ logs() {
 }
 
 update() {
-    print_header "Updating EMSX Trading Platform"
+    print_header "Updating EMSXView Trading Platform"
     $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache
     $COMPOSE_CMD -f "$COMPOSE_FILE" up -d
     print_success "Update complete"
@@ -224,7 +224,7 @@ case "${1:-}" in
         backup
         ;;
     *)
-        echo "EMSX Trading API - Deployment Script"
+        echo "EMSXView Trading API - Deployment Script"
         echo ""
         echo "Usage: $0 [command]"
         echo ""

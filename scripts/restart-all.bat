@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ==========================================
-echo EMSX Trading Tool - Restart Services
+echo EMSXView Trading Tool - Restart Services
 echo ==========================================
 echo.
 

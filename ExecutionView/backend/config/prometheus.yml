@@ -1,4 +1,4 @@
-# Prometheus Configuration for EMSX Trading API
+# Prometheus Configuration for EMSXView Trading API
 
 global:
   scrape_interval: 15s
@@ -17,8 +17,8 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # EMSX Backend API
-  - job_name: 'emsx-backend'
+  # EMSXView Backend API
+  - job_name: 'emsxview-backend'
     static_configs:
       - targets: ['backend:3000']
     metrics_path: '/metrics'

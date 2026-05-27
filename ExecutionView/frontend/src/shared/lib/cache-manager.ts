@@ -1,5 +1,5 @@
 /**
- * Data Cache Manager - Unified caching layer for EMSX application
+ * Data Cache Manager - Unified caching layer for EMSXView application
  * 
  * Supports two-level caching:
  * - Memory cache: Fast access, session-only
@@ -38,7 +38,7 @@ export const DEFAULT_TTL = {
 } as const;
 
 // Cache key prefixes to avoid collisions
-const CACHE_PREFIX = 'emsx_cache_';
+const CACHE_PREFIX = 'emsxview_cache_';
 
 // In-memory cache store
 const memoryCache = new Map<string, CacheEntry<unknown>>();
@@ -216,7 +216,7 @@ export class CacheManager<T> {
 }
 
 /**
- * Predefined cache configurations for EMSX data types
+ * Predefined cache configurations for EMSXView data types
  */
 export const CACHE_CONFIGS = {
   // High frequency - short TTL, memory only
@@ -290,7 +290,7 @@ export async function getOrFetch<T>(
 }
 
 /**
- * Clear all EMSX caches
+ * Clear all EMSXView caches
  */
 export function clearAllCaches(): void {
   // Clear memory cache

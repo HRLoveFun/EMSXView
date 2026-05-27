@@ -1,6 +1,6 @@
-﻿# EMSX Project Structure
+﻿# EMSXView Project Structure
 
-> Current architecture reference for the EMSX Trading Platform
+> Current architecture reference for the EMSXView Trading Platform
 > Last updated: 2026-05-07 | Version: 3.2
 
 ---
@@ -72,7 +72,7 @@ Key runtime truth:
 ## 3. Canonical Repository Structure
 
 ```text
-EMSX/
+EMSXView/
 ├── README.md
 ├── QUICKSTART.md
 ├── 重启服务.bat

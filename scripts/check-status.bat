@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ==========================================
-echo EMSX Trading Tool - Service Status
+echo EMSXView Trading Tool - Service Status
 echo ==========================================
 echo.
 
