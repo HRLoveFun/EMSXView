@@ -22,7 +22,7 @@ _last_reconnect_ts: float = 0.0
 async def root():
     """API root — service info."""
     return {
-        "service": "EMSX Trading API",
+        "service": "EMSXView Trading API",
         "version": "1.0.0",
         "status": "running",
         "bloomberg": get_bloomberg().get_status().model_dump(),

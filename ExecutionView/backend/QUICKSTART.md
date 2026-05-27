@@ -1,4 +1,4 @@
-# EMSX Trading API - 快速开始指南
+# EMSXView Trading API - 快速开始指南
 
 ## ⚡ 5分钟快速部署
 

@@ -7,7 +7,7 @@
 
 ## Overview
 
-The **ExecutionView** module is the core trading execution engine of the EMSX platform. It provides comprehensive order and route management capabilities through integration with the Bloomberg EMSX API.
+The **ExecutionView** module is the core trading execution engine of the EMSXView platform. It provides comprehensive order and route management capabilities through integration with the Bloomberg EMSX API.
 
 ## Architecture
 

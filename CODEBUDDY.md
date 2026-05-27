@@ -4,7 +4,7 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 ## Project Overview
 
-EMSX (Execution Management System eXtended) is a Bloomberg EMSX-integrated trading platform covering pre-trade analysis, order execution, and post-trade TCA analytics. It is a monorepo with three business modules sharing a single React frontend shell and a Python data pipeline.
+EMSXView (Execution Management System eXtended View) is a Bloomberg EMSX-integrated trading platform covering pre-trade analysis, order execution, and post-trade TCA analytics. It is a monorepo with three business modules sharing a single React frontend shell and a Python data pipeline.
 
 ## Build & Run Commands
 
@@ -118,7 +118,7 @@ Routers (HTTP/WebSocket) → Services (business logic) → Repositories (data ac
 
 Data flows through SQLite databases: `raw_fills.db` → `processed_fills.db` → `fill_bdib.db` → `bdib_daily_summary`
 
-All pipeline configuration is centralized in `DataPipeline/config.py` (Config class with DB paths, table names, date formats). Data directory is configurable via `EMSX_DATA_DIR` env var, defaulting to `CostView/data`.
+All pipeline configuration is centralized in `DataPipeline/config.py` (Config class with DB paths, table names, date formats). Data directory is configurable via `EMSXVIEW_DATA_DIR` env var, defaulting to `CostView/data`.
 
 ### platform_data/ — Cross-Module Adapters
 

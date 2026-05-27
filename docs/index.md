@@ -1,4 +1,4 @@
-﻿# EMSX Documentation Guide
+﻿# EMSXView Documentation Guide
 
 > 当前 docs 目录入口与维护规则
 > Last updated: 2026-05-07
@@ -67,7 +67,7 @@ Agent 总则见 .github/agent.md，过程指令见 .github/instructions/。
 
 - 主要描述的功能或阶段已经完成
 - 主要内容是一次性诊断或修复报告
-- 仍在引用 app/、emsx-backend/ 等旧路径
+- 仍在引用 app/、emsxview-backend/ 等旧路径
 - 已被新的 source-of-truth 文档替代
 
 ---

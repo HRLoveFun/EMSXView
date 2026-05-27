@@ -71,7 +71,7 @@ class Settings:
     ENABLE_AUDIT_LOG: bool = os.getenv("ENABLE_AUDIT_LOG", "true").lower() == "true"
 
     # Trader identity
-    EMSX_TRADER_NAME: str = os.getenv("EMSX_TRADER_NAME", "")
+    EMSXVIEW_TRADER_NAME: str = os.getenv("EMSXVIEW_TRADER_NAME", "")
 
     # Development mode
     BYPASS_AUTH: bool = os.getenv("BYPASS_AUTH", "false").lower() == "true"

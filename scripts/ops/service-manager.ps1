@@ -1,11 +1,11 @@
 #!/usr/bin/env powershell
 <#
 .SYNOPSIS
-    EMSX Trading Tool - Service Manager
+    EMSXView Trading Tool - Service Manager
     Manages backend and frontend services with synchronized startup/shutdown
 
 .DESCRIPTION
-    This script provides comprehensive service management for the EMSX Trading Tool:
+    This script provides comprehensive service management for the EMSXView Trading Tool:
     - Start/Stop/Restart backend and frontend services
     - Port conflict detection and resolution
     - Health checks and connection validation
@@ -665,7 +665,7 @@ function Show-Logs {
 
 # Main Script Logic
 Write-Separator
-Write-Status "EMSX Trading Tool - Service Manager" "Info"
+Write-Status "EMSXView Trading Tool - Service Manager" "Info"
 Write-Status "Action: $Action | Environment: $Environment" "Info"
 Write-Separator
 
@@ -757,7 +757,7 @@ switch ($Action) {
         Get-Process | Where-Object { $_.ProcessName -in @("python", "python3", "node") } | ForEach-Object {
             try {
                 $procInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)"
-                if ($procInfo.CommandLine -like "*EMSX*" -or $procInfo.CommandLine -like "*emsx*") {
+                if ($procInfo.CommandLine -like "*EMSXView*" -or $procInfo.CommandLine -like "*emsxview*") {
                     Stop-Process -Id $_.Id -Force
                     Write-Status "Killed process $($_.ProcessName) (PID: $($_.Id))" "Success"
                 }

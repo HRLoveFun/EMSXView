@@ -1,4 +1,4 @@
-# EMSX Scripts Directory
+# EMSXView Scripts Directory
 
 Quick-launch batch files for local development workflows.
 

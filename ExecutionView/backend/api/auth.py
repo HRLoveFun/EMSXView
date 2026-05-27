@@ -1,6 +1,6 @@
 ﻿#!/usr/bin/env python3
 """
-EMSX Trading API - Authentication Module
+EMSXView Trading API - Authentication Module
 Handles user authentication and authorization
 """
 

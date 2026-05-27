@@ -74,7 +74,7 @@ export function SettingsBoard({
               </div>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Version</span><span className="font-mono">EMSX Trading Tool v1.0.0</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Version</span><span className="font-mono">EMSXView Trading Tool v1.0.0</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">API Endpoint</span><span className="font-mono">{import.meta.env.VITE_API_URL || window.location.origin}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Build Mode</span><span className="font-mono">{import.meta.env.MODE}</span></div>
             </CardContent>
