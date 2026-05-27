@@ -1,4 +1,4 @@
-# EMSX Trading API - Production Deployment
+# EMSXView Trading API - Production Deployment
 
 开箱即用的彭博EMSX交易API后端服务，用于生产环境部署。
 

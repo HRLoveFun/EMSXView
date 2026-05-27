@@ -1,4 +1,4 @@
-"""Single source of truth for all EMSX pipeline configuration.
+"""Single source of truth for all EMSXView pipeline configuration.
 
 Usage::
 
@@ -8,7 +8,7 @@ Usage::
     date_fmt = Config.DATE_FORMAT
     table = Config.PROCESSED_FILLS_TABLE
 
-Data directory is configurable via the ``EMSX_DATA_DIR`` environment variable.
+Data directory is configurable via the ``EMSXVIEW_DATA_DIR`` environment variable.
 When not set the default ``{PROJECT_ROOT}/CostView/data`` is used (backwards
 compatible with the legacy layout).
 """
@@ -38,10 +38,10 @@ class Config:
     _PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 
     # Configurable data root; defaults to the legacy CostView/data layout.
-    # Set EMSX_DATA_DIR to relocate all SQLite files to a shared location
-    # (e.g. ``EMSX/data/``) without changing any consumer code.
+    # Set EMSXVIEW_DATA_DIR to relocate all SQLite files to a shared location
+    # (e.g. ``EMSXView/data/``) without changing any consumer code.
     DATA_DIR: Path = Path(
-        os.getenv("EMSX_DATA_DIR", str(_PROJECT_ROOT / "CostView" / "data"))
+        os.getenv("EMSXVIEW_DATA_DIR", str(_PROJECT_ROOT / "CostView" / "data"))
     )
     LOGGING_DIR: Path = _PROJECT_ROOT / "logs" / "pipeline"
     RAW_EXCEL_DIR: Path = DATA_DIR / "fills"

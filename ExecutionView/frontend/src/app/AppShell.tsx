@@ -240,7 +240,7 @@ export function AppShell() {
 
       <footer className="border-t border-border px-4 py-2 bg-card">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div>EMSX Trading Tool v1.0.0</div>
+          <div>EMSXView Trading Tool v1.0.0</div>
           <div>Source: Bloomberg Terminal · {footerConnectionText}</div>
         </div>
       </footer>

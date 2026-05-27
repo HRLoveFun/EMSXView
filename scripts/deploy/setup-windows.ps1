@@ -1,11 +1,11 @@
-﻿# EMSX Trading Platform - Windows Setup Script
+﻿# EMSXView Trading Platform - Windows Setup Script
 # Run as Administrator (right-click -> Run as Administrator)
 # Or: Start-Process powershell -Verb RunAs -ArgumentList "-File .\scripts\setup-windows.ps1"
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  EMSX Trading Platform - Windows Setup" -ForegroundColor Cyan
+Write-Host "  EMSXView Trading Platform - Windows Setup" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 
 # Check if running as administrator

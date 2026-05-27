@@ -1,5 +1,5 @@
 """
-Data models for the EMSX Trading API.
+Data models for the EMSXView Trading API.
 
 Extracted from main.py to enable modular imports without circular dependencies.
 """

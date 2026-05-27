@@ -131,7 +131,7 @@ export function Toolbar({
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <Database className="h-5 w-5 text-primary" />
-          <h1 className="text-lg font-semibold">EMSX Trading Workbench</h1>
+          <h1 className="text-lg font-semibold">EMSXView Trading Workbench</h1>
         </div>
 
         <div className="h-6 w-px bg-border mx-2" />
