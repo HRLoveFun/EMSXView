@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "emsx-datapipeline"
+name = "emsxview-datapipeline"
 version = "1.0.0"
-description = "EMSX Data Acquisition, Processing, and Storage Pipeline"
+description = "EMSXView Data Acquisition, Processing, and Storage Pipeline"
 requires-python = ">=3.10"
 dependencies = [
     "blpapi>=3.19",

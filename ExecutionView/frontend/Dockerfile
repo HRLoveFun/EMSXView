@@ -1,5 +1,5 @@
 # ==============================================================
-# EMSX Frontend – Multi-stage Production Docker Build
+# EMSXView Frontend – Multi-stage Production Docker Build
 # Stage 1: Build React/Vite app
 # Stage 2: Serve via Nginx
 # ==============================================================
@@ -31,7 +31,7 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Nginx config is injected via docker-compose volume mount
-# (emsx-backend/config/nginx.conf → /etc/nginx/conf.d/default.conf)
+# (emsxview-backend/config/nginx.conf → /etc/nginx/conf.d/default.conf)
 
 EXPOSE 80
 

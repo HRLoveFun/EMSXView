@@ -1,4 +1,4 @@
-﻿# EMSX Trading API - Production Dockerfile
+﻿# EMSXView Trading API - Production Dockerfile
 # Multi-stage build for optimized production image
 
 # ============================================================================
@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
-RUN groupadd -r emsx && useradd -r -g emsx emsx
+RUN groupadd -r emsxview && useradd -r -g emsxview emsxview
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
@@ -55,10 +55,10 @@ COPY . /app
 
 
 # Create logs directory
-RUN mkdir -p logs && chown -R emsx:emsx logs
+RUN mkdir -p logs && chown -R emsxview:emsxview logs
 
 # Switch to non-root user
-USER emsx
+USER emsxview
 
 # Expose API port
 EXPOSE 3000

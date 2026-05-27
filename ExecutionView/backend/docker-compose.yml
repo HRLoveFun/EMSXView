@@ -1,4 +1,4 @@
-# EMSX Trading Platform - Docker Compose (Production)
+# EMSXView Trading Platform - Docker Compose (Production)
 # Single-command deployment: docker-compose up -d
 # Prerequisites: Docker Desktop (Win/Mac) or Docker Engine (Linux)
 # Copy .env.example to .env and edit before first run.
@@ -14,8 +14,8 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
-    image: emsx-backend:latest
-    container_name: emsx-backend
+    image: emsxview-backend:latest
+    container_name: emsxview-backend
     restart: unless-stopped
 
     env_file:
@@ -46,7 +46,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
 
     networks:
-      - emsx-network
+      - emsxview-network
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -73,7 +73,7 @@ services:
   # ============================================================
   postgres:
     image: postgres:16-alpine
-    container_name: emsx-postgres
+    container_name: emsxview-postgres
     restart: unless-stopped
 
     environment:
@@ -88,7 +88,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
 
     networks:
-      - emsx-network
+      - emsxview-network
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-emsx} -d ${POSTGRES_DB:-emsx}"]
@@ -110,8 +110,8 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-    image: emsx-frontend:latest
-    container_name: emsx-frontend
+    image: emsxview-frontend:latest
+    container_name: emsxview-frontend
     restart: unless-stopped
 
     ports:
@@ -122,7 +122,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
 
     networks:
-      - emsx-network
+      - emsxview-network
 
     depends_on:
       backend:
@@ -139,14 +139,14 @@ services:
   # ============================================================
   redis:
     image: redis:7-alpine
-    container_name: emsx-redis
+    container_name: emsxview-redis
     restart: unless-stopped
 
     volumes:
       - redis-data:/data
 
     networks:
-      - emsx-network
+      - emsxview-network
 
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
 
@@ -162,7 +162,7 @@ services:
   # ============================================================
   prometheus:
     image: prom/prometheus:latest
-    container_name: emsx-prometheus
+    container_name: emsxview-prometheus
     restart: unless-stopped
 
     profiles:
@@ -176,7 +176,7 @@ services:
       - prometheus-data:/prometheus
 
     networks:
-      - emsx-network
+      - emsxview-network
 
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -189,7 +189,7 @@ services:
   # ============================================================
   grafana:
     image: grafana/grafana:latest
-    container_name: emsx-grafana
+    container_name: emsxview-grafana
     restart: unless-stopped
 
     profiles:
@@ -209,13 +209,13 @@ services:
       - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
 
     networks:
-      - emsx-network
+      - emsxview-network
 
     depends_on:
       - prometheus
 
 networks:
-  emsx-network:
+  emsxview-network:
     driver: bridge
     ipam:
       config:
@@ -232,4 +232,3 @@ volumes:
     driver: local
   grafana-data:
     driver: local
-

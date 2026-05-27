@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python3
 """
-EMSX Trading API - Bloomberg EMSX Integration Service
-Production-ready backend for EMSX Trading Tool
+EMSXView Trading API - Bloomberg EMSX Integration Service
+Production-ready backend for EMSXView Trading Tool
 
 Author: Trading Systems Team
 Version: 1.0.0
@@ -162,7 +162,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     logger.info("=" * 60)
-    logger.info("EMSX Trading API Starting...")
+    logger.info("EMSXView Trading API Starting...")
     logger.info(f"Version: 1.0.0")
     logger.info(f"Bloomberg: {settings.BLOOMBERG_HOST}:{settings.BLOOMBERG_PORT}")
     logger.info(f"Database: {settings.DATABASE_URL}")
@@ -189,13 +189,13 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info("Shutting down EMSX Trading API...")
+    logger.info("Shutting down EMSXView Trading API...")
     bloomberg_service.disconnect()
     await dispose_engine()
 
 
 app = FastAPI(
-    title="EMSX Trading API",
+    title="EMSXView Trading API",
     description="Bloomberg EMSX Integration Service for Trading Tool",
     version="1.0.0",
     lifespan=lifespan

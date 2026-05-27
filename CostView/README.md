@@ -272,7 +272,7 @@ CostView will consume data from Execution through:
 
 ## Future Roadmap
 
-- [x] **FillFetch** - EMSX fill data fetcher with deduplication
+- [x] **FillFetch** - EMSXView fill data fetcher with deduplication
 - [ ] TCA calculation engine
 - [ ] Performance dashboard
 - [ ] Benchmark comparison tools

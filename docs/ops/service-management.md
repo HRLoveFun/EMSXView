@@ -1,4 +1,4 @@
-# EMSX Trading Tool - Service Management Guide
+# EMSXView Trading Tool - Service Management Guide
 
 ## Quick Start
 
@@ -296,8 +296,8 @@ To run as Windows Service (auto-start on boot):
 1. Install NSSM (Non-Sucking Service Manager)
 2. Create service:
    ```batch
-   nssm install EMSXBackend "python" "C:\Users\hrchen\Documents\EMSX\ExecutionView\backend\api\start_server.py"
-   nssm install EMSXFrontend "node" "C:\Users\hrchen\Documents\EMSX\ExecutionView\frontend\node_modules\vite\bin\vite.js"
+   nssm install EMSXViewBackend "python" "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\start_server.py"
+   nssm install EMSXViewFrontend "node" "C:\Users\hrchen\Documents\EMSXView\ExecutionView\frontend\node_modules\vite\bin\vite.js"
    ```
 
 ## Script Reference
