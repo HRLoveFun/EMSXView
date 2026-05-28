@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emsxview-platform-data"
+version = "1.0.0"
+description = "Cross-module data adapters and contracts for EMSXView"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5",
+    "python-dateutil>=2.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

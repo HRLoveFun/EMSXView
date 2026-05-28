@@ -60,7 +60,7 @@ See docs/dev-guide.md §2 for current project facts ("current surface" refers to
 
 > Transform CostView from a fill-centric pipeline to an execution-history-aware system. Link fills with order/route/event data to enable proper TCA lineage.
 
-**Affected files**: emsx_client.py · fill_fetch.py · pipeline.py · tca_query_service.py · ExecutionView/backend/api/service_provider.py
+**Affected files**: emsx_client.py · fill_fetch.py · pipeline.py · tca_query_service.py · backend/api/service_provider.py
 
 **Test**: python -m pytest tests/test_fill_fetch.py tests/test_tca_query_service.py test_pipeline_guards.py -q + pytest tests/test_service_provider.py tests/test_db_bootstrap.py -q
 

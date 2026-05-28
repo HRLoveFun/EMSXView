@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_SRC = ROOT / "ExecutionView" / "frontend" / "src"
+FRONTEND_SRC = ROOT / ""frontend" / "src"
 
 # Domain modules and their boundaries
 MODULES = ["execution", "costview", "marketview", "databaseview"]

@@ -18,6 +18,9 @@ export default defineConfig(({ mode }) => {
         "@app": path.resolve(__dirname, "./src/app"),
         "@shared": path.resolve(__dirname, "./src/shared"),
         "@execution": path.resolve(__dirname, "./src/modules/execution"),
+        "@costview": path.resolve(__dirname, "./src/modules/costview"),
+        "@marketview": path.resolve(__dirname, "./src/modules/marketview"),
+        "@databaseview": path.resolve(__dirname, "./src/modules/databaseview"),
       },
     },
     test: {

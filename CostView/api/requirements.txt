@@ -1,0 +1,26 @@
+# CostView standalone service dependencies
+# Install: pip install -r requirements.txt
+
+# Cross-module platform data (editable install from monorepo root)
+-e ../../platform_data
+
+# CostView domain (editable install)
+-e ..
+
+# FastAPI
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Data Validation
+pydantic==2.5.3
+
+# Redis (for cross-process handoff exchange)
+redis==5.0.1
+
+# Database
+sqlalchemy==2.0.37
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+orjson==3.9.10

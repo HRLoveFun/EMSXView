@@ -30,7 +30,7 @@ WshShell.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass 
 ' ---- 前端优先就绪并打开浏览器 ----
 If Not WaitForPort(FRONTEND_PORT, FRONTEND_TIMEOUT, "Frontend") Then
     ShowErrorPage "Frontend", FRONTEND_PORT, FRONTEND_TIMEOUT, Array( _
-        "node_modules 未安装（在 ExecutionView/frontend/ 下运行 npm install）", _
+        "node_modules 未安装（在 frontend/ 下运行 npm install）", _
         "端口 5173 被其他程序占用（上次运行未正确关闭）", _
         "Node.js / npm 未安装或不在 PATH 中", _
         "npm SSL 证书问题（运行 npm config set strict-ssl false）" _
@@ -46,7 +46,7 @@ If Not WaitForPort(BACKEND_PORT, BACKEND_TIMEOUT, "Backend") Then
     ShowErrorPage "Backend", BACKEND_PORT, BACKEND_TIMEOUT, Array( _
         "Python 环境未找到（检查 D:\anaconda3\python.exe 是否存在）", _
         "端口 3000 被其他程序占用（上次运行未正确关闭）", _
-        "依赖包缺失（在 ExecutionView/backend/ 下运行 pip install）", _
+        "依赖包缺失（在 backend/ 下运行 pip install）", _
         "Bloomberg BPIPE 连接失败（检查 Terminal 是否在线）" _
     ), FRONTEND_OPENED
     WScript.Quit 1

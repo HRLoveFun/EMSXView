@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2025-03-17T00:00:00Z",
+  "description": "Broker strategies cache file. This file is populated from Bloomberg API data. DO NOT edit manually - use the API to populate this file.",
+  "note": "To populate this file: 1) Connect to Bloomberg, 2) Use the Strategy Data Manager to export current cache, 3) Copy the exported data here",
+  "brokers": {}
+}

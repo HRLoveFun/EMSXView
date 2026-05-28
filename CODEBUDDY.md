@@ -6,12 +6,25 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 EMSXView (Execution Management System eXtended View) is a Bloomberg EMSX-integrated trading platform covering pre-trade analysis, order execution, and post-trade TCA analytics. It is a monorepo with three business modules sharing a single React frontend shell and a Python data pipeline.
 
+### Deployment Modes
+
+The backend supports two deployment modes controlled by `EMSXVIEW_MERGE_MODULES`:
+
+| Mode | Env Var | Architecture |
+|------|---------|-------------|
+| **Microservice** (production) | `false` (default) | Core :3000, MarketView :8001, CostView :8002 |
+| **Single-process** (dev/demo) | `true` | All modules in one process on :3000 |
+
+Cross-module handoff uses configurable backend (`EMSXVIEW_HANDOFF_BACKEND`):
+- `memory` (default): In-process, single-process mode
+- `redis`: Redis-backed, cross-process for microservice mode
+
 ## Build & Run Commands
 
-### Frontend (ExecutionView/frontend)
+### Frontend (frontend/)
 
 ```bash
-cd ExecutionView/frontend
+cd frontend
 npm install          # Install dependencies
 npm run dev          # Dev server on :5173 (mock mode if VITE_API_URL is empty)
 npm run build        # tsc -b && vite build → dist/
@@ -23,14 +36,32 @@ npm run test:watch   # vitest watch
 - Vite proxies `/api/*` and `/ws/*` to `http://localhost:3000` in dev mode.
 - `VITE_USE_MOCK=true` enables mock Bloomberg data when no backend is running.
 
-### Backend (ExecutionView/backend/api)
+### Backend (backend/api)
 
 ```bash
-cd ExecutionView/backend/api
+cd backend/api
+pip install -r requirements.txt    # Includes -e ../../platform_data
+python main.py                     # Starts uvicorn on :3000 (core only in microservice mode)
+uvicorn main:app --port 3000       # Alternative
+set EMSXVIEW_MERGE_MODULES=true    # Enable single-process mode for dev
+pytest                             # Run backend tests
+```
+
+### MarketView Standalone (:8001)
+
+```bash
+cd MarketView
 pip install -r requirements.txt
-python main.py                   # Starts uvicorn on :3000
-uvicorn main:app --port 3000     # Alternative
-pytest                           # Run backend tests
+python main.py                     # Starts on :8001 (no Bloomberg dependency)
+```
+
+### CostView Standalone (:8002)
+
+```bash
+pip install -e CostView            # Install emsxview-costview package
+cd CostView/api
+pip install -r requirements.txt
+python main.py                     # Starts on :8002 (no Bloomberg dependency)
 ```
 
 ### DataPipeline / CostView
@@ -49,7 +80,7 @@ python -m pytest CostView/tests/               # Run pipeline tests
 ### Docker (Production)
 
 ```bash
-cd ExecutionView/backend
+cd backend
 docker compose up -d                                        # Full stack
 docker compose -f docker-compose.host.yml up -d             # Host-network mode (local Bloomberg)
 docker compose --profile monitoring up -d                   # With Prometheus + Grafana
@@ -72,7 +103,22 @@ scripts\check-status.bat  # Check service health
 MarketView (Pre-Trade) → ExecutionView (Order Execution) → CostView (Post-Trade TCA)
 ```
 
-All module UIs are mounted in the **single** ExecutionView/frontend React shell — MarketView and CostView do not have standalone production UIs.
+All module UIs are mounted in a **single** React shell via `ModuleRegistry` — each module self-registers with id/label/loader. The shell discovers modules dynamically without hardcoding any module paths.
+
+**Module discovery pattern**:
+- Each module exports a `module.registry.ts` that calls `moduleRegistry.register(...)`
+- `App.tsx` imports all registries as side effects before `AppShell` renders
+- `WorkspaceModuleTabs` renders tabs from `moduleRegistry.getAll()`
+- Modules receive shell services via `useShellContext()` React context
+
+**Standalone module builds** (independent deployment):
+```bash
+npm run build:execution     # ExecutionView SPA → dist/execution/
+npm run build:costview      # CostView SPA → dist/costview/
+npm run build:marketview    # MarketView SPA → dist/marketview/
+npm run build:databaseview  # DatabaseView SPA → dist/database/
+npm run build:all-modules   # All four at once
+```
 
 ### Frontend — Shell + Lazy-Loaded Modules
 
@@ -95,18 +141,30 @@ All module UIs are mounted in the **single** ExecutionView/frontend React shell 
 - `@marketview/*` → `./src/modules/marketview/*`
 - `@databaseview/*` → `./src/modules/databaseview/*`
 
-### Backend — Layered FastAPI
+### Backend — Layered FastAPI (Multi-Process)
 
 ```
-Routers (HTTP/WebSocket) → Services (business logic) → Repositories (data access) → Models (persistence)
+Core Service (:3000):                 MarketView (:8001):      CostView (:8002):
+orders, routes, broker (Bloomberg)    marketview.py            costview.py
+route_plans, realtime, auth           (no Bloomberg)           (no Bloomberg)
+connection, debug, mappings
 ```
 
-- Entry point: `ExecutionView/backend/api/main.py`
-- **Core routers** (always loaded): connection, auth, orders, routes, broker, marketview, realtime, debug, route_plans, market_broker_mapping
-- **Optional routers** (graceful fallback): costview, database, execution_history — if import fails, core ExecutionView still starts
+- Entry point: `backend/api/main.py`
+- **Core routers** (always loaded): connection, auth, orders, routes, broker, realtime, debug, route_plans, market_broker_mapping
+- **Optional routers**: marketview (merge mode only), costview (merge mode only), database, execution_history
+- **Independent services**: `MarketView/main.py` (:8001), `CostView/api/main.py` (:8002)
+- **Merge mode** (`EMSXVIEW_MERGE_MODULES=true`): All routers in single process (dev/demo)
 - Key services: `BloombergEMSXService` (Bloomberg API adapter), `AuthService`, `RouteService`, `ComplianceService`
 - `RepositoryProvider` gates DB reads/writes behind `ENABLE_DB_PERSISTENCE` flag
 - Bloomberg connection starts as an async background task (can take 30-120s for BPIPE initialization)
+
+### Cross-Module Communication
+
+Handoff between modules uses `platform_data/adapters.py` → `HandoffExchangeAdapter`:
+- **In-memory** (`HANDOFF_BACKEND=memory`): Process-local dict + threading.Lock (single-process mode)
+- **Redis** (`HANDOFF_BACKEND=redis`): Redis pub/sub (microservice mode, 3 keys per contract)
+- `get_shared_handoff_exchange()` returns the configured adapter transparently
 
 ### DataPipeline — Stage-Based Processing
 

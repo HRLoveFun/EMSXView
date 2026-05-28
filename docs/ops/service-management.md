@@ -10,14 +10,14 @@
 ### Backend Service
 - **Port**: 3000
 - **Process**: Python (uvicorn)
-- **Entry Point**: `ExecutionView/backend/api/start_server.py`
+- **Entry Point**: `backend/api/start_server.py`
 - **Health Check**: http://localhost:3000/api/health
 - **Startup Time**: 通常几秒，但 Bloomberg 初始化和首轮订阅可能更久
 
 ### Frontend Service
 - **Port**: 5173 (dev) / 80 (prod)
 - **Process**: Node.js (Vite)
-- **Entry Point**: `ExecutionView/frontend/` (npm run dev)
+- **Entry Point**: `frontend/` (npm run dev)
 - **Startup Time**: ~5 seconds
 
 ## Synchronized Startup Process
@@ -192,7 +192,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 
 3. Check Python dependencies:
    ```bash
-   cd ExecutionView/backend/api
+   cd backend/api
    pip install -r requirements.txt
    ```
 
@@ -202,7 +202,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 **Solutions**:
 1. Install Node dependencies:
    ```bash
-   cd ExecutionView/frontend
+   cd frontend
    npm install
    ```
 
@@ -246,7 +246,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 
 3. Run backend manually to see errors:
    ```bash
-   cd ExecutionView/backend/api
+   cd backend/api
    python start_server.py
    ```
 
@@ -266,12 +266,12 @@ $Config = @{
 ```
 
 ### Custom Ports
-Edit `ExecutionView/backend/.env`:
+Edit `backend/.env`:
 ```
 API_PORT=3001  # Change from default 3000
 ```
 
-Edit `ExecutionView/frontend/vite.config.ts`:
+Edit `frontend/vite.config.ts`:
 ```typescript
 server: {
     port: 5174,  // Change from default 5173

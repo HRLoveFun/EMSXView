@@ -49,7 +49,7 @@ $Config = @{
     ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
     Backend = @{
         Port = 3000
-        Script = "ExecutionView\backend\api\start_server.py"
+        Script = "backend\api\start_server.py"
         ProcessName = "python"
         HealthUrl = "http://localhost:3000/api/health"
         StartupStatusScript = "scripts\diagnose\check-startup-status.ps1"
@@ -234,7 +234,7 @@ function Get-ServiceStatus {
     } | Select-Object -First 1
 
     $frontendProcess = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*ExecutionView\frontend*"
+        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*\frontend*"
     } | Select-Object -First 1
 
     $backendPortInUse = Test-PortActiveListen -Port $Config.Backend.Port
@@ -353,7 +353,7 @@ function Stop-FrontendService {
     Write-Status "Stopping frontend service..." "Info"
 
     $processes = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*ExecutionView\frontend*"
+        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*\frontend*"
     }
 
     foreach ($proc in $processes) {
@@ -369,7 +369,7 @@ function Stop-FrontendService {
     Get-Process | Where-Object { $_.ProcessName -eq "node" } | ForEach-Object {
         try {
             $procInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)"
-            if ($procInfo.CommandLine -like "*ExecutionView\frontend*") {
+            if ($procInfo.CommandLine -like "*\frontend*") {
                 Stop-Process -Id $_.Id -Force
                 Write-Status "Stopped Node process (PID: $($_.Id))" "Success"
             }
@@ -535,7 +535,7 @@ function Start-FrontendService {
         Write-Status "Port $frontendPort is now free." "Success"
     }
 
-    $frontendDir = Join-Path $Config.ProjectRoot "ExecutionView\frontend"
+    $frontendDir = Join-Path $Config.ProjectRoot "frontend"
     $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
     if (-not (Test-Path $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null

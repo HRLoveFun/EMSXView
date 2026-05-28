@@ -49,7 +49,7 @@ ExecutionView/frontend (canonical shell)
   `- CostView module
   |
   v
-ExecutionView/backend/api (FastAPI assembly layer)
+backend/api (FastAPI assembly layer)
   |- routers/
   |- services/
   |- repositories/
@@ -62,8 +62,8 @@ ExecutionView/backend/api (FastAPI assembly layer)
 
 Key runtime truth:
 
-- `ExecutionView/frontend/src/App.tsx` is the canonical UI entry point.
-- `ExecutionView/backend/api/main.py` is the application assembly entry point, not the sole location of business logic.
+- `frontend/src/App.tsx` is the canonical UI entry point.
+- `backend/api/main.py` is the application assembly entry point, not the sole location of business logic.
 - `CostView/src/` is the active analytics and pipeline implementation.
 - `platform_data/` is the shared adapter entry for the logical data domain.
 
@@ -178,7 +178,7 @@ EMSXView/
 
 Canonical entry:
 
-- `ExecutionView/frontend/src/App.tsx`
+- `frontend/src/App.tsx`
 
 Responsibilities:
 
@@ -196,7 +196,7 @@ Current module split inside the shell:
 
 Canonical entry:
 
-- `ExecutionView/backend/api/main.py`
+- `backend/api/main.py`
 
 Responsibilities:
 
@@ -284,8 +284,8 @@ Workload:
 
 Current entry points:
 
-- `ExecutionView/backend/api/db.py`
-- `ExecutionView/backend/api/service_provider.py`
+- `backend/api/db.py`
+- `backend/api/service_provider.py`
 - `platform_data.build_platform_data_access(...).operational`
 
 Current storage model:
@@ -333,7 +333,7 @@ Cross-domain access should follow this order of preference:
 
 - `CostView/frontend/` is downgraded to legacy prototype status.
 - It is not the canonical CostView UI.
-- New production UI work should go to `ExecutionView/frontend/src/modules/costview/`.
+- New production UI work should go to `frontend/src/modules/costview/`.
 
 ### 6.2 Empty placeholders
 

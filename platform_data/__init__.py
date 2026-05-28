@@ -7,6 +7,7 @@ platform_data.adapters.
 
 from .adapters import (
     HandoffExchangeAdapter,
+    RedisHandoffExchangeAdapter,
     MarketReferenceDataAdapter,
     get_shared_handoff_exchange,
 )

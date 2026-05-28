@@ -9,15 +9,14 @@ import { Spinner } from '@/components/ui/spinner';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { useModuleNavigation } from '@app/hooks/use-module-navigation';
 import { useStartupStatus } from '@app/hooks/use-startup-status';
-import { createRealtimeClient, type RealtimeClient } from '@execution/services/realtime';
-import { tokenService } from '@execution/services/execution-api';
+import { createRealtimeClient, type RealtimeClient } from '@shared/services/realtime';
+import { tokenService } from '@shared/services/token-service';
 import { HandoffContractsProvider } from '@shared/hooks/use-handoff-contracts';
+import { moduleRegistry } from '@shared/lib/module-registry';
+import { ShellContext } from '@shared/lib/shell-context';
+import type { ModuleId, ModuleContribution } from '@shared/lib/module-registry';
+import type { ShellContextValue } from '@shared/lib/shell-context';
 import type { Toast } from '@shared/types';
-
-const ExecutionModule = lazy(() => import('@execution/ExecutionModule'));
-const CostViewModule = lazy(() => import('@/modules/costview/CostViewModule'));
-const MarketViewModule = lazy(() => import('@/modules/marketview/MarketViewModule'));
-const DatabaseViewModule = lazy(() => import('@/modules/databaseview/DatabaseViewModule'));
 
 /** Skeleton shown while a lazy-loaded module's chunk is downloading. */
 function ModuleLoadingSkeleton({ name }: { name: string }) {
@@ -122,12 +121,12 @@ export function AppShell() {
     };
   }, [addToast]);
 
-  // ─── Execution module info (provided by ExecutionModule via callback) ───
-  const [executionInfo, setExecutionInfo] = useState({
+  // ─── Module contribution — generic, not execution-specific ─────────────
+  const [moduleContribution, setModuleContribution] = useState<ModuleContribution>({
     orderCount: 0,
     routeCount: 0,
     isLoading: true,
-    lastUpdatedAt: null as number | null,
+    lastUpdatedAt: null,
     refresh: () => {},
     clearCache: () => {},
   });
@@ -156,28 +155,54 @@ export function AppShell() {
     streamConnected,
     streamEverConnected,
     startupElapsedSeconds: backendBootstrapElapsedSec,
-    orderCount: executionInfo.orderCount,
-    routeCount: executionInfo.routeCount,
+    orderCount: moduleContribution.orderCount,
+    routeCount: moduleContribution.routeCount,
   });
 
-  const toolbarOrderCount = useMemo(() => {
-    if (activeModule !== 'execution') return 0;
-    return executionInfo.orderCount;
-  }, [activeModule, executionInfo.orderCount]);
+  // ─── Shell context value (provided to all modules via React context) ──
+  const shellContext: ShellContextValue = useMemo(() => ({
+    navigateTo: (moduleId: ModuleId) => setActiveModule(moduleId),
+    addToast,
+    realtimeClient: rtClientRef.current,
+    streamConnected,
+    streamEverConnected,
+    subscriptionsWarming,
+    subscriptionsWarmingMode,
+    logout: handleLogout,
+  }), [setActiveModule, addToast, streamConnected, streamEverConnected, subscriptionsWarming, subscriptionsWarmingMode, handleLogout]);
+
+  // ─── Build module views from registry — generic ModuleShellProps only ──
+  const moduleViews = useMemo(() => {
+    const registeredModules = moduleRegistry.getAll();
+
+    return registeredModules.map(descriptor => {
+      const LazyModule = lazy(descriptor.loader);
+
+      return {
+        moduleId: descriptor.id,
+        content: (
+          <Suspense key={descriptor.id} fallback={<ModuleLoadingSkeleton name={descriptor.label} />}>
+            <LazyModule onContribute={setModuleContribution} />
+          </Suspense>
+        ),
+      };
+    });
+  }, []);
 
   return (
+    <ShellContext.Provider value={shellContext}>
     <div className="min-h-screen bg-background flex flex-col">
       <HandoffContractsProvider>
       <Toolbar
-        onRefresh={executionInfo.refresh}
-        onClearCache={executionInfo.clearCache}
-        isLoading={!isBackendReady || (activeModule === 'execution' && executionInfo.isLoading)}
-        orderCount={toolbarOrderCount}
+        onRefresh={moduleContribution.refresh}
+        onClearCache={moduleContribution.clearCache}
+        isLoading={!isBackendReady || moduleContribution.isLoading}
+        orderCount={moduleContribution.orderCount}
         onLogout={handleLogout}
         startupStatus={startupStatus}
         connectionStatus={connectionStatus}
         checkingStartup={checkingStartup}
-        lastUpdatedAt={executionInfo.lastUpdatedAt}
+        lastUpdatedAt={moduleContribution.lastUpdatedAt}
       />
 
       <main className="flex-1 p-4 space-y-4">
@@ -196,36 +221,7 @@ export function AppShell() {
           <WorkspaceModuleTabs
             activeModule={activeModule}
             onModuleChange={setActiveModule}
-            marketView={
-              <Suspense fallback={<ModuleLoadingSkeleton name="MarketView" />}>
-                <MarketViewModule />
-              </Suspense>
-            }
-            executionView={
-              <Suspense fallback={<ModuleLoadingSkeleton name="Execution" />}>
-                <ExecutionModule
-                  onNavigateToDatabase={() => setActiveModule('database')}
-                  onInfoUpdate={setExecutionInfo}
-                  onLogout={handleLogout}
-                  addToast={addToast}
-                  realtimeClient={rtClientRef.current}
-                  streamConnected={streamConnected}
-                  streamEverConnected={streamEverConnected}
-                  subscriptionsWarming={subscriptionsWarming}
-                  subscriptionsWarmingMode={subscriptionsWarmingMode}
-                />
-              </Suspense>
-            }
-            costView={
-              <Suspense fallback={<ModuleLoadingSkeleton name="CostView" />}>
-                <CostViewModule onNavigateToDatabase={() => setActiveModule('database')} />
-              </Suspense>
-            }
-            databaseView={
-              <Suspense fallback={<ModuleLoadingSkeleton name="Database" />}>
-                <DatabaseViewModule />
-              </Suspense>
-            }
+            moduleViews={moduleViews}
           />
         )}
         </ErrorBoundary>
@@ -246,5 +242,6 @@ export function AppShell() {
       </footer>
       </HandoffContractsProvider>
     </div>
+    </ShellContext.Provider>
   );
 }

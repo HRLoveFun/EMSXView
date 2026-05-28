@@ -1,5 +1,5 @@
 // ExecutionModule — self-contained entry point for the Execution domain
-// Receives shell capabilities via explicit props, NOT hidden contexts.
+// Receives shell services via useShellContext() and contributes toolbar info via onContribute.
 import { useState, useEffect, useMemo } from 'react';
 import { MonitorBoard } from '@execution/views/MonitorBoard';
 import { ExecutionBoard } from '@execution/views/ExecutionBoard';
@@ -11,9 +11,9 @@ import { useOrdersStream } from '@execution/hooks/use-orders-stream';
 import { useRoutesStream } from '@execution/hooks/use-routes-stream';
 import { useExecutionState } from '@execution/hooks/use-execution-state';
 import { useStartupStatus } from '@app/hooks/use-startup-status';
-import type { SubscriptionsWarmingMode } from '@app/hooks/use-module-navigation';
+import { useShellContext } from '@shared/lib/shell-context';
+import type { ModuleShellProps } from '@shared/lib/module-registry';
 import type { RealtimeClient } from '@execution/services/realtime';
-import type { Toast } from '@shared/types';
 
 /** Info that ExecutionModule exposes to the shell for toolbar integration. */
 export interface ExecutionModuleInfo {
@@ -25,29 +25,9 @@ export interface ExecutionModuleInfo {
   clearCache: () => void;
 }
 
-interface ExecutionModuleProps {
-  onNavigateToDatabase: () => void;
-  onInfoUpdate: (info: ExecutionModuleInfo) => void;
-  onLogout: () => void;
-  addToast: (type: Toast['type'], message: string) => void;
-  realtimeClient: RealtimeClient | null;
-  streamConnected: boolean;
-  streamEverConnected: boolean;
-  subscriptionsWarming: boolean;
-  subscriptionsWarmingMode: SubscriptionsWarmingMode;
-}
+export default function ExecutionModule({ onContribute }: ModuleShellProps) {
+  const shell = useShellContext();
 
-export default function ExecutionModule({
-  onNavigateToDatabase,
-  onInfoUpdate,
-  onLogout,
-  addToast,
-  realtimeClient,
-  streamConnected,
-  streamEverConnected,
-  subscriptionsWarming,
-  subscriptionsWarmingMode,
-}: ExecutionModuleProps) {
   // Bloomberg Terminal is already authenticated locally
   const isAuthenticated = true;
 
@@ -83,32 +63,32 @@ export default function ExecutionModule({
   } = useExecutionViewData({
     isAuthenticated,
     isBackendReady,
-    streamConnected,
-    allowFallbackFetch: subscriptionsWarmingMode === 'timed-out',
-    onAuthenticationFailure: onLogout,
-    onToast: addToast,
+    streamConnected: shell.streamConnected,
+    allowFallbackFetch: shell.subscriptionsWarmingMode === 'timed-out',
+    onAuthenticationFailure: shell.logout,
+    onToast: shell.addToast,
   });
 
   // Stream hooks
   const { orders: streamOrders } = useOrdersStream({
-    client: realtimeClient,
+    client: shell.realtimeClient as RealtimeClient | null,
     initialOrders: allOrders,
-    enabled: streamConnected,
+    enabled: shell.streamConnected,
   });
   const { routes: streamRoutes } = useRoutesStream({
-    client: realtimeClient,
+    client: shell.realtimeClient as RealtimeClient | null,
     initialRoutes: allRoutes,
-    enabled: streamConnected,
+    enabled: shell.streamConnected,
   });
 
   const effectiveOrders = useMemo(() => {
-    if (streamConnected && streamOrders.length > 0) return streamOrders;
+    if (shell.streamConnected && streamOrders.length > 0) return streamOrders;
     return allOrders;
-  }, [streamConnected, streamOrders, allOrders]);
+  }, [shell.streamConnected, streamOrders, allOrders]);
   const effectiveRoutes = useMemo(() => {
-    if (streamConnected && streamRoutes.length > 0) return streamRoutes;
+    if (shell.streamConnected && streamRoutes.length > 0) return streamRoutes;
     return allRoutes;
-  }, [streamConnected, streamRoutes, allRoutes]);
+  }, [shell.streamConnected, streamRoutes, allRoutes]);
 
   useEffect(() => {
     if (effectiveOrders.length > 0 || effectiveRoutes.length > 0) {
@@ -138,9 +118,9 @@ export default function ExecutionModule({
     }
   }, [activeTab, effectiveOrders.length, filteredOrders.length, monitorCount]);
 
-  // Expose info to shell for toolbar
+  // Contribute info to shell for toolbar — generic contribution pattern
   useEffect(() => {
-    onInfoUpdate({
+    onContribute?.({
       orderCount: toolbarOrderCount,
       routeCount: effectiveRoutes.length,
       isLoading,
@@ -148,30 +128,30 @@ export default function ExecutionModule({
       refresh: handleRefresh,
       clearCache: handleClearCache,
     });
-  }, [toolbarOrderCount, effectiveRoutes.length, isLoading, lastUpdatedAt, handleRefresh, handleClearCache, onInfoUpdate]);
+  }, [toolbarOrderCount, effectiveRoutes.length, isLoading, lastUpdatedAt, handleRefresh, handleClearCache, onContribute]);
 
   return (
     <div className="space-y-3">
-      {subscriptionsWarming ? (
+      {shell.subscriptionsWarming ? (
         <div
           className={
-            subscriptionsWarmingMode === 'timed-out'
+            shell.subscriptionsWarmingMode === 'timed-out'
               ? 'rounded-xl border border-dashed border-amber-500/50 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-300'
               : 'rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-xs text-muted-foreground'
           }
         >
-          {subscriptionsWarmingMode === 'initial' && (
+          {shell.subscriptionsWarmingMode === 'initial' && (
             <>
               Establishing EMSX subscriptions — order &amp; route streams will populate momentarily.
               You can explore CostView, MarketView, and Database tabs while we wait.
             </>
           )}
-          {subscriptionsWarmingMode === 'reconnecting' && (
+          {shell.subscriptionsWarmingMode === 'reconnecting' && (
             <>
               Realtime stream interrupted — reconnecting and resuming order &amp; route updates.
             </>
           )}
-          {subscriptionsWarmingMode === 'timed-out' && (
+          {shell.subscriptionsWarmingMode === 'timed-out' && (
             <>
               EMSX subscription warm-up is taking longer than expected ({backendBootstrapElapsedSec}s).
               Falling back to REST polling so the table stays populated. Realtime updates will

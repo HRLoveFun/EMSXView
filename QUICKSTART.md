@@ -57,9 +57,9 @@ scripts\service-manager.ps1 logs
 ```
 EMSXView/
 ├── 重启服务.bat            # One-click restart
-├── ExecutionView/
-│   ├── backend/api/        # Python backend
-│   └── frontend/           # React frontend
+├── frontend/               # React frontend
+├── backend/                # Python backend
+│   └── api/                # FastAPI application
 ├── scripts/
 │   ├── start-all.bat       # Quick start
 │   ├── stop-all.bat        # Quick stop
@@ -70,6 +70,7 @@ EMSXView/
 ## Need Help?
 
 - Full documentation: `docs/ops/service-management.md`
-- API documentation: `ExecutionView/backend/README.md`
-- Frontend docs: `ExecutionView/frontend/README.md`
+- API documentation: `backend/README.md`
+- Frontend docs: `frontend/README.md`
+
 

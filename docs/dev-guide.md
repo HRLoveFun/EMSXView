@@ -13,11 +13,11 @@
 
 ```powershell
 # 后端
-Set-Location ExecutionView/backend/api
+Set-Location backend/api
 python start_server.py
 
 # 前端
-Set-Location ExecutionView/frontend
+Set-Location frontend
 npm run dev
 ```
 
@@ -31,14 +31,14 @@ npm run dev
 
 当前仓库不是"三套独立应用"，而是：
 
-- 一个正式前端壳：ExecutionView/frontend/src/App.tsx
+- 一个正式前端壳：frontend/src/App.tsx
 - 三个业务模块：MarketView、ExecutionView、CostView
 - 一个逻辑数据域入口：platform_data/
 
 当前权威实现面：
 
-- 前端壳：ExecutionView/frontend/
-- 后端装配层：ExecutionView/backend/api/
+- 前端壳：frontend/
+- 后端装配层：backend/api/
 - CostView 分析与管线：CostView/src/
 - 共享数据适配层：platform_data/
 
@@ -53,7 +53,7 @@ npm run dev
 
 前端改动：
 
-- 在 ExecutionView/frontend 运行 npm run build
+- 在 frontend 运行 npm run build
 
 后端改动：
 
@@ -72,9 +72,9 @@ npm run dev
 
 优先检查这些位置：
 
-- 路由：ExecutionView/backend/api/routers/
-- 服务：ExecutionView/backend/api/services/
-- 数据契约：ExecutionView/backend/api/schemas.py
+- 路由：backend/api/routers/
+- 服务：backend/api/services/
+- 数据契约：backend/api/schemas.py
 - 共享适配：platform_data/
 
 ### 调整跨域数据访问

@@ -1,8 +1,11 @@
 // App Module Navigation — global shell state
 import { useMemo, useState } from 'react';
 import type { StartupStatusSnapshot } from '@shared/types';
+import { moduleRegistry } from '@shared/lib/module-registry';
+import type { ModuleId } from '@shared/lib/module-registry';
 
-export type AppModule = 'marketview' | 'execution' | 'costview' | 'database';
+// Re-export for backward compatibility
+export type { ModuleId as AppModule } from '@shared/lib/module-registry';
 
 /** UI mode for the subscriptions-warming notice. */
 export type SubscriptionsWarmingMode = 'initial' | 'reconnecting' | 'timed-out';
@@ -29,7 +32,8 @@ export function useModuleNavigation({
   orderCount,
   routeCount,
 }: UseModuleNavigationParams) {
-  const [activeModule, setActiveModule] = useState<AppModule>('execution');
+  const defaultModule = moduleRegistry.getDefault()?.id ?? 'execution';
+  const [activeModule, setActiveModule] = useState<ModuleId>(defaultModule);
 
   const httpReady = startupStatus?.backend.httpReady ?? false;
   const startupFailed = startupStatus?.phase === 'error';
