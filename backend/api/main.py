@@ -215,12 +215,8 @@ app.add_middleware(
 # Domain Routers
 # ============================================================================
 
-# Merge mode: set EMSXVIEW_MERGE_MODULES=true to run all modules in a single
-# process (development / demo mode). In microservice mode (default), MarketView
-# and CostView run as independent services on ports 8001/8002.
-_MERGE_MODULES = os.getenv("EMSXVIEW_MERGE_MODULES", "false").lower() == "true"
-
 from routers.connection import router as connection_router
+from routers.marketview import router as marketview_router
 from routers.auth import router as auth_router
 from routers.orders import router as orders_router
 from routers.routes import router as routes_router
@@ -231,6 +227,7 @@ from routers.market_broker_mapping import router as market_broker_mapping_router
 from routers.route_plans import router as route_plans_router
 
 app.include_router(connection_router)
+app.include_router(marketview_router)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)
@@ -240,15 +237,8 @@ app.include_router(realtime_router)
 app.include_router(market_broker_mapping_router)
 app.include_router(route_plans_router)
 
-if _MERGE_MODULES:
-    logger.info("Running in single-process merge mode — all modules loaded")
-    from routers.marketview import router as marketview_router
-    app.include_router(marketview_router)
-else:
-    logger.info("Running in microservice mode — MarketView on :8001, CostView on :8002")
-
-# CostView / DatabaseView / ExecutionHistory — optional modules.
-# In merge mode, all are loaded. In microservice mode, CostView runs separately.
+# CostView / DatabaseView / ExecutionHistory 路由 — 可选模块
+# 任一模块异常不应导致其他模块无法启动。
 def _register_optional(module_name: str, router_label: str) -> None:
     """Lazily import and register an optional router; log warning on failure."""
     import importlib
@@ -257,12 +247,10 @@ def _register_optional(module_name: str, router_label: str) -> None:
         app.include_router(mod.router)
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("main").warning(
-            "%s router not loaded (core service unaffected): %s", router_label, exc
+            "%s router 未加载（ExecutionView 不受影响）: %s", router_label, exc
         )
 
-if _MERGE_MODULES:
-    _register_optional("costview", "CostView TCA")
-
+_register_optional("costview", "CostView TCA")
 _register_optional("database", "DatabaseView")
 _register_optional("execution_history", "Execution history")
 

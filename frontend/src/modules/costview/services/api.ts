@@ -6,9 +6,18 @@ import type {
   TriggerUpdateResponse,
   UpdateStatusResponse,
 } from '../types';
-import { getAuthHeaders } from '@shared/services/token-service';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
+const TOKEN_KEY = 'emsx_token';
+
+function getAuthHeaders(): HeadersInit {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) {
+    (headers as Record<string, string>).Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 async function readError(response: Response): Promise<string> {
   const body = await response.json().catch(() => ({}));

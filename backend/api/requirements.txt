@@ -1,9 +1,6 @@
 ﻿# EMSX Trading API - Python Dependencies
 # Install: pip install -r requirements.txt
 
-# Cross-module platform data (editable install from monorepo root)
--e ../../platform_data
-
 # FastAPI Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
