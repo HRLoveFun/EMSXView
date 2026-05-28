@@ -1,7 +1,0 @@
-{
-  "version": "1.0",
-  "lastUpdated": "2025-03-17T00:00:00Z",
-  "description": "Strategy parameters cache file. This file is populated from Bloomberg API data. DO NOT edit field definitions manually - only modify 'stringValue' fields to set custom defaults.",
-  "note": "To populate this file: 1) Connect to Bloomberg, 2) Use the Strategy Data Manager to export current cache, 3) Copy the exported data here. You can then edit 'stringValue' fields to set your preferred default values.",
-  "strategies": {}
-}

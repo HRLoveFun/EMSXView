@@ -2,8 +2,6 @@
 
 import type { ApiResponse } from '@shared/types';
 import type { BatchOperationItemResult, BatchOperationResult } from '@execution/types';
-import { getToken, getAuthHeaders } from '@shared/services/token-service';
-import { tokenService } from '@shared/services/token-service';
 
 // ============================================================
 // Configuration
@@ -11,8 +9,18 @@ import { tokenService } from '@shared/services/token-service';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 
-// Re-export for backward compatibility
-export { getToken, getAuthHeaders, tokenService };
+const TOKEN_KEY = 'emsx_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function getAuthHeaders(): HeadersInit {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
 
 /** Normalize structured error values to human-readable strings. */
 export function toErrorString(err: unknown): string {
@@ -161,4 +169,12 @@ export async function streamNdjsonBatch(
   }
 }
 
+// ============================================================
+// Token management
+// ============================================================
 
+export const tokenService = {
+  setToken: (token: string) => localStorage.setItem(TOKEN_KEY, token),
+  getToken,
+  clearToken: () => localStorage.removeItem(TOKEN_KEY),
+};

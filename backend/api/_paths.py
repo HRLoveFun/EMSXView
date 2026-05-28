@@ -1,14 +1,15 @@
-"""Path utilities for the API backend.
+"""Path and sys.path setup for the API backend.
 
-platform_data is now installed as a pip package (emsxview-platform-data)
-via `pip install -e ../../platform_data` from requirements.txt.
-
-PROJECT_ROOT is retained for reference but sys.path manipulation is
-no longer necessary — platform_data is importable as a regular package.
+Provides PROJECT_ROOT and ensures the project root is on sys.path
+so that platform_data and other root-level packages are importable.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-# PROJECT_ROOT points to the EMSX monorepo root (for file-system operations only).
+# PROJECT_ROOT points to the EMSX monorepo root.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
