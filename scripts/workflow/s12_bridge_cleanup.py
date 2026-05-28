@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_SRC = ROOT / "ExecutionView" / "frontend" / "src"
+FRONTEND_SRC = ROOT / ""frontend" / "src"
 
 # Shared types (from @shared/types)
 SHARED_TYPE_SYMBOLS = {

@@ -14,8 +14,8 @@
 
 å…³é”®å…¥å£ï¼š
 
-- å‰ç«¯å£³ï¼šExecutionView/frontend/src/App.tsx
-- åŽç«¯è£…é…å±‚ï¼šExecutionView/backend/api/main.py
+- å‰ç«¯å£³ï¼šfrontend/src/App.tsx
+- åŽç«¯è£…é…å±‚ï¼šbackend/api/main.py
 - CostView ç®¡çº¿ä¸Žåˆ†æžï¼šCostView/src/
 - å…±äº«é€‚é…å±‚ï¼šplatform_data/adapters.py
 
@@ -26,13 +26,13 @@
 ### å‰ç«¯
 
 - ExecutionView/frontend æ˜¯å”¯ä¸€æ­£å¼ UI å…¥å£ã€‚
-- CostView çš„æ­£å¼ UI ä½äºŽ ExecutionView/frontend/src/modules/costview/ã€‚
+- CostView çš„æ­£å¼ UI ä½äºŽ frontend/src/modules/costview/ã€‚
 - CostView/frontend/ æ˜¯é—ç•™åŽŸåž‹é¢ï¼Œä¸åº”å†æ‰¿æŽ¥é»˜è®¤äº§å“å¼€å‘ã€‚
 - MarketView å½“å‰å·²æœ‰å£³å†…å…¥å£å’ŒçœŸå®žå¿«ç…§åŸºçº¿ï¼Œä½†åŽç»­æ‰©å±•å·²æš‚åœã€‚
 
 ### åŽç«¯
 
-- ExecutionView/backend/api/main.py çŽ°åœ¨ä¸»è¦è´Ÿè´£åº”ç”¨è£…é…ï¼Œä¸å†æ˜¯å”¯ä¸€ä¸šåŠ¡é€»è¾‘æ–‡ä»¶ã€‚
+- backend/api/main.py çŽ°åœ¨ä¸»è¦è´Ÿè´£åº”ç”¨è£…é…ï¼Œä¸å†æ˜¯å”¯ä¸€ä¸šåŠ¡é€»è¾‘æ–‡ä»¶ã€‚
 - Bloomberg é€»è¾‘æ ¸å¿ƒåœ¨ services/bloomberg_adapter.pyã€‚
 - Python åŽç«¯ä»£ç ä¿®æ”¹åŽéœ€è¦é‡å¯åŽç«¯æ‰èƒ½ç”Ÿæ•ˆã€‚
 

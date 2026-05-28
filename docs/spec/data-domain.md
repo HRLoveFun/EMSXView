@@ -37,10 +37,10 @@ Examples:
 
 Primary code surfaces:
 
-- `ExecutionView/backend/api/db.py`
-- `ExecutionView/backend/api/service_provider.py`
-- `ExecutionView/backend/api/repositories/`
-- `ExecutionView/backend/api/models/`
+- `backend/api/db.py`
+- `backend/api/service_provider.py`
+- `backend/api/repositories/`
+- `backend/api/models/`
 
 Canonical shared adapter:
 
@@ -128,7 +128,7 @@ Primary code surfaces:
 - `CostView/src/regime/` — regime classification and analysis
 - `CostView/src/db/repositories/regime.py` — regime query repository
 - `CostView/src/execution_history_service.py` — execution history read path
-- `ExecutionView/backend/api/routers/costview.py` — API surface
+- `backend/api/routers/costview.py` — API surface
 
 Canonical shared adapters:
 

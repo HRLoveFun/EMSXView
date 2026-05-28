@@ -1,0 +1,18 @@
+# MarketView standalone service dependencies
+# Install: pip install -r requirements.txt
+
+# Cross-module platform data (editable install from monorepo root)
+-e ../platform_data
+
+# FastAPI
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Data Validation
+pydantic==2.5.3
+
+# Redis (for cross-process handoff exchange)
+redis==5.0.1
+
+# Utilities
+python-dotenv==1.0.0

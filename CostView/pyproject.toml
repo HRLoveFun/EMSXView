@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emsxview-costview"
+version = "1.0.0"
+description = "CostView TCA analysis and reporting domain"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

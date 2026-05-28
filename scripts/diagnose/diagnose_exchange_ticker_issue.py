@@ -61,7 +61,7 @@ class ExchangeTickerDiagnostician:
                 "1. Add optional ticker and exchange fields to Route model\n"
                 "2. Or ensure valid parent order data in enrichment logic"
             ),
-            code_location="ExecutionView/backend/api/main.py:292-375 (Route model)"
+            code_location="backend/api/main.py:292-375 (Route model)"
         ))
 
     def _check_route_enrichment_logic(self):
@@ -81,7 +81,7 @@ class ExchangeTickerDiagnostician:
                 "2. If parent doesn't exist, try delayed enrichment or get data from other sources\n"
                 "3. Ensure exchange field handles None correctly, use empty string as default"
             ),
-            code_location="ExecutionView/backend/api/main.py:2476-2501 (get_routes enrichment)"
+            code_location="backend/api/main.py:2476-2501 (get_routes enrichment)"
         ))
 
     def _check_event_status_handling(self):
@@ -102,7 +102,7 @@ class ExchangeTickerDiagnostician:
                 "2. In merge logic, check if key fields are empty, preserve cache value if so\n"
                 "3. Add warning log when key static fields are empty in update message"
             ),
-            code_location="ExecutionView/backend/api/main.py:1193-1242 (_process_order_message)"
+            code_location="backend/api/main.py:1193-1242 (_process_order_message)"
         ))
 
     def _check_frontend_type_definition(self):
@@ -122,7 +122,7 @@ class ExchangeTickerDiagnostician:
                 "1. Frontend can add default handling: route.ticker || '(unknown)'\n"
                 "2. Or use optional chaining: route.ticker ?? ''"
             ),
-            code_location="ExecutionView/frontend/src/types/index.ts:110-117"
+            code_location="frontend/src/types/index.ts:110-117"
         ))
 
     def _check_data_flow_timing(self):
@@ -142,7 +142,7 @@ class ExchangeTickerDiagnostician:
                 "2. When new order is added to cache, re-trigger enrichment for related routes\n"
                 "3. Or implement a periodic task to retry failed enrichments"
             ),
-            code_location="ExecutionView/backend/api/main.py:1294-1328 (_process_route_message)"
+            code_location="backend/api/main.py:1294-1328 (_process_route_message)"
         ))
 
     def _check_null_handling(self):
@@ -163,7 +163,7 @@ class ExchangeTickerDiagnostician:
                 "2. In Order model, set exchange default to '' instead of None\n"
                 "3. Provide default value when _msg_safe_str returns empty string"
             ),
-            code_location="ExecutionView/backend/api/main.py:1625, 1208"
+            code_location="backend/api/main.py:1625, 1208"
         ))
 
     def print_report(self):

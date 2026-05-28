@@ -8,8 +8,8 @@ SQLite 数据库族的交易日期覆盖、行数与健康状态，并承载唯�
 
 ## 路由注册
 
-- Router：`ExecutionView/backend/api/routers/database.py`
-- Pipeline job 注册表：`ExecutionView/backend/api/routers/_pipeline_jobs.py`
+- Router：`backend/api/routers/database.py`
+- Pipeline job 注册表：`backend/api/routers/_pipeline_jobs.py`
   （由 database 和 costview 两个 router 共享，保证"一个活动作业"语义跨端点一致）
 - 只读统计查询：`platform_data/repositories.py`
 

@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_SRC = ROOT / "ExecutionView" / "frontend" / "src"
-BACKEND_API = ROOT / "ExecutionView" / "backend" / "api"
+FRONTEND_SRC = ROOT / ""frontend" / "src"
+BACKEND_API = ROOT / ""backend" / "api"
 
 
 @dataclass
@@ -112,7 +112,7 @@ def verify_S01() -> VerifyResult:
 
     # Check build still passes
     success, stdout, stderr = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -168,7 +168,7 @@ def verify_S03() -> VerifyResult:
 
     # Check TypeScript compilation
     success, _, stderr = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -203,7 +203,7 @@ def verify_S04() -> VerifyResult:
 
     # TypeScript compilation
     success, _, stderr = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -231,7 +231,7 @@ def verify_S05() -> VerifyResult:
             result.passed = False
 
     success, _, stderr = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -276,7 +276,7 @@ def verify_S06() -> VerifyResult:
 
     # TypeScript compilation
     success, _, stderr = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -285,7 +285,7 @@ def verify_S06() -> VerifyResult:
 
     # Dev server smoke test
     success, _, _ = run_command(
-        "npx vite build --mode development", cwd=ROOT / "ExecutionView" / "frontend", timeout=180
+        "npx vite build --mode development", cwd=ROOT / ""frontend", timeout=180
     )
     result.checks.append({"check": "vite_build", "passed": success})
     if not success:
@@ -306,7 +306,7 @@ def verify_S07() -> VerifyResult:
             result.passed = False
 
     success, _, _ = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -355,7 +355,7 @@ def verify_S08() -> VerifyResult:
         result.checks.append({"check": "old_shell_state_is_bridge", "passed": is_bridge})
 
     success, _, _ = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -400,7 +400,7 @@ def verify_S09() -> VerifyResult:
             result.errors.append(f"New App.tsx has {lines} lines, expected < 100")
 
     success, _, _ = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -426,7 +426,7 @@ def verify_S10() -> VerifyResult:
         result.checks.append({"check": "app_shell_lazy_loads_module", "passed": has_lazy})
 
     success, _, _ = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -499,7 +499,7 @@ def verify_S12() -> VerifyResult:
         result.errors.append(f"Found {len(old_refs)} files with old import paths")
 
     success, _, _ = run_command(
-        "npx tsc --noEmit", cwd=ROOT / "ExecutionView" / "frontend", timeout=120
+        "npx tsc --noEmit", cwd=ROOT / ""frontend", timeout=120
     )
     result.checks.append({"check": "tsc_noEmit", "passed": success})
     if not success:
@@ -540,7 +540,7 @@ def verify_S13() -> VerifyResult:
 
     # pytest
     success, stdout, _ = run_command(
-        "python -m pytest ExecutionView/backend/api/tests/ -q --tb=short", timeout=120
+        "python -m pytest backend/api/tests/ -q --tb=short", timeout=120
     )
     result.checks.append({"check": "pytest", "passed": success})
 
@@ -570,7 +570,7 @@ def verify_S14() -> VerifyResult:
 
     # pytest
     success, _, _ = run_command(
-        "python -m pytest ExecutionView/backend/api/tests/ -q --tb=short", timeout=120
+        "python -m pytest backend/api/tests/ -q --tb=short", timeout=120
     )
     result.checks.append({"check": "pytest", "passed": success})
 

@@ -597,7 +597,7 @@ class AutoRunner:
         if not chain:
             # Default chain
             chain = [
-                {"id": "compile-check", "command": "python -m compileall ExecutionView/backend/api scripts/workflow -q"},
+                {"id": "compile-check", "command": "python -m compileall backend/api scripts/workflow -q"},
                 {"id": "plan-validation", "command": "python scripts/workflow/validate_phase_gate.py --mode plan"},
                 {"id": "status-sync", "command": "python scripts/workflow/sync_execution_status.py --output-json docs/generated/execution-platform-status.json"},
                 {"id": "handoff-snapshot", "command": "python scripts/workflow/generate_handoff_snapshot.py --output docs/generated/execution-platform-handoff.md"},

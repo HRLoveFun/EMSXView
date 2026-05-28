@@ -1,0 +1,93 @@
+/* App-specific styles */
+
+/* Checkbox indeterminate state */
+.indeterminate[data-state="checked"] {
+  background-color: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+/* Table row selection animation */
+.trading-table tr.selected {
+  transition: background-color 0.15s ease;
+}
+
+/* Smooth transitions for interactive elements */
+button,
+input,
+select {
+  transition: all 0.15s ease;
+}
+
+/* Focus states */
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Loading state overlay */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: hsl(var(--background) / 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+/* Animation for toast notifications */
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation: slideInFromRight 0.3s ease-out;
+}
+
+/* Selection colors */
+::selection {
+  background-color: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .toolbar {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+  
+  .filter-panel .grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .batch-panel {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+}
+
+/* Print styles */
+@media print {
+  .toolbar,
+  .filter-panel,
+  .batch-panel,
+  footer {
+    display: none;
+  }
+  
+  .trading-table {
+    font-size: 10pt;
+  }
+}

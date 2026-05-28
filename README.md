@@ -34,8 +34,8 @@ The EMSXView Trading Platform converges on one frontend shell, three business mo
 Current implementation status:
 
 - **`ExecutionView/frontend`** is the active platform shell. It mounts the **Execution** workspace, **CostView** module, and **MarketView** anchor.
-- **`ExecutionView/backend/api`** is the active backend assembly layer with routers/services/repositories.
-- **`CostView/src`** is the active post-trade data and analytics domain. Its canonical UI lives in the frontend shell under `ExecutionView/frontend/src/modules/costview/`.
+- **`backend/api`** is the active backend assembly layer with routers/services/repositories.
+- **`CostView/src`** is the active post-trade data and analytics domain. Its canonical UI lives in the frontend shell under `frontend/src/modules/costview/`.
 - **`MarketView/`** has a shell anchor and a read-only market snapshot endpoint (`/api/marketview/snapshot`). Domain capabilities are being built incrementally.
 - **`platform_data/`** provides the shared adapter layer for the logical data domain, bridging operational and analytical data.
 
@@ -231,7 +231,7 @@ MarketView ──────▶ ExecutionView ──────▶ CostView
 1. Each module should be self-contained with its own README
 2. Shared code goes in the root `scripts/` folder
 3. Module-specific documentation goes in `docs/`
-4. API documentation goes in `ExecutionView/backend/README.md`
+4. API documentation goes in `backend/README.md`
 
 ## Related Documentation
 

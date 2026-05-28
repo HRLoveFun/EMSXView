@@ -10,8 +10,8 @@
 
   "globals": {
     "workspace": ".",
-    "frontend_src": "ExecutionView/frontend/src",
-    "backend_api": "ExecutionView/backend/api",
+    "frontend_src": "frontend/src",
+    "backend_api": "backend/api",
     "state_file": "plans/architecture-refactor-workflow-state.json",
     "log_dir": "logs/workflow"
   },
@@ -562,15 +562,15 @@
         "error_code": "E_VERIFY_S13_FAILED"
       },
       "rollback": {
-        "command": "git checkout -- ExecutionView/backend/api/schemas.py ExecutionView/backend/api/services/bloomberg_adapter.py && git clean -fd ExecutionView/backend/api/schemas/ ExecutionView/backend/api/services/bloomberg/",
+        "command": "git checkout -- backend/api/schemas.py backend/api/services/bloomberg_adapter.py && git clean -fd backend/api/schemas/ backend/api/services/bloomberg/",
         "description": "Restore original single files, delete split directories",
         "estimated_minutes": 5
       },
       "input_schema": {
         "type": "object",
         "properties": {
-          "schemas_source": { "type": "string", "default": "ExecutionView/backend/api/schemas.py" },
-          "adapter_source": { "type": "string", "default": "ExecutionView/backend/api/services/bloomberg_adapter.py" }
+          "schemas_source": { "type": "string", "default": "backend/api/schemas.py" },
+          "adapter_source": { "type": "string", "default": "backend/api/services/bloomberg_adapter.py" }
         }
       },
       "output_schema": {
@@ -611,14 +611,14 @@
         "error_code": "E_VERIFY_S14_FAILED"
       },
       "rollback": {
-        "command": "git checkout -- ExecutionView/backend/api/ && git clean -fd ExecutionView/backend/api/domains/",
+        "command": "git checkout -- backend/api/ && git clean -fd backend/api/domains/",
         "description": "Restore original flat router structure",
         "estimated_minutes": 10
       },
       "input_schema": {
         "type": "object",
         "properties": {
-          "backend_api_dir": { "type": "string", "default": "ExecutionView/backend/api" }
+          "backend_api_dir": { "type": "string", "default": "backend/api" }
         }
       },
       "output_schema": {
@@ -653,7 +653,7 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "domains_root": { "type": "string", "default": "ExecutionView/backend/api/domains" }
+          "domains_root": { "type": "string", "default": "backend/api/domains" }
         }
       },
       "output_schema": {

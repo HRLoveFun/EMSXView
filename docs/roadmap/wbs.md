@@ -21,10 +21,10 @@ This document converts the target-state architecture plan into a comprehensive w
 
 This plan assumes the current codebase remains the delivery baseline, with the existing runtime centered on:
 
-- `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py`
-- `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/auth.py`
-- `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/App.tsx`
-- `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/api.ts`
+- `c:/Users/hrchen/Documents/EMSX/backend/api/main.py`
+- `c:/Users/hrchen/Documents/EMSX/backend/api/auth.py`
+- `c:/Users/hrchen/Documents/EMSX/frontend/src/App.tsx`
+- `c:/Users/hrchen/Documents/EMSX/frontend/src/services/api.ts`
 - `c:/Users/hrchen/Documents/EMSX/CostView/src/emsx_client.py`
 
 ---
@@ -239,19 +239,19 @@ Introduce durable backend persistence without breaking the current API surface.
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/docker-compose.yml` | update | Add Postgres service and volumes | Add `postgres` container, env vars, startup dependency wiring, and health checks | P1-S1-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/requirements.txt` | update | Add persistence stack | Add `sqlalchemy`, `asyncpg`, `alembic`, `psycopg[binary]`, `pytest-cov` | P1-S1-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/Dockerfile` | update | Copy modular backend files and install DB tooling | Change from copying only `main.py`/`auth.py` to copying package directories and migration assets | P1-S1-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/db.py` | create | DB engine and session factory | Async SQLAlchemy engine, sessionmaker, lifecycle helpers, retryable startup probe | P1-S1-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/models/execution_state.py` | create | ORM models for order, route, audit, and watermark state | Tables for `orders_projection`, `routes_projection`, `audit_events`, `subscription_watermarks` | P1-S1-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/orders.py` | create | Order projection persistence and queries | Upsert by EMSX sequence, projection fetch, filter composition, pagination hooks | P1-S1-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/routes.py` | create | Route projection persistence and queries | Upsert by composite key, parent linkage, enrichment field persistence | P1-S1-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/audit.py` | create | Command audit persistence | Store request actor, endpoint, payload summary, result, correlation ID | P1-S1-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/migrations/001_init_execution_schema.sql` | create | Initial SQL schema | DDL for projection, audit, watermark, and config tables with indexes | P1-S1-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py` | update | Bootstrap DB and route reads/writes through repositories | Inject DB lifecycle, dual-write projection updates, health/reporting changes | P1-S1-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/auth.py` | update | Include correlation IDs in audit context | Extend auth context for audit trail linkage | P1-S1-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_db_bootstrap.py` | create | Validate DB initialization | Test engine creation, schema bootstrap, and simple repository roundtrip | P1-S1-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_projection_repositories.py` | create | Validate order/route projection persistence | Repository-level tests for upsert/query behavior and watermarks | P1-S1-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/docker-compose.yml` | update | Add Postgres service and volumes | Add `postgres` container, env vars, startup dependency wiring, and health checks | P1-S1-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/requirements.txt` | update | Add persistence stack | Add `sqlalchemy`, `asyncpg`, `alembic`, `psycopg[binary]`, `pytest-cov` | P1-S1-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/Dockerfile` | update | Copy modular backend files and install DB tooling | Change from copying only `main.py`/`auth.py` to copying package directories and migration assets | P1-S1-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/db.py` | create | DB engine and session factory | Async SQLAlchemy engine, sessionmaker, lifecycle helpers, retryable startup probe | P1-S1-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/models/execution_state.py` | create | ORM models for order, route, audit, and watermark state | Tables for `orders_projection`, `routes_projection`, `audit_events`, `subscription_watermarks` | P1-S1-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/repositories/orders.py` | create | Order projection persistence and queries | Upsert by EMSX sequence, projection fetch, filter composition, pagination hooks | P1-S1-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/repositories/routes.py` | create | Route projection persistence and queries | Upsert by composite key, parent linkage, enrichment field persistence | P1-S1-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/repositories/audit.py` | create | Command audit persistence | Store request actor, endpoint, payload summary, result, correlation ID | P1-S1-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/migrations/001_init_execution_schema.sql` | create | Initial SQL schema | DDL for projection, audit, watermark, and config tables with indexes | P1-S1-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/main.py` | update | Bootstrap DB and route reads/writes through repositories | Inject DB lifecycle, dual-write projection updates, health/reporting changes | P1-S1-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/auth.py` | update | Include correlation IDs in audit context | Extend auth context for audit trail linkage | P1-S1-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_db_bootstrap.py` | create | Validate DB initialization | Test engine creation, schema bootstrap, and simple repository roundtrip | P1-S1-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_projection_repositories.py` | create | Validate order/route projection persistence | Repository-level tests for upsert/query behavior and watermarks | P1-S1-03 |
 
 ---
 
@@ -293,20 +293,20 @@ Introduce a supported realtime path and reduce dependence on full polling snapsh
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/realtime_gateway.py` | create | Publish order/route delta events to clients | Connection registry, cursor-based subscriptions, replay from projection watermark | P1-S2-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/event_serializers.py` | create | Normalize delta payloads | Stable event schema with event type, entity key, version, timestamp, patch | P1-S2-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py` | update | Wire projection updates into realtime gateway | Publish after commit; keep `/ws/orders` compatible during transition | P1-S2-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/config/nginx.conf` | update | Support hardened WS/SSE proxying | Tune timeouts, upgrade headers, optional `/ws/routes` or `/stream/*` support | P1-S2-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/realtime.ts` | create | Realtime client transport | WebSocket client with reconnect, heartbeat, cursor resume, backfill hook | P1-S2-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/hooks/use-orders-stream.ts` | create | Stream-backed order state hook | Initial REST snapshot then delta merge into local store | P1-S2-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/hooks/use-routes-stream.ts` | create | Stream-backed route state hook | Shared merge logic and reconnect semantics | P1-S2-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/stores/order-stream-store.ts` | create | Normalize order delta application | Entity map + version checks + partial patch merge | P1-S2-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/stores/route-stream-store.ts` | create | Normalize route delta application | Parent-child synchronization and dedupe logic | P1-S2-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/App.tsx` | update | Replace high-frequency polling with stream hooks | Keep periodic fallback only when stream disconnected | P1-S2-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/api.ts` | update | Support initial snapshot + cursor backfill APIs | Add helper for bootstrap snapshots and projection version metadata | P1-S2-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/package.json` | update | Add frontend test tooling | Add `vitest`, `@testing-library/react`, `msw` | P1-S2-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/realtime.test.ts` | create | Validate reconnect/backfill behavior | Mock WS transport and verify cursor resume | P1-S2-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_realtime_gateway.py` | create | Validate gateway fanout and cursor replay | Integration tests for delta serialization and replay ordering | P1-S2-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/realtime_gateway.py` | create | Publish order/route delta events to clients | Connection registry, cursor-based subscriptions, replay from projection watermark | P1-S2-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/event_serializers.py` | create | Normalize delta payloads | Stable event schema with event type, entity key, version, timestamp, patch | P1-S2-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/main.py` | update | Wire projection updates into realtime gateway | Publish after commit; keep `/ws/orders` compatible during transition | P1-S2-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/config/nginx.conf` | update | Support hardened WS/SSE proxying | Tune timeouts, upgrade headers, optional `/ws/routes` or `/stream/*` support | P1-S2-01 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/realtime.ts` | create | Realtime client transport | WebSocket client with reconnect, heartbeat, cursor resume, backfill hook | P1-S2-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/hooks/use-orders-stream.ts` | create | Stream-backed order state hook | Initial REST snapshot then delta merge into local store | P1-S2-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/hooks/use-routes-stream.ts` | create | Stream-backed route state hook | Shared merge logic and reconnect semantics | P1-S2-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/stores/order-stream-store.ts` | create | Normalize order delta application | Entity map + version checks + partial patch merge | P1-S2-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/stores/route-stream-store.ts` | create | Normalize route delta application | Parent-child synchronization and dedupe logic | P1-S2-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/App.tsx` | update | Replace high-frequency polling with stream hooks | Keep periodic fallback only when stream disconnected | P1-S2-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/api.ts` | update | Support initial snapshot + cursor backfill APIs | Add helper for bootstrap snapshots and projection version metadata | P1-S2-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/package.json` | update | Add frontend test tooling | Add `vitest`, `@testing-library/react`, `msw` | P1-S2-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/realtime.test.ts` | create | Validate reconnect/backfill behavior | Mock WS transport and verify cursor resume | P1-S2-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_realtime_gateway.py` | create | Validate gateway fanout and cursor replay | Integration tests for delta serialization and replay ordering | P1-S2-04 |
 
 ---
 
@@ -348,15 +348,15 @@ Decompose `main.py` into stable service modules while keeping the current API su
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/emsx_adapter.py` | create | Encapsulate session lifecycle and subscription loops | Move session connect/disconnect, request session, mktdata session, subscription threading | P2-S3-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/emsx_requests.py` | create | Encapsulate request/response commands to EMSX | Move request builders for ModifyOrderEx, ModifyRouteEx, RouteEx, Cancel* | P2-S3-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/emsx_subscriptions.py` | create | Encapsulate INIT_PAINT/live event processing | Normalize message parsing and event-status transitions | P2-S3-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/projection_service.py` | create | Own projection writes and read models | Receive normalized events and persist order/route projection updates | P2-S3-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/market_enrichment.py` | create | Own FX/ADV/VWAP/refdata enrichment | Move market enrichment caches and refresh logic into dedicated service | P2-S3-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/execution_commands.py` | create | Own command orchestration | Validate requests, call EMSX request service, persist audit, publish events | P2-S3-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py` | update | Reduce to app composition and dependency wiring | Remove transport/business logic bodies; register services and inject routers | P2-S3-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_emsx_adapter.py` | create | Validate adapter lifecycle | Mock session startup, service open, subscription sequencing, reconnect behavior | P2-S3-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_execution_commands.py` | create | Validate command orchestration | Mock EMSX request service and verify audit/projection publication | P2-S3-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/emsx_adapter.py` | create | Encapsulate session lifecycle and subscription loops | Move session connect/disconnect, request session, mktdata session, subscription threading | P2-S3-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/emsx_requests.py` | create | Encapsulate request/response commands to EMSX | Move request builders for ModifyOrderEx, ModifyRouteEx, RouteEx, Cancel* | P2-S3-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/emsx_subscriptions.py` | create | Encapsulate INIT_PAINT/live event processing | Normalize message parsing and event-status transitions | P2-S3-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/projection_service.py` | create | Own projection writes and read models | Receive normalized events and persist order/route projection updates | P2-S3-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/market_enrichment.py` | create | Own FX/ADV/VWAP/refdata enrichment | Move market enrichment caches and refresh logic into dedicated service | P2-S3-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/execution_commands.py` | create | Own command orchestration | Validate requests, call EMSX request service, persist audit, publish events | P2-S3-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/main.py` | update | Reduce to app composition and dependency wiring | Remove transport/business logic bodies; register services and inject routers | P2-S3-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_emsx_adapter.py` | create | Validate adapter lifecycle | Mock session startup, service open, subscription sequencing, reconnect behavior | P2-S3-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_execution_commands.py` | create | Validate command orchestration | Mock EMSX request service and verify audit/projection publication | P2-S3-04 |
 | `c:/Users/hrchen/Documents/EMSX/.github/knowledge/architecture-decisions.md` | update | Record extraction decisions | Log service-boundary decisions, consequences, and review dates | P2-S3-04 |
 
 ---
@@ -396,23 +396,23 @@ Separate API routing concerns and unify auth/policy/config handling.
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/orders.py` | create | Order endpoints by domain | Move `/api/orders*` handlers out of app root | P2-S4-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/routes.py` | create | Route endpoints by domain | Move `/api/routes*` handlers into route router | P2-S4-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/auth.py` | create | Auth endpoints | Isolate login/session introspection endpoints | P2-S4-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/config.py` | create | Broker/algo/config endpoints | Expose versioned configuration APIs | P2-S4-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/realtime.py` | create | Realtime endpoints | Own WS/SSE endpoints and transport negotiation | P2-S4-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/auth_service.py` | create | Central auth behavior | Encapsulate token creation, validation, identity normalization, auth mode policy | P2-S4-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/policy_service.py` | create | Desk/trader authorization rules | Validate trader ownership, allowed desks, and admin vs trader actions | P2-S4-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/config_service.py` | create | Versioned server-side config store | Replace file-first workflow with DB-owned broker/strategy metadata versions | P2-S4-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/config_repository.py` | create | Persist configuration versions and approvals | Tables and access patterns for config versions, publish state, and audit | P2-S4-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/auth.py` | update | Delegate to auth/policy services | Keep compatibility shim while moving implementation to service layer | P2-S4-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py` | update | Compose routers and domain services | App startup reduced to dependency container and router registration | P2-S4-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/session.ts` | create | Frontend session abstraction | Session bootstrap, token handling, auth mode awareness, trader context | P2-S4-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/hooks/use-broker-algorithms.ts` | update | Read server-owned config first | Change cache precedence from localStorage-first to backend-version-first | P2-S4-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/strategy-data-service.ts` | update | Demote file-based fallback to bootstrap-only | Keep static files as disaster fallback, not primary store | P2-S4-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/SettingsBoard.tsx` | update | Surface config version/publish status | Add config version indicators, refresh/publish controls, server sync status | P2-S4-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_auth_policy.py` | create | Validate auth and policy matrix | Unit tests for bypass/JWT/admin/trader scenarios and ownership rules | P2-S4-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_config_service.py` | create | Validate versioned config behavior | Version creation, publish, retrieval, and audit tests | P2-S4-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/orders.py` | create | Order endpoints by domain | Move `/api/orders*` handlers out of app root | P2-S4-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/routes.py` | create | Route endpoints by domain | Move `/api/routes*` handlers into route router | P2-S4-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/auth.py` | create | Auth endpoints | Isolate login/session introspection endpoints | P2-S4-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/config.py` | create | Broker/algo/config endpoints | Expose versioned configuration APIs | P2-S4-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/realtime.py` | create | Realtime endpoints | Own WS/SSE endpoints and transport negotiation | P2-S4-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/auth_service.py` | create | Central auth behavior | Encapsulate token creation, validation, identity normalization, auth mode policy | P2-S4-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/policy_service.py` | create | Desk/trader authorization rules | Validate trader ownership, allowed desks, and admin vs trader actions | P2-S4-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/config_service.py` | create | Versioned server-side config store | Replace file-first workflow with DB-owned broker/strategy metadata versions | P2-S4-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/repositories/config_repository.py` | create | Persist configuration versions and approvals | Tables and access patterns for config versions, publish state, and audit | P2-S4-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/auth.py` | update | Delegate to auth/policy services | Keep compatibility shim while moving implementation to service layer | P2-S4-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/main.py` | update | Compose routers and domain services | App startup reduced to dependency container and router registration | P2-S4-01 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/session.ts` | create | Frontend session abstraction | Session bootstrap, token handling, auth mode awareness, trader context | P2-S4-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/hooks/use-broker-algorithms.ts` | update | Read server-owned config first | Change cache precedence from localStorage-first to backend-version-first | P2-S4-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/strategy-data-service.ts` | update | Demote file-based fallback to bootstrap-only | Keep static files as disaster fallback, not primary store | P2-S4-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/SettingsBoard.tsx` | update | Surface config version/publish status | Add config version indicators, refresh/publish controls, server sync status | P2-S4-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_auth_policy.py` | create | Validate auth and policy matrix | Unit tests for bypass/JWT/admin/trader scenarios and ownership rules | P2-S4-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_config_service.py` | create | Validate versioned config behavior | Version creation, publish, retrieval, and audit tests | P2-S4-04 |
 
 ---
 
@@ -452,19 +452,19 @@ Create the execution data model required for algorithmic scheduling and remove r
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/models/parent_child_orders.py` | create | Define parent/child execution entities | Parent execution objective, child schedule, participation state, benchmark metadata | P3-S5-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/repositories/parent_child_repository.py` | create | Persist parent-child execution records | CRUD/query helpers by parent order, child route, schedule state | P3-S5-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/route_service.py` | create | Own route creation/modify business logic | Unify route creation and modification strategy param handling | P3-S5-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/execution_commands.py` | update | Delegate route creation to route service | Keep compatibility with current request contracts while extending payloads | P3-S5-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/routes.py` | update | Expose richer route create payloads | Add validation rules, model versioning, and error shaping | P3-S5-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/migrations/002_parent_child_execution.sql` | create | Create parent-child execution schema | Tables for parent objectives, child slices, schedule checkpoints, benchmark fields | P3-S5-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/types/index.ts` | update | Add parent-child and benchmark types | Parent execution objective, child slice state, benchmark schedule fields | P3-S5-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/order-route-dialog.tsx` | update | Support strategy payloads at route creation time | Use same broker strategy field model as route modify dialogs | P3-S5-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/route-modify-dialogs.tsx` | update | Reuse unified strategy payload model | Normalize request contracts for create/modify parity | P3-S5-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/OrderTable.tsx` | update | Display parent execution metadata | Add benchmark objective, schedule status, child-count indicators | P3-S5-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/RouteTable.tsx` | update | Display child route context | Add parent objective, slice state, benchmark progress, child errors | P3-S5-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_parent_child_execution.py` | create | Validate parent-child persistence and command flows | Test schedule metadata, strategy params, route create/modify symmetry | P3-S5-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/order-route-dialog.test.tsx` | create | Validate strategy-aware route creation UI | Mock strategy loading and verify payload shape | P3-S5-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/models/parent_child_orders.py` | create | Define parent/child execution entities | Parent execution objective, child schedule, participation state, benchmark metadata | P3-S5-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/repositories/parent_child_repository.py` | create | Persist parent-child execution records | CRUD/query helpers by parent order, child route, schedule state | P3-S5-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/route_service.py` | create | Own route creation/modify business logic | Unify route creation and modification strategy param handling | P3-S5-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/execution_commands.py` | update | Delegate route creation to route service | Keep compatibility with current request contracts while extending payloads | P3-S5-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/routes.py` | update | Expose richer route create payloads | Add validation rules, model versioning, and error shaping | P3-S5-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/migrations/002_parent_child_execution.sql` | create | Create parent-child execution schema | Tables for parent objectives, child slices, schedule checkpoints, benchmark fields | P3-S5-01 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/types/index.ts` | update | Add parent-child and benchmark types | Parent execution objective, child slice state, benchmark schedule fields | P3-S5-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/order-route-dialog.tsx` | update | Support strategy payloads at route creation time | Use same broker strategy field model as route modify dialogs | P3-S5-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/route-modify-dialogs.tsx` | update | Reuse unified strategy payload model | Normalize request contracts for create/modify parity | P3-S5-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/OrderTable.tsx` | update | Display parent execution metadata | Add benchmark objective, schedule status, child-count indicators | P3-S5-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/RouteTable.tsx` | update | Display child route context | Add parent objective, slice state, benchmark progress, child errors | P3-S5-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_parent_child_execution.py` | create | Validate parent-child persistence and command flows | Test schedule metadata, strategy params, route create/modify symmetry | P3-S5-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/order-route-dialog.test.tsx` | create | Validate strategy-aware route creation UI | Mock strategy loading and verify payload shape | P3-S5-04 |
 
 ---
 
@@ -502,17 +502,17 @@ Deliver the first algorithmic scheduling engine for TWAP, VWAP, and participatio
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/benchmark_engine.py` | create | Compute TWAP/VWAP/POV schedules | Produce slice schedule from parent objective, market profile, and remaining quantity | P3-S6-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/algo_scheduler.py` | create | Runtime scheduler and state transitions | Tick-based or event-triggered orchestration, pause/resume, drift checks, child submission | P3-S6-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/projection_service.py` | update | Persist schedule progress and drift state | Store benchmark progress, participation error, schedule status in parent/child projections | P3-S6-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/orders.py` | update | Add parent execution launch/control endpoints | Endpoints for create/start/pause/resume/cancel algorithmic parents | P3-S6-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/algo-launch-dialog.tsx` | create | UI for benchmark execution launch | Form for strategy type, urgency, schedule horizon, participation cap, fallback rules | P3-S6-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/ExecutionBoard.tsx` | update | Add algo launch/monitoring surface | Launch control, schedule status panel, benchmark progress summary | P3-S6-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/RouteTable.tsx` | update | Show slice progress and drift | Add per-child schedule timing and fill progression columns | P3-S6-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/types/index.ts` | update | Add benchmark control request/response types | Parent launch, pause/resume, drift metrics, schedule status types | P3-S6-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_benchmark_engine.py` | create | Validate schedule generation | Golden tests for TWAP/VWAP/POV schedules and drift thresholds | P3-S6-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_algo_scheduler.py` | create | Validate runtime scheduling orchestration | Pause/resume/cancel, child submission sequencing, schedule completion tests | P3-S6-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/algo-launch-dialog.test.tsx` | create | Validate benchmark launch UI | Form validation and request-shape tests | P3-S6-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/benchmark_engine.py` | create | Compute TWAP/VWAP/POV schedules | Produce slice schedule from parent objective, market profile, and remaining quantity | P3-S6-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/algo_scheduler.py` | create | Runtime scheduler and state transitions | Tick-based or event-triggered orchestration, pause/resume, drift checks, child submission | P3-S6-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/projection_service.py` | update | Persist schedule progress and drift state | Store benchmark progress, participation error, schedule status in parent/child projections | P3-S6-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/orders.py` | update | Add parent execution launch/control endpoints | Endpoints for create/start/pause/resume/cancel algorithmic parents | P3-S6-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/algo-launch-dialog.tsx` | create | UI for benchmark execution launch | Form for strategy type, urgency, schedule horizon, participation cap, fallback rules | P3-S6-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/ExecutionBoard.tsx` | update | Add algo launch/monitoring surface | Launch control, schedule status panel, benchmark progress summary | P3-S6-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/RouteTable.tsx` | update | Show slice progress and drift | Add per-child schedule timing and fill progression columns | P3-S6-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/types/index.ts` | update | Add benchmark control request/response types | Parent launch, pause/resume, drift metrics, schedule status types | P3-S6-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_benchmark_engine.py` | create | Validate schedule generation | Golden tests for TWAP/VWAP/POV schedules and drift thresholds | P3-S6-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_algo_scheduler.py` | create | Validate runtime scheduling orchestration | Pause/resume/cancel, child submission sequencing, schedule completion tests | P3-S6-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/algo-launch-dialog.test.tsx` | create | Validate benchmark launch UI | Form validation and request-shape tests | P3-S6-04 |
 
 ---
 
@@ -557,9 +557,9 @@ Link execution data to fills and establish the initial benchmark/TCA pipeline.
 | `c:/Users/hrchen/Documents/EMSX/CostView/src/fill_linker.py` | create | Link fills to execution entities | Resolve fills to orders/routes/parents using UUIDs, sequence, route IDs, timestamps | P4-S7-01 |
 | `c:/Users/hrchen/Documents/EMSX/CostView/src/pipeline.py` | update | Add linked execution analytics stage | Insert fill linking and benchmark/slippage stages into pipeline | P4-S7-03 |
 | `c:/Users/hrchen/Documents/EMSX/CostView/src/raw_fills_db.py` | update | Store linkage metadata | Add columns/indexes for route and parent execution IDs | P4-S7-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/analytics_export.py` | create | Publish execution snapshots to CostView | Export parent-child schedule, route, benchmark, and audit context | P4-S7-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/fill_linking_service.py` | create | Provide canonical linkage lookup API | Query helper for route/order/benchmark identity resolution | P4-S7-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/config.py` | update | Expose benchmark metadata where needed | Provide config/metadata required by CostView calculations | P4-S7-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/analytics_export.py` | create | Publish execution snapshots to CostView | Export parent-child schedule, route, benchmark, and audit context | P4-S7-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/fill_linking_service.py` | create | Provide canonical linkage lookup API | Query helper for route/order/benchmark identity resolution | P4-S7-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/config.py` | update | Expose benchmark metadata where needed | Provide config/metadata required by CostView calculations | P4-S7-03 |
 | `c:/Users/hrchen/Documents/EMSX/CostView/tests/test_fill_linker.py` | create | Validate fill-to-route linking | Fixture-based tests for exact, fuzzy, and missing-link scenarios | P4-S7-04 |
 | `c:/Users/hrchen/Documents/EMSX/CostView/tests/test_benchmark_engine.py` | create | Validate benchmark calculations | Deterministic benchmark outputs for sample fills and intraday profiles | P4-S7-04 |
 
@@ -601,14 +601,14 @@ Turn TCA outputs into broker, strategy, and trader feedback for the execution pl
 |---|---|---|---|---|
 | `c:/Users/hrchen/Documents/EMSX/CostView/src/broker_scorecards.py` | create | Aggregate broker and strategy performance | Daily and rolling-window scorecards with liquidity bucket and market regime slices | P4-S8-01 |
 | `c:/Users/hrchen/Documents/EMSX/CostView/src/execution_feedback.py` | create | Publish ranked execution feedback | Emit recommendation-ready metrics to backend config/analytics endpoints | P4-S8-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/config_service.py` | update | Ingest performance feedback into control plane | Store scorecard versions and expose latest approved ranking inputs | P4-S8-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/analytics_export.py` | update | Add scorecard retrieval endpoints or feeds | Provide broker/strategy/trader performance summaries to frontend | P4-S8-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/SettingsBoard.tsx` | update | Show scorecards and config impact | Add broker scorecard panels, effective default strategy hints, refresh status | P4-S8-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/MonitorBoard.tsx` | update | Add execution quality views | Add slippage/watchlist panels and poor-performing strategy highlights | P4-S8-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/api.ts` | update | Add scorecard endpoints | Fetch broker/strategy/trader scorecards and feedback metadata | P4-S8-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/types/index.ts` | update | Add scorecard data contracts | Broker scorecard, strategy scorecard, and feedback ranking types | P4-S8-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/config_service.py` | update | Ingest performance feedback into control plane | Store scorecard versions and expose latest approved ranking inputs | P4-S8-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/analytics_export.py` | update | Add scorecard retrieval endpoints or feeds | Provide broker/strategy/trader performance summaries to frontend | P4-S8-02 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/SettingsBoard.tsx` | update | Show scorecards and config impact | Add broker scorecard panels, effective default strategy hints, refresh status | P4-S8-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/MonitorBoard.tsx` | update | Add execution quality views | Add slippage/watchlist panels and poor-performing strategy highlights | P4-S8-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/api.ts` | update | Add scorecard endpoints | Fetch broker/strategy/trader scorecards and feedback metadata | P4-S8-03 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/types/index.ts` | update | Add scorecard data contracts | Broker scorecard, strategy scorecard, and feedback ranking types | P4-S8-03 |
 | `c:/Users/hrchen/Documents/EMSX/CostView/tests/test_broker_scorecards.py` | create | Validate scorecard aggregation | Test grouping, rolling windows, and outlier handling | P4-S8-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_feedback_integration.py` | create | Validate CostView-to-ExecutionView feedback path | Ensure feedback versions are retrievable and mapped into config/control plane | P4-S8-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_feedback_integration.py` | create | Validate CostView-to-ExecutionView feedback path | Ensure feedback versions are retrievable and mapped into config/control plane | P4-S8-04 |
 
 ---
 
@@ -648,19 +648,19 @@ Add event-driven surveillance, replay, and recommendation scaffolding on top of 
 
 | File Path | Type | Purpose | Technical Implementation Details | Depends On |
 |---|---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/cep_engine.py` | create | Detect complex execution events | Rules for stale orders, abnormal drift, broker degradation, missed participation windows | P5-S9-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/risk_rules.py` | create | Encapsulate execution surveillance rules | Declarative rule registry with thresholds and severity mapping | P5-S9-01 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/replay_service.py` | create | Replay event history | Rebuild projections from event/audit history with time control and scenario selection | P5-S9-02 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/services/broker_recommendation.py` | create | Rank brokers/strategies for future executions | Combine scorecards, liquidity regime, benchmark objective, and policy constraints | P5-S9-03 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/routers/realtime.py` | update | Expose CEP/replay channels | Add alert stream and replay stream/session controls | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/sections/MonitorBoard.tsx` | update | Display CEP alerts and event clusters | Add alert severity, suppression, acknowledgment, and drill-down views | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/replay-console.tsx` | create | UI for historical replay | Replay selection, speed control, point-in-time navigation, event inspection | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/recommendation-panel.tsx` | create | Show broker/strategy recommendations | Explainable ranking panel with metric provenance | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/algo-launch-dialog.tsx` | update | Consume recommendation output | Pre-populate launch defaults and explain recommended broker/strategy | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/services/realtime.ts` | update | Support alert and replay channels | Multi-channel subscription support, replay session control events | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_cep_engine.py` | create | Validate event-pattern inference | Rule evaluation tests across order/route/fill/adverse-drift scenarios | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_replay_service.py` | create | Validate deterministic replay | Replay from event history and compare output projection states | P5-S9-04 |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/components/recommendation-panel.test.tsx` | create | Validate explainable recommendation display | Verify ranking rationale and fallback states | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/cep_engine.py` | create | Detect complex execution events | Rules for stale orders, abnormal drift, broker degradation, missed participation windows | P5-S9-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/risk_rules.py` | create | Encapsulate execution surveillance rules | Declarative rule registry with thresholds and severity mapping | P5-S9-01 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/replay_service.py` | create | Replay event history | Rebuild projections from event/audit history with time control and scenario selection | P5-S9-02 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/services/broker_recommendation.py` | create | Rank brokers/strategies for future executions | Combine scorecards, liquidity regime, benchmark objective, and policy constraints | P5-S9-03 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/routers/realtime.py` | update | Expose CEP/replay channels | Add alert stream and replay stream/session controls | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/sections/MonitorBoard.tsx` | update | Display CEP alerts and event clusters | Add alert severity, suppression, acknowledgment, and drill-down views | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/replay-console.tsx` | create | UI for historical replay | Replay selection, speed control, point-in-time navigation, event inspection | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/recommendation-panel.tsx` | create | Show broker/strategy recommendations | Explainable ranking panel with metric provenance | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/algo-launch-dialog.tsx` | update | Consume recommendation output | Pre-populate launch defaults and explain recommended broker/strategy | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/services/realtime.ts` | update | Support alert and replay channels | Multi-channel subscription support, replay session control events | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_cep_engine.py` | create | Validate event-pattern inference | Rule evaluation tests across order/route/fill/adverse-drift scenarios | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_replay_service.py` | create | Validate deterministic replay | Replay from event history and compare output projection states | P5-S9-04 |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/components/recommendation-panel.test.tsx` | create | Validate explainable recommendation display | Verify ranking rationale and fallback states | P5-S9-04 |
 
 ---
 
@@ -672,19 +672,19 @@ Add event-driven surveillance, replay, and recommendation scaffolding on top of 
 
 | File Path | Type | Purpose | Technical Implementation Details |
 |---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/pytest.ini` | create | Central pytest config | Markers for unit/integration/replay/perf tests |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/conftest.py` | create | Shared backend fixtures | DB fixture, mocked Bloomberg sessions, event fixtures |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_api_smoke.py` | create | API smoke coverage | Minimal end-to-end tests for health, orders, routes, auth, realtime |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/tests/test_perf_thresholds.py` | create | Performance regression guard | Validate query latency and scheduling performance budgets |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/pytest.ini` | create | Central pytest config | Markers for unit/integration/replay/perf tests |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/conftest.py` | create | Shared backend fixtures | DB fixture, mocked Bloomberg sessions, event fixtures |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_api_smoke.py` | create | API smoke coverage | Minimal end-to-end tests for health, orders, routes, auth, realtime |
+| `c:/Users/hrchen/Documents/EMSX/backend/api/tests/test_perf_thresholds.py` | create | Performance regression guard | Validate query latency and scheduling performance budgets |
 
 ## 10.2 Frontend QA stack
 
 | File Path | Type | Purpose | Technical Implementation Details |
 |---|---|---|---|
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/vitest.config.ts` | create | Frontend test config | React/Vite test runner with jsdom and alias support |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/test/setup.ts` | create | Shared frontend test setup | Mock browser APIs, WS, notifications, localStorage |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/test/msw/server.ts` | create | API mocking infrastructure | Mock REST bootstrap and delta bootstrap flows |
-| `c:/Users/hrchen/Documents/EMSX/ExecutionView/frontend/src/test/render-app.tsx` | create | Shared render helper | Providers, caches, and session stubs |
+| `c:/Users/hrchen/Documents/EMSX/frontend/vitest.config.ts` | create | Frontend test config | React/Vite test runner with jsdom and alias support |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/test/setup.ts` | create | Shared frontend test setup | Mock browser APIs, WS, notifications, localStorage |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/test/msw/server.ts` | create | API mocking infrastructure | Mock REST bootstrap and delta bootstrap flows |
+| `c:/Users/hrchen/Documents/EMSX/frontend/src/test/render-app.tsx` | create | Shared render helper | Providers, caches, and session stubs |
 
 ## 10.3 Workflow QA gates
 
@@ -713,11 +713,11 @@ Add event-driven surveillance, replay, and recommendation scaffolding on top of 
 
 ## 11.2 Critical file relationships
 
-- `ExecutionView/backend/api/main.py` -> progressively reduced into composition root
-- `ExecutionView/backend/api/Dockerfile` must change early because new backend modules will not be copied otherwise
-- `ExecutionView/frontend/src/App.tsx` should only be simplified after `services/realtime.ts` and stream hooks exist
-- `ExecutionView/frontend/src/types/index.ts` must be updated in every phase that changes backend models
-- `CostView/src/pipeline.py` depends on stable execution export contracts from `ExecutionView/backend/api/services/analytics_export.py`
+- `backend/api/main.py` -> progressively reduced into composition root
+- `backend/api/Dockerfile` must change early because new backend modules will not be copied otherwise
+- `frontend/src/App.tsx` should only be simplified after `services/realtime.ts` and stream hooks exist
+- `frontend/src/types/index.ts` must be updated in every phase that changes backend models
+- `CostView/src/pipeline.py` depends on stable execution export contracts from `backend/api/services/analytics_export.py`
 - `plans/execution-platform-status.yaml` must be updated in every sprint as the source of truth for progress automation
 
 ---
@@ -801,8 +801,8 @@ Track these in `c:/Users/hrchen/Documents/EMSX/.workbuddy/knowledge/metrics.md`:
 
 # 16. Notes for maintainers
 
-- The highest structural-risk file remains `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/main.py`.
-- The earliest packaging-risk file is `c:/Users/hrchen/Documents/EMSX/ExecutionView/backend/api/Dockerfile`, because it currently copies only `main.py` and `auth.py`.
+- The highest structural-risk file remains `c:/Users/hrchen/Documents/EMSX/backend/api/main.py`.
+- The earliest packaging-risk file is `c:/Users/hrchen/Documents/EMSX/backend/api/Dockerfile`, because it currently copies only `main.py` and `auth.py`.
 - The highest continuity-risk area is fragmented state across backend memory, JSON files, and frontend `localStorage`; Sprint 1 and Sprint 4 address that directly.
 - The recommendation layer must not be promoted to production decisioning until Phase 4 scorecards are stable and validated.
 

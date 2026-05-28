@@ -1,0 +1,1447 @@
+{
+  "source": "Bloomberg EMSX GetAllFieldMetaData",
+  "timestamp": "2026-05-27T18:04:05.032576",
+  "total_fields": 160,
+  "fields": [
+    {
+      "index": 0,
+      "field_name": "MSG_TYPE",
+      "display_name": "Msg Type",
+      "type": "String",
+      "level": 0,
+      "max_length": 1,
+      "level_name": "Unknown(0)"
+    },
+    {
+      "index": 1,
+      "field_name": "MSG_SUB_TYPE",
+      "display_name": "Msg Sub Type",
+      "type": "String",
+      "level": 0,
+      "max_length": 1,
+      "level_name": "Unknown(0)"
+    },
+    {
+      "index": 2,
+      "field_name": "EVENT_STATUS",
+      "display_name": "Msg Status",
+      "type": "Int32",
+      "level": 0,
+      "max_length": 10,
+      "level_name": "Unknown(0)"
+    },
+    {
+      "index": 3,
+      "field_name": "API_SEQ_NUM",
+      "display_name": "Api Sequence",
+      "type": "Int64",
+      "level": 0,
+      "max_length": 20,
+      "level_name": "Unknown(0)"
+    },
+    {
+      "index": 4,
+      "field_name": "EMSX_SEQUENCE",
+      "display_name": "Sequence #",
+      "type": "Int32",
+      "level": 27,
+      "max_length": 10,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 5,
+      "field_name": "EMSX_ROUTE_ID",
+      "display_name": "Tran No",
+      "type": "Int32",
+      "level": 11,
+      "max_length": 10,
+      "level_name": "Unknown(11)"
+    },
+    {
+      "index": 6,
+      "field_name": "EMSX_FILL_ID",
+      "display_name": "Fill Id",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 10,
+      "level_name": "Route"
+    },
+    {
+      "index": 7,
+      "field_name": "EMSX_SIDE",
+      "display_name": "B/S",
+      "type": "String",
+      "level": 17,
+      "max_length": 4,
+      "level_name": "Unknown(17)"
+    },
+    {
+      "index": 8,
+      "field_name": "EMSX_AMOUNT",
+      "display_name": "Amount",
+      "type": "Int32",
+      "level": 27,
+      "max_length": 15,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 9,
+      "field_name": "EMSX_FILLED",
+      "display_name": "FILLED",
+      "type": "Int32",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 10,
+      "field_name": "EMSX_AVG_PRICE",
+      "display_name": "AvgPrc",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 11,
+      "field_name": "EMSX_BROKER",
+      "display_name": "Broker",
+      "type": "String",
+      "level": 27,
+      "max_length": 10,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 12,
+      "field_name": "EMSX_WORKING",
+      "display_name": "WORKING",
+      "type": "Int32",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 13,
+      "field_name": "EMSX_TICKER",
+      "display_name": "Security",
+      "type": "String",
+      "level": 17,
+      "max_length": 16,
+      "level_name": "Unknown(17)"
+    },
+    {
+      "index": 14,
+      "field_name": "EMSX_EXCHANGE",
+      "display_name": "Ex",
+      "type": "String",
+      "level": 1,
+      "max_length": 3,
+      "level_name": "Order"
+    },
+    {
+      "index": 15,
+      "field_name": "EMSX_ROUTE_CREATE_TIME",
+      "display_name": "TimeAdded",
+      "type": "Time",
+      "level": 2,
+      "max_length": 6,
+      "level_name": "Route"
+    },
+    {
+      "index": 16,
+      "field_name": "EMSX_TIF",
+      "display_name": "TIF",
+      "type": "String",
+      "level": 27,
+      "max_length": 4,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 17,
+      "field_name": "EMSX_ROUTE_LAST_UPDATE_TIME",
+      "display_name": "Route Last Update Time",
+      "type": "Time",
+      "level": 2,
+      "max_length": 6,
+      "level_name": "Route"
+    },
+    {
+      "index": 18,
+      "field_name": "EMSX_TIME_STAMP",
+      "display_name": "Create Time",
+      "type": "Time",
+      "level": 3,
+      "max_length": 6,
+      "level_name": "Basket"
+    },
+    {
+      "index": 19,
+      "field_name": "EMSX_STRATEGY_TYPE",
+      "display_name": "Strat Type",
+      "type": "String",
+      "level": 3,
+      "max_length": 8,
+      "level_name": "Basket"
+    },
+    {
+      "index": 20,
+      "field_name": "EMSX_STATUS",
+      "display_name": "Status",
+      "type": "String",
+      "level": 3,
+      "max_length": 9,
+      "level_name": "Basket"
+    },
+    {
+      "index": 21,
+      "field_name": "EMSX_IDLE_AMOUNT",
+      "display_name": "Idle Qty",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 15,
+      "level_name": "Order"
+    },
+    {
+      "index": 22,
+      "field_name": "EMSX_STRATEGY_STYLE",
+      "display_name": "Style",
+      "type": "String",
+      "level": 3,
+      "max_length": 11,
+      "level_name": "Basket"
+    },
+    {
+      "index": 23,
+      "field_name": "EMSX_ROUTE_PRICE",
+      "display_name": "Route Price",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 24,
+      "field_name": "EMSX_LIMIT_PRICE",
+      "display_name": "LmtPrc",
+      "type": "Double",
+      "level": 27,
+      "max_length": 15,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 25,
+      "field_name": "EMSX_REMAIN_BALANCE",
+      "display_name": "Rembal",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 26,
+      "field_name": "EMSX_TRADER",
+      "display_name": "Trader",
+      "type": "String",
+      "level": 1,
+      "max_length": 12,
+      "level_name": "Order"
+    },
+    {
+      "index": 27,
+      "field_name": "EMSX_DAY_FILL",
+      "display_name": "DayFill",
+      "type": "Int32",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 28,
+      "field_name": "EMSX_DAY_AVG_PRICE",
+      "display_name": "Day Avg Px",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 29,
+      "field_name": "EMSX_DATE",
+      "display_name": "Order Create Date",
+      "type": "Date",
+      "level": 1,
+      "max_length": 8,
+      "level_name": "Order"
+    },
+    {
+      "index": 30,
+      "field_name": "EMSX_NOTES",
+      "display_name": "Instructions",
+      "type": "String",
+      "level": 27,
+      "max_length": 44,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 31,
+      "field_name": "EMSX_ACCOUNT",
+      "display_name": "Account",
+      "type": "String",
+      "level": 27,
+      "max_length": 12,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 32,
+      "field_name": "EMSX_TYPE",
+      "display_name": "Type",
+      "type": "String",
+      "level": 3,
+      "max_length": 4,
+      "level_name": "Basket"
+    },
+    {
+      "index": 33,
+      "field_name": "EMSX_PRINCIPAL",
+      "display_name": "Principal",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 34,
+      "field_name": "EMSX_SETTLE_AMOUNT",
+      "display_name": "Net Filled Value",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 35,
+      "field_name": "EMSX_SEC_NAME",
+      "display_name": "Security Name",
+      "type": "String",
+      "level": 0,
+      "max_length": 30,
+      "level_name": "Unknown(0)"
+    },
+    {
+      "index": 36,
+      "field_name": "EMSX_PORT_MGR",
+      "display_name": "PortMgr",
+      "type": "String",
+      "level": 1,
+      "max_length": 12,
+      "level_name": "Order"
+    },
+    {
+      "index": 37,
+      "field_name": "EMSX_GTD_DATE",
+      "display_name": "GTD Date",
+      "type": "Date",
+      "level": 27,
+      "max_length": 8,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 38,
+      "field_name": "EMSX_PORT_NAME",
+      "display_name": "PortName",
+      "type": "String",
+      "level": 1,
+      "max_length": 8,
+      "level_name": "Order"
+    },
+    {
+      "index": 39,
+      "field_name": "EMSX_STRATEGY_END_TIME",
+      "display_name": "Strat End Tm",
+      "type": "Time",
+      "level": 3,
+      "max_length": 6,
+      "level_name": "Basket"
+    },
+    {
+      "index": 40,
+      "field_name": "EMSX_ML_PERCENT_FILLED",
+      "display_name": "ML Percent Filled",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 41,
+      "field_name": "EMSX_ML_STRATEGY",
+      "display_name": "ML Strategy Name",
+      "type": "String",
+      "level": 2,
+      "max_length": 29,
+      "level_name": "Route"
+    },
+    {
+      "index": 42,
+      "field_name": "EMSX_ML_LEG_QUANTITY",
+      "display_name": "ML Leg Qty",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 43,
+      "field_name": "EMSX_ML_TOTAL_QUANTITY",
+      "display_name": "ML Qty",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 44,
+      "field_name": "EMSX_ML_REMAIN_BALANCE",
+      "display_name": "ML RemBal",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 45,
+      "field_name": "EMSX_STRATEGY_START_TIME",
+      "display_name": "Strat Start Tm",
+      "type": "Time",
+      "level": 3,
+      "max_length": 6,
+      "level_name": "Basket"
+    },
+    {
+      "index": 46,
+      "field_name": "EMSX_BASKET_NAME",
+      "display_name": "Basket Name",
+      "type": "String",
+      "level": 1,
+      "max_length": 20,
+      "level_name": "Order"
+    },
+    {
+      "index": 47,
+      "field_name": "EMSX_PERCENT_REMAIN",
+      "display_name": "%Remain",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 48,
+      "field_name": "EMSX_ROUTE_CREATE_DATE",
+      "display_name": "DateAdded",
+      "type": "Date",
+      "level": 2,
+      "max_length": 8,
+      "level_name": "Route"
+    },
+    {
+      "index": 49,
+      "field_name": "EMSX_P_A",
+      "display_name": "P/A",
+      "type": "String",
+      "level": 26,
+      "max_length": 1,
+      "level_name": "Unknown(26)"
+    },
+    {
+      "index": 50,
+      "field_name": "EMSX_CLEARING_ACCOUNT",
+      "display_name": "Clearing Account",
+      "type": "String",
+      "level": 10,
+      "max_length": 30,
+      "level_name": "Unknown(10)"
+    },
+    {
+      "index": 51,
+      "field_name": "EMSX_CLEARING_FIRM",
+      "display_name": "Clearing Firm",
+      "type": "String",
+      "level": 10,
+      "max_length": 30,
+      "level_name": "Unknown(10)"
+    },
+    {
+      "index": 52,
+      "field_name": "EMSX_STOP_PRICE",
+      "display_name": "Stop Price",
+      "type": "Double",
+      "level": 27,
+      "max_length": 15,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 53,
+      "field_name": "EMSX_SETTLE_DATE",
+      "display_name": "Settle Date",
+      "type": "Date",
+      "level": 27,
+      "max_length": 8,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 54,
+      "field_name": "EMSX_ISIN",
+      "display_name": "ISIN",
+      "type": "String",
+      "level": 1,
+      "max_length": 12,
+      "level_name": "Order"
+    },
+    {
+      "index": 55,
+      "field_name": "EMSX_BROKER_COMM",
+      "display_name": "Commission",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 56,
+      "field_name": "EMSX_WORK_PRICE",
+      "display_name": "WorkPx",
+      "type": "Double",
+      "level": 1,
+      "max_length": 15,
+      "level_name": "Order"
+    },
+    {
+      "index": 57,
+      "field_name": "EMSX_SEDOL",
+      "display_name": "Sedol",
+      "type": "String",
+      "level": 1,
+      "max_length": 8,
+      "level_name": "Order"
+    },
+    {
+      "index": 58,
+      "field_name": "EMSX_HAND_INSTRUCTION",
+      "display_name": "Handling Inx",
+      "type": "String",
+      "level": 19,
+      "max_length": 6,
+      "level_name": "Unknown(19)"
+    },
+    {
+      "index": 59,
+      "field_name": "EMSX_TS_ORDNUM",
+      "display_name": "Order#",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 10,
+      "level_name": "Order"
+    },
+    {
+      "index": 60,
+      "field_name": "EMSX_COMM_RATE",
+      "display_name": "Comm Rate",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 61,
+      "field_name": "EMSX_EXEC_INSTRUCTION",
+      "display_name": "Exec Instr",
+      "type": "String",
+      "level": 27,
+      "max_length": 8,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 62,
+      "field_name": "EMSX_ORD_REF_ID",
+      "display_name": "OrderRefID",
+      "type": "String",
+      "level": 25,
+      "max_length": 15,
+      "level_name": "Unknown(25)"
+    },
+    {
+      "index": 63,
+      "field_name": "EMSX_STRATEGY_PART_RATE2",
+      "display_name": "Part Rate 2",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 64,
+      "field_name": "EMSX_USER_COMM_RATE",
+      "display_name": "User's Comm Rate",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 65,
+      "field_name": "EMSX_USER_COMM_AMOUNT",
+      "display_name": "User's Comm Amount",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 66,
+      "field_name": "EMSX_ORDER_TYPE",
+      "display_name": "Order Type",
+      "type": "String",
+      "level": 27,
+      "max_length": 4,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 67,
+      "field_name": "EMSX_REASON_CODE",
+      "display_name": "Reason Code",
+      "type": "String",
+      "level": 3,
+      "max_length": 2,
+      "level_name": "Basket"
+    },
+    {
+      "index": 68,
+      "field_name": "EMSX_REASON_DESC",
+      "display_name": "ReasonDesc",
+      "type": "String",
+      "level": 3,
+      "max_length": 20,
+      "level_name": "Basket"
+    },
+    {
+      "index": 69,
+      "field_name": "EMSX_STRATEGY_PART_RATE1",
+      "display_name": "Part Rate 1",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 70,
+      "field_name": "EMSX_BSE_FILLED",
+      "display_name": "Bse Filled",
+      "type": "Int32",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 71,
+      "field_name": "EMSX_QUEUED_TIME",
+      "display_name": "Queued Time",
+      "type": "Time",
+      "level": 3,
+      "max_length": 6,
+      "level_name": "Basket"
+    },
+    {
+      "index": 72,
+      "field_name": "EMSX_NSE_FILLED",
+      "display_name": "NSE Filled",
+      "type": "Int32",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 73,
+      "field_name": "EMSX_BASKET_NUM",
+      "display_name": "Basket",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 10,
+      "level_name": "Order"
+    },
+    {
+      "index": 74,
+      "field_name": "EMSX_LAST_FILL_TIME",
+      "display_name": "Last Fill Time",
+      "type": "Time",
+      "level": 2,
+      "max_length": 6,
+      "level_name": "Route"
+    },
+    {
+      "index": 75,
+      "field_name": "EMSX_NSE_AVG_PRICE",
+      "display_name": "NSE AvgPx",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 76,
+      "field_name": "EMSX_CFD_FLAG",
+      "display_name": "CFD",
+      "type": "Bool",
+      "level": 25,
+      "max_length": 1,
+      "level_name": "Unknown(25)"
+    },
+    {
+      "index": 77,
+      "field_name": "EMSX_BSE_AVG_PRICE",
+      "display_name": "BSE AvgPx",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 78,
+      "field_name": "EMSX_USER_NET_MONEY",
+      "display_name": "User's Net Money",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 79,
+      "field_name": "EMSX_ASSIGNED_TRADER",
+      "display_name": "AssignedTraderName",
+      "type": "String",
+      "level": 1,
+      "max_length": 15,
+      "level_name": "Order"
+    },
+    {
+      "index": 80,
+      "field_name": "EMSX_ORIGINATE_TRADER",
+      "display_name": "Originating Trader Name",
+      "type": "String",
+      "level": 1,
+      "max_length": 40,
+      "level_name": "Order"
+    },
+    {
+      "index": 81,
+      "field_name": "EMSX_USER_FEES",
+      "display_name": "User's Fees",
+      "type": "Double",
+      "level": 3,
+      "max_length": 15,
+      "level_name": "Basket"
+    },
+    {
+      "index": 82,
+      "field_name": "EMSX_INVESTOR_ID",
+      "display_name": "InvestorID",
+      "type": "String",
+      "level": 1,
+      "max_length": 13,
+      "level_name": "Order"
+    },
+    {
+      "index": 83,
+      "field_name": "EMSX_POSITION",
+      "display_name": "Position",
+      "type": "String",
+      "level": 1,
+      "max_length": 5,
+      "level_name": "Order"
+    },
+    {
+      "index": 84,
+      "field_name": "EMSX_PORT_NUM",
+      "display_name": "PortNum",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 10,
+      "level_name": "Order"
+    },
+    {
+      "index": 85,
+      "field_name": "EMSX_ASSET_CLASS",
+      "display_name": "Asset Class",
+      "type": "String",
+      "level": 1,
+      "max_length": 6,
+      "level_name": "Order"
+    },
+    {
+      "index": 86,
+      "field_name": "EMSX_ORIGINATE_TRADER_FIRM",
+      "display_name": "Originating Trader Firm",
+      "type": "String",
+      "level": 1,
+      "max_length": 30,
+      "level_name": "Order"
+    },
+    {
+      "index": 87,
+      "field_name": "EMSX_YELLOW_KEY",
+      "display_name": "Yellow Key",
+      "type": "String",
+      "level": 1,
+      "max_length": 7,
+      "level_name": "Order"
+    },
+    {
+      "index": 88,
+      "field_name": "EMSX_QUEUED_DATE",
+      "display_name": "Queued Date",
+      "type": "Date",
+      "level": 3,
+      "max_length": 8,
+      "level_name": "Basket"
+    },
+    {
+      "index": 89,
+      "field_name": "EMSX_TRADE_DESK",
+      "display_name": "Equity Trade Desk",
+      "type": "String",
+      "level": 1,
+      "max_length": 9,
+      "level_name": "Order"
+    },
+    {
+      "index": 90,
+      "field_name": "EMSX_EXECUTE_BROKER",
+      "display_name": "Executing Broker",
+      "type": "String",
+      "level": 2,
+      "max_length": 10,
+      "level_name": "Route"
+    },
+    {
+      "index": 91,
+      "field_name": "EMSX_COMM_DIFF_FLAG",
+      "display_name": "Commission Difference",
+      "type": "Bool",
+      "level": 3,
+      "max_length": 1,
+      "level_name": "Basket"
+    },
+    {
+      "index": 92,
+      "field_name": "EMSX_EXCHANGE_DESTINATION",
+      "display_name": "Exchange Destination",
+      "type": "String",
+      "level": 27,
+      "max_length": 8,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 93,
+      "field_name": "EMSX_CURRENCY_PAIR",
+      "display_name": "Currency Pair",
+      "type": "String",
+      "level": 3,
+      "max_length": 6,
+      "level_name": "Basket"
+    },
+    {
+      "index": 94,
+      "field_name": "EMSX_MISC_FEES",
+      "display_name": "MiscFees",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 95,
+      "field_name": "EMSX_STEP_OUT_BROKER",
+      "display_name": "StepoutBroker",
+      "type": "String",
+      "level": 1,
+      "max_length": 10,
+      "level_name": "Order"
+    },
+    {
+      "index": 96,
+      "field_name": "EMSX_URGENCY_LEVEL",
+      "display_name": "Urgency",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 10,
+      "level_name": "Route"
+    },
+    {
+      "index": 97,
+      "field_name": "EMSX_ML_RATIO",
+      "display_name": "ML Ratio",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 98,
+      "field_name": "EMSX_DIR_BROKER_FLAG",
+      "display_name": "DirBrkrFlag",
+      "type": "Bool",
+      "level": 1,
+      "max_length": 1,
+      "level_name": "Order"
+    },
+    {
+      "index": 99,
+      "field_name": "EMSX_START_AMOUNT",
+      "display_name": "Original Order Amount",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 15,
+      "level_name": "Order"
+    },
+    {
+      "index": 100,
+      "field_name": "EMSX_ARRIVAL_PRICE",
+      "display_name": "Arrival Px",
+      "type": "Double",
+      "level": 1,
+      "max_length": 15,
+      "level_name": "Order"
+    },
+    {
+      "index": 101,
+      "field_name": "EMSX_PRODUCT",
+      "display_name": "Product",
+      "type": "String",
+      "level": 1,
+      "max_length": 12,
+      "level_name": "Order"
+    },
+    {
+      "index": 102,
+      "field_name": "EMSX_IS_MANUAL_ROUTE",
+      "display_name": "BLS Manual",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 10,
+      "level_name": "Route"
+    },
+    {
+      "index": 103,
+      "field_name": "EMSX_UNDERLYING_TICKER",
+      "display_name": "UnderlyingTicker",
+      "type": "String",
+      "level": 0,
+      "max_length": 128,
+      "level_name": "Unknown(0)"
+    },
+    {
+      "index": 104,
+      "field_name": "EMSX_ML_NUM_LEGS",
+      "display_name": "MLegTotalLegs",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 10,
+      "level_name": "Route"
+    },
+    {
+      "index": 105,
+      "field_name": "EMSX_TRADER_NOTES",
+      "display_name": "TraderNotes",
+      "type": "String",
+      "level": 9,
+      "max_length": 44,
+      "level_name": "Unknown(9)"
+    },
+    {
+      "index": 106,
+      "field_name": "EMSX_CUSTOM_ACCOUNT",
+      "display_name": "Route Account",
+      "type": "String",
+      "level": 2,
+      "max_length": 12,
+      "level_name": "Route"
+    },
+    {
+      "index": 107,
+      "field_name": "EMSX_LAST_SHARES",
+      "display_name": "Last Shares",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 108,
+      "field_name": "EMSX_LAST_PRICE",
+      "display_name": "Last Price",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 109,
+      "field_name": "EMSX_LAST_MARKET",
+      "display_name": "LastMarket",
+      "type": "String",
+      "level": 2,
+      "max_length": 4,
+      "level_name": "Route"
+    },
+    {
+      "index": 110,
+      "field_name": "EMSX_TRAD_UUID",
+      "display_name": "Tr Uuid",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 10,
+      "level_name": "Order"
+    },
+    {
+      "index": 111,
+      "field_name": "EMSX_PM_UUID",
+      "display_name": "PmUuid",
+      "type": "Int32",
+      "level": 1,
+      "max_length": 10,
+      "level_name": "Order"
+    },
+    {
+      "index": 112,
+      "field_name": "EMSX_LOCATE_REQ",
+      "display_name": "Locate Req",
+      "type": "String",
+      "level": 8,
+      "max_length": 3,
+      "level_name": "Unknown(8)"
+    },
+    {
+      "index": 113,
+      "field_name": "EMSX_LOCATE_BROKER",
+      "display_name": "Locate Broker",
+      "type": "String",
+      "level": 8,
+      "max_length": 10,
+      "level_name": "Unknown(8)"
+    },
+    {
+      "index": 114,
+      "field_name": "EMSX_LOCATE_ID",
+      "display_name": "Locate ID",
+      "type": "String",
+      "level": 8,
+      "max_length": 20,
+      "level_name": "Unknown(8)"
+    },
+    {
+      "index": 115,
+      "field_name": "EMSX_ML_ID",
+      "display_name": "ML ID",
+      "type": "String",
+      "level": 2,
+      "max_length": 25,
+      "level_name": "Route"
+    },
+    {
+      "index": 116,
+      "field_name": "EMSX_BLOCK_ID",
+      "display_name": "Block ID",
+      "type": "String",
+      "level": 1,
+      "max_length": 40,
+      "level_name": "Order"
+    },
+    {
+      "index": 117,
+      "field_name": "EMSX_ROUTE_REF_ID",
+      "display_name": "RouteRefID",
+      "type": "String",
+      "level": 10,
+      "max_length": 15,
+      "level_name": "Unknown(10)"
+    },
+    {
+      "index": 118,
+      "field_name": "EMSX_BROKER_STATUS",
+      "display_name": "Broker Status",
+      "type": "String",
+      "level": 2,
+      "max_length": 9,
+      "level_name": "Route"
+    },
+    {
+      "index": 119,
+      "field_name": "EMSX_BUYSIDE_LEI",
+      "display_name": "Buyside LEI",
+      "type": "String",
+      "level": 27,
+      "max_length": 20,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 120,
+      "field_name": "EMSX_BROKER_LEI",
+      "display_name": "Broker LEI",
+      "type": "String",
+      "level": 2,
+      "max_length": 20,
+      "level_name": "Route"
+    },
+    {
+      "index": 121,
+      "field_name": "EMSX_TRADE_REPORTING_INDICATOR",
+      "display_name": "Trade Reporting Indicator",
+      "type": "String",
+      "level": 2,
+      "max_length": 21,
+      "level_name": "Route"
+    },
+    {
+      "index": 122,
+      "field_name": "EMSX_TRANSACTION_REPORTING_MIC",
+      "display_name": "Transaction Reporting MIC",
+      "type": "String",
+      "level": 2,
+      "max_length": 5,
+      "level_name": "Route"
+    },
+    {
+      "index": 123,
+      "field_name": "EMSX_APA_MIC",
+      "display_name": "APA MIC",
+      "type": "String",
+      "level": 2,
+      "max_length": 5,
+      "level_name": "Route"
+    },
+    {
+      "index": 124,
+      "field_name": "EMSX_OTC_FLAG",
+      "display_name": "OTC Flag",
+      "type": "String",
+      "level": 2,
+      "max_length": 100,
+      "level_name": "Route"
+    },
+    {
+      "index": 125,
+      "field_name": "EMSX_WAIVER_FLAG",
+      "display_name": "Waiver Flag",
+      "type": "String",
+      "level": 2,
+      "max_length": 100,
+      "level_name": "Route"
+    },
+    {
+      "index": 126,
+      "field_name": "EMSX_LAST_CAPACITY",
+      "display_name": "Last Capacity",
+      "type": "String",
+      "level": 2,
+      "max_length": 2,
+      "level_name": "Route"
+    },
+    {
+      "index": 127,
+      "field_name": "EMSX_CLIENT_IDENTIFICATION",
+      "display_name": "Client Identification",
+      "type": "String",
+      "level": 27,
+      "max_length": 2,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 128,
+      "field_name": "EMSX_SI",
+      "display_name": "SI",
+      "type": "String",
+      "level": 27,
+      "max_length": 2,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 129,
+      "field_name": "EMSX_MIFID_II_INSTRUCTION",
+      "display_name": "MIFID II Instruction",
+      "type": "String",
+      "level": 27,
+      "max_length": 30,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 130,
+      "field_name": "EMSX_BROKER_SI",
+      "display_name": "Broker SI",
+      "type": "String",
+      "level": 2,
+      "max_length": 5,
+      "level_name": "Route"
+    },
+    {
+      "index": 131,
+      "field_name": "EMSX_ROUTE_CREATE_TIME_MICROSEC",
+      "display_name": "TimeAdded Usec",
+      "type": "Time",
+      "level": 2,
+      "max_length": 20,
+      "level_name": "Route"
+    },
+    {
+      "index": 132,
+      "field_name": "EMSX_ROUTE_LAST_UPDATE_TIME_MICROSEC",
+      "display_name": "Route Last Update Time Usec",
+      "type": "Time",
+      "level": 2,
+      "max_length": 20,
+      "level_name": "Route"
+    },
+    {
+      "index": 133,
+      "field_name": "EMSX_TIME_STAMP_MICROSEC",
+      "display_name": "Create Time Usec",
+      "type": "Time",
+      "level": 3,
+      "max_length": 20,
+      "level_name": "Basket"
+    },
+    {
+      "index": 134,
+      "field_name": "EMSX_QUEUED_TIME_MICROSEC",
+      "display_name": "Queued Time Usec",
+      "type": "Time",
+      "level": 3,
+      "max_length": 20,
+      "level_name": "Basket"
+    },
+    {
+      "index": 135,
+      "field_name": "EMSX_LAST_FILL_TIME_MICROSEC",
+      "display_name": "Last Fill Time Usec",
+      "type": "Time",
+      "level": 2,
+      "max_length": 20,
+      "level_name": "Route"
+    },
+    {
+      "index": 136,
+      "field_name": "EMSX_GPI",
+      "display_name": "GPI",
+      "type": "String",
+      "level": 27,
+      "max_length": 22,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 137,
+      "field_name": "EMSX_LAST_FILL_DATE",
+      "display_name": "Last Fill Date",
+      "type": "Date",
+      "level": 2,
+      "max_length": 8,
+      "level_name": "Route"
+    },
+    {
+      "index": 138,
+      "field_name": "EMSX_ORDER_AS_OF_DATE",
+      "display_name": "Order As of Date",
+      "type": "Date",
+      "level": 1,
+      "max_length": 8,
+      "level_name": "Order"
+    },
+    {
+      "index": 139,
+      "field_name": "EMSX_ORDER_AS_OF_TIME_MICROSEC",
+      "display_name": "Order As of Time",
+      "type": "Time",
+      "level": 1,
+      "max_length": 20,
+      "level_name": "Order"
+    },
+    {
+      "index": 140,
+      "field_name": "EMSX_ROUTE_AS_OF_DATE",
+      "display_name": "Route As of Date",
+      "type": "Date",
+      "level": 2,
+      "max_length": 8,
+      "level_name": "Route"
+    },
+    {
+      "index": 141,
+      "field_name": "EMSX_ROUTE_AS_OF_TIME_MICROSEC",
+      "display_name": "Route As of Time",
+      "type": "Time",
+      "level": 2,
+      "max_length": 20,
+      "level_name": "Route"
+    },
+    {
+      "index": 142,
+      "field_name": "EMSX_AS_OF_DATE",
+      "display_name": "Order/Route As of Date",
+      "type": "Date",
+      "level": 24,
+      "max_length": 8,
+      "level_name": "Unknown(24)"
+    },
+    {
+      "index": 143,
+      "field_name": "EMSX_AS_OF_TIME_MICROSEC",
+      "display_name": "Order/Route As of Time",
+      "type": "Time",
+      "level": 24,
+      "max_length": 20,
+      "level_name": "Unknown(24)"
+    },
+    {
+      "index": 144,
+      "field_name": "EMSX_LEG_FILL_SIDE",
+      "display_name": "Leg Fill Side",
+      "type": "String",
+      "level": 2,
+      "max_length": 3,
+      "level_name": "Route"
+    },
+    {
+      "index": 145,
+      "field_name": "EMSX_LEG_FILL_DATE_ADDED",
+      "display_name": "Leg Fill Date Added",
+      "type": "Date",
+      "level": 2,
+      "max_length": 8,
+      "level_name": "Route"
+    },
+    {
+      "index": 146,
+      "field_name": "EMSX_LEG_FILL_TIME_ADDED",
+      "display_name": "Leg fill Time Added",
+      "type": "Time",
+      "level": 2,
+      "max_length": 20,
+      "level_name": "Route"
+    },
+    {
+      "index": 147,
+      "field_name": "EMSX_LEG_FILL_SHARES",
+      "display_name": "Leg Fill Shares",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 148,
+      "field_name": "EMSX_LEG_FILL_PRICE",
+      "display_name": "Leg Fill Price",
+      "type": "Double",
+      "level": 2,
+      "max_length": 15,
+      "level_name": "Route"
+    },
+    {
+      "index": 149,
+      "field_name": "EMSX_LEG_FILL_SEQ_NO",
+      "display_name": "Leg Fill Seq No",
+      "type": "Int32",
+      "level": 2,
+      "max_length": 10,
+      "level_name": "Route"
+    },
+    {
+      "index": 150,
+      "field_name": "EMSX_LEG_FILL_TICKER",
+      "display_name": "Leg Fill Ticker",
+      "type": "String",
+      "level": 2,
+      "max_length": 32,
+      "level_name": "Route"
+    },
+    {
+      "index": 151,
+      "field_name": "EMSX_CUSTOM_NOTE1",
+      "display_name": "Custom Note 1",
+      "type": "String",
+      "level": 1,
+      "max_length": 128,
+      "level_name": "Order"
+    },
+    {
+      "index": 152,
+      "field_name": "EMSX_CUSTOM_NOTE2",
+      "display_name": "Custom Note 2",
+      "type": "String",
+      "level": 1,
+      "max_length": 128,
+      "level_name": "Order"
+    },
+    {
+      "index": 153,
+      "field_name": "EMSX_CUSTOM_NOTE3",
+      "display_name": "Custom Note 3",
+      "type": "String",
+      "level": 1,
+      "max_length": 128,
+      "level_name": "Order"
+    },
+    {
+      "index": 154,
+      "field_name": "EMSX_CUSTOM_NOTE4",
+      "display_name": "Custom Note 4",
+      "type": "String",
+      "level": 1,
+      "max_length": 128,
+      "level_name": "Order"
+    },
+    {
+      "index": 155,
+      "field_name": "EMSX_CUSTOM_NOTE5",
+      "display_name": "Custom Note 5",
+      "type": "String",
+      "level": 1,
+      "max_length": 128,
+      "level_name": "Order"
+    },
+    {
+      "index": 156,
+      "field_name": "EMSX_MOD_PEND_STATUS",
+      "display_name": "Mod Pend Status",
+      "type": "String",
+      "level": 1,
+      "max_length": 512,
+      "level_name": "Order"
+    },
+    {
+      "index": 157,
+      "field_name": "EMSX_BROKER_CLIENT_ORDER_ID",
+      "display_name": "Broker Client Order Id",
+      "type": "String",
+      "level": 2,
+      "max_length": 128,
+      "level_name": "Route"
+    },
+    {
+      "index": 158,
+      "field_name": "EMSX_SETTLE_CURRENCY",
+      "display_name": "Settle Currency",
+      "type": "String",
+      "level": 27,
+      "max_length": 3,
+      "level_name": "Unknown(27)"
+    },
+    {
+      "index": 159,
+      "field_name": "EMSX_MANUAL_ORD_INDICATOR",
+      "display_name": "ManualOrdIndicator",
+      "type": "Bool",
+      "level": 24,
+      "max_length": 1,
+      "level_name": "Unknown(24)"
+    }
+  ]
+}
