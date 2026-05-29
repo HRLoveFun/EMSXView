@@ -17,6 +17,7 @@ DataPipeline, and keeps the dependency direction correct:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -28,12 +29,26 @@ class ConnectionManagerProtocol(Protocol):
     New code should depend on this protocol rather than the concrete class.
     """
 
-    def get_connection(self, access_tier: str | None = None) -> Any:
-        """Return a database connection for the given access tier."""
+    def get_connection(
+        self, db_name: str, access_tier: Any = None, row_factory: Any = None
+    ) -> Any:
+        """Return a database connection for the given database and access tier."""
         ...
 
     def connect(self) -> Any:
         """Return a context-managed database connection."""
+        ...
+
+    def database_exists(self, db_name: str) -> bool:
+        """Return True if the named database file exists."""
+        ...
+
+    def get_path(self, db_name: str) -> Path:
+        """Return the filesystem path for the named database."""
+        ...
+
+    def connection(self, db_name: str) -> Any:
+        """Return a context-managed read-only connection for the named database."""
         ...
 
     @property
@@ -48,6 +63,10 @@ class ConfigProtocol(Protocol):
 
     Implemented by ``DataPipeline.config.Config``.
     """
+
+    # Class-level table name constants
+    RAW_FILLS_TABLE: str
+    PROCESSED_FILLS_TABLE: str
 
     @property
     def data_dir(self) -> str:

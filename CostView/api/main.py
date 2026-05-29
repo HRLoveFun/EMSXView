@@ -18,10 +18,39 @@ from fastapi.middleware.cors import CORSMiddleware
 # Apply config before importing platform_data (sets EMSXVIEW_HANDOFF_BACKEND=redis)
 import config  # noqa: F401
 
-from routers.costview import router as costview_router
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _setup_dependencies() -> None:
+    """Initialize all dependency injection registrations.
+
+    Called early in module load to register implementations BEFORE any
+    routers or platform_data consumers are imported. This function is
+    designed to be appended to by subsequent phases — never remove or
+    reorder existing lines, only add new registrations at the end.
+
+    Phase 2: Register TCA query service implementation.
+    Phase 4: Register DataPipeline Config implementation.
+    """
+    from CostView.src.tca_query_service import TcaQueryService
+    from platform_data.adapters.tca_bridge import register_tca_service_impl
+
+    register_tca_service_impl(TcaQueryService())
+    logger.info("DI: TcaQueryService registered in platform_data bridge")
+
+    # Phase 4: Register DataPipeline Config for platform_data consumers
+    from DataPipeline.config import Config
+    from platform_data.config_bridge import register_config_impl
+
+    register_config_impl(Config)
+    logger.info("DI: DataPipeline Config registered in platform_data bridge")
+
+
+# Must run BEFORE importing routers that consume platform_data
+_setup_dependencies()
+
+from routers.costview import router as costview_router
 
 app = FastAPI(
     title="EMSXView — Cost View",

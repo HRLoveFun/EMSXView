@@ -28,9 +28,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from DataPipeline import ConnectionManager as _ConnectionManager
-from DataPipeline import Config as _Config
-from DataPipeline.storage.connection import DB_FETCH_HISTORY  # internal DB key constant
+# Phase 3: Removed module-level DataPipeline imports. ConnectionManager is
+# lazily imported in _get_db_paths(). Table name constants are inlined from
+# DataPipeline.config.Config (stable, well-known). DB_FETCH_HISTORY inlined.
+from platform_data.contracts.protocols import ConnectionManagerProtocol, ConfigProtocol
+
+# Inlined from DataPipeline.storage.connection.DB_FETCH_HISTORY
+_DB_FETCH_HISTORY_KEY: str = "fill_fetch_history"
+
+# Table name constants (stable, synced with DataPipeline.config.Config)
+_RAW_FILLS_TABLE: str = "raw_fills"
+_PROCESSED_FILLS_TABLE: str = "processed_fills"
+_FETCH_LOG_TABLE: str = "fetch_log"
+_RAW_BDIB_TABLE: str = "raw_bdib"
+_FILL_BDIB_TABLE: str = "fill_bdib"
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +52,8 @@ def _get_db_paths() -> dict[str, Path]:
     Uses ConnectionManager's registry as the single source of truth for
     database paths, eliminating the direct dependency on ProcessingConfig.
     """
-    mgr = _ConnectionManager()
+    from DataPipeline import ConnectionManager
+    mgr = ConnectionManager()
     return mgr.get_all_paths()
 
 
@@ -76,13 +88,13 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="EMSX GetFills raw rows (28 original + 5 derived columns).",
             tables=(
                 _TableSpec(
-                    name=_Config.RAW_FILLS_TABLE,
+                    name=_RAW_FILLS_TABLE,
                     date_column="source_date",
                     primary_key="(OrderId, RouteId, FillId)",
                     description="Bloomberg EMSX fills, INSERT OR REPLACE for late corrections.",
                 ),
                 _TableSpec(
-                    name=_Config.FETCH_LOG_TABLE,
+                    name=_FETCH_LOG_TABLE,
                     date_column="fetch_date",
                     primary_key="(fetch_date, fetch_started_at)",
                     description="Per-day fetch tracking (records_fetched, status).",
@@ -96,7 +108,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="Cleaned 27-column fact table + route registry.",
             tables=(
                 _TableSpec(
-                    name=_Config.PROCESSED_FILLS_TABLE,
+                    name=_PROCESSED_FILLS_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, FillId, order_as_of_date)",
                     description="TCA-ready fills (deduplicated, typed).",
@@ -116,7 +128,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="10-second intraday BDIB bars (Bloomberg-native columns).",
             tables=(
                 _TableSpec(
-                    name=_Config.RAW_BDIB_TABLE,
+                    name=_RAW_BDIB_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(equ_ticker, order_as_of_date, mkt_timestamp)",
                     description="OHLC + volume + num_trds + value per 10s bar.",
@@ -130,7 +142,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="Fills enriched with BDIB intraday metrics (TCA input).",
             tables=(
                 _TableSpec(
-                    name=_Config.FILL_BDIB_TABLE,
+                    name=_FILL_BDIB_TABLE,
                     date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, order_as_of_date, mkt_timestamp)",
                     description="Integrated fill × BDIB view used by TCA analysis.",
@@ -140,7 +152,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
         _DatabaseSpec(
             key="fill_fetch_history",
             label="Fill Fetch History",
-            path=paths.get(DB_FETCH_HISTORY, Path("fill_fetch_history.db")),
+            path=paths.get(_DB_FETCH_HISTORY_KEY, Path("fill_fetch_history.db")),
             description="Historical fetch-job records (deduplication + audit).",
             tables=(
                 _TableSpec(

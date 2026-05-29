@@ -1,20 +1,20 @@
 """Regime distribution query — read-only access to regime.db.
 
-Replaces CostViewDatabaseAdapter.get_regime_distribution().
+Phase 3: Uses ConnectionManagerProtocol instead of direct DataPipeline import.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from DataPipeline import ConnectionManager
+from platform_data.contracts.protocols import ConnectionManagerProtocol
 
 
 def get_regime_distribution(
     start_date: str,
     end_date: str,
     regime_dim: str = "vol_regime",
-    connection_manager: ConnectionManager | None = None,
+    connection_manager: ConnectionManagerProtocol | None = None,
 ) -> list[dict[str, Any]]:
     """Query regime distribution from regime.db.
 
@@ -24,7 +24,13 @@ def get_regime_distribution(
 
     Raises FileNotFoundError if regime.db does not exist.
     """
-    mgr = connection_manager or ConnectionManager()
+    if connection_manager is None:
+        # Lazy import of concrete ConnectionManager for backward compat
+        from DataPipeline import ConnectionManager
+        mgr = ConnectionManager()
+    else:
+        mgr = connection_manager
+
     if not mgr.database_exists("regime"):
         raise FileNotFoundError("regime.db not built yet")
 

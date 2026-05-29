@@ -82,3 +82,91 @@ export const PENDING_ROUTE_STATUSES = new Set([
   'CXLREQ', 'CXLREJ', 'CXLREP', 'CXLRPRQ', 'CXLRPRJ',
   'REPPEN', 'A-SENT', 'OA-SENT',
 ]);
+
+// ── Sub-component prop interfaces ─────────────────────────────────────────
+
+export interface BrokerSelectionPanelProps {
+  visibleBrokers: string[];
+  selectedBrokers: string[];
+  editable: boolean;
+  toggleBroker: (b: string) => void;
+  strategiesFor: (b: string) => string[];
+  defaultStrategyFor: (strategies: string[], broker?: string) => string;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+}
+
+export interface BrokerStrategySectionProps {
+  selectedBrokers: string[];
+  brokerStrategies: Record<string, string>;
+  strategiesFor: (b: string) => string[];
+  setBrokerStrategy: (b: string, s: string) => void;
+  registerParamsBuilder: BrokerStrategyParamsEditorProps['registerParamsBuilder'];
+  registerFieldSetter: BrokerStrategyParamsEditorProps['registerFieldSetter'];
+  paramsCacheRef: React.MutableRefObject<Map<string, unknown>>;
+  cacheKey: (broker: string, strategy: string) => string;
+  editable: boolean;
+  defaultStrategyFor: (strategies: string[], broker?: string) => string;
+}
+
+export interface BatchRouteToolbarProps {
+  tif: TimeInForce;
+  notes: string;
+  releaseTime: string;
+  startTime: string;
+  endTime: string;
+  editable: boolean;
+  selectedBrokers: string[];
+  onTifChange: (v: TimeInForce) => void;
+  onNotesChange: (v: string) => void;
+  onReleaseTimeChange: (v: string) => void;
+  onStartTimeChange: (v: string) => void;
+  onEndTimeChange: (v: string) => void;
+  onApplyTimeToAll: () => void;
+}
+
+export interface QuickFillToolbarProps {
+  editable: boolean;
+  selectedBrokers: string[];
+  selectedOrders: Order[];
+  customPct: string;
+  onCustomPctChange: (v: string) => void;
+  onApplyPercentQty: (pct: number) => void;
+}
+
+export interface BrokerRatioBarProps {
+  selectedBrokers: string[];
+  ratios: Record<string, number>;
+  ratioSum: number;
+  ratioTotalValid: boolean;
+  editable: boolean;
+  setRatioForBroker: (broker: string, value: number) => void;
+  resetRatios: () => void;
+  applyRatios: () => void;
+}
+
+export interface OrderAllocationTableProps {
+  orders: Order[];
+  rows: Record<string, RowState>;
+  selectedBrokers: string[];
+  editable: boolean;
+  phase: Phase;
+  ratios: Record<string, number>;
+  effectiveRemainingOf: (o: Order) => number;
+  pendingWorkingByOrder: Record<string, number>;
+  isBrokerAllowedFor: (broker: string, o: Order) => boolean;
+  patchRow: (oid: string, patch: Partial<RowState>) => void;
+  patchAlloc: (oid: string, broker: string, patch: Partial<AllocState>) => void;
+  applyPercentToBroker: (broker: string, pct: number) => void;
+}
+
+export interface ResultFeedbackProps {
+  phase: Phase;
+  error: string;
+  progress: number;
+  summary: { total?: number; succeeded?: number; blocked?: number; failed?: number } | null;
+  totalDestinations: number;
+  blockedDetails: { orderId: string; symbol: string; broker: string; violations: Violation[] }[];
+  failedDetails: { orderId: string; symbol: string; broker: string; message: string }[];
+  warnDetails: { orderId: string; symbol: string; broker: string; violations: Violation[] }[];
+}
