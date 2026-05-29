@@ -6,11 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
 API_ROOT = Path(__file__).resolve().parents[1]
-for path in (PROJECT_ROOT, API_ROOT):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+if str(API_ROOT) not in sys.path:
+    sys.path.insert(0, str(API_ROOT))
 
 from routers import execution_history as execution_history_router_module
 

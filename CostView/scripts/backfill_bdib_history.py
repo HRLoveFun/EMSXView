@@ -28,8 +28,11 @@ _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_COSTVIEW_ROOT))
 
 from DataPipeline.config import Config
-from src.raw_bdib_db import RawBDIBDB
-from src.raw_fills_db import RawFillsDB
+# TODO(P1-2): Migrate legacy src/ imports to DataPipeline repositories.
+# - RawBDIBDB → DataPipeline.storage.repositories.market_data.SqliteMarketDataReadRepository
+# - RawFillsDB → DataPipeline.storage.repositories.raw_fills.SqliteRawFillReadRepository
+from src.raw_bdib_db import RawBDIBDB  # noqa: E402  # deprecated
+from src.raw_fills_db import RawFillsDB  # noqa: E402  # deprecated
 
 logger = logging.getLogger(__name__)
 

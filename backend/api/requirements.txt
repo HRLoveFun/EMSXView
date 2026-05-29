@@ -1,10 +1,13 @@
 ﻿# EMSX Trading API - Python Dependencies
 # Install: pip install -r requirements.txt
 #
-# Internal packages (installed as editable for development):
-#   pip install -e ../../platform_data
-#   pip install -e ../../DataPipeline
-#   pip install -e ../../CostView
+# Internal monorepo packages — REQUIRED (installed as editable):
+#   pip install -e ../../DataPipeline --no-deps
+#   pip install -e ../../platform_data --no-deps
+#   pip install -e ../../CostView --no-deps
+#
+# The --no-deps flag avoids circular dependency resolution during dev setup.
+# In production (Docker), all three are installed sequentially per Dockerfile.
 
 # FastAPI Framework
 fastapi==0.109.0

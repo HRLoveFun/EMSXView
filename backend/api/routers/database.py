@@ -27,7 +27,16 @@ from pydantic import BaseModel, Field
 
 from platform_data import database_diagnostics as repo  # noqa: E402
 
-from ._pipeline_jobs import get_job, trigger_pipeline  # noqa: E402
+from platform_data.pipeline_jobs import get_job, trigger_pipeline  # noqa: E402
+
+# A2: Inject DataPipeline ConnectionManager into diagnostics module at import time.
+# This replaces the former ``from DataPipeline import ConnectionManager`` lazy
+# import inside database_diagnostics._get_db_paths().
+try:
+    from DataPipeline import ConnectionManager
+    repo.init_diagnostics_db(ConnectionManager())
+except ImportError:
+    pass  # DataPipeline not available (e.g. in test environment)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["DatabaseView"])

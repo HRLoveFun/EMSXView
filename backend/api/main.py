@@ -150,8 +150,19 @@ bloomberg_service = BloombergEMSXService()
 
 from deps import verify_token, audit_log, init_services
 
-# Wire singletons into the shared dependency module
+# Wire singletons into the shared dependency module (legacy path).
+# P2-2: Services are also stored in app.state below for FastAPI Depends().
 init_services(bloomberg_service, broker_storage, repo_provider)
+
+# Phase 4: Register DataPipeline Config so platform_data consumers can
+# resolve table names etc. without importing DataPipeline directly.
+try:
+    from DataPipeline.config import Config
+    from platform_data.config_bridge import register_config_impl
+    register_config_impl(Config)
+    logger.info("Registered DataPipeline Config in platform_data bridge")
+except ImportError:
+    logger.debug("DataPipeline not available; skipping Config DI registration")
 
 # ============================================================================
 # FastAPI Application
@@ -211,6 +222,13 @@ app = FastAPI(
     swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
 
+# P2-2: Store service singletons in app.state for FastAPI Depends() DI.
+# This replaces the global mutable state in deps.py (get_bloomberg / get_broker_storage).
+# New code should use: bloomberg_svc: BloombergEMSXService = Depends(get_bloomberg_service)
+app.state.bloomberg_service = bloomberg_service
+app.state.broker_storage = broker_storage
+app.state.repo_provider = repo_provider
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -226,7 +244,6 @@ app.add_middleware(
 # ============================================================================
 
 from routers.connection import router as connection_router
-from routers.marketview import router as marketview_router
 from routers.auth import router as auth_router
 from routers.orders import router as orders_router
 from routers.routes import router as routes_router
@@ -237,7 +254,6 @@ from routers.market_broker_mapping import router as market_broker_mapping_router
 from routers.route_plans import router as route_plans_router
 
 app.include_router(connection_router)
-app.include_router(marketview_router)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)
@@ -247,8 +263,48 @@ app.include_router(realtime_router)
 app.include_router(market_broker_mapping_router)
 app.include_router(route_plans_router)
 
-# CostView / DatabaseView / ExecutionHistory 路由 — 可选模块
-# 任一模块异常不应导致其他模块无法启动。
+# ============================================================================
+# Optional Module Routers — config-driven via EMSXVIEW_OPTIONAL_MODULES env var.
+# Each entry is "module:label", comma-separated. Failure of any single module
+# must never prevent the core ExecutionView from starting.
+# ============================================================================
+
+# Registry of all known optional modules (single source of truth).
+# Environment variable can override which subset to load.
+_KNOWN_OPTIONAL_MODULES: dict[str, str] = {
+    "database": "DatabaseView",
+    "execution_history": "Execution history",
+}
+
+
+def _parse_optional_modules(raw: str) -> list[tuple[str, str]]:
+    """Parse EMSXVIEW_OPTIONAL_MODULES into (module_name, label) pairs.
+
+    Supports:
+      - "*" or "all" → load all known optional modules
+      - "" (empty) → load none
+      - "costview:Label,database:Label" → load specified modules with custom labels
+    """
+    if not raw or raw.strip() == "":
+        return []
+    if raw.strip() in ("*", "all"):
+        return list(_KNOWN_OPTIONAL_MODULES.items())
+    result: list[tuple[str, str]] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            name, label = part.split(":", 1)
+            result.append((name.strip(), label.strip()))
+        else:
+            # Module name only — use known label or default
+            name = part.strip()
+            label = _KNOWN_OPTIONAL_MODULES.get(name, name)
+            result.append((name, label))
+    return result
+
+
 def _register_optional(module_name: str, router_label: str) -> None:
     """Lazily import and register an optional router; log warning on failure."""
     import importlib
@@ -260,9 +316,9 @@ def _register_optional(module_name: str, router_label: str) -> None:
             "%s router 未加载（ExecutionView 不受影响）: %s", router_label, exc
         )
 
-_register_optional("costview", "CostView TCA")
-_register_optional("database", "DatabaseView")
-_register_optional("execution_history", "Execution history")
+
+for _mod_name, _mod_label in _parse_optional_modules(settings.OPTIONAL_MODULES):
+    _register_optional(_mod_name, _mod_label)
 
 # ============================================================================
 # Error Handlers

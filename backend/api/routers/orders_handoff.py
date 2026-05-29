@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from schemas.marketview import (
+from schemas.handoff import (
     HandoffMetadataResponse,
     MarketCandidatePayloadResponse,
     MarketCandidateRowResponse,

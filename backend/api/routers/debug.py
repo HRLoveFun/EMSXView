@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from schemas import ApiResponse
 from config import settings
-from deps import verify_token, get_bloomberg
+from deps import verify_token, get_bloomberg_service
 
 logger = logging.getLogger("main")
 
@@ -17,9 +17,12 @@ router = APIRouter(tags=["Debug"])
 
 
 @router.get("/api/debug/round-lot-sizes", response_model=ApiResponse)
-async def get_round_lot_sizes(user: dict = Depends(verify_token)):
+async def get_round_lot_sizes(
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Get cached round lot sizes for debugging odd lot detection."""
-    bb = get_bloomberg()
+    bb = bloomberg
     round_lot_sizes = dict(bb._round_lot_sizes)
     subscribed_tickers = list(bb._mktdata_subscribed_tickers)
     active_tickers = list(bb._mktdata_active_tickers)
@@ -60,12 +63,16 @@ async def get_round_lot_sizes(user: dict = Depends(verify_token)):
 
 
 @router.post("/api/debug/query-round-lot", response_model=ApiResponse)
-async def query_round_lot(ticker: str, user: dict = Depends(verify_token)):
+async def query_round_lot(
+    ticker: str,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Manually query PX_ROUND_LOT_SIZE for a specific ticker."""
     try:
         import blpapi
 
-        bb = get_bloomberg()
+        bb = bloomberg
         sess = bb._mktdata_session
         if not sess:
             return ApiResponse(success=False, error="Mktdata session not available")

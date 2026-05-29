@@ -28,9 +28,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-# Phase 3: Removed module-level DataPipeline imports. ConnectionManager is
-# lazily imported in _get_db_paths(). Table name constants are inlined from
-# DataPipeline.config.Config (stable, well-known). DB_FETCH_HISTORY inlined.
+# Phase 3/A2: ConnectionManager is injected via init_diagnostics_db() at module
+# load time by the caller (e.g. backend/api/routers/database.py). platform_data
+# no longer imports DataPipeline directly for diagnostics.
 from platform_data.contracts.protocols import ConnectionManagerProtocol, ConfigProtocol
 
 # Inlined from DataPipeline.storage.connection.DB_FETCH_HISTORY
@@ -45,16 +45,39 @@ _FILL_BDIB_TABLE: str = "fill_bdib"
 
 logger = logging.getLogger(__name__)
 
+# Injected at module load by the caller (see init_diagnostics_db).
+_diagnostics_mgr: ConnectionManagerProtocol | None = None
+
+
+def init_diagnostics_db(connection_manager: ConnectionManagerProtocol) -> None:
+    """Wire a ConnectionManager into the diagnostics module.
+
+    Must be called once before any diagnostic queries are performed.
+    Typical call site: ``backend/api/routers/database.py`` at import time.
+
+    Example::
+
+        from DataPipeline import ConnectionManager
+        from platform_data.database_diagnostics import init_diagnostics_db
+        init_diagnostics_db(ConnectionManager())
+    """
+    global _diagnostics_mgr
+    _diagnostics_mgr = connection_manager
+
 
 def _get_db_paths() -> dict[str, Path]:
-    """Get database paths from ConnectionManager instead of ProcessingConfig.
+    """Get database paths from the injected ConnectionManager.
 
     Uses ConnectionManager's registry as the single source of truth for
-    database paths, eliminating the direct dependency on ProcessingConfig.
+    database paths. Call init_diagnostics_db() before usage.
     """
-    from DataPipeline import ConnectionManager
-    mgr = ConnectionManager()
-    return mgr.get_all_paths()
+    if _diagnostics_mgr is None:
+        raise RuntimeError(
+            "ConnectionManager not injected. Call "
+            "platform_data.database_diagnostics.init_diagnostics_db(ConnectionManager()) "
+            "before using diagnostic functions."
+        )
+    return _diagnostics_mgr.get_all_paths()
 
 
 # ── Registry of databases we expose to the frontend ──────────────────────────
@@ -166,11 +189,23 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
     )
 
 
-_REGISTRY: tuple[_DatabaseSpec, ...] = _build_registry()
+_REGISTRY: tuple[_DatabaseSpec, ...] | None = None
+
+
+def _get_registry() -> tuple[_DatabaseSpec, ...]:
+    """Lazily build the database registry on first access.
+
+    This avoids calling _get_db_paths() at module import time, which requires
+    ConnectionManager injection via init_diagnostics_db().
+    """
+    global _REGISTRY
+    if _REGISTRY is None:
+        _REGISTRY = _build_registry()
+    return _REGISTRY
 
 
 def _spec_by_key(key: str) -> _DatabaseSpec:
-    for spec in _REGISTRY:
+    for spec in _get_registry():
         if spec.key == key:
             return spec
     raise KeyError(f"Unknown database key: {key}")
@@ -565,13 +600,13 @@ def _stat_file(path: Path) -> tuple[bool, int, Optional[str], bool]:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def list_database_keys() -> list[str]:
-    return [spec.key for spec in _REGISTRY]
+    return [spec.key for spec in _get_registry()]
 
 
 def get_overview() -> list[DatabaseOverview]:
     """Cheap overview of every registered database (file stats + headline counts)."""
     items: list[DatabaseOverview] = []
-    for spec in _REGISTRY:
+    for spec in _get_registry():
         exists, size, last_mod, wal = _stat_file(spec.path)
         ov = DatabaseOverview(
             key=spec.key,
@@ -959,11 +994,11 @@ def get_integrity(key: str) -> IntegrityReport:
                 # on multi-GB raw_bdib.db files.
                 try:
                     latest_rowid = conn.execute(
-                        f"SELECT MAX(_rowid_) FROM [{_Config.RAW_BDIB_TABLE}]"
+                        f"SELECT MAX(_rowid_) FROM [{_RAW_BDIB_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
                         n = conn.execute(
-                            f"SELECT COUNT(*) FROM [{_Config.RAW_BDIB_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_RAW_BDIB_TABLE}] "
                             f"WHERE _rowid_ > ? AND close IS NULL",
                             (max(0, int(latest_rowid) - 200_000),),
                         ).fetchone()[0]
@@ -996,7 +1031,7 @@ def get_integrity(key: str) -> IntegrityReport:
                         )
                         cutoff_row = conn.execute(
                             f"SELECT MAX(order_as_of_date) "
-                            f"FROM pf.[{_Config.PROCESSED_FILLS_TABLE}] "
+                            f"FROM pf.[{_PROCESSED_FILLS_TABLE}] "
                             f"WHERE order_as_of_date IS NOT NULL"
                         ).fetchone()
                         cutoff = cutoff_row[0] if cutoff_row else None
@@ -1004,8 +1039,8 @@ def get_integrity(key: str) -> IntegrityReport:
                             n = conn.execute(
                                 f"""
                                 SELECT COUNT(DISTINCT pf.OrderId || '|' || pf.order_as_of_date)
-                                FROM pf.[{_Config.PROCESSED_FILLS_TABLE}] pf
-                                LEFT JOIN [{_Config.FILL_BDIB_TABLE}] fb
+                                FROM pf.[{_PROCESSED_FILLS_TABLE}] pf
+                                LEFT JOIN [{_FILL_BDIB_TABLE}] fb
                                   ON fb.OrderId = pf.OrderId
                                  AND fb.order_as_of_date = pf.order_as_of_date
                                 WHERE pf.order_as_of_date >= ?
@@ -1041,11 +1076,11 @@ def get_integrity(key: str) -> IntegrityReport:
                 try:
                     today_ymd = datetime.now().strftime("%Y%m%d")
                     latest_rowid = conn.execute(
-                        f"SELECT MAX(_rowid_) FROM [{_Config.RAW_FILLS_TABLE}]"
+                        f"SELECT MAX(_rowid_) FROM [{_RAW_FILLS_TABLE}]"
                     ).fetchone()[0]
                     if latest_rowid:
                         n = conn.execute(
-                            f"SELECT COUNT(*) FROM [{_Config.RAW_FILLS_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
                             f"AND source_date < ? "
                             f"AND (order_as_of_date IS NULL "

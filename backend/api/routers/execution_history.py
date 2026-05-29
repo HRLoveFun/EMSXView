@@ -29,7 +29,18 @@ from schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Execution History"])
-_execution_history = ExecutionHistoryQueryService()
+
+# Lazy-init ExecutionHistoryQueryService with ConnectionManager injected.
+_execution_history: ExecutionHistoryQueryService | None = None
+
+
+def _get_execution_history() -> ExecutionHistoryQueryService:
+    """Lazily create ExecutionHistoryQueryService with ConnectionManager injected."""
+    global _execution_history
+    if _execution_history is None:
+        from DataPipeline import ConnectionManager
+        _execution_history = ExecutionHistoryQueryService(connection_manager=ConnectionManager())
+    return _execution_history
 
 
 # ── Row projection helpers (replacing ExecutionHistoryAdapter's _project_row) ──
@@ -96,7 +107,7 @@ async def get_fill_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        raw = _execution_history.list_fill_history(
+        raw = _get_execution_history().list_fill_history(
             limit=limit,
             order_id=order_id,
             route_id=route_id,
@@ -126,7 +137,7 @@ async def get_order_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        raw = _execution_history.list_order_history(
+        raw = _get_execution_history().list_order_history(
             limit=limit,
             order_id=order_id,
             start_date=start_date,
@@ -156,7 +167,7 @@ async def get_route_history(
 ):
     _validate_date_window(start_date, end_date)
     try:
-        raw = _execution_history.list_route_history(
+        raw = _get_execution_history().list_route_history(
             limit=limit,
             order_id=order_id,
             route_id=route_id,

@@ -44,10 +44,14 @@ def get_config() -> type:
     if "default" in _config_registry:
         return _config_registry["default"]
 
-    # Fallback: lazy import from DataPipeline for backward compatibility
-    from DataPipeline.config import Config
-    _config_registry["default"] = Config
-    return Config
+    # No implementation registered — caller must register Config before using
+    # config-dependent features. CostView/api/main.py calls register_config_impl()
+    # at startup for standalone mode; backend/api/main.py should do the same.
+    raise RuntimeError(
+        "No Config implementation registered. "
+        "Ensure register_config_impl(Config) is called at application startup "
+        "(e.g. from CostView/api/main.py:_setup_dependencies() or backend/api/main.py)."
+    )
 
 
 # Convenience: export the protocol type for type annotations

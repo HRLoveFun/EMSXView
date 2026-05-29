@@ -34,7 +34,7 @@ from platform_data.contracts import SCORECARD_COHORTS
 from platform_data.regime_query import get_regime_distribution
 from CostView.src.tca_query_service import TcaQueryService
 
-from ._pipeline_jobs import get_job, trigger_pipeline
+from platform_data.pipeline_jobs import get_job, trigger_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
@@ -428,10 +428,12 @@ async def regime_distribution(
         raise HTTPException(status_code=400, detail="dates must be ISO YYYY-MM-DD")
 
     try:
+        from DataPipeline import ConnectionManager
         rows_data = get_regime_distribution(
             start_date=start_date,
             end_date=end_date,
             regime_dim=regime_dim,
+            connection_manager=ConnectionManager(),
         )
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="regime.db not built yet")

@@ -11,10 +11,12 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from platform_data.contracts.db_constants import (
+    BARS_PER_YEAR,
+    BDIB_DAILY_SUMMARY_TABLE,
+    RAW_BDIB_TABLE,
+)
 from platform_data.adapters.tca_bridge import (
-    _BARS_PER_YEAR,
-    _BDIB_DAILY_SUMMARY_TABLE,
-    _RAW_BDIB_TABLE,
     _ConnectionManagerDailySummaryReader,
 )
 from platform_data.contracts.intraday_contracts import (
@@ -164,7 +166,12 @@ class MarketReferenceDataAdapter:
 
     def _get_reader(self):
         if self._reader is None:
-            object.__setattr__(self, '_reader', _ConnectionManagerDailySummaryReader())
+            if self.connection_manager is None:
+                raise ValueError(
+                    "MarketReferenceDataAdapter requires connection_manager to be set. "
+                    "Create with: MarketReferenceDataAdapter(connection_manager=ConnectionManager())"
+                )
+            object.__setattr__(self, '_reader', _ConnectionManagerDailySummaryReader(self.connection_manager))
         return self._reader
 
     def describe(self) -> dict[str, str]:
@@ -395,7 +402,7 @@ class MarketReferenceDataAdapter:
             placeholders = ",".join(["?"] * len(equ_tickers))
             bars_df = pd.read_sql_query(
                 f"SELECT equ_ticker, mkt_timestamp, open, high, low, close, volume, num_trds, value "
-                f"FROM {_RAW_BDIB_TABLE} "
+                f"FROM {RAW_BDIB_TABLE} "
                 f"WHERE equ_ticker IN ({placeholders}) AND order_as_of_date = ? "
                 f"ORDER BY equ_ticker, mkt_timestamp",
                 conn.raw_connection,
@@ -410,7 +417,7 @@ class MarketReferenceDataAdapter:
             summary_df = pd.read_sql_query(
                 f"SELECT equ_ticker, total_volume, daily_vwap, daily_close, "
                 f"daily_volatility, intraday_volatility, adv_5d, adv_20d "
-                f"FROM {_BDIB_DAILY_SUMMARY_TABLE} "
+                f"FROM {BDIB_DAILY_SUMMARY_TABLE} "
                 f"WHERE trade_date = ?",
                 summary_conn.raw_connection,
                 params=[trade_date],
@@ -483,7 +490,7 @@ class MarketReferenceDataAdapter:
                         import numpy as np
                         log_returns = np.log(closes / closes.shift(1)).dropna()
                         if len(log_returns) >= 2:
-                            realized_vol = float(log_returns.std() * math.sqrt(_BARS_PER_YEAR))
+                            realized_vol = float(log_returns.std() * math.sqrt(BARS_PER_YEAR))
 
                     # Bucket time boundaries
                     min_ts = int(bdf["_ts_seconds"].min())

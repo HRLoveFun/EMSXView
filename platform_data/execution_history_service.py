@@ -1,7 +1,7 @@
 """Execution history query service — read-only access to processed_fills.db.
 
 Phase 3: Uses ConnectionManagerProtocol + ConfigProtocol instead of direct
-DataPipeline imports. AccessTier (a lightweight public enum) is retained.
+DataPipeline imports.
 """
 
 from __future__ import annotations
@@ -10,8 +10,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from DataPipeline import AccessTier  # public enum, lightweight
-from platform_data.contracts.protocols import ConnectionManagerProtocol, ConfigProtocol
+from platform_data.contracts.protocols import (
+    AccessTier,
+    ConfigProtocol,
+    ConnectionManagerProtocol,
+)
 
 
 class ExecutionHistoryQueryService:
@@ -25,18 +28,11 @@ class ExecutionHistoryQueryService:
     ):
         if connection_manager is not None:
             self._mgr = connection_manager
-        elif proc_fills_db_path or raw_fills_db_path:
-            # Lazy import of concrete ConnectionManager only for path override case
-            from DataPipeline import ConnectionManager
-            overrides: dict[str, Path] = {}
-            if proc_fills_db_path:
-                overrides["processed_fills"] = Path(proc_fills_db_path)
-            if raw_fills_db_path:
-                overrides["raw_fills"] = Path(raw_fills_db_path)
-            self._mgr = ConnectionManager(path_overrides=overrides)
         else:
-            from DataPipeline import ConnectionManager
-            self._mgr = ConnectionManager()
+            raise ValueError(
+                "ConnectionManager must be provided to ExecutionHistoryQueryService. "
+                "Import from DataPipeline: from DataPipeline import ConnectionManager"
+            )
 
     def list_fill_history(
         self,

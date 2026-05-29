@@ -49,8 +49,11 @@ _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_COSTVIEW_ROOT))
 
 from DataPipeline.config import Config
-from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date, _is_trading_day
-from src.raw_bdib_db import RawBDIBDB
+# TODO(P1-2): Migrate legacy src/ imports to DataPipeline equivalents.
+# - bdib_fetcher → DataPipeline.ingestion (BDIB fetch logic)
+# - RawBDIBDB → DataPipeline.storage.repositories.market_data.SqliteMarketDataReadRepository
+from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date, _is_trading_day  # noqa: E402  # deprecated
+from src.raw_bdib_db import RawBDIBDB  # noqa: E402  # deprecated
 from DataPipeline.storage.facade import DatabaseFacade
 
 logger = logging.getLogger("backfill_raw_bdib")
