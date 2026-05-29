@@ -23,10 +23,15 @@ import type { ComponentType } from 'react';
 /** Unique identifier for a workspace module. */
 export type ModuleId = string;
 
-/** Toolbar-facing info a module can contribute to the shell. */
+/** Toolbar-facing info a module can contribute to the shell.
+ *
+ * ``counts`` holds domain-specific counters keyed by name (e.g.
+ * ``{ orders: 42, routes: 7 }`` for the Execution module). Each module
+ * populates the keys that are relevant to its domain.
+ */
 export interface ModuleContribution {
-  orderCount: number;
-  routeCount: number;
+  /** Domain-specific counters (e.g. orders, routes, fills, etc.). */
+  counts: Record<string, number>;
   isLoading: boolean;
   lastUpdatedAt: number | null;
   refresh: () => void;
@@ -53,6 +58,19 @@ export interface ModuleDescriptor {
   loader: () => Promise<{ default: ComponentType<any> }>;
   /** Optional hover-prefetch callback to warm the chunk cache. */
   prefetch?: () => void;
+  /**
+   * Optional WebSocket path for realtime data (e.g. '/ws/orders').
+   * The shell creates and manages a single RealtimeClient for the first
+   * module that declares this path. If no module declares a path, no
+   * WebSocket connection is established.
+   */
+  realtimeWsPath?: string;
+  /**
+   * If true, the handoff badge (candidate count + recommendation count)
+   * is rendered on this module's tab when pending handoffs exist.
+   * Defaults to false. Only ExecutionView consumes handoffs currently.
+   */
+  showHandoffBadge?: boolean;
 }
 
 // ── Registry ───────────────────────────────────────────────────────────────

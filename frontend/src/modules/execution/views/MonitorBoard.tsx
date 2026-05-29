@@ -24,7 +24,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { fmtNum, fmtInt, fmtDollar } from '@shared/lib/format-utils';
-import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, type OrderGroupByValue } from '@shared/lib/table-constants';
+import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, type OrderGroupByValue } from '@execution/lib';
 import {
   CONDITION_DEFS,
   DEFAULT_CONDITIONS,

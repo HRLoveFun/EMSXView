@@ -22,6 +22,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Install internal monorepo packages (editable)
+COPY ../../platform_data /build/platform_data
+COPY ../../DataPipeline /build/DataPipeline
+COPY ../../CostView /build/CostView
+RUN pip install --no-cache-dir -e /build/DataPipeline && \
+    pip install --no-cache-dir -e /build/platform_data && \
+    pip install --no-cache-dir -e /build/CostView
+
 # ============================================================================
 # Production Stage
 # ============================================================================

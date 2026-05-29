@@ -1,8 +1,11 @@
 /**
- * Shared constants for table grouping, status options, and order-type options.
- * Used by OrderTable, MonitorBoard, and (partially) RouteTable.
+ * P1-B4/C1: Table grouping/status constants moved from @shared/lib/ back to
+ * the Execution module — these are imported exclusively by OrderTable, RouteTable,
+ * and MonitorBoard (all within @execution/views).
+ *
+ * Type imports updated from `@execution/types` to `../types` (intra-module path).
  */
-import type { OrderStatus, OrderType as OType } from '@execution/types'
+import type { OrderStatus, OrderType as OType } from '../types'
 
 // ─── Order GROUP BY ─────────────────────────────────────────────────────────
 

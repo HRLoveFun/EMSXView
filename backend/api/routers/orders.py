@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from schemas import (
@@ -15,9 +15,33 @@ from schemas import (
     BatchRouteOrderRequest,
     CreateParentExecutionRequest, ParentExecutionCommand,
 )
+# P2-B5: Handoff contract models imported from the canonical schemas layer
+# instead of redefining inline — eliminates 80+ lines of Pydantic duplication.
+from schemas.marketview import (
+    HandoffMetadataResponse,
+    MarketCandidatePayloadResponse,
+    MarketCandidateRowResponse,
+    MarketToExecutionHandoffEnvelope,
+    MarketToExecutionHandoffPayload,
+    PostTradeHandoffRequest,
+    PostTradeHandoffPayload,
+    PostTradeHandoffResponse,
+)
 from deps import verify_token, audit_log, get_bloomberg
-from services import batch_route_service
+from models.parent_child_orders import ParentExecution as ParentModel, ScheduleType
+from repositories.parent_child_repository import ParentChildRepository
+from services import batch_route_service, compliance_service
+from services.algo_scheduler import (
+    cancel_execution,
+    get_execution_state,
+    list_active_parent_ids,
+    pause_execution,
+    resume_execution,
+    start_execution,
+)
+from services.benchmark_engine import ScheduleRequest, VolumeProfile, compute_schedule
 from fastapi.responses import StreamingResponse
+from platform_data import get_shared_handoff_exchange
 from _paths import PROJECT_ROOT  # noqa: F401  path + sys.path setup
 
 router = APIRouter(tags=["Orders"])
@@ -105,8 +129,6 @@ async def route_order(request: RouteOrderRequest, user: dict = Depends(verify_to
         with bloomberg._data_lock:
             parent_order = bloomberg._orders.get(request.orderId)
     if parent_order is not None:
-        from services import compliance_service
-        from fastapi import HTTPException
         violations = compliance_service.check_route(
             parent_order,
             route_qty=request.quantity,
@@ -203,11 +225,6 @@ async def create_parent_execution(
     Computes a schedule using the benchmark engine, persists
     child slices, and activates the scheduler.
     """
-    from models.parent_child_orders import ScheduleType
-    from services.benchmark_engine import ScheduleRequest, VolumeProfile, compute_schedule
-    from services.algo_scheduler import start_execution
-    from repositories.parent_child_repository import ParentChildRepository
-
     audit_log("CREATE_PARENT_EXEC", user.get("sub"), {
         "orderId": request.orderId,
         "scheduleType": request.scheduleType,
@@ -255,7 +272,6 @@ async def create_parent_execution(
         return ApiResponse(success=False, error=str(exc))
 
     # Create parent execution record (in-memory mock — real DB in production)
-    from models.parent_child_orders import ParentExecution as ParentModel
     parent = ParentModel(
         id=_next_parent_id(),
         sequence=int(request.orderId),
@@ -293,10 +309,6 @@ async def control_parent_execution(
     user: dict = Depends(verify_token),
 ):
     """Control a running parent execution (PAUSE/RESUME/CANCEL)."""
-    from services.algo_scheduler import (
-        pause_execution, resume_execution, cancel_execution,
-    )
-
     audit_log("EXEC_COMMAND", user.get("sub"), {
         "parentId": parent_id,
         "command": request.command,
@@ -330,8 +342,6 @@ async def get_parent_execution(
     user: dict = Depends(verify_token),
 ):
     """Get the current state of a parent execution."""
-    from services.algo_scheduler import get_execution_state
-
     parent = _parent_store.get(parent_id)
     if parent is None:
         return ApiResponse(success=False, error=f"Parent execution {parent_id} not found")
@@ -349,8 +359,6 @@ async def get_parent_execution(
 @router.get("/api/executions", response_model=ApiResponse)
 async def list_parent_executions(user: dict = Depends(verify_token)):
     """List all tracked parent executions."""
-    from services.algo_scheduler import list_active_parent_ids
-
     active_ids = list_active_parent_ids()
     result = []
     for pid in active_ids:
@@ -432,90 +440,16 @@ class _MockParentChildRepo:
 # ============================================================================
 # WBS-08 Handoff Contracts
 # ============================================================================
-
+# P2-B5: Handoff Pydantic models now imported from schemas/marketview.py
+# (single source of truth). The 80-line inline duplication has been removed.
+#
 # Contract 1 (inbound): MarketView → ExecutionView — peek candidates
 # Contract 2 (outbound): ExecutionView → CostView — publish post-trade context
 
 
-class _HandoffMetadata(BaseModel):
-    contract_version: str
-    source: str
-    handoff_target: str
-    generated_at: str
-    trace_id: str
-    origin_trace_id: Optional[str] = None
-
-
-class _CandidateRow(BaseModel):
-    equ_ticker: str
-    trade_date: str
-    daily_close: Optional[float] = None
-    total_volume: Optional[float] = None
-    adv_20d: Optional[float] = None
-    daily_volatility: Optional[float] = None
-    intraday_volatility: Optional[float] = None
-    liquidity_alert: str
-    volatility_alert: str
-
-
-class _CandidatePayload(BaseModel):
-    source: str
-    handoff_target: str
-    trade_date: Optional[str] = None
-    pool_id: str
-    pool_label: Optional[str] = None
-    row_count: int
-    candidates: list[_CandidateRow] = Field(default_factory=list)
-
-
-class _MarketHandoffPayload(BaseModel):
-    metadata: _HandoffMetadata
-    trade_date: Optional[str] = None
-    pool_id: str
-    pool_label: Optional[str] = None
-    candidate_payload: _CandidatePayload
-    execution_hint: dict = Field(default_factory=dict)
-
-
-class CandidateHandoffResponse(BaseModel):
-    success: bool
-    data: Optional[_MarketHandoffPayload] = None
-    message: str = ""
-
-
-class PostTradeHandoffRequest(BaseModel):
-    order_id: str = Field(min_length=1)
-    parent_execution_id: Optional[str] = None
-    broker: Optional[str] = None
-    strategy: Optional[str] = None
-    asset_class: Optional[str] = None
-    urgency: Optional[str] = None
-    route_ids: list[str] = Field(default_factory=list)
-    strategy_params: dict[str, Any] = Field(default_factory=dict)
-    candidate_trace_id: Optional[str] = None
-
-
-class _PostTradeHandoffPayload(BaseModel):
-    metadata: _HandoffMetadata
-    order_id: str
-    parent_execution_id: Optional[str] = None
-    broker: Optional[str] = None
-    strategy: Optional[str] = None
-    asset_class: Optional[str] = None
-    urgency: Optional[str] = None
-    route_ids: list[str] = Field(default_factory=list)
-    strategy_params: dict[str, Any] = Field(default_factory=dict)
-    candidate_trace_id: Optional[str] = None
-
-
-class PostTradeHandoffResponse(BaseModel):
-    success: bool
-    data: Optional[_PostTradeHandoffPayload] = None
-    message: str = ""
-
-
-def _serialize_metadata(metadata) -> _HandoffMetadata:
-    return _HandoffMetadata(
+def _serialize_metadata(metadata) -> HandoffMetadataResponse:
+    """Serialize handoff metadata domain object to Pydantic response model."""
+    return HandoffMetadataResponse(
         contract_version=metadata.contract_version,
         source=metadata.source,
         handoff_target=metadata.handoff_target,
@@ -527,24 +461,22 @@ def _serialize_metadata(metadata) -> _HandoffMetadata:
 
 @router.get(
     "/api/executions/handoff/candidates",
-    response_model=CandidateHandoffResponse,
+    response_model=MarketToExecutionHandoffEnvelope,
 )
 async def get_active_candidate_handoff():
     """Peek the latest MarketView → ExecutionView candidate handoff."""
-    from platform_data import get_shared_handoff_exchange
-
     handoff = get_shared_handoff_exchange().get_market_to_execution()
     if handoff is None:
-        return CandidateHandoffResponse(
+        return MarketToExecutionHandoffEnvelope(
             success=True, data=None, message="No active MarketView → ExecutionView handoff"
         )
     payload = handoff.candidate_payload
-    data = _MarketHandoffPayload(
+    data = MarketToExecutionHandoffPayload(
         metadata=_serialize_metadata(handoff.metadata),
         trade_date=handoff.trade_date,
         pool_id=handoff.pool_id,
         pool_label=handoff.pool_label,
-        candidate_payload=_CandidatePayload(
+        candidate_payload=MarketCandidatePayloadResponse(
             source=payload.source,
             handoff_target=payload.handoff_target,
             trade_date=payload.trade_date,
@@ -552,7 +484,7 @@ async def get_active_candidate_handoff():
             pool_label=payload.pool_label,
             row_count=payload.row_count,
             candidates=[
-                _CandidateRow(
+                MarketCandidateRowResponse(
                     equ_ticker=c.equ_ticker,
                     trade_date=c.trade_date,
                     daily_close=c.daily_close,
@@ -568,7 +500,7 @@ async def get_active_candidate_handoff():
         ),
         execution_hint=dict(handoff.execution_hint),
     )
-    return CandidateHandoffResponse(
+    return MarketToExecutionHandoffEnvelope(
         success=True,
         data=data,
         message=f"Handoff trace_id={handoff.metadata.trace_id}",
@@ -581,8 +513,6 @@ async def get_active_candidate_handoff():
 )
 async def publish_post_trade_handoff(request: PostTradeHandoffRequest):
     """Publish an ExecutionView → CostView post-trade context handoff."""
-    from platform_data import get_shared_handoff_exchange
-
     handoff = get_shared_handoff_exchange().publish_execution_to_cost(
         order_id=request.order_id,
         parent_execution_id=request.parent_execution_id,
@@ -596,7 +526,7 @@ async def publish_post_trade_handoff(request: PostTradeHandoffRequest):
     )
     return PostTradeHandoffResponse(
         success=True,
-        data=_PostTradeHandoffPayload(
+        data=PostTradeHandoffPayload(
             metadata=_serialize_metadata(handoff.metadata),
             order_id=handoff.order_id,
             parent_execution_id=handoff.parent_execution_id,

@@ -1,18 +1,14 @@
 """Bloomberg EMSX Service package.
 
-Backward-compatible re-export from services.bloomberg_adapter.
+Provides single-responsibility components:
 
-Future work: split the monolithic ~2700-line _adapter.py into:
-  - connection.py   — session management, heartbeat, connect/disconnect
-  - subscriptions.py — order/route/mktdata subscription loops & processing
-  - order_ops.py     — create/modify/cancel orders (async methods)
-  - route_ops.py     — route CRUD (cancel_route, modify_route, route_order)
-  - data_query.py    — reference data, broker strategies, asset class queries
+    BloombergConnectionManager     — session lifecycle, request pools, status
+    EMSXSubscriptionEngine         — order/route subscription, cache, persist
+    MarketDataEnrichmentService    — mktdata streaming, FX, round lot, permfail
+    EMSXRequestHandler             — CRUD ops, broker/strategy queries
+
+For backward-compatible usage, import BloombergEMSXService directly from
+``services.bloomberg_adapter``.
 """
 
-from services.bloomberg_adapter import (  # noqa: F401
-    BloombergEMSXService,
-    configure,
-    settings,
-    repo_provider,
-)
+__all__ = []

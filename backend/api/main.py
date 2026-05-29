@@ -196,9 +196,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="EMSXView Trading API",
-    description="Bloomberg EMSX Integration Service for Trading Tool",
+    description=(
+        "Bloomberg EMSX Integration Service for Trading Tool. "
+        "Provides pre-trade MarketView, order/route ExecutionView, and "
+        "post-trade CostView TCA analytics."
+    ),
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    contact={"name": "Trading Systems Team"},
+    license_info={"name": "Proprietary"},
+    swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
 
 # CORS Middleware

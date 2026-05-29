@@ -121,8 +121,10 @@ export default function ExecutionModule({ onContribute }: ModuleShellProps) {
   // Contribute info to shell for toolbar — generic contribution pattern
   useEffect(() => {
     onContribute?.({
-      orderCount: toolbarOrderCount,
-      routeCount: effectiveRoutes.length,
+      counts: {
+        orders: toolbarOrderCount,
+        routes: effectiveRoutes.length,
+      },
       isLoading,
       lastUpdatedAt,
       refresh: handleRefresh,

@@ -12,6 +12,8 @@ import { matchesAnyCondition } from './monitor-conditions';
 
 export type HealthLevel = 'critical' | 'warning' | 'info' | 'healthy';
 
+export const HEALTH_LEVELS: HealthLevel[] = ['critical', 'warning', 'info', 'healthy'];
+
 export const HEALTH_RANK: Record<HealthLevel, number> = {
   critical: 3, warning: 2, info: 1, healthy: 0,
 };
@@ -128,4 +130,33 @@ export function maxHealth(a: HealthLevel, b: HealthLevel): HealthLevel {
 /** Stable ordering: critical first, then warning, info, healthy. */
 export function compareHealth(a: HealthLevel, b: HealthLevel): number {
   return HEALTH_RANK[b] - HEALTH_RANK[a];
+}
+
+// ─── Convenience accessors ─────────────────────────────────────────────────────
+
+/** Returns the text color for a health level (matching the strip color). */
+export function getHealthColor(level: HealthLevel): string {
+  const colorMap: Record<HealthLevel, string> = {
+    critical: 'text-red-500',
+    warning: 'text-amber-500',
+    info: 'text-sky-500',
+    healthy: 'text-emerald-500',
+  };
+  return colorMap[level];
+}
+
+/** Returns a background tint class for a health level. */
+export function getHealthBg(level: HealthLevel): string {
+  const bgMap: Record<HealthLevel, string> = {
+    critical: 'bg-red-500/10',
+    warning: 'bg-amber-500/10',
+    info: 'bg-sky-500/10',
+    healthy: 'bg-emerald-500/10',
+  };
+  return bgMap[level];
+}
+
+/** Returns a human-readable label for a health level. */
+export function getHealthLabel(level: HealthLevel): string {
+  return HEALTH_PALETTE[level].label;
 }

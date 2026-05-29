@@ -69,14 +69,11 @@ const mockCache = vi.hoisted(() => ({
   clear: vi.fn(),
 }));
 
-vi.mock('@shared/lib/cache-manager', () => ({
+vi.mock('@execution/lib', () => ({
   CACHE_CONFIGS: { TRADER_INFO: { ttl: 30000 } },
   createCache: vi.fn(() => mockCache),
   getOrFetch: vi.fn((_cache: unknown, fetchFn: () => unknown) => fetchFn()),
   clearAllCaches: vi.fn(),
-}));
-
-vi.mock('@shared/lib/reconcile-settings', () => ({
   getReconcileIntervalMs: vi.fn(() => 15000),
 }));
 

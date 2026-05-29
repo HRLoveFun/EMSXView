@@ -21,3 +21,8 @@ from .tca_contracts import (
     TcaReport,
     TcaRouteDetail,
 )
+
+from .protocols import (
+    ConfigProtocol,
+    ConnectionManagerProtocol,
+)

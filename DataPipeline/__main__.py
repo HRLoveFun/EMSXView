@@ -13,12 +13,22 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import warnings
 from pathlib import Path
 
-# Ensure EMSX root is on sys.path for subprocess invocation
+# P2-D5: Ensure EMSX root is on sys.path for standalone CLI invocation
+# (python -m DataPipeline). This is a necessary bootstrapping step because
+# DataPipeline is not yet a pip-installable package with proper entry points.
+# TODO: Remove when DataPipeline has a proper pyproject.toml [project.scripts].
 _EMSX_ROOT = Path(__file__).resolve().parents[1]
 if str(_EMSX_ROOT) not in sys.path:
     sys.path.insert(0, str(_EMSX_ROOT))
+    warnings.warn(
+        "DataPipeline.__main__ sys.path hack is active. "
+        "Install DataPipeline via pyproject.toml dependencies for proper isolation.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
 from DataPipeline.config import Config
 from DataPipeline.orchestration.core import run_full_pipeline

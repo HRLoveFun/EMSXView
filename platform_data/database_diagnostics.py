@@ -28,11 +28,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from DataPipeline.storage.connection import (
-    ConnectionManager as _ConnectionManager,
-    DB_FETCH_HISTORY,
-)
-from DataPipeline.config import Config as _Config
+from DataPipeline import ConnectionManager as _ConnectionManager
+from DataPipeline import Config as _Config
+from DataPipeline.storage.connection import DB_FETCH_HISTORY  # internal DB key constant
 
 logger = logging.getLogger(__name__)
 

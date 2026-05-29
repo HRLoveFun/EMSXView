@@ -14,6 +14,10 @@ const descriptor: ModuleDescriptor = {
   isDefault: true,
   loader: () => import('@execution/ExecutionModule'),
   // ExecutionModule is always loaded eagerly — no hover prefetch needed
+  // Declares the /ws/orders WebSocket for realtime order/route streams.
+  realtimeWsPath: '/ws/orders',
+  // ExecutionView is the consumer of MarketView→Execution and CostView→Execution handoffs.
+  showHandoffBadge: true,
 };
 
 moduleRegistry.register(descriptor);

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from schemas import (
@@ -14,7 +14,7 @@ from schemas import (
     ModifyRouteRequest,
 )
 from deps import verify_token, audit_log, get_bloomberg
-from services import batch_route_service
+from services import batch_route_service, compliance_service
 
 router = APIRouter(tags=["Routes"])
 
@@ -54,8 +54,6 @@ async def modify_route(request: ModifyRouteRequest, user: dict = Depends(verify_
             if cached_route is not None:
                 parent_order = bloomberg._orders.get(str(request.sequence))
     if cached_route is not None:
-        from services import compliance_service
-        from fastapi import HTTPException
         new_limit = request.limitPrice if "limitPrice" in request.model_fields_set else None
         new_stop = request.stopPrice if "stopPrice" in request.model_fields_set else None
         violations = compliance_service.check_modify(

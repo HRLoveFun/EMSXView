@@ -10,152 +10,46 @@ Data constraint: ALL metrics are derived exclusively from
 processed_fills.db, fill_bdib.db, raw_bdib.db, and raw_fills.db.
 No external API calls are made during analysis.
 """
-
 from __future__ import annotations
 
 import logging
-import os
-import uuid
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
 
-from platform_data.adapters import (
-    ScorecardCohortMetrics,
-    ScorecardFilters,
-    ScorecardReport,
-    TcaFilters,
-    TcaReport,
-)
-from platform_data.contracts import SCORECARD_COHORTS
+from platform_data.adapters import ScorecardFilters, TcaFilters
 from platform_data.regime_query import get_regime_distribution
-from CostView.src.tca_query_service import TcaQueryService
+from platform_data import get_shared_handoff_exchange, get_tca_query_service
+
+from schemas.costview import (
+    PinRecommendationRequest,
+    PinRecommendationResponse,
+    RegimeDistributionResponse,
+    RegimeDistributionRow,
+    ScorecardRequest,
+    ScorecardResponse,
+    StageInfo,
+    TcaAnalyzeRequest,
+    TcaAnalyzeResponse,
+    TriggerUpdateResponse,
+    UpdateStatusResponse,
+    serialize_report,
+    serialize_scorecard,
+)
 
 from ._pipeline_jobs import get_job, trigger_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
-_analytics = TcaQueryService()
-
-
-# ── Pydantic request/response models ─────────────────────────────────────────
-
-class TcaFilterPayload(BaseModel):
-    """Flexible filter input — all fields optional."""
-    order_ids: Optional[list[str]] = Field(
-        default=None,
-        description="Specific order IDs to include",
-        max_length=500,
-    )
-    algo: Optional[str] = Field(
-        default=None, max_length=50,
-        description="Algorithm name e.g. VWAP, TWAP, POV"
-    )
-    start_date: Optional[str] = Field(
-        default=None, pattern=r"^\d{8}$",
-        description="Start date YYYYMMDD"
-    )
-    end_date: Optional[str] = Field(
-        default=None, pattern=r"^\d{8}$",
-        description="End date YYYYMMDD"
-    )
-    broker: Optional[str] = Field(default=None, max_length=100)
-    symbol: Optional[str] = Field(
-        default=None, max_length=100,
-        description="Bloomberg equity ticker e.g. AAPL US Equity"
-    )
-
-    @field_validator("order_ids")
-    @classmethod
-    def validate_order_ids(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        if v is not None and len(v) > 500:
-            raise ValueError("order_ids must not exceed 500 entries")
-        return v
-
-
-class TcaAnalyzeRequest(BaseModel):
-    filters: TcaFilterPayload = Field(default_factory=TcaFilterPayload)
-    aggregation: str = Field(
-        default="per_order",
-        pattern=r"^(per_order|aggregated)$",
-    )
-    limit: int = Field(default=50, ge=1, le=500)
-    offset: int = Field(default=0, ge=0)
-
-
-class TcaAnalyzeResponse(BaseModel):
-    success: bool
-    data: Optional[dict] = None
-    message: str = ""
-
-
-class ScorecardRequest(BaseModel):
-    """Broker/strategy cohort scorecard request."""
-    cohort: str = Field(
-        default="broker_strategy",
-        description=f"Cohort dimension; one of {list(SCORECARD_COHORTS)}",
-    )
-    filters: TcaFilterPayload = Field(default_factory=TcaFilterPayload)
-    min_sample_size: int = Field(default=10, ge=1, le=1000)
-    max_orders: int = Field(default=2000, ge=1, le=10000)
-
-    @field_validator("cohort")
-    @classmethod
-    def validate_cohort(cls, v: str) -> str:
-        v = (v or "").strip().lower()
-        if v not in SCORECARD_COHORTS:
-            raise ValueError(
-                f"cohort must be one of {list(SCORECARD_COHORTS)}"
-            )
-        return v
-
-
-class ScorecardResponse(BaseModel):
-    success: bool
-    data: Optional[dict] = None
-    message: str = ""
-
-
-class TriggerUpdateResponse(BaseModel):
-    job_id: str
-    status: str
-    message: str
-
-
-class StageInfo(BaseModel):
-    name: str        # "initialization" | "fill_fetch" | "processing" | "completion"
-    label: str       # human-readable label
-    progress: int = 0  # 0-100 within this stage
-    detail: Optional[str] = None  # freeform detail (e.g. "Day 3/7: 2026-04-29 — 1245 rows, upserted 1245")
-
-
-class UpdateStatusResponse(BaseModel):
-    job_id: str
-    status: str      # "started" | "running" | "completed" | "failed"
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    error: Optional[str] = None
-    stage: Optional[StageInfo] = None
-    overall_progress: int = 0  # 0-100 across all stages
-    last_activity_at: Optional[str] = None
+_analytics = get_tca_query_service()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.post("/api/tca/analyze", response_model=TcaAnalyzeResponse)
 async def analyze_tca(request: TcaAnalyzeRequest):
-    """Run TCA analysis over the filtered order set.
-
-    All metrics are derived from the local fill and BDIB SQLite databases.
-    No Bloomberg or external API calls are made during this endpoint.
-
-    Returns a structured report with per-order summaries and per-route details.
-    If fill_bdib.db is empty (pipeline not yet run), returns a clear 503 with
-    instructions to trigger an update.
-    """
+    """Run TCA analysis over the filtered order set."""
     f = request.filters
     filters = TcaFilters(
         order_ids=f.order_ids,
@@ -183,8 +77,7 @@ async def analyze_tca(request: TcaAnalyzeRequest):
     if report.data_source_warning:
         raise HTTPException(status_code=503, detail=report.data_source_warning)
 
-    # Serialize dataclasses to dict
-    report_dict = _serialize_report(report)
+    report_dict = serialize_report(report)
     return TcaAnalyzeResponse(
         success=True,
         data=report_dict,
@@ -194,14 +87,7 @@ async def analyze_tca(request: TcaAnalyzeRequest):
 
 @router.post("/api/tca/scorecard", response_model=ScorecardResponse)
 async def analyze_scorecard(request: ScorecardRequest):
-    """Build a broker/strategy cohort scorecard.
-
-    Aggregates per-order TCA metrics across the requested cohort dimension
-    (broker, strategy, broker_strategy, asset_class, time_of_day,
-    liquidity_adv20, or volatility). Cohorts with fewer than
-    ``min_sample_size`` orders carry a sample_size_warning so the frontend
-    can de-emphasize them rather than display unstable rankings.
-    """
+    """Build a broker/strategy cohort scorecard."""
     f = request.filters
     filters = ScorecardFilters(
         cohort=request.cohort,
@@ -232,7 +118,7 @@ async def analyze_scorecard(request: ScorecardRequest):
 
     return ScorecardResponse(
         success=True,
-        data=_serialize_scorecard(report),
+        data=serialize_scorecard(report),
         message=(
             f"Scorecard across {len(report.cohorts)} {request.cohort} cohort(s) "
             f"({report.total_orders_considered} orders)"
@@ -244,18 +130,12 @@ async def analyze_scorecard(request: ScorecardRequest):
 async def trigger_update(request: Request):
     """[DEPRECATED ALIAS] Trigger the CostView daily update pipeline.
 
-    Kept for backward compatibility with the CostView frontend. New callers
-    should use ``POST /api/db/update`` (DatabaseView router). Both endpoints
-    share the same in-memory job registry, so status polling works across
-    either URL.
-
     Restricted to localhost to prevent unauthorized pipeline execution.
     """
     client_host = request.client.host if request.client else "unknown"
     if client_host not in ("127.0.0.1", "::1", "localhost"):
         raise HTTPException(
-            status_code=403,
-            detail="Trigger endpoint is restricted to localhost",
+            status_code=403, detail="Trigger endpoint is restricted to localhost"
         )
     result = trigger_pipeline(client_host)
     return TriggerUpdateResponse(**result)
@@ -280,42 +160,12 @@ async def get_update_status(job_id: str):
     )
 
 
-# ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
+# ── WBS-08 handoff contract: CostView → ExecutionView ─────────────────────────
 
 
-class PinRecommendationRequest(BaseModel):
-    cohort: str = Field(min_length=1, max_length=50)
-    asset_class: Optional[str] = None
-    broker: Optional[str] = None
-    strategy: Optional[str] = None
-    urgency: Optional[str] = None
-    sample_size: int = Field(ge=0, le=1_000_000)
-    arrival_bps: Optional[float] = None
-    implementation_bps: Optional[float] = None
-    severity: str = Field(default="normal")
-    rationale: str = Field(default="", max_length=500)
-    source_report_trace_id: Optional[str] = None
-
-
-class PinRecommendationResponse(BaseModel):
-    success: bool
-    data: Optional[dict] = None
-    message: str = ""
-
-
-@router.post(
-    "/api/tca/recommendations/pin",
-    response_model=PinRecommendationResponse,
-)
+@router.post("/api/tca/recommendations/pin", response_model=PinRecommendationResponse)
 async def pin_broker_strategy_recommendation(request: PinRecommendationRequest):
-    """Pin a CostView cohort conclusion as a recommendation for ExecutionView.
-
-    ExecutionView reads pinned recommendations via
-    GET /api/broker-recommendations. Keeping the publish endpoint here keeps
-    write-ownership with the analytics domain.
-    """
-    from platform_data import get_shared_handoff_exchange
-
+    """Pin a CostView cohort conclusion as a recommendation for ExecutionView."""
     rec = get_shared_handoff_exchange().publish_cost_to_execution(
         cohort=request.cohort,
         asset_class=request.asset_class,
@@ -348,14 +198,9 @@ async def pin_broker_strategy_recommendation(request: PinRecommendationRequest):
     )
 
 
-@router.get(
-    "/api/tca/handoff/post-trade/{order_id}",
-    response_model=PinRecommendationResponse,
-)
+@router.get("/api/tca/handoff/post-trade/{order_id}", response_model=PinRecommendationResponse)
 async def get_post_trade_handoff(order_id: str):
     """Peek the ExecutionView → CostView post-trade handoff for a given order."""
-    from platform_data import get_shared_handoff_exchange
-
     handoff = get_shared_handoff_exchange().get_execution_to_cost(order_id)
     if handoff is None:
         return PinRecommendationResponse(
@@ -390,26 +235,6 @@ async def get_post_trade_handoff(order_id: str):
 
 # ── Regime distribution (M1/M2 view) ──────────────────────────────────────────
 
-class RegimeDistributionRow(BaseModel):
-    """One row per (date, market_code)."""
-    date: str
-    market_code: str
-    low: int = 0
-    normal: int = 0
-    high: int = 0
-    extreme: int = 0
-    none: int = 0
-    total: int = 0
-
-
-class RegimeDistributionResponse(BaseModel):
-    success: bool
-    rows: list[RegimeDistributionRow]
-    regime_dim: str
-    config_version: Optional[str] = None
-    start_date: str
-    end_date: str
-
 
 @router.get("/api/costview/regime-distribution", response_model=RegimeDistributionResponse)
 async def regime_distribution(
@@ -417,11 +242,7 @@ async def regime_distribution(
     end_date: str,
     regime_dim: str = "vol_regime",
 ):
-    """Return per-day fill counts grouped by regime label.
-
-    Reads CostView/data/regime.db (active config) and aggregates
-    `fill_regime_labels` over [start_date, end_date].
-    """
+    """Return per-day fill counts grouped by regime label."""
     if regime_dim not in {"vol_regime", "liq_regime", "trend_regime"}:
         raise HTTPException(status_code=400, detail=f"unsupported regime_dim: {regime_dim}")
     if not (len(start_date) == 10 and len(end_date) == 10):
@@ -429,9 +250,7 @@ async def regime_distribution(
 
     try:
         rows_data = get_regime_distribution(
-            start_date=start_date,
-            end_date=end_date,
-            regime_dim=regime_dim,
+            start_date=start_date, end_date=end_date, regime_dim=regime_dim,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="regime.db not built yet")
@@ -459,99 +278,3 @@ async def regime_distribution(
         success=True, rows=out, regime_dim=regime_dim,
         config_version=config_version, start_date=start_date, end_date=end_date,
     )
-
-
-# ── Pipeline runner ────────────────────────────────────────────────────────────
-#
-# The pipeline job registry and subprocess runner live in
-# routers/_pipeline_jobs.py so that both /api/tca/trigger-update (this router,
-# deprecated alias) and /api/db/update (DatabaseView router) share state.
-
-
-# ── Serialization helpers ─────────────────────────────────────────────────────
-
-def _serialize_report(report: TcaReport) -> dict:
-    """Convert TcaReport dataclass tree to a JSON-safe dict."""
-    return {
-        "filters": report.filters,
-        "total_orders": report.total_orders,
-        "offset": report.offset,
-        "limit": report.limit,
-        "generated_at": report.generated_at,
-        "orders": [
-            {
-                "order_id": o.order_id,
-                "order_as_of_date": o.order_as_of_date,
-                "equ_ticker": o.equ_ticker,
-                "side": o.side,
-                "algo": o.algo,
-                "start_time": o.start_time,
-                "end_time": o.end_time,
-                "fill_pct": o.fill_pct,
-                "exec_price": o.exec_price,
-                "interval_vwap": o.interval_vwap,
-                "tracking_error_bps": o.tracking_error_bps,
-                "volume_pct_interval": o.volume_pct_interval,
-                "volume_pct_adv5": o.volume_pct_adv5,
-                "volume_pct_adv20": o.volume_pct_adv20,
-                "daily_volatility": o.daily_volatility,
-                "intraday_volatility": o.intraday_volatility,
-                "price_movement_pct": o.price_movement_pct,
-                "data_quality_warning": o.data_quality_warning,
-                "routes": [
-                    {
-                        "order_id": r.order_id,
-                        "route_id": r.route_id,
-                        "order_as_of_date": r.order_as_of_date,
-                        "broker": r.broker,
-                        "side": r.side,
-                        "start_time": r.start_time,
-                        "end_time": r.end_time,
-                        "fill_pct": r.fill_pct,
-                        "exec_price": r.exec_price,
-                        "interval_vwap": r.interval_vwap,
-                        "tracking_error_bps": r.tracking_error_bps,
-                        "volume_pct_interval": r.volume_pct_interval,
-                        "time_series": r.time_series,
-                    }
-                    for r in o.routes
-                ],
-            }
-            for o in report.orders
-        ],
-    }
-
-
-def _serialize_scorecard(report: ScorecardReport) -> dict:
-    """Convert ScorecardReport dataclass tree to a JSON-safe dict."""
-    return {
-        "filters": report.filters,
-        "cohort": report.cohort,
-        "min_sample_size": report.min_sample_size,
-        "total_orders_considered": report.total_orders_considered,
-        "total_orders_capped": report.total_orders_capped,
-        "generated_at": report.generated_at,
-        "data_source_warning": report.data_source_warning,
-        "cohorts": [
-            {
-                "cohort_key": c.cohort_key,
-                "cohort_label": c.cohort_label,
-                "sample_size": c.sample_size,
-                "order_count": c.order_count,
-                "avg_tracking_error_bps": c.avg_tracking_error_bps,
-                "median_tracking_error_bps": c.median_tracking_error_bps,
-                "p95_tracking_error_bps": c.p95_tracking_error_bps,
-                "stddev_tracking_error_bps": c.stddev_tracking_error_bps,
-                "avg_fill_pct": c.avg_fill_pct,
-                "avg_volume_pct_interval": c.avg_volume_pct_interval,
-                "avg_volume_pct_adv20": c.avg_volume_pct_adv20,
-                "avg_daily_volatility": c.avg_daily_volatility,
-                "avg_intraday_volatility": c.avg_intraday_volatility,
-                "avg_price_movement_pct": c.avg_price_movement_pct,
-                "data_quality_ratio": c.data_quality_ratio,
-                "sample_size_warning": c.sample_size_warning,
-                "anomaly_flags": list(c.anomaly_flags),
-            }
-            for c in report.cohorts
-        ],
-    }

@@ -64,15 +64,16 @@ export function WorkspaceModuleTabs({
       <div role="tablist" aria-label="Workspace module switcher" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-1.5">
         {modules.map(m => {
           const isActive = activeModule === m.id;
-          const isExecution = m.id === 'execution';
-          const hasPending = isExecution && (candidateCount > 0 || recCount > 0);
+          // P1-B4: Use declarative showHandoffBadge flag instead of hardcoded
+          // module ID check (previously: m.id === 'execution').
+          const hasPending = m.showHandoffBadge && (candidateCount > 0 || recCount > 0);
 
           return (
             <button
               key={m.id}
               role="tab"
               aria-selected={isActive}
-              className={`${isExecution ? 'relative' : ''} rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              className={`${m.showHandoffBadge ? 'relative' : ''} rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'

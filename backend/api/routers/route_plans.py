@@ -19,6 +19,7 @@ from schemas import (
     TestMatchResponse,
 )
 from deps import verify_token, audit_log, get_bloomberg
+from services.route_engine import RouteEngine
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,6 @@ async def test_match_route_plan(plan_id: int, user: dict = Depends(verify_token)
     bloomberg = get_bloomberg()
     orders = await bloomberg.get_orders()
 
-    from services.route_engine import RouteEngine
     engine = RouteEngine(_engine_repo)
 
     # Build a lightweight proxy for _order_matches_plan
@@ -346,7 +346,6 @@ async def apply_route_engine(
     if parent_order is None:
         raise HTTPException(404, f"Order {order_id} not found in subscription cache")
 
-    from services.route_engine import RouteEngine
     engine = RouteEngine(_engine_repo)
 
     try:
@@ -507,133 +506,4 @@ async def reject_proposal(proposal_id: int, user: dict = Depends(verify_token)):
 
     proposal["status"] = "REJECTED"
     proposal["updated_at"] = _now()
-    return ApiResponse(success=True, message=f"Proposal {proposal_id} rejected")
-
-
-@router.post("/api/sub-order-proposals/batch-confirm")
-async def batch_confirm_proposals(
-    request: BatchConfirmRequest,
-    user: dict = Depends(verify_token),
-):
-    """Batch confirm and submit multiple proposals.
-
-    - ``dryRun=true`` -> sync JSON BatchOperationResult (validation only).
-    - ``dryRun=false`` -> NDJSON stream via batch_route_service.
-    """
-    audit_log("BATCH_CONFIRM_PROPOSALS", user.get("sub"), {
-        "proposalIds": request.proposalIds,
-        "dryRun": request.dryRun,
-    })
-
-    repo = _get_repo()
-
-    # Validate all proposals exist and are PENDING_CONFIRM
-    route_items = []
-    for pid in request.proposalIds:
-        proposal = await repo.get_proposal(pid)
-        if proposal is None:
-            raise HTTPException(404, f"Proposal {pid} not found")
-        if proposal.get("status") != "PENDING_CONFIRM":
-            raise HTTPException(
-                400,
-                f"Proposal {pid} has status '{proposal.get('status')}', not PENDING_CONFIRM",
-            )
-
-        from schemas import BatchRouteOrderItem
-        route_items.append(
-            BatchRouteOrderItem(
-                orderId=proposal["parent_order_id"],
-                clientKey=str(pid),
-                override={
-                    "broker": proposal["broker"],
-                    "quantity": proposal["quantity"],
-                    "orderType": proposal.get("order_type") or "LIMIT",
-                    "price": proposal.get("limit_price"),
-                    "timeInForce": proposal.get("tif") or "DAY",
-                    "strategyParams": proposal.get("strategy_params"),
-                },
-            )
-        )
-
-    from schemas import BatchRouteOrderRequest
-    batch_req = BatchRouteOrderRequest(
-        template={},
-        items=route_items,
-        dryRun=request.dryRun,
-    )
-
-    from services import batch_route_service
-    bloomberg = get_bloomberg()
-    terminal_trader = (
-        bloomberg.get_terminal_trader_name()
-        if hasattr(bloomberg, "get_terminal_trader_name")
-        else None
-    )
-
-    if request.dryRun:
-        result = await batch_route_service.dry_run_batch_route(
-            bloomberg, batch_req, terminal_trader=terminal_trader,
-        )
-        return ApiResponse(
-            success=True,
-            data=result.model_dump(),
-            message=f"Dry-run: {result.succeeded} ready, {result.blocked} blocked",
-        )
-
-    # On successful submission, update proposal statuses
-    async def _stream_with_status_update():
-        now = datetime.now(timezone.utc).isoformat()
-        submitted_ids: set[int] = set()
-
-        async for line in batch_route_service.stream_batch_route(
-            bloomberg, batch_req, terminal_trader=terminal_trader,
-        ):
-            # Try to detect success and update status
-            import json
-            try:
-                obj = json.loads(line) if isinstance(line, str) else line
-                if isinstance(obj, dict):
-                    if obj.get("status") == "SUCCESS":
-                        # clientKey is the proposal ID
-                        try:
-                            pid = int(obj.get("key", "0"))
-                            if pid > 0:
-                                submitted_ids.add(pid)
-                        except ValueError:
-                            pass
-                    elif "summary" in obj:
-                        # Final summary — update all submitted
-                        for pid in submitted_ids:
-                            try:
-                                await repo.update_proposal_status(
-                                    pid, "SUBMITTED",
-                                    confirmed_at=now,
-                                    submitted_at=now,
-                                )
-                            except Exception:
-                                pass
-            except Exception:
-                pass
-            yield line if isinstance(line, str) else json.dumps(line) + "\n"
-
-    return StreamingResponse(
-        _stream_with_status_update(),
-        media_type="application/x-ndjson",
-    )
-
-
-@router.post("/api/sub-order-proposals/{proposal_id}/reject", response_model=ApiResponse)
-async def reject_proposal(
-    proposal_id: int,
-    user: dict = Depends(verify_token),
-):
-    """Reject a sub-order proposal."""
-    audit_log("REJECT_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
-
-    repo = _get_repo()
-    proposal = await repo.get_proposal(proposal_id)
-    if proposal is None:
-        raise HTTPException(404, f"Proposal {proposal_id} not found")
-
-    await repo.update_proposal_status(proposal_id, "REJECTED")
     return ApiResponse(success=True, message=f"Proposal {proposal_id} rejected")

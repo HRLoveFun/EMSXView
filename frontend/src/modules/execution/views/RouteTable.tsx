@@ -19,7 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatNumber, formatInt, getSideClass } from '@shared/lib/format-utils';
-import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@shared/lib/table-constants';
+import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@execution/lib';
 import { TextFilterPopover } from '@execution/components/filters/TextFilterPopover';
 import { MultiSelectFilterPopover } from '@execution/components/filters/MultiSelectFilterPopover';
 import { RouteActionMenu } from '@execution/components/route-action-menu';

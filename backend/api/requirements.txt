@@ -1,5 +1,10 @@
 ﻿# EMSX Trading API - Python Dependencies
 # Install: pip install -r requirements.txt
+#
+# Internal packages (installed as editable for development):
+#   pip install -e ../../platform_data
+#   pip install -e ../../DataPipeline
+#   pip install -e ../../CostView
 
 # FastAPI Framework
 fastapi==0.109.0
