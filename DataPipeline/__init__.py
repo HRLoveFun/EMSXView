@@ -13,6 +13,7 @@ notice across minor versions.
   * ``Config`` — single source of truth for pipeline configuration
   * ``ConnectionManager`` — centralized SQLite connection lifecycle
   * ``AccessTier`` — read/write access tier enumeration
+  * ``DatabaseFacade`` — unified entry point for all database repositories
 
 See docs/spec/data-domain.md for the logical data domain boundaries.
 """
@@ -20,8 +21,9 @@ See docs/spec/data-domain.md for the logical data domain boundaries.
 __version__ = "1.0.0"
 
 # ── Stable public API exports ────────────────────────────────────────────
-# P2-D7: External consumers should import from here rather than reaching
+# P2-D7/P1-1: External consumers should import from here rather than reaching
 # into internal submodules (DataPipeline.storage.schema.columns, etc.).
 
 from DataPipeline.config import Config
 from DataPipeline.storage.connection import ConnectionManager, AccessTier
+from DataPipeline.storage.facade import DatabaseFacade

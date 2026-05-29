@@ -25,11 +25,11 @@ def get_regime_distribution(
     Raises FileNotFoundError if regime.db does not exist.
     """
     if connection_manager is None:
-        # Lazy import of concrete ConnectionManager for backward compat
-        from DataPipeline import ConnectionManager
-        mgr = ConnectionManager()
-    else:
-        mgr = connection_manager
+        raise ValueError(
+            "ConnectionManager must be provided to get_regime_distribution(). "
+            "Import from DataPipeline: from DataPipeline import ConnectionManager"
+        )
+    mgr = connection_manager
 
     if not mgr.database_exists("regime"):
         raise FileNotFoundError("regime.db not built yet")

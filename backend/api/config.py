@@ -79,6 +79,16 @@ class Settings:
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"
 
+    # Optional module routers — comma-separated "module:label" pairs.
+    # Set to empty string to disable all optional modules.
+    # Set to "*" or "all" to load all known optional modules.
+    # Default loads CostView, DatabaseView, and Execution History.
+    # Example: EMSXVIEW_OPTIONAL_MODULES=costview:CostView,database:DB
+    OPTIONAL_MODULES: str = os.getenv(
+        "EMSXVIEW_OPTIONAL_MODULES",
+        "database:DatabaseView,execution_history:Execution history",
+    )
+
 
 def _validate_settings(s: Settings) -> None:
     """Validate critical settings on startup."""

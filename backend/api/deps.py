@@ -1,11 +1,12 @@
-"""
-Shared FastAPI dependencies for routers.
+"""Shared FastAPI dependencies for routers.
 
-Provides ``verify_token``, ``audit_log``, and service accessor functions
-that any router can import without pulling in main.py.
+Provides ``verify_token``, ``audit_log``, and FastAPI ``Depends()``-based
+service injection for routers.
 
-Call ``init_services(bloomberg_service, broker_storage)`` from main.py
-once all singletons are ready.
+Services are stored in ``app.state`` and injected via::
+
+    from deps import get_bloomberg_service, get_broker_storage_service
+    async def my_route(bloomberg = Depends(get_bloomberg_service)): ...
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from auth import AuthManager
@@ -48,6 +49,17 @@ def verify_token(
 _repo_provider: Optional[RepositoryProvider] = None
 
 
+def init_services(bloomberg_service, broker_storage, repo_provider) -> None:
+    """Wire the audit RepositoryProvider singleton.
+
+    Called once from main.py after construction. Bloomberg/Broker storage
+    services are now injected via app.state + Depends(); this function only
+    handles the audit persistence provider for backward compatibility.
+    """
+    global _repo_provider
+    _repo_provider = repo_provider
+
+
 def audit_log(action: str, user: str, details: dict) -> None:
     """Log trading action for audit — with optional DB persistence."""
     if settings.ENABLE_AUDIT_LOG:
@@ -65,26 +77,15 @@ def audit_log(action: str, user: str, details: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Service accessors — set from main.py before first request
+# FastAPI Depends() based service injection (canonical accessors).
 # ---------------------------------------------------------------------------
 
-_bloomberg_service = None
-_broker_storage = None
+
+def get_bloomberg_service(request: Request):
+    """FastAPI Depends() accessor — resolves BloombergEMSXService from app.state."""
+    return request.app.state.bloomberg_service
 
 
-def init_services(bloomberg_service, broker_storage, repo_provider) -> None:
-    """Wire runtime singletons. Called once from main.py after construction."""
-    global _bloomberg_service, _broker_storage, _repo_provider
-    _bloomberg_service = bloomberg_service
-    _broker_storage = broker_storage
-    _repo_provider = repo_provider
-
-
-def get_bloomberg():
-    """Return the BloombergEMSXService singleton."""
-    return _bloomberg_service
-
-
-def get_broker_storage():
-    """Return the BrokerAlgorithmStorageService singleton."""
-    return _broker_storage
+def get_broker_storage_service(request: Request):
+    """FastAPI Depends() accessor — resolves BrokerAlgorithmStorageService from app.state."""
+    return request.app.state.broker_storage

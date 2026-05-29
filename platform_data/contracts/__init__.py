@@ -74,3 +74,10 @@ from .handoff_contracts import (
     _new_trace_id,
     _now_iso,
 )
+
+# Database constants (table names, computational constants)
+from .db_constants import (
+    BARS_PER_YEAR,
+    BDIB_DAILY_SUMMARY_TABLE,
+    RAW_BDIB_TABLE,
+)

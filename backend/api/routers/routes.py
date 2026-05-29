@@ -13,37 +13,47 @@ from schemas import (
     CancelRouteRequest,
     ModifyRouteRequest,
 )
-from deps import verify_token, audit_log, get_bloomberg
+from deps import verify_token, audit_log, get_bloomberg_service
 from services import batch_route_service, compliance_service
 
 router = APIRouter(tags=["Routes"])
 
 
 @router.get("/api/routes", response_model=ApiResponse)
-async def get_routes(user: dict = Depends(verify_token)):
+async def get_routes(
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Get routes from EMSX subscription cache."""
-    routes = await get_bloomberg().get_routes()
+    routes = await bloomberg.get_routes()
     return ApiResponse(success=True, data=routes, message=f"Retrieved {len(routes)} routes")
 
 
 @router.post("/api/routes/cancel", response_model=ApiResponse)
-async def cancel_route(request: CancelRouteRequest, user: dict = Depends(verify_token)):
+async def cancel_route(
+    request: CancelRouteRequest,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Cancel a route via CancelRouteEx."""
     audit_log("CANCEL_ROUTE", user.get("sub"), {
         "sequence": request.sequence, "routeId": request.routeId,
     })
-    await get_bloomberg().cancel_route(request)
+    await bloomberg.cancel_route(request)
     return ApiResponse(success=True, message=f"Route {request.routeId} cancel request sent")
 
 
 @router.post("/api/routes/modify", response_model=ApiResponse)
-async def modify_route(request: ModifyRouteRequest, user: dict = Depends(verify_token)):
+async def modify_route(
+    request: ModifyRouteRequest,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Modify a route via ModifyRouteEx."""
     audit_log("MODIFY_ROUTE", user.get("sub"), {
         "sequence": request.sequence, "routeId": request.routeId,
         "fields": request.model_dump(exclude_none=True, exclude={"sequence", "routeId"}),
     })
-    bloomberg = get_bloomberg()
     # Pre-trade compliance check using the cached route + parent order.
     cached_route = None
     parent_order = None
@@ -76,7 +86,11 @@ async def modify_route(request: ModifyRouteRequest, user: dict = Depends(verify_
 
 
 @router.post("/api/routes/batch-modify")
-async def batch_modify_routes(request: BatchModifyRouteRequest, user: dict = Depends(verify_token)):
+async def batch_modify_routes(
+    request: BatchModifyRouteRequest,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Batch-modify N existing routes.
 
     - ``dryRun=true``  -> sync JSON ``BatchOperationResult``.
@@ -88,7 +102,6 @@ async def batch_modify_routes(request: BatchModifyRouteRequest, user: dict = Dep
         "templateKeys": sorted(request.template.keys()),
         "dryRun": request.dryRun,
     })
-    bloomberg = get_bloomberg()
     if request.dryRun:
         result = await batch_route_service.dry_run_batch_modify(bloomberg, request)
         return ApiResponse(
@@ -102,7 +115,10 @@ async def batch_modify_routes(request: BatchModifyRouteRequest, user: dict = Dep
 
 
 @router.get("/api/routes/diagnose-strategy-rate", response_model=ApiResponse)
-async def diagnose_strategy_rate(user: dict = Depends(verify_token)):
+async def diagnose_strategy_rate(
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Diagnose routes where strategy Rate information appears to be missing.
 
     Scans the live route cache and groups routes by (broker, strategyType),
@@ -120,7 +136,7 @@ async def diagnose_strategy_rate(user: dict = Depends(verify_token)):
     Intended to help investigate cases such as "EQ-JPM some routes show Rate
     in Strat Params and some do not" by surfacing the raw subscription values.
     """
-    routes = await get_bloomberg().get_routes()
+    routes = await bloomberg.get_routes()
 
     rows: list[dict] = []
     grouped: dict[tuple[str, str], dict] = defaultdict(

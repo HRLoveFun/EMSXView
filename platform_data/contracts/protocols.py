@@ -17,8 +17,21 @@ DataPipeline, and keeps the dependency direction correct:
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+
+class AccessTier(Enum):
+    """Lightweight access-tier enum — mirrors DataPipeline.storage.connection.AccessTier.
+
+    Defined here so that platform_data consumers do not need to import from
+    DataPipeline directly; DataPipeline.AccessTier is compatible via duck-typing
+    because ConnectionManagerProtocol accepts ``Any`` for access_tier.
+    """
+
+    READ = "read"
+    WRITE = "write"
 
 
 @runtime_checkable

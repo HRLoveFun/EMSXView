@@ -5,10 +5,9 @@ Instead of platform_data importing CostView directly, CostView registers its
 TcaQueryService implementation at startup via dependency injection.
 
 Usage:
-    # In CostView/api/main.py (startup):
+    # In application startup (e.g. CostView/api/main.py):
     from platform_data.adapters.tca_bridge import register_tca_service_impl
-    from CostView.src.tca_query_service import TcaQueryService
-    register_tca_service_impl(TcaQueryService())
+    register_tca_service_impl(your_tca_service_instance)
 
     # In consuming code:
     from platform_data.adapters.tca_bridge import get_tca_query_service

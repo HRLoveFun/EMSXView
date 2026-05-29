@@ -18,7 +18,7 @@ from schemas import (
     SubOrderProposalResponse,
     TestMatchResponse,
 )
-from deps import verify_token, audit_log, get_bloomberg
+from deps import verify_token, audit_log, get_bloomberg_service
 from services.route_engine import RouteEngine
 
 logger = logging.getLogger(__name__)
@@ -301,13 +301,15 @@ def _apply_updates(plan: dict, request) -> None:
 
 
 @router.post("/api/route-plans/{plan_id}/test-match", response_model=ApiResponse)
-async def test_match_route_plan(plan_id: int, user: dict = Depends(verify_token)):
+async def test_match_route_plan(
+    plan_id: int,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Test a route plan against current orders — returns matching order IDs."""
     plan = _plans.get(plan_id)
     if plan is None:
         raise HTTPException(404, f"Route plan {plan_id} not found")
-
-    bloomberg = get_bloomberg()
     orders = await bloomberg.get_orders()
 
     engine = RouteEngine(_engine_repo)
@@ -334,11 +336,10 @@ async def apply_route_engine(
     order_id: str,
     plan_id: Optional[int] = Query(None, description="Specific plan ID (MANUAL mode); omit for AUTO matching"),
     user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
 ):
     """Apply RouteEngine to a specific order."""
     audit_log("APPLY_ROUTE_ENGINE", user.get("sub"), {"orderId": order_id, "planId": plan_id})
-
-    bloomberg = get_bloomberg()
     parent_order = None
     if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
         with bloomberg._data_lock:
@@ -380,7 +381,11 @@ async def list_sub_order_proposals(
 
 
 @router.post("/api/sub-order-proposals/{proposal_id}/confirm", response_model=ApiResponse)
-async def confirm_proposal(proposal_id: int, user: dict = Depends(verify_token)):
+async def confirm_proposal(
+    proposal_id: int,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Confirm and submit a single sub-order proposal via RouteEx."""
     audit_log("CONFIRM_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
 
@@ -389,8 +394,6 @@ async def confirm_proposal(proposal_id: int, user: dict = Depends(verify_token))
         raise HTTPException(404, f"Proposal {proposal_id} not found")
     if proposal.get("status") != "PENDING_CONFIRM":
         raise HTTPException(400, f"Proposal {proposal_id} has status '{proposal.get('status')}', not PENDING_CONFIRM")
-
-    bloomberg = get_bloomberg()
     try:
         from schemas import RouteOrderRequest
         route_req = RouteOrderRequest(
@@ -417,6 +420,7 @@ async def confirm_proposal(proposal_id: int, user: dict = Depends(verify_token))
 async def batch_confirm_proposals(
     request: BatchConfirmRequest,
     user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
 ):
     """Batch confirm and submit multiple proposals.
 
@@ -452,7 +456,6 @@ async def batch_confirm_proposals(
     batch_req = BatchRouteOrderRequest(template={}, items=route_items, dryRun=request.dryRun)
 
     from services import batch_route_service
-    bloomberg = get_bloomberg()
     terminal_trader = (
         bloomberg.get_terminal_trader_name()
         if hasattr(bloomberg, "get_terminal_trader_name") else None

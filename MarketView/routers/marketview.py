@@ -26,7 +26,18 @@ from platform_data.adapters import (
 )
 
 router = APIRouter(tags=["MarketView"])
-market = MarketReferenceDataAdapter()
+
+# Lazy-init the market adapter with ConnectionManager from DataPipeline.
+_market: MarketReferenceDataAdapter | None = None
+
+
+def _get_market() -> MarketReferenceDataAdapter:
+    """Lazily create MarketReferenceDataAdapter with ConnectionManager injected."""
+    global _market
+    if _market is None:
+        from DataPipeline import ConnectionManager
+        _market = MarketReferenceDataAdapter(connection_manager=ConnectionManager())
+    return _market
 
 MarketAlertFilter = Literal["all", "warning", "critical"]
 MarketSortField = Literal[
@@ -146,7 +157,7 @@ async def get_market_snapshot(
     sort_direction: MarketSortDirection = Query(default="desc"),
 ):
     try:
-        snapshot = market.get_market_snapshot(
+        snapshot = _get_market().get_market_snapshot(
             limit=limit,
             trade_date=trade_date,
             pool_id=pool_id,
@@ -361,7 +372,7 @@ async def get_intraday_features(
         )
 
     try:
-        snapshot = market.get_intraday_features(
+        snapshot = _get_market().get_intraday_features(
             equ_tickers=ticker_list,
             trade_date=trade_date,
             bucket_minutes=bucket_minutes,
@@ -456,7 +467,7 @@ async def publish_execution_handoff(request: MarketToExecutionPublishRequest):
     GET /api/executions/handoff/candidates.
     """
     try:
-        snapshot = market.get_market_snapshot(
+        snapshot = _get_market().get_market_snapshot(
             limit=request.limit,
             trade_date=request.trade_date,
             pool_id=request.pool_id,

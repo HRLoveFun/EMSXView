@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from schemas import (
     ApiResponse, BrokerAlgorithmConfig, StrategyConfig, StrategyParameter,
 )
-from deps import verify_token, audit_log, get_bloomberg, get_broker_storage
+from deps import verify_token, audit_log, get_bloomberg_service, get_broker_storage_service
 from platform_data import get_shared_handoff_exchange
 
 logger = logging.getLogger("main")
@@ -20,20 +20,27 @@ router = APIRouter(tags=["Broker"])
 
 
 @router.get("/api/trader-info", response_model=ApiResponse)
-async def get_trader_info(user: dict = Depends(verify_token)):
+async def get_trader_info(
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Get the terminal's trader identity."""
-    name = get_bloomberg().get_terminal_trader_name()
+    name = bloomberg.get_terminal_trader_name()
     return ApiResponse(success=True, data={"traderName": name}, message=f"Terminal trader: {name}")
 
 
 @router.get("/api/asset-class", response_model=ApiResponse)
-async def get_asset_class(ticker: str, user: dict = Depends(verify_token)):
+async def get_asset_class(
+    ticker: str,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Resolve EMSX asset class for a ticker.
 
     Current usage is still overwhelmingly EQTY, but this keeps the broker/
     strategy discovery chain explicit for future FUT/OPT/multileg flows.
     """
-    asset_class = await get_bloomberg().get_asset_class(ticker)
+    asset_class = await bloomberg.get_asset_class(ticker)
     return ApiResponse(
         success=True,
         data={"ticker": ticker, "assetClass": asset_class},
@@ -46,9 +53,10 @@ async def get_broker_strategies(
     broker: str,
     assetClass: str = "EQTY",
     user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
 ):
     """Get available strategies for a broker."""
-    strategies = await get_bloomberg().get_broker_strategies(broker, assetClass)
+    strategies = await bloomberg.get_broker_strategies(broker, assetClass)
     return ApiResponse(
         success=True,
         data={"broker": broker, "assetClass": assetClass, "strategies": strategies},
@@ -62,9 +70,10 @@ async def get_broker_strategy_info(
     strategy: str,
     assetClass: str = "EQTY",
     user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
 ):
     """Get strategy parameter details."""
-    fields = await get_bloomberg().get_broker_strategy_info(broker, strategy, assetClass)
+    fields = await bloomberg.get_broker_strategy_info(broker, strategy, assetClass)
     return ApiResponse(
         success=True,
         data={"broker": broker, "strategy": strategy, "assetClass": assetClass, "fields": fields},
@@ -73,9 +82,13 @@ async def get_broker_strategy_info(
 
 
 @router.get("/api/brokers", response_model=ApiResponse)
-async def get_brokers(assetClass: str = "EQTY", user: dict = Depends(verify_token)):
+async def get_brokers(
+    assetClass: str = "EQTY",
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+):
     """Get available brokers for an asset class."""
-    brokers = await get_bloomberg().get_brokers(assetClass)
+    brokers = await bloomberg.get_brokers(assetClass)
     return ApiResponse(
         success=True,
         data={"brokers": brokers, "assetClass": assetClass},
@@ -84,9 +97,11 @@ async def get_brokers(assetClass: str = "EQTY", user: dict = Depends(verify_toke
 
 
 @router.get("/api/broker-algorithms", response_model=ApiResponse)
-async def get_stored_broker_algorithms(user: dict = Depends(verify_token)):
+async def get_stored_broker_algorithms(
+    user: dict = Depends(verify_token),
+    storage=Depends(get_broker_storage_service),
+):
     """Get stored broker algorithm configuration."""
-    storage = get_broker_storage()
     configs = await storage.get_configs()
     last_updated = await storage.get_last_updated()
     needs_refresh = await storage.needs_refresh()
@@ -103,28 +118,30 @@ async def get_stored_broker_algorithms(user: dict = Depends(verify_token)):
 
 
 @router.post("/api/broker-algorithms/refresh", response_model=ApiResponse)
-async def refresh_broker_algorithms(user: dict = Depends(verify_token)):
+async def refresh_broker_algorithms(
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+    storage=Depends(get_broker_storage_service),
+):
     """Refresh broker algorithm configuration from Bloomberg API."""
     audit_log("REFRESH_BROKER_ALGORITHMS", user.get("sub"), {})
-    bb = get_bloomberg()
-    storage = get_broker_storage()
 
     try:
         configs: List[BrokerAlgorithmConfig] = []
-        brokers = await bb.get_brokers("EQTY")
+        brokers = await bloomberg.get_brokers("EQTY")
         logger.info(f"[RefreshBrokerAlgorithms] Found {len(brokers)} brokers")
 
         for broker in brokers:
             if not broker.startswith("EQ-"):
                 continue
             try:
-                strategies = await bb.get_broker_strategies(broker, "EQTY")
+                strategies = await bloomberg.get_broker_strategies(broker, "EQTY")
                 if not strategies:
                     continue
                 strategy_configs: List[StrategyConfig] = []
                 for strategy_name in strategies:
                     try:
-                        fields = await bb.get_broker_strategy_info(broker, strategy_name, "EQTY")
+                        fields = await bloomberg.get_broker_strategy_info(broker, strategy_name, "EQTY")
                         strategy_configs.append(StrategyConfig(
                             name=strategy_name,
                             parameters=[
@@ -168,9 +185,11 @@ async def refresh_broker_algorithms(user: dict = Depends(verify_token)):
 
 
 @router.get("/api/broker-algorithms/status", response_model=ApiResponse)
-async def get_broker_algorithms_status(user: dict = Depends(verify_token)):
+async def get_broker_algorithms_status(
+    user: dict = Depends(verify_token),
+    storage=Depends(get_broker_storage_service),
+):
     """Get status of broker algorithm configuration storage."""
-    storage = get_broker_storage()
     last_updated = await storage.get_last_updated()
     needs_refresh = await storage.needs_refresh()
     return ApiResponse(

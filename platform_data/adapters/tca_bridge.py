@@ -49,12 +49,14 @@ def get_tca_query_service(key: str = "default") -> TcaQueryServiceProtocol:
     if key in _tca_service_registry:
         return _tca_service_registry[key]
 
-    # Fallback: lazy import from CostView for backward compatibility.
-    # This path is deprecated — new deployments should register explicitly.
-    from CostView.src.tca_query_service import TcaQueryService
-    impl = TcaQueryService()
-    _tca_service_registry[key] = impl
-    return impl
+    # No implementation registered — caller must register TcaQueryService
+    # before using TCA features. In standalone CostView mode, CostView/api/main.py
+    # calls register_tca_service_impl() at startup.
+    raise RuntimeError(
+        "No TcaQueryService implementation registered. "
+        "Ensure register_tca_service_impl() is called at application startup "
+        "(e.g. from CostView/api/main.py:_setup_dependencies())."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -73,11 +75,14 @@ from platform_data.contracts import (
     TcaReport,
 )
 
-_RAW_BDIB_TABLE = "raw_bdib"
-_BDIB_DAILY_SUMMARY_TABLE = "bdib_daily_summary"
-
-# Annualization factor for 10-second bars used in intraday realized vol.
-_BARS_PER_YEAR = 252 * 6.5 * 3600 / 10  # approx 589,680
+# ── Re-export constants from canonical location ─────────────────────────────────
+# Imported from platform_data.contracts.db_constants which is the single source
+# of truth. Direct consumers should import from contracts directly.
+from platform_data.contracts.db_constants import (
+    BARS_PER_YEAR,
+    BDIB_DAILY_SUMMARY_TABLE,
+    RAW_BDIB_TABLE,
+)
 
 
 class _ConnectionManagerDailySummaryReader:
@@ -89,8 +94,10 @@ class _ConnectionManagerDailySummaryReader:
 
     def __init__(self, connection_manager: ConnectionManagerProtocol | None = None):
         if connection_manager is None:
-            from DataPipeline import ConnectionManager
-            connection_manager = ConnectionManager()
+            raise ValueError(
+                "ConnectionManager must be provided to _ConnectionManagerDailySummaryReader. "
+                "Inject via platform_data.contracts.protocols.ConnectionManagerProtocol."
+            )
         self._mgr = connection_manager
 
     def get_latest_daily_summary(
@@ -106,7 +113,7 @@ class _ConnectionManagerDailySummaryReader:
             resolved_trade_date = trade_date
             if not resolved_trade_date:
                 cursor = conn.execute(
-                    f"SELECT MAX(trade_date) FROM {_BDIB_DAILY_SUMMARY_TABLE}"
+                    f"SELECT MAX(trade_date) FROM {BDIB_DAILY_SUMMARY_TABLE}"
                 )
                 resolved_trade_date = cursor.fetchone()[0]
 
@@ -127,7 +134,7 @@ class _ConnectionManagerDailySummaryReader:
             return pd.read_sql_query(
                 f"SELECT equ_ticker, trade_date, total_volume, daily_close, daily_volatility, "
                 f"intraday_volatility, adv_5d, adv_20d "
-                f"FROM {_BDIB_DAILY_SUMMARY_TABLE} "
+                f"FROM {BDIB_DAILY_SUMMARY_TABLE} "
                 "WHERE trade_date = ? "
                 "ORDER BY COALESCE(total_volume, 0) DESC, equ_ticker ASC "
                 "LIMIT ?",
