@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatNumber } from '@shared/lib/format-utils';
-import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TYPE_OPTIONS, type OrderGroupByValue } from '@shared/lib/table-constants';
+import { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TYPE_OPTIONS, type OrderGroupByValue } from '@execution/lib';
 import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, Route } from '@execution/types'
 import { OrderModifyDialog, type OrderUpdates } from '@execution/components/order-modify-dialog';
 import { BatchRouteOrderDialog } from '@execution/components/batch-route-order-dialog';

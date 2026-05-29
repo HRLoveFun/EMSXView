@@ -13,6 +13,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from models.parent_child_orders import ScheduleType
 from models.route_plan import (
     AllocationType,
     RoutePlan,
@@ -20,6 +21,12 @@ from models.route_plan import (
     SplitType,
 )
 from schemas import Order
+from services.benchmark_engine import (
+    PlannedSlice,
+    ScheduleRequest,
+    VolumeProfile,
+    compute_schedule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -235,13 +242,6 @@ class RouteEngine:
             end = start + timedelta(hours=1)
 
         try:
-            from services.benchmark_engine import (
-                ScheduleRequest,
-                VolumeProfile,
-                compute_schedule,
-            )
-            from models.parent_child_orders import ScheduleType
-
             st = ScheduleType(plan.schedule_type)
             vp = VolumeProfile(buckets=[1.0] * plan.num_slices)  # uniform profile fallback
 
@@ -297,13 +297,6 @@ class RouteEngine:
             end = start + timedelta(hours=1)
 
         try:
-            from services.benchmark_engine import (
-                ScheduleRequest,
-                VolumeProfile,
-                compute_schedule,
-            )
-            from models.parent_child_orders import ScheduleType
-
             st = ScheduleType(plan.schedule_type or "TWAP")
             vp = VolumeProfile(buckets=[1.0] * plan.num_slices)
 

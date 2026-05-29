@@ -9,7 +9,7 @@ import {
   getReconcileIntervalSec,
   setReconcileIntervalSec,
   type ReconcileIntervalSec,
-} from '@shared/lib/reconcile-settings';
+} from '@execution/lib';
 
 export function GlobalSection() {
   const [monitorAlertsEnabled, setMonitorAlertsEnabled] = useState(() => {

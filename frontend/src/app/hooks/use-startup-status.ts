@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { apiService } from '@execution/services/execution-api';
+import { getStartupStatus as fetchStartupStatus } from '@shared/services/startup-api';
 import type { ConnectionStatus, StartupStatusSnapshot } from '@shared/types'
 
 interface UseStartupStatusOptions {
@@ -112,7 +112,7 @@ export function useStartupStatus({
       }
 
       try {
-        const response = await apiService.getStartupStatus();
+        const response = await fetchStartupStatus();
         if (!active) return;
         if (response.success && response.data) {
           setStartupStatus(response.data);

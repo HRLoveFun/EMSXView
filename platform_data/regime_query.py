@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from DataPipeline.storage.connection import ConnectionManager
+from DataPipeline import ConnectionManager
 
 
 def get_regime_distribution(

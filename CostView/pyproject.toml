@@ -9,6 +9,8 @@ description = "CostView TCA analysis and reporting domain"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.5",
+    "emsxview-platform-data",
+    "emsxview-datapipeline",
 ]
 
 [tool.setuptools.packages.find]

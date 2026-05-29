@@ -9,7 +9,34 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from DataPipeline.storage.connection import ConnectionManager, AccessTier
+# Lazy TCA query service singleton — resolved at call time, not import time,
+# to avoid circular chains (platform_data → CostView → platform_data → ...).
+_TCA_SERVICE = None
+
+
+def get_tca_query_service():
+    """Return the process-wide TCA query service singleton.
+
+    Lazily imports TcaQueryService from CostView at first call to avoid
+    import-time coupling between platform_data and CostView.
+    """
+    global _TCA_SERVICE
+    if _TCA_SERVICE is not None:
+        return _TCA_SERVICE
+    from CostView.src.tca_query_service import TcaQueryService
+    _TCA_SERVICE = TcaQueryService()
+    return _TCA_SERVICE
+
+
+# P2-D3: Import ConnectionManagerProtocol instead of the concrete class to
+# keep platform_data as a logical adaptation layer. The concrete ConnectionManager
+# is only used as a lazy default in _ConnectionManagerDailySummaryReader.__init__.
+# New code should inject a ConnectionManagerProtocol-compatible instance.
+#
+# AccessTier is a lightweight enum — imported from DataPipeline's public API
+# surface via __init__.py (P2-D7).
+from DataPipeline import AccessTier
+from platform_data.contracts.protocols import ConnectionManagerProtocol
 from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -41,8 +68,14 @@ class _ConnectionManagerDailySummaryReader:
     coupled platform_data to a CostView legacy DB class.
     """
 
-    def __init__(self, connection_manager: ConnectionManager | None = None):
-        self._mgr = connection_manager or ConnectionManager()
+    def __init__(self, connection_manager: ConnectionManagerProtocol | None = None):
+        if connection_manager is None:
+            # P2-D3/D7: Lazy import of concrete ConnectionManager via the
+            # DataPipeline public API. Only invoked when caller does not
+            # provide a ConnectionManagerProtocol-compatible instance.
+            from DataPipeline import ConnectionManager
+            connection_manager = ConnectionManager()
+        self._mgr = connection_manager
 
     def get_latest_daily_summary(
         self,
@@ -482,7 +515,7 @@ class MarketReferenceDataAdapter:
     """Canonical adapter for MarketView-facing market reference data."""
 
     _reader: Any = field(default=None, repr=False)
-    connection_manager: ConnectionManager | None = field(default=None, compare=False)
+    connection_manager: ConnectionManagerProtocol | None = field(default=None, compare=False)
 
     def _get_reader(self):
         if self._reader is None:
@@ -1179,20 +1212,44 @@ class RedisHandoffExchangeAdapter:
         return self._rebuild_handoff(data)
 
     def _rebuild_handoff(self, data: dict[str, Any]) -> ExecutionCandidateHandoff:
+        """Rebuild an ExecutionCandidateHandoff from serialized JSON, mapping
+        persisted keys back to the canonical MarketCandidatePayload dataclass fields.
+
+        BUG2-FIX: Previously used ``rows`` (nonexistent) & ``generated_at`` (nonexistent)
+        and omitted the required ``source``, ``handoff_target``, ``filters``, ``sort`` fields.
+        """
         meta = HandoffMetadata(**data["metadata"])
         cp_data = data["candidate_payload"]
+        # Rebuild MarketSnapshotFilters & MarketSnapshotSort from serialized dicts.
+        filters_data = cp_data.get("filters", {})
+        filters = MarketSnapshotFilters(
+            min_adv_20d=filters_data.get("min_adv_20d"),
+            min_total_volume=filters_data.get("min_total_volume"),
+            min_daily_volatility=filters_data.get("min_daily_volatility"),
+            min_intraday_volatility=filters_data.get("min_intraday_volatility"),
+            liquidity_alert=filters_data.get("liquidity_alert", "all"),
+            volatility_alert=filters_data.get("volatility_alert", "all"),
+        )
+        sort_data = cp_data.get("sort", {})
+        sort_spec = MarketSnapshotSort(
+            field=sort_data.get("field", "total_volume"),
+            direction=sort_data.get("direction", "desc"),
+        )
         cp = MarketCandidatePayload(
-            trade_date=cp_data["trade_date"],
-            pool_id=cp_data["pool_id"],
+            source=cp_data.get("source", "marketview-candidate-v1"),
+            handoff_target=cp_data.get("handoff_target", "ExecutionView"),
+            trade_date=cp_data.get("trade_date"),
+            pool_id=cp_data.get("pool_id", ""),
             pool_label=cp_data.get("pool_label"),
-            rows=[MarketCandidateRow(**r) for r in cp_data.get("rows", [])],
+            filters=filters,
+            sort=sort_spec,
             row_count=cp_data.get("row_count", 0),
-            generated_at=cp_data.get("generated_at"),
+            candidates=[MarketCandidateRow(**r) for r in cp_data.get("candidates", [])],
         )
         return ExecutionCandidateHandoff(
             metadata=meta,
-            trade_date=data["trade_date"],
-            pool_id=data["pool_id"],
+            trade_date=data.get("trade_date"),
+            pool_id=data.get("pool_id", ""),
             pool_label=data.get("pool_label"),
             candidate_payload=cp,
             execution_hint=data.get("execution_hint", {}),
@@ -1217,17 +1274,43 @@ class RedisHandoffExchangeAdapter:
         )
 
     def _deserialize_recommendation(self, data: dict[str, Any]) -> BrokerStrategyRecommendation:
+        """BUG2-FIX: Map from persisted Redis keys to the canonical
+        BrokerStrategyRecommendation dataclass fields.
+
+        Old invalid fields (cohort_id, strategy_alias, recommendation_assessment,
+        scorecard_snapshot, cross_reference_note) are remapped to their correct
+        counterparts (cohort, strategy, severity, rationale, etc.).
+        """
         meta = HandoffMetadata(**data["metadata"])
+        # Persisted key → canonical field mapping (backward-compatible with
+        # records that may have been stored with the old field names).
+        cohort = data.get("cohort") or data.get("cohort_id") or ""
+        strategy = data.get("strategy") or data.get("strategy_alias")
+        # Map legacy recommendation_assessment → severity
+        severity = (
+            data.get("severity")
+            or data.get("recommendation_assessment")
+            or "normal"
+        )
+        # Map legacy cross_reference_note → rationale
+        rationale = (
+            data.get("rationale")
+            or data.get("cross_reference_note")
+            or ""
+        )
         return BrokerStrategyRecommendation(
             metadata=meta,
-            cohort_id=data.get("cohort_id"),
-            broker=data.get("broker"),
-            strategy_alias=data.get("strategy_alias"),
+            cohort=cohort,
             asset_class=data.get("asset_class"),
-            recommendation_assessment=data.get("recommendation_assessment"),
-            scorecard_snapshot=ScorecardCohortMetrics(**data["scorecard_snapshot"])
-            if data.get("scorecard_snapshot") else None,
-            cross_reference_note=data.get("cross_reference_note"),
+            broker=data.get("broker"),
+            strategy=strategy,
+            urgency=data.get("urgency"),
+            sample_size=data.get("sample_size", 0),
+            arrival_bps=data.get("arrival_bps"),
+            implementation_bps=data.get("implementation_bps"),
+            severity=severity,
+            rationale=rationale,
+            source_report_trace_id=data.get("source_report_trace_id"),
         )
 
     # — Market → Execution —
@@ -1315,15 +1398,26 @@ class RedisHandoffExchangeAdapter:
     def publish_cost_to_execution(
         self,
         *,
-        cohort_id: str | None = None,
-        broker: str,
-        strategy_alias: str,
-        asset_class: str,
-        recommendation_assessment: str | None = None,
-        scorecard_snapshot: ScorecardCohortMetrics | None = None,
-        cross_reference_note: str | None = None,
+        cohort: str,
+        asset_class: str | None,
+        broker: str | None,
+        strategy: str | None,
+        urgency: str | None,
+        sample_size: int,
+        arrival_bps: float | None,
+        implementation_bps: float | None,
+        severity: str,
+        rationale: str,
+        source_report_trace_id: str | None = None,
         origin_trace_id: str | None = None,
     ) -> BrokerStrategyRecommendation:
+        """BUG2-FIX: Signature now matches BrokerStrategyRecommendation dataclass.
+
+        Previous signature used invalid fields (cohort_id, strategy_alias,
+        recommendation_assessment, scorecard_snapshot, cross_reference_note) that
+        did not exist on the canonical dataclass, causing silent data corruption
+        in Redis-backed deployments.
+        """
         metadata = HandoffMetadata(
             contract_version=self._COST_CONTRACT_VERSION,
             source="CostView",
@@ -1334,13 +1428,17 @@ class RedisHandoffExchangeAdapter:
         )
         rec = BrokerStrategyRecommendation(
             metadata=metadata,
-            cohort_id=cohort_id,
-            broker=broker,
-            strategy_alias=strategy_alias,
+            cohort=cohort,
             asset_class=asset_class,
-            recommendation_assessment=recommendation_assessment,
-            scorecard_snapshot=scorecard_snapshot,
-            cross_reference_note=cross_reference_note,
+            broker=broker,
+            strategy=strategy,
+            urgency=urgency,
+            sample_size=sample_size,
+            arrival_bps=arrival_bps,
+            implementation_bps=implementation_bps,
+            severity=severity,
+            rationale=rationale,
+            source_report_trace_id=source_report_trace_id,
         )
         self._redis.rpush(self._KEY_CV_TO_EV, self._serialize(rec))
         # Trim list to max size

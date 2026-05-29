@@ -4,8 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
-from DataPipeline.config import Config
+from DataPipeline import AccessTier, Config, ConnectionManager
 
 
 class ExecutionHistoryQueryService:

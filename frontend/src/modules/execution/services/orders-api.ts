@@ -5,6 +5,7 @@ import type {
   ModifyOrderRequest, RouteOrderRequest,
 } from '@execution/types';
 import type { ApiResponse, StartupStatusSnapshot } from '@shared/types';
+import { getStartupStatus } from '@shared/services/startup-api';
 import { apiFetch } from './http-client';
 
 export const ordersApi = {
@@ -63,11 +64,11 @@ export const ordersApi = {
   },
 
   async getStartupStatus(): Promise<ApiResponse<StartupStatusSnapshot>> {
-    return apiFetch<StartupStatusSnapshot>('/api/startup-status');
+    return getStartupStatus();
   },
 
   async checkConnection(): Promise<ApiResponse<{ status: 'connected' | 'disconnected' }>> {
-    const result = await apiFetch<StartupStatusSnapshot>('/api/startup-status');
+    const result = await getStartupStatus();
     if (result.success && result.data) {
       const s = result.data.bloomberg.status === 'connected' ? 'connected' : 'disconnected';
       return { success: true, data: { status: s } };

@@ -4,7 +4,7 @@ import type {
   TraderInfo, BrokerStrategiesResponse, BrokerStrategyInfoResponse, BrokerAlgorithmConfig,
 } from '@execution/types';
 import type { ApiResponse } from '@shared/types';
-import { createCache, CACHE_CONFIGS, getOrFetch } from '@shared/lib/cache-manager';
+import { createCache, CACHE_CONFIGS, getOrFetch } from '@execution/lib';
 import { getBrokerStrategiesFromFile, getStrategyInfoFromFile, mergeWithDefaults } from './strategy-data-service';
 import { apiFetch } from './http-client';
 

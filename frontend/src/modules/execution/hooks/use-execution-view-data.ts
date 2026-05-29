@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiService } from '@execution/services/execution-api';
-import { CACHE_CONFIGS, clearAllCaches, createCache, getOrFetch } from '@shared/lib/cache-manager';
-import { getReconcileIntervalMs } from '@shared/lib/reconcile-settings';
+import { CACHE_CONFIGS, clearAllCaches, createCache, getOrFetch, getReconcileIntervalMs } from '@execution/lib';
 import type {
   BatchUpdateRequest,
   CancelRouteRequest,

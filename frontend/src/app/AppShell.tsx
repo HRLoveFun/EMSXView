@@ -69,11 +69,22 @@ export function AppShell() {
   const clearDroppedToastCount = useCallback(() => setDroppedToastCount(0), []);
 
   // ─── Realtime WS connection ────────────────────────────────────────────
+  // WS URL is discovered from the first registered module that declares a
+  // realtimeWsPath (currently only ExecutionView). No more shell hardcode.
   const [streamConnected, setStreamConnected] = useState(false);
   const [streamEverConnected, setStreamEverConnected] = useState(false);
   const rtClientRef = useRef<RealtimeClient | null>(null);
 
+  // Discover realtime WS path from module descriptors (P1-B3 fix).
+  const realtimeWsPath = useMemo(() => {
+    const modules = moduleRegistry.getAll();
+    const rtModule = modules.find(m => m.realtimeWsPath);
+    return rtModule?.realtimeWsPath ?? null;
+  }, []);
+
   useEffect(() => {
+    if (!realtimeWsPath) return; // No module declared a WS path — skip
+
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const envUrl = import.meta.env.VITE_API_URL;
     let wsBase: string;
@@ -93,7 +104,7 @@ export function AppShell() {
     } else {
       wsBase = `${proto}//${window.location.host}`;
     }
-    const client = createRealtimeClient({ url: `${wsBase}/ws/orders` });
+    const client = createRealtimeClient({ url: `${wsBase}${realtimeWsPath}` });
     rtClientRef.current = client;
 
     client.onStatus((s) => {
@@ -119,17 +130,20 @@ export function AppShell() {
       client.disconnect();
       rtClientRef.current = null;
     };
-  }, [addToast]);
+  }, [addToast, realtimeWsPath]);
 
   // ─── Module contribution — generic, not execution-specific ─────────────
   const [moduleContribution, setModuleContribution] = useState<ModuleContribution>({
-    orderCount: 0,
-    routeCount: 0,
+    counts: {},
     isLoading: true,
     lastUpdatedAt: null,
     refresh: () => {},
     clearCache: () => {},
   });
+
+  // Derive legacy counters from generic counts for compatible consumers.
+  const orderCount = moduleContribution.counts['orders'] ?? 0;
+  const routeCount = moduleContribution.counts['routes'] ?? 0;
 
   // ─── Startup status ───────────────────────────────────────────────────
   const {
@@ -155,8 +169,8 @@ export function AppShell() {
     streamConnected,
     streamEverConnected,
     startupElapsedSeconds: backendBootstrapElapsedSec,
-    orderCount: moduleContribution.orderCount,
-    routeCount: moduleContribution.routeCount,
+    orderCount,
+    routeCount,
   });
 
   // ─── Shell context value (provided to all modules via React context) ──
@@ -197,7 +211,7 @@ export function AppShell() {
         onRefresh={moduleContribution.refresh}
         onClearCache={moduleContribution.clearCache}
         isLoading={!isBackendReady || moduleContribution.isLoading}
-        orderCount={moduleContribution.orderCount}
+        orderCount={orderCount}
         onLogout={handleLogout}
         startupStatus={startupStatus}
         connectionStatus={connectionStatus}

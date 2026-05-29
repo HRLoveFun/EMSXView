@@ -22,10 +22,22 @@ import json
 import logging
 import logging.handlers
 import sys
+import warnings
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# P2-D6: Ensure CostView root is on sys.path for standalone CLI invocation
+# (python -m src). This bootstraps imports when running outside an installed
+# environment.
+# TODO: Remove when CostView has a proper pyproject.toml [project.scripts].
+_COSTVIEW_ROOT = Path(__file__).resolve().parent.parent
+if str(_COSTVIEW_ROOT) not in sys.path:
+    sys.path.insert(0, str(_COSTVIEW_ROOT))
+    warnings.warn(
+        "CostView.__main__ sys.path hack is active. "
+        "Use pip install -e . for proper package isolation.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
 from DataPipeline.config import Config
 

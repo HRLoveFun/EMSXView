@@ -1,9 +1,7 @@
 /**
- * Reconcile poll interval — single source of truth for the cadence at which
- * the UI cross-checks the WebSocket-driven state against a REST snapshot.
- *
- * Stored in localStorage so it survives reload and cross-component access
- * (Settings UI writes; data hook reads on every tick).
+ * P1-C2: Reconcile poll interval moved from @shared/lib/ back to the Execution
+ * module — consumed exclusively by GlobalSection.tsx and use-execution-view-data.ts
+ * (both within @execution/).
  */
 
 const STORAGE_KEY = 'emsx_reconcile_interval_sec';

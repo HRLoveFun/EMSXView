@@ -12,6 +12,7 @@ from schemas import (
     ApiResponse, BrokerAlgorithmConfig, StrategyConfig, StrategyParameter,
 )
 from deps import verify_token, audit_log, get_bloomberg, get_broker_storage
+from platform_data import get_shared_handoff_exchange
 
 logger = logging.getLogger("main")
 
@@ -200,8 +201,6 @@ async def get_broker_recommendations(
     reads them here when composing a new order/route so trader decisions stay
     backed by post-trade evidence instead of gut feel.
     """
-    from platform_data import get_shared_handoff_exchange
-
     recs = get_shared_handoff_exchange().list_cost_to_execution(
         asset_class=assetClass,
         broker=broker,

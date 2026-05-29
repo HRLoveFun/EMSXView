@@ -105,6 +105,11 @@ services:
   # ============================================================
   # Frontend - React/Vite app built with Node, served via Nginx
   # Nginx also reverse-proxies /api/* and /ws/* to the backend
+  #
+  # P3-DECOUPLE: Frontend static assets are independent — the
+  # depends_on is purely for Nginx's reverse-proxy health check.
+  # In a CDN-deployed frontend scenario, remove the depends_on block
+  # and serve frontend from a separate origin.
   # ============================================================
   frontend:
     build:
