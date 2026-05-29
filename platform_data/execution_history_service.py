@@ -1,10 +1,17 @@
+"""Execution history query service — read-only access to processed_fills.db.
+
+Phase 3: Uses ConnectionManagerProtocol + ConfigProtocol instead of direct
+DataPipeline imports. AccessTier (a lightweight public enum) is retained.
+"""
+
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from DataPipeline import AccessTier, Config, ConnectionManager
+from DataPipeline import AccessTier  # public enum, lightweight
+from platform_data.contracts.protocols import ConnectionManagerProtocol, ConfigProtocol
 
 
 class ExecutionHistoryQueryService:
@@ -12,13 +19,15 @@ class ExecutionHistoryQueryService:
 
     def __init__(
         self,
-        connection_manager: Optional[ConnectionManager] = None,
+        connection_manager: ConnectionManagerProtocol | None = None,
         proc_fills_db_path: str | None = None,
         raw_fills_db_path: str | None = None,
     ):
         if connection_manager is not None:
             self._mgr = connection_manager
         elif proc_fills_db_path or raw_fills_db_path:
+            # Lazy import of concrete ConnectionManager only for path override case
+            from DataPipeline import ConnectionManager
             overrides: dict[str, Path] = {}
             if proc_fills_db_path:
                 overrides["processed_fills"] = Path(proc_fills_db_path)
@@ -26,6 +35,7 @@ class ExecutionHistoryQueryService:
                 overrides["raw_fills"] = Path(raw_fills_db_path)
             self._mgr = ConnectionManager(path_overrides=overrides)
         else:
+            from DataPipeline import ConnectionManager
             self._mgr = ConnectionManager()
 
     def list_fill_history(
@@ -52,7 +62,7 @@ class ExecutionHistoryQueryService:
         raw_fetched_at = "NULL AS fetched_at"
         if self._mgr.database_exists("raw_fills"):
             raw_join = f"""
-                LEFT JOIN raw.{Config.RAW_FILLS_TABLE} raw
+                LEFT JOIN raw.{ConfigProtocol.RAW_FILLS_TABLE} raw
                   ON CAST(raw.OrderId AS TEXT) = CAST(p.OrderId AS TEXT)
                  AND CAST(raw.RouteId AS TEXT) = CAST(p.RouteId AS TEXT)
                  AND CAST(raw.FillId AS TEXT) = CAST(p.FillId AS TEXT)
@@ -85,7 +95,7 @@ class ExecutionHistoryQueryService:
                 p.FillPrice AS fill_price,
                 p.FillShares AS fill_shares,
                 {raw_fetched_at}
-            FROM {Config.PROCESSED_FILLS_TABLE} p
+            FROM {ConfigProtocol.PROCESSED_FILLS_TABLE} p
             LEFT JOIN route_registry rr
               ON CAST(rr.OrderId AS TEXT) = CAST(p.OrderId AS TEXT)
              AND CAST(rr.RouteId AS TEXT) = CAST(p.RouteId AS TEXT)
@@ -134,7 +144,7 @@ class ExecutionHistoryQueryService:
                 END AS average_fill_price,
                 MIN(COALESCE(p.local_fill_datetime, p.DateTimeOfFill)) AS first_fill_time,
                 MAX(COALESCE(p.local_fill_datetime, p.DateTimeOfFill)) AS last_fill_time
-            FROM {Config.PROCESSED_FILLS_TABLE} p
+            FROM {ConfigProtocol.PROCESSED_FILLS_TABLE} p
             LEFT JOIN route_registry rr
               ON CAST(rr.OrderId AS TEXT) = CAST(p.OrderId AS TEXT)
              AND CAST(rr.RouteId AS TEXT) = CAST(p.RouteId AS TEXT)
@@ -186,7 +196,7 @@ class ExecutionHistoryQueryService:
                 END AS average_fill_price,
                 MIN(COALESCE(p.local_fill_datetime, p.DateTimeOfFill)) AS first_fill_time,
                 MAX(COALESCE(p.local_fill_datetime, p.DateTimeOfFill)) AS last_fill_time
-            FROM {Config.PROCESSED_FILLS_TABLE} p
+            FROM {ConfigProtocol.PROCESSED_FILLS_TABLE} p
             LEFT JOIN route_registry rr
               ON CAST(rr.OrderId AS TEXT) = CAST(p.OrderId AS TEXT)
              AND CAST(rr.RouteId AS TEXT) = CAST(p.RouteId AS TEXT)

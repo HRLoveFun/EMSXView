@@ -1,10 +1,13 @@
 """
 Stage 8: tag every fill in processed_fills with regime labels.
 
-Reads from CostView/data/processed_fills.db (cross-DB) and looks up the active
-config_version's daily_*_regime + macro calendar; writes one row per
+Reads from processed_fills.db (path resolved via Config.data_dir) and looks up
+the active config_version's daily_*_regime + macro calendar; writes one row per
 (OrderId, RouteId, FillId, order_as_of_date_iso, config_version) into
 fill_regime_labels (append-only across config drift).
+
+Phase 4: Removed hardcoded CostView path reference; database path is now
+resolved through Config (DataPipeline.config.Config).
 
 Notes
 -----

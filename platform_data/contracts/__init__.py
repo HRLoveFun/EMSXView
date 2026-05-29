@@ -11,6 +11,7 @@ Ownership rule:
     an explicit version bump so downstream breakage is caught early.
 """
 
+# TCA / Scorecard contracts
 from .tca_contracts import (
     SCORECARD_COHORTS,
     ScorecardCohortMetrics,
@@ -22,7 +23,54 @@ from .tca_contracts import (
     TcaRouteDetail,
 )
 
+# Protocol interfaces
 from .protocols import (
     ConfigProtocol,
     ConnectionManagerProtocol,
+)
+
+from .tca_service_protocol import (
+    TcaQueryServiceProtocol,
+)
+
+# Market-view contracts
+from .market_contracts import (
+    MarketAlert,
+    MarketCandidatePayload,
+    MarketCandidateRow,
+    MarketDailySnapshotRow,
+    MarketSnapshot,
+    MarketSnapshotFilters,
+    MarketSnapshotSort,
+    MarketStockPool,
+)
+
+# Intraday-feature contracts
+from .intraday_contracts import (
+    INTRADAY_BUCKET_OPTIONS,
+    INTRADAY_DEFAULT_BUCKET_MINUTES,
+    INTRADAY_MAX_TICKERS,
+    IntradayFeatureBucket,
+    IntradayFeatureSnapshot,
+    IntradayTickerFeatures,
+)
+
+# Execution-history contracts
+from .execution_contracts import (
+    ExecutionHistoryFillRow,
+    ExecutionHistoryFillSnapshot,
+    ExecutionHistoryOrderSummaryRow,
+    ExecutionHistoryOrderSummarySnapshot,
+    ExecutionHistoryRouteSummaryRow,
+    ExecutionHistoryRouteSummarySnapshot,
+)
+
+# Handoff contracts
+from .handoff_contracts import (
+    BrokerStrategyRecommendation,
+    ExecutionCandidateHandoff,
+    ExecutionPostTradeHandoff,
+    HandoffMetadata,
+    _new_trace_id,
+    _now_iso,
 )
