@@ -5,4 +5,4 @@ export { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, ROUTE_GROUP_BY_OPTIONS, 
 // P1-C2: reconcile-settings moved from @shared/lib/ (execution-only)
 export { getReconcileIntervalMs, getReconcileIntervalSec, setReconcileIntervalSec, RECONCILE_INTERVAL_OPTIONS, type ReconcileIntervalSec } from './reconcile-settings';
 // P1-C3: cache-manager moved from @shared/lib/ (execution-only)
-export { CacheManager, CACHE_CONFIGS, DEFAULT_TTL } from './cache-manager';
+export { CacheManager, CACHE_CONFIGS, DEFAULT_TTL, createCache, getOrFetch, clearAllCaches } from './cache-manager';
