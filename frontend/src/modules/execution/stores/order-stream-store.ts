@@ -4,7 +4,7 @@
  */
 
 import type { Order } from '@execution/types'
-import type { DeltaEvent } from '@execution/services/realtime';
+import type { DeltaEvent } from '@shared/services/realtime';
 
 export interface OrderStreamStore {
   /** Apply a delta event. Returns true if the store was modified. */

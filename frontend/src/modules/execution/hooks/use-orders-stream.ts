@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Order } from '@execution/types'
-import type { RealtimeClient, DeltaEvent } from '@execution/services/realtime';
+import type { RealtimeClient, DeltaEvent } from '@shared/services/realtime';
 import { createOrderStreamStore } from '@execution/stores/order-stream-store';
 
 interface UseOrdersStreamOptions {

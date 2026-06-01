@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 
 from DataPipeline.config import Config
+from DataPipeline.storage.connection import AccessTier
 from DataPipeline.ingestion.fill_ingestion import ingest_all_excel_files, process_raw_fills_for_date
 from DataPipeline.processing.fill_aggregator import generate_agg_fills_10s
 from DataPipeline.processing.order_label import generate_order_label_incremental
@@ -204,17 +205,35 @@ class GenerateOrderLabelsStage(BaseStage):
         if context.target_dates:
             target_label_dates = context.target_dates
         else:
-            processing_info = context.summary.get("processing", {})
-            if processing_info.get("rows_processed", 0) > 0:
-                target_label_dates = fills_reader.get_processed_dates(stage="processed")
-            else:
-                target_label_dates = None
-
-        if not target_label_dates:
-            # Fallback: process ALL dates one by one instead of loading the raw fills table in one shot
-            target_label_dates = fills_reader.get_processed_dates(stage="processed")
-            if not target_label_dates:
+            # Incremental: only process dates whose fills are NOT yet labelled.
+            # Query the order_label table to find which dates already have
+            # labels, then intersect with processed dates to find new work.
+            all_processed_dates = fills_reader.get_processed_dates(stage="processed")
+            if not all_processed_dates:
                 logger.info("No processed dates for order label generation")
+                context.summary["order_labels"] = {"orders": 0}
+                return True
+
+            try:
+                conn = context.connection_manager.get_connection(
+                    "processed_fills", AccessTier.READ,
+                )
+                already_labelled = set(
+                    r[0] for r in conn.execute(
+                        "SELECT DISTINCT order_as_of_date FROM order_label"
+                    ).fetchall()
+                )
+            except Exception:
+                already_labelled = set()
+
+            target_label_dates = [
+                d for d in all_processed_dates if d not in already_labelled
+            ]
+            if not target_label_dates:
+                logger.info(
+                    "All %d processed dates already labelled — skipping",
+                    len(all_processed_dates),
+                )
                 context.summary["order_labels"] = {"orders": 0}
                 return True
 

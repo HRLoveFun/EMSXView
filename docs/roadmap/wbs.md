@@ -2,7 +2,7 @@
 
 **Document Path**: `c:/Users/hrchen/Documents/EMSX/docs/roadmap/wbs.md`
 **Requested**: 2026-04-02
-**Scope**: `ExecutionView/`, `CostView/`, repo-level workflow automation under `.github/`, `.workbuddy/`, and `scripts/`
+**Scope**: `frontend/src/modules/execution/`, `CostView/`, repo-level workflow automation under `.github/`, `.workbuddy/`, and `scripts/`
 **Planning Horizon**: 9 sprints across 6 phases
 **Delivery Model**: Incremental refactor; every sprint must leave the system deployable
 

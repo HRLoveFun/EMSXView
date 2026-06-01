@@ -19,9 +19,10 @@ function buildSyntheticStartupStatus(elapsedMs: number, timeoutMs: number, error
   return {
     phase: timedOut ? 'error' : 'backend_starting',
     ready: false,
-    message: timedOut
-      ? error || 'Frontend is up, but the backend HTTP service is not ready yet.'
-      : 'Frontend is up, waiting for the backend HTTP service to respond.',
+    message: error
+      || (timedOut
+        ? 'Frontend is up, but the backend HTTP service is not ready yet.'
+        : 'Frontend is up, waiting for the backend HTTP service to respond.'),
     backend: {
       httpReady: false,
       startedAt: undefined,
@@ -29,7 +30,7 @@ function buildSyntheticStartupStatus(elapsedMs: number, timeoutMs: number, error
     },
     bloomberg: {
       status: timedOut ? 'error' : 'connecting',
-      message: timedOut ? error || 'Backend unavailable' : 'Waiting for backend HTTP service',
+      message: error || (timedOut ? 'Backend unavailable' : 'Waiting for backend HTTP service'),
       lastConnected: undefined,
       uptime: undefined,
     },

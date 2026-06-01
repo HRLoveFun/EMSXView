@@ -23,7 +23,7 @@ import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue }
 import { TextFilterPopover } from '@execution/components/filters/TextFilterPopover';
 import { MultiSelectFilterPopover } from '@execution/components/filters/MultiSelectFilterPopover';
 import { RouteActionMenu } from '@execution/components/route-action-menu';
-import { CancelRouteDialog } from '@execution/components/route-modify-dialogs';
+import { CancelRouteDialog } from '@execution/components/cancel-route-dialog';
 import { UnifiedModifyRouteDialog } from '@execution/components/unified-modify-route-dialog';
 import { RateDiagnosticDialog } from '@execution/components/rate-diagnostic-dialog';
 import { BatchCancelDialog, BatchModifyDialog } from '@execution/components/batch-operation-dialogs';
