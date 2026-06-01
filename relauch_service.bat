@@ -26,7 +26,7 @@ echo.
 echo  ──────────────────────────────────────────────────────
 echo.
 
-powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\service-manager.ps1" restart -Environment dev
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\ops\service-manager.ps1" restart -Environment dev
 set "RESTART_EXIT=%ERRORLEVEL%"
 
 echo.
@@ -49,7 +49,7 @@ echo.
 echo   正在等待前端就绪（最多等待 90 秒，请耐心等待...）
 echo.
 
-powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\service-manager.ps1" wait-frontend -Environment dev
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\ops\service-manager.ps1" wait-frontend -Environment dev
 set "WAIT_EXIT=%ERRORLEVEL%"
 
 if not "%WAIT_EXIT%"=="0" (

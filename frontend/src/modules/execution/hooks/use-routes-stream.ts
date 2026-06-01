@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Route } from '@execution/types'
-import type { RealtimeClient, DeltaEvent } from '@execution/services/realtime';
+import type { RealtimeClient, DeltaEvent } from '@shared/services/realtime';
 import { createRouteStreamStore } from '@execution/stores/route-stream-store';
 
 interface UseRoutesStreamOptions {

@@ -10,7 +10,7 @@ Key architectural decisions for the EMSX project. Update when structural commitm
 
 ## AD-02: Single React shell with lazy-loaded modules
 
-**Decision:** All module UIs mount into `ExecutionView/frontend` via lazy-loaded React components. CostView and MarketView do not run standalone frontends.  
+**Decision:** All module UIs mount into `frontend/` via lazy-loaded React components. CostView and MarketView do not run standalone frontends.  
 **Rationale:** Unified user experience for traders who need to navigate between pre-trade, execution, and post-trade views.  
 **Consequence:** Vite manual chunking ensures each module gets its own bundle. Path aliases (`@execution/*`, `@costview/*`) isolate module boundaries.
 

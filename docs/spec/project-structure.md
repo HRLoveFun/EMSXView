@@ -43,7 +43,7 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 Browser
   |
   v
-ExecutionView/frontend (canonical shell)
+frontend/ (canonical React shell)
   |- MarketView module anchor
   |- ExecutionView workspace
   `- CostView module
@@ -76,35 +76,34 @@ EMSXView/
 ├── README.md
 ├── QUICKSTART.md
 ├── 重启服务.bat
+├── frontend/                         # Canonical React frontend shell
+│   ├── package.json
+│   └── src/
+│       ├── app/
+│       │   ├── App.tsx               # Module registry side-effect imports
+│       │   ├── AppShell.tsx          # Root layout orchestrator
+│       │   └── ...
+│       ├── modules/
+│       │   ├── execution/            # Execution domain module
+│       │   ├── marketview/           # MarketView module anchor
+│       │   ├── costview/             # CostView module
+│       │   └── databaseview/         # DatabaseView module
+│       └── shared/                   # Cross-module shared layer
+├── backend/
+│   └── api/
+│       ├── main.py                   # FastAPI application entry (:3000)
+│       ├── config.py
+│       ├── deps.py
+│       ├── db.py
+│       ├── service_provider.py
+│       ├── routers/
+│       ├── services/
+│       ├── repositories/
+│       ├── models/
+│       ├── schemas/
+│       └── tests/
 ├── MarketView/
 │   └── README.md
-├── ExecutionView/
-│   ├── README.md
-│   ├── frontend/
-│   │   ├── package.json
-│   │   └── src/
-│   │       ├── App.tsx
-│   │       ├── sections/
-│   │       ├── services/
-│   │       ├── hooks/
-│   │       ├── stores/
-│   │       ├── types/
-│   │       └── modules/
-│   │           ├── marketview/
-│   │           └── costview/
-│   └── backend/
-│       └── api/
-│           ├── main.py
-│           ├── config.py
-│           ├── deps.py
-│           ├── db.py
-│           ├── service_provider.py
-│           ├── routers/
-│           ├── services/
-│           ├── repositories/
-│           ├── models/
-│           ├── schemas.py
-│           └── tests/
 ├── CostView/
 │   ├── README.md
 │   ├── requirements.txt
@@ -189,8 +188,9 @@ Responsibilities:
 Current module split inside the shell:
 
 - `modules/marketview/` — pre-trade shell anchor
-- `sections/` + core app state — Execution workspace
+- `modules/execution/` — Execution workspace
 - `modules/costview/` — active post-trade UI
+- `modules/databaseview/` — database admin UI
 
 ### 4.2 Backend assembly layer
 

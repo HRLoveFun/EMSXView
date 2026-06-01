@@ -24,6 +24,9 @@ if (Test-Path $envFile) {
     $env:API_WORKERS      = "1"
 }
 
+# Clean up old log files before starting
+& "C:\Users\hrchen\Documents\EMSXView\scripts\ops\cleanup-logs.ps1" -Force
+
 # Ensure log directory exists (now using project root logs/)
 New-Item -ItemType Directory -Force -Path "C:\Users\hrchen\Documents\EMSXView\logs" | Out-Null
 

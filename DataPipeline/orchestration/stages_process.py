@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from DataPipeline.config import Config
+from DataPipeline.storage.connection import AccessTier
 
 from .base import BaseStage, _to_iso_safe
 from .context import PipelineContext
@@ -278,13 +279,37 @@ class CalculateDailyMetricsStage(BaseStage):
             dates_to_process = context.target_dates
         else:
             fills_reader = context.db.fills_read
-            dates_to_process = fills_reader.get_processed_dates(stage="bdib_integrated")
-            if not dates_to_process:
-                dates_to_process = context.db.market_data_read.get_distinct_dates()
+            all_bdib_dates = fills_reader.get_processed_dates(stage="bdib_integrated")
+            if not all_bdib_dates:
+                all_bdib_dates = context.db.market_data_read.get_distinct_dates()
+
+            # Incremental: skip dates that already have daily metrics computed.
+            # Query the bdib_daily_summary table for distinct trade_date values
+            # that already exist — only process dates NOT in this set.
+            try:
+                conn = context.connection_manager.get_connection(
+                    "raw_bdib", AccessTier.READ,
+                )
+                already_computed = set(
+                    r[0] for r in conn.execute(
+                        "SELECT DISTINCT trade_date FROM bdib_daily_summary"
+                    ).fetchall()
+                )
+            except Exception:
+                already_computed = set()
+
+            dates_to_process = [
+                d for d in all_bdib_dates if d not in already_computed
+            ]
+            if all_bdib_dates and not dates_to_process:
+                logger.info(
+                    "All %d BDIB dates already have daily metrics — skipping",
+                    len(all_bdib_dates),
+                )
 
         if not dates_to_process:
-            logger.info("No dates for daily metrics calculation")
-            context.summary["daily_metrics"] = {"rows": 0}
+            logger.info("No new dates for daily metrics calculation")
+            context.summary["daily_metrics"] = {"rows": 0, "dates": 0}
             return True
 
         total_rows = 0

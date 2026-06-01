@@ -13,7 +13,7 @@ import { useExecutionState } from '@execution/hooks/use-execution-state';
 import { useStartupStatus } from '@app/hooks/use-startup-status';
 import { useShellContext } from '@shared/lib/shell-context';
 import type { ModuleShellProps } from '@shared/lib/module-registry';
-import type { RealtimeClient } from '@execution/services/realtime';
+import type { RealtimeClient } from '@shared/services/realtime';
 
 /** Info that ExecutionModule exposes to the shell for toolbar integration. */
 export interface ExecutionModuleInfo {

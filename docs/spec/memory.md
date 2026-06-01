@@ -8,7 +8,7 @@
 
 å½“å‰ä»“åº“çš„çœŸå®žç»“æž„æ˜¯ï¼š
 
-- ä¸€ä¸ªæ­£å¼å‰ç«¯å£³ï¼šExecutionView/frontend
+- ä¸€ä¸ªæ­£å¼å‰ç«¯å£³ï¼šfrontend/
 - ä¸‰ä¸ªä¸šåŠ¡æ¨¡å—ï¼šMarketViewã€ExecutionViewã€CostView
 - ä¸€ä¸ªé€»è¾‘æ•°æ®åŸŸå…¥å£ï¼šplatform_data
 
@@ -25,7 +25,7 @@
 
 ### å‰ç«¯
 
-- ExecutionView/frontend æ˜¯å”¯ä¸€æ­£å¼ UI å…¥å£ã€‚
+- frontend/ æ˜¯å”¯ä¸€æ­£å¼ UI å…¥å£ã€‚
 - CostView çš„æ­£å¼ UI ä½äºŽ frontend/src/modules/costview/ã€‚
 - CostView/frontend/ æ˜¯é—ç•™åŽŸåž‹é¢ï¼Œä¸åº”å†æ‰¿æŽ¥é»˜è®¤äº§å“å¼€å‘ã€‚
 - MarketView å½“å‰å·²æœ‰å£³å†…å…¥å£å’ŒçœŸå®žå¿«ç…§åŸºçº¿ï¼Œä½†åŽç»­æ‰©å±•å·²æš‚åœã€‚
@@ -105,6 +105,6 @@
 
 ## 7. DatabaseView API Contract
 
-è§ `docs/api/database.md`ã€‚DatabaseView æ˜¯ ExecutionView/frontend çš„ç¬¬ 4 ä¸ªé¡¶å±‚æ¨¡å—ï¼Œè´Ÿè´£å¯è§†åŒ– CostView
+è§ `docs/api/database.md`ã€‚DatabaseView æ˜¯ frontend/ çš„ç¬¬ 4 ä¸ªé¡¶å±‚æ¨¡å—ï¼Œè´Ÿè´£å¯è§†åŒ– CostView
 SQLite æ•°æ®åº“æ—çš„äº¤æ˜“æ—¥æœŸè¦†ç›–ã€è¡Œæ•°ä¸Žå¥åº·çŠ¶æ€ã€‚
 

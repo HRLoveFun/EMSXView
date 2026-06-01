@@ -46,7 +46,7 @@ param(
 
 # Configuration
 $Config = @{
-    ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
     Backend = @{
         Port = 3000
         Script = "backend\api\start_server.py"
@@ -382,25 +382,6 @@ function Stop-FrontendService {
     Write-Status "Frontend service stopped" "Success"
 }
 
-function Clear-OldServiceLogs {
-    param([string]$LogDir, [string]$Prefix, [int]$MaxAgeDays = 7, [int]$MaxFiles = 10)
-    if (-not (Test-Path $LogDir)) { return }
-    $cutoff = (Get-Date).AddDays(-$MaxAgeDays)
-
-    # 删除超出保留天数的文件
-    Get-ChildItem -Path $LogDir -Filter "${Prefix}-*.log" -File |
-        Where-Object { $_.LastWriteTime -lt $cutoff } |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-
-    # 如仍超出最大文件数，删掉最旧的
-    $remaining = Get-ChildItem -Path $LogDir -Filter "${Prefix}-*.log" -File |
-                 Sort-Object LastWriteTime -Descending
-    if ($remaining.Count -gt $MaxFiles) {
-        $remaining | Select-Object -Skip $MaxFiles |
-            Remove-Item -Force -ErrorAction SilentlyContinue
-    }
-}
-
 function Start-BackendService {
     Write-Status "Starting backend service..." "Info"
 
@@ -427,8 +408,6 @@ function Start-BackendService {
     if (-not (Test-Path $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     }
-
-    Clear-OldServiceLogs -LogDir $logDir -Prefix "backend"
 
     $backendScript = Join-Path $Config.ProjectRoot $Config.Backend.Script
     $logFile = Join-Path $logDir "backend-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
@@ -540,8 +519,6 @@ function Start-FrontendService {
     if (-not (Test-Path $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     }
-
-    Clear-OldServiceLogs -LogDir $logDir -Prefix "frontend"
 
     $logFile = Join-Path $logDir "frontend-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     $script = if ($Environment -eq "dev") { $Config.Frontend.DevScript } else { $Config.Frontend.ProdScript }
@@ -671,6 +648,7 @@ Write-Separator
 
 switch ($Action) {
     "start" {
+        & "$PSScriptRoot\cleanup-logs.ps1" -Force
         $backendStarted = Start-BackendService
         if ($backendStarted) {
             $frontendStarted = Start-FrontendService -WaitForBackend $true
@@ -697,6 +675,7 @@ switch ($Action) {
         Stop-BackendService
         Write-Status "Waiting for services to fully stop..." "Info"
         Start-Sleep -Seconds 2
+        & "$PSScriptRoot\cleanup-logs.ps1" -Force
         $backendStarted = Start-BackendService
         if (-not $backendStarted) {
             Write-Status "Backend failed to start. Aborting." "Error"
