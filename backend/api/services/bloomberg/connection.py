@@ -23,10 +23,18 @@ from ._constants import EMSX_SERVICES
 
 logger = logging.getLogger("main")
 
+# Module-level settings — set by configure_connection() before any instance is created
+_connection_settings: Any = None
+
+
+def configure_connection(settings: Any) -> None:
+    global _connection_settings
+    _connection_settings = settings
+
 
 class BloombergConnectionManager:
-    def __init__(self, _settings: Any):
-        self._settings = _settings
+    def __init__(self, _settings: Any = None):
+        self._settings = _settings if _settings is not None else _connection_settings
 
         self.session: Optional[Session] = None
         self.active_service_name: Optional[str] = None

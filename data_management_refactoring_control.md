@@ -1,0 +1,104 @@
+# 数据管理重构 — 控制中心
+
+> 配套执行指南: [data_management_refactoring_plan.md](data_management_refactoring_plan.md) — 详细方案、实施步骤、安全机制
+>
+> 最后更新: 2026-06-01
+
+本文件三件事：**看进度**、**调参数**、**查证据**。具体"怎么做"全部在执行指南。
+
+---
+
+## 一、进度
+
+| # | 任务 | 状态 | 执行指南 | 备注 |
+|:--:|------|:----:|---------|------|
+| **Phase A: BDIB瘦身** | | | | |
+| A1 | 安装 DuckDB + PyArrow 依赖 | ⬜ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | |
+| A2 | 创建 `storage/market_store.py` | ⬜ | 同上 | |
+| A3 | `bdib_fetcher.py` 双写 Parquet | ⬜ | 同上 | flag: `BDIB_PARQUET_ENABLED` |
+| A4 | 历史BDIB回填到Parquet | ⬜ | 同上 | 前置: A3稳定跑3天 |
+| A5 | `tca_query_service.py` DuckDB读路径 | ⬜ | 同上 | flag: `BDIB_QUERY_ENGINE` |
+| A6 | 验证期：双引擎对比 | ⬜ | 同上 | 前置: A5 |
+| A7 | 收缩 `raw_bdib.db` | ⬜ | 同上 + [§7.3路径1](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 需 `.BAK`, 前置: A6 diff=0连续7天 |
+| A8 | 消除 `processed_raw_bdib.db` | ⬜ | 同上 + [§7.3路径2](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 需 `.BAK`, 前置: A7观察期通过 |
+| **Phase B: 分区** | | | | |
+| B1 | 执行 `db_partition.sql` 创建表 | ⬜ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | |
+| B2 | 双写新分区DB | ⬜ | 同上 | flag: `PARTITION_DUAL_WRITE` |
+| B3 | 仓库层切换读路径 | ⬜ | 同上 | flag: `PARTITION_READ_NEW` |
+| B4 | 清理原DB已迁移表 | ⬜ | 同上 + [§7.3路径3](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 需 `.BAK` |
+| **Phase C: 归档** | | | | |
+| C1 | `scripts/run_archive.py` + 调度注册 | ⬜ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | |
+| C2 | `DataArchiver` VACUUM → 增量 | ⬜ | 同上 | |
+| **Phase D: 监控** | | | | |
+| D1 | `scripts/health_check.py` | ⬜ | 同上 | |
+
+| 全局 | |
+|------|----|
+| 总进度 | 0/15 |
+| 当前阻塞 | 无 |
+
+> 状态: ⬜ pending &nbsp; ⏳ in_progress &nbsp; ✅ done &nbsp; ⛔ blocked &nbsp; ⊘ skipped
+
+---
+
+## 二、可调参数
+
+修改重构要求时**只改此表**。参数定义见执行指南 [§7.2](data_management_refactoring_plan.md#72-功能开关设计)。
+
+| 参数 | 默认值 | 说明 | 影响步骤 |
+|------|-------|------|:--------:|
+| `BDIB_HOT_RETENTION_MONTHS` | 3 | SQLite中保留近几个月K线 | A7 |
+| `BDIB_PARQUET_ENABLED` | false | 启用BDIB Parquet双写 | A3, A4 |
+| `BDIB_QUERY_ENGINE` | sqlite | BDIB查询引擎: `sqlite` / `duckdb` | A5, A6 |
+| `PARTITION_DUAL_WRITE` | false | 分区双写开关 | B2 |
+| `PARTITION_READ_NEW` | false | 读新分区DB开关 | B3 |
+| `raw_fills` 保留月数 | 12 | `DataArchiver.ARCHIVE_CONFIG` | C1 |
+| `processed_fills` 保留月数 | 24 | 同上 | C1 |
+| `raw_bdib` 保留月数 | 12 | 同上 | C1 |
+| `fill_bdib` 保留月数 | 24 | 同上 | C1 |
+| 观察期天数 | 14 | 迁移后每日自动校验天数 | A7, A8, B4 |
+| BAK保留天数(通过后) | 30 | 观察期通过后.BAK只读保留天数 | A7, A8, B4 |
+
+---
+
+## 三、验证记录
+
+审查重构结果时，查看以下文件。验收标准见执行指南 [§步骤9](data_management_refactoring_plan.md#步骤9-全量回归与监控)。
+
+| 验证维度 | 证据位置 | 关联步骤 |
+|----------|---------|:--------:|
+| A4 历史迁移校验 | `scripts/logs/migration_a4_*.log` | A4 |
+| A7 收缩校验 | `scripts/logs/shrink_a7_*.log` | A7 |
+| A8 退役校验 | `scripts/logs/retire_a8_*.log` | A8 |
+| B4 分区清理校验 | `scripts/logs/partition_b4_*.log` | B4 |
+| A7 观察期 | `data/observation_A7.json` | A7 |
+| A8 观察期 | `data/observation_A8.json` | A8 |
+| B4 观察期 | `data/observation_B4.json` | B4 |
+| TCA查询回归 | `CostView/.pytest_cache/tca_regression_*.json` | 全局 |
+| DB完整性 | `data/backups/*/integrity_*.txt` | 全局 |
+| 磁盘/WAL监控 | `scripts/logs/health_*.log` | D1 |
+
+> 验收: 观察期日志连续14天 `all_pass: true` 且无 `blocking_conditions_triggered`。
+
+---
+
+## 协作模式
+
+```
+日常操作流程:
+  1. 打开本文件 → 看 §一 进度, 确定当前步骤
+  2. 点击本文件中该步骤的"执行指南"链接 → 跳转到执行指南对应节
+  3. 执行指南中查阅具体实施方案、安全网细节、代码示例
+  4. 完成后 → 回到本文件, 将状态从 ⬜ 改为 ✅
+
+修改参数流程:
+  1. 修改本节 §二 中的参数值
+  2. 执行指南中的受影响步骤会自动关联 (参数表已标注)
+
+审查结果流程:
+  1. 打开本节 §三, 找到对应步骤的证据文件路径
+  2. 直接打开该文件查看实际校验结果
+  3. 对照执行指南 §步骤9 的断言标准判断是否通过
+```
+
+两个文件通过**步骤编号**（A1-A8, B1-B4, C1-C2, D1）、**参数名**、**证据文件路径**对齐，形成完整的"控制 → 执行 → 验证"闭环。

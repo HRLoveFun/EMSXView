@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { BrokerStrategyParamsEditor } from './broker-strategy-params-editor';
+import { VolumeCapMappingEditor } from './volume-cap-mapping-editor';
 import type { BrokerStrategySectionProps } from './types';
 import { defaultStrategyFor } from './utils';
 
@@ -13,6 +15,8 @@ export function BrokerStrategySection({
   cacheKey,
   editable,
 }: BrokerStrategySectionProps) {
+  const [mappingEditorOpen, setMappingEditorOpen] = useState(false);
+
   if (selectedBrokers.length === 0) return null;
 
   const handleResetDefaults = () => {
@@ -28,15 +32,25 @@ export function BrokerStrategySection({
         <div className="text-xs font-semibold text-muted-foreground">
           Strategy &amp; parameters per broker
         </div>
-        <button
-          type="button"
-          onClick={handleResetDefaults}
-          className="text-[11px] text-primary hover:underline"
-          disabled={!editable}
-          title="Reset every selected broker to its default strategy and clear unsaved parameter edits"
-        >
-          Reset to defaults
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setMappingEditorOpen(true)}
+            className="text-[11px] text-primary hover:underline"
+            title="Edit volume cap field mapping used to auto-set volume caps after validation"
+          >
+            Edit volume cap mapping
+          </button>
+          <button
+            type="button"
+            onClick={handleResetDefaults}
+            className="text-[11px] text-primary hover:underline"
+            disabled={!editable}
+            title="Reset every selected broker to its default strategy and clear unsaved parameter edits"
+          >
+            Reset to defaults
+          </button>
+        </div>
       </div>
       {selectedBrokers.map(b => (
         <BrokerStrategyParamsEditor
@@ -51,6 +65,10 @@ export function BrokerStrategySection({
           disabled={!editable}
         />
       ))}
+      <VolumeCapMappingEditor
+        open={mappingEditorOpen}
+        onOpenChange={setMappingEditorOpen}
+      />
     </div>
   );
 }

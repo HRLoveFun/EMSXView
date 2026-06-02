@@ -690,7 +690,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
 
   // ── Derived result details ──────────────────────────────────────────────
   const blockedDetails = useMemo(() => {
-    const out: { orderId: string; symbol: string; broker: string; violations: Violation[] }[] = [];
+    const out: { orderId: string; symbol: string; broker: string; message?: string; violations: Violation[] }[] = [];
     const orderById: Record<string, Order> = {};
     for (const o of orders) orderById[o.id] = o;
     for (const [oid, row] of Object.entries(rows)) {
@@ -698,7 +698,13 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       if (!o) continue;
       for (const [broker, alloc] of Object.entries(row.allocations)) {
         if (alloc.status !== 'BLOCKED') continue;
-        out.push({ orderId: oid, symbol: o.symbol, broker, violations: alloc.violations ?? [] });
+        out.push({
+          orderId: oid,
+          symbol: o.symbol,
+          broker,
+          message: alloc.message,
+          violations: alloc.violations ?? [],
+        });
       }
     }
     return out;

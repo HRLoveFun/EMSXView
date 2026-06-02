@@ -39,3 +39,17 @@ from platform_data.adapters.tca_bridge import (
     register_tca_service_impl,
     _ConnectionManagerDailySummaryReader,
 )
+
+# Backward-compatible re-exports of contract types that legacy code imports from here
+from platform_data.contracts.market_contracts import (
+    MarketCandidatePayload,
+    MarketCandidateRow,
+)
+from platform_data.contracts.execution_contracts import (
+    ExecutionHistoryFillRow,
+    ExecutionHistoryFillSnapshot,
+    ExecutionHistoryOrderSummaryRow,
+    ExecutionHistoryOrderSummarySnapshot,
+    ExecutionHistoryRouteSummaryRow,
+    ExecutionHistoryRouteSummarySnapshot,
+)

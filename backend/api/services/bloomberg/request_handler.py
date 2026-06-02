@@ -39,17 +39,25 @@ from .._bloomberg_parsing import (
 
 logger = logging.getLogger("main")
 
+# Module-level settings — set by configure_handler() before any instance is created
+_handler_settings: Any = None
+
+
+def configure_handler(settings: Any) -> None:
+    global _handler_settings
+    _handler_settings = settings
+
 
 class EMSXRequestHandler:
     def __init__(
         self,
         connection: BloombergConnectionManager,
         subscription_engine: EMSXSubscriptionEngine,
-        _settings: Any,
+        _settings: Any = None,
     ):
         self._connection = connection
         self._subscription_engine = subscription_engine
-        self._settings = _settings
+        self._settings = _settings if _settings is not None else _handler_settings
 
     # ── Request helpers ────────────────────────────────────────────────
 

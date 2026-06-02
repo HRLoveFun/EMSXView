@@ -166,7 +166,7 @@ export interface ResultFeedbackProps {
   progress: number;
   summary: { total?: number; succeeded?: number; blocked?: number; failed?: number } | null;
   totalDestinations: number;
-  blockedDetails: { orderId: string; symbol: string; broker: string; violations: Violation[] }[];
+  blockedDetails: { orderId: string; symbol: string; broker: string; message?: string; violations: Violation[] }[];
   failedDetails: { orderId: string; symbol: string; broker: string; message: string }[];
   warnDetails: { orderId: string; symbol: string; broker: string; violations: Violation[] }[];
 }
