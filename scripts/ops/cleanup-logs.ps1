@@ -4,12 +4,14 @@
     Cleans up log files across all subdirectories with independent retention policies.
 
 .DESCRIPTION
-    Manages log retention for four log categories under the logs/ directory:
+    Manages log retention for all log categories under the logs/ directory:
     - api/       Backend API logs (emsxview_api.log*)
     - service/   Service Manager logs (backend-*.log, frontend-*.log)
     - costview/  CostView pipeline logs (fillfetch.log*, backfill_raw_bdib.log)
     - backfill/  Manual backfill script logs (attribution_*.log, regime_*.log)
-    - root/      Orphaned legacy files (startup-error.html)
+    - pipeline/  Data pipeline job logs
+    - workflow/  Workflow engine logs
+    - root/      Orphaned legacy files (startup-error.html, backend-*.log, etc.)
 
 .PARAMETER Force
     Actually delete files (default is dry-run mode).
@@ -41,6 +43,18 @@
 .PARAMETER BackfillMaxFiles
     Max files to keep in backfill/ (default: 20).
 
+.PARAMETER PipelineMaxAgeDays
+    Retention days for pipeline/ logs (default: 7).
+
+.PARAMETER PipelineMaxFiles
+    Max files to keep in pipeline/ (default: 10).
+
+.PARAMETER WorkflowMaxAgeDays
+    Retention days for workflow/ logs (default: 7).
+
+.PARAMETER WorkflowMaxFiles
+    Max files to keep in workflow/ (default: 10).
+
 .PARAMETER OrphanMaxAgeDays
     Retention days for orphaned root files (default: 7).
 
@@ -55,6 +69,9 @@
 .EXAMPLE
     .\scripts\ops\cleanup-logs.ps1 -Force -ServiceMaxAgeDays 14 -BackfillMaxAgeDays 60
     Execute with custom retention for service and backfill logs.
+.EXAMPLE
+    .\scripts\ops\cleanup-logs.ps1 -Force -PipelineMaxAgeDays 14
+    Extend pipeline log retention to 14 days.
 #>
 
 param(
@@ -68,6 +85,10 @@ param(
     [int]$CostviewMaxFiles = 35,
     [int]$BackfillMaxAgeDays = 30,
     [int]$BackfillMaxFiles = 20,
+    [int]$PipelineMaxAgeDays = 7,
+    [int]$PipelineMaxFiles = 10,
+    [int]$WorkflowMaxAgeDays = 7,
+    [int]$WorkflowMaxFiles = 10,
     [int]$OrphanMaxAgeDays = 7
 )
 
@@ -207,6 +228,8 @@ Write-Host "  api/       : max $ApiMaxAgeDays days, max $ApiMaxFiles files"
 Write-Host "  service/   : max $ServiceMaxAgeDays days, max $ServiceMaxFiles files"
 Write-Host "  costview/  : max $CostviewMaxAgeDays days, max $CostviewMaxFiles files"
 Write-Host "  backfill/  : max $BackfillMaxAgeDays days, max $BackfillMaxFiles files"
+Write-Host "  pipeline/  : max $PipelineMaxAgeDays days, max $PipelineMaxFiles files"
+Write-Host "  workflow/  : max $WorkflowMaxAgeDays days, max $WorkflowMaxFiles files"
 Write-Host "  root/      : max $OrphanMaxAgeDays days (orphaned)"
 Write-Host ""
 
@@ -215,6 +238,8 @@ Clear-LogSubdir -Label "api"       -Dir "api"      -Filter "emsx_api.log*"      
 Clear-LogSubdir -Label "service"   -Dir "service"  -Filter "*.log"                -MaxAgeDays $ServiceMaxAgeDays   -MaxFiles $ServiceMaxFiles
 Clear-LogSubdir -Label "costview"  -Dir "costview" -Filter "*.log*"               -MaxAgeDays $CostviewMaxAgeDays  -MaxFiles $CostviewMaxFiles
 Clear-LogSubdir -Label "backfill"  -Dir "backfill" -Filter "*.log"                -MaxAgeDays $BackfillMaxAgeDays  -MaxFiles $BackfillMaxFiles
+Clear-LogSubdir -Label "pipeline"  -Dir "pipeline" -Filter "*.log"                -MaxAgeDays $PipelineMaxAgeDays  -MaxFiles $PipelineMaxFiles
+Clear-LogSubdir -Label "workflow"  -Dir "workflow" -Filter "*.log"                -MaxAgeDays $WorkflowMaxAgeDays  -MaxFiles $WorkflowMaxFiles
 Clear-OrphanedRoot -MaxAgeDays $OrphanMaxAgeDays
 
 Write-Host ""

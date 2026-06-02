@@ -8,7 +8,7 @@ See docs/dev-guide.md §2 for current project facts ("current surface" refers to
 
 ## WBS-01 — Shared Contract & Platform Data Access
 
-> Establish the canonical shared contract across ExecutionView/frontend (App.tsx), ExecutionView/backend (main.py), platform_data/adapters.py, and CostView/src/. Define the execution history spine, shared contracts for market reference / live execution / execution history / analytics, and make execution history the cross-module authority.
+> Establish the canonical shared contract across frontend/ (App.tsx), backend/ (main.py), platform_data/adapters.py, and CostView/src/. Define the execution history spine, shared contracts for market reference / live execution / execution history / analytics, and make execution history the cross-module authority.
 
 **Affected files**: platform_data/adapters.py · service_provider.py · schemas.py · docs/spec/data-domain.md
 

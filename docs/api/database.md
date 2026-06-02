@@ -1,9 +1,9 @@
-# DatabaseView API Contract (/api/db/*)
+﻿# DatabaseView API Contract (/api/db/*)
 
 > 从 `docs/spec/memory.md` 分离出的独立 API 文档
 > Last updated: 2026-05-07
 
-DatabaseView 是 ExecutionView/frontend 的第 4 个顶层模块，负责可视化 CostView
+DatabaseView 是 frontend/ 的第 4 个顶层模块，负责可视化 CostView
 SQLite 数据库族的交易日期覆盖、行数与健康状态，并承载唯一的"触发增量更新"入口。
 
 ## 路由注册

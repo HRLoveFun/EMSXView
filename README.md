@@ -242,8 +242,6 @@ EMSXView/
 │   ├── regime_query.py               # Market regime query interface
 │   └── database_diagnostics.py       # Database diagnostics utility
 │
-├── ExecutionView/                    # Execution module legacy docs
-│   └── README.md                     # Module reference documentation
 │
 ├── docs/                             # Project documentation
 │   ├── index.md                      # Documentation navigation guide
@@ -626,7 +624,6 @@ ModuleRegistry (singleton)
 | [docs/index.md](./docs/index.md) | Documentation navigation |
 | [docs/ops/service-management.md](./docs/ops/service-management.md) | Service operations & troubleshooting |
 | [backend/README.md](./backend/README.md) | Backend production deployment guide |
-| [ExecutionView/README.md](./ExecutionView/README.md) | Execution module details |
 | [CostView/README.md](./CostView/README.md) | CostView module details |
 | [MarketView/README.md](./MarketView/README.md) | MarketView module details |
 | [scripts/README.md](./scripts/README.md) | Automation scripts reference |

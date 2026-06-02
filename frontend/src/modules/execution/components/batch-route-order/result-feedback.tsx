@@ -49,7 +49,7 @@ export function ResultFeedback({
                       </div>
                       {d.violations.length === 0 ? (
                         <div className="text-muted-foreground italic">
-                          (no violation detail returned)
+                          {d.message || '(no violation detail returned)'}
                         </div>
                       ) : (
                         <ul className="ml-2">

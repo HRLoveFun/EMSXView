@@ -66,18 +66,11 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
     logHint = ""
     Dim logDir
     Set logDir = fso.GetFolder(EMSXVIEW_ROOT & "\logs")
-    If logDir.Files.Count > 0 Then
-        Dim latestLog, latestDate, f
+    If logDir.Files.Count > 0 Or logDir.SubFolders.Count > 0 Then
+        Dim latestLog, latestDate
         Set latestLog = Nothing
         latestDate = #1/1/1970#
-        For Each f In logDir.Files
-            If LCase(f.Name) <> LCase(fso.GetFileName(ERROR_PAGE_PATH)) Then
-                If DateDiff("s", latestDate, f.DateLastModified) > 0 Then
-                    Set latestLog = f
-                    latestDate = f.DateLastModified
-                End If
-            End If
-        Next
+        ScanLogFolder logDir, latestLog, latestDate
         If Not latestLog Is Nothing Then
             logHint = "  <p>最新日志文件: <code>" & latestLog.Name & "</code> (" & latestLog.DateLastModified & ")</p>" & vbCrLf
             On Error Resume Next
@@ -211,6 +204,25 @@ Function ServerHTMLEncode(str)
     result = Replace(result, """", "&quot;")
     ServerHTMLEncode = result
 End Function
+
+' ============================================================
+' 递归扫描日志目录（含子目录），找出最新日志文件
+' ============================================================
+Sub ScanLogFolder(folder, ByRef latestLog, ByRef latestDate)
+    Dim f
+    For Each f In folder.Files
+        If LCase(f.Name) <> LCase(fso.GetFileName(ERROR_PAGE_PATH)) Then
+            If DateDiff("s", latestDate, f.DateLastModified) > 0 Then
+                Set latestLog = f
+                latestDate = f.DateLastModified
+            End If
+        End If
+    Next
+    Dim subFolder
+    For Each subFolder In folder.SubFolders
+        ScanLogFolder subFolder, latestLog, latestDate
+    Next
+End Sub
 
 ' ============================================================
 ' 轮询检测端口是否就绪

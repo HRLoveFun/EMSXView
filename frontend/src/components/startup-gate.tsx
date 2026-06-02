@@ -48,7 +48,9 @@ export function StartupGate({
         ? 'Connecting to Bloomberg EMSX'
         : phase === 'subscriptions_warming'
           ? 'Warming up order & route subscriptions'
-          : 'Startup still in progress';
+          : phase === 'error'
+            ? 'Startup chain error'
+            : 'Startup still in progress';
 
   const description =
     message
@@ -58,7 +60,9 @@ export function StartupGate({
         ? 'HTTP is ready, establishing Bloomberg session.'
         : phase === 'subscriptions_warming'
           ? 'Bloomberg connected. Order & route data will load automatically after INIT_PAINT completes.'
-          : 'The frontend is open, but the startup sequence has not fully completed. You can stay on this page to continue monitoring the status.');
+          : phase === 'error'
+            ? 'The startup chain could not complete. Check that the backend service is running and reachable, then use the Re-check button below.'
+            : 'The frontend is open, but the startup sequence has not fully completed. You can stay on this page to continue monitoring the status.');
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-12rem)] max-w-4xl items-center justify-center px-4 py-10">

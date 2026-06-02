@@ -106,6 +106,10 @@ class BloombergEMSXService:
     def _log_fx_rate_discrepancy(self, ccy: str, direct_rate: float, inverse_rate: float) -> None:
         self._enrich._log_fx_rate_discrepancy(ccy, direct_rate, inverse_rate)
 
+    @property
+    def connected(self) -> bool:
+        return self._conn.connected
+
     # ── Connection management (delegated to ConnectionManager) ────────
 
     async def connect(self) -> bool:
@@ -113,12 +117,12 @@ class BloombergEMSXService:
             if self._conn.connected and self._conn.session:
                 return True
 
-            if not self._conn.connect():
+            if not await self._conn.connect():
                 return False
 
             # Reset subscription and enrichment state for fresh connection
-            self._sub.reset_state()
-            self._enrich.reset_state()
+            self._sub.reset()
+            self._enrich.reset()
 
             # Start background threads
             self._sub.start()
@@ -149,8 +153,6 @@ class BloombergEMSXService:
             init_paint_done=self._sub.init_paint_done,
             route_init_paint_done=self._sub.route_init_paint_done,
             subscription_failed=self._sub.subscription_failed,
-            subscription_failed_at=self._sub.subscription_failed_at,
-            _mktdata_connected=self._enrich.mktdata_connected,
             order_count=len(self._sub.orders),
             route_count=len(self._sub.routes),
         )
@@ -162,8 +164,8 @@ class BloombergEMSXService:
                 logger.warning(
                     "Subscription failed for %.0fs — auto-clearing flag", stuck_seconds,
                 )
-                self._sub._subscription_failed = False
-                self._sub._subscription_failed_at = None
+                self._sub.subscription_failed = False
+                self._sub.subscription_failed_at = None
 
         return result
 
