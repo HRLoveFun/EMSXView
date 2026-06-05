@@ -43,7 +43,7 @@ export function UpdateControl({ onTrigger, status, pending }: UpdateControlProps
           disabled={active || pending}
           className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {active ? 'Pipeline running…' : pending ? 'Triggering…' : 'Trigger update'}
+          {active ? 'Pipeline running…' : pending ? 'Triggering…' : 'Update'}
         </button>
       </div>
 
