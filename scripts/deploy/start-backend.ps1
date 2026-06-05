@@ -1,11 +1,10 @@
 # EMSXView Backend Launcher - 无需 Docker，无需管理员权限
 # 运行方式：在 PowerShell 中执行  .\start-backend.ps1
 
-$env:PATH = "D:\anaconda3\Scripts;D:\anaconda3\Library\bin;" + $env:PATH
-$env:PYTHONPATH = "C:\Users\hrchen\Documents\EMSXView"
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$env:PYTHONPATH = $ProjectRoot
 
-# 从 .env 文件加载配置
-$envFile = "C:\Users\hrchen\Documents\EMSXView\backend\.env"
+$envFile = Join-Path $ProjectRoot "backend\.env"
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
         if ($_ -match '^\s*([^#][^=]*)=(.*)$') {
@@ -25,20 +24,18 @@ if (Test-Path $envFile) {
 }
 
 # Clean up old log files before starting
-& "C:\Users\hrchen\Documents\EMSXView\scripts\ops\cleanup-logs.ps1" -Force
+& (Join-Path $PSScriptRoot "..\ops\cleanup-logs.ps1") -Force
 
-# Ensure log directory exists (now using project root logs/)
-New-Item -ItemType Directory -Force -Path "C:\Users\hrchen\Documents\EMSXView\logs" | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "logs") | Out-Null
 
 Write-Host "Starting EMSXView Backend on http://localhost:3000 ..." -ForegroundColor Cyan
-Write-Host "Logs: C:\Users\hrchen\Documents\EMSXView\logs" -ForegroundColor Gray
+Write-Host "Logs: $ProjectRoot\logs" -ForegroundColor Gray
 Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
 
-# Change to backend directory so Python runs from correct location
-$BackendDir = "C:\Users\hrchen\Documents\EMSXView\backend\api"
+$BackendDir = Join-Path $ProjectRoot "backend\api"
 Set-Location $BackendDir
 
-D:\anaconda3\python.exe -m uvicorn main:app `
+python -m uvicorn main:app `
     --host 0.0.0.0 `
     --port 3000 `
     --app-dir $BackendDir

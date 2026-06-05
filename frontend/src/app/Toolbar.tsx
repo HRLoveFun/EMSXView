@@ -75,7 +75,7 @@ export function Toolbar({
   // Logout confirmation gate — prevents an accidental click from wiping the
   // session and silently destroying any in-progress Modify Route / Modify
   // Order edits the user has not yet submitted.
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [shouldShowLogoutConfirm, setShouldShowLogoutConfirm] = useState(false);
 
   const handleRefresh = async () => {
     await onRefresh();
@@ -202,7 +202,7 @@ export function Toolbar({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setShowLogoutConfirm(true)}
+          onClick={() => setShouldShowLogoutConfirm(true)}
           className="gap-2 text-muted-foreground hover:text-destructive"
           title="Logout"
         >
@@ -211,7 +211,7 @@ export function Toolbar({
         </Button>
       </div>
 
-      <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+      <AlertDialog open={shouldShowLogoutConfirm} onOpenChange={setShouldShowLogoutConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm logout?</AlertDialogTitle>
@@ -222,7 +222,7 @@ export function Toolbar({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => { setShowLogoutConfirm(false); onLogout(); }}
+              onClick={() => { setShouldShowLogoutConfirm(false); onLogout(); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Confirm Logout

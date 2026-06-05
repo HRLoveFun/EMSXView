@@ -20,6 +20,10 @@ from pathlib import Path
 
 import numpy as np
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 数据管理重构: 功能开关 (见 data_management_refactoring_plan.md §7.2)
+# ═══════════════════════════════════════════════════════════════════════════
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DATABASE KEYS (used by ConnectionManager)
@@ -32,6 +36,8 @@ DB_PROCESSED_RAW_BDIB = "processed_raw_bdib"
 DB_FILL_BDIB = "fill_bdib"
 DB_REGIME = "regime"
 DB_FETCH_HISTORY = "fill_fetch_history"
+DB_EXECUTION_HISTORY = "execution_history"
+DB_TICKER_REGISTRY = "ticker_registry"
 
 
 class Config:
@@ -52,6 +58,8 @@ class Config:
     RAW_BDIB_DB: Path = DATA_DIR / "raw_bdib.db"
     PROCESSED_RAW_BDIB_DB: Path = DATA_DIR / "processed_raw_bdib.db"
     FILL_BDIB_DB: Path = DATA_DIR / "fill_bdib.db"
+    EXECUTION_HISTORY_DB: Path = DATA_DIR / "execution_history.db"
+    TICKER_REGISTRY_DB: Path = DATA_DIR / "ticker_registry.db"
 
     LOG_FILE: Path = LOGGING_DIR / "fillfetch.log"
     LOG_DEBUG_FILE: Path = LOGGING_DIR / "fillfetch_debug.log"
@@ -87,6 +95,23 @@ class Config:
     SQLITE_CONNECT_TIMEOUT_SEC: int = 30
     SQLITE_BUSY_TIMEOUT_MS: int = 30_000
     BDIB_LATEST_READY_HOUR_LOCAL: int = 8
+
+    # ── 数据管理重构: BDIB存储引擎 (Phase A) ──
+    BDIB_PARQUET_ENABLED: bool = os.getenv("BDIB_PARQUET_ENABLED", "0") == "1"
+    BDIB_QUERY_ENGINE: str = os.getenv("BDIB_QUERY_ENGINE", "sqlite")
+    BDIB_PARQUET_DIR: Path = DATA_DIR / "market" / "bdib_10s"
+    BDIB_HOT_RETENTION_MONTHS: int = int(os.getenv("BDIB_HOT_RETENTION_MONTHS", "3"))
+
+    # ── 数据管理重构: 分区双写/读 (Phase B) ──
+    PARTITION_DUAL_WRITE: bool = os.getenv("PARTITION_DUAL_WRITE", "0") == "1"
+    PARTITION_READ_NEW: bool = os.getenv("PARTITION_READ_NEW", "0") == "1"
+    DB_EXECUTION_HISTORY: str = "execution_history"
+    DB_TICKER_REGISTRY: str = "ticker_registry"
+
+    # ── 数据管理重构: processed_raw_bdib退役 (Phase A8) ──
+    PROCESSED_RAW_BDIB_ENABLED: bool = (
+        os.getenv("PROCESSED_RAW_BDIB_ENABLED", "1") == "1"
+    )
 
     LOG_RETENTION_DAYS: int = 30
     LOG_DEBUG_RETENTION_DAYS: int = 7

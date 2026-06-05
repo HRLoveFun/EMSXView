@@ -13,7 +13,7 @@ interface TcaFilterWorkbenchProps {
 }
 
 export function TcaFilterWorkbench({ form, isLoading, onChange, onReset, onSearch }: TcaFilterWorkbenchProps) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [shouldShowAdvanced, setShouldShowAdvanced] = useState(false);
 
   function update<K extends keyof CostViewFilterFormState>(key: K, value: CostViewFilterFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -27,8 +27,8 @@ export function TcaFilterWorkbench({ form, isLoading, onChange, onReset, onSearc
             <CardTitle className="text-base">Analysis Filters</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">Run server-side TCA queries and keep the last-used filters locally.</p>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowAdvanced((current) => !current)}>
-            {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />} Advanced
+          <Button type="button" variant="outline" size="sm" onClick={() => setShouldShowAdvanced((current) => !current)}>
+            {shouldShowAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />} Advanced
           </Button>
         </div>
       </CardHeader>
@@ -81,7 +81,7 @@ export function TcaFilterWorkbench({ form, isLoading, onChange, onReset, onSearc
           </label>
         </div>
 
-        {showAdvanced ? (
+        {shouldShowAdvanced ? (
           <div className="rounded-lg border border-dashed border-border p-4">
             <label className="flex items-center gap-3 text-sm">
               <input type="checkbox" checked={form.warningOnly} onChange={(event) => update('warningOnly', event.target.checked)} />

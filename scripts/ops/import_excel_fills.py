@@ -69,7 +69,7 @@ _COSTVIEW_ROOT = Path(__file__).resolve().parent.parent / "CostView"  # scripts/
 if str(_COSTVIEW_ROOT) not in sys.path:
     sys.path.insert(0, str(_COSTVIEW_ROOT))
 
-from src.schema import (
+from DataPipeline.storage.schema.columns import (
     EMSX_FILL_COLUMNS,
     DERIVED_COLUMNS,
     RAW_METADATA_COLUMNS,

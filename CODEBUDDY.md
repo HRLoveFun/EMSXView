@@ -31,6 +31,12 @@ npm run build        # tsc -b && vite build → dist/
 npm run lint         # ESLint
 npm test             # vitest run
 npm run test:watch   # vitest watch
+
+# 运行单个测试文件
+npx vitest run src/modules/execution/__tests__/order-table.test.tsx
+
+# 按名称匹配运行测试
+npx vitest run -t "should render order table" src/
 ```
 
 - Vite proxies `/api/*` and `/ws/*` to `http://localhost:3000` in dev mode.
@@ -44,7 +50,10 @@ pip install -r requirements.txt    # Includes -e ../../platform_data
 python main.py                     # Starts uvicorn on :3000 (core only in microservice mode)
 uvicorn main:app --port 3000       # Alternative
 set EMSXVIEW_MERGE_MODULES=true    # Enable single-process mode for dev
-pytest                             # Run backend tests
+pytest                             # 运行全部后端测试
+pytest -v                          # 带详细输出
+pytest -k "test_create_order" -v   # 按名称匹配运行单个测试
+pytest tests/test_orders.py -v     # 运行特定测试文件
 ```
 
 ### MarketView Standalone (:8001)
@@ -194,9 +203,36 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 
 ## Key Conventions
 
+### TypeScript / React 编码规范
+
+- 优先使用 `const`，避免 `let`，禁止 `var`
+- 使用箭头函数，除非需要 `this` 绑定
+- 优先使用函数式编程范式（map/filter/reduce）
+- 每个函数不超过 30 行，使用 early return 减少嵌套
+- **所有注释使用中文**
+- 使用 `interface` 定义对象类型，使用 `type` 定义联合类型和工具类型
+- 为所有函数参数和返回值添加类型注解
 - Frontend uses **shadcn/ui** components (Radix UI + Tailwind CSS). New UI components should follow the same pattern — use `npx shadcn@latest add <component>` to add new shadcn components.
-- TypeScript strict mode is enabled (`noUnusedLocals`, `noUnusedParameters`, `erasableSyntaxOnly`).
+- TypeScript strict mode is enabled (`noUnusedLocals`, `noUnusedParameters`, `erasableSyntaxOnly`, `strictNullChecks`).
+
+### 前端状态管理
+
+- 全局应用状态使用 React Context（ShellContext 通过 `useShellContext()` 访问）
+- 实时数据流（订单/路由）使用 Zustand store（`order-stream-store`、`route-stream-store`）
+- 跨模块通信：`ModuleRegistry` 注册 + `useHandoffContracts()` hook + `handoff-api.ts` 服务
+
+### 后端约定
+
 - Backend uses Pydantic v2 models for schemas; all API responses wrapped in `ApiResponse`.
-- The Bloomberg Terminal must be running locally (or accessible via `BLOOMBERG_HOST`) for live trading features. Without it, use mock mode.
-- Pipeline config is the single source of truth — do not hardcode DB paths or table names; import from `DataPipeline.config.Config`.
+- 使用 `Depends()` 进行依赖注入（参见 `deps.py`）
+- 数据库读写由 `RepositoryProvider` 统一控制，gate 为 `ENABLE_DB_PERSISTENCE` 标志
+- Pipeline config is the single source of truth — do not hardcode DB paths or table names; import from `DataPipeline/config.Config`.
 - Backend optional routers must never break the core ExecutionView — use the `_register_optional` pattern in `main.py`.
+
+## Refactoring Context
+
+当前分支 `data_management_refactoring` 正在进行数据管理重构。在执行任何涉及数据库、存储或数据管道层的更改前，必须先查阅：
+
+1. `AGENTS.md` — 重构工作流规范（含安全规则）
+2. `data_management_refactoring_control.md` — 当前进度和任务状态
+3. `data_management_refactoring_plan.md` — 详细实施方案

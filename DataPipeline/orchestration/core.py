@@ -62,6 +62,36 @@ class FinancialPipeline:
 
         logger.info("=" * 60)
         if context.is_successful:
+            # 构建可读的完成摘要
+            proc = context.summary.get("processing", {})
+            agg = context.summary.get("aggregation", {})
+            labels = context.summary.get("order_labels", {})
+            ingest = context.summary.get("ingestion", {})
+            bdib = context.summary.get("bdib", {})
+
+            parts = []
+            if proc.get("rows_processed", 0) > 0:
+                parts.append(f"processed {proc['rows_processed']} rows")
+            if agg.get("dates", 0) > 0:
+                parts.append(f"aggregated {agg['dates']} dates")
+            if labels.get("orders", 0) > 0:
+                parts.append(f"labeled {labels['orders']} orders")
+            if bdib.get("raw_bdib_rows", 0) > 0:
+                parts.append(f"BDIB {bdib['raw_bdib_rows']} bars")
+            if ingest.get("skipped"):
+                parts.append("ingestion skipped")
+            if bdib.get("skipped"):
+                parts.append("BDIB skipped")
+
+            if parts:
+                detail = "; ".join(parts)
+            elif proc.get("rows_processed") == 0:
+                detail = "Already up to date — no new data to process"
+            else:
+                detail = "Completed"
+
+            if marker_name:
+                print(f"[STAGE] completion 100 {detail}", flush=True)
             logger.info(f"Pipeline completed SUCCESSFULLY: {context.summary}")
         else:
             logger.warning(f"Pipeline completed with ERRORS: {len(context.errors)} issues found.")

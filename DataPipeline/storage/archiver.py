@@ -41,6 +41,21 @@ ARCHIVE_CONFIG: Dict[str, Dict[str, int]] = {
 ARCHIVE_DIR_NAME = "archive"
 
 
+def _vacuum_incremental(conn: sqlite3.Connection, db_name: str) -> None:
+    """增量VACUUM — 设置auto_vacuum=INCREMENTAL后逐页回收 (Phase C2).
+
+    替代全量VACUUM, 避免大库长时间被锁。
+    """
+    logger.info("VACUUM %s (incremental)...", db_name)
+    conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+    freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
+    if freelist > 0:
+        conn.execute(f"PRAGMA incremental_vacuum({freelist})")
+        logger.info("  Freed %d pages from %s", freelist, db_name)
+    else:
+        logger.info("  No free pages in %s", db_name)
+
+
 class DataArchiver:
 
     def __init__(self, data_dir: Path) -> None:
@@ -109,8 +124,7 @@ class DataArchiver:
                 )
 
             if not dry_run and results:
-                logger.info("VACUUM %s to reclaim space...", db_name)
-                src.execute("VACUUM")
+                _vacuum_incremental(src, db_name)
         finally:
             src.close()
             dst.close()

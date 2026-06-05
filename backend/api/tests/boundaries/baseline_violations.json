@@ -1,0 +1,178 @@
+{
+  "generated_at": "2026-06-03T10:26:55",
+  "total": 21,
+  "by_rule": {
+    "AP-04": 10,
+    "AP-05": 11
+  },
+  "violations": [
+    {
+      "key": "backend\\api\\tests\\boundaries\\test_db_path_from_config.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "backend\\api\\tests\\boundaries\\test_db_path_from_config.py",
+      "line": 0,
+      "message": "hardcoded db path: data/raw_fills.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\ingestion\\fill_fetch.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\ingestion\\fill_fetch.py",
+      "line": 0,
+      "message": "hardcoded db path: Fetched {len(fills)} fills, upserted {rows_upserted} to raw_fills.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\processing\\validate_raw_fills.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\processing\\validate_raw_fills.py",
+      "line": 0,
+      "message": "hardcoded db path: No dates found in raw_fills.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\storage\\archiver.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\storage\\archiver.py",
+      "line": 0,
+      "message": "hardcoded db path: {db_name}.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\storage\\backup.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\storage\\backup.py",
+      "line": 0,
+      "message": "hardcoded db path: regime.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\storage\\connection.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\storage\\connection.py",
+      "line": 0,
+      "message": "hardcoded db path: regime.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\storage\\schema\\migration_framework.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\storage\\schema\\migration_framework.py",
+      "line": 0,
+      "message": "hardcoded db path: regime.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\storage\\schema\\migrations\\apply.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\storage\\schema\\migrations\\apply.py",
+      "line": 0,
+      "message": "hardcoded db path: CostView/data/regime.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "DataPipeline\\analysis\\regime\\schema.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "DataPipeline\\analysis\\regime\\schema.py",
+      "line": 0,
+      "message": "hardcoded db path: regime.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "CostView\\src\\__main__.py::AP-04",
+      "rule_id": "AP-04",
+      "file": "CostView\\src\\__main__.py",
+      "line": 0,
+      "message": "hardcoded db path: (Legacy) Ingest Excel files -> raw_fills.db",
+      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
+    },
+    {
+      "key": "backend\\api\\routers\\broker.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\broker.py",
+      "line": 0,
+      "message": "endpoint 'get_trader_info' (line 23) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\connection.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\connection.py",
+      "line": 0,
+      "message": "endpoint 'get_connection_status' (line 59) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\database.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\database.py",
+      "line": 0,
+      "message": "endpoint 'get_database_overview' (line 184) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\debug.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\debug.py",
+      "line": 0,
+      "message": "endpoint 'get_round_lot_sizes' (line 20) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\execution_history.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\execution_history.py",
+      "line": 0,
+      "message": "endpoint 'get_fill_history' (line 99) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\market_broker_mapping.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\market_broker_mapping.py",
+      "line": 0,
+      "message": "endpoint 'update_selection' (line 118) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\orders_crud.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\orders_crud.py",
+      "line": 0,
+      "message": "endpoint 'get_orders_status' (line 27) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\orders_execution.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\orders_execution.py",
+      "line": 0,
+      "message": "endpoint 'create_parent_execution' (line 100) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\orders_handoff.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\orders_handoff.py",
+      "line": 0,
+      "message": "endpoint 'get_active_candidate_handoff' (line 46) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\routes.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\routes.py",
+      "line": 0,
+      "message": "endpoint 'get_routes' (line 23) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    },
+    {
+      "key": "backend\\api\\routers\\route_plans.py::AP-05",
+      "rule_id": "AP-05",
+      "file": "backend\\api\\routers\\route_plans.py",
+      "line": 0,
+      "message": "endpoint 'list_route_plans' (line 153) does not return ApiResponse",
+      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
+    }
+  ]
+}

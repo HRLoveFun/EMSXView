@@ -3,7 +3,7 @@ Extract OpenAPI schema from the FastAPI app without starting the server.
 
 Usage:
     cd backend/api
-    python ../../scripts/extract-openapi.py > ../../frontend/src/shared/api-types/openapi.json
+    python ../../scripts/extract-openapi.py > ../../frontend/src/shared/types/openapi.json
 
 This avoids the need for a running server when regenerating types.
 """

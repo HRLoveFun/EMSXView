@@ -19,12 +19,10 @@ from platform_data.adapters import (
 )
 from platform_data.execution_history_service import ExecutionHistoryQueryService
 from schemas import (
+    ApiResponse,
     ExecutionHistoryFillData,
-    ExecutionHistoryFillResponse,
     ExecutionHistoryOrderSummaryData,
-    ExecutionHistoryOrderSummaryResponse,
     ExecutionHistoryRouteSummaryData,
-    ExecutionHistoryRouteSummaryResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,7 +95,7 @@ def _project_into(dataclass_type: type, row: dict[str, Any]) -> Any:
     return dataclass_type(**projected)
 
 
-@router.get("/api/execution-history/fills", response_model=ExecutionHistoryFillResponse)
+@router.get("/api/execution-history/fills", response_model=ApiResponse)
 async def get_fill_history(
     order_id: str | None = Query(default=None),
     route_id: str | None = Query(default=None),
@@ -121,14 +119,14 @@ async def get_fill_history(
         logger.error("Execution history fills query failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Execution history query error: {exc}")
 
-    return ExecutionHistoryFillResponse(
+    return ApiResponse(
         success=True,
         data=ExecutionHistoryFillData(**asdict(snapshot)),
         message=f"Execution history fills: {snapshot.row_count} rows matched",
     )
 
 
-@router.get("/api/execution-history/orders", response_model=ExecutionHistoryOrderSummaryResponse)
+@router.get("/api/execution-history/orders", response_model=ApiResponse)
 async def get_order_history(
     order_id: str | None = Query(default=None),
     start_date: str | None = Query(default=None, pattern=r"^\d{8}$"),
@@ -150,14 +148,14 @@ async def get_order_history(
         logger.error("Execution history orders query failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Execution history query error: {exc}")
 
-    return ExecutionHistoryOrderSummaryResponse(
+    return ApiResponse(
         success=True,
         data=ExecutionHistoryOrderSummaryData(**asdict(snapshot)),
         message=f"Execution history orders: {snapshot.row_count} rows matched",
     )
 
 
-@router.get("/api/execution-history/routes", response_model=ExecutionHistoryRouteSummaryResponse)
+@router.get("/api/execution-history/routes", response_model=ApiResponse)
 async def get_route_history(
     order_id: str | None = Query(default=None),
     route_id: str | None = Query(default=None),
@@ -181,7 +179,7 @@ async def get_route_history(
         logger.error("Execution history routes query failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Execution history query error: {exc}")
 
-    return ExecutionHistoryRouteSummaryResponse(
+    return ApiResponse(
         success=True,
         data=ExecutionHistoryRouteSummaryData(**asdict(snapshot)),
         message=f"Execution history routes: {snapshot.row_count} rows matched",

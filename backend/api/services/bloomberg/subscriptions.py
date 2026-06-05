@@ -252,6 +252,19 @@ class EMSXSubscriptionEngine:
 
             seq_key = str(seq)
 
+            # ── 诊断日志：追踪目标订单序列号的消息 ──────────────
+            _TRACE_SEQS = {4926854, 5190560}
+            if seq in _TRACE_SEQS:
+                ticker = self._msg_safe_str(msg, "EMSX_TICKER")
+                status = self._msg_safe_str(msg, "EMSX_STATUS") or self._msg_safe_int(msg, "EMSX_STATUS")
+                amount = self._msg_safe_int(msg, "EMSX_AMOUNT")
+                logger.warning(
+                    "TRACE_ORDER: seq=%d seq_key='%s' event_status=%d ticker='%s' status=%s amount=%d init_paint_done=%s cached=%s",
+                    seq, seq_key, event_status, ticker, status, amount,
+                    self._init_paint_done, seq_key in self._orders,
+                )
+            # ───────────────────────────────────────────────────
+
             if event_status == 8:
                 with self._data_lock:
                     if seq_key in self._orders:
@@ -321,7 +334,14 @@ class EMSXSubscriptionEngine:
                     self._orders[seq_key] = merged
                     logger.debug(f"Order update (7): {seq_key} {merged.symbol} -> {merged.status}")
                 elif event_status == 7:
-                    logger.debug(f"Skip update for unseen seq {seq_key} — no cached base data")
+                    # 订UPDATE消息包含完整字段，即使缓存中无基础数据也直接入库。
+                    # 避免因 INIT_PAINT 消息被错过而导致订单永远不进入缓存。
+                    self._orders[seq_key] = order
+                    logger.warning(
+                        "订单 %s 首次通过 UPDATE 消息入库（INIT_PAINT 消息可能被错过），symbol='%s' status=%s",
+                        seq_key, order.symbol, order.status,
+                    )
+                    self._enrich_routes_with_new_order(order)
                 else:
                     self._orders[seq_key] = order
                     if event_status == 4:
@@ -406,7 +426,13 @@ class EMSXSubscriptionEngine:
                             f"exchange='{update_dict.get('exchange','')}'"
                         )
                     elif event_status == 7:
-                        logger.debug(f"Skip route update for unseen {route_key}")
+                        # Route UPDATE 消息包含完整字段，即使缓存中无基础数据也直接入库
+                        self._routes[route_key] = route
+                        self._enrich_route_from_parent(route_key, route)
+                        logger.warning(
+                            "Route %s 首次通过 UPDATE 消息入库（INIT_PAINT 消息可能被错过），broker='%s' status=%s",
+                            route_key, route.broker, route.status,
+                        )
                     else:
                         self._routes[route_key] = route
                         self._enrich_route_from_parent(route_key, route)

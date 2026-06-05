@@ -15,7 +15,8 @@ Const FRONTEND_PORT   = 5173
 Const POLL_INTERVAL   = 1000      ' 每 1 秒检测一次
 Const BACKEND_TIMEOUT   = 60000   ' 后端最多等 60 秒
 Const FRONTEND_TIMEOUT  = 120000  ' 前端最多等 120 秒
-Const EMSXVIEW_ROOT        = "C:\Users\hrchen\Documents\EMSXView"
+Dim EMSXVIEW_ROOT
+EMSXVIEW_ROOT = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 Dim ERROR_PAGE_PATH
 ERROR_PAGE_PATH  = EMSXVIEW_ROOT & "\logs\startup-error.html"
 Dim FRONTEND_OPENED

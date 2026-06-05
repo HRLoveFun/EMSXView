@@ -18,6 +18,16 @@ from ._base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
+_parquet_writer = None
+
+
+def _get_parquet_writer():
+    global _parquet_writer
+    if _parquet_writer is None and Config.BDIB_PARQUET_ENABLED:
+        from DataPipeline.storage.market_store import MarketStoreWriter
+        _parquet_writer = MarketStoreWriter(Config.BDIB_PARQUET_DIR)
+    return _parquet_writer
+
 
 class SqliteMarketDataReadRepository(BaseRepository):
     """Read access to BDIB bars and daily summaries."""
@@ -217,6 +227,15 @@ class SqliteMarketDataWriteRepository(BaseRepository):
             conn.executemany(sql, rows)
             conn.commit()
             logger.info(f"Upserted {len(rows)} raw BDIB rows")
+
+            writer = _get_parquet_writer()
+            if writer is not None:
+                try:
+                    pq_rows = writer.write_batch(work)
+                    logger.debug(f"Parquet双写: {pq_rows}行")
+                except Exception as e:
+                    logger.warning(f"Parquet双写失败 (不影响SQLite主路径): {e}")
+
             return len(rows)
         finally:
             conn.close()
@@ -225,8 +244,11 @@ class SqliteMarketDataWriteRepository(BaseRepository):
         """Upsert processed/enhanced BDIB bars. Returns row count.
 
         Writes to processed_raw_bdib.db.
+        由 PROCESSED_RAW_BDIB_ENABLED 控制 — A8退役后停止写入。
         """
         if df is None or df.empty:
+            return 0
+        if not Config.PROCESSED_RAW_BDIB_ENABLED:
             return 0
 
         cols = [

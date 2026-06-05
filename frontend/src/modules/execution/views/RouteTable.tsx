@@ -147,15 +147,15 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
 
   // Dialog states
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [modifyDialogOpen, setModifyDialogOpen] = useState(false);
-  const [rateDiagnosticOpen, setRateDiagnosticOpen] = useState(false);
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+  const [isModifyDialogOpen, setIsModifyDialogOpen] = useState(false);
+  const [isRateDiagnosticOpen, setIsRateDiagnosticOpen] = useState(false);
 
   // ---------- Batch selection ----------
   // A set of route.id for routes the user has checked for batch operations.
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set());
-  const [batchCancelOpen, setBatchCancelOpen] = useState(false);
-  const [batchModifyOpen, setBatchModifyOpen] = useState(false);
+  const [isBatchCancelOpen, setIsBatchCancelOpen] = useState(false);
+  const [isBatchModifyOpen, setIsBatchModifyOpen] = useState(false);
 
   const toggleRouteSelection = useCallback((routeId: string) => {
     setSelectedRouteIds(prev => {
@@ -406,8 +406,8 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
           <RouteActionMenu
             route={effectiveRoute}
             currentTrader={currentTrader}
-            onCancel={(r) => { setSelectedRoute(r); setCancelDialogOpen(true); }}
-            onModify={(r) => { setSelectedRoute(r); setModifyDialogOpen(true); }}
+            onCancel={(r) => { setSelectedRoute(r); setIsCancelDialogOpen(true); }}
+            onModify={(r) => { setSelectedRoute(r); setIsModifyDialogOpen(true); }}
           />
         </td>
         {/* Order# */}
@@ -527,7 +527,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
             </button>
           )}
           <button
-            onClick={() => setRateDiagnosticOpen(true)}
+            onClick={() => setIsRateDiagnosticOpen(true)}
             className={`${hasActiveFilters ? '' : 'ml-auto'} flex items-center gap-1 text-xs px-2 py-0.5 border border-border rounded hover:bg-secondary transition-colors`}
             title="Diagnose routes with missing strategy Rate field"
           >
@@ -544,14 +544,14 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
             {hasModifyCapability && (
               <>
                 <button
-                  onClick={() => setBatchModifyOpen(true)}
+                  onClick={() => setIsBatchModifyOpen(true)}
                   className="px-2 py-0.5 rounded border border-primary/40 bg-primary/10 hover:bg-primary/20 transition-colors"
                   title="Apply the same modification to all selected routes"
                 >
                   Batch Modify…
                 </button>
                 <button
-                  onClick={() => setBatchCancelOpen(true)}
+                  onClick={() => setIsBatchCancelOpen(true)}
                   className="px-2 py-0.5 rounded border border-destructive/40 bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
                   title="Cancel all selected routes"
                 >
@@ -802,14 +802,14 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
         <>
           <CancelRouteDialog
             route={selectedRoute}
-            open={cancelDialogOpen}
-            onOpenChange={setCancelDialogOpen}
+            open={isCancelDialogOpen}
+            onOpenChange={setIsCancelDialogOpen}
             onConfirm={handleCancel}
           />
           <UnifiedModifyRouteDialog
             route={selectedRoute}
-            open={modifyDialogOpen}
-            onOpenChange={setModifyDialogOpen}
+            open={isModifyDialogOpen}
+            onOpenChange={setIsModifyDialogOpen}
             onSubmit={async (req) => {
               if (!onModifyRoute) return;
               await onModifyRoute(req);
@@ -819,23 +819,23 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
           />
         </>
       )}
-      <RateDiagnosticDialog open={rateDiagnosticOpen} onOpenChange={setRateDiagnosticOpen} />
+      <RateDiagnosticDialog open={isRateDiagnosticOpen} onOpenChange={setIsRateDiagnosticOpen} />
 
       {/* Batch operation dialogs */}
       {hasModifyCapability && (
         <>
           <BatchCancelDialog
             routes={filteredRoutes.filter(r => selectedRouteIds.has(r.id))}
-            open={batchCancelOpen}
-            onOpenChange={setBatchCancelOpen}
+            open={isBatchCancelOpen}
+            onOpenChange={setIsBatchCancelOpen}
             onSubmit={async (req) => { if (onCancelRoute) await onCancelRoute(req); }}
             onEachSubmitted={(r) => markReplacing(r.id)}
             onComplete={async () => { clearSelection(); if (onRefresh) await onRefresh(); }}
           />
           <BatchModifyDialog
             routes={filteredRoutes.filter(r => selectedRouteIds.has(r.id))}
-            open={batchModifyOpen}
-            onOpenChange={setBatchModifyOpen}
+            open={isBatchModifyOpen}
+            onOpenChange={setIsBatchModifyOpen}
             onEachSubmitted={(r) => markReplacing(r.id)}
             onComplete={async () => { clearSelection(); if (onRefresh) await onRefresh(); }}
           />
