@@ -30,7 +30,7 @@ export function RouteActionMenu({
   onCancel,
   onModify,
 }: RouteActionMenuProps) {
-  const [open, setOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
   const statusAllowsModify = MODIFIABLE_STATUSES.includes(route.status);
   const isReplacing = REPLACING_STATUSES.includes(route.status);
@@ -68,7 +68,7 @@ export function RouteActionMenu({
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
           <MoreHorizontal className="h-4 w-4" />
@@ -76,7 +76,7 @@ export function RouteActionMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
         <DropdownMenuItem
-          onClick={() => { onModify(route); setOpen(false); }}
+          onClick={() => { onModify(route); setIsOpen(false); }}
           disabled={!canModify}
         >
           <Edit3 className="mr-2 h-4 w-4" />
@@ -84,7 +84,7 @@ export function RouteActionMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => { onCancel(route); setOpen(false); }}
+          onClick={() => { onCancel(route); setIsOpen(false); }}
           disabled={!canModify}
           className="text-destructive focus:text-destructive"
         >

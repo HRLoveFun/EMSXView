@@ -18,15 +18,19 @@ router = APIRouter(tags=["Connection"])
 _last_reconnect_ts: float = 0.0
 
 
-@router.get("/", tags=["Health"])
+@router.get("/", response_model=ApiResponse, tags=["Health"])
 async def root(bloomberg=Depends(get_bloomberg_service)):
     """API root — service info."""
-    return {
-        "service": "EMSXView Trading API",
-        "version": "1.0.0",
-        "status": "running",
-        "bloomberg": bloomberg.get_status().model_dump(),
-    }
+    return ApiResponse(
+        success=True,
+        data={
+            "service": "EMSXView Trading API",
+            "version": "1.0.0",
+            "status": "running",
+            "bloomberg": bloomberg.get_status().model_dump(),
+        },
+        message="Service is running",
+    )
 
 
 @router.get("/api/health", response_model=ApiResponse, tags=["Health"])

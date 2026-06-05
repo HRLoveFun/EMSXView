@@ -1,110 +1,100 @@
 ﻿# Project Memory
 
-> å½“å‰æœ‰æ•ˆçš„æž¶æž„è®°å¿†ã€å·¥ä½œçº¦æŸä¸Žç¨³å®šçº¦å®šã€‚
+> 架构记忆入口
+> 详细决策见 `docs/spec/adr/`，本文件仅作索引与高频速查
+> Last updated: 2026-06-03
 
 ---
 
-## 1. Architecture Overview
+## 1. 关键入口（高频引用）
 
-å½“å‰ä»“åº“çš„çœŸå®žç»“æž„æ˜¯ï¼š
-
-- ä¸€ä¸ªæ­£å¼å‰ç«¯å£³ï¼šfrontend/
-- ä¸‰ä¸ªä¸šåŠ¡æ¨¡å—ï¼šMarketViewã€ExecutionViewã€CostView
-- ä¸€ä¸ªé€»è¾‘æ•°æ®åŸŸå…¥å£ï¼šplatform_data
-
-å…³é”®å…¥å£ï¼š
-
-- å‰ç«¯å£³ï¼šfrontend/src/App.tsx
-- åŽç«¯è£…é…å±‚ï¼šbackend/api/main.py
-- CostView ç®¡çº¿ä¸Žåˆ†æžï¼šCostView/src/
-- å…±äº«é€‚é…å±‚ï¼šplatform_data/adapters.py
-
----
-
-## 2. Stable Design Rules
-
-### å‰ç«¯
-
-- frontend/ æ˜¯å”¯ä¸€æ­£å¼ UI å…¥å£ã€‚
-- CostView çš„æ­£å¼ UI ä½äºŽ frontend/src/modules/costview/ã€‚
-- CostView/frontend/ æ˜¯é—ç•™åŽŸåž‹é¢ï¼Œä¸åº”å†æ‰¿æŽ¥é»˜è®¤äº§å“å¼€å‘ã€‚
-- MarketView å½“å‰å·²æœ‰å£³å†…å…¥å£å’ŒçœŸå®žå¿«ç…§åŸºçº¿ï¼Œä½†åŽç»­æ‰©å±•å·²æš‚åœã€‚
-
-### åŽç«¯
-
-- backend/api/main.py çŽ°åœ¨ä¸»è¦è´Ÿè´£åº”ç”¨è£…é…ï¼Œä¸å†æ˜¯å”¯ä¸€ä¸šåŠ¡é€»è¾‘æ–‡ä»¶ã€‚
-- Bloomberg é€»è¾‘æ ¸å¿ƒåœ¨ services/bloomberg_adapter.pyã€‚
-- Python åŽç«¯ä»£ç ä¿®æ”¹åŽéœ€è¦é‡å¯åŽç«¯æ‰èƒ½ç”Ÿæ•ˆã€‚
-
-### æ•°æ®åŸŸ
-
-- ä¸€ä¸ªé€»è¾‘æ•°æ®åŸŸä¸ç­‰äºŽä¸€ä¸ªç‰©ç†æ•°æ®åº“ã€‚
-- ExecutionView æ‹¥æœ‰ operational stateã€‚
-- CostView æ‹¥æœ‰ analytical å’Œ pipeline æ•°æ®ã€‚
-- è·¨åŸŸè®¿é—®ä¼˜å…ˆé€šè¿‡ platform_data/ é€‚é…å±‚ï¼Œè€Œä¸æ˜¯æ·±å±‚ç›´æŽ¥å¯¼å…¥ã€‚
+| 用途 | 路径 |
+|---|---|
+| 前端壳 | `frontend/src/app/AppShell.tsx` |
+| 后端装配 | `backend/api/main.py` |
+| 数据入口 | `platform_data/adapters.py` |
+| 流水线配置 | `DataPipeline/config.py` |
+| 平台契约 | `platform_data/contracts/` |
+| 共享规范 | `AGENTS.md`（仓库根） |
+| Agent 编码规则 | `.codebuddy/rules/coding-style.md` |
+| Agent 上下文 | `.codebuddy/rules/project-context.md` |
+| 模块边界 | `.codebuddy/rules/module-boundary.md` |
 
 ---
 
-## 3. Runtime Patterns
+## 2. 已稳定的架构决定（ADR 索引）
 
-### æ•°æ®æŒä¹…åŒ–è¯­ä¹‰
+> AI agent 进入仓库必读：按编号顺序阅读 Accepted 状态的 ADR
+> 完整 ADR 列表见 `docs/spec/adr/README.md`
 
-- ENABLE_DB_PERSISTENCE=true æ—¶ï¼ŒåŽç«¯å¯åŠ¨ä¼šæ‰§è¡Œæ•°æ®åº“ bootstrapã€‚
-- ENABLE_DB_PERSISTENCE=false æ—¶ï¼Œæ•°æ®åº“è¢«è§†ä¸ºå¯é€‰èƒ½åŠ›ã€‚
-- åœ¨å¯é€‰æ¨¡å¼ä¸‹ï¼Œ/api/health åº”è¿”å›ž database.status=disabledï¼Œè€Œä¸æ˜¯ disconnectedã€‚
-
-### Bloomberg ä¼šè¯æ¨¡å¼
-
-- è®¢é˜…ã€è¯·æ±‚å“åº”ã€å¸‚åœºæ•°æ®/RefData å·²åˆ†ç¦»ï¼Œé¿å… nextEvent ç«žäº‰ã€‚
-- RefData pending å¿…é¡»ä¸Žå¯¹åº” correlation id ç²¾ç¡®ç»‘å®šï¼Œä¸èƒ½å…¨å±€ç²—æš´æ¸…é›¶ã€‚
-
-### FX æ±‡çŽ‡å¤„ç†
-
-- direct ä¸Ž inverse åŒæ—¶å­˜åœ¨æ—¶ï¼Œinverse æ›´å¯é ã€‚
-- å·²çŸ¥ 10x/100x/1000x ç¼©æ”¾æŠ¥ä»·åº”è§†ä¸ºæŠ¥ä»·çº¦å®šï¼Œè€Œä¸æ˜¯æŒç»­ WARNINGã€‚
-- åªæœ‰ç¼©æ”¾å½’ä¸€åŒ–åŽä»æ˜¾è‘—åç¦»çš„ direct/inverse å·®å¼‚æ‰ä¿ç•™ WARNINGã€‚
-
----
-
-## 4. Module Status
-
-### Execution
-
-- ä»æ˜¯å½“å‰æœ€æˆç†Ÿçš„ä¸šåŠ¡åŸŸã€‚
-- è®¢å•ã€è·¯ç”±ã€è®¤è¯ã€è¿žæŽ¥ã€å®žæ—¶ç­‰èƒ½åŠ›å·²æ¨¡å—åŒ–åˆ° routers/services/repositoriesã€‚
-
-### CostView
-
-- æ˜¯æ´»è·ƒåˆ†æžåŸŸã€‚
-- TCA æŸ¥è¯¢ã€å¸‚åœºæ•°æ®æ±‡æ€»ã€æ—¥æ›´ç®¡çº¿éƒ½ä»¥ CostView/src/ ä¸ºå‡†ã€‚
-
-### MarketView
-
-- ç¬¬ä¸€æ‰¹çœŸå®žæ•°æ®è¾¹ç•Œå·²è½åœ°ï¼šbdib_daily_summary å¿«ç…§ã€‚
-- å½“å‰åªä¿ç•™åªè¯»åŸºçº¿ï¼Œä¸ç»§ç»­æ‰©åŠŸèƒ½ï¼Œç›´åˆ°æš‚åœè§£é™¤ã€‚
+| 编号 | 标题 | 状态 |
+|---|---|---|
+| [ADR-0001](adr/0001-one-logical-data-domain.md) | 一个逻辑数据域，多种存储技术 | Accepted |
+| [ADR-0002](adr/0002-platform-data-adapter-pattern.md) | platform_data 适配器模式 | Accepted |
+| [ADR-0003](adr/0003-executionview-owns-operational-state.md) | ExecutionView 拥有 operational state | Accepted |
+| [ADR-0004](adr/0004-costview-focused-on-evaluation.md) | CostView 聚焦算法评估与分析 | Accepted |
+| [ADR-0005](adr/0005-data-pipeline-extraction.md) | Data Platform 子域从 CostView 抽取 | Accepted |
+| [ADR-0006](adr/0006-dataplatform-as-independent-subdomain.md) | Data Platform 作为独立子域 | Accepted |
+| [ADR-0007](adr/0007-handoff-exchange-pattern.md) | Handoff 跨模块交换模式 | Accepted |
+| [ADR-0008](adr/0008-frontend-module-registry-pattern.md) | 前端模块自注册模式 | Accepted |
+| [ADR-0009](adr/0009-blend-of-microservice-and-monolith.md) | 单进程/微服务双模部署 | Accepted |
+| [ADR-0010](adr/0010-bloomberg-session-model.md) | Bloomberg 会话模型 | Accepted |
+| [ADR-0011](adr/0011-fx-rate-handling-rules.md) | FX 汇率处理规则 | Accepted |
+| [ADR-0012](adr/0012-config-isolation-rule.md) | 配置隔离：DataPipeline/config 单一来源 | Accepted |
+| [ADR-0013](adr/0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | Accepted |
 
 ---
 
-## 5. Documentation Rules
+## 3. 阅读顺序（Agent 速查）
 
-- docs æ ¹ç›®å½•åªä¿ç•™ä»ç„¶æœ‰æ•ˆçš„è¿è¡ŒæŒ‡å—ã€æž¶æž„è¯´æ˜Žã€æ•°æ®è¾¹ç•Œã€å½“å‰ handoff å’Œæ´»è·ƒè®¡åˆ’æ–‡æ¡£ã€‚
-- å·²å®Œæˆé˜¶æ®µæ€»ç»“ã€ä¸€æ¬¡æ€§è¯Šæ–­æŠ¥å‘Šã€æ—§æž¶æž„è·¯å¾„è¯´æ˜Žï¼Œåº”ç§»å…¥ docs/archive/æ—¥æœŸç›®å½•ã€‚
-- ç»“æž„æ€§å†³ç­–å†™å…¥ .github/knowledge/architecture-decisions.mdã€‚
-- è¿è¡Œæ—¶é”™è¯¯æ¨¡å¼å†™å…¥ .github/knowledge/error-patterns.mdã€‚
+**新进入 agent**（按此顺序阅读 9 份文档）：
+1. `AGENTS.md` — 工作流与安全规则
+2. `.codebuddy/rules/project-context.md` — 技术栈与模块清单
+3. `.codebuddy/rules/coding-style.md` — 命名/目录/状态管理
+4. `.codebuddy/rules/module-boundary.md` — ★ 模块边界契约
+5. `docs/spec/project-structure.md` — 当前仓库结构
+6. `docs/spec/data-domain.md` — 数据域所有权
+7. **本文件 `memory.md`** — 架构记忆入口
+8. `docs/spec/module-onboarding.md` — 新增模块流程
+9. `docs/spec/anti-patterns.md` — ★ 禁止模式
+
+**涉及数据/存储/管道改动时**额外阅读：
+- `data_management_refactoring_control.md` — 重构进度
+- `data_management_refactoring_plan.md` — 重构实施
 
 ---
 
-## 6. Operational Reminders
+## 4. 数据持久化语义（运行时规则）
 
-- Bloomberg å­—æ®µå¿…é¡»è¿›å…¥è®¢é˜…åˆ—è¡¨æ‰ä¼šæ”¶åˆ°ã€‚
-- Bloomberg å­—æ®µç±»åž‹å¿…é¡»ä¸Žè§£æžå™¨ç±»åž‹ä¸€è‡´ã€‚
-- é»˜è®¤æ—¥å¿—çº§åˆ«ä¸º WARNINGï¼Œå› æ­¤æ–°å¢žè¯Šæ–­æ—¥å¿—è¦è°¨æ…ŽæŽ§åˆ¶ç­‰çº§ã€‚
-- MarketViewã€CostViewã€ExecutionView çš„å…±äº«æ•°æ®æŽ¥å…¥ä¼˜å…ˆä»Ž platform_data è¿›å…¥ã€‚
+- `ENABLE_DB_PERSISTENCE=true` 时，后端启动会执行数据库 bootstrap
+- `ENABLE_DB_PERSISTENCE=false` 时，数据库视为可选能力
+- 可选模式下 `/api/health` 应返回 `database.status=disabled`，而非 `disconnected`
 
 ---
 
-## 7. DatabaseView API Contract
+## 5. Bloomberg 会话与字段规则
 
-è§ `docs/api/database.md`ã€‚DatabaseView æ˜¯ frontend/ çš„ç¬¬ 4 ä¸ªé¡¶å±‚æ¨¡å—ï¼Œè´Ÿè´£å¯è§†åŒ– CostView
-SQLite æ•°æ®åº“æ—çš„äº¤æ˜“æ—¥æœŸè¦†ç›–ã€è¡Œæ•°ä¸Žå¥åº·çŠ¶æ€ã€‚
+- 订阅、请求响应、市场数据/RefData 已分离，避免 `nextEvent` 竞争
+- RefData pending 必须与对应 correlation id 精确绑定，不能全局粗暴清零
+- Bloomberg 字段必须进入订阅列表才会收到
+- Bloomberg 字段类型必须与解析器类型一致
 
+---
+
+## 6. FX 汇率处理
+
+- direct 与 inverse 同时存在时，inverse 更可靠
+- 已知 10x/100x/1000x 缩放报价应视为报价约定，而非持续 WARNING
+- 只有缩放归一化后仍显著偏离的 direct/inverse 差异才保留 WARNING
+
+---
+
+## 7. 文档维护规则
+
+- 决策类内容 → `docs/spec/adr/NNNN-*.md`
+- 运行时模式 → 本文件 `memory.md`（保持简短，仅作速查）
+- 一次性诊断报告 → `docs/archive/YYYY-MM-DD/`
+- 阶段性总结 → `docs/roadmap/` 或 `docs/handoff.md`
+- Agent 总则 → `.github/agent.md`
+- 错误模式 → `.github/knowledge/error-patterns.md`
+- 架构决策摘要 → `.github/knowledge/architecture-decisions.md`（本仓库 ADR 的对外映射）

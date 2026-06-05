@@ -21,12 +21,39 @@ from ._base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
+# 分区映射: 表名 → (目标DB键, 保留别名)
+# Phase B: activated by PARTITION_DUAL_WRITE / PARTITION_READ_NEW flags
+_PARTITION_DB_MAP: dict[str, str] = {
+    "route_registry": "execution_history",
+    "order_history": "execution_history",
+    "route_history": "execution_history",
+    "route_event_history": "execution_history",
+    "ticker_repository": "ticker_registry",
+    "equ_ticker_registry": "ticker_registry",
+    "ccy_ticker_registry": "ticker_registry",
+    "ticker_date_mapping": "ticker_registry",
+    "order_label": "ticker_registry",
+}
+
+
+def _partition_db_for(table: str) -> str:
+    return _PARTITION_DB_MAP.get(table, "")
+
 
 class SqliteFillReadRepository(BaseRepository):
     """Read access to processed fills, route registry, and aggregations."""
 
     def __init__(self, connection_manager=None):
         super().__init__(connection_manager, database="processed_fills")
+
+    def _conn_for(self, table: str):
+        """B3: 根据表名路由到正确的DB (PARTITION_READ_NEW)."""
+        if Config.PARTITION_READ_NEW:
+            target_db = _partition_db_for(table)
+            if target_db:
+                from DataPipeline.storage.connection import AccessTier
+                return self._mgr.get_connection(target_db, AccessTier.READ)
+        return self._get_read_conn()
 
     def get_fills_for_date(self, yyyymmdd: str) -> pd.DataFrame:
         """Return processed fills for a trading date."""
@@ -81,6 +108,22 @@ class SqliteFillReadRepository(BaseRepository):
         finally:
             conn.close()
 
+    def get_distinct_fill_dates(self) -> List[str]:
+        """返回 processed_fills 表中所有不重复的 order_as_of_date 值。
+
+        直接查询数据表而非 processing_log，避免 source_date/order_as_of_date 语义差异。
+        """
+        conn = self._get_read_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT DISTINCT order_as_of_date FROM processed_fills "
+                "WHERE order_as_of_date IS NOT NULL AND order_as_of_date != '' "
+                "ORDER BY order_as_of_date"
+            )
+            return [r[0] for r in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def get_unprocessed_dates(
         self, candidate_dates: List[str], stage: str = "processed",
     ) -> List[str]:
@@ -116,7 +159,7 @@ class SqliteFillReadRepository(BaseRepository):
         self, exchanges: Optional[List[str]] = None,
     ) -> Dict[str, str]:
         """Return {equ_ticker: exchange} from ticker_repository."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("ticker_repository")
         try:
             params: List[str] = []
             where_clauses: List[str] = []
@@ -142,7 +185,7 @@ class SqliteFillReadRepository(BaseRepository):
 
     def get_order_labels(self) -> pd.DataFrame:
         """Return order labels."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("order_label")
         try:
             return pd.read_sql_query(
                 "SELECT * FROM order_label", conn.raw_connection,
@@ -152,7 +195,7 @@ class SqliteFillReadRepository(BaseRepository):
 
     def get_equ_ticker_registry(self) -> pd.DataFrame:
         """Get all equity tickers from the registry."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("equ_ticker_registry")
         try:
             return pd.read_sql_query(
                 "SELECT * FROM equ_ticker_registry ORDER BY equ_ticker",
@@ -163,7 +206,7 @@ class SqliteFillReadRepository(BaseRepository):
 
     def get_ccy_ticker_registry(self) -> pd.DataFrame:
         """Get all currency tickers from the registry."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("ccy_ticker_registry")
         try:
             return pd.read_sql_query(
                 "SELECT * FROM ccy_ticker_registry ORDER BY ccy_ticker",
@@ -176,7 +219,7 @@ class SqliteFillReadRepository(BaseRepository):
         self, ticker_type: str = "equ_ticker",
     ) -> Dict[str, List[str]]:
         """Get ticker→dates mapping from ticker_date_mapping table."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("ticker_date_mapping")
         try:
             cur = conn.execute(
                 "SELECT ticker, order_as_of_date FROM ticker_date_mapping "
@@ -208,7 +251,7 @@ class SqliteFillReadRepository(BaseRepository):
 
     def get_order_labels_for_date(self, date_str: str) -> pd.DataFrame:
         """Get order labels for a specific date."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("order_label")
         try:
             return pd.read_sql_query(
                 "SELECT * FROM order_label WHERE order_as_of_date = ?",
@@ -220,7 +263,7 @@ class SqliteFillReadRepository(BaseRepository):
 
     def get_execution_history_stats(self) -> Dict[str, Any]:
         """Return row counts and source policy metadata for execution history tables."""
-        conn = self._get_read_conn()
+        conn = self._conn_for("order_history")
         try:
             return {
                 "order_history_rows": conn.execute(
@@ -304,16 +347,50 @@ class SqliteFillWriteRepository(BaseRepository):
     def __init__(self, connection_manager=None):
         super().__init__(connection_manager, database="processed_fills")
 
+    def _partition_dual_write(self, table: str, sql: str, rows: list) -> None:
+        """双写分区DB (Phase B2: PARTITION_DUAL_WRITE)."""
+        if not Config.PARTITION_DUAL_WRITE:
+            return
+        target_db = _partition_db_for(table)
+        if not target_db:
+            return
+        try:
+            conn = self._mgr.get_connection(target_db)
+            conn.executemany(sql, rows)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug("分区双写跳过 %s: %s", table, e)
+
+    def _upsert_to_partition(
+        self, df, table: str, expected_columns: list, target_db: str,
+    ) -> None:
+        """写入分区DB."""
+        conn = self._mgr.get_connection(target_db)
+        try:
+            self._upsert_fixed_schema(
+                df, table, key_columns=[], expected_columns=expected_columns,
+                type_map=COLUMN_TYPE_MAP, conn=conn,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _get_connection_for_table(self, table: str):
+        """B3: 读取时路由到分区DB."""
+        if Config.PARTITION_READ_NEW:
+            target_db = _partition_db_for(table)
+            if target_db:
+                return self._mgr.get_connection(target_db, AccessTier.READ)
+        return self._get_read_conn()
+
     def _upsert(
         self, df: pd.DataFrame, table: str,
         key_columns: List[str], expected_columns: List[str],
         conn: Optional[object] = None,
     ) -> int:
         """Upsert DataFrame rows into a fixed-schema table.
-
-        Returns row count.  If *conn* is provided the caller owns the
-        transaction; otherwise a fresh write connection is opened,
-        committed, and closed.
+        如有 conn 则调用者控制事务, 否则自动提交。
         """
         if df.empty:
             return 0
@@ -322,34 +399,24 @@ class SqliteFillWriteRepository(BaseRepository):
             conn = self._get_write_conn()
         try:
             count = self._upsert_fixed_schema(
-                df, table,
-                key_columns=key_columns,
+                df, table, key_columns=key_columns,
                 expected_columns=expected_columns,
-                type_map=COLUMN_TYPE_MAP,
-                conn=conn,
+                type_map=COLUMN_TYPE_MAP, conn=conn,
             )
             if own_conn:
                 conn.commit()
+            # Phase B2: 双写到分区DB
+            if Config.PARTITION_DUAL_WRITE and own_conn:
+                target_db = _partition_db_for(table)
+                if target_db:
+                    try:
+                        self._upsert_to_partition(df, table, expected_columns, target_db)
+                    except Exception as e:
+                        logger.debug("分区双写失败 %s: %s", table, e)
             return count
         finally:
             if own_conn:
                 conn.close()
-
-    def upsert_processed_fills(
-        self, df: pd.DataFrame, conn: Optional[object] = None,
-    ) -> int:
-        """Upsert processed fills. Returns new row count."""
-        return self._upsert(df, Config.PROCESSED_FILLS_TABLE, ["FillId"], PROCESSED_COLUMNS, conn)
-
-    def upsert_agg_fills_10s(
-        self, df: pd.DataFrame, conn: Optional[object] = None,
-    ) -> int:
-        """Upsert 10s aggregated fills. Returns row count."""
-        return self._upsert(
-            df, Config.AGG_10S_TABLE,
-            ["OrderId", "RouteId", "mkt_timestamp", "order_as_of_date"],
-            AGG_COLUMNS, conn,
-        )
 
     def upsert_order_labels(self, df: pd.DataFrame) -> int:
         """Upsert order labels (dynamic-column upsert)."""
@@ -364,6 +431,10 @@ class SqliteFillWriteRepository(BaseRepository):
             rows = [tuple(r) for r in df[cols].itertuples(index=False, name=None)]
             conn.executemany(sql, rows)
             conn.commit()
+
+            if Config.PARTITION_DUAL_WRITE:
+                self._partition_dual_write("order_label", sql, rows)
+
             return len(rows)
         finally:
             conn.close()
@@ -423,6 +494,22 @@ class SqliteFillWriteRepository(BaseRepository):
 
         conn.executemany(sql, rows)
         return len(rows)
+
+    def upsert_processed_fills(
+        self, df: pd.DataFrame, conn: Optional[object] = None,
+    ) -> int:
+        """Upsert processed fills. Returns new row count."""
+        return self._upsert(df, Config.PROCESSED_FILLS_TABLE, ["FillId"], PROCESSED_COLUMNS, conn)
+
+    def upsert_agg_fills_10s(
+        self, df: pd.DataFrame, conn: Optional[object] = None,
+    ) -> int:
+        """Upsert 10s aggregated fills. Returns row count."""
+        return self._upsert(
+            df, Config.AGG_10S_TABLE,
+            ["OrderId", "RouteId", "mkt_timestamp", "order_as_of_date"],
+            AGG_COLUMNS, conn,
+        )
 
     def upsert_route_registry(
         self, df: pd.DataFrame, conn: Optional[object] = None,

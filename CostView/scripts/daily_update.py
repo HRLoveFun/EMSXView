@@ -39,12 +39,34 @@ from DataPipeline.config import Config
 logger = logging.getLogger("daily_update")
 
 
+def _run_archive_step() -> None:
+    """Phase C1: 管线后自动归档 (非阻塞, 失败不影响管线)."""
+    try:
+        from scripts.run_archive import _run_archive_auto
+        result = _run_archive_auto()
+        archived = result.get("archived", {})
+        if archived:
+            total_rows = sum(
+                sum(v.values()) if isinstance(v, dict) else 0
+                for v in archived.values()
+            )
+            logger.info("归档完成: %d个DB, %d行", len(archived), total_rows)
+            print(f"[STAGE] archive 100 Archived {total_rows} rows from {len(archived)} DBs")
+        else:
+            logger.info("归档: 无需归档的数据")
+            print("[STAGE] archive 100 No data to archive")
+    except Exception as e:
+        logger.warning("归档跳过: %s", e)
+
+
 _KNOWN_DBS = [
     "raw_fills.db",
     "processed_fills.db",
     "raw_bdib.db",
     "fill_bdib.db",
     "regime.db",
+    "execution_history.db",
+    "ticker_registry.db",
 ]
 
 
@@ -205,6 +227,10 @@ def run_daily_pipeline() -> dict:
             logger.info("Downstream manifest updated")
         except Exception as e:
             logger.warning(f"Manifest write skipped: {e}")
+
+        # Stage D: Archive expired data (Phase C1 — non-blocking)
+        print("[STAGE] archive 10")
+        _run_archive_step()
 
         # ── Force WAL checkpoint so /api/db/overview sees fresh data ──
         _checkpoint_wal()

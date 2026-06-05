@@ -141,7 +141,7 @@ class AggregateFillsStage(BaseStage):
         elif context.force:
             target_dates = fills_reader.get_processed_dates(stage="processed")
         else:
-            processed_dates = fills_reader.get_processed_dates(stage="processed")
+            processed_dates = fills_reader.get_distinct_fill_dates()
             target_dates = fills_reader.get_unprocessed_dates(processed_dates, stage="aggregated")
 
         if not target_dates:
@@ -208,7 +208,7 @@ class GenerateOrderLabelsStage(BaseStage):
             # Incremental: only process dates whose fills are NOT yet labelled.
             # Query the order_label table to find which dates already have
             # labels, then intersect with processed dates to find new work.
-            all_processed_dates = fills_reader.get_processed_dates(stage="processed")
+            all_processed_dates = fills_reader.get_distinct_fill_dates()
             if not all_processed_dates:
                 logger.info("No processed dates for order label generation")
                 context.summary["order_labels"] = {"orders": 0}

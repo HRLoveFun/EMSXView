@@ -179,6 +179,24 @@ def _evaluate_route_item(
 
     rkey = _route_key(item)
     if parent_order is None:
+        # ── 诊断日志：列出缓存中所有订单 ID，帮助排查 ID 不匹配问题 ──
+        import threading
+        lock = getattr(bloomberg, "_data_lock", threading.RLock())
+        with lock:
+            all_ids = list(bloomberg._orders.keys()) if hasattr(bloomberg, "_orders") else []
+        logger.warning(
+            "批量路由校验失败: 订单 %s 未在订阅缓存中找到。缓存中共 %d 个订单，前30个 ID: %s",
+            item.orderId, len(all_ids), all_ids[:30],
+        )
+        # 模糊匹配：搜索 key 中包含目标 orderId 的条目
+        fuzzy_matches = [k for k in all_ids if item.orderId in k]
+        if fuzzy_matches:
+            logger.warning("模糊匹配发现: key 中包含 '%s' 的条目: %s", item.orderId, fuzzy_matches)
+        # 反向搜索：搜索 orderId 在缓存 key 中
+        partial_matches = [k for k in all_ids if k in item.orderId]
+        if partial_matches:
+            logger.warning("反向搜索发现: '%s' 包含缓存 key: %s", item.orderId, partial_matches)
+        # ────────────────────────────────────────────────────────────────
         return (
             BatchOperationItemResult(
                 key=rkey,

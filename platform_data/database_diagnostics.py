@@ -112,7 +112,7 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             tables=(
                 _TableSpec(
                     name=_RAW_FILLS_TABLE,
-                    date_column="source_date",
+                    date_column="order_as_of_date",
                     primary_key="(OrderId, RouteId, FillId)",
                     description="Bloomberg EMSX fills, INSERT OR REPLACE for late corrections.",
                 ),

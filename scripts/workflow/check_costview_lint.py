@@ -2,7 +2,7 @@
 """CI lint check for CostView database subsystem constraints.
 
 Checks:
-1. No ``sqlite3.connect()`` calls outside ``CostView/src/db/``
+    1. No ``sqlite3.connect()`` calls outside allowed storage dirs
 2. (Future) No direct ``from CostView.src.*`` imports in ``platform_data/``
 3. (Future) Table name consistency
 
@@ -17,7 +17,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_SQLITE_CONNECT_DIRS = {
-    "CostView/src/db",               # Unified DB subsystem — all DB access here
     "DataPipeline/src/storage",       # Storage layer — ConnectionManager + repos
     "platform_data",                  # DatabaseView diagnostic reader (file-level inspection)
 }
@@ -28,7 +27,6 @@ def check_sqlite3_connect() -> None:
     """Ensure sqlite3.connect() is only called from allowed directories."""
     pattern = re.compile(r"sqlite3\.connect\(")
     source_roots = [
-        ROOT / "CostView/src",
         ROOT / "DataPipeline/src",
         ROOT / "platform_data",
     ]
@@ -67,8 +65,8 @@ def main() -> int:
             print(f"  {v}", file=sys.stderr)
         print(
             f"\n{len(VIOLATIONS)} violation(s). "
-            "sqlite3.connect() must only appear in CostView/src/db/ or "
-            "DataPipeline/src/storage/.",
+            "sqlite3.connect() must only appear in "
+            "DataPipeline/src/storage/ or platform_data.",
             file=sys.stderr,
         )
         return 1

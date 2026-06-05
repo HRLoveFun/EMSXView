@@ -76,7 +76,7 @@
 
 param(
     [switch]$Force = $false,
-    [string]$LogRoot = "C:\Users\hrchen\Documents\EMSXView\logs",
+    [string]$LogRoot = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "logs"),
     [int]$ApiMaxAgeDays = 3,
     [int]$ApiMaxFiles = 3,
     [int]$ServiceMaxAgeDays = 7,

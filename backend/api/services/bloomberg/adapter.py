@@ -106,6 +106,31 @@ class BloombergEMSXService:
     def _log_fx_rate_discrepancy(self, ccy: str, direct_rate: float, inverse_rate: float) -> None:
         self._enrich._log_fx_rate_discrepancy(ccy, direct_rate, inverse_rate)
 
+    # ── Backward-compatible proxy properties (subscription cache) ───────
+    # _orders, _routes, _data_lock, _permfail_last_prices 被
+    # batch_route_service、orders_crud、routes、route_plans 直接访问。
+    # 重构后这些属性已迁移到 _sub / _enrich 中，此处通过代理保持兼容。
+
+    @property
+    def _orders(self):
+        """代理到 EMSXSubscriptionEngine._orders（订单订阅缓存字典）。"""
+        return self._sub._orders
+
+    @property
+    def _routes(self):
+        """代理到 EMSXSubscriptionEngine._routes（路由订阅缓存字典）。"""
+        return self._sub._routes
+
+    @property
+    def _data_lock(self):
+        """代理到 EMSXSubscriptionEngine._data_lock（线程安全锁）。"""
+        return self._sub._data_lock
+
+    @property
+    def _permfail_last_prices(self):
+        """代理到 MarketDataEnrichmentService._permfail_last_prices（永久失败 ticker 的最新价格缓存）。"""
+        return self._enrich._permfail_last_prices
+
     @property
     def connected(self) -> bool:
         return self._conn.connected
@@ -209,7 +234,19 @@ class BloombergEMSXService:
         with self._sub.data_lock:
             orders = list(self._sub.orders.values())
         orders = [o for o in orders if o.symbol]
+        # ── 诊断日志：检查目标订单是否在缓存中 ──
+        _TRACE_IDS = {"4926854", "5190560"}
+        cached_ids = set(self._sub.orders.keys())
+        trace_hits = cached_ids & _TRACE_IDS
+        if trace_hits:
+            logger.warning("TRACE_GET_ORDERS: 目标订单 %s 在缓存中，symbol=%s",
+                trace_hits, [(i, self._sub.orders[i].symbol) for i in trace_hits])
+        trace_miss = _TRACE_IDS - cached_ids
+        if trace_miss:
+            logger.warning("TRACE_GET_ORDERS: 目标订单 %s 不在缓存中，缓存共 %d 个订单",
+                trace_miss, len(cached_ids))
         logger.info("Returning %d orders from subscription cache", len(orders))
+        # ───────────────────────────────────────────────
 
         # Build order -> lastPrice map from route data
         order_last_prices: Dict[str, float] = {}
@@ -236,11 +273,26 @@ class BloombergEMSXService:
 
         # Save enriched data back to cache + inject permfail last-prices
         with self._sub.data_lock:
+            enriched_ids_before = set(self._sub.orders.keys())
             for order in enriched:
                 permfail_px = self._enrich.permfail_last_prices.get(order.symbol)
                 if permfail_px is not None and permfail_px > 0:
                     order.lastPrice = permfail_px
                 self._sub.orders[order.id] = order
+            # ── 诊断日志：写回后检查目标订单是否仍在缓存中 ──
+            _TRACE_IDS = {"4926854", "5190560"}
+            enriched_ids = {o.id for o in enriched}
+            trace_in_cache = _TRACE_IDS & set(self._sub.orders.keys())
+            trace_in_enriched = _TRACE_IDS & enriched_ids
+            if trace_in_cache:
+                logger.warning("TRACE_WRITEBACK: 目标订单 %s 写回后仍在缓存中", trace_in_cache)
+            if trace_in_enriched and not trace_in_cache:
+                logger.error("TRACE_WRITEBACK: 目标订单 %s 在 enriched 列表中存在但写回后丢失！enriched 共 %d 条，缓存前后: %d → %d",
+                    trace_in_enriched, len(enriched), len(enriched_ids_before), len(self._sub.orders))
+            if not trace_in_enriched and not trace_in_cache:
+                logger.warning("TRACE_WRITEBACK: 目标订单 %s 既不在 enriched 列表也不在缓存中（%d条enriched, %d条缓存）",
+                    _TRACE_IDS, len(enriched), len(self._sub.orders))
+            # ──────────────────────────────────────────────────
         orders = enriched
 
         if filters:
@@ -302,7 +354,7 @@ class BloombergEMSXService:
     async def batch_update(self, request_data: BatchUpdateRequest) -> BatchUpdateResponse:
         if not await self.connect():
             raise HTTPException(503, "Bloomberg not connected")
-        return await self._handler.batch_update(request_data)
+        return await self._handler.batch_update(request_data, self)
 
     async def cancel_route(self, request_data: CancelRouteRequest) -> bool:
         if not await self.connect():
@@ -317,7 +369,7 @@ class BloombergEMSXService:
     async def route_order(self, request_data: RouteOrderRequest) -> dict:
         if not await self.connect():
             raise HTTPException(503, "Bloomberg not connected")
-        return await self._handler.route_order(request_data)
+        return await self._handler.route_order(request_data, self)
 
     async def get_asset_class(self, ticker: str) -> str:
         if not await self.connect():

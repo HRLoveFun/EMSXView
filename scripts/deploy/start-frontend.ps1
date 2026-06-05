@@ -1,7 +1,7 @@
 # EMSXView Frontend Launcher - 无需 Docker，无需管理员权限
 # 运行方式：在 PowerShell 中执行  .\start-frontend.ps1
 
-$env:PATH = "D:\anaconda3\Scripts;D:\anaconda3\Library\bin;" + $env:PATH
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
 # Kill any existing vite dev servers on port 5173 to avoid stale processes
 $existingPid = (netstat -ano | Select-String ":5173.*LISTENING" | ForEach-Object {
@@ -16,5 +16,5 @@ if ($existingPid) {
 Write-Host "Starting EMSXView Frontend on http://localhost:5173 ..." -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
 
-Set-Location "C:\Users\hrchen\Documents\EMSXView\frontend"
+Set-Location (Join-Path $ProjectRoot "frontend")
 npm run dev

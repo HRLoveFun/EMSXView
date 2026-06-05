@@ -53,10 +53,15 @@ export function UpdateControl({ onTrigger, status, pending }: UpdateControlProps
             <span className="font-mono">{status.job_id.slice(0, 8)}</span>
             <span>
               {status.status}
-              {stalled ? ' · ⚠️ Stalled' : ''}
-              {stageLabel && !stalled ? ` · ${stageLabel} ${stagePct}%` : ''}
+              {stalled ? ' \u00b7 Stalled' : ''}
+              {stageLabel && !stalled ? ` \u00b7 ${stageLabel} ${stagePct}%` : ''}
             </span>
           </div>
+          {status.status === 'failed' && (
+            <div className="rounded-md border border-rose-300 bg-rose-50 p-2 text-[11px] text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+              Pipeline job failed. Details below.
+            </div>
+          )}
           {stalled && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
               No progress detected for over 5 minutes. The pipeline may be stuck.

@@ -9,8 +9,10 @@ description = "EMSXView Data Acquisition, Processing, and Storage Pipeline"
 requires-python = ">=3.10"
 dependencies = [
     "blpapi>=3.19",
+    "duckdb>=1.0.0",
     "numpy",
     "pandas",
+    "pyarrow>=14.0.0",
     "python-dotenv",
     "xbbg>=0.7.0",
 ]

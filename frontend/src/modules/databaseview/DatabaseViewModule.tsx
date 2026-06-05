@@ -9,15 +9,24 @@ import { RestartHint } from './components/RestartHint';
 
 export default function DatabaseViewModule() {
   const [overview, setOverview] = useState<DatabaseOverview[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusResponse | null>(null);
-  const [triggerPending, setTriggerPending] = useState(false);
+  const [isTriggerPending, setIsTriggerPending] = useState(false);
   const pollRef = useRef<number | null>(null);
   const pollStartedRef = useRef<number | null>(null);
   /** Max polling duration (30 min) — prevents endless polling against a phantom job. */
   const MAX_POLL_DURATION_MS = 30 * 60 * 1000;
+
+  const pipelineError = (() => {
+    if (updateStatus?.status === 'failed' && updateStatus.error) {
+      return `Pipeline failed: ${updateStatus.error}`;
+    }
+    return null;
+  })();
+
+  const displayError = pipelineError || error;
 
   const clearPoll = useCallback(() => {
     if (pollRef.current !== null) {
@@ -28,7 +37,7 @@ export default function DatabaseViewModule() {
   }, []);
 
   const loadOverview = useCallback(async () => {
-    setLoading(true);
+    setIsLoading(true);
     setError(null);
     try {
       const data = await fetchOverview();
@@ -37,7 +46,7 @@ export default function DatabaseViewModule() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load database overview');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   }, []);
 
@@ -101,7 +110,7 @@ export default function DatabaseViewModule() {
   );
 
   const handleTrigger = useCallback(async () => {
-    setTriggerPending(true);
+    setIsTriggerPending(true);
     setError(null);
     clearPoll();
     try {
@@ -122,7 +131,7 @@ export default function DatabaseViewModule() {
       console.error('[DB Sync] Trigger update failed', err);
       setError(err instanceof Error ? err.message : 'Failed to trigger update');
     } finally {
-      setTriggerPending(false);
+      setIsTriggerPending(false);
     }
   }, [clearPoll, pollStatus]);
 
@@ -141,25 +150,25 @@ export default function DatabaseViewModule() {
         <button
           type="button"
           onClick={() => void loadOverview()}
-          disabled={loading}
+          disabled={isLoading}
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </header>
 
-      {error && (
+      {displayError && (
         <div className="rounded-md border border-rose-300 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-          {error}
+          {displayError}
         </div>
       )}
 
       <RestartHint />
 
-      <UpdateControl onTrigger={() => void handleTrigger()} status={updateStatus} pending={triggerPending} />
+      <UpdateControl onTrigger={() => void handleTrigger()} status={updateStatus} pending={isTriggerPending} />
 
-      {loading && overview.length === 0 ? (
+      {isLoading && overview.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center text-xs text-muted-foreground">
           Loading database overview…
         </div>

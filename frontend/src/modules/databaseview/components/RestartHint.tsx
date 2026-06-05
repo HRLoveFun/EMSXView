@@ -11,7 +11,7 @@ import { Info, ChevronDown, ChevronRight } from 'lucide-react';
  * where the user has no shell access anyway.
  */
 export function RestartHint() {
-  const [open, setOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
   const isLocal =
     typeof window !== 'undefined' &&
@@ -22,10 +22,10 @@ export function RestartHint() {
     <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 text-xs text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setIsOpen((v) => !v)}
         className="flex w-full items-center gap-2 text-left"
       >
-        {open ? (
+        {isOpen ? (
           <ChevronDown className="h-3.5 w-3.5" />
         ) : (
           <ChevronRight className="h-3.5 w-3.5" />
@@ -34,7 +34,7 @@ export function RestartHint() {
         <span className="font-medium">See fields or features that don't match the latest code? Click here for help</span>
       </button>
 
-      {open && (
+      {isOpen && (
         <div className="mt-2 space-y-2 pl-6 leading-relaxed">
           <p>
             After modifying Python code in the backend (FastAPI), a restart is required for changes to take effect. Frontend code usually hot-reloads automatically, but some changes also require a restart.

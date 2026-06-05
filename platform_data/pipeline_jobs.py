@@ -51,17 +51,63 @@ PIPELINE_STAGES = [
     {"name": "initialization", "label": "Initialization"},
     {"name": "fill_fetch",     "label": "Fill Fetch"},
     {"name": "processing",     "label": "Processing"},
+    {"name": "pipeline",       "label": "Pipeline"},
+    {"name": "archive",        "label": "Archive"},
     {"name": "completion",     "label": "Completion"},
 ]
 
 _STAGE_WEIGHTS = {
-    "initialization": 10,
+    "initialization":  5,
     "fill_fetch":     35,
-    "processing":     45,
-    "completion":     10,
+    "processing":     50,
+    "archive":         5,
+    "pipeline":      100,  # single-stage mode
+    "completion":      5,
 }
 
 _STAGE_PREFIX = "[STAGE]"
+
+# 错误检测模式 — 匹配Python traceback / ImportError / 致命日志
+_ERROR_PATTERNS = [
+    "Traceback (most recent call last)",
+    "ImportError",
+    "ModuleNotFoundError",
+    "SyntaxError",
+    "CRITICAL",
+    "ERROR",
+    "OperationalError",
+    "PermissionError",
+]
+
+
+def _extract_error_from_output(lines: list[str]) -> str:
+    """从捕获的子进程输出中提取关键错误信息。
+
+    优先返回: traceback 块 > 包含 CRITICAL/ERROR 的行 > 最后5行。
+    """
+    filtered = [l for l in lines if l and not l.startswith(_STAGE_PREFIX)]
+    if not filtered:
+        return ""
+
+    # 查找 traceback 块
+    tb_start = -1
+    for i, line in enumerate(filtered):
+        if line.startswith("Traceback"):
+            tb_start = i
+            break
+    if tb_start >= 0:
+        return "\n".join(filtered[tb_start:tb_start + 10])
+
+    # 查找包含关键错误模式的行
+    error_lines = [
+        l for l in filtered
+        if any(pat in l for pat in _ERROR_PATTERNS[1:])  # 排除 Traceback
+    ]
+    if error_lines:
+        return "\n".join(error_lines[-5:])
+
+    # 兜底: 最后5行
+    return "\n".join(filtered[-5:])
 
 
 def _compute_progress(stage_name: str, stage_pct: int) -> int:
@@ -266,7 +312,7 @@ def _run_pipeline_subprocess(job_id: str) -> None:
     startup_timeout_hit = False
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-u", "-m", "DataPipeline", "--once"],
+            [sys.executable, "-u", str(_PROJECT_ROOT / "CostView" / "scripts" / "daily_update.py"), "--once"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -297,7 +343,19 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                     except Exception:
                         pass
                     status = "failed"
-                    error = reason
+                    if captured_lines:
+                        tail_output = "\n".join(captured_lines[-10:])
+                        error = (
+                            f"Pipeline startup timeout ({_SUBPROCESS_STARTUP_TIMEOUT_SECS}s) — "
+                            f"subprocess produced no [STAGE] output. "
+                            f"Check for import errors below:\n{tail_output}"
+                        )
+                    else:
+                        error = (
+                            f"Pipeline startup timeout ({_SUBPROCESS_STARTUP_TIMEOUT_SECS}s) — "
+                            f"subprocess produced no output at all. "
+                            f"Possible causes: missing dependency, syntax error, or import crash."
+                        )
                     startup_timeout_hit = True
                     break
 
@@ -345,9 +403,15 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             status = "completed" if proc.returncode == 0 else "failed"
             error = None
             if proc.returncode != 0:
-                non_marker = [l for l in captured_lines if not l.startswith(_STAGE_PREFIX)]
-                tail_block = "\n".join((non_marker or captured_lines)[-20:])
-                error = tail_block or f"Pipeline exited with code {proc.returncode} (no output captured)"
+                error_detail = _extract_error_from_output(captured_lines)
+                if error_detail:
+                    error = f"Pipeline exit code {proc.returncode}:\n{error_detail}"
+                else:
+                    error = (
+                        f"Pipeline exited with code {proc.returncode} "
+                        f"(no traceback in output — last 5 lines: "
+                        f"{chr(10).join(captured_lines[-5:])})"
+                    )
     except subprocess.TimeoutExpired:
         if proc is not None:
             try:
@@ -372,9 +436,11 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             _mark_job_activity(job_id)
             if status == "completed":
                 _jobs[job_id]["overall_progress"] = 100
+                existing = _jobs[job_id].get("stage", {}) or {}
                 _jobs[job_id]["stage"] = {
                     "name": "completion", "label": "Completion",
-                    "progress": 100, "detail": None,
+                    "progress": 100,
+                    "detail": existing.get("detail") or None,
                 }
     gc.collect()
     logger.info("Pipeline job %s finished: %s", job_id, status)

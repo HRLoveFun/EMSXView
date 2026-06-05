@@ -9,7 +9,7 @@ REM Change to script directory
 cd /d "%~dp0"
 
 REM Check status using PowerShell script
-powershell -ExecutionPolicy Bypass -File "service-manager.ps1" status
+powershell -ExecutionPolicy Bypass -File "ops\service-manager.ps1" status
 
 echo.
 pause

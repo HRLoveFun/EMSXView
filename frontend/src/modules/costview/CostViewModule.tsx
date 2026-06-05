@@ -66,7 +66,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [exportState, setExportState] = useState(() => loadCostViewExportState());
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [fullResultReport, setFullResultReport] = useState<TcaReport | null>(null);
@@ -246,7 +246,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
             isLoading={isLoading}
             report={report}
             onGoToAnalysis={handleOpenAnalysis}
-            onOpenExport={() => setExportDialogOpen(true)}
+            onOpenExport={() => setIsExportDialogOpen(true)}
             onRefresh={() => void fetchReport(filterForm, 0)}
             onNavigateToDatabase={onNavigateToDatabase}
           />
@@ -262,7 +262,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
               report={report}
               selectedOrder={selectedOrder}
               onFilterChange={setFilterForm}
-              onOpenExport={() => setExportDialogOpen(true)}
+              onOpenExport={() => setIsExportDialogOpen(true)}
               onPageChange={handlePageChange}
               onRefresh={() => void fetchReport(filterForm, 0)}
               onResetFilters={handleResetFilters}
@@ -288,10 +288,10 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
       <ExportDialog
         config={config}
         isExporting={isExporting}
-        open={exportDialogOpen}
+        open={isExportDialogOpen}
         selectedOrderAvailable={Boolean(selectedOrder)}
         onExport={handleExport}
-        onOpenChange={setExportDialogOpen}
+        onOpenChange={setIsExportDialogOpen}
       />
     </div>
   );

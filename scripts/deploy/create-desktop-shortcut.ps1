@@ -1,7 +1,7 @@
 # 在桌面创建 EMSXView 快捷图标
 # 只需运行一次：powershell -File create-desktop-shortcut.ps1
 
-$desktopPath = [System.Environment]::GetFolderPath('Desktop')
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $shortcutPath = Join-Path $desktopPath "EMSXView Trading.lnk"
 
 $WshShell   = New-Object -ComObject WScript.Shell
@@ -9,8 +9,8 @@ $shortcut   = $WshShell.CreateShortcut($shortcutPath)
 
 # 指向 wscript.exe（静默执行 VBS，不弹 PowerShell 黑框）
 $shortcut.TargetPath     = "wscript.exe"
-$shortcut.Arguments      = """C:\Users\hrchen\Documents\EMSXView\scripts\deploy\launch-emsxview.vbs"""
-$shortcut.WorkingDirectory = "C:\Users\hrchen\Documents\EMSXView"
+$shortcut.Arguments      = """$ProjectRoot\scripts\deploy\launch-emsxview.vbs"""
+$shortcut.WorkingDirectory = $ProjectRoot
 $shortcut.Description    = "启动 EMSXView Trading Platform"
 $shortcut.WindowStyle    = 7   # 最小化启动
 

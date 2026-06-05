@@ -14,6 +14,8 @@ import sqlite3
 from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier, ConnectionManager
 
+_BDIB_ENGINE = Config.BDIB_QUERY_ENGINE
+
 from .tca_utils import (
     derive_local_exchange_datetime as _derive_local_exchange_datetime,
     floor_time_to_10s as _floor_time_to_10s,
@@ -110,17 +112,28 @@ def _compute_route_metrics_from_raw_bdib(
 
     start_bucket = min(bucket_times)
     end_bucket = max(bucket_times)
-    bars = raw_conn.execute(
-        f"""
-        SELECT mkt_timestamp, close, volume, value
-        FROM {Config.RAW_BDIB_TABLE}
-        WHERE equ_ticker = ? AND order_as_of_date = ?
-          AND substr(mkt_timestamp, -8) >= ?
-          AND substr(mkt_timestamp, -8) <= ?
-        ORDER BY substr(mkt_timestamp, -8)
-        """,
-        [ticker, trade_date, start_bucket, end_bucket],
-    ).fetchall()
+
+    if _BDIB_ENGINE == "duckdb":
+        bars_df = _fetch_bars_duckdb(ticker, trade_date, start_bucket, end_bucket)
+        if bars_df is None or bars_df.empty:
+            return None
+        bars = [
+            {"mkt_timestamp": r["mkt_timestamp"], "close": r["close"],
+             "volume": r["volume"], "value": r["value"]}
+            for _, r in bars_df.iterrows()
+        ]
+    else:
+        bars = raw_conn.execute(
+            f"""
+            SELECT mkt_timestamp, close, volume, value
+            FROM {Config.RAW_BDIB_TABLE}
+            WHERE equ_ticker = ? AND order_as_of_date = ?
+              AND substr(mkt_timestamp, -8) >= ?
+              AND substr(mkt_timestamp, -8) <= ?
+            ORDER BY substr(mkt_timestamp, -8)
+            """,
+            [ticker, trade_date, start_bucket, end_bucket],
+        ).fetchall()
     if not bars:
         return None
 
@@ -196,3 +209,21 @@ def _compute_route_metrics_from_raw_bdib(
         },
         "time_series": points,
     }
+
+
+def _fetch_bars_duckdb(
+    ticker: str, trade_date: str, start_bucket: str, end_bucket: str,
+):
+    """通过DuckDB从Parquet获取BDIB bars (fallback路径)。"""
+    from DataPipeline.storage.market_store import MarketStoreReader
+    reader = MarketStoreReader(Config.BDIB_PARQUET_DIR)
+    try:
+        return reader.query(
+            "SELECT mkt_timestamp, close, volume, value FROM bdib_bars "
+            "WHERE equ_ticker = ? AND order_as_of_date = ? "
+            "AND mkt_timestamp >= ? AND mkt_timestamp <= ? "
+            "ORDER BY mkt_timestamp",
+            [ticker, trade_date, start_bucket, end_bucket],
+        )
+    finally:
+        reader.close()

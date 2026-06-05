@@ -1,7 +1,9 @@
 ﻿# EMSX Logical Data Domain
 
 > Boundary definition for shared platform data
-> Last updated: 2026-05-07
+> Last updated: 2026-06-03 (v3.3 — 修正适配器清单与实际代码对齐)
+>
+> **重要**: 本文档与实际代码的偏差见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)。
 
 ---
 
@@ -162,39 +164,62 @@ Rule: Consumers import from `platform_data.contracts`, not from `CostView.src.*`
 
 ## Adapter entry
 
+> **v3.3 更新 (2026-06-03)**：实际代码与 v3.2 描述存在显著偏差。详见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)。
+>
+> 实际入口（按符号直接 import，无统一 PlatformDataAccess）：
+
 The shared code entry is:
 
 - `platform_data/__init__.py`
-- `platform_data/adapters.py`
+- `platform_data/adapters/` （子包，`__init__.py` 做向后兼容 re-export）
+  - `handoff.py` — `HandoffExchangeAdapter` + `get_shared_handoff_exchange()`
+  - `market.py` — `MarketReferenceDataAdapter`
+  - `redis_handoff.py` — `RedisHandoffExchangeAdapter`
+  - `tca_bridge.py` — `get_tca_query_service()`, `register_tca_service_impl()`
 - `platform_data/contracts/`
 - `platform_data/repositories.py`
 
-Current adapters:
+#### 实际存在的适配器（2026-06-03）
 
-- `ExecutionOperationalDataAdapter` \â€\” live execution state (owner: ExecutionView)
-- `MarketReferenceDataAdapter` \â€\” market snapshots and intraday features (owner: Data Platform, consumed by MarketView/CostView)
-- `CostViewAnalyticsAdapter` \â€\” TCA and scorecard reports (owner: CostView)
-- `CostViewDatabaseAdapter` \â€\” read-only database queries via `DatabaseFacade` (owner: CostView)
-- `ExecutionHistoryAdapter` \â€\” fill/order/route history (owner: Data Platform, consumed by CostView)
-- `HandoffExchangeAdapter` \â€\” cross-module handoff contracts (owner: platform_data)
-- `PlatformDataAccess` \â€\” unified entry point holding all adapters
+| 适配器 / 函数 | 角色 | 所有者 | 消费方 |
+|---|---|---|---|
+| `HandoffExchangeAdapter` | 跨模块 handoff 交换（in-memory） | platform_data | 全部模块 |
+| `RedisHandoffExchangeAdapter` | 跨模块 handoff 交换（Redis 微服务模式） | platform_data | 全部模块 |
+| `get_shared_handoff_exchange()` | handoff 单例工厂（按 `EMSXVIEW_HANDOFF_BACKEND` 选后端） | platform_data | 全部模块 |
+| `MarketReferenceDataAdapter` | 市场快照与日内特征 | Data Platform | MarketView / CostView |
+| `get_tca_query_service()` | TCA 查询服务工厂 | platform_data | 业务模块 |
+| `register_tca_service_impl(impl)` | TCA 实现注入 | platform_data | CostView / 启动钩子 |
 
-Planned adapters:
+#### 待实现（v3.2 描述但代码尚未提供）
 
-- `DataPlatformIngestionAdapter` \â€\” ingestion trigger and pipeline status (implemented — see `platform_data.adapters.DataPlatformIngestionAdapter`)
-- `AlgorithmEvaluationAdapter` \â€\” model-driven evaluation output (planned)
+- `ExecutionOperationalDataAdapter` — live execution state (owner: ExecutionView)
+- `CostViewAnalyticsAdapter` — TCA and scorecard reports (owner: CostView) — 当前通过 `get_tca_query_service()` 间接获得
+- `CostViewDatabaseAdapter` — read-only database queries via `DatabaseFacade` (owner: CostView)
+- `ExecutionHistoryAdapter` — fill/order/route history (owner: Data Platform, consumed by CostView) — 契约类型已存在 `platform_data.contracts.execution_contracts`
+- `DataPlatformIngestionAdapter` — ingestion trigger and pipeline status
+- `PlatformDataAccess` — unified entry point holding all adapters
+- `AlgorithmEvaluationAdapter` — model-driven evaluation output
 
-Example:
+新增适配器需走 [module-onboarding.md §B](module-onboarding.md) 流程。
+
+#### 使用示例
 
 ```python
-from platform_data import build_platform_data_access
-from platform_data.contracts import SCORECARD_COHORTS
+# 当前实际用法
+from platform_data import (
+    HandoffExchangeAdapter,
+    get_shared_handoff_exchange,
+    get_tca_query_service,
+)
+from platform_data.contracts.execution_contracts import ExecutionHistoryFillRow
 
-platform_data = build_platform_data_access(repository_provider=repo_provider)
-orders = await platform_data.operational.load_orders(limit=100)
-snapshot = platform_data.market.get_market_snapshot(limit=25)
-report = platform_data.analytics.build_tca_report(filters)
-regime_rows = platform_data.database.get_regime_distribution(start_date, end_date)
+# 取得 handoff 适配器
+handoff = get_shared_handoff_exchange()
+recommendations = handoff.list_cost_to_execution(limit=20)
+
+# 取得 TCA 服务
+tca = get_tca_query_service()
+report = tca.build_tca_report(filters)
 ```
 
 ---
