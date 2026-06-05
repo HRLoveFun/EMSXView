@@ -35,6 +35,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 _LOCK_FILE = _PROJECT_ROOT / ".pipeline.lock"
 
+# 后端实例唯一标识 — 每次进程启动生成新UUID，用于区分不同进程生命周期的锁文件
+_INSTANCE_ID = str(uuid.uuid4())
+
 # ── Watchdog / safety thresholds ────────────────────────────────────────────
 
 _WATCHDOG_INTERVAL_SECS = 15
@@ -153,6 +156,7 @@ def _write_lock(job_id: str) -> Path:
         "pid": os.getpid(),
         "job_id": job_id,
         "started_at": datetime.now().isoformat(),
+        "instance_id": _INSTANCE_ID,
     }
     _LOCK_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     logger.info("Lock file written: %s (pid=%s, job=%s)", _LOCK_FILE, os.getpid(), job_id)
@@ -166,6 +170,42 @@ def _remove_lock() -> None:
             logger.info("Lock file removed: %s", _LOCK_FILE)
     except PermissionError:
         logger.warning("Could not remove lock file (permission): %s", _LOCK_FILE)
+
+
+def _cleanup_stale_lock_on_startup() -> None:
+    """启动时清理其他实例遗留的过期锁文件，放行新任务。
+
+    判断条件：
+    - 无锁文件 → 无事可做
+    - 锁文件存在但 instance_id 缺失（旧格式）→ 清理
+    - 锁文件的 instance_id 与当前 _INSTANCE_ID 不匹配 → 其他实例遗留 → 清理
+    - 锁文件的 instance_id 匹配 → 本进程锁，保留不动
+    """
+    if not _LOCK_FILE.exists():
+        return
+    try:
+        payload = json.loads(_LOCK_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.info("Startup cleanup: corrupt lock file detected — removing")
+        try:
+            _LOCK_FILE.unlink()
+        except OSError:
+            pass
+        return
+
+    lock_instance = payload.get("instance_id")
+    if lock_instance is None:
+        logger.info("Startup cleanup: lock file has no instance_id (old format) — removing")
+        _remove_lock()
+        return
+    if lock_instance != _INSTANCE_ID:
+        logger.info(
+            "Startup cleanup: lock file from different instance (%s) != current (%s) — removing",
+            lock_instance[:8], _INSTANCE_ID[:8],
+        )
+        _remove_lock()
+        return
+    logger.info("Startup cleanup: lock file belongs to current instance — keeping")
 
 
 def _log_subprocess_mem(proc: Optional[subprocess.Popen], label: str = "") -> None:
@@ -504,6 +544,9 @@ def list_jobs() -> list[dict[str, Any]]:
     with _jobs_lock:
         return [{"job_id": k, **v} for k, v in _jobs.items()]
 
+
+# ── 模块加载时清理其他实例遗留的过期锁 ──
+_cleanup_stale_lock_on_startup()
 
 __all__ = [
     "PIPELINE_STAGES",
