@@ -1,9 +1,14 @@
 """每日观察检查脚本 — 迁移后自动化验证守护进程。
 
 使用方式:
+    # 默认检查当天
     python scripts/daily_observation_check.py --phase A7
     python scripts/daily_observation_check.py --phase A8
     python scripts/daily_observation_check.py --phase all
+
+    # 指定历史日期补跑（会将该日期的检查结果追加到 manifest 中）
+    python scripts/daily_observation_check.py --phase A7 --date 2026-06-01
+    python scripts/daily_observation_check.py --phase all --date 2026-06-05
 
 由 Windows Task Scheduler 在每日管线完成后触发。
 
@@ -23,8 +28,11 @@ import hashlib
 import json
 import logging
 import os
+import sqlite3
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -51,10 +59,13 @@ class ObservationChecker:
       CHECK-6: 关联完整性 (跨DB JOIN抽样对比)
     """
 
-    def __init__(self, phase: str, manifest_path: Optional[Path] = None):
+    def __init__(self, phase: str, check_date: Optional[date] = None,
+                 manifest_path: Optional[Path] = None, full_check: bool = False):
         self.phase = phase
         self.manifest_path = manifest_path or Config.DATA_DIR / f"observation_{phase}.json"
-        self.today = date.today().isoformat()
+        self._check_date = check_date or date.today()
+        self.today = self._check_date.isoformat()
+        self._full_check = full_check
         self._mgr: Optional[ConnectionManager] = None
 
         if not self.manifest_path.exists():
@@ -108,6 +119,15 @@ class ObservationChecker:
 
         self.manifest.setdefault("daily_checks", []).append(results)
         self._check_blocking_conditions(results)
+
+        # 重新计算管线周期计数：统计 daily_checks 中实际运行成功（非 skip）的天数
+        # 使用重新计算而非简单递增，避免重复运行同一天时被重复计数
+        pipeline_cycles = sum(
+            1 for c in self.manifest.get("daily_checks", [])
+            if c.get("checks", {}).get("pipeline_success", {}).get("passed")
+            and "skip" not in c.get("checks", {}).get("pipeline_success", {}).get("detail", "")
+        )
+        self.manifest["pipeline_cycles_run"] = pipeline_cycles
 
         if self._can_mark_complete():
             self.manifest["final_status"] = "complete"
@@ -164,20 +184,61 @@ class ObservationChecker:
     # ── CHECK-2: DB完整性 ──
 
     def _check_db_integrity(self) -> tuple[bool, str]:
-        db_keys = [
-            "raw_bdib", "raw_fills", "processed_fills",
-            "fill_bdib", "regime", "fill_fetch_history",
+        """检查所有热数据库完整性。
+
+        默认使用 PRAGMA quick_check（快速检查），通过 --full-check 可切换为
+        integrity_check（全面但慢）。6 个数据库并行检查，总耗时取决于最大库。
+        """
+        db_entries: list[tuple[str, Path]] = [
+            ("raw_bdib", Config.RAW_BDIB_DB),
+            ("raw_fills", Config.RAW_FILLS_DB),
+            ("processed_fills", Config.PROCESSED_FILLS_DB),
+            ("fill_bdib", Config.FILL_BDIB_DB),
+            ("regime", Config.DATA_DIR / "regime.db"),
+            ("fill_fetch_history", Config.FETCH_HISTORY_DB),
         ]
+
+        pragma_sql = "PRAGMA integrity_check" if self._full_check else "PRAGMA quick_check"
+        check_label = "integrity_check" if self._full_check else "quick_check"
+        logger.info("  数据库完整性检查 (%s, %d个库并行) 开始...",
+                    check_label, len(db_entries))
+
         failures: list[str] = []
-        for db_name in db_keys:
+        t0 = time.time()
+
+        def check_one(db_name: str, db_path: Path) -> tuple[str, bool, str]:
+            """在独立线程中检查单个数据库完整性。"""
+            if not db_path.exists():
+                return db_name, True, "skip (文件不存在)"
+            t1 = time.time()
             try:
-                conn = self.mgr.get_connection(db_name, AccessTier.READ)
-                result = conn.execute("PRAGMA integrity_check").fetchone()
+                conn = sqlite3.connect(str(db_path))
+                conn.execute("PRAGMA busy_timeout = 60000")
+                result = conn.execute(pragma_sql).fetchone()
                 conn.close()
-                if result[0] != "ok":
-                    failures.append(f"{db_name}: {result[0]}")
+                elapsed = time.time() - t1
+                passed = result[0] == "ok"
+                detail = f"ok ({elapsed:.1f}s)" if passed else result[0]
+                return db_name, passed, detail
             except Exception as e:
-                failures.append(f"{db_name}: {e}")
+                elapsed = time.time() - t1
+                return db_name, False, f"{e} ({elapsed:.1f}s)"
+
+        # 并行执行所有数据库检查
+        with ThreadPoolExecutor(max_workers=len(db_entries)) as executor:
+            futures = {
+                executor.submit(check_one, name, path): name
+                for name, path in db_entries if path.exists()
+            }
+            for future in as_completed(futures):
+                db_name, passed, detail = future.result()
+                status = "✓" if passed else "✗"
+                logger.info("    [%s] %s: %s", status, db_name, detail)
+                if not passed:
+                    failures.append(f"{db_name}: {detail}")
+
+        elapsed = time.time() - t0
+        logger.info("  完整性检查完成 (%.1fs), 检查 %d 个库", elapsed, len(futures))
 
         if failures:
             return False, "; ".join(failures)
@@ -220,7 +281,7 @@ class ObservationChecker:
             today_patterns = [
                 "Pipeline completed successfully",
                 "管线完成",
-                datetime.now().strftime("%Y-%m-%d"),
+                self.today,
             ]
             for pattern in today_patterns:
                 if pattern in content:
@@ -346,7 +407,7 @@ class ObservationChecker:
             start = date.fromisoformat(start_str)
         except ValueError:
             return False
-        if (date.today() - start).days < 14:
+        if (self._check_date - start).days < 14:
             return False
 
         recent = self.manifest["daily_checks"][-14:]
@@ -361,7 +422,7 @@ class ObservationChecker:
 
     def _notify_bak_retention(self) -> None:
         """观察期完成通知: .BAK改只读, 30天后自动清理。"""
-        cleanup_date = (date.today() + timedelta(days=30)).isoformat()
+        cleanup_date = (self._check_date + timedelta(days=30)).isoformat()
         for bak in self.manifest.get("bak_files", []):
             bak_path = Path(bak["path"])
             if bak_path.exists():
@@ -376,17 +437,39 @@ class ObservationChecker:
         self.manifest["bak_cleanup_date"] = cleanup_date
 
 
+def _parse_date(date_str: str) -> date:
+    """解析 YYYY-MM-DD 格式日期字符串。"""
+    try:
+        return date.fromisoformat(date_str)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"日期格式无效: '{date_str}'，应为 YYYY-MM-DD（如 2026-06-01）"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="迁移后观察期每日自动化检查")
     parser.add_argument(
         "--phase", type=str, required=True,
         help=f"观察阶段: {', '.join(ALL_PHASES)} 或 all",
     )
+    parser.add_argument(
+        "--date", type=_parse_date, default=None,
+        help="指定检查日期 (YYYY-MM-DD 格式)，默认为当天。用于补跑历史日期",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="详细日志")
+    parser.add_argument(
+        "--full-check", action="store_true",
+        help="使用 PRAGMA integrity_check 进行全面检查（默认使用 quick_check）",
+    )
     args = parser.parse_args()
 
+    check_date = args.date or date.today()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOG_DIR / f"observation_{args.phase}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = LOG_DIR / (
+        f"observation_{args.phase}_{check_date.isoformat()}"
+        f"_{datetime.now().strftime('%H%M%S')}.log"
+    )
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
@@ -399,7 +482,7 @@ def main():
     phases = ALL_PHASES if args.phase == "all" else [args.phase]
     all_passed = True
     for phase in phases:
-        checker = ObservationChecker(phase)
+        checker = ObservationChecker(phase, check_date=check_date, full_check=args.full_check)
         if not checker.run():
             all_passed = False
 

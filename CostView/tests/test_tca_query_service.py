@@ -19,6 +19,20 @@ from unittest.mock import patch
 import pytest
 
 from CostView.src.tca_query_service import TcaFilters, TcaQueryService
+from CostView.src.tca_utils import (
+    asset_class_from_ticker,
+    bucket_liquidity,
+    bucket_time_of_day,
+    bucket_volatility,
+    resolve_date_defaults,
+    safe_percentile,
+    std,
+)
+from CostView.src.tca_query_builder import (
+    get_fill_percentages,
+    get_market_context,
+    get_matching_routes,
+)
 
 
 # â”€â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -240,7 +254,7 @@ class TestTcaFilters:
         """Empty filters should resolve to the last weekday."""
         from datetime import date, timedelta
         filters = TcaFilters()
-        resolved = TcaQueryService._resolve_date_defaults(filters)
+        resolved = resolve_date_defaults(filters)
         assert resolved.start_date is not None
         assert resolved.end_date is not None
         # Resolved date should be a weekday â‰¤ today
@@ -252,14 +266,14 @@ class TestTcaFilters:
 
     def test_explicit_dates_not_overridden(self):
         filters = TcaFilters(start_date="20260401", end_date="20260415")
-        resolved = TcaQueryService._resolve_date_defaults(filters)
+        resolved = resolve_date_defaults(filters)
         assert resolved.start_date == "20260401"
         assert resolved.end_date == "20260415"
 
     def test_order_id_filter_prevents_default(self):
         """When order_ids are set, date defaults should not apply."""
         filters = TcaFilters(order_ids=["O1"])
-        resolved = TcaQueryService._resolve_date_defaults(filters)
+        resolved = resolve_date_defaults(filters)
         assert resolved.start_date is None
         assert resolved.end_date is None
 
@@ -278,7 +292,7 @@ class TestGetMatchingRoutes:
             conn.close()
 
         svc = _make_service(tmp_dbs)
-        rows, total = svc._get_matching_routes(
+        rows, total = get_matching_routes(svc._mgr, 
             TcaFilters(start_date="20260418", end_date="20260418", broker="HistoryBroker")
         )
         assert total == 1
@@ -287,27 +301,27 @@ class TestGetMatchingRoutes:
     def test_date_filter(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         filters = TcaFilters(start_date="20260418", end_date="20260418")
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 2  # O1/R1 and O2/R2
 
     def test_order_id_filter(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         filters = TcaFilters(order_ids=["O1"])
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 1
         assert rows[0]["order_id"] == "O1"
 
     def test_algo_filter(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         filters = TcaFilters(start_date="20260418", end_date="20260418", algo="TWAP")
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 1
         assert rows[0]["order_id"] == "O2"
 
     def test_broker_filter(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         filters = TcaFilters(start_date="20260418", end_date="20260418", broker="BrokerA")
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 1
         assert rows[0]["order_id"] == "O1"
 
@@ -317,7 +331,7 @@ class TestGetMatchingRoutes:
             start_date="20260418", end_date="20260418",
             symbol="MSFT US Equity"
         )
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 1
         assert rows[0]["order_id"] == "O2"
 
@@ -327,14 +341,14 @@ class TestGetMatchingRoutes:
             start_date="20260418", end_date="20260418",
             limit=1, offset=0
         )
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 2      # total without pagination
         assert len(rows) == 1  # only 1 row returned
 
     def test_no_results_for_unknown_algo(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         filters = TcaFilters(start_date="20260418", end_date="20260418", algo="NONEXISTENT")
-        rows, total = svc._get_matching_routes(filters)
+        rows, total = get_matching_routes(svc._mgr, filters)
         assert total == 0
         assert rows == []
 
@@ -353,7 +367,7 @@ class TestSqlInjectionSafety:
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(order_ids=[payload])
-            rows, total = svc._get_matching_routes(filters)
+            rows, total = get_matching_routes(svc._mgr, filters)
             # Must return 0 rows (payload doesn't match real data)
             assert total == 0, f"Injection payload returned rows: {payload!r}"
 
@@ -361,21 +375,21 @@ class TestSqlInjectionSafety:
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(start_date="20260418", end_date="20260418", algo=payload)
-            rows, total = svc._get_matching_routes(filters)
+            rows, total = get_matching_routes(svc._mgr, filters)
             assert total == 0, f"Injection payload returned rows: {payload!r}"
 
     def test_broker_injection(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(start_date="20260418", end_date="20260418", broker=payload)
-            rows, total = svc._get_matching_routes(filters)
+            rows, total = get_matching_routes(svc._mgr, filters)
             assert total == 0
 
     def test_symbol_injection(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(start_date="20260418", end_date="20260418", symbol=payload)
-            rows, total = svc._get_matching_routes(filters)
+            rows, total = get_matching_routes(svc._mgr, filters)
             assert total == 0
 
     def test_processed_fills_table_still_exists(self, tmp_dbs):
@@ -384,7 +398,7 @@ class TestSqlInjectionSafety:
         # Try the most aggressive payload
         filters = TcaFilters(order_ids=["'; DROP TABLE processed_fills; --"])
         try:
-            svc._get_matching_routes(filters)
+            get_matching_routes(svc._mgr, filters)
         except Exception:
             pass
         # If table was dropped, this query would raise
@@ -434,24 +448,24 @@ class TestFillPercentages:
             conn.close()
 
         svc = _make_service(tmp_dbs)
-        pcts = svc._get_fill_percentages(["O1"])
+        pcts = get_fill_percentages(svc._mgr, ["O1"])
         assert pcts.get("O1") == pytest.approx(90.0)
 
     def test_fill_pct_100(self, tmp_dbs):
         """O1 filled 1000 shares out of 1000 â†’ 100%."""
         svc = _make_service(tmp_dbs)
-        pcts = svc._get_fill_percentages(["O1"])
+        pcts = get_fill_percentages(svc._mgr, ["O1"])
         assert pcts.get("O1") == pytest.approx(100.0)
 
     def test_fill_pct_50(self, tmp_dbs):
         """O2 filled 1000 out of 2000 â†’ 50%."""
         svc = _make_service(tmp_dbs)
-        pcts = svc._get_fill_percentages(["O2"])
+        pcts = get_fill_percentages(svc._mgr, ["O2"])
         assert pcts.get("O2") == pytest.approx(50.0)
 
     def test_unknown_order_returns_empty(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
-        pcts = svc._get_fill_percentages(["UNKNOWN"])
+        pcts = get_fill_percentages(svc._mgr, ["UNKNOWN"])
         assert pcts.get("UNKNOWN") is None
 
 
@@ -523,7 +537,7 @@ class TestBuildTcaReport:
             conn.close()
 
         svc = _make_service(tmp_dbs)
-        rows, total = svc._get_matching_routes(
+        rows, total = get_matching_routes(svc._mgr, 
             TcaFilters(start_date="20260418", end_date="20260418", order_ids=["O1"])
         )
 
@@ -551,7 +565,7 @@ class TestBuildTcaReport:
             conn.close()
 
         svc = TcaQueryService(raw_bdib_db_path=raw_bdib)
-        market_ctx = svc._get_market_context(
+        market_ctx = get_market_context(svc._mgr, 
             {("AAPL US Equity", "20260418")},
             [{"equ_ticker": "AAPL US Equity", "order_as_of_date": "20260418", "start_time": "10:00:00", "end_time": "10:10:00"}],
             {},
@@ -604,41 +618,41 @@ from CostView.src.tca_query_service import ScorecardFilters
 
 class TestScorecardBucketing:
     def test_time_of_day_buckets(self):
-        assert TcaQueryService._bucket_time_of_day("09:45:00")[0] == "open"
-        assert TcaQueryService._bucket_time_of_day("10:30:00")[0] == "mid"
-        assert TcaQueryService._bucket_time_of_day("15:30:00")[0] == "close"
-        assert TcaQueryService._bucket_time_of_day(None)[0] == "unknown"
+        assert bucket_time_of_day("09:45:00")[0] == "open"
+        assert bucket_time_of_day("10:30:00")[0] == "mid"
+        assert bucket_time_of_day("15:30:00")[0] == "close"
+        assert bucket_time_of_day(None)[0] == "unknown"
 
     def test_liquidity_buckets(self):
-        assert TcaQueryService._bucket_liquidity(0.4)[0] == "low"
-        assert TcaQueryService._bucket_liquidity(3.0)[0] == "mid"
-        assert TcaQueryService._bucket_liquidity(9.0)[0] == "high"
-        assert TcaQueryService._bucket_liquidity(None)[0] == "unknown"
+        assert bucket_liquidity(0.4)[0] == "low"
+        assert bucket_liquidity(3.0)[0] == "mid"
+        assert bucket_liquidity(9.0)[0] == "high"
+        assert bucket_liquidity(None)[0] == "unknown"
 
     def test_volatility_buckets(self):
-        assert TcaQueryService._bucket_volatility(1.0)[0] == "calm"
-        assert TcaQueryService._bucket_volatility(2.5)[0] == "typical"
-        assert TcaQueryService._bucket_volatility(5.0)[0] == "stressed"
+        assert bucket_volatility(1.0)[0] == "calm"
+        assert bucket_volatility(2.5)[0] == "typical"
+        assert bucket_volatility(5.0)[0] == "stressed"
 
     def test_asset_class_derivation(self):
-        assert TcaQueryService._asset_class_from_ticker("AAPL US Equity")[0] == "equity"
-        assert TcaQueryService._asset_class_from_ticker("EURUSD Curncy")[0] == "fx"
-        assert TcaQueryService._asset_class_from_ticker(None)[0] == "unknown"
+        assert asset_class_from_ticker("AAPL US Equity")[0] == "equity"
+        assert asset_class_from_ticker("EURUSD Curncy")[0] == "fx"
+        assert asset_class_from_ticker(None)[0] == "unknown"
 
 
 class TestScorecardStatistics:
     def test_safe_percentile_handles_singletons(self):
-        assert TcaQueryService._safe_percentile([5.0], 95) == 5.0
-        assert TcaQueryService._safe_percentile([], 50) is None
+        assert safe_percentile([5.0], 95) == 5.0
+        assert safe_percentile([], 50) is None
 
     def test_safe_percentile_interpolates(self):
         values = [0.0, 10.0, 20.0, 30.0, 40.0]
-        assert TcaQueryService._safe_percentile(values, 50) == pytest.approx(20.0)
-        assert TcaQueryService._safe_percentile(values, 95) == pytest.approx(38.0)
+        assert safe_percentile(values, 50) == pytest.approx(20.0)
+        assert safe_percentile(values, 95) == pytest.approx(38.0)
 
     def test_safe_stddev_requires_multiple(self):
-        assert TcaQueryService._safe_stddev([5.0]) is None
-        assert TcaQueryService._safe_stddev([1.0, 3.0]) == pytest.approx(1.4142135, rel=1e-4)
+        assert std([5.0]) is None
+        assert std([1.0, 3.0]) == pytest.approx(1.4142135, rel=1e-4)
 
 
 class TestBuildScorecard:

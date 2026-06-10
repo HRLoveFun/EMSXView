@@ -19,8 +19,8 @@
 | A4 | 历史BDIB回填到Parquet | ✅ | 同上 | 10个月 ✓; 401M行; 85.1GB→6.62GB (12.9:1) |
 | A5 | `tca_query_service.py` DuckDB读路径 | ✅ | 同上 | flag: `BDIB_QUERY_ENGINE`; 修改 `tca_query_builder.py` + `tca_fallback.py` |
 | A6 | 验证期：双引擎对比 | ✅ | 同上 | 行数401M=401M ✓; 聚合diff<0.0001% ✓; 抽样10/10 ✓ |
-| A7 | 收缩 `raw_bdib.db` | ✅ | 同上 + [§7.3路径1](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 85.1GB→31.2GB (63%); 147M行; integrity=ok; 观察期: `data/observation_A7.json` |
-| A8 | 消除 `processed_raw_bdib.db` | ⏳ | 同上 + [§7.3路径2](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 脚本就绪: `scripts/retire_processed_raw_bdib.py`; 门禁: A7观察期通过; flag: `PROCESSED_RAW_BDIB_ENABLED` |
+| A7 | 收缩 `raw_bdib.db` | ✅ | 同上 + [§7.3路径1](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 85.1GB→31.2GB (63%); 147M行; integrity=ok; 观察期完成 2026-06-10 (7天all_pass) |
+| A8 | 消除 `processed_raw_bdib.db` | ✅ | 同上 + [§7.3路径2](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 32.0GB释放; DuckDB视图就绪; 可重现性0.0429%; 观察期: `data/observation_A8.json` (至2026-06-16, 7天) |
 | **Phase B: 分区** | | | | |
 | B1 | 执行 `db_partition.sql` 创建表 + 复制数据 | ✅ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | 9表100%匹配; execution_history.db + ticker_registry.db 已创建 |
 | B2 | 双写新分区DB | ✅ | 同上 | flag: `PARTITION_DUAL_WRITE`; `fills.py._upsert()` + `upsert_order_labels` 已添加双写 |
@@ -34,8 +34,8 @@
 
 | 全局 | |
 |------|----|
-| 总进度 | 13/14 |
-| 当前阻塞 | A8 + B4 等待 A7 观察期 (约06-17) |
+| 总进度 | 14/15 |
+| 当前阻塞 | A8 观察期 (至06-24) · B4 等待 A8 完成 |
 
 > 状态: ⬜ pending &nbsp; ⏳ in_progress &nbsp; ✅ done &nbsp; ⛔ blocked &nbsp; ⊘ skipped
 

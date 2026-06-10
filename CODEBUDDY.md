@@ -236,3 +236,18 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 1. `AGENTS.md` — 重构工作流规范（含安全规则）
 2. `data_management_refactoring_control.md` — 当前进度和任务状态
 3. `data_management_refactoring_plan.md` — 详细实施方案
+
+<!-- SPECKIT START -->
+## Current Plan
+
+**Feature**: EMSXView 架构完善与模块核心功能补齐
+**Branch**: `001-architecture-module-completion`
+**Plan**: `specs/001-architecture-module-completion/plan.md`
+**Spec**: `specs/001-architecture-module-completion/spec.md`
+
+Key artifacts:
+- `specs/001-architecture-module-completion/research.md` — 模块边界、MarketView 走势、Route+Order、TCA 指标研究
+- `specs/001-architecture-module-completion/data-model.md` — 扩展实体定义
+- `specs/001-architecture-module-completion/contracts/api-contracts.md` — API 契约
+- `specs/001-architecture-module-completion/quickstart.md` — 验证指南
+<!-- SPECKIT END -->
