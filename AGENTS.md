@@ -53,3 +53,8 @@ EMSXView is a Bloomberg EMSX-integrated trading platform covering pre-trade anal
 2. 必须读 `data_management_refactoring_plan.md` 中对应节的实施方案
 3. 包含 `.BAK` 操作的步骤（A7/A8/B4）必须先陈述计划，等待用户确认
 4. 每步完成后必须更新 `control.md` 中对应任务的状态
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
