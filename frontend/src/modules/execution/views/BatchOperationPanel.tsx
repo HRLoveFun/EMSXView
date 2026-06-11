@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Edit3, Trash2, X, CheckSquare, AlertTriangle } from 'lucide-react';
+import { Edit3, Trash2, X, CheckSquare, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -220,6 +220,16 @@ export function BatchOperationPanel({
             <X className="h-4 w-4 mr-1.5" />
             Clear selection
           </Button>
+          <a
+            href="http://bstapp:50036/Trading/BrokerInternalSuspend"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Button variant="outline" size="sm" className="gap-1.5" type="button">
+              <ExternalLink className="h-4 w-4" />
+              Broker Internal Suspend
+            </Button>
+          </a>
           <Button
             variant="default"
             size="sm"
