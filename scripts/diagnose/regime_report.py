@@ -1,7 +1,13 @@
 """Quick production-validation report for regime.db."""
+import os
 import sqlite3
+from pathlib import Path
 
-conn = sqlite3.connect('CostView/data/regime.db')
+# 数据库路径由 EMSXVIEW_DATA_DIR 环境变量控制，未设置时回退到项目内默认路径
+_data_dir = Path(os.getenv("EMSXVIEW_DATA_DIR", str(
+    Path(__file__).resolve().parents[2] / "CostView" / "data"
+)))
+conn = sqlite3.connect(str(_data_dir / "regime.db"))
 
 print('=== daily_market_index 行数/市场覆盖 ===')
 sql = """

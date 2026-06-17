@@ -93,12 +93,16 @@ class IntegrateBDIBStage(BaseStage):
         else:
             latest_raw = context.db.market_data_read.get_latest_order_as_of_date()
             if context.force or not latest_raw:
+                # Force 模式或 raw_bdib 尚无数据: 回填窗口180天
                 start_dt = latest_safe_bdib_date - timedelta(days=180)
                 all_candidate_dates = self._expand_weekdays(start_dt, latest_safe_bdib_date)
             else:
+                # 增量模式: start_dt 取 (raw_bdib 最新日期 + 1 天) 与 latest_safe_bdib_date 的较小者
+                # 避免 start_dt > latest_safe_bdib_date 导致空候选 — 当 raw_bdib 已超过
+                # safe_bdib_date (BDIB 数据先于 fills 拉取的情况) 时, 从 safe_bdib_date 开始
                 try:
                     latest_dt = datetime.strptime(latest_raw, "%Y%m%d").date()
-                    start_dt = latest_dt + timedelta(days=1)
+                    start_dt = min(latest_dt + timedelta(days=1), latest_safe_bdib_date)
                 except ValueError:
                     start_dt = latest_safe_bdib_date - timedelta(days=180)
                 all_candidate_dates = self._expand_weekdays(start_dt, latest_safe_bdib_date)
@@ -134,46 +138,108 @@ class IntegrateBDIBStage(BaseStage):
         ticker_chunk_size = 50
         logger.info("BDIB: %d tickers, processing in chunks of %d", len(all_tickers), ticker_chunk_size)
 
-        for date_str in all_candidate_dates:
+        # 进度报告：BDIB 阶段可能处理数百个日期，每处理一个日期输出 [STAGE]
+        # 避免前端因长时间无输误判为"stalled"
+        marker_name = str(context.config.get("stage_marker_name", "")).strip()
+        total_dates = max(1, len(all_candidate_dates))
+
+        for date_idx, date_str in enumerate(all_candidate_dates):
+            # 每个日期处理前输出 [STAGE] 进度，防止前端误判 stalled
+            if marker_name:
+                stage_pct = 76 + int((date_idx / total_dates) * 5)
+                print(
+                    f"[STAGE] {marker_name} {stage_pct} "
+                    f"BDIB date {date_idx + 1}/{total_dates}: {date_str}",
+                    flush=True,
+                )
             try:
-                if not context.force and latest_raw_date and date_str <= latest_raw_date:
-                    skipped_raw += 1; continue
-                if not context.force and latest_proc_raw_date and date_str <= latest_proc_raw_date:
-                    skipped_proc_raw += 1; continue
+                # ── v4.0-p2: 仅当 fill_bdib 已集成时跳过整个日期 ──
+                # raw_bdib/processed_raw_bdib 已有数据时仅跳过拉取阶段,
+                # 仍会执行集成阶段 (Phase C), 解决 fill_bdib 滞后问题
                 if not context.force and date_str in already_integrated:
-                    skipped_fill += 1; continue
+                    skipped_fill += 1
+                    logger.info("  BDIB %s: fill_bdib 已存在, 跳过", date_str)
+                    continue
+
+                # ── 判断各阶段是否需要执行 ──
+                need_bdib_fetch = (
+                    context.force
+                    or not latest_raw_date
+                    or date_str > latest_raw_date
+                )
+                need_bdib_enrich = (
+                    context.force
+                    or not latest_proc_raw_date
+                    or date_str > latest_proc_raw_date
+                )
+
+                if not need_bdib_fetch:
+                    skipped_raw += 1
+                    logger.info("  BDIB %s: raw_bdib 已存在, 跳过 Bloomberg 拉取 (仍将执行集成)", date_str)
 
                 date_raw_rows = 0
                 date_proc_raw_rows = 0
                 bdib_enriched_chunks = []
 
-                # ── Phase A+B: Chunked BDIB fetch + write ──
-                for chunk_i in range(0, len(all_tickers), ticker_chunk_size):
-                    chunk_tickers = all_tickers[chunk_i:chunk_i + ticker_chunk_size]
-                    chunk_ticker_dates = {t: [date_str] for t in chunk_tickers}
+                # ── Phase A+B: BDIB 拉取 + 写入 (仅当需要时) ──
+                if need_bdib_fetch:
+                    for chunk_i in range(0, len(all_tickers), ticker_chunk_size):
+                        chunk_tickers = all_tickers[chunk_i:chunk_i + ticker_chunk_size]
+                        chunk_ticker_dates = {t: [date_str] for t in chunk_tickers}
+                        try:
+                            chunk_map = fetch_bdib_for_fills(chunk_ticker_dates, interval=10, ticker_exchange_map=ticker_exchange_map_all)
+                            if not chunk_map:
+                                continue
+                            chunk_dfs = [df for key, df in chunk_map.items() if key.endswith(f"|{date_str}")]
+                            if not chunk_dfs:
+                                continue
+                            chunk_bdib_df = pd.concat(chunk_dfs, ignore_index=True)
+                            if chunk_bdib_df.empty:
+                                continue
+
+                            # Write raw BDIB
+                            date_raw_rows += market_write.upsert_bdib_data(chunk_bdib_df, date_str=date_str)
+
+                            # Compute derived fields
+                            enriched = market_write.compute_derived_fields(chunk_bdib_df)
+                            date_proc_raw_rows += market_write.upsert_processed_bdib(enriched)
+                            bdib_enriched_chunks.append(enriched)
+
+                            del chunk_map, chunk_dfs, chunk_bdib_df, enriched
+                            gc.collect()
+                        except Exception as chunk_err:
+                            logger.warning("  BDIB chunk %d error for %s: %s", chunk_i, date_str, chunk_err)
+
+                # ── 回补路径: BDIB 拉取跳过时, 从 raw_bdib 加载已有数据 ──
+                # Phase A8 后 processed_raw_bdib 已退役，直接从 raw_bdib 读取
+                # 并使用 compute_derived_fields 计算派生字段
+                if not need_bdib_fetch and not bdib_enriched_chunks:
                     try:
-                        chunk_map = fetch_bdib_for_fills(chunk_ticker_dates, interval=10, ticker_exchange_map=ticker_exchange_map_all)
-                        if not chunk_map:
-                            continue
-                        chunk_dfs = [df for key, df in chunk_map.items() if key.endswith(f"|{date_str}")]
-                        if not chunk_dfs:
-                            continue
-                        chunk_bdib_df = pd.concat(chunk_dfs, ignore_index=True)
-                        if chunk_bdib_df.empty:
-                            continue
-
-                        # Write raw BDIB
-                        date_raw_rows += market_write.upsert_bdib_data(chunk_bdib_df, date_str=date_str)
-
-                        # Compute derived fields
-                        enriched = market_write.compute_derived_fields(chunk_bdib_df)
-                        date_proc_raw_rows += market_write.upsert_processed_bdib(enriched)
-                        bdib_enriched_chunks.append(enriched)
-
-                        del chunk_map, chunk_dfs, chunk_bdib_df, enriched
-                        gc.collect()
-                    except Exception as chunk_err:
-                        logger.warning("  BDIB chunk %d error for %s: %s", chunk_i, date_str, chunk_err)
+                        conn = cm.get_connection("raw_bdib", AccessTier.READ)
+                        bdib_from_db = pd.read_sql_query(
+                            "SELECT * FROM raw_bdib WHERE order_as_of_date = ?",
+                            conn.raw_connection,
+                            params=[date_str],
+                        )
+                        conn.close()
+                        if not bdib_from_db.empty:
+                            enriched = market_write.compute_derived_fields(bdib_from_db)
+                            bdib_enriched_chunks.append(enriched)
+                            date_proc_raw_rows = len(enriched)
+                            logger.info(
+                                "  BDIB %s: 从 raw_bdib 加载 %d 行并计算派生字段用于集成",
+                                date_str, len(bdib_from_db),
+                            )
+                        else:
+                            logger.info(
+                                "  BDIB %s: raw_bdib 中无数据, 跳过集成",
+                                date_str,
+                            )
+                    except Exception as load_err:
+                        logger.warning(
+                            "  BDIB %s: 从 raw_bdib 加载失败 (%s), 跳过集成",
+                            date_str, load_err,
+                        )
 
                 if not bdib_enriched_chunks:
                     total_raw_bdib_rows += date_raw_rows
@@ -313,7 +379,17 @@ class CalculateDailyMetricsStage(BaseStage):
             return True
 
         total_rows = 0
-        for trade_date in dates_to_process:
+        # 进度报告：逐日期处理，输出 [STAGE] 避免前端误判 stalled
+        marker_name = str(context.config.get("stage_marker_name", "")).strip()
+        total_metric_dates = max(1, len(dates_to_process))
+        for metric_idx, trade_date in enumerate(dates_to_process):
+            if marker_name:
+                stage_pct = 83 + int((metric_idx / total_metric_dates) * 5)
+                print(
+                    f"[STAGE] {marker_name} {stage_pct} "
+                    f"Metrics date {metric_idx + 1}/{total_metric_dates}: {trade_date}",
+                    flush=True,
+                )
             try:
                 rows = calc.run_for_date(trade_date)
                 total_rows += rows

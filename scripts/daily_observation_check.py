@@ -102,6 +102,7 @@ class ObservationChecker:
             ("pipeline_success", self._check_pipeline_success),
             ("db_volume_stable", self._check_db_volume_stable),
             ("cross_db_integrity", self._check_cross_db_integrity),
+            ("fetch_history_table", self._check_fetch_history_table),
         ]
 
         for check_name, check_fn in checks:
@@ -341,6 +342,36 @@ class ObservationChecker:
 
         return True, "skip (需具体实现)"
 
+    # ── CHECK-7: fill_fetch_history 空表检查 (Phase 3) ──
+
+    def _check_fetch_history_table(self) -> tuple[bool, str]:
+        """检查 fill_fetch_history.db 是否为空表。
+
+        v4.0-p3: 配合 fill_fetch.py 中 try/except:pass 替换为带日志异常处理,
+        提供每日空表告警。非阻塞 — 空表仅作为数据完整性警告。
+        """
+        db_path = Config.FETCH_HISTORY_DB
+        if not db_path.exists():
+            return True, "skip (fill_fetch_history.db 不存在)"
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("PRAGMA busy_timeout = 30000")
+            cursor = conn.execute(
+                f"SELECT COUNT(*) FROM {Config.FETCH_HISTORY_TABLE}"
+            )
+            row_count = cursor.fetchone()[0]
+            conn.close()
+
+            if row_count == 0:
+                return False, (
+                    "fill_fetch_history 表为空 (0 行) — 审计去重记录缺失, "
+                    "可能是数据库初始化或写入异常导致"
+                )
+            return True, f"{row_count} 条记录"
+        except Exception as e:
+            return True, f"skip (查询异常: {e})"
+
     # ── 硬性阻断判定 ──
 
     def _check_blocking_conditions(self, results: dict) -> None:
@@ -389,16 +420,19 @@ class ObservationChecker:
         """判断观察期是否可以完成。
 
         条件:
-          1. 连续14天 daily_checks 全部 pass
+          1. 连续 N 天 daily_checks 全部 pass (N = manifest.min_observation_days, 默认14)
           2. 覆盖 ≥2 完整管线周期
           3. 无任何 blocking_conditions_triggered
           4. 无 manual_flag
-          5. start_date距今 ≥14天
+          5. start_date距今 ≥ N 天
         """
         if self.manifest.get("blocking_conditions_triggered"):
             return False
         if self.manifest.get("manual_flag"):
             return False
+
+        # 从 manifest 读取观察天数配置，默认 14 天
+        min_days = self.manifest.get("min_observation_days", 14)
 
         start_str = self.manifest.get("start_date")
         if not start_str:
@@ -407,11 +441,11 @@ class ObservationChecker:
             start = date.fromisoformat(start_str)
         except ValueError:
             return False
-        if (self._check_date - start).days < 14:
+        if (self._check_date - start).days < min_days:
             return False
 
-        recent = self.manifest["daily_checks"][-14:]
-        if len(recent) < 14:
+        recent = self.manifest["daily_checks"][-min_days:]
+        if len(recent) < min_days:
             return False
         all_pass = all(c.get("all_pass") for c in recent)
         cycles_ok = (

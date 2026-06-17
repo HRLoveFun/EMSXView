@@ -240,14 +240,14 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 <!-- SPECKIT START -->
 ## Current Plan
 
-**Feature**: EMSXView 架构完善与模块核心功能补齐
+**Feature**: 数据管道护栏机制
 **Branch**: `001-architecture-module-completion`
-**Plan**: `specs/001-architecture-module-completion/plan.md`
-**Spec**: `specs/001-architecture-module-completion/spec.md`
+**Plan**: `specs/002-pipeline-guardrail/plan.md`
+**Spec**: `specs/002-pipeline-guardrail/spec.md`
 
 Key artifacts:
-- `specs/001-architecture-module-completion/research.md` — 模块边界、MarketView 走势、Route+Order、TCA 指标研究
-- `specs/001-architecture-module-completion/data-model.md` — 扩展实体定义
-- `specs/001-architecture-module-completion/contracts/api-contracts.md` — API 契约
-- `specs/001-architecture-module-completion/quickstart.md` — 验证指南
+- `specs/002-pipeline-guardrail/research.md` — 熔断器模式、Pydantic 校验、基线测试、契约检查、日志方案研究
+- `specs/002-pipeline-guardrail/data-model.md` — PipelineRun、StageExecution、ValidationViolation、CircuitBreakerState、PipelineSchema 实体定义
+- `specs/002-pipeline-guardrail/contracts/guard-pipeline-api.md` — GuardPipeline、Validator、CircuitBreaker、PipelineRunLogger API 契约
+- `specs/002-pipeline-guardrail/quickstart.md` — 10 个验证场景，覆盖校验/熔断/完整性/契约/日志
 <!-- SPECKIT END -->

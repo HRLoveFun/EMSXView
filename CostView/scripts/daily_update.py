@@ -24,6 +24,7 @@ import logging
 import logging.handlers
 import os
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,65 @@ def _run_archive_step() -> None:
         logger.warning("归档跳过: %s", e)
 
 
+def _run_b4_observation_step() -> None:
+    """B4 观察期检查: 在管线完成后执行，确保每条检查记录捕获当天的管线完成标记。
+
+    非阻塞 — 失败仅记录 warning，不影响管线。
+    仅当 observation_B4.json 存在且状态为 pending 时才执行。
+
+    注意: 使用 stdout/stderr 输出到临时文件而非 capture_output=True，
+    避免 Windows 上管道缓冲区满导致的 _readerthread 死锁。
+    """
+    manifest_path = Config.DATA_DIR / "observation_B4.json"
+    if not manifest_path.exists():
+        return
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("final_status") in ("complete", "blocked"):
+            return
+    except Exception:
+        pass
+
+    import tempfile
+    tmp_path = None
+    try:
+        script_path = Config._PROJECT_ROOT / "scripts" / "daily_observation_check.py"
+        # 使用临时文件接收输出，避免 Windows 管道缓冲区溢出
+        with tempfile.NamedTemporaryFile(
+            mode="w+", suffix=".log", delete=False,
+            encoding="utf-8", errors="replace",
+        ) as tmp:
+            tmp_path = tmp.name
+
+        with open(tmp_path, "w", encoding="utf-8", errors="replace") as out_f:
+            result = subprocess.run(
+                [sys.executable, str(script_path), "--phase", "B4"],
+                stdout=out_f, stderr=subprocess.STDOUT,
+                timeout=180,
+                cwd=str(Config._PROJECT_ROOT),
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+
+        if result.returncode == 0:
+            logger.info("B4 观察检查: 通过 ✓")
+            print("[STAGE] observation 100 B4 observation check passed")
+        else:
+            logger.warning("B4 观察检查: 存在失败项 (exit=%d)", result.returncode)
+            print("[STAGE] observation 100 B4 observation check completed (with warnings)")
+    except subprocess.TimeoutExpired:
+        logger.warning("B4 观察检查: 超时跳过")
+    except Exception as e:
+        logger.warning("B4 观察检查: 跳过 (%s)", e)
+    finally:
+        # 清理临时文件
+        if tmp_path and Path(tmp_path).exists():
+            try:
+                Path(tmp_path).unlink()
+            except OSError:
+                pass
+
+
 _KNOWN_DBS = [
     "raw_fills.db",
     "processed_fills.db",
@@ -83,33 +143,122 @@ def _log_mem(stage_label: str = "") -> None:
 
 
 def _checkpoint_wal() -> None:
-    """Force WAL checkpoint on all known CostView databases.
+    """强制提交所有已知 CostView 数据库的 WAL 日志。
 
-    After a subprocess write, data may reside only in the WAL file and not
-    yet be visible to read-only connections that open via ``?mode=ro`` (as
-    ``repositories.py`` does).  Running ``wal_checkpoint(TRUNCATE)`` writes
-    all WAL pages into the main DB and resets the WAL, guaranteeing that
-    subsequent reads see the latest committed data.
+    子进程写入后，数据可能仅驻留 WAL 文件而对 ``?mode=ro`` 只读连接不可见
+    (如 ``repositories.py`` 使用的模式)。执行 ``wal_checkpoint(TRUNCATE)``
+    将所有 WAL 页面写入主库文件并重置 WAL, 确保后续读取看到最新数据。
 
-    This is called just before the ``[STAGE] completion 100`` marker so
-    that the backend's ``/api/db/overview`` endpoint will see fresh data.
+    v4.0-p4: 新增文件大小日志 + processed_fills.db 条件 VACUUM + 体积告警
     """
     data_dir = _COSTVIEW_ROOT / "data"
+    # 体积告警阈值 (GB)
+    SIZE_WARNING_GB = 5.0
+    VACUUM_THRESHOLD_GB = 10.0
+
     for db_name in _KNOWN_DBS:
         db_path = data_dir / db_name
         if not db_path.exists():
             continue
         try:
-            conn = sqlite3.connect(str(db_path), timeout=2.0)
+            pre_size_mb = db_path.stat().st_size / (1024 ** 2)
+
+            conn = sqlite3.connect(str(db_path), timeout=5.0)
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             conn.close()
+
+            post_size_mb = db_path.stat().st_size / (1024 ** 2)
+            post_size_gb = post_size_mb / 1024
+
+            if abs(post_size_mb - pre_size_mb) > 0.1:
+                logger.info(
+                    "WAL checkpoint %s: %.1f MB → %.1f MB",
+                    db_name, pre_size_mb, post_size_mb,
+                )
+
+            # 文件大小告警
+            if post_size_gb >= SIZE_WARNING_GB:
+                logger.warning(
+                    "⚠ DB 体积告警: %s = %.2f GB (阈值: %.0f GB)",
+                    db_name, post_size_gb, SIZE_WARNING_GB,
+                )
+
+            _mtime = datetime.fromtimestamp(os.path.getmtime(db_path))
+            logger.info(
+                "DB state: %s size=%.2f GB modified=%s",
+                db_name, post_size_gb, _mtime,
+            )
+
         except Exception as exc:
             logger.warning("WAL checkpoint failed for %s: %s", db_name, exc)
-    for _db_name in _KNOWN_DBS:
-        _db_path = data_dir / _db_name
-        if _db_path.exists():
-            _mtime = datetime.fromtimestamp(os.path.getmtime(_db_path))
-            logger.info(f"DB state: {_db_name} modified={_mtime}")
+
+    # ── processed_fills.db 条件 VACUUM (Phase 4) ──
+    _vacuum_processed_fills_if_needed(data_dir, VACUUM_THRESHOLD_GB)
+
+
+def _vacuum_processed_fills_if_needed(data_dir: Path, threshold_gb: float) -> None:
+    """条件 VACUUM processed_fills.db 以回收间歇填充产生的膨胀空间。
+
+    安全措施:
+      - 仅在文件大小超过阈值时执行
+      - VACUUM 前做 PRAGMA integrity_check 验证数据完整性
+      - 操作失败不影响管线 (非阻塞, 仅记录日志)
+      - 不操作其他任何数据库文件, 保护现有数据完整性
+    """
+    db_path = data_dir / "processed_fills.db"
+    if not db_path.exists():
+        return
+
+    size_gb = db_path.stat().st_size / (1024 ** 3)
+    if size_gb < threshold_gb:
+        return
+
+    # 在 VACUUM 阻塞操作前立即输出 [STAGE] 标记，确保 watchdog 先识别到 vacuum 阶段
+    # 再执行阻塞操作，避免大库 VACUUM 被 watchdog 误杀
+    print(
+        f"[STAGE] vacuum 10 Starting VACUUM on {size_gb:.1f}GB database "
+        f"(this may take several minutes)",
+        flush=True,
+    )
+    logger.warning(
+        "processed_fills.db 体积 %.2f GB 超过阈值 %.0f GB, 准备 VACUUM...",
+        size_gb, threshold_gb,
+    )
+
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=30.0)
+
+        # 安全检查: 数据完整性验证
+        integrity_result = conn.execute("PRAGMA integrity_check").fetchone()
+        if integrity_result[0] != "ok":
+            logger.error(
+                "VACUUM 中止: processed_fills.db integrity_check 失败 — %s",
+                integrity_result[0],
+            )
+            conn.close()
+            return
+
+        # VACUUM 是单线程阻塞操作，执行期间无法输出任何日志
+        t0 = datetime.now()
+        conn.execute("VACUUM")
+        conn.close()
+        elapsed = (datetime.now() - t0).total_seconds()
+
+        new_size_gb = db_path.stat().st_size / (1024 ** 3)
+        saved_gb = size_gb - new_size_gb
+        logger.info(
+            "VACUUM 完成: %.2f GB → %.2f GB (回收 %.2f GB, 耗时 %.1fs)",
+            size_gb, new_size_gb, saved_gb, elapsed,
+        )
+        print(
+            "[STAGE] vacuum 100 VACUUM completed: "
+            f"{size_gb:.1f}GB → {new_size_gb:.1f}GB "
+            f"(reclaimed {saved_gb:.1f}GB, took {elapsed:.0f}s)",
+            flush=True,
+        )
+
+    except Exception as e:
+        logger.error("VACUUM 失败 (非阻塞, 管线继续): %s", e)
 
 
 def _setup_logging() -> None:
@@ -231,6 +380,9 @@ def run_daily_pipeline() -> dict:
         # Stage D: Archive expired data (Phase C1 — non-blocking)
         print("[STAGE] archive 10")
         _run_archive_step()
+
+        # B4 观察期检查: 管线后置步骤，确保每条检查记录捕获当天管线完成标记
+        _run_b4_observation_step()
 
         # ── Force WAL checkpoint so /api/db/overview sees fresh data ──
         _checkpoint_wal()

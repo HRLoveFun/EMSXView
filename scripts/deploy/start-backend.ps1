@@ -1,5 +1,5 @@
-# EMSXView Backend Launcher - 无需 Docker，无需管理员权限
-# 运行方式：在 PowerShell 中执行  .\start-backend.ps1
+# EMSXView Backend Launcher - No Docker, no admin required
+# Usage: powershell -File .\start-backend.ps1
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $env:PYTHONPATH = $ProjectRoot
@@ -26,16 +26,17 @@ if (Test-Path $envFile) {
 # Clean up old log files before starting
 & (Join-Path $PSScriptRoot "..\ops\cleanup-logs.ps1") -Force
 
-New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "logs") | Out-Null
+# Ensure logs directory exists and capture backend output
+$logDir = Join-Path $ProjectRoot "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$logFile = Join-Path $logDir "backend-startup.log"
 
 Write-Host "Starting EMSXView Backend on http://localhost:3000 ..." -ForegroundColor Cyan
-Write-Host "Logs: $ProjectRoot\logs" -ForegroundColor Gray
+Write-Host "Log: $logFile" -ForegroundColor Gray
 Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
 
 $BackendDir = Join-Path $ProjectRoot "backend\api"
 Set-Location $BackendDir
 
-python -m uvicorn main:app `
-    --host 0.0.0.0 `
-    --port 3000 `
-    --app-dir $BackendDir
+# Capture output to log file for error diagnosis
+python -m uvicorn main:app --host 0.0.0.0 --port 3000 --app-dir $BackendDir *> $logFile

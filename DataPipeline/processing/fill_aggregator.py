@@ -81,58 +81,12 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame) -> pd.DataFrame:
 
         res = pd.merge(res, vwap_df, on=["OrderId", "RouteId", "mkt_timestamp"], how="left")
 
-    # Fill missing 10-second intervals per (OrderId, RouteId)
-    if all(c in res.columns for c in ["OrderId", "RouteId", "mkt_timestamp"]):
-        mkt_ts = pd.to_datetime(
-            res["mkt_timestamp"].astype(str), format="%H:%M:%S", errors="coerce"
-        )
-        if mkt_ts.notna().any():
-            res = res.copy()
-            res["_mkt_ts"] = mkt_ts
-
-            def _complete_route_intervals(route_df: pd.DataFrame) -> pd.DataFrame:
-                """Complete 10s intervals for a single (OrderId, RouteId) group."""
-                route_df = route_df.sort_values("_mkt_ts")
-                valid_ts = route_df["_mkt_ts"].dropna()
-                if valid_ts.empty:
-                    return route_df.drop(columns=["_mkt_ts"], errors="ignore")
-
-                full_idx = pd.date_range(
-                    start=valid_ts.min(), end=valid_ts.max(), freq="10s"
-                )
-                original_idx = route_df["_mkt_ts"].tolist()
-                inserted_mask = ~full_idx.isin(original_idx)
-
-                expanded = route_df.set_index("_mkt_ts").reindex(full_idx)
-                expanded.index.name = "_mkt_ts"
-                expanded = expanded.reset_index()
-
-                # Forward-fill categorical columns
-                cols_to_ffill = [
-                    c for c in expanded.columns
-                    if c not in {"FillShares", "FillPrice", "mkt_timestamp"}
-                ]
-                if cols_to_ffill:
-                    expanded[cols_to_ffill] = expanded[cols_to_ffill].ffill().infer_objects(copy=False)
-
-                expanded["mkt_timestamp"] = pd.to_datetime(
-                    expanded["_mkt_ts"]
-                ).dt.strftime("%H:%M:%S")
-
-                if "FillShares" in expanded.columns:
-                    expanded.loc[inserted_mask, "FillShares"] = 0
-                if "FillPrice" in expanded.columns:
-                    expanded.loc[inserted_mask, "FillPrice"] = 0
-
-                return expanded.drop(columns=["_mkt_ts"], errors="ignore")
-
-            completed_parts = []
-            for (oid, rid), group_df in res.groupby(["OrderId", "RouteId"], sort=False):
-                completed_parts.append(_complete_route_intervals(group_df))
-            if completed_parts:
-                res = pd.concat(completed_parts, ignore_index=True)
-            else:
-                res = res.drop(columns=["_mkt_ts"], errors="ignore")
+    # 间歇填充已移除 (v4.0-p1a) — 见 fill_bdib_comprehensive_fix
+    # _complete_route_intervals() 生成的填充行上:
+    #   - fill_volume=0 在 fill_bdib_integrated 中被过滤, 从未持久化
+    #   - LEFT JOIN BDIB 获取的市场数据有效但未利用
+    #   - 衍生指标 (vwap_slippage_bps ≈ -10000 bps) 为垃圾值
+    #   - 同时此逻辑是 processed_fills.db 膨胀 6.5x (23GB vs 3.5GB) 的主因
 
     # Ensure string columns don't have mixed types
     for col in res.columns:

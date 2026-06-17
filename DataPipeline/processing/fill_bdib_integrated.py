@@ -186,8 +186,17 @@ def integrate_fills_bdib_for_date(
     return df_merged
 
 def _compute_derived_metrics(df: pd.DataFrame) -> None:
-    """Compute TCA derived metrics in place, grouped by OrderId."""
-    # fill_value
+    """计算 TCA 衍生指标 (in-place, 按 OrderId 分组)。
+
+    v4.0-p1 修复:
+      - p1a: 参与率使用累计市场成交量 (cum_market_volume) 替代瞬时成交量
+      - p1b: 预计算累计市场指标 (_cum_market_volume, _cum_market_value)
+      - p1c: 新增 9 个累积 TCA 列计算 (cum_vwap, cum_fill_vwap, cum_slippage_bps,
+        cum_slippage_usd, cum_volume_pct, cum_tracking_error, cum_info_ratio,
+        cum_interval_volatility, standard_cum_interval_volatility)
+      - 安全除法: 所有分母零值替换为 NaN, 避免 inf/-inf
+    """
+    # ── 1. 基础计算: fill_value, side_sign ──
     if "fill_volume" in df.columns and "fill_px" in df.columns:
         df["fill_volume"] = pd.to_numeric(df["fill_volume"], errors="coerce")
         df["fill_px"] = pd.to_numeric(df["fill_px"], errors="coerce")
@@ -195,7 +204,6 @@ def _compute_derived_metrics(df: pd.DataFrame) -> None:
     else:
         df["fill_value"] = np.nan
 
-    # side_sign
     if "Side" in df.columns:
         df["side_sign"] = np.where(
             df["Side"].astype(str).str.upper().str[0] == "S", -1, 1
@@ -203,48 +211,131 @@ def _compute_derived_metrics(df: pd.DataFrame) -> None:
     else:
         df["side_sign"] = 1
 
-    # intermediate cumulative computations
+    # ── 2. 中间累计计算 ──
     if "fill_value" in df.columns and "side_sign" in df.columns:
         df["signed_fill_value"] = df["fill_value"] * df["side_sign"]
 
-    # Cumulative fill value per OrderId (by appearance order)
     if "signed_fill_value" in df.columns and "OrderId" in df.columns:
         df["cum_fill_value"] = df.groupby("OrderId")["signed_fill_value"].cumsum()
 
-    # Cumulative fill shares per OrderId
     if "fill_volume" in df.columns and "OrderId" in df.columns:
         df["signed_fill_volume"] = df["fill_volume"] * df["side_sign"]
         df["cum_fill_volume"] = df.groupby("OrderId")["fill_volume"].cumsum()
+        # 累计成交金额 (无符号, 用于 fill VWAP)
+        if "fill_value" in df.columns:
+            df["_cum_fill_value_unsigned"] = df.groupby("OrderId")["fill_value"].cumsum()
 
-    # Participation rate
-    if "cum_fill_volume" in df.columns and "volume" in df.columns:
-        total_vol = df["volume"].fillna(0)
+    # ── 3. 累计市场指标 (Phase 1B) ──
+    # 按 OrderId 分组对 BDIB 成交量/成交额做累计求和
+    if all(c in df.columns for c in ["volume", "OrderId"]):
+        df["_cum_market_volume"] = df.groupby("OrderId")["volume"].cumsum()
+    if all(c in df.columns for c in ["value", "OrderId"]):
+        df["_cum_market_value"] = df.groupby("OrderId")["value"].cumsum()
+
+    # ── 4. 修正参与率: 使用累计市场成交量 (Phase 1C) ──
+    if "_cum_market_volume" in df.columns and "cum_fill_volume" in df.columns:
         df["participation_rate"] = np.where(
-            total_vol > 0,
-            df["cum_fill_volume"] / total_vol * 100,
+            df["_cum_market_volume"] > 0,
+            df["cum_fill_volume"] / df["_cum_market_volume"] * 100,
             np.nan,
         )
 
-    # VWAP slippage
+    # ── 5. VWAP slippage (安全除法) ──
     if "fill_px" in df.columns and "vwap" in df.columns and "side_sign" in df.columns:
-        benchmark = df["vwap"].fillna(method="ffill")
-        raw_slippage = (df["fill_px"] - benchmark) / benchmark * 10000
+        benchmark = df["vwap"].ffill()
+        safe_denom = benchmark.replace(0, np.nan)
+        raw_slippage = (df["fill_px"] - benchmark) / safe_denom * 10000
         df["vwap_slippage_bps"] = raw_slippage * df["side_sign"]
 
-        # Arrival price = first bar VWAP
         if "OrderId" in df.columns:
             first_vwap = df.groupby("OrderId")["vwap"].transform("first")
-            arrival_slippage = (df["fill_px"] - first_vwap) / first_vwap * 10000
+            safe_first = first_vwap.replace(0, np.nan)
+            arrival_slippage = (df["fill_px"] - first_vwap) / safe_first * 10000
             df["arrival_slippage_bps"] = arrival_slippage * df["side_sign"]
 
-    # Implementation shortfall components
     if "fill_px" in df.columns and "vwap" in df.columns:
-        df["px_diff_bps"] = (
-            (df["fill_px"] - df["vwap"]) / df["vwap"].replace(0, np.nan) * 10000
+        safe_vwap = df["vwap"].replace(0, np.nan)
+        df["px_diff_bps"] = (df["fill_px"] - df["vwap"]) / safe_vwap * 10000
+
+    # ── 6. 新增 9 个累积 TCA 列 (Phase 1C) ──
+
+    # cum_vwap: 累计市场 VWAP = cum_market_value / cum_market_volume
+    if "_cum_market_value" in df.columns and "_cum_market_volume" in df.columns:
+        df["cum_vwap"] = np.where(
+            df["_cum_market_volume"] > 0,
+            df["_cum_market_value"] / df["_cum_market_volume"],
+            np.nan,
         )
 
-    # Clean up temporary columns
-    for tmp_col in ["signed_fill_value", "signed_fill_volume", "_exec_val"]:
+    # cum_fill_vwap: 累计成交 VWAP = cum_fill_value_unsigned / cum_fill_volume
+    if "_cum_fill_value_unsigned" in df.columns and "cum_fill_volume" in df.columns:
+        df["cum_fill_vwap"] = np.where(
+            df["cum_fill_volume"] > 0,
+            df["_cum_fill_value_unsigned"] / df["cum_fill_volume"],
+            np.nan,
+        )
+
+    # cum_slippage_bps: 累计 slippage = (cum_fill_vwap - cum_vwap) / cum_vwap * 10000 * side_sign
+    if all(c in df.columns for c in ["cum_fill_vwap", "cum_vwap", "side_sign"]):
+        safe_cum_vwap = df["cum_vwap"].replace(0, np.nan)
+        df["cum_slippage_bps"] = np.where(
+            safe_cum_vwap.notna() & df["cum_fill_vwap"].notna(),
+            (df["cum_fill_vwap"] - df["cum_vwap"]) / safe_cum_vwap * 10000 * df["side_sign"],
+            np.nan,
+        )
+
+    # cum_slippage_usd: 累计 slippage 美元金额
+    if "cum_slippage_bps" in df.columns and "cum_fill_value" in df.columns:
+        df["cum_slippage_usd"] = np.where(
+            df["cum_slippage_bps"].notna(),
+            df["cum_slippage_bps"] / 10000 * df["cum_fill_value"].abs(),
+            np.nan,
+        )
+
+    # cum_volume_pct: 累计成交量占比 (%) = cum_fill_volume / cum_market_volume * 100
+    if "cum_fill_volume" in df.columns and "_cum_market_volume" in df.columns:
+        df["cum_volume_pct"] = np.where(
+            df["_cum_market_volume"] > 0,
+            df["cum_fill_volume"] / df["_cum_market_volume"] * 100,
+            np.nan,
+        )
+
+    # cum_tracking_error: 每订单内 (fill_px - vwap) / vwap 的扩展标准差 (bps)
+    if "px_diff_bps" in df.columns and "OrderId" in df.columns:
+        df["cum_tracking_error"] = df.groupby("OrderId")["px_diff_bps"].transform(
+            lambda x: x.expanding().std()
+        )
+
+    # cum_info_ratio: cum_slippage_bps / cum_tracking_error
+    if "cum_slippage_bps" in df.columns and "cum_tracking_error" in df.columns:
+        safe_te = df["cum_tracking_error"].replace(0, np.nan)
+        df["cum_info_ratio"] = np.where(
+            safe_te.notna() & df["cum_slippage_bps"].notna(),
+            df["cum_slippage_bps"] / safe_te,
+            np.nan,
+        )
+
+    # cum_interval_volatility: 每 bar 对数收益率的扩展标准差 (bps)
+    if "log_chg_pct_10s" in df.columns and "OrderId" in df.columns:
+        df["cum_interval_volatility"] = df.groupby("OrderId")["log_chg_pct_10s"].transform(
+            lambda x: x.expanding().std()
+        )
+
+    # standard_cum_interval_volatility: 除以全局非零均值做标准化
+    if "cum_interval_volatility" in df.columns:
+        global_mean = df["cum_interval_volatility"].replace(0, np.nan).mean()
+        if pd.notna(global_mean) and global_mean > 0:
+            df["standard_cum_interval_volatility"] = (
+                df["cum_interval_volatility"] / global_mean
+            )
+        else:
+            df["standard_cum_interval_volatility"] = df["cum_interval_volatility"]
+
+    # ── 7. 清理临时列 ──
+    for tmp_col in [
+        "signed_fill_value", "signed_fill_volume", "_exec_val",
+        "_cum_fill_value_unsigned", "_cum_market_volume", "_cum_market_value",
+    ]:
         if tmp_col in df.columns:
             df.drop(columns=[tmp_col], inplace=True)
 

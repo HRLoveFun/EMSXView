@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-06-03T10:26:55",
-  "total": 21,
+  "generated_at": "2026-06-16T17:00:00",
+  "total": 19,
   "by_rule": {
-    "AP-04": 10,
+    "AP-04": 8,
     "AP-05": 11
   },
   "violations": [
@@ -58,22 +58,6 @@
       "key": "DataPipeline\\storage\\schema\\migration_framework.py::AP-04",
       "rule_id": "AP-04",
       "file": "DataPipeline\\storage\\schema\\migration_framework.py",
-      "line": 0,
-      "message": "hardcoded db path: regime.db",
-      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
-    },
-    {
-      "key": "DataPipeline\\storage\\schema\\migrations\\apply.py::AP-04",
-      "rule_id": "AP-04",
-      "file": "DataPipeline\\storage\\schema\\migrations\\apply.py",
-      "line": 0,
-      "message": "hardcoded db path: CostView/data/regime.db",
-      "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"
-    },
-    {
-      "key": "DataPipeline\\analysis\\regime\\schema.py::AP-04",
-      "rule_id": "AP-04",
-      "file": "DataPipeline\\analysis\\regime\\schema.py",
       "line": 0,
       "message": "hardcoded db path: regime.db",
       "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"

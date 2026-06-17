@@ -216,7 +216,11 @@ def normalize_fill_columns(df: pd.DataFrame) -> pd.DataFrame:
     ]
     for col in string_cols:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().replace("nan", "").replace("None", "")
+            if col == "Exchange":
+                # Exchange 列特殊处理: "nan"→"NA" (荷兰交易所代码被 pandas 误转)
+                df[col] = df[col].astype(str).str.strip().replace("nan", "NA").replace("None", "")
+            else:
+                df[col] = df[col].astype(str).str.strip().replace("nan", "").replace("None", "")
 
     # Numeric columns: coerce to numeric
     numeric_cols = [
@@ -258,6 +262,15 @@ def clean_emsx_fills(
         if not fills_or_df:
             return pd.DataFrame(columns=EMSX_FILL_COLUMNS)
         df = pd.DataFrame(fills_or_df)
+
+        # ══ 修复: 恢复荷兰交易所代码 "NA" (pandas 默认将字符串 "NA" 解析为 NaN)
+        if "Exchange" in df.columns:
+            exchange_na_mask = df["Exchange"].isna()
+            if exchange_na_mask.any():
+                for i in exchange_na_mask[exchange_na_mask].index:
+                    original = fills_or_df[i].get("Exchange")
+                    if original == "NA":
+                        df.at[i, "Exchange"] = "NA"
     else:
         df = fills_or_df.copy()
 
