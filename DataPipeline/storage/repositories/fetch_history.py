@@ -34,7 +34,33 @@ class SqliteFetchHistoryRepository(BaseRepository):
         super().__init__(connection_manager, database="fill_fetch_history")
 
     def _ensure_schema(self, conn) -> None:
-        """Create the fill_fetch_history table if it does not exist."""
+        """创建 fill_fetch_history 表（如已存在旧 schema 则自动重建）。
+
+        检测旧表特征列 ``order_date`` 是否存在而 ``source_date`` 不存在，
+        若是旧表则 DROP 后重建，旧审计记录直接舍弃。
+        """
+        # 检测旧 schema
+        cursor = conn.execute(
+            f"SELECT name FROM sqlite_master "
+            f"WHERE type='table' AND name=?", (Config.FETCH_HISTORY_TABLE,)
+        )
+        if cursor.fetchone():
+            cols = {
+                row[1]
+                for row in conn.execute(
+                    f"PRAGMA table_info({Config.FETCH_HISTORY_TABLE})"
+                ).fetchall()
+            }
+            # 旧表特征：有 order_date 但无 source_date
+            if "order_date" in cols and "source_date" not in cols:
+                logger.info(
+                    "检测到 fill_fetch_history 旧 schema（列名 order_date/hash_value），"
+                    "正在重建为新 schema..."
+                )
+                conn.execute(f"DROP TABLE {Config.FETCH_HISTORY_TABLE}")
+                conn.commit()
+                logger.info("fill_fetch_history 旧表已删除，将按新 schema 重建")
+
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {Config.FETCH_HISTORY_TABLE} (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,

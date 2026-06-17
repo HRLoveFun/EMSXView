@@ -140,3 +140,41 @@
 {"rule_id": "AP-05", "file": "backend\\api\\routers\\route_plans.py", "line": 0, "message": "endpoint 'list_sub_order_proposals' (line 369) does not return ApiResponse", "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"}
 {"rule_id": "AP-05", "file": "backend\\api\\routers\\route_plans.py", "line": 0, "message": "endpoint 'confirm_proposal' (line 384) does not return ApiResponse", "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"}
 {"rule_id": "AP-05", "file": "backend\\api\\routers\\route_plans.py", "line": 0, "message": "endpoint 'batch_confirm_proposals' (line 420) does not return ApiResponse", "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"}
+{"rule_id": "AP-04", "file": "backend\\api\\tests\\boundaries\\test_db_path_from_config.py", "line": 0, "message": "hardcoded db path: data/raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "backend\\api\\tests\\boundaries\\test_db_path_from_config.py", "line": 0, "message": "hardcoded db path: ../foo.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\ingestion\\fill_fetch.py", "line": 0, "message": "hardcoded db path: Fetched {len(fills)} fills, upserted {rows_upserted} to raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\ingestion\\fill_ingestion.py", "line": 0, "message": "hardcoded db path: [PROGRESS] {date_str}: writing {len(processed)} rows to processed_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\processing\\validate_raw_fills.py", "line": 0, "message": "hardcoded db path: No dates found in raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\archiver.py", "line": 0, "message": "hardcoded db path: {db_name}.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\archiver.py", "line": 0, "message": "hardcoded db path: {db_name}_archive.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\archiver.py", "line": 0, "message": "hardcoded db path: *_archive.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: {src.stem}_{timestamp}.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: *.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: .db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: *.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\connection.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\schema\\migration_framework.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\schema\\migrations\\apply.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\analysis\\regime\\schema.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "CostView\\src\\__main__.py", "line": 0, "message": "hardcoded db path: (Legacy) Ingest Excel files -> raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "CostView\\src\\__main__.py", "line": 0, "message": "hardcoded db path: Process raw fills -> processed_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "backend\\api\\tests\\boundaries\\test_db_path_from_config.py", "line": 0, "message": "hardcoded db path: data/raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "backend\\api\\tests\\boundaries\\test_db_path_from_config.py", "line": 0, "message": "hardcoded db path: ../foo.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\ingestion\\fill_fetch.py", "line": 0, "message": "hardcoded db path: Fetched {len(fills)} fills, upserted {rows_upserted} to raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\ingestion\\fill_ingestion.py", "line": 0, "message": "hardcoded db path: [PROGRESS] {date_str}: writing {len(processed)} rows to processed_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\processing\\validate_raw_fills.py", "line": 0, "message": "hardcoded db path: No dates found in raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\archiver.py", "line": 0, "message": "hardcoded db path: {db_name}.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\archiver.py", "line": 0, "message": "hardcoded db path: {db_name}_archive.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\archiver.py", "line": 0, "message": "hardcoded db path: *_archive.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: {src.stem}_{timestamp}.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: *.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: .db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\backup.py", "line": 0, "message": "hardcoded db path: *.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\connection.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\schema\\migration_framework.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\storage\\schema\\migrations\\apply.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "DataPipeline\\analysis\\regime\\schema.py", "line": 0, "message": "hardcoded db path: regime.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "CostView\\src\\__main__.py", "line": 0, "message": "hardcoded db path: (Legacy) Ingest Excel files -> raw_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}
+{"rule_id": "AP-04", "file": "CostView\\src\\__main__.py", "line": 0, "message": "hardcoded db path: Process raw fills -> processed_fills.db", "fix_hint": "改用 DataPipeline.config.Config.DB_PATHS[...]"}

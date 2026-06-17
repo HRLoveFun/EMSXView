@@ -57,6 +57,7 @@ PIPELINE_STAGES = [
     {"name": "pipeline",       "label": "Pipeline"},
     {"name": "archive",        "label": "Archive"},
     {"name": "completion",     "label": "Completion"},
+    {"name": "vacuum",         "label": "VACUUM"},
 ]
 
 _STAGE_WEIGHTS = {
@@ -66,7 +67,11 @@ _STAGE_WEIGHTS = {
     "archive":         5,
     "pipeline":      100,  # single-stage mode
     "completion":      5,
+    "vacuum":          3,
 }
+
+# VACUUM 阶段专用停滞超时 — VACUUM 是单线程阻塞操作，大库可能持续数十分钟
+_VACUUM_STALL_TIMEOUT_SECS = 3600
 
 _STAGE_PREFIX = "[STAGE]"
 
@@ -92,14 +97,14 @@ def _extract_error_from_output(lines: list[str]) -> str:
     if not filtered:
         return ""
 
-    # 查找 traceback 块
+    # 查找 traceback 块 — 捕获更多行以确保包含实际异常消息
     tb_start = -1
     for i, line in enumerate(filtered):
         if line.startswith("Traceback"):
             tb_start = i
             break
     if tb_start >= 0:
-        return "\n".join(filtered[tb_start:tb_start + 10])
+        return "\n".join(filtered[tb_start:tb_start + 20])
 
     # 查找包含关键错误模式的行
     error_lines = [
@@ -304,11 +309,22 @@ def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Ev
         if int(runtime_secs) % 30 < _WATCHDOG_INTERVAL_SECS:
             _log_subprocess_mem(proc, f"job={job_id} runtime={runtime_secs:.0f}s")
 
+        # VACUUM 阶段使用延长停滞超时：VACUUM 是单线程阻塞操作，大库可能持续数十分钟
+        current_stage_name = (job.get("stage") or {}).get("name")
+        effective_stall_timeout = (
+            _VACUUM_STALL_TIMEOUT_SECS if current_stage_name == "vacuum"
+            else _STALL_TIMEOUT_SECS
+        )
+
         reason = None
         if runtime_secs > _MAX_RUNTIME_SECS:
             reason = f"Pipeline exceeded max runtime of {_MAX_RUNTIME_SECS // 60} minutes"
-        elif stall_secs > _STALL_TIMEOUT_SECS:
-            reason = f"No activity for {stall_secs:.0f}s (threshold: {_STALL_TIMEOUT_SECS}s) — subprocess stalled"
+        elif stall_secs > effective_stall_timeout:
+            reason = (
+                f"No activity for {stall_secs:.0f}s "
+                f"(threshold: {effective_stall_timeout}s, stage={current_stage_name}) "
+                f"— subprocess stalled"
+            )
 
         if reason:
             logger.warning("Watchdog killing subprocess (job=%s): %s", job_id, reason)
@@ -429,11 +445,31 @@ def _run_pipeline_subprocess(job_id: str) -> None:
                         _mark_job_activity(job_id)
 
         if not startup_timeout_hit:
+            # 手动排空 stdout 残留数据，避免 proc.communicate() 的 _readerthread
+            # 在 Windows 上因管道断开而崩溃（fh.read() 抛出 OSError）
+            tail_parts: list[str] = []
             try:
-                tail, _ = proc.communicate(timeout=60)
+                if proc.stdout and not proc.stdout.closed:
+                    # 先尝试读取所有残留行
+                    for remaining in proc.stdout:
+                        tail_parts.append(remaining.rstrip())
+            except (OSError, ValueError, IOError) as pipe_err:
+                logger.warning("Pipe read error while draining stdout: %s", pipe_err)
+            except Exception:
+                logger.debug("Unexpected error draining stdout", exc_info=True)
+
+            # 等待进程完全结束
+            try:
+                proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                raise
+                logger.warning("Process did not exit within 30s after pipeline end — force killing")
+                try:
+                    proc.kill()
+                    proc.wait(timeout=10)
+                except Exception:
+                    pass
+
+            tail = "\n".join(tail_parts) if tail_parts else ""
         else:
             tail = None
         if tail:

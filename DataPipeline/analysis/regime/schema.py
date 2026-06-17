@@ -13,14 +13,14 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from DataPipeline.config import Config
 from DataPipeline.storage.connection import ConnectionManager
 
 from DataPipeline.storage.schema.migrations.apply import SCHEMA_VERSION
 
-# Repo-relative DB path. regime.db lives in CostView/data/ (shared between CostView and DataPipeline).
+# 数据库路径由 Config.DATA_DIR 统一管理，尊重 EMSXVIEW_DATA_DIR 环境变量
 _THIS = Path(__file__).resolve()                              # DataPipeline/analysis/regime/schema.py
-_PROJECT_ROOT = _THIS.parents[3]                              # EMSX/
-REGIME_DB_PATH: Path = _PROJECT_ROOT / "CostView" / "data" / "regime.db"
+REGIME_DB_PATH: Path = Config.DATA_DIR / "regime.db"
 
 # Migration SQL files live in DataPipeline (single source of truth).
 _DP_MIGRATIONS_DIR: Path = _THIS.parents[2] / "storage" / "schema" / "migrations"

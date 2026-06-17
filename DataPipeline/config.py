@@ -95,6 +95,8 @@ class Config:
     SQLITE_CONNECT_TIMEOUT_SEC: int = 30
     SQLITE_BUSY_TIMEOUT_MS: int = 30_000
     BDIB_LATEST_READY_HOUR_LOCAL: int = 8
+    # BBG EU_COMPOSITE_TICKER 查询超时（秒），防止 blp.bdp() 无限挂起
+    BBG_COMPOSITE_QUERY_TIMEOUT_SEC: int = 45
 
     # ── 数据管理重构: BDIB存储引擎 (Phase A) ──
     BDIB_PARQUET_ENABLED: bool = os.getenv("BDIB_PARQUET_ENABLED", "0") == "1"
@@ -108,13 +110,46 @@ class Config:
     DB_EXECUTION_HISTORY: str = "execution_history"
     DB_TICKER_REGISTRY: str = "ticker_registry"
 
-    # ── 数据管理重构: processed_raw_bdib退役 (Phase A8) ──
+    # ── 数据管理重构: processed_raw_bdib退役 (Phase A8 观察期已通过 2026-06-15) ──
+    # 衍生字段 (vwap, fluctuation, log_chg_pct_10s) 通过 compute_derived_fields() 内存计算
+    # 可重现性验证 0.0429% (< 0.1% 阈值), 观察期 6 天 all_pass, 见 retire_a8_*.log
+    # 重新启用需: env PROCESSED_RAW_BDIB_ENABLED=1
     PROCESSED_RAW_BDIB_ENABLED: bool = (
-        os.getenv("PROCESSED_RAW_BDIB_ENABLED", "1") == "1"
+        os.getenv("PROCESSED_RAW_BDIB_ENABLED", "0") == "1"
     )
 
     LOG_RETENTION_DAYS: int = 30
     LOG_DEBUG_RETENTION_DAYS: int = 7
+
+    # ── 管道护栏机制 (GuardPipeline) ──
+    # 护栏总开关，设为 False 可完全关闭所有护栏行为
+    GUARDRAIL_ENABLED: bool = os.getenv("GUARDRAIL_ENABLED", "1") == "1"
+    # 连续失败触发熔断的阈值（Error 级异常累计 N 次后 OPEN）
+    GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD: int = int(
+        os.getenv("GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD", "3")
+    )
+    # S1 外部数据摄入最大重试次数
+    GUARDRAIL_RETRY_MAX: int = int(os.getenv("GUARDRAIL_RETRY_MAX", "3"))
+    # 护栏日志目录（JSONL 文件存放位置）
+    GUARDRAIL_LOG_DIR: Path = Path(
+        os.getenv("GUARDRAIL_LOG_DIR", str(LOGGING_DIR / "guardrail"))
+    )
+    # 基线快照目录（用于管道完整性对比测试）
+    GUARDRAIL_BASELINE_DIR: Path = Path(
+        os.getenv("GUARDRAIL_BASELINE_DIR", str(Path(__file__).resolve().parent / "tests" / "baselines"))
+    )
+    # 全局严格模式开关（False 时所有阶段使用宽松策略）
+    GUARDRAIL_VALIDATION_STRICT_MODE: bool = (
+        os.getenv("GUARDRAIL_VALIDATION_STRICT_MODE", "1") == "1"
+    )
+    # 空数据集处理策略："reject" 拒绝空数据通过，"accept" 接受空数据
+    GUARDRAIL_EMPTY_DATASET_POLICY: str = os.getenv(
+        "GUARDRAIL_EMPTY_DATASET_POLICY", "reject"
+    )
+    # 校验降级开关：启用时校验规则异常仅记录 WARNING 日志后放行，不拒绝入库
+    GUARDRAIL_VALIDATION_BYPASS_ON_ERROR: bool = (
+        os.getenv("GUARDRAIL_VALIDATION_BYPASS_ON_ERROR", "0") == "1"
+    )
 
     EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
         "fills": ("emsx.history:GetFills",),

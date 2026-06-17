@@ -368,17 +368,35 @@ def process_raw_fills_for_date(
         result["rows_processed"] = len(processed)
 
         # Step 4: Upsert to processed_fills.db
+        logger.info("%s: 写入 %d 行至 processed_fills.db...", date_str, len(processed))
+        print(f"[PROGRESS] {date_str}: writing {len(processed)} rows to processed_fills.db", flush=True)
+        t0 = datetime.now()
         db.fills_write.upsert_processed_fills(processed)
+        elapsed1 = (datetime.now() - t0).total_seconds()
+        logger.info("%s: upsert_processed_fills 完成 (%.1fs)", date_str, elapsed1)
+        print(f"[PROGRESS] {date_str}: processed_fills written ({len(processed)} rows, {elapsed1:.1f}s)", flush=True)
+
+        t0 = datetime.now()
         db.fills_write.upsert_route_registry(processed)
         db.fills_write.mark_date_processed(
             date_str=date_str, stage="processed",
             row_count=len(processed),
         )
+        elapsed2 = (datetime.now() - t0).total_seconds()
+        logger.info("%s: route_registry 完成 (%.1fs)", date_str, elapsed2)
 
         # Populate execution history tables
-        route_reg_df = db.fills_write.get_route_registry_for_date(date_str)
+        logger.info("%s: 构建执行历史记录...", date_str)
+        print(f"[PROGRESS] {date_str}: building execution history", flush=True)
+        t0 = datetime.now()
+        # B4迁移后 route_registry 在 execution_history.db，无法跨库JOIN；
+        # 直接从内存中的 processed DataFrame 提取 route 属性
+        route_reg_df = processed[["OrderId", "RouteId", "equ_ticker", "ccy_ticker", "Side"]].drop_duplicates()
         order_df, route_df, event_df = _build_execution_history_frames(processed, route_reg_df)
         db.fills_write.upsert_execution_history(order_df, route_df, event_df)
+        elapsed3 = (datetime.now() - t0).total_seconds()
+        logger.info("%s: 执行历史记录完成 (%.1fs)", date_str, elapsed3)
+        print(f"[PROGRESS] {date_str}: execution history built ({elapsed3:.1f}s)", flush=True)
 
         result["success"] = True
         logger.info(

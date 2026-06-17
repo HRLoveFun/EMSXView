@@ -10,6 +10,7 @@ FillPrice not "Exec Last Fill Px", exchange_exec_time not "Exchange Exec Time").
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -69,11 +70,83 @@ def add_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── Equity Ticker ────────────────────────────────────────────────────────────
 
-def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
-    """Add equ_ticker column with Bloomberg equity ticker.
+def _ensure_composite_cache_table(conn) -> None:
+    """确保 eur_composite_ticker_cache 表存在（幂等创建）。"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS eur_composite_ticker_cache (
+            raw_eur_ticker       TEXT PRIMARY KEY,
+            composite_ticker     TEXT NOT NULL,
+            created_at           TEXT DEFAULT (datetime('now')),
+            updated_at           TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
 
-    EMSX uses Ticker, Exchange, Currency (same names as Evaluation).
-    For EUR stocks, attempts to resolve EU composite tickers via blp.bdp.
+
+def _load_composite_cache() -> Dict[str, str]:
+    """从 ticker_registry.db 加载 EUR 复合代码缓存全量。
+
+    缓存表体积极小（每只 EUR 股票一条记录），全量加载是最简单高效的方式。
+    """
+    import sqlite3
+    db_path = str(Config.TICKER_REGISTRY_DB)
+    try:
+        conn = sqlite3.connect(db_path, timeout=Config.SQLITE_CONNECT_TIMEOUT_SEC)
+    except Exception as e:
+        logger.warning("无法连接 ticker_registry.db: %s", e)
+        return {}
+    try:
+        _ensure_composite_cache_table(conn)
+        cursor = conn.execute(
+            "SELECT raw_eur_ticker, composite_ticker FROM eur_composite_ticker_cache"
+        )
+        cache = {row[0]: row[1] for row in cursor.fetchall()}
+        if cache:
+            logger.debug("加载 %d 条 EUR 复合代码缓存", len(cache))
+        return cache
+    except Exception as e:
+        logger.warning("加载复合代码缓存失败: %s", e)
+        return {}
+    finally:
+        conn.close()
+
+
+def _save_composite_cache(mappings: Dict[str, str]) -> None:
+    """将 Bloomberg 查询结果回写至 eur_composite_ticker_cache。
+
+    使用 INSERT OR REPLACE 策略，已存在的条目会更新 updated_at。
+    """
+    import sqlite3
+    db_path = str(Config.TICKER_REGISTRY_DB)
+    try:
+        conn = sqlite3.connect(db_path, timeout=Config.SQLITE_CONNECT_TIMEOUT_SEC)
+    except Exception as e:
+        logger.warning("无法连接 ticker_registry.db 以保存缓存: %s", e)
+        return
+    try:
+        _ensure_composite_cache_table(conn)
+        conn.executemany(
+            """INSERT OR REPLACE INTO eur_composite_ticker_cache
+               (raw_eur_ticker, composite_ticker, updated_at)
+               VALUES (?, ?, datetime('now'))""",
+            [(ticker, composite) for ticker, composite in mappings.items()]
+        )
+        conn.commit()
+        logger.info("已缓存 %d 条 EUR 复合代码", len(mappings))
+    except Exception as e:
+        logger.warning("保存复合代码缓存失败: %s", e)
+    finally:
+        conn.close()
+
+
+def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
+    """添加 equ_ticker 列（Bloomberg 股票代码）。
+
+    对 EUR 股票采用缓存优先策略：
+        ① 先查本地 eur_composite_ticker_cache
+        ② 缓存未命中 → 查询 Bloomberg
+        ③ BBG 结果回写缓存
+        ④ 仍未命中 → equ_ticker 设为 NaN（非原始 ticker）
     """
     required = ["Ticker", "Exchange", "Currency"]
     missing = [c for c in required if c not in df.columns]
@@ -93,42 +166,122 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
         df["_processed_ticker"] + " " + df["Exchange"] + " Equity"
     ).str.strip()
 
-    # EUR composite ticker resolution
+    # ── EUR composite ticker resolution（缓存优先策略）──
     eur_mask = df["Currency"] == "EUR"
     if eur_mask.any():
         unique_eur_tickers = df.loc[eur_mask, "equ_ticker"].dropna().unique().tolist()
-        composite_map = _fetch_composite_tickers(unique_eur_tickers)
+        logger.debug("EUR 股票 %d 行, %d 个唯一 ticker", eur_mask.sum(), len(unique_eur_tickers))
+
+        # ① 加载本地缓存
+        composite_cache = _load_composite_cache()
+
+        # ② 拆分命中 / 未命中
+        cache_hit = {t: v for t, v in composite_cache.items() if t in unique_eur_tickers}
+        cache_miss = [t for t in unique_eur_tickers if t not in composite_cache]
+        logger.debug(
+            "EUR 复合代码: 缓存命中 %d, 未命中 %d",
+            len(cache_hit), len(cache_miss),
+        )
+
+        # ③ 缓存未命中 → 查询 Bloomberg
+        bbg_results: Dict[str, str] = {}
+        if cache_miss:
+            logger.info("查询 %d 个未命中的 EUR 复合代码 (BBG 超时=%ds)...",
+                        len(cache_miss), Config.BBG_COMPOSITE_QUERY_TIMEOUT_SEC)
+            bbg_results = _fetch_composite_tickers(cache_miss)
+            if bbg_results:
+                _save_composite_cache(bbg_results)
+            logger.info("BBG 返回 %d 条 EUR 复合代码结果", len(bbg_results))
+        elif not cache_hit:
+            logger.warning("EUR 缓存为空且无 ticker 需查询 BBG — equ_ticker 将设为 NaN")
+
+        # ④ 合并结果, 映射: 未命中 → NaN（dict 中不存在的 key 自动映射为 NaN）
+        composite_map = {**cache_hit, **bbg_results}
         if composite_map:
             df.loc[eur_mask, "equ_ticker"] = df.loc[eur_mask, "equ_ticker"].map(
-                lambda x: composite_map.get(x, x).strip() if pd.notna(x) else x
+                composite_map
             )
+        else:
+            # BBG 完全不可用且无缓存 → 全部设为 NaN
+            df.loc[eur_mask, "equ_ticker"] = np.nan
 
     return df.drop(columns=["_processed_ticker"])
 
+def _fetch_one_bbg_chunk(chunk: List[str]) -> Any:
+    """在独立线程中执行 blp.bdp，便于调用方设置超时。"""
+    from xbbg import blp
+    return blp.bdp(chunk, "EU_COMPOSITE_TICKER")
+
+
 def _fetch_composite_tickers(
-    tickers: List[str], chunk_size: int = 100, max_retries: int = 3
+    tickers: List[str], chunk_size: int = 100, max_retries: int = 1,
+    chunk_timeout: int = None,
 ) -> Dict[str, str]:
-    """Fetch EU_COMPOSITE_TICKER via xbbg blp.bdp with retry."""
+    """获取 EU_COMPOSITE_TICKER（通过 xbbg blp.bdp，每个 chunk 独立线程超时）。
+
+    仅返回有效结果（过滤 NaN），避免 "nan" 字符串污染复合代码映射。
+
+    每个 chunk 在独立线程中执行，超时后跳过该 chunk 继续处理下一个，
+    确保单个 BBG 调用挂起不会拖死整条管线。
+    """
+    if chunk_timeout is None:
+        chunk_timeout = Config.BBG_COMPOSITE_QUERY_TIMEOUT_SEC
+
     results: Dict[str, str] = {}
-    try:
-        from xbbg import blp
-    except ImportError:
-        logger.warning("xbbg not available; skipping EUR composite ticker resolution")
+    if not tickers:
         return results
 
+    try:
+        from xbbg import blp  # noqa: F401 — 仅检查是否可导入
+    except ImportError:
+        logger.warning("xbbg 不可用；跳过 EUR 复合代码解析")
+        return results
+
+    total_chunks = (len(tickers) + chunk_size - 1) // chunk_size
     for i in range(0, len(tickers), chunk_size):
         chunk = tickers[i : i + chunk_size]
-        for attempt in range(max_retries):
+        chunk_idx = i // chunk_size
+        logger.debug(
+            "EUR 复合代码查询 chunk %d/%d (%d tickers)",
+            chunk_idx + 1, total_chunks, len(chunk),
+        )
+
+        last_error = None
+        for attempt in range(max_retries + 1):
             try:
-                response = blp.bdp(chunk, "EU_COMPOSITE_TICKER")
+                # 在独立线程中运行 blp.bdp，超时后跳过该 chunk
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_fetch_one_bbg_chunk, chunk)
+                    response = future.result(timeout=chunk_timeout)
+
                 if "eu_composite_ticker" in response.columns:
-                    results.update(response["eu_composite_ticker"].astype(str).to_dict())
-                break
+                    valid_mask = response["eu_composite_ticker"].notna()
+                    if valid_mask.any():
+                        results.update(
+                            response.loc[valid_mask, "eu_composite_ticker"]
+                            .astype(str).to_dict()
+                        )
+                break  # 成功则跳出重试循环
+
+            except FuturesTimeoutError:
+                logger.warning(
+                    "EUR 复合代码查询超时 (%ds) chunk %d/%d，跳过",
+                    chunk_timeout, chunk_idx + 1, total_chunks,
+                )
+                break  # 超时不重试，直接跳过
             except Exception as e:
-                if attempt == max_retries - 1:
-                    logger.warning(
-                        f"EUR composite fetch failed for chunk {i // chunk_size}: {e}"
+                last_error = e
+                if attempt < max_retries:
+                    logger.debug(
+                        "EUR 复合代码查询失败 chunk %d (尝试 %d/%d): %s",
+                        chunk_idx + 1, attempt + 1, max_retries + 1, e,
                     )
+                else:
+                    logger.warning(
+                        "EUR 复合代码查询失败 chunk %d/%d: %s",
+                        chunk_idx + 1, total_chunks, e,
+                    )
+
     return results
 
 # ── Market Timestamp (10-second floor) ───────────────────────────────────────
@@ -247,11 +400,17 @@ def process_fills(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
-    # Ensure string columns are clean strings (not 'nan')
+    # 确保字符串列为干净字符串 (非 'nan')
     for col in ["Broker", "StrategyType", "Exchange", "Ticker", "Currency", "Side"]:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().replace("nan", "").replace("None", "")
+            if col == "Exchange":
+                # Exchange 列特殊处理: "nan"→"NA" (荷兰交易所代码被 pandas 误转)
+                df[col] = df[col].astype(str).str.strip().replace("nan", "NA").replace("None", "")
+            else:
+                df[col] = df[col].astype(str).str.strip().replace("nan", "").replace("None", "")
 
+    logger.info("处理 %d 条成交记录: algo → ccy → ticker → timestamp", len(df))
+    print(f"[PROGRESS] processing {len(df)} fills", flush=True)
     processed = (
         df.pipe(add_algo_column)
         .pipe(add_currency_columns)

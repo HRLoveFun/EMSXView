@@ -109,7 +109,7 @@ class FillFetch:
         except Exception as e:
             logger.warning(f"raw_fill_read/raw_fill_write init unavailable: {e}")
 
-        # Fetch history DB
+        # 拉取历史审计数据库
         self.db: Optional[SqliteFetchHistoryRepository] = None
         try:
             if db_path is not None:
@@ -119,8 +119,12 @@ class FillFetch:
                 self.db = SqliteFetchHistoryRepository(connection_manager=mgr)
             else:
                 self.db = SqliteFetchHistoryRepository()
-        except Exception:
-            pass
+            logger.info("fill_fetch_history 数据库已初始化")
+        except Exception as e:
+            logger.warning(
+                "fill_fetch_history 数据库初始化失败: %s — 拉取审计记录将不可用",
+                e,
+            )
 
         self._known_hashes: Dict[str, Set[str]] = defaultdict(set)
         self._preload_known_hashes()
@@ -272,15 +276,19 @@ class FillFetch:
                 file_path = self.data_dir / file_name
                 if self._save_to_excel(fills, file_path):
                     result['file_path'] = str(file_path)
-            # Legacy fetch history DB sync (replaces FillFetchDatabase)
+            # 写入 fill_fetch_history 审计记录
             if self.db is not None:
                 try:
                     fetch_time = f"{from_dt.strftime('%H:%M:%S')}-{to_dt.strftime('%H:%M:%S')}"
                     self.db.add_fetch_record(order_date=order_date, fetch_time=fetch_time,
                                               row_count=len(fills), hash_value=hash_value,
                                               file_path=result.get('file_path'))
-                except Exception:
-                    pass
+                    logger.debug("fill_fetch_history 审计记录已写入: %s", order_date)
+                except Exception as e:
+                    logger.error(
+                        "fill_fetch_history 审计记录写入失败 (%s): %s",
+                        order_date, e,
+                    )
             result['success'] = True
             result['message'] = f"Fetched {len(fills)} fills, upserted {rows_upserted} to raw_fills.db"
             logger.info(f"Fetch completed for {order_date}: {result['message']}")
@@ -392,8 +400,12 @@ class FillFetch:
                             self.db.add_fetch_record(order_date=order_date, fetch_time=fetch_time,
                                                       row_count=len(fills), hash_value=hash_value,
                                                       file_path=saved_files[-1] if saved_files else None)
-                        except Exception:
-                            pass
+                            logger.debug("fill_fetch_history 审计记录已写入: %s", order_date)
+                        except Exception as e:
+                            logger.error(
+                                "fill_fetch_history 审计记录写入失败 (%s): %s",
+                                order_date, e,
+                            )
                 except Exception as e:
                     logger.error(f"  Error fetching {order_date}: {e}")
                     day_summaries.append({'order_date': order_date, 'rows': 0, 'status': 'error', 'error': str(e)})

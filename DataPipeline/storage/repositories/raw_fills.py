@@ -171,6 +171,17 @@ class SqliteRawFillWriteRepository(BaseRepository):
 
         # Compute order_as_of_date from DateTimeOfFill via derive_exchange_times
         df = pd.DataFrame(fills)
+
+        # ══ 修复: 恢复荷兰交易所代码 "NA" (pandas 默认将字符串 "NA" 解析为 NaN)
+        # 这是数据写入 raw_fills.db 的入口，此处修复可防止 "nan" 永久化到数据库
+        if "Exchange" in df.columns:
+            exchange_na_mask = df["Exchange"].isna()
+            if exchange_na_mask.any():
+                for i in exchange_na_mask[exchange_na_mask].index:
+                    original = fills[i].get("Exchange")
+                    if original == "NA":
+                        df.at[i, "Exchange"] = "NA"
+
         if "DateTimeOfFill" in df.columns:
             from DataPipeline.processing.fill_cleaner import derive_exchange_times
             df = derive_exchange_times(df)

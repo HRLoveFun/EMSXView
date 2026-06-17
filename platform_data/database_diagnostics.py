@@ -179,10 +179,10 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
             description="Historical fetch-job records (deduplication + audit).",
             tables=(
                 _TableSpec(
-                    name="fetch_records",
-                    date_column=None,
-                    primary_key=None,
-                    description="Legacy per-fetch log (schema depends on deployment).",
+                    name="fill_fetch_history",
+                    date_column="source_date",
+                    primary_key="(source_date, data_hash)",
+                    description="Per-day fetch job records (data_hash dedup check).",
                 ),
             ),
         ),

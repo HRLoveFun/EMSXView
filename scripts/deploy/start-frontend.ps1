@@ -1,5 +1,5 @@
-# EMSXView Frontend Launcher - 无需 Docker，无需管理员权限
-# 运行方式：在 PowerShell 中执行  .\start-frontend.ps1
+# EMSXView Frontend Launcher - No Docker, no admin required
+# Usage: powershell -File .\start-frontend.ps1
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
@@ -16,5 +16,20 @@ if ($existingPid) {
 Write-Host "Starting EMSXView Frontend on http://localhost:5173 ..." -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
 
+# Ensure logs directory exists
+$logDir = Join-Path $ProjectRoot "logs"
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+}
+$logFile = Join-Path $logDir "vite-startup.log"
+
+Write-Host "Vite output log: $logFile" -ForegroundColor Gray
+
 Set-Location (Join-Path $ProjectRoot "frontend")
-npm run dev
+
+# Clear Vite pre-built cache to prevent stale/corrupted cache from blocking startup
+Remove-Item "$ProjectRoot\frontend\node_modules\.vite" -Recurse -Force -ErrorAction SilentlyContinue
+
+# Use PowerShell native *> redirection to capture all streams to log file
+# Unlike Start-Process -Wait, this does NOT block on long-running Vite dev server
+npm.cmd run dev *> $logFile

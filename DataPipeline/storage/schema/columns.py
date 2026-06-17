@@ -43,7 +43,8 @@ PROCESSED_COLUMNS: List[str] = [
     "order_as_of_date", "local_fill_datetime", "exchange_exec_time",
     "route_as_of_time", "DateTimeOfFill", "Broker", "StrategyType",
     "algo", "TraderName", "Exchange", "Amount", "RouteShares",
-    "is_closing_auction", "ExecType", "region", "FillPrice", "FillShares",
+    "is_closing_auction", "ExecType", "region", "equ_ticker",
+    "FillPrice", "FillShares",
 ]
 
 ROUTE_REGISTRY_COLUMNS: List[str] = [

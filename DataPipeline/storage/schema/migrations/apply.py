@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
+from DataPipeline.config import Config
 from DataPipeline.storage.connection import ConnectionManager
 
 SCHEMA_VERSION: int = 3
@@ -84,12 +85,12 @@ def apply_pending(db_path: Path | str, dry_run: bool = False) -> int:
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Apply regime.db migrations")
     parser.add_argument("--db", type=Path, default=None,
-                        help="Override DB path (default: CostView/data/regime.db)")
+                        help="Override DB path (default: from Config.DATA_DIR / regime.db)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     if args.db is None:
-        db_path = Path("CostView/data/regime.db")
+        db_path = Config.DATA_DIR / "regime.db"
         target = SCHEMA_VERSION
     else:
         db_path = args.db

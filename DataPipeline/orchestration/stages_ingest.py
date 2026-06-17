@@ -215,8 +215,9 @@ class GenerateOrderLabelsStage(BaseStage):
                 return True
 
             try:
+                # B4迁移后 order_label 已迁至 ticker_registry.db
                 conn = context.connection_manager.get_connection(
-                    "processed_fills", AccessTier.READ,
+                    "ticker_registry", AccessTier.READ,
                 )
                 already_labelled = set(
                     r[0] for r in conn.execute(
@@ -224,6 +225,7 @@ class GenerateOrderLabelsStage(BaseStage):
                     ).fetchall()
                 )
             except Exception:
+                logger.warning("查询已标注日期失败，将视为全新处理")
                 already_labelled = set()
 
             target_label_dates = [
@@ -239,11 +241,26 @@ class GenerateOrderLabelsStage(BaseStage):
 
         logger.info(f"Generating order labels for {len(target_label_dates)} dates (per-date processing)")
 
-        existing_labels = None if context.force else fills_reader.get_order_labels()
+        try:
+            existing_labels = None if context.force else fills_reader.get_order_labels()
+        except Exception:
+            logger.warning("获取已有order_label失败，将重新生成")
+            existing_labels = None
         total_orders = 0
 
+        # 进度报告：逐日期处理，输出 [STAGE] 避免前端误判 stalled
+        marker_name = str(context.config.get("stage_marker_name", "")).strip()
+        total_label_dates = max(1, len(target_label_dates))
+
         # Process each date individually to keep peak memory low
-        for d in target_label_dates:
+        for date_idx, d in enumerate(target_label_dates):
+            if marker_name:
+                stage_pct = 71 + int((date_idx / total_label_dates) * 4)
+                print(
+                    f"[STAGE] {marker_name} {stage_pct} "
+                    f"Labels date {date_idx + 1}/{total_label_dates}: {d}",
+                    flush=True,
+                )
             try:
                 df_day = fills_reader.get_fills_for_date(d)
                 if df_day.empty:

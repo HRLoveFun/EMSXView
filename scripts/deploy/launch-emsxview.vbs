@@ -13,7 +13,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 Const BACKEND_PORT    = 3000
 Const FRONTEND_PORT   = 5173
 Const POLL_INTERVAL   = 1000      ' 每 1 秒检测一次
-Const BACKEND_TIMEOUT   = 60000   ' 后端最多等 60 秒
+Const BACKEND_TIMEOUT   = 180000  ' 后端最多等 180 秒（Bloomberg BPIPE 连接需要 30-120s）
 Const FRONTEND_TIMEOUT  = 120000  ' 前端最多等 120 秒
 Dim EMSXVIEW_ROOT
 EMSXVIEW_ROOT = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
@@ -67,7 +67,39 @@ Sub ShowErrorPage(serviceName, port, timeoutMs, possibleCauses, frontendOpened)
     logHint = ""
     Dim logDir
     Set logDir = fso.GetFolder(EMSXVIEW_ROOT & "\logs")
-    If logDir.Files.Count > 0 Or logDir.SubFolders.Count > 0 Then
+
+    ' 前端启动失败时优先读取 vite-startup.log，获取真实 Vite 启动错误
+    If serviceName = "Frontend" Then
+        Dim frontendLogPath
+        frontendLogPath = EMSXVIEW_ROOT & "\logs\vite-startup.log"
+        If fso.FileExists(frontendLogPath) Then
+            logHint = "  <p>前端启动日志: <code>vite-startup.log</code></p>" & vbCrLf
+            On Error Resume Next
+            Dim flogFile, flogContent, flines, flineCount
+            Set flogFile = fso.OpenTextFile(frontendLogPath, 1, False)
+            If Err.Number = 0 Then
+                flogContent = flogFile.ReadAll
+                flogFile.Close
+                flines = Split(flogContent, vbCrLf)
+                If UBound(flines) >= 0 Then
+                    flineCount = UBound(flines) + 1
+                    ' 展示全部前端日志（通常很短）
+                    Dim ftailLines, fi
+                    ftailLines = ""
+                    For fi = 0 To UBound(flines)
+                        ftailLines = ftailLines & ServerHTMLEncode(flines(fi)) & vbCrLf
+                    Next
+                    logHint = logHint & "  <details open><summary>查看全部 " & flineCount & " 行日志</summary>" & vbCrLf & _
+                        "  <pre>" & ftailLines & "</pre>" & vbCrLf & _
+                        "  </details>" & vbCrLf
+                End If
+            End If
+            On Error GoTo 0
+        End If
+    End If
+
+    ' 如果没有专属日志，回退到递归扫描（过滤 observation 无关日志）
+    If logHint = "" And (logDir.Files.Count > 0 Or logDir.SubFolders.Count > 0) Then
         Dim latestLog, latestDate
         Set latestLog = Nothing
         latestDate = #1/1/1970#
@@ -212,10 +244,15 @@ End Function
 Sub ScanLogFolder(folder, ByRef latestLog, ByRef latestDate)
     Dim f
     For Each f In folder.Files
+        ' 跳过启动错误页面自身和管道维护日志
         If LCase(f.Name) <> LCase(fso.GetFileName(ERROR_PAGE_PATH)) Then
-            If DateDiff("s", latestDate, f.DateLastModified) > 0 Then
-                Set latestLog = f
-                latestDate = f.DateLastModified
+            Dim fname
+            fname = LCase(f.Name)
+            If Left(fname, 12) <> "observation_" And Left(fname, 7) <> "retire_" And Left(fname, 8) <> "migrate_" And Left(fname, 5) <> "sync_" Then
+                If DateDiff("s", latestDate, f.DateLastModified) > 0 Then
+                    Set latestLog = f
+                    latestDate = f.DateLastModified
+                End If
             End If
         End If
     Next

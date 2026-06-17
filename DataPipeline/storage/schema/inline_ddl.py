@@ -388,7 +388,8 @@ def init_processed_fills_schema(conn: sqlite3.Connection) -> None:
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {Config.ORDER_LABEL_TABLE} (
             OrderId TEXT PRIMARY KEY,
-            order_as_of_date TEXT
+            order_as_of_date TEXT,
+            equ_ticker TEXT
         )
     """)
 
