@@ -18,6 +18,7 @@ from DataPipeline.monitoring.run_id import generate_run_id
 from DataPipeline.monitoring.run_logger import PipelineRunLogger
 from DataPipeline.monitoring.summary import generate_summary
 from DataPipeline.orchestration.guard_stage import GuardStage
+from DataPipeline.pipeline_guards.schema_drift_guard import run_schema_drift_check
 from DataPipeline.validation.enums import RunStatus, SeverityLevel, StageStatus, ValidationPolicy
 from DataPipeline.validation.results import GuardRunResult, GuardStageResult
 from DataPipeline.validation.schema_registry import SchemaRegistry
@@ -108,6 +109,55 @@ class GuardPipeline:
             target_date=target_date,
             stages=stage_names,
         )
+
+        # 4.5 PR-3: Schema drift pre-flight 静态检查
+        # 在执行任何阶段前扫描 DDL 与代码层写入路径的不一致
+        # 仅检查 + 告警，不自动修复；白名单中的已知漂移降级为 INFO
+        drift_result, drift_violations = run_schema_drift_check(
+            run_id=run_id, stage_name="S0_PreFlight",
+        )
+        for v in drift_violations:
+            self._run_logger.log_violation("S0_PreFlight", v)
+
+        # 统计 ERROR 级别漂移（新发现的、非白名单的）
+        error_drifts = [v for v in drift_violations if v.severity == SeverityLevel.ERROR]
+        if error_drifts:
+            logger.error(
+                "Schema drift 检测到 %d 条未白名单漂移（ERROR 级别），阻断管道执行:",
+                len(error_drifts),
+            )
+            for v in error_drifts:
+                logger.error("  - %s: %s", v.field_name, v.expected_constraint)
+            send_alert(
+                title="Schema drift detected",
+                message=f"Pipeline 启动阻断：检测到 {len(error_drifts)} 条 schema 漂移（ERROR 级别）",
+                level="critical",
+                run_id=run_id,
+                stage_name="S0_PreFlight",
+            )
+            # 阻断：返回 CIRCUIT_BROKEN 结果，不执行任何阶段
+            broken_result = GuardStageResult(
+                stage_name="S0_PreFlight",
+                status=StageStatus.CIRCUIT_BROKEN,
+                severity=SeverityLevel.CRITICAL,
+                violations=list(drift_violations),
+            )
+            result = GuardRunResult(
+                run_id=run_id,
+                status=RunStatus.CIRCUIT_BROKEN,
+                stages=[broken_result],
+                summary={"reason": "schema_drift", "drift_count": len(error_drifts)},
+                log_path=str(self._run_logger.log_path),
+            )
+            self._run_logger.finish_run(result)
+            self._run_logger.flush()
+            return result
+
+        if drift_result.has_drift:
+            logger.warning(
+                "Schema drift 检测到 %d 条已知漂移（白名单降级为 INFO）",
+                len(drift_violations),
+            )
 
         # 5. 执行各阶段
         stage_results: list[GuardStageResult] = []

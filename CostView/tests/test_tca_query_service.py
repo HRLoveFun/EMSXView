@@ -195,13 +195,14 @@ def _make_raw_fills_db(path: str) -> None:
         CREATE TABLE IF NOT EXISTS raw_fills (
             OrderId TEXT, Account TEXT, SecurityName TEXT, Ticker TEXT,
             Exchange TEXT, Currency TEXT, Side TEXT, Amount TEXT,
-            NyOrderCreateAsOfDateTime TEXT, Type TEXT, LimitPrice TEXT,
-            Broker TEXT, StopPrice TEXT, StrategyType TEXT,
+            NyOrderCreateAsOfDateTime TEXT, Type TEXT, LimitPrice REAL,
+            Broker TEXT, StopPrice REAL, StrategyType TEXT,
             TraderName TEXT, TraderUuid TEXT, RouteId TEXT,
             NyTranCreateAsOfDateTime TEXT, RouteShares TEXT, FillId TEXT,
             ExecType TEXT, DateTimeOfFill TEXT, FillPrice TEXT,
             FillShares TEXT, LastCapacity TEXT, LastMarket TEXT,
             Liquidity TEXT, LocalExchangeSymbol TEXT,
+            -- 5 个派生列自 v2 修复起停止写入，但保留列以避免破坏现有测试/查询
             order_as_of_date TEXT, order_as_of_time TEXT,
             exchange_exec_time TEXT, route_as_of_time TEXT,
             local_fill_datetime TEXT,

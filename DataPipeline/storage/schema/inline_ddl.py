@@ -307,24 +307,51 @@ def init_processed_fills_schema(conn: sqlite3.Connection) -> None:
         )
     """)
 
-    # ── order_history ──
-    order_history_cols = _build_column_defs(ORDER_HISTORY_COLUMNS, COLUMN_TYPE_MAP)
+    # ── order_history (PR-1: VIEW over route_history) ──
+    # 不再创建物理表，order_history 是 route_history 的 GROUP BY 派生视图
+    # 实际视图 DDL 引用 route_history 的列；inline 创建时依赖 route_history 已存在
+    route_history_cols_inline = _build_column_defs(ROUTE_HISTORY_COLUMNS, COLUMN_TYPE_MAP)
     conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {Config.ORDER_HISTORY_TABLE} (
-            {order_history_cols},
-            PRIMARY KEY (OrderId, order_as_of_date)
+        CREATE TABLE IF NOT EXISTS {Config.ROUTE_HISTORY_TABLE} (
+            {route_history_cols_inline},
+            PRIMARY KEY (OrderId, RouteId, order_as_of_date)
         )
     """)
+    # order_history 视图（若 route_history 已存在则创建）
     conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_order_history_date
-        ON {Config.ORDER_HISTORY_TABLE} (order_as_of_date)
-    """)
-    conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_order_history_ticker
-        ON {Config.ORDER_HISTORY_TABLE} (equ_ticker)
+        CREATE VIEW IF NOT EXISTS {Config.ORDER_HISTORY_TABLE} AS
+            SELECT
+                OrderId,
+                order_as_of_date,
+                MAX(equ_ticker)                       AS equ_ticker,
+                MAX(ccy_ticker)                       AS ccy_ticker,
+                MAX(Side)                             AS Side,
+                MAX(Broker)                           AS Broker,
+                MAX(algo)                             AS algo,
+                MAX(TraderName)                       AS TraderName,
+                MAX(Exchange)                         AS Exchange,
+                COUNT(DISTINCT RouteId)               AS route_count,
+                SUM(fill_count)                       AS fill_count,
+                SUM(total_fill_shares)                AS total_fill_shares,
+                MAX(order_amount)                     AS order_amount,
+                CASE
+                    WHEN SUM(COALESCE(total_fill_shares, 0)) = 0 THEN NULL
+                    ELSE SUM(COALESCE(average_fill_price, 0) * COALESCE(total_fill_shares, 0))
+                         / SUM(COALESCE(total_fill_shares, 0))
+                END                                   AS average_fill_price,
+                MIN(first_fill_time)                  AS first_fill_time,
+                MAX(last_fill_time)                   AS last_fill_time,
+                MAX(primary_source)                   AS primary_source,
+                MAX(source_priority)                  AS source_priority,
+                MAX(refresh_strategy)                 AS refresh_strategy,
+                MAX(source_refreshed_at)              AS source_refreshed_at,
+                MAX(source_lineage)                   AS source_lineage
+            FROM {Config.ROUTE_HISTORY_TABLE}
+            GROUP BY OrderId, order_as_of_date
     """)
 
     # ── route_history ──
+    # PR-1: route_history 表已在上方 order_history 视图创建前置保证（避免 VIEW 引用未建表错误）
     route_history_cols = _build_column_defs(ROUTE_HISTORY_COLUMNS, COLUMN_TYPE_MAP)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {Config.ROUTE_HISTORY_TABLE} (

@@ -115,6 +115,21 @@ class ExecutionHistoryQueryService:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> list[dict[str, Any]]:
+        """[DEPRECATED PR-2] 重命名为 list_order_summary；保留以兼容可能的旧调用方。"""
+        return self.list_order_summary(
+            limit=limit, order_id=order_id,
+            start_date=start_date, end_date=end_date,
+        )
+
+    def list_order_summary(
+        self,
+        *,
+        limit: int = 100,
+        order_id: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """PR-2: 准确命名 — 从 processed_fills 重建 order 维度汇总（非读 order_history 表）。"""
         if not self._mgr.database_exists("processed_fills"):
             return []
 
@@ -163,6 +178,22 @@ class ExecutionHistoryQueryService:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> list[dict[str, Any]]:
+        """[DEPRECATED PR-2] 重命名为 list_route_summary；保留以兼容可能的旧调用方。"""
+        return self.list_route_summary(
+            limit=limit, order_id=order_id, route_id=route_id,
+            start_date=start_date, end_date=end_date,
+        )
+
+    def list_route_summary(
+        self,
+        *,
+        limit: int = 100,
+        order_id: str | None = None,
+        route_id: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """PR-2: 准确命名 — 从 processed_fills 重建 route 维度汇总。"""
         if not self._mgr.database_exists("processed_fills"):
             return []
 

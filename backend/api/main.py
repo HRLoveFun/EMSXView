@@ -271,9 +271,10 @@ app.include_router(route_plans_router)
 
 # Registry of all known optional modules (single source of truth).
 # Environment variable can override which subset to load.
+# PR-2: execution_history 孤儿 API 已退役（前端 0 个消费者，被 baseline_violations.json
+# 记录为 AP-05 违规）。保留注释以追踪删除原因。
 _KNOWN_OPTIONAL_MODULES: dict[str, str] = {
     "database": "DatabaseView",
-    "execution_history": "Execution history",
 }
 
 

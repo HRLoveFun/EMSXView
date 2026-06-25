@@ -538,8 +538,22 @@ class SqliteFillWriteRepository(BaseRepository):
     def upsert_processed_fills(
         self, df: pd.DataFrame, conn: Optional[object] = None,
     ) -> int:
-        """Upsert processed fills. Returns new row count."""
-        return self._upsert(df, Config.PROCESSED_FILLS_TABLE, ["FillId"], PROCESSED_COLUMNS, conn)
+        """Upsert processed fills. Returns new row count.
+
+        v2 修复: key_columns 改为 4 元组 `(OrderId, RouteId, FillId, order_as_of_date)`，
+        与 DDL 主键 `PRIMARY KEY (OrderId, RouteId, FillId, order_as_of_date)` 对齐
+        （`inline_ddl.init_processed_fills_schema` line 285）。
+
+        原 `[FillId]` 单独作 key 仅在 Bloomberg 文档语义下 `FillId` 唯一时正确；当同一 FillId
+        出现在多个日期/订单/路由组合时，会与 DDL 主键冲突。`INSERT OR REPLACE` 当前实际依赖
+        SQLite 唯一键判重（`_upsert_fixed_schema` 不使用 `key_columns` 生成 ON CONFLICT），变更
+        不影响运行时行为；目的是与 schema 语义保持一致，避免未来 SQLite 升级时行为漂移。
+        """
+        return self._upsert(
+            df, Config.PROCESSED_FILLS_TABLE,
+            ["OrderId", "RouteId", "FillId", "order_as_of_date"],
+            PROCESSED_COLUMNS, conn,
+        )
 
     def upsert_agg_fills_10s(
         self, df: pd.DataFrame, conn: Optional[object] = None,
@@ -566,9 +580,23 @@ class SqliteFillWriteRepository(BaseRepository):
     def upsert_order_history(
         self, df: pd.DataFrame, conn: Optional[object] = None,
     ) -> int:
-        """Insert or replace order history records."""
-        return self._upsert(df, Config.ORDER_HISTORY_TABLE,
-                            ["OrderId", "order_as_of_date"], ORDER_HISTORY_COLUMNS, conn)
+        """[DEPRECATED PR-1] order_history 现在是 route_history 的 VIEW 派生。
+
+        本方法保留仅为 API 兼容；调用方会立即触发 "Cannot modify a view"
+        错误。请停止调用，本方法将在 PR-2（孤儿 API 退役）后删除。
+        """
+        import warnings
+        warnings.warn(
+            "upsert_order_history() 已废弃：order_history 是 route_history 的 VIEW 派生，"
+            "请通过 upsert_route_history() 写入。",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if df.empty:
+            return 0
+        # 兜底：仅对 route_history 实际写入；order_history 由 VIEW 派生
+        return self._upsert(df, Config.ROUTE_HISTORY_TABLE,
+                            ["OrderId", "RouteId", "order_as_of_date"], ROUTE_HISTORY_COLUMNS, conn)
 
     def upsert_route_history(
         self, df: pd.DataFrame, conn: Optional[object] = None,
@@ -599,21 +627,20 @@ class SqliteFillWriteRepository(BaseRepository):
             conn.close()
 
     def upsert_execution_history(
-        self, order_df: pd.DataFrame, route_df: pd.DataFrame, event_df: pd.DataFrame,
+        self, route_df: pd.DataFrame, event_df: pd.DataFrame,
     ) -> None:
-        """Upsert order/route/event history tables.
+        """Upsert route/event history tables (PR-1: 不再写 order_history).
 
         B4迁移后这些表已迁至 execution_history.db，直接使用分区路由。
+        order_history 是 route_history 的 VIEW 派生，无需单独写入。
         """
         # B4: 统一写入 execution_history.db
-        target_db = _partition_db_for("order_history")
+        target_db = _partition_db_for("route_history")
         if target_db:
             conn = self._mgr.get_connection(target_db)
         else:
             conn = self._get_write_conn()
         try:
-            if not order_df.empty:
-                self.upsert_order_history(order_df, conn)
             if not route_df.empty:
                 self.upsert_route_history(route_df, conn)
             if not event_df.empty:

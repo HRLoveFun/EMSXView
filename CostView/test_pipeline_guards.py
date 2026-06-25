@@ -83,15 +83,22 @@ class PipelineGuardTests(unittest.TestCase):
                 table_names = {
                     row[0]
                     for row in conn.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table'"
+                        "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
                     ).fetchall()
                 }
+                # PR-1: 验证 order_history 是 VIEW（route_history 的派生）
+                view_check = conn.execute(
+                    "SELECT type FROM sqlite_master WHERE name = ?",
+                    (Config.ORDER_HISTORY_TABLE,),
+                ).fetchone()
             finally:
                 conn.close()
 
         self.assertIn(Config.ORDER_HISTORY_TABLE, table_names)
         self.assertIn(Config.ROUTE_HISTORY_TABLE, table_names)
         self.assertIn(Config.ROUTE_EVENT_HISTORY_TABLE, table_names)
+        self.assertIsNotNone(view_check, f"{Config.ORDER_HISTORY_TABLE} 应为表或视图")
+        self.assertEqual(view_check[0], "view", "PR-1: order_history 应是 VIEW")
 
     def test_outdated_ticker_record_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

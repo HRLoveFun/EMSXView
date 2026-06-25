@@ -815,9 +815,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             Amount                   TEXT,
             NyOrderCreateAsOfDateTime TEXT,
             Type                     TEXT,
-            LimitPrice               TEXT,
+            -- ⚠️ legacy Excel ingestion path (DEPRECATED — v2.0 移除)
+            -- 数据已通过 Bloomberg API + DataPipeline/ingestion/fill_fetch.py 摄入
+            -- 此 DDL 仅作历史归档兼容保留；列类型与 S1 修复方案 v2 对齐
+            LimitPrice               REAL,        -- v2 修复: TEXT → REAL
             Broker                   TEXT,
-            StopPrice                TEXT,
+            StopPrice                REAL,        -- v2 修复: TEXT → REAL
             StrategyType             TEXT,
             TraderName               TEXT,
                     TraderUuid               TEXT,
@@ -834,11 +837,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             Liquidity                TEXT,
             LocalExchangeSymbol      TEXT,
             -- Derived columns (added by cleaner layer)
-            order_as_of_date          TEXT DEFAULT '',
-            order_as_of_time          TEXT DEFAULT '',
-            exchange_exec_time        TEXT DEFAULT '',
-            route_as_of_time          TEXT DEFAULT '',
-            local_fill_datetime       TEXT DEFAULT '',
+            order_as_of_date          TEXT DEFAULT '',  -- partition key, retained
+            -- ⚠️ 以下 4 个派生列自 v2 修复起停止写入，保留以兼容历史查询；v3.0 迁移移除
+            order_as_of_time          TEXT DEFAULT '',  -- deprecated: stop writing
+            exchange_exec_time        TEXT DEFAULT '',  -- deprecated: stop writing
+            route_as_of_time          TEXT DEFAULT '',  -- deprecated: stop writing
+            local_fill_datetime       TEXT DEFAULT '',  -- deprecated: stop writing
             -- Metadata
             source_date              TEXT NOT NULL DEFAULT '',
             fetched_at               TEXT DEFAULT '',
