@@ -5,6 +5,7 @@ Pipeline orchestrator and factory — assemble and run stage sequences.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import List
 
 from .base import BaseStage
@@ -109,6 +110,11 @@ class PipelineFactory:
         pipeline = FinancialPipeline("E2E-FullChain-DailyBatch")
 
         if not skip_ingest:
+            logger.warning(
+                "IngestExcelStage is DEPRECATED and will be removed in v2.0. "
+                "Data must be ingested from Bloomberg API via fill_fetch.py, not from Excel. "
+                "Consider keeping skip_ingest=True and using the active Bloomberg path."
+            )
             pipeline.add_stage(IngestExcelStage())
 
         pipeline.add_stage(ProcessRawFillsStage())
@@ -133,7 +139,18 @@ _log = logging.getLogger(__name__)
 
 
 def run_ingest(excel_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Legacy compatibility: Ingest Excel files."""
+    """Legacy compatibility: Ingest Excel files.
+
+    .. deprecated::
+        `run_ingest()` is deprecated and will be removed in v2.0.
+        Data must be ingested from Bloomberg API via `fill_fetch.py`, not from Excel.
+    """
+    warnings.warn(
+        "run_ingest() is deprecated and will be removed in v2.0. "
+        "Data must be ingested from Bloomberg API via fill_fetch.py, not from Excel.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     ctx = PipelineContext(excel_dir=excel_dir)
     pipe = FinancialPipeline("Ingest-HistoricalExcel").add_stage(IngestExcelStage())
     pipe.run(ctx)

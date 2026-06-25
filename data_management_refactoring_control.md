@@ -2,7 +2,7 @@
 
 > 配套执行指南: [data_management_refactoring_plan.md](data_management_refactoring_plan.md) — 详细方案、实施步骤、安全机制
 >
-> 最后更新: 2026-06-15
+> 最后更新: 2026-06-25
 
 本文件三件事：**看进度**、**调参数**、**查证据**。具体"怎么做"全部在执行指南。
 
@@ -25,7 +25,7 @@
 | B1 | 执行 `db_partition.sql` 创建表 + 复制数据 | ✅ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | 9表100%匹配; execution_history.db + ticker_registry.db 已创建 |
 | B2 | 双写新分区DB | ✅ | 同上 | flag: `PARTITION_DUAL_WRITE`; `fills.py._upsert()` + `upsert_order_labels` 已添加双写 |
 | B3 | 仓库层切换读路径 | ✅ | 同上 | flag: `PARTITION_READ_NEW`; `_conn_for()` 路由9表读; route_registry JOIN保持原路径 |
-| B4 | 清理原DB已迁移表 | ✅ | 同上 + [§7.3路径3](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 9表DROP ✓; VACUUM 26.38→24.39 GB; .BAK 保留; 观察期 2026-06-15→2026-06-21 (6天，管线后置触发) |
+| B4 | 清理原DB已迁移表 | ✅ | 同上 + [§7.3路径3](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 9表DROP ✓; VACUUM 26.38→24.39 GB; .BAK 保留; 观察期 已完成 2026-06-21 (6天 all_pass，2 个管线周期，无阻断); BAK 只读保留至 2026-07-21 |
 | **Phase C: 归档** | | | | |
 | C1 | `scripts/run_archive.py` + 调度注册 | ✅ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | 集成到 daily_update.py Stage D; 每月调度: `--full`; 管线后自动: `_run_archive_auto()` |
 | C2 | `DataArchiver` VACUUM → 增量 | ✅ | 同上 | `PRAGMA auto_vacuum=INCREMENTAL` + `PRAGMA incremental_vacuum(N)` |
@@ -35,7 +35,7 @@
 | 全局 | |
 |------|----|
 | 总进度 | 15/15 |
-| 当前阻塞 | 无 · 全部完成，B4 观察期运行中 (至 2026-06-21) |
+| 当前阻塞 | 无 · B4 观察期已关闭，.BAK 保留至 2026-07-21 |
 
 > 状态: ⬜ pending &nbsp; ⏳ in_progress &nbsp; ✅ done &nbsp; ⛔ blocked &nbsp; ⊘ skipped
 

@@ -3,12 +3,11 @@ Fill Ingestion — bridge between raw fetched data and the processing pipeline.
 
 Provides two modes:
 
-    Mode 1 (DEPRECATED): Excel -> clean -> raw_fills.db
+    Mode 1 (DEPRECATED — v2.0 移除): Excel -> clean -> raw_fills.db
         ingest_excel_file() / ingest_all_excel_files()
-        Reads pre-existing FillFetch Excel output files into raw_fills.db.
-        **No longer needed** since fill_fetch.py writes directly to raw_fills.db
-        via the Bloomberg API. Kept for backward compatibility with historical
-        Excel archives.
+        ⚠️ **DEPRECATED**: 数据已不再从 Excel 获取，本路径将于 v2.0 移除。
+        请使用 Mode 2 + Bloomberg API 摄入（fill_fetch.py）替代。
+        Kept for backward compatibility with historical Excel archives.
 
     Mode 2 (ACTIVE): raw_fills.db -> clean -> process -> processed_fills.db
         process_raw_fills_for_date()
@@ -20,7 +19,8 @@ Provides two modes:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,71 +61,67 @@ def _weighted_average(frame: pd.DataFrame, value_col: str, weight_col: str) -> O
     return float((values[valid] * weights[valid]).sum() / total_weight)
 
 def _first_last_event_time(group: pd.DataFrame) -> tuple[Optional[str], Optional[str]]:
-    candidates: list[str] = []
-    for column in ("local_fill_datetime", "DateTimeOfFill"):
-        if column not in group.columns:
-            continue
-        values = [
-            str(value).strip()
-            for value in group[column]
-            if value is not None and not pd.isna(value) and str(value).strip()
-        ]
-        if values:
-            candidates = values
-            break
-    if not candidates:
+    """返回 group 中最早的 first_fill_time / 最新的 last_fill_time (ISO8601 字符串)。
+
+    v2 修复：
+    ① 统一只取 `local_fill_datetime` 列（已经过 NY→local exchange tz 转换，字符串无 tz 后缀），
+       不再兜底使用 `DateTimeOfFill`（NY tz 含 tz 后缀），避免字符串比较时混用两种 tz 语义。
+    ② 用 `pd.to_datetime` 解析为 datetime 对象后再 `min/max`，避免跨日/跨午时字符串字典序
+       与时间序不一致的 bug（如 `"16:03:01" < "9:30:00"`）。
+    ③ 输出统一 `YYYY-MM-DDTHH:MM:SS` 格式（无 tz 后缀），与原 schema 兼容。
+    """
+    if "local_fill_datetime" not in group.columns:
         return None, None
-    return min(candidates), max(candidates)
+    raw = group["local_fill_datetime"]
+    parsed = pd.to_datetime(raw, errors="coerce")
+    valid = parsed.dropna()
+    if valid.empty:
+        return None, None
+    return (
+        valid.min().strftime("%Y-%m-%dT%H:%M:%S"),
+        valid.max().strftime("%Y-%m-%dT%H:%M:%S"),
+    )
 
 def _build_execution_history_frames(
     processed_df: pd.DataFrame,
     route_reg_df: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    route_attrs = route_reg_df[["OrderId", "RouteId", "equ_ticker", "ccy_ticker", "Side"]].drop_duplicates()
-    enriched_df = processed_df.merge(route_attrs, on=["OrderId", "RouteId"], how="left")
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """构建 route_history / route_event_history 写入 DataFrame。
 
-    refreshed_at = datetime.utcnow().isoformat(timespec="seconds")
+    v2 修复：
+    ① **移除 route_attrs 二次 merge**：原实现先从 `route_reg_df` 取出 (OrderId, RouteId, equ_ticker,
+       ccy_ticker, Side) 五列，再 left join 回 `processed_df`。但 `route_reg_df` 本身是由 processed
+       衍生的 (line 389)，导致 `equ_ticker` 等字段依赖 `processed.equ_ticker`；一旦 processed 列为空
+       (因 add_equity_ticker 拼接出空字符串等)，route_history 也会继承空值。
+       改为直接遍历 `processed_df`，所有字段（equ_ticker / ccy_ticker / Side / Broker / algo / TraderName /
+       Exchange）从 processed 自身取，与 `event_records` 同源。
+    ② **统一用 local_fill_datetime** 作 `event_timestamp`，移除 DateTimeOfFill 兜底（避免混用 NY tz
+       与 local tz 字符串）。
+    ③ **source_refreshed_at 改 UTC 带 +00:00 后缀**：`datetime.now(timezone.utc).isoformat()` 输出
+       `2026-06-17T00:52:10+00:00`，比 `datetime.utcnow()` (naive UTC) 更明确。
+    ④ `route_reg_df` 参数保留以保持调用方 API 兼容，但不再使用（line 388 仍可保留构造）。
+    """
+    # v2: 移除 route_attrs 二次 merge —— 不再使用 route_reg_df
+    enriched_df = processed_df
+
+    # v2: UTC 带 tz 后缀（datetime.now(timezone.utc)），不再使用 datetime.utcnow() (naive)
+    refreshed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     order_lineage = " > ".join(Config.EXECUTION_HISTORY_SOURCE_POLICY["orders"])
     route_lineage = " > ".join(Config.EXECUTION_HISTORY_SOURCE_POLICY["routes"])
     event_lineage = " > ".join(Config.EXECUTION_HISTORY_SOURCE_POLICY["route_events"])
 
-    order_records: list[dict[str, Any]] = []
-    for (order_id, order_as_of_date), group in enriched_df.groupby(["OrderId", "order_as_of_date"], dropna=False, sort=False):
-        first_fill_time, last_fill_time = _first_last_event_time(group)
-        order_records.append(
-            {
-                "OrderId": str(order_id),
-                "order_as_of_date": str(order_as_of_date),
-                "equ_ticker": _first_non_empty(group.get("equ_ticker", pd.Series(dtype=object))),
-                "ccy_ticker": _first_non_empty(group.get("ccy_ticker", pd.Series(dtype=object))),
-                "Side": _first_non_empty(group.get("Side", pd.Series(dtype=object))),
-                "Broker": _first_non_empty(group.get("Broker", pd.Series(dtype=object))),
-                "algo": _first_non_empty(group.get("algo", pd.Series(dtype=object))),
-                "TraderName": _first_non_empty(group.get("TraderName", pd.Series(dtype=object))),
-                "Exchange": _first_non_empty(group.get("Exchange", pd.Series(dtype=object))),
-                "route_count": int(group["RouteId"].astype(str).nunique()),
-                "fill_count": int(group["FillId"].astype(str).nunique()),
-                "total_fill_shares": pd.to_numeric(group.get("FillShares"), errors="coerce").sum(min_count=1),
-                "order_amount": pd.to_numeric(group.get("Amount"), errors="coerce").max(),
-                "average_fill_price": _weighted_average(group, "FillPrice", "FillShares"),
-                "first_fill_time": first_fill_time,
-                "last_fill_time": last_fill_time,
-                "primary_source": Config.EXECUTION_HISTORY_SOURCE_POLICY["orders"][0],
-                "source_priority": order_lineage,
-                "refresh_strategy": Config.EXECUTION_HISTORY_REFRESH_POLICY["orders"],
-                "source_refreshed_at": refreshed_at,
-                "source_lineage": "processed_fills -> order_history",
-            }
-        )
-
+    # PR-1: 不再生成 order_records — order_history 是 route_history 的 VIEW 派生
+    # 保留 Config.EXECUTION_HISTORY_SOURCE_POLICY["orders"] 仅用于 lineage 文档
     route_records: list[dict[str, Any]] = []
-    for (order_id, route_id, order_as_of_date), group in enriched_df.groupby(["OrderId", "RouteId", "order_as_of_date"], dropna=False, sort=False):
+    groupby_cols = ["OrderId", "RouteId", "order_as_of_date"]
+    for (order_id, route_id, order_as_of_date), group in enriched_df.groupby(groupby_cols, dropna=False, sort=False):
         first_fill_time, last_fill_time = _first_last_event_time(group)
         route_records.append(
             {
                 "OrderId": str(order_id),
                 "RouteId": str(route_id),
                 "order_as_of_date": str(order_as_of_date),
+                # v2: 字段全部从 processed 自身取（不再依赖 route_reg_df merge）
                 "equ_ticker": _first_non_empty(group.get("equ_ticker", pd.Series(dtype=object))),
                 "ccy_ticker": _first_non_empty(group.get("ccy_ticker", pd.Series(dtype=object))),
                 "Side": _first_non_empty(group.get("Side", pd.Series(dtype=object))),
@@ -155,7 +151,8 @@ def _build_execution_history_frames(
         route_id = str(row_map.get("RouteId"))
         fill_id = str(row_map.get("FillId"))
         order_as_of_date = str(row_map.get("order_as_of_date"))
-        event_timestamp = row_map.get("local_fill_datetime") or row_map.get("DateTimeOfFill")
+        # v2: 统一用 local_fill_datetime，不再兜底 DateTimeOfFill
+        event_timestamp = row_map.get("local_fill_datetime")
         event_records.append(
             {
                 "event_id": f"fill:{order_id}:{route_id}:{fill_id}:{order_as_of_date}",
@@ -186,7 +183,6 @@ def _build_execution_history_frames(
         )
 
     return (
-        pd.DataFrame(order_records),
         pd.DataFrame(route_records),
         pd.DataFrame(event_records),
     )
@@ -209,6 +205,10 @@ def ingest_excel_file(
 ) -> Dict[str, Any]:
     """Ingest a single FillFetch Excel file into raw_fills.db (legacy).
 
+    .. deprecated::
+        `ingest_excel_file()` is deprecated and will be removed in v2.0.
+        Data must be ingested from Bloomberg API via `fill_fetch.py`, not from Excel.
+
     Steps:
         1. Read Excel -> List[Dict]
         2. Compute hash for duplicate detection
@@ -217,6 +217,13 @@ def ingest_excel_file(
         5. Upsert into raw_fills table
         6. Record in ingestion_log
     """
+    warnings.warn(
+        "ingest_excel_file() is deprecated and will be removed in v2.0. "
+        "Data must be ingested from Bloomberg API via fill_fetch.py, not from Excel.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     file_path = Path(file_path)
     result: Dict[str, Any] = {
         "file": str(file_path),
@@ -283,7 +290,19 @@ def ingest_all_excel_files(
     excel_dir: Optional[Path] = None,
     db: Optional[RawFillsDB] = None,
 ) -> List[Dict[str, Any]]:
-    """Ingest all FillFetch Excel files from a directory (legacy)."""
+    """Ingest all FillFetch Excel files from a directory (legacy).
+
+    .. deprecated::
+        `ingest_all_excel_files()` is deprecated and will be removed in v2.0.
+        Data must be ingested from Bloomberg API via `fill_fetch.py`, not from Excel.
+    """
+    warnings.warn(
+        "ingest_all_excel_files() is deprecated and will be removed in v2.0. "
+        "Data must be ingested from Bloomberg API via fill_fetch.py, not from Excel.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if excel_dir is None:
         excel_dir = Path(Config.DATA_DIR)
     else:
@@ -377,7 +396,27 @@ def process_raw_fills_for_date(
         print(f"[PROGRESS] {date_str}: processed_fills written ({len(processed)} rows, {elapsed1:.1f}s)", flush=True)
 
         t0 = datetime.now()
-        db.fills_write.upsert_route_registry(processed)
+        # v2 修复: 在 upsert_route_registry 之前按 (OrderId, RouteId) groupby 计算 4 个 count_* 列
+        # （ROUTE_REGISTRY_COLUMNS 中的 count_fill / count_broker / count_algo / count_trader）。
+        # 原实现：upsert_route_registry(processed) 时 DataFrame 没有这 4 列，
+        #         _upsert_fixed_schema 按 expected_columns 过滤后不写入 → DB 永远 NULL。
+        # 修复后：assign 4 个 nunique 列到 processed 副本，_upsert 正常插入。
+        processed_for_registry = processed.copy()
+        if {"OrderId", "RouteId"}.issubset(processed_for_registry.columns):
+            counts = (
+                processed_for_registry.groupby(["OrderId", "RouteId"], dropna=False, sort=False)
+                .agg(
+                    count_fill=("FillId", lambda s: s.astype(str).nunique()),
+                    count_broker=("Broker", lambda s: s.dropna().astype(str).nunique()),
+                    count_algo=("algo", lambda s: s.dropna().astype(str).nunique()),
+                    count_trader=("TraderName", lambda s: s.dropna().astype(str).nunique()),
+                )
+                .reset_index()
+            )
+            processed_for_registry = processed_for_registry.merge(
+                counts, on=["OrderId", "RouteId"], how="left",
+            )
+        db.fills_write.upsert_route_registry(processed_for_registry)
         db.fills_write.mark_date_processed(
             date_str=date_str, stage="processed",
             row_count=len(processed),
@@ -392,8 +431,9 @@ def process_raw_fills_for_date(
         # B4迁移后 route_registry 在 execution_history.db，无法跨库JOIN；
         # 直接从内存中的 processed DataFrame 提取 route 属性
         route_reg_df = processed[["OrderId", "RouteId", "equ_ticker", "ccy_ticker", "Side"]].drop_duplicates()
-        order_df, route_df, event_df = _build_execution_history_frames(processed, route_reg_df)
-        db.fills_write.upsert_execution_history(order_df, route_df, event_df)
+        # PR-1: order_history 是 route_history 的 VIEW，不再生成 order_df
+        route_df, event_df = _build_execution_history_frames(processed, route_reg_df)
+        db.fills_write.upsert_execution_history(route_df, event_df)
         elapsed3 = (datetime.now() - t0).total_seconds()
         logger.info("%s: 执行历史记录完成 (%.1fs)", date_str, elapsed3)
         print(f"[PROGRESS] {date_str}: execution history built ({elapsed3:.1f}s)", flush=True)

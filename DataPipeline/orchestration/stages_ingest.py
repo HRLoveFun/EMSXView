@@ -1,7 +1,7 @@
 """
 Ingest & aggregation stages (S1–S4).
 
-S1  IngestExcelStage         — Excel ingestion into raw_fills.db
+S1  IngestExcelStage         — [DEPRECATED v2.0 移除] Excel ingestion into raw_fills.db
 S2  ProcessRawFillsStage     — raw → processed fills
 S3  AggregateFillsStage      — route-level 10s aggregation
 S4  GenerateOrderLabelsStage — order-level labels
@@ -12,6 +12,7 @@ from __future__ import annotations
 import gc
 import logging
 import threading
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -32,11 +33,23 @@ logger = logging.getLogger(__name__)
 # S1: IngestExcelStage
 # ═══════════════════════════════════════════════════════════════
 class IngestExcelStage(BaseStage):
-    """Stage 1 (Legacy): Ingest all new Excel files into raw_fills.db."""
+    """Stage 1 (Legacy, DEPRECATED): Ingest all new Excel files into raw_fills.db.
+
+    .. deprecated::
+        `IngestExcelStage` is deprecated and will be removed in v2.0.
+        Data must be ingested from Bloomberg API via `fill_fetch.py`, not from Excel.
+        Default pipeline already skips this stage (`skip_ingest=True`).
+    """
     @property
     def name(self) -> str: return "1. Ingest Excel (Legacy)"
 
     def process(self, context: PipelineContext) -> bool:
+        warnings.warn(
+            "IngestExcelStage is deprecated and will be removed in v2.0. "
+            "Data must be ingested from Bloomberg API via fill_fetch.py, not from Excel.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
         from DataPipeline.storage.repositories.raw_fills import SqliteRawFillWriteRepository
         cm = context.connection_manager
@@ -87,7 +100,6 @@ class ProcessRawFillsStage(BaseStage):
         logger.info(f"Processing {len(target_dates)} dates: {target_dates}")
 
         total_processed = 0
-        total_order_history = 0
         total_route_history = 0
         total_route_events = 0
         max_workers = min(Config.MAX_PARALLEL_DATES, len(target_dates))
@@ -106,7 +118,7 @@ class ProcessRawFillsStage(BaseStage):
                     result = future.result()
                     if result["success"]:
                         total_processed += result["rows_processed"]
-                        total_order_history += result.get("order_history_rows", 0)
+                        # PR-1: order_history 是 route_history 的 VIEW 派生，无独立行数
                         total_route_history += result.get("route_history_rows", 0)
                         total_route_events += result.get("route_event_rows", 0)
                     else:
@@ -117,7 +129,8 @@ class ProcessRawFillsStage(BaseStage):
         gc.collect()
         context.summary["processing"] = {
             "rows_processed": total_processed,
-            "order_history_rows": total_order_history,
+            # PR-1: order_history 已是 VIEW，无独立行数；保留 0 以兼容前端 summary 字段
+            "order_history_rows": 0,
             "route_history_rows": total_route_history,
             "route_event_rows": total_route_events,
         }

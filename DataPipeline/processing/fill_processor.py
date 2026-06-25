@@ -162,9 +162,25 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
         df["Ticker"].astype(str),
     )
 
+    # v2 修复: 当 Ticker 或 Exchange 为空/空白时，拼接出 `"Ticker  Equity"` (双空格) 或
+    # `" Equity"` 是错误语义；统一在拼接后用 `where` 替换为 `None`。
+    exchange_blank = (
+        df["Exchange"].isna()
+        | (df["Exchange"].astype(str).str.strip() == "")
+        | (df["Exchange"].astype(str).str.lower().isin(["nan", "none"]))
+    )
+    ticker_blank = (
+        df["_processed_ticker"].isna()
+        | (df["_processed_ticker"].astype(str).str.strip() == "")
+        | (df["_processed_ticker"].astype(str).str.lower().isin(["nan", "none"]))
+    )
+    blank_mask = exchange_blank | ticker_blank
+
     df["equ_ticker"] = (
         df["_processed_ticker"] + " " + df["Exchange"] + " Equity"
     ).str.strip()
+    # 空 ticker/exchange → None（不再保留拼接后的空串）
+    df.loc[blank_mask, "equ_ticker"] = np.nan
 
     # ── EUR composite ticker resolution（缓存优先策略）──
     eur_mask = df["Currency"] == "EUR"

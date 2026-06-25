@@ -1,9 +1,9 @@
 {
   "generated_at": "2026-06-16T17:00:00",
-  "total": 19,
+  "total": 18,
   "by_rule": {
     "AP-04": 8,
-    "AP-05": 11
+    "AP-05": 10
   },
   "violations": [
     {
@@ -100,14 +100,6 @@
       "file": "backend\\api\\routers\\debug.py",
       "line": 0,
       "message": "endpoint 'get_round_lot_sizes' (line 20) does not return ApiResponse",
-      "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
-    },
-    {
-      "key": "backend\\api\\routers\\execution_history.py::AP-05",
-      "rule_id": "AP-05",
-      "file": "backend\\api\\routers\\execution_history.py",
-      "line": 0,
-      "message": "endpoint 'get_fill_history' (line 99) does not return ApiResponse",
       "fix_hint": "改为 return ApiResponse(data=..., success=True) 或 ApiResponse(success=False, error_code=...)"
     },
     {
