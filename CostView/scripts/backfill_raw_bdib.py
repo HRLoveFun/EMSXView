@@ -49,14 +49,33 @@ _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_COSTVIEW_ROOT))
 
 from DataPipeline.config import Config
-# TODO(P1-2): Migrate legacy src/ imports to DataPipeline equivalents.
-# - bdib_fetcher → DataPipeline.ingestion (BDIB fetch logic)
-# - RawBDIBDB → DataPipeline.storage.repositories.market_data.SqliteMarketDataReadRepository
-from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date, _is_trading_day  # noqa: E402  # deprecated
-from src.raw_bdib_db import RawBDIBDB  # noqa: E402  # deprecated
+from DataPipeline.acquisition.bdib_fetcher import (
+    fetch_bdib_for_fills,
+    fetch_bdib_for_ticker_date,
+    _is_trading_day,
+)
 from DataPipeline.storage.facade import DatabaseFacade
+from DataPipeline.storage.repositories.market_data import (
+    SqliteMarketDataReadRepository,
+    SqliteMarketDataWriteRepository,
+)
 
 logger = logging.getLogger("backfill_raw_bdib")
+
+
+def get_bdib_for_date(
+    bdib_map: Optional[dict], date_str: str,
+) -> pd.DataFrame:
+    """从 fetch_bdib_for_fills 返回的 map 中提取指定日期的所有 DataFrame 并合并。
+
+    bdib_map 的 key 格式为 ``"{ticker}|{date_str}"``。
+    """
+    if not bdib_map:
+        return pd.DataFrame()
+    parts = [df for key, df in bdib_map.items() if key.endswith(f"|{date_str}")]
+    if not parts:
+        return pd.DataFrame()
+    return pd.concat(parts, ignore_index=True)
 
 
 def _setup_logging() -> None:
@@ -108,10 +127,7 @@ def _get_previous_weekday(ref: Optional[date] = None) -> date:
 
 def load_ticker_exchange_map() -> dict:
     """Load equ_ticker -> exchange mapping from processed_fills ticker_repository."""
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        db = DatabaseFacade()
+    db = DatabaseFacade()
     bdid_exchange = [str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()]
     mapping = db.fills_read.get_ticker_exchange_map(exchanges=bdid_exchange)
     logger.info(f"Loaded {len(mapping)} tickers from ticker_repository (exchanges={bdid_exchange})")
@@ -122,14 +138,14 @@ def load_ticker_exchange_map() -> dict:
 # SECTION: Data Cleaning — remove NULL close rows
 # ═══════════════════════════════════════════════════════════════════════
 
-def clean_null_close_rows(db: Optional[RawBDIBDB] = None, dry_run: bool = False) -> int:
+def clean_null_close_rows(db_path: Optional[Path] = None, dry_run: bool = False) -> int:
     """Delete rows where 'close' is NULL or empty string from raw_bdib.db.
 
     This removes degenerate bars (non-trading hours, suspended securities,
     empty Bloomberg responses) that carry no price information.
 
     Args:
-        db: RawBDIBDB instance (created if None).
+        db_path: Path to raw_bdib.db (default: Config.RAW_BDIB_DB).
         dry_run: If True, only count and report without deleting.
 
     Returns:
@@ -137,8 +153,8 @@ def clean_null_close_rows(db: Optional[RawBDIBDB] = None, dry_run: bool = False)
     """
     import sqlite3
 
-    local_db = db or RawBDIBDB()
-    conn = sqlite3.connect(str(local_db.db_path))
+    raw_db_path = db_path or Config.RAW_BDIB_DB
+    conn = sqlite3.connect(str(raw_db_path))
 
     try:
         # Count before delete
@@ -203,7 +219,7 @@ _OHLC_FIELDS = ("open", "high", "low", "close")
 
 
 def find_invalid_ticker_date_pairs(
-    db: Optional[RawBDIBDB] = None,
+    db_path: Optional[Path] = None,
 ) -> List[Tuple[str, str]]:
     """Identify (equ_ticker, order_as_of_date) pairs that contain at least one row
     with NULL/empty OHLC fields.
@@ -214,15 +230,15 @@ def find_invalid_ticker_date_pairs(
       - Pairs where ALL bars have valid OHLC are considered healthy and skipped.
 
     Args:
-        db: RawBDIBDB instance (created if None).
+        db_path: Path to raw_bdib.db (default: Config.RAW_BDIB_DB).
 
     Returns:
         Sorted list of (equ_ticker, order_as_of_date) tuples needing re-fetch.
     """
     import sqlite3
 
-    local_db = db or RawBDIBDB()
-    conn = sqlite3.connect(str(local_db.db_path))
+    raw_db_path = db_path or Config.RAW_BDIB_DB
+    conn = sqlite3.connect(str(raw_db_path))
 
     try:
         # Find all distinct (ticker, date) pairs that have at least one bad bar
@@ -242,15 +258,15 @@ def find_invalid_ticker_date_pairs(
         conn.close()
 
 
-def validate_and_report(db: Optional[RawBDIBDB] = None) -> dict:
+def validate_and_report(db_path: Optional[Path] = None) -> dict:
     """Run full validation scan and produce a diagnostic report.
 
     Returns:
         Dict with 'invalid_pair_count', 'invalid_pairs_by_date', etc.
     """
-    local_db = db or RawBDIBDB()
+    raw_db_path = db_path or Config.RAW_BDIB_DB
     import sqlite3
-    conn = sqlite3.connect(str(local_db.db_path))
+    conn = sqlite3.connect(str(raw_db_path))
 
     try:
         total_rows = conn.execute("SELECT COUNT(*) FROM raw_bdib").fetchone()[0]
@@ -266,7 +282,7 @@ def validate_and_report(db: Optional[RawBDIBDB] = None) -> dict:
             f"SELECT COUNT(*) FROM raw_bdib WHERE {ohlc_null_cond}"
         ).fetchone()[0]
 
-        invalid_pairs = find_invalid_ticker_date_pairs(db=local_db)
+        invalid_pairs = find_invalid_ticker_date_pairs(db_path=raw_db_path)
 
         # Group by date for summary
         by_date: dict[str, int] = {}
@@ -305,7 +321,7 @@ def validate_and_report(db: Optional[RawBDIBDB] = None) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def repair_invalid_pairs(
-    db: Optional[RawBDIBDB] = None,
+    market_data_write: Optional[SqliteMarketDataWriteRepository] = None,
     dry_run: bool = False,
 ) -> dict:
     """Selective re-fetch: identify broken (ticker, date) pairs, delete their
@@ -321,7 +337,7 @@ def repair_invalid_pairs(
     passes the OHLC completeness check after repair.
 
     Args:
-        db: RawBDIBDB instance (created if None).
+        market_data_write: SqliteMarketDataWriteRepository instance (created if None).
         dry_run: If True, list actions without executing.
 
     Returns:
@@ -329,10 +345,11 @@ def repair_invalid_pairs(
     """
     import sqlite3
 
-    local_db = db or RawBDIBDB()
+    write_repo = market_data_write or SqliteMarketDataWriteRepository()
+    raw_db_path = Config.RAW_BDIB_DB
 
     # Step 1: Find all invalid pairs
-    invalid_pairs = find_invalid_ticker_date_pairs(db=local_db)
+    invalid_pairs = find_invalid_ticker_date_pairs(db_path=raw_db_path)
 
     if not invalid_pairs:
         logger.info("REPAIR: No invalid (ticker, date) pairs found — database is clean")
@@ -348,7 +365,7 @@ def repair_invalid_pairs(
 
     # Step 2: Delete bad rows for each pair
     import sqlite3
-    conn = sqlite3.connect(str(local_db.db_path))
+    conn = sqlite3.connect(str(raw_db_path))
     deleted_total = 0
 
     for ticker, date_str in invalid_pairs:
@@ -386,7 +403,6 @@ def repair_invalid_pairs(
                 exchange = ticker_exchange_map.get(ticker)
 
                 df = None
-                from src.bdib_fetcher import fetch_bdib_for_ticker_date
                 df = fetch_bdib_for_ticker_date(
                     ticker=ticker,
                     date_str=date_str,
@@ -414,7 +430,7 @@ def repair_invalid_pairs(
                     continue
 
                 # Upsert clean data
-                rows = local_db.upsert_bdib_data(df, date_str=date_str)
+                rows = write_repo.upsert_bdib_data(df, date_str=date_str)
                 summary["rows_upserted"] += rows
                 summary["repaired"] += 1
 
@@ -505,12 +521,13 @@ def run_backfill(
         return summary
 
     # ── Open DB connection for incremental check / upsert ──
-    raw_db = RawBDIBDB()
+    market_data_read = SqliteMarketDataReadRepository()
+    market_data_write = SqliteMarketDataWriteRepository()
 
     # Determine latest existing date to support incremental mode
     latest_existing: Optional[str] = None
     if not force:
-        latest_existing = raw_db.get_latest_order_as_of_date()
+        latest_existing = market_data_read.get_latest_order_as_of_date()
         if latest_existing:
             logger.info(f"Incremental mode: raw_bdib has data through {latest_existing}")
         else:
@@ -564,7 +581,7 @@ def run_backfill(
                 continue
 
             # ── Upsert into raw_bdib.db ──
-            rows = raw_db.upsert_bdib_data(bdib_df, date_str=date_str)
+            rows = market_data_write.upsert_bdib_data(bdib_df, date_str=date_str)
 
             logger.info(
                 f"  {date_display}: upserted {rows} rows "

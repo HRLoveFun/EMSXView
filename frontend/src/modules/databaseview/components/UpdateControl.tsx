@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { UpdateStatusResponse } from '../types';
 
 interface UpdateControlProps {
@@ -8,12 +8,15 @@ interface UpdateControlProps {
 }
 
 const STALL_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+/** Re-evaluate stalled state every 10s — `useMemo([status])` alone would not
+ *  fire when the backend simply goes silent without changing the status object. */
+const STALL_TICK_MS = 10 * 1000;
 
 function isActive(status: UpdateStatusResponse | null): boolean {
   return !!status && (status.status === 'started' || status.status === 'running');
 }
 
-function isStalled(status: UpdateStatusResponse | null): boolean {
+function computeStalled(status: UpdateStatusResponse | null): boolean {
   if (!status || !isActive(status)) return false;
   if (!status.last_activity_at) return false;
   const elapsed = Date.now() - new Date(status.last_activity_at).getTime();
@@ -22,7 +25,19 @@ function isStalled(status: UpdateStatusResponse | null): boolean {
 
 export function UpdateControl({ onTrigger, status, pending }: UpdateControlProps) {
   const active = isActive(status);
-  const stalled = useMemo(() => isStalled(status), [status]);
+  // 持续重新计算 stalled（即使 status 引用没变也要重算），避免子进程静默卡住
+  // 时 useMemo 缓存导致警告延迟出现
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setTick((n) => n + 1), STALL_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [active]);
+  const stalled = useMemo(
+    () => (tick >= 0 ? computeStalled(status) : false),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [status, tick],
+  );
   const overall = Math.max(0, Math.min(100, status?.overall_progress ?? 0));
   const stageLabel = status?.stage?.label ?? (active ? 'Starting…' : '');
   const stagePct = status?.stage?.progress ?? 0;

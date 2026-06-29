@@ -1,0 +1,10 @@
+EMSXView 项目根目录标识文件（marker）。
+
+此文件所在的目录即为项目根目录（Repository Root）。请勿删除、勿挪动。
+
+启动脚本（scripts/deploy/launch-emsxview.ps1）通过向上查找本文件
+来定位项目根，从而避免在脚本里硬编码"向上 N 层"的路径深度——
+任何启动脚本被移动到任意深度子目录都能正确定位根目录。
+
+兼容回退：若此文件丢失，Find-EmsxviewRoot 会退回 $PSScriptRoot\..\..，
+但建议保持此文件存在以获得显式、可调试的根目录分辨率。

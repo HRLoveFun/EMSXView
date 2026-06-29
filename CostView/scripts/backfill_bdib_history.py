@@ -23,16 +23,18 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _COSTVIEW_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_COSTVIEW_ROOT))
 
 from DataPipeline.config import Config
-# TODO(P1-2): Migrate legacy src/ imports to DataPipeline repositories.
-# - RawBDIBDB → DataPipeline.storage.repositories.market_data.SqliteMarketDataReadRepository
-# - RawFillsDB → DataPipeline.storage.repositories.raw_fills.SqliteRawFillReadRepository
-from src.raw_bdib_db import RawBDIBDB  # noqa: E402  # deprecated
-from src.raw_fills_db import RawFillsDB  # noqa: E402  # deprecated
+from DataPipeline.storage.repositories.market_data import (
+    SqliteMarketDataReadRepository,
+    SqliteMarketDataWriteRepository,
+)
+from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +74,12 @@ def _prior_weekdays(ref: date, n: int) -> list[str]:
 
 def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
     """Main backfill routine."""
-    raw_fills_db = RawFillsDB()
-    raw_bdib_db = RawBDIBDB()
+    raw_fills_repo = SqliteRawFillReadRepository()
+    market_data_read = SqliteMarketDataReadRepository()
+    market_data_write = SqliteMarketDataWriteRepository()
 
     # 1. Determine all fill dates and tickers
-    fill_dates = raw_fills_db.get_all_source_dates()
+    fill_dates = raw_fills_repo.get_all_source_dates()
     if not fill_dates:
         logger.warning("raw_fills.db has no data — nothing to backfill.")
         return
@@ -92,7 +95,7 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
     all_needed_dates = sorted(set(lookback_dates) | set(fill_date_range))
 
     # 3. Subtract dates already in raw_bdib
-    existing_dates = set(raw_bdib_db.get_distinct_dates())
+    existing_dates = set(market_data_read.get_distinct_dates())
     missing_dates = [d for d in all_needed_dates if d not in existing_dates]
 
     logger.info(f"Fill universe: {fill_dates_sorted[0]} → {fill_dates_sorted[-1]} ({len(fill_date_range)} days)")
@@ -111,10 +114,7 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
     # 4. Determine tickers from processed_fills ticker_repository
     try:
         from DataPipeline.storage.facade import DatabaseFacade
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            db = DatabaseFacade()
+        db = DatabaseFacade()
         ticker_exchange_map = db.fills_read.get_ticker_exchange_map()
         tickers = list(ticker_exchange_map.keys())
     except Exception as e:
@@ -127,15 +127,12 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
 
     logger.info(f"Tickers to fetch BDIB for: {len(tickers)}")
 
-    # 5. Fetch via existing bdib_fetcher
+    # 5. Fetch via DataPipeline bdib_fetcher
     try:
-        from src.bdib_fetcher import fetch_bdib_for_fills, get_bdib_for_date
-        from src.processed_raw_bdib_db import ProcessedRawBDIBDB
+        from DataPipeline.acquisition.bdib_fetcher import fetch_bdib_for_fills
     except ImportError as e:
         logger.error(f"Bloomberg dependencies unavailable: {e}")
         return
-
-    proc_raw_bdib = ProcessedRawBDIBDB()
 
     for date_str in missing_dates:
         logger.info(f"Fetching BDIB for {date_str}...")
@@ -146,17 +143,19 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
                 interval=10,
                 ticker_exchange_map=ticker_exchange_map,
             )
-            bdib_df = get_bdib_for_date(bdib_map, date_str) if bdib_map else None
+            # 从 bdib_map 中提取指定日期的合并 DataFrame
+            parts = [df for key, df in bdib_map.items() if key.endswith(f"|{date_str}")]
+            bdib_df = pd.concat(parts, ignore_index=True) if parts else None
 
             if bdib_df is None or bdib_df.empty:
                 logger.info(f"  {date_str}: no data returned (likely non-trading day)")
                 continue
 
-            raw_rows = raw_bdib_db.upsert_bdib_data(bdib_df, date_str=date_str)
+            raw_rows = market_data_write.upsert_bdib_data(bdib_df, date_str=date_str)
 
-            # Also populate processed_raw_bdib
-            bdib_enriched = ProcessedRawBDIBDB.compute_derived_fields(bdib_df)
-            proc_rows = proc_raw_bdib.upsert_processed_bdib(bdib_enriched)
+            # Also populate processed_raw_bdib（A8 退役后由 PROCESSED_RAW_BDIB_ENABLED 控制）
+            bdib_enriched = SqliteMarketDataWriteRepository.compute_derived_fields(bdib_df)
+            proc_rows = market_data_write.upsert_processed_bdib(bdib_enriched)
 
             logger.info(f"  {date_str}: {raw_rows} raw rows, {proc_rows} processed rows")
 
@@ -166,8 +165,8 @@ def run_backfill(lookback_days: int = 25, dry_run: bool = False) -> None:
     # 6. Compute daily metrics for all newly fetched dates
     logger.info("Computing daily metrics (ADV + volatility) for backfilled dates...")
     try:
-        from src.daily_metrics_calculator import CalculateDailyMetrics
-        calc = CalculateDailyMetrics(db=raw_bdib_db)
+        from DataPipeline.processing.daily_metrics_calculator import CalculateDailyMetrics
+        calc = CalculateDailyMetrics()
         for trade_date in missing_dates:
             try:
                 calc.run_for_date(trade_date)

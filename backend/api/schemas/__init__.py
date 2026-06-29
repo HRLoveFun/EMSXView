@@ -6,7 +6,6 @@ All Pydantic models and enums are organized by domain:
   schemas/routes.py       — Route, Cancel/Modify/RouteOrderRequest
   schemas/batch.py        — Batch update/route/modify requests & results
   schemas/execution.py    — Parent execution & scheduling
-  schemas/history.py      — Execution history records
   schemas/infra.py        — ConnectionStatus, StartupStatus, LoginRequest
   schemas/broker.py       — Broker algorithm configuration
   schemas/route_plans.py  — RoutePlan CRUD & sub-order proposals
@@ -49,17 +48,6 @@ from .batch import (
 from .execution import (
     CreateParentExecutionRequest,
     ParentExecutionCommand,
-)
-from .history import (
-    ExecutionHistoryFillData,
-    ExecutionHistoryFillRecord,
-    ExecutionHistoryFillResponse,
-    ExecutionHistoryOrderSummaryData,
-    ExecutionHistoryOrderSummaryRecord,
-    ExecutionHistoryOrderSummaryResponse,
-    ExecutionHistoryRouteSummaryData,
-    ExecutionHistoryRouteSummaryRecord,
-    ExecutionHistoryRouteSummaryResponse,
 )
 from .infra import (
     BackendStartupStatus,

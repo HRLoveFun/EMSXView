@@ -103,11 +103,17 @@ def _vacuum_incremental(data_dir: Path, dry_run: bool = False) -> dict[str, Any]
     return results
 
 
-def _run_archive_auto(retention_override: dict[str, int] | None = None) -> dict[str, Any]:
+def _run_archive_auto(
+    retention_override: dict[str, int] | None = None,
+    progress_callback=None,
+) -> dict[str, Any]:
     """在管线末尾自动执行的轻量归档。
 
     仅归档过期数据 (不执行全量VACUUM, 改用增量模式)。
     返回归档结果摘要。
+
+    progress_callback (可选): 形如 ``(db_name, phase, rows)`` 的回调,
+    用于在归档每个 DB 时输出心跳, 防止 5 分钟内无活动导致前端 watchdog 误判。
     """
     archiver = DataArchiver(Config.DATA_DIR)
     all_results: dict[str, Any] = {
@@ -124,7 +130,9 @@ def _run_archive_auto(retention_override: dict[str, int] | None = None) -> dict[
             config = None
             if retention_override and db_name in retention_override:
                 config = retention_override[db_name]
-            res = archiver.archive_expired(db_name, dry_run=False)
+            res = archiver.archive_expired(
+                db_name, dry_run=False, progress_callback=progress_callback,
+            )
             if res:
                 all_results["archived"][db_name] = res
         except Exception as e:

@@ -156,7 +156,7 @@ def fetch_bdib_for_ticker_date(
         date_str: Date in YYYYMMDD format
         interval: Bar interval in seconds (default 10)
         exchange: Bloomberg exchange code from ticker_repository (e.g. "JP")
-        max_retries: Number of retry attempts
+        max_retries: Number of retry attempts（已由 RetryPolicy 管理，保留参数兼容）
 
     Returns:
         DataFrame with columns: [mkt_timestamp, open, high, low, close, volume,
@@ -195,8 +195,18 @@ def fetch_bdib_for_ticker_date(
         normalized_exchange = _extract_exchange_from_ticker(ticker)
     ref_exchange = normalized_exchange if normalized_exchange in LIST_EXHC_TZ else None
 
-    last_exception: Optional[Exception] = None
-    for attempt in range(max_retries):
+    # ── 使用 RetryPolicy 包装 Bloomberg API 调用 ──
+    from DataPipeline.circuit_breaker.retry_policy import RetryConfig, RetryPolicy, RetryResult
+
+    retry_config = RetryConfig(
+        max_retries=max_retries,
+        base_delay_seconds=1.0,
+        backoff_factor=2.0,
+    )
+    policy = RetryPolicy(retry_config)
+
+    def _fetch_bdib_once() -> pd.DataFrame:
+        """单次 BDIB 抓取（供 RetryPolicy 重试调用）"""
         try:
             df = blp.bdib(
                 ticker,
@@ -208,74 +218,8 @@ def fetch_bdib_for_ticker_date(
                 ref=ref_exchange,
                 batch=False,
             )
-
-            # Flatten xbbg MultiIndex columns FIRST (before any column-level logic)
-            # xbbg returns ('AAPL US Equity', 'open') style tuples
-            df = _flatten_bdib_columns(df)
-
-            # Validate response quality — filter out empty bars
-            df = _validate_bdib_response(df, ticker, date_str)
-            if df is None:
-                return None
-
-            # Standardize the output
-            if isinstance(df.index, pd.DatetimeIndex):
-                # xbbg returns DatetimeIndex with timezone info (e.g. -04:00)
-                ts = df.index
-                if ts.tz is not None:
-                    ts = ts.tz_localize(None)
-                mkt_ts = ts.floor(f"{interval}s").strftime("%H:%M:%S")
-                df = df.reset_index()
-                df["mkt_timestamp"] = mkt_ts
-                if "index" in df.columns:
-                    df.drop(columns=["index"], inplace=True)
-            else:
-                df = df.reset_index()
-                if "index" in df.columns:
-                    df.rename(columns={"index": "timestamp"}, inplace=True)
-                if "timestamp" in df.columns:
-                    df["mkt_timestamp"] = (
-                        pd.to_datetime(df["timestamp"])
-                        .dt.floor(f"{interval}s")
-                        .dt.strftime("%H:%M:%S")
-                        )
-                elif df.index.name and "time" in df.index.name.lower():
-                    df["mkt_timestamp"] = (
-                        pd.to_datetime(df.index)
-                        .floor(f"{interval}s")
-                        .strftime("%H:%M:%S")
-                    )
-
-            df["equ_ticker"] = ticker
-            df["order_as_of_date"] = date_str
-
-            # Standardize column names
-            col_map = {
-                "open": "open",
-                "high": "high",
-                "low": "low",
-                "close": "close",
-                "volume": "volume",
-                "num_trds": "num_trds",
-                "value": "value",
-            }
-            for old_name, new_name in col_map.items():
-                if old_name not in df.columns:
-                    for c in df.columns:
-                        if c.lower() == old_name:
-                            df.rename(columns={c: new_name}, inplace=True)
-                            break
-
-            # NOTE: Derived fields (vwap, fluctuation, log_chg_pct_10s) are NOT
-            # computed here. They belong to the processed_raw_bdib layer per
-            # D:\Evaluation convention: raw_bdib → processed_bdib → fill_bdib.
-            # Compute derived fields at the processed_raw_bdib layer.
-
-            logger.debug(f"Fetched {len(df)} raw BDIB bars for {ticker} on {date_str}")
-            return df
-
         except Exception as e:
-            last_exception = e
+            # 过期 ticker 立即标记，不重试
             if _is_outdated_ticker_error(e):
                 entry = record_outdated_ticker(
                     ticker,
@@ -286,22 +230,86 @@ def fetch_bdib_for_ticker_date(
                     f"Marked outdated ticker {ticker} after exchange-info failure; "
                     f"hit_count={entry['hit_count']}"
                 )
-                return None
-            if attempt < max_retries - 1:
-                wait = 2 ** attempt
-                logger.warning(
-                    f"BDIB fetch attempt {attempt + 1}/{max_retries} "
-                    f"failed for {ticker} on {date_str}: {e}. "
-                    f"Retrying in {wait}s..."
-                )
-                time.sleep(wait)
+            raise  # 重新抛出，让 RetryPolicy 处理重试
 
-    if last_exception:
+        return df
+
+    fetch_result: RetryResult = policy.execute_with_retry_sync(
+        _fetch_bdib_once,
+        context={"ticker": ticker, "date": date_str},
+    )
+
+    # 处理重试耗尽情况
+    if not fetch_result.success:
+        # 检查是否是过期 ticker（已在 _fetch_bdib_once 中标记，直接跳过）
+        if fetch_result.last_error and "Cannot find exchange info" in fetch_result.last_error:
+            return None
         logger.warning(
-            f"BDIB fetch failed after {max_retries} attempts "
-            f"for {ticker} on {date_str}: {last_exception}"
+            f"BDIB fetch failed after {fetch_result.attempts} attempts "
+            f"for {ticker} on {date_str}: {fetch_result.last_error}"
         )
-    return None
+        return None
+
+    # ── 处理成功的响应 ──
+    df = fetch_result.result
+
+    # Flatten xbbg MultiIndex columns FIRST (before any column-level logic)
+    df = _flatten_bdib_columns(df)
+
+    # Validate response quality — filter out empty bars
+    df = _validate_bdib_response(df, ticker, date_str)
+    if df is None:
+        return None
+
+    # Standardize the output
+    if isinstance(df.index, pd.DatetimeIndex):
+        ts = df.index
+        if ts.tz is not None:
+            ts = ts.tz_localize(None)
+        mkt_ts = ts.floor(f"{interval}s").strftime("%H:%M:%S")
+        df = df.reset_index()
+        df["mkt_timestamp"] = mkt_ts
+        if "index" in df.columns:
+            df.drop(columns=["index"], inplace=True)
+    else:
+        df = df.reset_index()
+        if "index" in df.columns:
+            df.rename(columns={"index": "timestamp"}, inplace=True)
+        if "timestamp" in df.columns:
+            df["mkt_timestamp"] = (
+                pd.to_datetime(df["timestamp"])
+                .dt.floor(f"{interval}s")
+                .dt.strftime("%H:%M:%S")
+                )
+        elif df.index.name and "time" in df.index.name.lower():
+            df["mkt_timestamp"] = (
+                pd.to_datetime(df.index)
+                .floor(f"{interval}s")
+                .strftime("%H:%M:%S")
+            )
+
+    df["equ_ticker"] = ticker
+    df["order_as_of_date"] = date_str
+
+    # Standardize column names
+    col_map = {
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "volume": "volume",
+        "num_trds": "num_trds",
+        "value": "value",
+    }
+    for old_name, new_name in col_map.items():
+        if old_name not in df.columns:
+            for c in df.columns:
+                if c.lower() == old_name:
+                    df.rename(columns={c: new_name}, inplace=True)
+                    break
+
+    logger.debug(f"Fetched {len(df)} raw BDIB bars for {ticker} on {date_str}")
+    return df
 
 def fetch_bdib_batch(
     ticker_date_pairs: List[Tuple[str, str]],

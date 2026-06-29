@@ -358,7 +358,7 @@ class TestCalculateDailyMetricsStage(unittest.TestCase):
         stage = CalculateDailyMetricsStage()
         ctx = FakePipelineContext()
         ctx._db.fills_read.get_processed_dates.return_value = []
-        ctx._db.raw_bdib_db.get_distinct_dates.return_value = []
+        ctx._db.market_data_read.get_distinct_dates.return_value = []
         result = stage.process(ctx)
         self.assertTrue(result)
 

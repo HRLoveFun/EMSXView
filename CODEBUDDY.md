@@ -161,7 +161,7 @@ connection, debug, mappings
 
 - Entry point: `backend/api/main.py`
 - **Core routers** (always loaded): connection, auth, orders, routes, broker, realtime, debug, route_plans, market_broker_mapping
-- **Optional routers**: marketview (merge mode only), costview (merge mode only), database, execution_history
+- **Optional routers**: database (DatabaseView)
 - **Independent services**: `MarketView/main.py` (:8001), `CostView/api/main.py` (:8002)
 - **Merge mode** (`EMSXVIEW_MERGE_MODULES=true`): All routers in single process (dev/demo)
 - Key services: `BloombergEMSXService` (Bloomberg API adapter), `AuthService`, `RouteService`, `ComplianceService`
@@ -228,6 +228,13 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 - 数据库读写由 `RepositoryProvider` 统一控制，gate 为 `ENABLE_DB_PERSISTENCE` 标志
 - Pipeline config is the single source of truth — do not hardcode DB paths or table names; import from `DataPipeline/config.Config`.
 - Backend optional routers must never break the core ExecutionView — use the `_register_optional` pattern in `main.py`.
+
+### 启动器与项目根路径（★ 必须遵守）
+
+- 项目根定位**唯一信息源**是仓库根的 `.emsxview-root` marker 文件；新增/修改 `scripts/deploy/` 下启动脚本时**必须**用 `Find-EmsxviewRoot`（向上查找 marker），**禁止**硬编码"向上 N 层"
+- 启动器算出项目根后**必须** `Assert-ProjectRootValid` 自检，错路径立即 throw，**禁止**进入 120s 超时黑盒
+- VBS 启动器只做 thin wrapper（隐藏窗口 + 调起 PS1），**禁止**在 VBS 内做路径深度计算或业务逻辑——`WScript.ScriptFullName` 含文件名、`$PSScriptRoot` 已是目录，两者语义不可复用同一套"向上 N 层"
+- 详见 [AP-16 启动器路径硬编码 + 跨宿主语义错位](docs/spec/anti-patterns.md#ap-16-启动器路径硬编码--跨宿主语义错位)
 
 ## Refactoring Context
 

@@ -82,11 +82,11 @@ class Settings:
     # Optional module routers — comma-separated "module:label" pairs.
     # Set to empty string to disable all optional modules.
     # Set to "*" or "all" to load all known optional modules.
-    # Default loads CostView, DatabaseView, and Execution History.
+    # Default loads DatabaseView.
     # Example: EMSXVIEW_OPTIONAL_MODULES=costview:CostView,database:DB
     OPTIONAL_MODULES: str = os.getenv(
         "EMSXVIEW_OPTIONAL_MODULES",
-        "database:DatabaseView,execution_history:Execution history",
+        "database:DatabaseView",
     )
 
 

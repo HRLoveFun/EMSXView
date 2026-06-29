@@ -337,7 +337,7 @@ EMSXView/
   - Market-to-broker strategy mapping
   - Optional modules: DatabaseView API, Execution History API
 - **Core Routers** (always loaded): connection, auth, orders, routes, broker, realtime, debug, route_plans, market_broker_mapping
-- **Optional Routers**: marketview (merge mode only), costview (merge mode only), database, execution_history
+- **Optional Routers**: database (DatabaseView)
 - **Bloomberg Service** (`services/bloomberg/`) — Split package with connection lifecycle management, order/route subscriptions with cache, market data enrichment (FX, round lot, permfail detection), and CRUD request handling.
 - **RepositoryProvider** — DB vs. in-memory fallback gated behind `ENABLE_DB_PERSISTENCE` flag.
 

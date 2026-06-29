@@ -4,28 +4,24 @@ EMSXView Trading API - Authentication Module
 Handles user authentication and authorization
 """
 
-import os
-import json
-import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
-from functools import wraps
+from typing import Optional, Dict, Any
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-from fastapi import HTTPException, status, Depends, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import HTTPException
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer(auto_error=False)
 
-# Configuration
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+# Configuration — 从 config.settings 读取，避免重复 os.getenv
+from config import settings as _settings
+
+JWT_SECRET = _settings.JWT_SECRET
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
-ALLOWED_TRADERS = [t.strip() for t in os.getenv("ALLOWED_TRADERS", "").split(",") if t.strip()]
+JWT_EXPIRE_MINUTES = _settings.JWT_EXPIRE_MINUTES
+ALLOWED_TRADERS = [t.strip() for t in _settings.ALLOWED_TRADERS if t.strip()]
 
 class User:
     """User model"""
@@ -122,52 +118,6 @@ class AuthManager:
                 raise HTTPException(403, "User not authorized for trading")
             
             return payload
-            
+
         except JWTError as e:
             raise HTTPException(401, f"Invalid or expired token: {str(e)}")
-    
-    @classmethod
-    def require_role(cls, roles: List[str]):
-        """Decorator to require specific role"""
-        def decorator(func):
-            @wraps(func)
-            async def wrapper(*args, **kwargs):
-                user = kwargs.get('user')
-                if not user or user.get('role') not in roles:
-                    raise HTTPException(403, "Insufficient permissions")
-                return await func(*args, **kwargs)
-            return wrapper
-        return decorator
-
-# FastAPI dependency
-async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict[str, Any]:
-    """FastAPI dependency to get current authenticated user"""
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
-    return AuthManager.verify_token(credentials.credentials)
-
-def audit_log(action: str, user: str, details: Dict[str, Any]):
-    """Log audit trail"""
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "action": action,
-        "user": user,
-        "details": details
-    }
-    
-    # In production, write to secure audit log database
-    print(f"[AUDIT] {json.dumps(log_entry)}")
-
-# API Key authentication (for service-to-service)
-API_KEYS = {
-    "emsx-frontend": os.getenv("FRONTEND_API_KEY", secrets.token_urlsafe(32))
-}
-
-def verify_api_key(api_key: str) -> bool:
-    """Verify service API key"""
-    return api_key in API_KEYS.values()

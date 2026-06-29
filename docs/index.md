@@ -1,7 +1,7 @@
 ﻿# EMSXView Documentation Guide
 
 > 当前 docs 目录入口与维护规则
-> Last updated: 2026-05-07
+> Last updated: 2026-06-29
 > 📦 已重组为 spec/api/ops/roadmap 子目录结构
 
 ---
@@ -41,7 +41,7 @@ docs 根目录只保留入口导航和当前 handoff，其余按领域划入子�
 
 | 位置 | 说明 |
 |---|---|
-| docs/modular_sequence_diagrams/ | 时序图的 Mermaid 源文件与图片 |
+| docs/api/sequence-diagrams.md | 时序图的 Mermaid 源文件与说明 |
 
 ---
 
@@ -51,13 +51,8 @@ docs 根目录只保留入口导航和当前 handoff，其余按领域划入子�
 
 | 文件 | 说明 |
 |---|---|
-| .github/knowledge/architecture-decisions.md | 架构决策 |
+| .github/knowledge/architecture-decisions.md | 架构决策（本仓库 ADR 的对外映射） |
 | .github/knowledge/error-patterns.md | 错误模式与解法 |
-| .github/knowledge/user-needs.md | 高频用户需求 |
-| .github/knowledge/iteration-log.md | 迭代日志 |
-| .github/knowledge/metrics.md | 自评估指标 |
-
-Agent 总则见 .github/agent.md，过程指令见 .github/instructions/。
 
 ---
 

@@ -110,17 +110,6 @@ class PipelineContextTest(unittest.TestCase):
         self.assertEqual(ctx.summary["key1"], "value1")
         self.assertTrue(ctx.summary["key2"]["nested"])
 
-    def test_deprecation_warning_for_legacy_fields(self):
-        """Setting legacy DB fields raises DeprecationWarning."""
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            ctx = PipelineContext(raw_db=MagicMock())
-            self.assertTrue(any(
-                "legacy fields" in str(warning.message).lower()
-                for warning in w
-            ))
-
     def test_connection_manager_lazy(self):
         """Connection manager is lazily created."""
         ctx = PipelineContext()

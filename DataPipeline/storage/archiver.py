@@ -69,11 +69,20 @@ class DataArchiver:
         date_col: Optional[str] = None,
         retention_months: Optional[int] = None,
         dry_run: bool = False,
+        progress_callback: Optional[callable] = None,
     ) -> Dict[str, int]:
         db_path = self._data_dir / f"{db_name}.db"
         if not db_path.exists():
             logger.warning("Database not found: %s", db_path)
             return {}
+
+        # 心跳：开始处理该 DB 时回调（防止归档步骤整体耗时 > 5 分钟
+        # 导致前端 watchdog 误判为 stalled）
+        if progress_callback is not None:
+            try:
+                progress_callback(db_name, "start", 0)
+            except Exception:
+                logger.debug("archive progress_callback (start) failed", exc_info=True)
 
         archive_path = self._archive_dir / f"{db_name}_archive.db"
         retention = retention_months or 24
@@ -129,14 +138,28 @@ class DataArchiver:
             src.close()
             dst.close()
 
+        # 心跳：该 DB 处理完成时回调
+        if progress_callback is not None:
+            try:
+                total_rows = sum(results.values()) if results else 0
+                progress_callback(db_name, "done", total_rows)
+            except Exception:
+                logger.debug("archive progress_callback (done) failed", exc_info=True)
+
         return results
 
-    def archive_all(self, dry_run: bool = False) -> Dict[str, Dict[str, int]]:
+    def archive_all(
+        self,
+        dry_run: bool = False,
+        progress_callback: Optional[callable] = None,
+    ) -> Dict[str, Dict[str, int]]:
         all_results: Dict[str, Dict[str, int]] = {}
         for db_name in ("processed_fills", "raw_fills", "raw_bdib",
                          "processed_raw_bdib", "fill_bdib"):
             try:
-                res = self.archive_expired(db_name, dry_run=dry_run)
+                res = self.archive_expired(
+                    db_name, dry_run=dry_run, progress_callback=progress_callback,
+                )
                 if res:
                     all_results[db_name] = res
             except Exception:
