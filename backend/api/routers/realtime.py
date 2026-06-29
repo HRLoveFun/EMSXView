@@ -15,34 +15,6 @@ logger = logging.getLogger("main")
 router = APIRouter()
 
 
-class ConnectionManager:
-    """Legacy WebSocket connection manager — delegates to realtime_gw."""
-
-    @property
-    def active_connections(self) -> list:
-        return realtime_gw._connections
-
-    async def connect(self, websocket: WebSocket):
-        await realtime_gw.connect(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        realtime_gw.disconnect(websocket)
-
-    async def broadcast(self, message: dict):
-        payload = json.dumps(message)
-        dead = []
-        for conn in realtime_gw._connections:
-            try:
-                await conn.send_text(payload)
-            except Exception:
-                dead.append(conn)
-        for conn in dead:
-            realtime_gw.disconnect(conn)
-
-
-manager = ConnectionManager()
-
-
 @router.websocket("/ws/orders")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time order/route updates.

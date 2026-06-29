@@ -3,7 +3,7 @@
 > AI agent 写代码 / Code Review 必查
 > 每个反模式含 ID / 描述 / 检测命令 / 修复方案 / 优先级
 > 配套测试：`tests/boundaries/`
-> Last updated: 2026-06-03
+> Last updated: 2026-06-29
 
 ---
 
@@ -233,6 +233,43 @@ rg "localhost:(3000|8001|8002)" backend/ frontend/src/ | rg -v "vite.config|conf
 **为什么坏**: 回归风险累积
 **检测**: PR Review 时人工检查 `tests/` 是否同步更新
 **修复**: 添加单元测试/集成测试
+
+---
+
+## AP-16 启动器路径硬编码 + 跨宿主语义错位
+
+**严重度**: high
+**描述**: 启动脚本（`scripts/deploy/*.vbs` / `*.ps1` / `*.bat`）硬编码"向上 N 层"推算项目根，且 VBS 使用 `WScript.ScriptFullName`（**含文件名**）与 PowerShell 的 `$PSScriptRoot`（**已是目录**）语义不同却复制同一套"向上 N 层"心智模型
+**为什么坏**:
+- 任何启动脚本被挪到更深/更浅的目录都会**静默坏掉**，无任何保护
+- VBS 路径算错时不会立即报错，而是让子进程跑一个不存在的 `.ps1`、然后等 120s 超时——症状像"环境问题"实为代码 bug，极易误导
+- 诊断日志目录 `logs\` 与错误页 `startup-error.html` 都派生自算错的项目根，于是扫到**完全无关的运维日志**（如 `cleanup_b4_*.log`、`observation_*.log`）冒充启动日志，进一步误导排查方向
+- "重启电脑后启动失败但 `restart-all.bat` 又能救回"是典型症状——因为只有桌面快捷方式走 VBS 一条路径，手动修复命令走的是 `service-manager.ps1` 正确路径
+
+**检测**:
+```bash
+# 1. 硬编码"向上 N 层"模式
+rg "GetParentFolderName.*GetParentFolderName" scripts/deploy/  # VBS 嵌套调用
+rg "Split-Path -Parent.*Split-Path -Parent" scripts/deploy/    # PowerShell 嵌套调用
+rg "Join-Path \$PSScriptRoot ['""]\.\." scripts/               # 相对深度硬编码
+
+# 2. VBS 中出现业务逻辑（应已收敛到 ps1）
+rg "Sub |Function " scripts/deploy/*.vbs  # 旧 VBS 残留的业务子程序
+
+# 3. 启动器无项目根自检
+rg "Assert-ProjectRootValid|Find-EmsxviewRoot" scripts/deploy/  # 应至少出现一次
+```
+
+**修复**:
+1. **单一信息源**：项目根放 `.emsxview-root` marker 文件，启动器通过 `Find-EmsxviewRoot` 向上查找 marker（参考 `.specify/scripts/powershell/common.ps1` 的 `Find-SpecifyRoot` 同型模式）
+2. **fail-fast 自检**：算出项目根后立即断言 `frontend\package.json`、`backend\api\main.py`、`.emsxview-root` 存在，错路径毫秒级 throw，禁止 120s 超时
+3. **跨宿主陷阱消除**：VBS 削到 < 30 行 thin wrapper，只负责"隐藏窗口 + 调起 PowerShell"，**VBS 内零业务逻辑、零路径深度计算**
+4. **marker 兜底**：marker 丢失时回退到 `$PSScriptRoot\..\..` 仍经自检，保持向后兼容
+
+**参考**:
+- `scripts/deploy/launch-emsxview.ps1`（Find-EmsxviewRoot + Assert-ProjectRootValid）
+- `scripts/deploy/launch-emsxview.vbs`（thin wrapper 范式）
+- 事故根因：2026-06-29 VBS `GetParentFolderName` 少算一层导致 `EMSXVIEW_ROOT` 落到 `scripts\`，每次重启都 120s 超时且诊断页显示 B4 数据库清理日志
 
 ---
 

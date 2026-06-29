@@ -363,26 +363,14 @@ class FakePipelineContext:
         self.is_successful = True
         self.errors: List[Dict[str, Any]] = []
 
-        # Legacy DB fields (needed by some pipeline stages)
-        self.raw_db = MagicMock()
-        self.proc_db = MagicMock()
-        self.raw_bdib_db = MagicMock()
-        self.processed_raw_bdib_db = MagicMock()
-        self.proc_bdib_db = MagicMock()
-
         # Repository injection fields
         self.fill_repo = None
         self.bar_repo = None
         self.regime_repo = None
         self.config_repo = None
 
-        # Mock the db facade
+        # Mock the db facade with new repository API
         self._db = MagicMock()
-        self._db.raw_db = self.raw_db
-        self._db.proc_db = self.proc_db
-        self._db.raw_bdib_db = self.raw_bdib_db
-        self._db.processed_raw_bdib_db = self.processed_raw_bdib_db
-        self._db.fill_bdib_db = self.proc_bdib_db
 
         # Mock individual repositories
         self._db.fills_read = MagicMock()
@@ -403,9 +391,6 @@ class FakePipelineContext:
     def log_error(self, stage_name: str, error: Exception) -> None:
         self.errors.append({"stage": stage_name, "error": str(error)})
         self.is_successful = False
-
-    def get_proc_db(self):
-        return self._db.proc_db
 
 
 def assert_dataframe_equal(

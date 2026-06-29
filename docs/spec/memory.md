@@ -12,7 +12,7 @@
 |---|---|
 | 前端壳 | `frontend/src/app/AppShell.tsx` |
 | 后端装配 | `backend/api/main.py` |
-| 数据入口 | `platform_data/adapters.py` |
+| 数据入口 | `platform_data/adapters/` |
 | 流水线配置 | `DataPipeline/config.py` |
 | 平台契约 | `platform_data/contracts/` |
 | 共享规范 | `AGENTS.md`（仓库根） |

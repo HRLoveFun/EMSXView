@@ -8,8 +8,8 @@ services:
 
   backend:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/api/Dockerfile
     image: emsxview-backend:latest
     container_name: emsxview-backend
     restart: unless-stopped

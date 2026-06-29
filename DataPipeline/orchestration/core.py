@@ -220,7 +220,71 @@ def run_full_pipeline(
         ctx.summary["ingestion"] = {"skipped": True}
     if skip_bdib:
         ctx.summary["bdib"] = {"skipped": True}
+
+    # ── 护栏机制接入（GuardPipeline 包装）──
+    if _should_use_guarded_run(ctx):
+        try:
+            return _run_with_guardrail(pipe, ctx)
+        except Exception as guard_err:
+            _log.warning("GuardPipeline 执行异常，回退到原生管道: %s", guard_err)
+            pipe.run(ctx)
+            return ctx.summary
+
     pipe.run(ctx)
+    return ctx.summary
+
+
+def _should_use_guarded_run(ctx: PipelineContext) -> bool:
+    """判断是否应使用 GuardPipeline 包装执行。
+
+    条件：
+    1. GUARDRAIL_ENABLED 配置为 True
+    2. 非 skip_ingest 流程（仅 S1 场景需要额外处理，当前 skip_ingest=True 为默认）
+    """
+    if not Config.GUARDRAIL_ENABLED:
+        return False
+    skip_config = ctx.config.get("skip", {})
+    # 当所有阶段都被跳过时，不需要护栏
+    if skip_config.get("skip_ingest", True) and skip_config.get("skip_bdib", True):
+        return True  # 常规增量流程（S2-S4 + S6），仍然启用护栏日志和异常捕获
+    return True
+
+
+def _run_with_guardrail(pipe: FinancialPipeline, ctx: PipelineContext) -> Dict[str, Any]:
+    """使用 GuardPipeline 包装执行管道，提供异常捕获、日志记录和熔断保护。
+
+    与原生 FinancialPipeline.run() 的区别：
+    - 捕获每个阶段的异常并记录到结构化日志中
+    - 为异常提供 SeverityLevel 分级（Info/Error/Critical）
+    - 生成 run_id + JSONL 运行日志
+    - 阶段失败不再中断整个管道（S2-S4 失败仅跳过当前阶段）
+    """
+    from DataPipeline.orchestration.guard import GuardPipeline
+    from DataPipeline.validation.enums import RunStatus
+    from DataPipeline.validation.schema_registry import SchemaRegistry
+
+    schemas = SchemaRegistry()
+    # 注意：当前阶段 Schema 尚未注册（各阶段输出通过 DB 中介，非内存流），
+    # Validator 在无 Schema 时默认通过所有记录。护栏仍提供异常捕获 + 日志记录。
+
+    guard = GuardPipeline(pipe, schemas=schemas)
+    result = guard.run(ctx)
+
+    # 将护栏运行信息注入 summary 供调用方使用
+    ctx.summary["_guardrail"] = {
+        "run_id": result.run_id,
+        "status": result.status.value,
+        "log_path": result.log_path,
+    }
+
+    if result.status == RunStatus.CIRCUIT_BROKEN:
+        _log.error("护栏熔断: run_id=%s, 管道已阻断", result.run_id)
+        ctx.summary["_guardrail"]["circuit_broken"] = True
+    elif result.status == RunStatus.PARTIAL_FAILURE:
+        _log.warning("护栏运行完成（部分失败）: run_id=%s", result.run_id)
+    else:
+        _log.info("护栏运行完成: run_id=%s", result.run_id)
+
     return ctx.summary
 
 

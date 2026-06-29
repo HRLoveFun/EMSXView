@@ -112,31 +112,8 @@ EMSXView/
 │   │   ├── tca_query_service.py
 │   │   ├── fill_fetch.py
 │   │   ├── bdib_fetcher.py
-│   │   ├── db/                          # Database subsystem (Phase 1-2)
-│   │   │   ├── __init__.py
-│   │   │   ├── connection.py            # ConnectionManager + AccessTier
-│   │   │   ├── protocols.py             # Repository Protocols (12)
-│   │   │   ├── dto.py                   # Data transfer objects
-│   │   │   ├── facade.py                # DatabaseFacade unified entry
-│   │   │   ├── repositories/            # Concrete Repository implementations
-│   │   │   │   ├── fills_read.py
-│   │   │   │   ├── fills_write.py
-│   │   │   │   ├── raw_fills_read.py
-│   │   │   │   ├── raw_fills_write.py
-│   │   │   │   ├── market_data_read.py
-│   │   │   │   ├── market_data_write.py
-│   │   │   │   ├── integrated.py
-│   │   │   │   └── regime.py
-│   │   │   └── schema/                 # Unified schema management
-│   │   │       ├── columns.py
-│   │   │       └── migrations/
-│   │   │           └── manager.py       # MigrationManager
-│   │   ├── raw_fills_db.py              # (deprecated, use db/ subsystem)
-│   │   ├── raw_bdib_db.py              # (deprecated, use db/ subsystem)
-│   │   ├── fill_bdib_db.py             # (deprecated, use db/ subsystem)
-│   │   ├── processed_raw_bdib_db.py    # (deprecated, use db/ subsystem)
-│   │   ├── processed_fills_db/         # Package (Facade + sub-repos)
-│   │   └── daily_metrics_calculator.py
+│   │   ├── daily_metrics_calculator.py
+│   │   └── (legacy raw_*_db.py / fill_bdib_db.py / processed_raw_bdib_db.py — DELETED)
 │   ├── scripts/
 │   ├── tests/
 │   ├── data/
@@ -145,7 +122,12 @@ EMSXView/
 │       └── src/
 ├── platform_data/
 │   ├── __init__.py
-│   ├── adapters.py                     # Cross-module adapters
+│   ├── adapters/                      # Cross-module adapters (subpackage)
+│   │   ├── __init__.py                # Backward-compat re-export entry point
+│   │   ├── handoff.py                 # HandoffExchangeAdapter
+│   │   ├── redis_handoff.py           # RedisHandoffExchangeAdapter
+│   │   ├── market.py                  # MarketReferenceDataAdapter
+│   │   └── tca_bridge.py              # TCA service DI + daily summary reader
 │   ├── repositories.py                 # DatabaseView diagnostic queries
 │   └── contracts/                      # Cross-module data contracts
 │       ├── __init__.py
@@ -218,9 +200,8 @@ Active backend layering:
 
 Canonical entries:
 
-- `CostView/src/pipeline.py`
 - `CostView/src/tca_query_service.py`
-- `CostView/src/db/facade.py` (DatabaseFacade — unified DB entry point)
+- `DataPipeline/storage/facade.py` (DatabaseFacade — unified DB entry point)
 
 Responsibilities:
 
@@ -229,22 +210,21 @@ Responsibilities:
 - cross-database TCA queries
 - analytical metric assembly and reporting
 
-Database subsystem (`CostView/src/db/`):
+Database subsystem (`DataPipeline/storage/`):
 
 - `connection.py` — ConnectionManager with AccessTier enforcement across 6 SQLite DBs
-- `protocols.py` — 12 Repository Protocols (read/write/admin per domain)
-- `dto.py` — Data transfer objects for cross-layer communication
 - `facade.py` — DatabaseFacade facade holding all repositories
-- `repositories/` — 10 concrete repository implementations
+- `dto.py` — Data transfer objects for cross-layer communication
+- `repositories/` — concrete repository implementations (fills, raw_fills, market_data, integrated, regime, fetch_history)
 - `schema/` — Unified column definitions + MigrationManager
 
-Legacy DB classes (`raw_fills_db.py` etc.) are deprecated and marked for migration.
+Legacy DB classes (`raw_fills_db.py` etc.) have been **deleted** — migrated to `DataPipeline/storage/` repositories.
 
 ### 4.4 Shared logical data-domain entry
 
 Canonical entries:
 
-- `platform_data/adapters.py`
+- `platform_data/adapters/`
 - `platform_data/contracts/`
 - `platform_data/repositories.py`
 
@@ -331,16 +311,13 @@ Cross-domain access should follow this order of preference:
 
 ### 6.1 Legacy frontend prototype
 
-- `CostView/frontend/` is downgraded to legacy prototype status.
+- `CostView/frontend/` is downgraded to legacy prototype status (archived under `docs/archive/`).
 - It is not the canonical CostView UI.
 - New production UI work should go to `frontend/src/modules/costview/`.
 
 ### 6.2 Empty placeholders
 
-- `app/` is currently empty and non-authoritative.
-- `config/` is currently empty and non-authoritative.
-
-These directories should not be treated as active architecture anchors.
+- `app/` and `config/` legacy placeholder directories have been **deleted**.
 
 ### 6.3 Archived documents
 
@@ -351,11 +328,11 @@ These directories should not be treated as active architecture anchors.
 
 ## 7. Current Alignment Gaps
 
-1. `CostView/frontend/src/` still exists as a legacy code surface and should eventually be archived or removed.
+1. `CostView/frontend/` has been archived to `docs/archive/` — legacy prototype removed from active surfaces.
 2. ExecutionView operational data and CostView analytical data now have a shared adapter entry; cross-module deep imports from ExecutionView to CostView have been eliminated.
-3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built.
-4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) are deprecated (with runtime `DeprecationWarning`) and internally delegate to `ConnectionManager`. Full extraction to a Data Platform subsystem is planned per `docs/spec/data-domain.md`.
-5. `platform_data/adapters.py` no longer imports `RawBDIBDB` directly — uses `_ConnectionManagerDailySummaryReader` instead.
+3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built. MarketView runs as a standalone service on :8001.
+4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) have been **deleted** — fully migrated to `DataPipeline/storage/` repositories per `docs/spec/data-domain.md`.
+5. `platform_data/adapters.py` has been split into `platform_data/adapters/` subpackage (with backward-compat re-exports in `__init__.py`).
 
 ---
 

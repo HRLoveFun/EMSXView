@@ -18,8 +18,6 @@ MarketView/                      # Independent microservice
 ├── requirements.txt             # Python dependencies
 └── routers/
     └── marketview.py            # API endpoints
-
-backend/api/routers/marketview.py  # Canonical copy (used in merge mode)
 ```
 
 ## Deployment
@@ -31,12 +29,8 @@ pip install -r requirements.txt
 python main.py                    # Starts on :8001
 ```
 
-### Single-process (merge mode)
-```bash
-cd backend/api
-set EMSXVIEW_MERGE_MODULES=true
-python main.py                    # All modules in one process
-```
+> MarketView runs as a standalone service only. The merge-mode integration
+> in `backend/api/` has been removed (Phase B3).
 
 ## Endpoints
 

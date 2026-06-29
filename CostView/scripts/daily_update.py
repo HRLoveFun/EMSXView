@@ -42,9 +42,20 @@ logger = logging.getLogger("daily_update")
 
 def _run_archive_step() -> None:
     """Phase C1: 管线后自动归档 (非阻塞, 失败不影响管线)."""
+    def _on_archive_progress(db_name: str, phase: str, rows: int) -> None:
+        # 每个 DB 处理完都输出一次 [STAGE] 心跳，刷新 last_activity_at，
+        # 避免 7 个 DB 归档 + VACUUM 整体耗时 > 5 分钟时被前端 watchdog 误判为 stalled
+        if phase == "start":
+            print(f"[STAGE] archive 50 Archiving {db_name}...", flush=True)
+        else:
+            print(
+                f"[STAGE] archive 80 Archived {db_name} ({rows} rows)",
+                flush=True,
+            )
+
     try:
         from scripts.run_archive import _run_archive_auto
-        result = _run_archive_auto()
+        result = _run_archive_auto(progress_callback=_on_archive_progress)
         archived = result.get("archived", {})
         if archived:
             total_rows = sum(
