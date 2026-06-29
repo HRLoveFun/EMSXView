@@ -124,7 +124,7 @@
 | `/api/database/dates` | GET | 数据库日期覆盖 |
 | `/api/database/health` | GET | 数据库健康检查 |
 
-详见 `docs/api/database.md`（如存在）。
+详见 `docs/archive/2026-06-29/database.md`（已归档，内容部分过时；当前真相源以 `backend/api/routers/database.py` 为准）。
 
 ---
 
