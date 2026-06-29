@@ -28,8 +28,6 @@ docs 根目录只保留入口导航和当前 handoff，其余按领域划入子�
 | docs/spec/memory.md | 稳定架构记忆与长期约束 | 形成新的稳定规则时 |
 | docs/dev-guide.md | 开发指南与验证约束 | 开发流程或权威入口变化时 |
 | docs/handoff.md | 当前阻塞、运行状态、下一步 | 每次阶段性收尾时 |
-| docs/api/database.md | DatabaseView API 契约 | API 变更时 |
-| docs/api/sequence-diagrams.md | 当前模块级时序说明 | ⚠️ 无 CI 保障，修改调用链后应同步更新 |
 | docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
 | docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
 | docs/roadmap/wbs.md | 活跃路线图与阶段拆解 | 路线图变更时 |
@@ -39,9 +37,7 @@ docs 根目录只保留入口导航和当前 handoff，其余按领域划入子�
 
 ## 3. Generated And Reference Material
 
-| 位置 | 说明 |
-|---|---|
-| docs/api/sequence-diagrams.md | 时序图的 Mermaid 源文件与说明 |
+> 时序图已归档至 `docs/archive/2026-06-29/sequence-diagrams.md`（无 CI 保障且与实际代码漂移）。如需新时序图，请从代码生成或显式标注为草稿。
 
 ---
 

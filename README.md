@@ -254,18 +254,20 @@ EMSXView/
 │   ├── schema-contract.md            # Schema contract docs
 │   ├── api/                          # API reference docs
 │   │   ├── bloomberg-emsx-reference.md
-│   │   ├── bloomberg-emsx-data-retrieval-methods.md
-│   │   ├── database.md
-│   │   └── sequence-diagrams.md
+│   │   └── bloomberg-emsx-data-retrieval-methods.md
 │   ├── spec/                         # Architecture specifications ★
 │   │   ├── project-structure.md      # Canonical architecture reference
 │   │   ├── data-domain.md            # Logical data domain design
 │   │   └── memory.md                 # Architecture memory & constraints
 │   ├── ops/                          # Operations docs
 │   │   └── service-management.md     # Service operations guide
-│   └── roadmap/                      # Roadmap & WBS
-│       ├── wbs.md
-│       └── task-templates.md
+│   ├── roadmap/                      # Roadmap & WBS
+│   │   ├── wbs.md
+│   │   └── task-templates.md
+│   └── archive/                      # 归档（按日期或主题）
+│       └── 2026-06-29/               # 已漂移的 API 文档
+│           ├── database.md           # DatabaseView API 契约（过时，以代码为准）
+│           └── sequence-diagrams.md  # 模块时序图（无 CI 保障）
 │
 ├── scripts/                          # Automation & utility scripts
 │   ├── start-all.bat                 # Start all services
