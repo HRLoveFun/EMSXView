@@ -1,0 +1,96 @@
+{
+  "timestamp": "20260630_161838",
+  "mode": "execute",
+  "database_paths": {
+    "processed_fills": "C:\\Users\\hrchen\\Documents\\EMSXView\\CostView\\data\\processed_fills.db",
+    "execution_history": "C:\\Users\\hrchen\\Documents\\EMSXView\\CostView\\data\\execution_history.db",
+    "raw_fills_for_invariant": "C:\\Users\\hrchen\\Documents\\EMSXView\\CostView\\data\\raw_fills.db"
+  },
+  "backups": {
+    "processed_fills": "C:\\Users\\hrchen\\Documents\\EMSXView\\CostView\\data\\processed_fills.db.20260630_161838.cleanup_orphan.bak",
+    "execution_history": "C:\\Users\\hrchen\\Documents\\EMSXView\\CostView\\data\\execution_history.db.20260630_161838.cleanup_orphan.bak"
+  },
+  "pre_sha256": {
+    "processed_fills": "631da8a45db53e829e4608a3fe5ba4d7aba9f40a4f5bd4126cc53895926a1b36",
+    "execution_history": "bc40883c3c09105fdd9ec5b2de3c348be396611dbe1b133288b76162832bd80b"
+  },
+  "post_sha256": {
+    "processed_fills": "cee1a4c81d7349fd481d1ded412c380fe078072bf6374f8608c71691b13dcfe2",
+    "execution_history": "bc40883c3c09105fdd9ec5b2de3c348be396611dbe1b133288b76162832bd80b"
+  },
+  "orphan_count": 209,
+  "orphans_sample": [
+    [
+      "5139003",
+      "1",
+      "76",
+      "20260305"
+    ],
+    [
+      "5139003",
+      "1",
+      "87",
+      "20260305"
+    ],
+    [
+      "5141747",
+      "1",
+      "4",
+      "20260309"
+    ],
+    [
+      "5141946",
+      "1",
+      "5",
+      "20260309"
+    ],
+    [
+      "5141946",
+      "1",
+      "6",
+      "20260309"
+    ],
+    [
+      "5142824",
+      "1",
+      "45",
+      "20260310"
+    ],
+    [
+      "5142824",
+      "1",
+      "80",
+      "20260310"
+    ],
+    [
+      "5142824",
+      "1",
+      "122",
+      "20260310"
+    ],
+    [
+      "5142824",
+      "1",
+      "144",
+      "20260310"
+    ],
+    [
+      "5142824",
+      "1",
+      "252",
+      "20260310"
+    ]
+  ],
+  "invariant_check": {
+    "orphans_total": 209,
+    "orphans_verified_in_raw_absent": 209,
+    "hit_in_raw": 0
+  },
+  "delete_result": {
+    "deleted_processed": 209,
+    "deleted_route_event": 0,
+    "skipped": false
+  },
+  "post_check_residual_orphans": 0,
+  "background": "raw_fills 表 PK 为 (OrderId, RouteId, FillId) 不含 source_date；Bloomberg 重复 fetch 同 OrderId 时新数据 INSERT OR REPLACE 跨日覆盖早期写入行，导致某些 FillId 在 raw 中丢失但 processed_fills 中残留。本次清理是删除这些孤儿行，恢复数据一致性。"
+}
