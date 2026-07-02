@@ -82,17 +82,15 @@ class EMSXHistoryClient:
         logger.info(f"Opened additional service {service_name}")
         return True
 
-    def fetch_fills(self, from_date: datetime, to_date: datetime,
-                    team: Optional[str] = None) -> List[Dict[str, Any]]:
+    def fetch_fills(self, from_date: datetime, to_date: datetime) -> List[Dict[str, Any]]:
         """
         Fetch fill data from EMSX History API.
 
-        Uses TradingSystem scope by default (fills for the logged-in AIM Px#).
+        Uses TradingSystem scope (fills for the logged-in AIM Px#).
 
         Args:
             from_date: Start datetime
             to_date: End datetime
-            team: Team name to fetch fills for (alternative scope)
 
         Returns:
             List of dicts with original EMSX column names preserved
@@ -112,16 +110,11 @@ class EMSXHistoryClient:
         request.set("FromDateTime", from_str)
         request.set("ToDateTime", to_str)
 
-        # Set scope - TradingSystem by default, Team as override
+        # Set scope - TradingSystem (基于登录的 AIM Px#)
         scope = request.getElement("Scope")
-        if team:
-            scope.setChoice("Team")
-            scope.setElement("Team", team)
-            logger.info(f"Requesting fills from {from_str} to {to_str} for Team '{team}'")
-        else:
-            scope.setChoice("TradingSystem")  # AIM Px# - picked up based on login
-            scope.setElement("TradingSystem", True)
-            logger.info(f"Requesting fills from {from_str} to {to_str} for TradingSystem (login-based)")
+        scope.setChoice("TradingSystem")
+        scope.setElement("TradingSystem", True)
+        logger.info(f"Requesting fills from {from_str} to {to_str} for TradingSystem (login-based)")
 
         # Send request and process response
         self.session.sendRequest(request)

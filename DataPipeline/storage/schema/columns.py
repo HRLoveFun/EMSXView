@@ -79,6 +79,7 @@ ROUTE_EVENT_HISTORY_COLUMNS: List[str] = [
 COLUMN_TYPE_MAP: Dict[str, str] = {
     "FillPrice": "REAL", "FillShares": "REAL", "Amount": "REAL",
     "RouteShares": "REAL", "is_closing_auction": "INTEGER",
+    "LimitPrice": "REAL", "StopPrice": "REAL",
     "count_fill": "INTEGER", "count_broker": "INTEGER",
     "count_algo": "INTEGER", "count_trader": "INTEGER",
     "route_count": "INTEGER", "fill_count": "INTEGER",

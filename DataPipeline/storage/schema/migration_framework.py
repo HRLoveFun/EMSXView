@@ -42,7 +42,7 @@ from DataPipeline.storage.connection import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
-_MIGRATIONS_ROOT = Path(__file__).resolve().parent
+_MIGRATIONS_ROOT = Path(__file__).resolve().parent / "migrations"
 
 _MIGRATION_NAME_RE = re.compile(r"^v(\d+)_to_v(\d+)\.sql$")
 
@@ -50,7 +50,7 @@ MIGRATION_LOCK_TIMEOUT_SEC = 30
 MIGRATION_LOCK_RETRY_INTERVAL_SEC = 1.0
 
 _EXPECTED_CURRENT: Dict[str, int] = {
-    "raw_fills": 1,
+    "raw_fills": 4,  # v3->v4: order_as_of_date NOT NULL 约束 (2026-07-02 P1)
     "processed_fills": 1,
     "raw_bdib": 1,
     "processed_raw_bdib": 1,

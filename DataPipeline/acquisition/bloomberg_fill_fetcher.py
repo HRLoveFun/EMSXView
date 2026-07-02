@@ -3,7 +3,7 @@ Bloomberg EMSX Fill Fetcher — blpapi-based fill data retrieval.
 
 Handles the low-level Bloomberg EMSX History API communication:
   - Session management (connect, disconnect, reconnect on timeout)
-  - Fill request creation (GetFills, scope: TradingSystem/Team)
+  - Fill request creation (GetFills, scope: TradingSystem)
   - Response parsing with field extraction
   - Retry with exponential backoff on transient failures
 
@@ -22,6 +22,8 @@ import blpapi
 
 from DataPipeline.acquisition._constants import (
     GET_FILLS_RESPONSE,
+    ERROR_INFO,
+    ERROR_RESPONSE,
     FILL_FIELD_EXTRACTORS,
 )
 
@@ -129,8 +131,7 @@ class BloombergFillFetcher:
         if not self._connected or self._session is None:
             raise RuntimeError("Not connected to Bloomberg. Call connect() first.")
 
-    def fetch_fills(self, from_date: datetime, to_date: datetime,
-                    team: Optional[str] = None) -> List[Dict[str, Any]]:
+    def fetch_fills(self, from_date: datetime, to_date: datetime) -> List[Dict[str, Any]]:
         """Fetch fills from Bloomberg EMSX history with retry logic.
 
         Uses ``nextEvent(timeout_ms)`` internally. After consecutive TIMEOUT
@@ -141,7 +142,7 @@ class BloombergFillFetcher:
         for attempt in range(1, self.max_retries + 1):
             is_timeout = False
             try:
-                return self._fetch_fills_once(from_date, to_date, team)
+                return self._fetch_fills_once(from_date, to_date)
             except EMSXRequestError as exc:
                 last_error = exc
                 is_timeout = (
@@ -173,9 +174,11 @@ class BloombergFillFetcher:
                 logger.error(f"All {self.max_retries} fetch attempts failed")
         raise last_error
 
-    def _fetch_fills_once(self, from_date: datetime, to_date: datetime,
-                          team: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Execute a single GetFills request and parse the response."""
+    def _fetch_fills_once(self, from_date: datetime, to_date: datetime) -> List[Dict[str, Any]]:
+        """Execute a single GetFills request and parse the response.
+
+        Scope 固定为 TradingSystem（基于登录的 AIM Px#），不支持 Team scope。
+        """
         service = self._session.getService(self.service_name)
         request = service.createRequest("GetFills")
         from_str = from_date.strftime('%Y-%m-%dT%H:%M:%S.000+00:00')
@@ -183,12 +186,8 @@ class BloombergFillFetcher:
         request.set("FromDateTime", from_str)
         request.set("ToDateTime", to_str)
         scope = request.getElement("Scope")
-        if team:
-            scope.setChoice("Team")
-            scope.setElement("Team", team)
-        else:
-            scope.setChoice("TradingSystem")
-            scope.setElement("TradingSystem", True)
+        scope.setChoice("TradingSystem")
+        scope.setElement("TradingSystem", True)
         self._session.sendRequest(request)
         fills: List[Dict[str, Any]] = []
         done = False
@@ -202,19 +201,25 @@ class BloombergFillFetcher:
             if et == blpapi.Event.PARTIAL_RESPONSE:
                 consecutive_timeouts = 0
                 for msg in event:
-                    if msg.messageType() == GET_FILLS_RESPONSE:
+                    msg_type = msg.messageType()
+                    if msg_type == GET_FILLS_RESPONSE:
                         try:
                             fills.extend(_parse_fill_messages(msg))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("解析 fill 消息失败: %s", e)
+                    elif msg_type == ERROR_RESPONSE or msg_type == ERROR_INFO:
+                        raise self._build_request_error(msg)
             elif et == blpapi.Event.RESPONSE:
                 consecutive_timeouts = 0
                 for msg in event:
-                    if msg.messageType() == GET_FILLS_RESPONSE:
+                    msg_type = msg.messageType()
+                    if msg_type == GET_FILLS_RESPONSE:
                         try:
                             fills.extend(_parse_fill_messages(msg))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("解析 fill 消息失败: %s", e)
+                    elif msg_type == ERROR_RESPONSE or msg_type == ERROR_INFO:
+                        raise self._build_request_error(msg)
                 done = True
             elif et == blpapi.Event.TIMEOUT:
                 consecutive_timeouts += 1
@@ -225,6 +230,26 @@ class BloombergFillFetcher:
             else:
                 pass
         return fills
+
+    @staticmethod
+    def _build_request_error(msg) -> EMSXRequestError:
+        """从 ErrorResponse / ErrorInfo 消息提取错误码和消息，构造 EMSXRequestError。
+
+        不同错误场景字段可能缺失，提取时 try-except 包裹以防再次抛异常。
+        """
+        error_code = ""
+        error_msg = ""
+        try:
+            error_code = msg.getElementAsString("ErrorCode")
+        except Exception:
+            pass
+        try:
+            error_msg = msg.getElementAsString("ErrorMsg")
+        except Exception:
+            pass
+        detail = f"Bloomberg API error: {error_code} - {error_msg}".strip(" -")
+        logger.error(detail)
+        return EMSXRequestError(detail)
 
     def get_trade_desks(self) -> List[str]:
         """Get available trade desks from EMSX API."""

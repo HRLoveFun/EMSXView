@@ -182,6 +182,19 @@ class SqliteRawFillWriteRepository(BaseRepository):
                     if original == "NA":
                         df.at[i, "Exchange"] = "NA"
 
+        # ══ 修复: 恢复 Ticker 值为 BBG 字符串 "NA" (pandas 默认将字符串 "NA" 解析为 NaN)
+        # 与 Exchange NaN->NA 修复同入口同模式: National Bank of Canada 的 BBG ticker
+        # mnemonic 即 'NA', pandas pd.DataFrame(fills) 同样会把字符串 "NA" 误解析为 NaN,
+        # 落库后变成 NULL, 下游 fill_processor.add_equity_ticker 的 blank_mask 触发置
+        # equ_ticker=NaN, 导致 CostView TCA JOIN 失配. 本修复从原始 fills 字典反查真值.
+        if "Ticker" in df.columns:
+            ticker_na_mask = df["Ticker"].isna()
+            if ticker_na_mask.any():
+                for i in ticker_na_mask[ticker_na_mask].index:
+                    original = fills[i].get("Ticker")
+                    if original == "NA":
+                        df.at[i, "Ticker"] = "NA"
+
         if "DateTimeOfFill" in df.columns:
             from DataPipeline.processing.fill_cleaner import derive_exchange_times
             df = derive_exchange_times(df)
@@ -191,7 +204,16 @@ class SqliteRawFillWriteRepository(BaseRepository):
 
         conn = self._get_write_conn()
         try:
-            cols = list(EMSX_FILL_COLUMNS) + ["order_as_of_date", "source_date", "fetched_at"]
+            # v2 修复 (2026-07-02): cols 补上 exchange_exec_time 派生字段
+            # 原 cols = EMSX_FILL_COLUMNS + ['order_as_of_date', 'source_date', 'fetched_at']
+            # 缺失 exchange_exec_time 导致 4.6M 行 (41.7%) 该字段 NULL,
+            # 下游 S2 修复了源 bug 后历史数据无法回溯。详见
+            # docs/archive/2026-07-02/raw_fills_null_investigation.md 第一节问题 1。
+            cols = (
+                list(EMSX_FILL_COLUMNS)
+                + ["order_as_of_date", "exchange_exec_time",
+                   "source_date", "fetched_at"]
+            )
             placeholders = ", ".join(["?"] * len(cols))
             col_names = ", ".join(cols)
             sql = f"INSERT OR REPLACE INTO raw_fills ({col_names}) VALUES ({placeholders})"
@@ -204,6 +226,9 @@ class SqliteRawFillWriteRepository(BaseRepository):
                     val = f.get(col)
                     row.append(None if val is None else str(val))
                 row.append(oaod[i])
+                # v2 修复: 同步写入 exchange_exec_time, 与 oaod 同源
+                eet = df["exchange_exec_time"].iloc[i] if "exchange_exec_time" in df.columns else ""
+                row.append("" if (eet is None or (hasattr(eet, "isna") and eet.isna())) else str(eet))
                 row.append(source_date)
                 row.append(now)
                 rows.append(tuple(row))
@@ -217,15 +242,34 @@ class SqliteRawFillWriteRepository(BaseRepository):
 
     def add_fetch_log_record(
         self, source_date: str, row_count: int, data_hash: str,
+        file_path: Optional[str] = None,
     ) -> None:
-        """Record a fetch operation in the fetch_log table."""
+        """记录一次 fetch 操作; 同 source_date 旧行自动软标记 'deprecated'。
+
+        业务约定: 同一 source_date 允许多次拉取 (late fills、scope 切换、
+        Bloomberg 修正等), 最新一次为 'fetched', 历史行标 'deprecated' 最新获胜。
+        UNIQUE(source_date, data_hash) 仍保留 防止内容级重复。
+        """
         conn = self._get_write_conn()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            # 软标记同 source_date 旧 'fetched' 行为 'deprecated'
             conn.execute(
-                "INSERT INTO fetch_log (source_date, row_count, data_hash) VALUES (?, ?, ?)",
-                (source_date, row_count, data_hash),
+                "UPDATE fetch_log SET status = 'deprecated' "
+                "WHERE source_date = ? AND status = 'fetched'",
+                (source_date,),
+            )
+            # INSERT OR REPLACE 兜底 force 路径可能产生 (source_date, data_hash) 相同
+            conn.execute(
+                "INSERT OR REPLACE INTO fetch_log "
+                "(source_date, row_count, data_hash, file_path, status) "
+                "VALUES (?, ?, ?, ?, 'fetched')",
+                (source_date, row_count, data_hash, file_path),
             )
             conn.commit()
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
         finally:
             conn.close()
 

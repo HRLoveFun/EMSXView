@@ -85,7 +85,7 @@ class FillFetch:
     """Main FillFetch class that orchestrates the fetch process.
 
     Pipeline:
-        1. Given a date and optional Team, fetch fill data
+        1. Given a date, fetch fill data (TradingSystem scope)
         2. Compute the SHA-256 hash
         3. Check for duplicate via in-memory hash index + DB fallback
         4. Upsert raw API data to raw_fills.db
@@ -206,24 +206,24 @@ class FillFetch:
             logger.error(f"Failed to save Excel: {e}")
             return False
 
-    def fetch_day(self, target_date: date, team: Optional[str] = None,
+    def fetch_day(self, target_date: date,
                   skip_duplicates: bool = True, force: bool = False,
                   archive_excel: bool = False) -> Dict[str, Any]:
         if force:
             skip_duplicates = False
         order_date = target_date.strftime('%Y-%m-%d')
         date_compact = target_date.strftime('%Y%m%d')
-        scope_desc = f"Team '{team}'" if team else "TradingSystem (login-based)"
+        scope_desc = "TradingSystem (login-based)"
         logger.info(f"Fetching fills for {order_date} ({scope_desc})")
         result: Dict[str, Any] = {
-            'order_date': order_date, 'team': team, 'success': False,
+            'order_date': order_date, 'success': False,
             'skipped': False, 'rows_fetched': 0, 'hash_value': None,
             'rows_upserted': 0, 'file_path': None, 'error': None,
         }
         try:
             from_dt, to_dt = self._get_date_range(target_date)
             with BloombergFillFetcher() as client:
-                fills = client.fetch_fills(from_dt, to_dt, team=team)
+                fills = client.fetch_fills(from_dt, to_dt)
             if not fills:
                 logger.info(f"No fills found for {order_date}")
                 result['success'] = True
@@ -271,8 +271,6 @@ class FillFetch:
                 self._record_hash_in_memory(date_compact, hash_value)
             if archive_excel:
                 file_name = f"fills_{date_compact}.xlsx"
-                if team:
-                    file_name = f"fills_{date_compact}_{team}.xlsx"
                 file_path = self.data_dir / file_name
                 if self._save_to_excel(fills, file_path):
                     result['file_path'] = str(file_path)
@@ -298,24 +296,23 @@ class FillFetch:
         return result
 
     def fetch_range(self, start_date: date, end_date: date,
-                    team: Optional[str] = None, force: bool = False,
+                    force: bool = False,
                     archive_excel: bool = False) -> List[Dict[str, Any]]:
         results = []
         current = start_date
         while current <= end_date:
-            result = self.fetch_day(current, team=team, force=force, archive_excel=archive_excel)
+            result = self.fetch_day(current, force=force, archive_excel=archive_excel)
             results.append(result)
             current += timedelta(days=1)
         return results
 
     def fetch_range_aggregated(self, start_date: date, end_date: date,
-                               team: Optional[str] = None,
                                skip_duplicates: bool = True, force: bool = False,
                                archive_excel: bool = False,
                                progress_callback: Optional[Callable[[int, int, str, int, str], None]] = None) -> Dict[str, Any]:
         if force:
             skip_duplicates = False
-        scope_desc = f"team={team}" if team else "TradingSystem (login-based)"
+        scope_desc = "TradingSystem (login-based)"
         logger.info(f"Starting aggregated fetch: {start_date} to {end_date} ({scope_desc})")
         all_records: List[Dict[str, Any]] = []
         day_summaries: List[Dict[str, Any]] = []
@@ -339,7 +336,7 @@ class FillFetch:
                     progress_callback(day_idx - 1, weekdays_in_range, order_date, 0, "Fetching from EMSX/Bloomberg…")
                 try:
                     from_dt, to_dt = self._get_date_range(current)
-                    fills = client.fetch_fills(from_dt, to_dt, team=team)
+                    fills = client.fetch_fills(from_dt, to_dt)
                     if not fills:
                         day_summaries.append({'order_date': order_date, 'rows': 0, 'status': 'empty'})
                         no_fill_days += 1
@@ -384,8 +381,6 @@ class FillFetch:
                         self._record_hash_in_memory(date_compact, hash_value)
                     if archive_excel:
                         day_file_name = f"fills_{date_compact}.xlsx"
-                        if team:
-                            day_file_name = f"fills_{date_compact}_{team}.xlsx"
                         day_file_path = self.data_dir / day_file_name
                         if self._save_to_excel(fills, day_file_path):
                             saved_files.append(str(day_file_path))
@@ -478,7 +473,6 @@ def main():
     parser.add_argument('--date', type=str, help='Date to fetch (YYYY-MM-DD)')
     parser.add_argument('--start-date', type=str, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--team', type=str, default=None, help='Team name')
     parser.add_argument('--force', action='store_true', help='Force re-fetch')
     parser.add_argument('--aggregate', action='store_true', help='Aggregate range fetch')
     parser.add_argument('--data-dir', type=str, help='Data directory')
@@ -513,20 +507,20 @@ def main():
                 return
             start, end = fetch_range
             print(f"Auto mode: fetching {start} -> {end}")
-            summary = fetcher.fetch_range_aggregated(start, end, team=args.team, force=args.force, archive_excel=args.archive_excel)
+            summary = fetcher.fetch_range_aggregated(start, end, force=args.force, archive_excel=args.archive_excel)
         elif args.date:
             d = datetime.strptime(args.date, '%Y-%m-%d').date()
-            result = fetcher.fetch_day(d, team=args.team, force=args.force, archive_excel=args.archive_excel)
+            result = fetcher.fetch_day(d, force=args.force, archive_excel=args.archive_excel)
             _print_result(result)
             return
         elif args.start_date and args.end_date:
             start = datetime.strptime(args.start_date, '%Y-%m-%d').date()
             end = datetime.strptime(args.end_date, '%Y-%m-%d').date()
             if args.aggregate:
-                summary = fetcher.fetch_range_aggregated(start, end, team=args.team, force=args.force, archive_excel=args.archive_excel)
+                summary = fetcher.fetch_range_aggregated(start, end, force=args.force, archive_excel=args.archive_excel)
                 _print_summary(summary)
             else:
-                results = fetcher.fetch_range(start, end, team=args.team, force=args.force, archive_excel=args.archive_excel)
+                results = fetcher.fetch_range(start, end, force=args.force, archive_excel=args.archive_excel)
                 for r in results:
                     _print_result(r)
             return

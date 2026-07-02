@@ -1,0 +1,58 @@
+{
+  "audit_type": "bak_cleanup",
+  "executed_at": "2026-07-02T08:27:25+08:00",
+  "executed_by": "manual (user confirmed early cleanup, originally scheduled 2026-07-21)",
+  "total_freed_gb": 57.58,
+  "files": [
+    {
+      "filename": "processed_fills.bak_migration_20260615",
+      "phase": "B4",
+      "size_gb": 24.57,
+      "sha256": "c538df75b432abb023b3e5c3f825dd25a5314f0fd098353b0eefe7be7cd58bd9",
+      "sha256_verified": true,
+      "manifest": "CostView/data/observation_B4.json",
+      "was_readonly": true,
+      "original_cleanup_date": "2026-07-21",
+      "actual_cleanup_date": "2026-07-02",
+      "note": "B4 观察期 2026-06-21 通过，提前 19 天清理"
+    },
+    {
+      "filename": "processed_raw_bdib.bak_migration_20260610",
+      "phase": "A8",
+      "size_gb": 29.78,
+      "sha256": "2abc0e434343ffee363a6d05c2bb0af8cc2cb43d1449fe5f7056ea8892722aff",
+      "sha256_verified": true,
+      "manifest": "CostView/data/observation_A8.json",
+      "was_readonly": false,
+      "retention_until": "2026-06-15",
+      "actual_cleanup_date": "2026-07-02",
+      "note": "A8 观察期 2026-06-15 通过，manifest 未设定 bak_cleanup_date，本次补充清理"
+    },
+    {
+      "filename": "raw_fills.db.bak_before_dedup",
+      "phase": "orphan (unmanaged)",
+      "size_gb": 3.23,
+      "sha256": "45cfb0a99dc3bf5bee7c3ae5370e73fb0ee65ded7e166a547f5cd7c9302ccd8c",
+      "sha256_verified": false,
+      "manifest": null,
+      "was_readonly": false,
+      "actual_cleanup_date": "2026-07-02",
+      "note": "孤儿文件，不在任何 observation manifest 中，疑似去重前备份。sha256 已记录本审计日志中。"
+    }
+  ],
+  "pre_delete_verification": {
+    "b4_observation_final_status": "complete",
+    "b4_observation_all_pass_days": 6,
+    "b4_blocking_conditions": [],
+    "b4_verify_result_all_match": true,
+    "a8_observation_final_status": "complete",
+    "a8_observation_all_pass_days": 6,
+    "a8_blocking_conditions": []
+  },
+  "post_delete_verification": {
+    "all_files_confirmed_deleted": true,
+    "control_md_updated": true,
+    "observation_b4_json_updated": true,
+    "observation_a8_json_updated": true
+  }
+}

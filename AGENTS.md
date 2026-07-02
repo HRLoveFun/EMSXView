@@ -50,15 +50,18 @@ EMSXView is a Bloomberg EMSX-integrated trading platform covering pre-trade anal
 - VBS 启动器只做 thin wrapper（隐藏窗口 + 调起 PS1），**禁止**在 VBS 内做路径深度计算或业务逻辑——`WScript.ScriptFullName` 含文件名、`$PSScriptRoot` 已是目录，两者语义不可复用同一套"向上 N 层"
 - 详见 [AP-16 启动器路径硬编码 + 跨宿主语义错位](docs/spec/anti-patterns.md#ap-16-启动器路径硬编码--跨宿主语义错位)
 
-## data_management_refactoring 分支工作流
+## data_management_refactoring 分支工作流 [已完成归档 — 2026-07-02]
 
-> **仅在 `data_management_refactoring` 分支生效。**
-
-当用户要求执行重构步骤时：
-1. 必须先读 `data_management_refactoring_control.md` 了解当前进度
-2. 必须读 `data_management_refactoring_plan.md` 中对应节的实施方案
-3. 包含 `.BAK` 操作的步骤（A7/A8/B4）必须先陈述计划，等待用户确认
-4. 每步完成后必须更新 `control.md` 中对应任务的状态
+> **⚠️ 本节已归档。** 数据管理重构 Phase A-D（15/15 任务）全部完成，.BAK 安全网已清理（2026-07-02，释放 57.58 GB）。
+> 以下内容仅作历史记录保留，**不再触发 .BAK 安全规则**。当前分支 `datapipeline-checking` 与本工作流无关。
+>
+> ~~仅在 `data_management_refactoring` 分支生效。~~
+>
+> ~~当用户要求执行重构步骤时：~~
+> ~~1. 必须先读 `data_management_refactoring_control.md` 了解当前进度~~
+> ~~2. 必须读 `data_management_refactoring_plan.md` 中对应节的实施方案~~
+> ~~3. 包含 `.BAK` 操作的步骤（A7/A8/B4）必须先陈述计划，等待用户确认~~
+> ~~4. 每步完成后必须更新 `control.md` 中对应任务的状态~~
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Fill Processor — transform cleaned EMSX fills into processed fills.
 
 Adapted from D:\\Evaluation\\src\\trading_data_processing\\fill.py.
@@ -146,7 +146,7 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
         ① 先查本地 eur_composite_ticker_cache
         ② 缓存未命中 → 查询 Bloomberg
         ③ BBG 结果回写缓存
-        ④ 仍未命中 → equ_ticker 设为 NaN（非原始 ticker）
+        ④ 仍未命中 → 保留原始拼接 equ_ticker（fallback），记录 warning
     """
     required = ["Ticker", "Exchange", "Currency"]
     missing = [c for c in required if c not in df.columns]
@@ -209,17 +209,28 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
                 _save_composite_cache(bbg_results)
             logger.info("BBG 返回 %d 条 EUR 复合代码结果", len(bbg_results))
         elif not cache_hit:
-            logger.warning("EUR 缓存为空且无 ticker 需查询 BBG — equ_ticker 将设为 NaN")
+            logger.warning("EUR 缓存为空且无 ticker 需查询 BBG — 保留原始拼接 equ_ticker")
 
-        # ④ 合并结果, 映射: 未命中 → NaN（dict 中不存在的 key 自动映射为 NaN）
+        # ④ 合并结果: 命中 → composite ticker, 未命中 → 保留原始拼接值（fallback）
         composite_map = {**cache_hit, **bbg_results}
         if composite_map:
-            df.loc[eur_mask, "equ_ticker"] = df.loc[eur_mask, "equ_ticker"].map(
-                composite_map
-            )
+            original_values = df.loc[eur_mask, "equ_ticker"]
+            mapped = original_values.map(composite_map)
+            # 未命中的 ticker 保留原始拼接值，不再丢弃为 NaN
+            df.loc[eur_mask, "equ_ticker"] = mapped.fillna(original_values)
+            hit_count = int(mapped.notna().sum())
+            fallback_count = int(original_values.notna().sum() - hit_count)
+            if fallback_count > 0:
+                logger.info(
+                    "EUR 复合代码: 缓存/BBG 命中 %d 行, %d 行未命中保留原始拼接值",
+                    hit_count, fallback_count,
+                )
         else:
-            # BBG 完全不可用且无缓存 → 全部设为 NaN
-            df.loc[eur_mask, "equ_ticker"] = np.nan
+            # BBG 完全不可用且无缓存 → 保留原始拼接值，仅记录 warning
+            logger.warning(
+                "EUR composite ticker 缓存为空且 BBG 查询失败，%d 行保留原始拼接 equ_ticker",
+                int(eur_mask.sum()),
+            )
 
     return df.drop(columns=["_processed_ticker"])
 

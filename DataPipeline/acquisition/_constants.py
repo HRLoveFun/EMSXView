@@ -25,6 +25,9 @@ GET_FILLS_RESPONSE = blpapi.Name("GetFillsResponse")
 ERROR_INFO = blpapi.Name("ErrorInfo")
 """Message type for EMSX error information."""
 
+ERROR_RESPONSE = blpapi.Name("ErrorResponse")
+"""Message type for EMSX request-level error responses (e.g. permission denied)."""
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Fill field definitions
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1,5 +1,13 @@
 # 数据管理重构方案 — 执行指南
 
+> **📦 归档文档 — 2026-07-02**
+>
+> 数据管理重构 Phase A-D（15/15 任务）已全部实施完成，.BAK 安全网已清理（释放 57.58 GB）。
+> 本文件仅保留供查阅历史实施方案与安全机制设计，不再作为活跃执行指南。
+> 运行时参数请查阅 [data_management_refactoring_control.md §二](data_management_refactoring_control.md#二可调参数)。
+>
+> ---
+>
 > 版本: v2.0 | 日期: 2026-06-01 | 
 >
 > 配套控制中心: [data_management_refactoring_control.md](data_management_refactoring_control.md) — 进度跟踪、参数调整、证据审查

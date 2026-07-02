@@ -68,7 +68,8 @@ class SqliteFetchHistoryRepository(BaseRepository):
                 data_hash       TEXT NOT NULL,
                 row_count       INTEGER NOT NULL DEFAULT 0,
                 file_path       TEXT,
-                status          TEXT NOT NULL DEFAULT 'fetched',
+                status          TEXT NOT NULL DEFAULT 'fetched'
+                                CHECK (status IN ('fetched','deprecated','superseded','failed')),
                 fetch_timestamp TEXT DEFAULT (datetime('now')),
                 UNIQUE(source_date, data_hash)
             )
@@ -92,14 +93,24 @@ class SqliteFetchHistoryRepository(BaseRepository):
         self, source_date: str, data_hash: str, row_count: int,
         file_path: Optional[str] = None,
     ) -> int:
-        """Record a fetch operation. Returns the row id."""
+        """记录一次 fetch; 同 source_date 旧行软标记 'deprecated' (latest-wins)。
+
+        与 raw_fills.db.fetch_log 的 add_fetch_log_record 保持一致语义。
+        UNIQUE(source_date, data_hash) 仍保留 防止内容级重复。
+        """
         conn = self._get_admin_conn()
         try:
             self._ensure_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                f"UPDATE {Config.FETCH_HISTORY_TABLE} SET status = 'deprecated' "
+                f"WHERE source_date = ? AND status = 'fetched'",
+                (source_date,),
+            )
             cursor = conn.execute(
-                f"INSERT OR IGNORE INTO {Config.FETCH_HISTORY_TABLE} "
-                f"(source_date, data_hash, row_count, file_path) "
-                f"VALUES (?, ?, ?, ?)",
+                f"INSERT OR REPLACE INTO {Config.FETCH_HISTORY_TABLE} "
+                f"(source_date, data_hash, row_count, file_path, status) "
+                f"VALUES (?, ?, ?, ?, 'fetched')",
                 (source_date, data_hash, row_count, file_path),
             )
             conn.commit()
@@ -108,6 +119,9 @@ class SqliteFetchHistoryRepository(BaseRepository):
                 f"(hash={data_hash[:12]}..., rows={row_count})"
             )
             return cursor.lastrowid
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
         finally:
             conn.close()
 

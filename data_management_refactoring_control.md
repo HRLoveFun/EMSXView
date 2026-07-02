@@ -10,6 +10,8 @@
 
 ## 一、进度
 
+> ⚠️ 全部步骤已完成 (2026-07-02)，本表仅作历史记录。运行时参数见 §二。
+
 | # | 任务 | 状态 | 执行指南 | 备注 |
 |:--:|------|:----:|---------|------|
 | **Phase A: BDIB瘦身** | | | | |
@@ -20,12 +22,12 @@
 | A5 | `tca_query_service.py` DuckDB读路径 | ✅ | 同上 | flag: `BDIB_QUERY_ENGINE`; 修改 `tca_query_builder.py` + `tca_fallback.py` |
 | A6 | 验证期：双引擎对比 | ✅ | 同上 | 行数401M=401M ✓; 聚合diff<0.0001% ✓; 抽样10/10 ✓ |
 | A7 | 收缩 `raw_bdib.db` | ✅ | 同上 + [§7.3路径1](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 85.1GB→31.2GB (63%); 147M行; integrity=ok; 观察期完成 2026-06-10 (7天all_pass) |
-| A8 | 消除 `processed_raw_bdib.db` | ✅ | 同上 + [§7.3路径2](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 32.0GB释放; DuckDB视图就绪; 可重现性0.0429%; 观察期完成 2026-06-15 (6天all_pass) |
+| A8 | 消除 `processed_raw_bdib.db` | ✅ | 同上 + [§7.3路径2](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 32.0GB释放; DuckDB视图就绪; 可重现性0.0429%; 观察期完成 2026-06-15 (6天all_pass); BAK 已清理 2026-07-02 (sha256 验证通过，释放 29.78 GB) |
 | **Phase B: 分区** | | | | |
 | B1 | 执行 `db_partition.sql` 创建表 + 复制数据 | ✅ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | 9表100%匹配; execution_history.db + ticker_registry.db 已创建 |
 | B2 | 双写新分区DB | ✅ | 同上 | flag: `PARTITION_DUAL_WRITE`; `fills.py._upsert()` + `upsert_order_labels` 已添加双写 |
 | B3 | 仓库层切换读路径 | ✅ | 同上 | flag: `PARTITION_READ_NEW`; `_conn_for()` 路由9表读; route_registry JOIN保持原路径 |
-| B4 | 清理原DB已迁移表 | ✅ | 同上 + [§7.3路径3](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 9表DROP ✓; VACUUM 26.38→24.39 GB; .BAK 保留; 观察期 已完成 2026-06-21 (6天 all_pass，2 个管线周期，无阻断); BAK 只读保留至 2026-07-21 |
+| B4 | 清理原DB已迁移表 | ✅ | 同上 + [§7.3路径3](data_management_refactoring_plan.md#73-每条数据的安全处理路径) | 9表DROP ✓; VACUUM 26.38→24.39 GB; 观察期 已完成 2026-06-21 (6天 all_pass，2 个管线周期，无阻断); BAK 已清理 2026-07-02 (提前于原计划 07-21，sha256 验证通过，释放 24.57 GB) |
 | **Phase C: 归档** | | | | |
 | C1 | `scripts/run_archive.py` + 调度注册 | ✅ | [§步骤7.1](data_management_refactoring_plan.md#71-迁移任务总表) | 集成到 daily_update.py Stage D; 每月调度: `--full`; 管线后自动: `_run_archive_auto()` |
 | C2 | `DataArchiver` VACUUM → 增量 | ✅ | 同上 | `PRAGMA auto_vacuum=INCREMENTAL` + `PRAGMA incremental_vacuum(N)` |
@@ -35,7 +37,7 @@
 | 全局 | |
 |------|----|
 | 总进度 | 15/15 |
-| 当前阻塞 | 无 · B4 观察期已关闭，.BAK 保留至 2026-07-21 |
+| 当前阻塞 | 无 · BAK 全部清理完毕 (B4+A8+孤儿，2026-07-02，共释放 57.58 GB) |
 
 > 状态: ⬜ pending &nbsp; ⏳ in_progress &nbsp; ✅ done &nbsp; ⛔ blocked &nbsp; ⊘ skipped
 
@@ -57,8 +59,8 @@
 | `processed_fills` 保留月数 | 24 | 同上 | C1 |
 | `raw_bdib` 保留月数 | 12 | 同上 | C1 |
 | `fill_bdib` 保留月数 | 24 | 同上 | C1 |
-| 观察期天数 | 14 | 迁移后每日自动校验天数 | A7, A8, B4 |
-| BAK保留天数(通过后) | 30 | 观察期通过后.BAK只读保留天数 | A7, A8, B4 |
+| ~~观察期天数~~ | ~~14~~ | ~~[已关闭 2026-07-02] 迁移后每日自动校验天数~~ | ~~A7, A8, B4~~ |
+| ~~BAK保留天数(通过后)~~ | ~~30~~ | ~~[已关闭 2026-07-02] 观察期通过后.BAK只读保留天数，BAK 已全部清理~~ | ~~A7, A8, B4~~ |
 
 ---
 
