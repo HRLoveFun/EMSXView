@@ -57,9 +57,9 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
             Amount                TEXT,
             NyOrderCreateAsOfDateTime TEXT,
             Type                  TEXT,
-            LimitPrice            TEXT,
+            LimitPrice            REAL,
             Broker                TEXT,
-            StopPrice             TEXT,
+            StopPrice             REAL,
             StrategyType          TEXT,
             TraderName            TEXT,
             TraderUuid            TEXT,
@@ -80,7 +80,7 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
             ingested_at           TEXT DEFAULT (datetime('now')),
             order_as_of_date      TEXT DEFAULT '',
             exchange_exec_time    TEXT DEFAULT '',
-            PRIMARY KEY (OrderId, RouteId, FillId)
+            PRIMARY KEY (OrderId, RouteId, FillId, source_date)
         )
     """)
     conn.execute(f"""
@@ -97,6 +97,10 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
     """)
 
     # fetch_log
+    # status 软状态机: 'fetched'(current) / 'deprecated'(被新版本取代) /
+    #                  'superseded'(显式替换) / 'failed'(拉取失败)
+    # 同 source_date 多次 fetch 时, add_fetch_log_record 自动软标记旧行 deprecated,
+    # 与 UNIQUE(source_date, data_hash) 共同实现 latest-wins 语义同时保留审计
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {Config.FETCH_LOG_TABLE} (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +109,8 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
             row_count             INTEGER NOT NULL,
             data_hash             TEXT NOT NULL,
             file_path             TEXT,
-            status                TEXT DEFAULT 'fetched',
+            status                TEXT NOT NULL DEFAULT 'fetched'
+                                  CHECK (status IN ('fetched','deprecated','superseded','failed')),
             UNIQUE(source_date, data_hash)
         )
     """)
@@ -136,7 +141,210 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.commit()
+
+    _migrate_raw_fills_column_types(conn)
+    _migrate_raw_fills_pk(conn)
+
     logger.debug("raw_fills.db schema ensured (inline DDL)")
+
+
+# raw_fills 表完整列顺序（与 init_raw_fills_schema DDL 一致）
+_RAW_FILLS_ALL_COLUMNS = [
+    "OrderId", "Account", "SecurityName", "Ticker", "Exchange",
+    "Currency", "Side", "Amount", "NyOrderCreateAsOfDateTime",
+    "Type", "LimitPrice", "Broker", "StopPrice", "StrategyType",
+    "TraderName", "TraderUuid", "RouteId", "NyTranCreateAsOfDateTime",
+    "RouteShares", "FillId", "ExecType", "DateTimeOfFill",
+    "FillPrice", "FillShares", "LastCapacity", "LastMarket",
+    "Liquidity", "LocalExchangeSymbol",
+    "source_date", "fetched_at", "ingested_at",
+    "order_as_of_date", "exchange_exec_time",
+]
+
+
+def _migrate_raw_fills_column_types(conn: sqlite3.Connection) -> None:
+    """将 LimitPrice/StopPrice 列从 TEXT 升级为 REAL（幂等）。
+
+    v2 修复：raw_fills 表的 LimitPrice/StopPrice 原为 TEXT，与 Pydantic Schema
+    (float | None)、Bloomberg getElementAsFloat、下游 CostView 测试 DDL 不一致。
+    本函数检测若仍为 TEXT，则用 CREATE NEW + COPY + DROP + RENAME 模式重建表
+    （SQLite 不支持 ALTER COLUMN 改类型）。
+
+    安全保障：
+    - 幂等：已是 REAL 则直接返回，可安全重跑
+    - 单事务：BEGIN/COMMIT 包裹，全成功或全回滚
+    - 崩溃恢复：开头清理上次崩溃可能残留的 _new 表
+    - 空字符串→NULL：避免 '' 被 SQLite 类型亲和转为 0.0
+    """
+    table = Config.RAW_FILLS_TABLE
+    col_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    if not col_info:
+        return
+
+    col_types = {row[1]: row[2].upper() for row in col_info}
+    limit_type = col_types.get("LimitPrice", "")
+    stop_type = col_types.get("StopPrice", "")
+
+    if limit_type == "REAL" and stop_type == "REAL":
+        return
+
+    logger.info(
+        "raw_fills 列类型迁移: LimitPrice(%s→REAL), StopPrice(%s→REAL)",
+        limit_type, stop_type,
+    )
+
+    conn.execute(f"DROP TABLE IF EXISTS {table}_new")
+
+    conn.execute("BEGIN")
+    try:
+        conn.execute(f"""
+            CREATE TABLE {table}_new (
+                OrderId               TEXT NOT NULL,
+                Account               TEXT,
+                SecurityName          TEXT,
+                Ticker                TEXT,
+                Exchange              TEXT,
+                Currency              TEXT,
+                Side                  TEXT,
+                Amount                TEXT,
+                NyOrderCreateAsOfDateTime TEXT,
+                Type                  TEXT,
+                LimitPrice            REAL,
+                Broker                TEXT,
+                StopPrice             REAL,
+                StrategyType          TEXT,
+                TraderName            TEXT,
+                TraderUuid            TEXT,
+                RouteId               TEXT NOT NULL,
+                NyTranCreateAsOfDateTime TEXT,
+                RouteShares           TEXT,
+                FillId                TEXT NOT NULL,
+                ExecType              TEXT,
+                DateTimeOfFill        TEXT,
+                FillPrice             TEXT,
+                FillShares            TEXT,
+                LastCapacity          TEXT,
+                LastMarket            TEXT,
+                Liquidity             TEXT,
+                LocalExchangeSymbol   TEXT,
+                source_date           TEXT NOT NULL DEFAULT '',
+                fetched_at            TEXT DEFAULT (datetime('now')),
+                ingested_at           TEXT DEFAULT (datetime('now')),
+                order_as_of_date      TEXT DEFAULT '',
+                exchange_exec_time    TEXT DEFAULT '',
+                PRIMARY KEY (OrderId, RouteId, FillId, source_date)
+            )
+        """)
+
+        col_list = ", ".join(_RAW_FILLS_ALL_COLUMNS)
+        select_exprs = ", ".join(
+            f"CASE WHEN TRIM([{c}])='' OR [{c}] IS NULL THEN NULL ELSE CAST([{c}] AS REAL) END"
+            if c in ("LimitPrice", "StopPrice") else f"[{c}]"
+            for c in _RAW_FILLS_ALL_COLUMNS
+        )
+        conn.execute(f"INSERT INTO {table}_new ({col_list}) SELECT {select_exprs} FROM {table}")
+
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_raw_source_date ON {table} (source_date)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_raw_order_date ON {table} (order_as_of_date)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_raw_ticker ON {table} (Ticker)")
+
+        conn.execute("COMMIT")
+        logger.info("raw_fills 列类型迁移完成: LimitPrice/StopPrice → REAL")
+    except Exception:
+        conn.execute("ROLLBACK")
+        conn.execute(f"DROP TABLE IF EXISTS {table}_new")
+        raise
+
+
+def _migrate_raw_fills_pk(conn: sqlite3.Connection) -> None:
+    """将 raw_fills PK 从 (OrderId, RouteId, FillId) 升级为 + source_date 4 元组（幂等）。
+
+    v3 修复：原 PK 不含 source_date, 导致 Bloomberg 同 OrderId 跨日 fetch 时
+    INSERT OR REPLACE 覆盖早期 source_date 行 (209 个孤儿行的根因)。新增
+    source_date 维度后, 跨日同 PK 自然分离为新行, 不再覆盖。
+
+    安全保障:
+    - 幂等: PRAGMA 检测 PK 已含 source_date 则直接返回, 可安全重跑
+    - 单事务: BEGIN/COMMIT 包裹, 全成功或全回滚
+    - 崩溃恢复: 开头清理上次崩溃可能残留的 _new 表
+    - 零数据丢失: 与 v2_to_v3.sql 等价; 实测 0 个新 PK 冲突组与 0 行 source_date NULL
+    """
+    table = Config.RAW_FILLS_TABLE
+    col_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    if not col_info:
+        return
+
+    # PK 列在 PRAGMA 中按 pk 列序号返回; 0 表示非 PK, >0 表示 PK 第 N 列
+    pk_cols = [row[1] for row in col_info if row[5] > 0]
+    if "source_date" in pk_cols:
+        return  # 已升级到 v3
+
+    logger.info(
+        "raw_fills PK 迁移: (%s) -> (%s, source_date)",
+        ", ".join(pk_cols), ", ".join(pk_cols),
+    )
+
+    conn.execute(f"DROP TABLE IF EXISTS {table}_new")
+    conn.execute("BEGIN")
+    try:
+        conn.execute(f"""
+            CREATE TABLE {table}_new (
+                OrderId               TEXT NOT NULL,
+                Account               TEXT,
+                SecurityName          TEXT,
+                Ticker                TEXT,
+                Exchange              TEXT,
+                Currency              TEXT,
+                Side                  TEXT,
+                Amount                TEXT,
+                NyOrderCreateAsOfDateTime TEXT,
+                Type                  TEXT,
+                LimitPrice            REAL,
+                Broker                TEXT,
+                StopPrice             REAL,
+                StrategyType          TEXT,
+                TraderName            TEXT,
+                TraderUuid            TEXT,
+                RouteId               TEXT NOT NULL,
+                NyTranCreateAsOfDateTime TEXT,
+                RouteShares           TEXT,
+                FillId                TEXT NOT NULL,
+                ExecType              TEXT,
+                DateTimeOfFill        TEXT,
+                FillPrice             TEXT,
+                FillShares            TEXT,
+                LastCapacity          TEXT,
+                LastMarket            TEXT,
+                Liquidity             TEXT,
+                LocalExchangeSymbol   TEXT,
+                source_date           TEXT NOT NULL DEFAULT '',
+                fetched_at            TEXT DEFAULT (datetime('now')),
+                ingested_at           TEXT DEFAULT (datetime('now')),
+                order_as_of_date      TEXT DEFAULT '',
+                exchange_exec_time    TEXT DEFAULT '',
+                PRIMARY KEY (OrderId, RouteId, FillId, source_date)
+            )
+        """)
+
+        col_list = ", ".join(_RAW_FILLS_ALL_COLUMNS)
+        conn.execute(f"INSERT INTO {table}_new ({col_list}) SELECT {col_list} FROM {table}")
+
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_raw_source_date ON {table} (source_date)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_raw_order_date ON {table} (order_as_of_date)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_raw_ticker ON {table} (Ticker)")
+
+        conn.execute("COMMIT")
+        logger.info("raw_fills PK 迁移完成: 已加入 source_date 维度")
+    except Exception:
+        conn.execute("ROLLBACK")
+        conn.execute(f"DROP TABLE IF EXISTS {table}_new")
+        raise
 
 
 def init_raw_bdib_schema(conn: sqlite3.Connection) -> None:

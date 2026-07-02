@@ -15,7 +15,7 @@ fetch_and_inspect.py - 拉取 20260309 的 fills 数据并逐步处理，每一�
 
 使用方式:
     python scripts/fetch_and_inspect.py
-    python scripts/fetch_and_inspect.py --team "TeamName"
+    python scripts/fetch_and_inspect.py --force
     python scripts/fetch_and_inspect.py --force
 """
 
@@ -24,7 +24,7 @@ import logging
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import pandas as pd
 
@@ -61,16 +61,16 @@ def save_excel(df: pd.DataFrame, filename: str) -> Path:
     return file_path
 
 
-def step0_fetch(team: Optional[str] = None, force: bool = False) -> List[Dict[str, Any]]:
+def step0_fetch(force: bool = False) -> List[Dict[str, Any]]:
     """Step 0: 从 Bloomberg API 拉取原始 fills 数据."""
     logger.info("=" * 70)
     logger.info("Step 0: Fetch fills from Bloomberg EMSX History API")
-    logger.info(f"  Date: {TARGET_DATE} | Team: {team or 'TradingSystem (login-based)'}")
+    logger.info(f"  Date: {TARGET_DATE} | Scope: TradingSystem (login-based)")
     logger.info("=" * 70)
 
     fetcher = FillFetch(data_dir=str(PROJECT_ROOT / "CostView" / "data" / "fills"))
     try:
-        result = fetcher.fetch_day(TARGET_DATE, team=team, force=force)
+        result = fetcher.fetch_day(TARGET_DATE, force=force)
         logger.info(f"  Result: {result.get('message', result.get('error'))}")
         if result.get("file_path"):
             logger.info(f"  Excel: {result['file_path']}")
@@ -240,7 +240,7 @@ def step9_agg_1min(df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
-def run_full_inspection(team: Optional[str] = None, force: bool = False):
+def run_full_inspection(force: bool = False):
     """执行完整的拉取 + 逐步处理 + 每步保存 Excel."""
     logger.info("=" * 70)
     logger.info("Fetch & Inspect Pipeline for 2026-03-09")
@@ -248,7 +248,7 @@ def run_full_inspection(team: Optional[str] = None, force: bool = False):
     logger.info("=" * 70)
 
     # Step 0: Fetch
-    fills = step0_fetch(team=team, force=force)
+    fills = step0_fetch(force=force)
     if not fills:
         logger.warning("No fills data to process. Exiting.")
         return
@@ -286,10 +286,6 @@ def main():
         description="拉取 20260309 fills 数据并逐步处理，每步保存 Excel"
     )
     parser.add_argument(
-        "--team", type=str, default=None,
-        help="EMSX Team 名称 (默认使用 TradingSystem scope)"
-    )
-    parser.add_argument(
         "--force", action="store_true",
         help="强制重新拉取 (忽略去重检查)"
     )
@@ -300,7 +296,7 @@ def main():
     args = parser.parse_args()
 
     setup_logging(args.log_level)
-    run_full_inspection(team=args.team, force=args.force)
+    run_full_inspection(force=args.force)
 
 
 if __name__ == "__main__":

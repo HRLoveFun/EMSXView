@@ -3,7 +3,6 @@
 执行: python backend/api/tests/boundaries/scripts/generate_baseline.py
 """
 import json
-import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -27,39 +26,6 @@ BASELINE_JSON = (
     / "boundaries"
     / "baseline_violations.json"
 )
-REPORT_MD = (
-    REPO_ROOT
-    / "docs"
-    / "roadmap"
-    / "boundary-baseline.md"
-)
-
-# 严重度映射
-SEVERITY = {
-    "AP-01": "critical",
-    "AP-02": "critical",
-    "AP-04": "critical",
-    "AP-07": "critical",
-    "AP-08": "critical",
-    "AP-05": "high",
-    "AP-09": "high",
-    "AP-12": "high",
-    "AP-13": "high",
-    "AP-03": "high",
-    "AP-06": "low",
-    "AP-10": "medium",
-    "AP-11": "medium",
-    "AP-14": "medium",
-    "AP-15": "medium",
-    "DOC-DRIFT": "medium",
-}
-
-SLA = {
-    "critical": "1 周内",
-    "high": "2 周内",
-    "medium": "1 月内",
-    "low": "2 月内",
-}
 
 
 def main() -> int:
@@ -112,48 +78,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"[OK] baseline written: {BASELINE_JSON} ({baseline['total']} violations)")
-
-    # 写 markdown 报告
-    REPORT_MD.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_MD.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_MD.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "# Boundary Violations Baseline",
-        "",
-        f"Generated: {baseline['generated_at']} | Total: **{baseline['total']}**",
-        "",
-        "> AI agent 与开发者按严重度分批修复。",
-        "> 修复后本文件需重新生成。",
-        "",
-    ]
-
-    # 按严重度分组
-    by_severity: dict[str, list[tuple[str, list[dict]]]] = defaultdict(list)
-    for rule_id, items in by_rule.items():
-        sev = SEVERITY.get(rule_id, "medium")
-        by_severity[sev].append((rule_id, items))
-
-    for sev in ("critical", "high", "medium", "low"):
-        if sev not in by_severity:
-            continue
-        rules = by_severity[sev]
-        total = sum(len(items) for _, items in rules)
-        lines.append(f"## {sev.upper()} ({total}) - Fix within {SLA[sev]}")
-        lines.append("")
-        for rule_id, items in sorted(rules, key=lambda x: -len(x[1])):
-            lines.append(f"### {rule_id} ({len(items)})")
-            for v in items[:20]:  # 每条最多显示 20
-                lines.append(
-                    f"- `{v['file']}`:{v.get('line', 0)}  {v['message']}"
-                )
-                if v.get("fix_hint"):
-                    lines.append(f"  - Fix: {v['fix_hint']}")
-            if len(items) > 20:
-                lines.append(f"- ... and {len(items) - 20} more")
-        lines.append("")
-
-    REPORT_MD.write_text("\n".join(lines), encoding="utf-8")
-    print(f"[OK] report written: {REPORT_MD}")
+    print("[INFO] markdown 报告已废弃，baseline_violations.json 为唯一真理源")
     return 0
 
 

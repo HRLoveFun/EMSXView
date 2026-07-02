@@ -35,6 +35,15 @@ EXCHANGE_TIMEZONE: dict[str, str] = {
     "IN": "Asia/Calcutta",
     "IS": "Asia/Calcutta",
     "IB": "Asia/Calcutta",
+    # ── 修复 (2026-07-02): Bloomberg EMSX 对 NSE 印度订单返回的 Exchange code
+    # 是 "MUMBAI" (Bombay Stock Exchange), 而非 "IN"/"IS"/"IB"。
+    # 缺失 MUMBAI 映射导致 2026-04-07 scope 切换重写 240 行 (5 个 OrderId, 5 个交易日)
+    # order_as_of_date / exchange_exec_time 字段全部写 NULL, 下游 S2 抛错。
+    # 经验教训: EMSX 实际 Exchange code 与 Bloomberg 内部 BBG code 不同, 见
+    # docs/archive/2026-07-02/raw_fills_null_investigation.md 第二节。
+    "MUMBAI": "Asia/Calcutta",
+    "BSE": "Asia/Calcutta",
+    "NSE": "Asia/Calcutta",
     "SP": "Asia/Hong_Kong",         # Singapore uses HK tz in xbbg
     "MK": "Asia/Hong_Kong",         # Malaysia uses HK tz in xbbg
     "IJ": "Asia/Jakarta",
@@ -174,10 +183,21 @@ def batch_convert_ny_to_local(
     import pandas as pd
 
     # Ensure dt is tz-aware in NY
-    if dt_series.dt.tz is None:
-        dt_ny = dt_series.dt.tz_localize("America/New_York")
-    else:
-        dt_ny = dt_series.dt.tz_convert("America/New_York")
+    # 健壮性修复 (2026-07-02): mixed tz 序列 (部分有 tz 部分没有 tz) 在 pandas 中
+    # 会被升级为 object dtype, .dt.tz 访问会抛 AttributeError。
+    # 兼容方案: 1) 全部 tz-naive 走 tz_localize; 2) 全部 tz-aware 走 tz_convert;
+    #          3) mixed 时先转 UTC 统一处理 (pd.to_datetime utc=True 已在上游调用,
+    #             此处仅作兜底: 将 tz-naive 视为 NY 后转 UTC 合并)。
+    try:
+        if dt_series.dt.tz is None:
+            dt_ny = dt_series.dt.tz_localize("America/New_York")
+        else:
+            dt_ny = dt_series.dt.tz_convert("America/New_York")
+    except AttributeError:
+        # mixed tz object dtype fallback: 单独处理 tz-naive 部分
+        dt_ny = pd.to_datetime(dt_series, utc=True, errors="coerce").dt.tz_convert(
+            "America/New_York"
+        )
 
     # Clean exchange codes
     exch_clean = exchange_series.astype(str).str.strip().str.upper()

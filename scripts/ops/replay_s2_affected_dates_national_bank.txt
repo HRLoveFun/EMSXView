@@ -1,0 +1,22 @@
+// S2 重跑命令清单 - 修复后逐日复活 processed_fills / execution_history 链路
+// 元帅命令: 用下列每条按顺序执行, 或合并至 shell 循环
+python -m DataPipeline --date 20250919 --skip-bdib --once
+python -m DataPipeline --date 20251003 --skip-bdib --once
+python -m DataPipeline --date 20251010 --skip-bdib --once
+python -m DataPipeline --date 20251031 --skip-bdib --once
+python -m DataPipeline --date 20251107 --skip-bdib --once
+python -m DataPipeline --date 20251124 --skip-bdib --once
+python -m DataPipeline --date 20251128 --skip-bdib --once
+python -m DataPipeline --date 20251205 --skip-bdib --once
+python -m DataPipeline --date 20251212 --skip-bdib --once
+python -m DataPipeline --date 20251219 --skip-bdib --once
+python -m DataPipeline --date 20251229 --skip-bdib --once
+python -m DataPipeline --date 20260105 --skip-bdib --once
+python -m DataPipeline --date 20260109 --skip-bdib --once
+python -m DataPipeline --date 20260121 --skip-bdib --once
+python -m DataPipeline --date 20260122 --skip-bdib --once
+python -m DataPipeline --date 20260123 --skip-bdib --once
+python -m DataPipeline --date 20260126 --skip-bdib --once
+python -m DataPipeline --date 20260127 --skip-bdib --once
+python -m DataPipeline --date 20260225 --skip-bdib --once
+python -m DataPipeline --date 20260227 --skip-bdib --once

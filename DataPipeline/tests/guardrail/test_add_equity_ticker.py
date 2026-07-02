@@ -97,7 +97,7 @@ class TestAddEquityTicker:
         )
 
     def test_add_equity_ticker_eur_cache_miss(self, monkeypatch):
-        """EUR 缓存/查询都未命中 → equ_ticker 应为 None。"""
+        """EUR 缓存/查询都未命中 → equ_ticker 应保留原始拼接值（fallback）。"""
         df = pd.DataFrame({
             "Ticker": ["BMW"],
             "Exchange": ["GR"],
@@ -112,6 +112,58 @@ class TestAddEquityTicker:
         monkeypatch.setattr(fill_processor, "_save_composite_cache", lambda m: None)
 
         result = add_equity_ticker(df)
-        assert result["equ_ticker"].iloc[0] is None or pd.isna(result["equ_ticker"].iloc[0]), (
-            f"EUR 缓存/查询都未命中应输出 None，实际: {result['equ_ticker'].iloc[0]!r}"
+        assert result["equ_ticker"].iloc[0] == "BMW GR Equity", (
+            f"EUR 缓存/查询都未命中应保留原始拼接值 'BMW GR Equity'，实际: {result['equ_ticker'].iloc[0]!r}"
         )
+
+    def test_add_equity_ticker_eur_partial_cache_hit(self, monkeypatch):
+        """EUR 部分缓存命中 → 命中行映射为 composite，未命中行保留原始拼接值。"""
+        df = pd.DataFrame({
+            "Ticker": ["BMW", "VOW3", "SAN"],
+            "Exchange": ["GR", "GR", "FP"],
+            "Currency": ["EUR", "EUR", "EUR"],
+        })
+
+        from DataPipeline.processing import fill_processor
+
+        # Mock: BMW GR Equity 命中缓存，VOW3/SAN 未命中且 BBG 无返回
+        monkeypatch.setattr(
+            fill_processor,
+            "_load_composite_cache",
+            lambda: {"BMW GR Equity": "BMW EU Equity"},
+        )
+        monkeypatch.setattr(fill_processor, "_fetch_composite_tickers", lambda tickers: {})
+        monkeypatch.setattr(fill_processor, "_save_composite_cache", lambda m: None)
+
+        result = add_equity_ticker(df)
+        assert result["equ_ticker"].iloc[0] == "BMW EU Equity", (
+            f"命中缓存应映射为 'BMW EU Equity'，实际: {result['equ_ticker'].iloc[0]!r}"
+        )
+        assert result["equ_ticker"].iloc[1] == "VOW3 GR Equity", (
+            f"未命中应保留原始拼接值 'VOW3 GR Equity'，实际: {result['equ_ticker'].iloc[1]!r}"
+        )
+        assert result["equ_ticker"].iloc[2] == "SAN FP Equity", (
+            f"未命中应保留原始拼接值 'SAN FP Equity'，实际: {result['equ_ticker'].iloc[2]!r}"
+        )
+
+    def test_add_equity_ticker_eur_empty_composite_map(self, monkeypatch):
+        """EUR 缓存为空且 BBG 查询失败 → 全部保留原始拼接值（不设为 NaN）。"""
+        df = pd.DataFrame({
+            "Ticker": ["BMW", "VOW3", "SAN"],
+            "Exchange": ["GR", "GR", "FP"],
+            "Currency": ["EUR", "EUR", "EUR"],
+        })
+
+        from DataPipeline.processing import fill_processor
+
+        # Mock: 缓存为空 + BBG 返回空 → composite_map 为空，走 else 分支
+        monkeypatch.setattr(fill_processor, "_load_composite_cache", lambda: {})
+        monkeypatch.setattr(fill_processor, "_fetch_composite_tickers", lambda tickers: {})
+        monkeypatch.setattr(fill_processor, "_save_composite_cache", lambda m: None)
+
+        result = add_equity_ticker(df)
+        expected = ["BMW GR Equity", "VOW3 GR Equity", "SAN FP Equity"]
+        for i, exp in enumerate(expected):
+            assert result["equ_ticker"].iloc[i] == exp, (
+                f"第 {i} 行应保留原始拼接值 {exp!r}，实际: {result['equ_ticker'].iloc[i]!r}"
+            )
