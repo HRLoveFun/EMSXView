@@ -49,7 +49,7 @@ $Config = @{
     ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
     Backend = @{
         Port = 3000
-        Script = "backend\api\start_server.py"
+        Script = "backend\api\main.py"
         ProcessName = "python"
         HealthUrl = "http://localhost:3000/api/health"
         StartupStatusScript = "scripts\diagnose\check-startup-status.ps1"
@@ -229,7 +229,8 @@ function Test-BackendHttpReady {
 
 function Get-ServiceStatus {
     $backendProcess = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*start_server.py*" -or
+        $_.CommandLine -like "*backend\api\main.py*" -or
+        $_.CommandLine -like "*backend/api/main.py*" -or
         ($_.Name -eq "python.exe" -and $_.CommandLine -like "*main:app*")
     } | Select-Object -First 1
 
@@ -319,7 +320,8 @@ function Stop-BackendService {
     Write-Status "Stopping backend service..." "Info"
 
     $processes = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*start_server.py*" -or
+        $_.CommandLine -like "*backend\api\main.py*" -or
+        $_.CommandLine -like "*backend/api/main.py*" -or
         ($_.Name -eq "python.exe" -and $_.CommandLine -like "*main:app*")
     }
 

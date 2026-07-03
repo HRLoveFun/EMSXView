@@ -1,5 +1,7 @@
 # B1→B4 增量同步恢复执行计划
 
+> **📦 已归档（2026-07-02）** — 本计划已于 2026-07-02 完成；B4 行已在 [控制中心](../data_management_refactoring_control.md) 标记为 ✅，.BAK 全部清理（释放 24.57 GB）。本文件保留作历史复盘，不再接受新执行指令。
+>
 > 创建日期: 2026-06-15 | 关联: [控制中心](../data_management_refactoring_control.md) B4 行
 
 ## 零、问题诊断
@@ -298,4 +300,4 @@ copy data\processed_fills.bak_migration_20260615 data\processed_fills.db
 - [ ] Phase 4: `cleanup_partitioned_db.py --confirm-cleanup` 执行成功
 - [ ] Phase 4: `observation_B4.json` 已创建
 - [ ] Phase 4: 管线连续运行 2 周期无异常
-- [ ] 更新 `data_management_refactoring_control.md` B4 状态为 ✅
+- [x] 更新 `data_management_refactoring_control.md` B4 状态为 ✅（已于 2026-07-02 标记）

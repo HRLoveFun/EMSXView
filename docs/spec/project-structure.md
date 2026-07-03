@@ -1,7 +1,7 @@
 ﻿# EMSXView Project Structure
 
 > Current architecture reference for the EMSXView Trading Platform
-> Last updated: 2026-05-07 | Version: 3.2
+> Last updated: 2026-07-02 | Version: 3.3（版本号对齐 [data-domain.md](data-domain.md) v3.3；本版本仅刷新头部版本号/日期，结构章节保持稳定）
 
 ---
 

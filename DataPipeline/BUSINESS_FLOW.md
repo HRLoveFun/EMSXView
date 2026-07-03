@@ -211,7 +211,7 @@ S2 写入 4 张表的所有时间列统一归为 3 类，**严禁混用**：
 
 - **历史回填脚本**：`scripts/backfill_eur_ticker.py` 对 2025-09 ~ 2026-06 期间（缓存建立前）的受影响 source_date 重跑 S2-S4，恢复 EUR 股票的 `equ_ticker` 字段。回填前自动备份，支持 `--dry-run`、`--retention` 自动清理旧备份。
 - **处理结果**（2026-06-30 验证）：EUR 行 `equ_ticker NULL` 率从 93.17% 降至 10.13%（残留 NULL 仅来自 raw_fills 中 `Exchange IS NULL` 的行）；EU Equity 命中行从 6.83% 升至 88.75%。
-- **详细分析**：`docs/spec/eur_ticker_issue_analysis.md`。
+- **详细分析**：[`docs/archive/2026-06-29/eur_ticker_issue_analysis.md`](../../docs/archive/2026-06-29/eur_ticker_issue_analysis.md)（📦 已归档，2026-07-02 修复完成）。
 
 ---
 
@@ -427,6 +427,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | 现象 | 触发 | 处理 |
 | --- | --- | --- |
 | Bloomberg 超时（3 次连续 TIMEOUT 事件） | `BloombergFillFetcher` | 自动 disconnect → 2s sleep → reconnect；上层 `max_retries` 重试 |
+| Bloomberg ErrorResponse / ErrorInfo（如权限撤销） | `BloombergFillFetcher._fetch_fills_once` | 检测 `ErrorResponse`/`ErrorInfo` 消息，提取 ErrorCode/ErrorMsg 抛出 `EMSXRequestError`；`fetch_day` except 块捕获后 `success=False`，不再静默返回 0 行伪装成功。`_parse_fill_messages` 解析异常由 `except: pass` 改为 `logger.warning` |
 | BBG `blp.bdp` 单 chunk 挂起 | `_fetch_one_bbg_chunk` | 独立 `ThreadPoolExecutor(max_workers=1)` + `future.result(timeout)`，超时即跳过 |
 | BDIB `Cannot find exchange info` | `bdib_fetcher._is_outdated_ticker_error` | 写入 `outdated_tickers.json` 墓碑，后续拉取跳过 |
 | EUR 复合代码缓存未命中 | `add_equity_ticker` | BBG 查询并回写 `eur_composite_ticker_cache` |
@@ -465,7 +466,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | `scripts/ops/verify_fix.py` | 验证 Exchange NULL 修复结果 |
 | `scripts/ops/verify_phase_a_b_integrated.py` | Phase A（PK v3）+ Phase B（NA 修复）综合验收 |
 | `scripts/backfill_eur_ticker.py` | EUR equ_ticker 历史回填（2025-09 ~ 2026-06） |
-| `scripts/devtools/scope_compare.py` | EMSX Team vs TradingSystem scope A/B 对比诊断（行数、PK 交集、字段 NULL 率、字段差异） |
+| `scripts/devtools/scope_compare.py` | EMSX Team vs TradingSystem scope A/B 对比诊断（行数、PK 交集、字段 NULL 率、字段差异）。独立诊断工具，直接用 blpapi，不经过 DataPipeline 核心；生产 fetch 路径已移除 team 参数，scope 固定 TradingSystem |
 | `scripts/devtools/fetch_and_inspect.py` | Bloomberg EMSX 拉取与数据检查工具 |
 | `scripts/ops/cleanup-logs.ps1` | 清理历史日志 |
 | `scripts/ops/service-manager.ps1` | DataPipeline 服务管理 |

@@ -246,11 +246,7 @@ EMSXView/
 ├── docs/                             # Project documentation
 │   ├── index.md                      # Documentation navigation guide
 │   ├── api-contracts.md              # API contract specifications
-│   ├── HANDOFF.md                    # Handoff protocol documentation
 │   ├── dev-guide.md                  # Developer guide
-│   ├── architecture-analysis-report.md  # Architecture analysis
-│   ├── final-refactoring-plan.md     # Refactoring roadmap
-│   ├── migration-baseline.md         # Migration baseline
 │   ├── schema-contract.md            # Schema contract docs
 │   ├── api/                          # API reference docs
 │   │   ├── bloomberg-emsx-reference.md
@@ -261,13 +257,14 @@ EMSXView/
 │   │   └── memory.md                 # Architecture memory & constraints
 │   ├── ops/                          # Operations docs
 │   │   └── service-management.md     # Service operations guide
-│   ├── roadmap/                      # Roadmap & WBS
-│   │   ├── wbs.md
-│   │   └── task-templates.md
 │   └── archive/                      # 归档（按日期或主题）
-│       └── 2026-06-29/               # 已漂移的 API 文档
-│           ├── database.md           # DatabaseView API 契约（过时，以代码为准）
-│           └── sequence-diagrams.md  # 模块时序图（无 CI 保障）
+│       ├── wbs.md · handoff.md · migration-baseline.md ·
+│       │   architecture-analysis-report.md · s1_replay_validation_20260416.md
+│       ├── 2026-04-02/               # task-templates.md（已归档 2026-07-02）
+│       ├── 2026-05-27/               # final-refactoring-plan.md（已归档 2026-07-02）
+│       ├── 2026-06-29/               # eur_ticker_issue_analysis.md · database.md · sequence-diagrams.md
+│       ├── 2026-07-02/               # S1 修复报告 + xlsx 样本
+│       └── legacy-costview-frontend/
 │
 ├── scripts/                          # Automation & utility scripts
 │   ├── start-all.bat                 # Start all services
@@ -622,7 +619,7 @@ ModuleRegistry (singleton)
 | [docs/spec/data-domain.md](./docs/spec/data-domain.md) | Logical data domain design |
 | [docs/spec/memory.md](./docs/spec/memory.md) | Architecture memory & constraints |
 | [docs/dev-guide.md](./docs/dev-guide.md) | Developer guide |
-| [docs/HANDOFF.md](./docs/HANDOFF.md) | Cross-module handoff protocol |
+| [docs/schema-contract.md](./docs/schema-contract.md) | Cross-module type contracts (TS ↔ Python) |
 | [docs/index.md](./docs/index.md) | Documentation navigation |
 | [docs/ops/service-management.md](./docs/ops/service-management.md) | Service operations & troubleshooting |
 | [backend/README.md](./backend/README.md) | Backend production deployment guide |

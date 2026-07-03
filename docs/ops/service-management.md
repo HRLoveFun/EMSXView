@@ -1,5 +1,7 @@
 # EMSXView Trading Tool - Service Management Guide
 
+> Last updated: 2026-07-02 | 与 `CODEBUDDY.md` Build & Run Commands 章节对齐
+
 ## Quick Start
 
 快速启动指南见 `QUICKSTART.md`（交互菜单）或 `scripts/ops/service-manager.ps1`（命令行）。
@@ -10,9 +12,9 @@
 ### Backend Service
 - **Port**: 3000
 - **Process**: Python (uvicorn)
-- **Entry Point**: `backend/api/start_server.py`
+- **Entry Point**: `backend/api/main.py`（或 `uvicorn main:app --port 3000`）
 - **Health Check**: http://localhost:3000/api/health
-- **Startup Time**: 通常几秒，但 Bloomberg 初始化和首轮订阅可能更久
+- **Startup Time**: 通常几秒，但 Bloomberg 初始化和首轮订阅可能更久（30-120s）
 
 ### Frontend Service
 - **Port**: 5173 (dev) / 80 (prod)
@@ -247,7 +249,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 3. Run backend manually to see errors:
    ```bash
    cd backend/api
-   python start_server.py
+   python main.py
    ```
 
 ## Advanced Usage
@@ -296,9 +298,11 @@ To run as Windows Service (auto-start on boot):
 1. Install NSSM (Non-Sucking Service Manager)
 2. Create service:
    ```batch
-   nssm install EMSXViewBackend "python" "C:\Users\hrchen\Documents\EMSXView\ExecutionView\backend\api\start_server.py"
-   nssm install EMSXViewFrontend "node" "C:\Users\hrchen\Documents\EMSXView\ExecutionView\frontend\node_modules\vite\bin\vite.js"
+   nssm install EMSXViewBackend "python" "C:\path\to\EMSXView\backend\api\main.py"
+   nssm install EMSXViewFrontend "node" "C:\path\to\EMSXView\frontend\node_modules\vite\bin\vite.js"
    ```
+
+> 路径中的 `C:\path\to\EMSXView\` 需替换为实际仓库根。`ExecutionView\` 子目录已不再存在（2026 年 5 月重构后并入 `backend/api/`）；本节命令的 entry point 须使用 `main.py` 而非历史版本中的 `start_server.py`。
 
 ## Script Reference
 
@@ -328,8 +332,9 @@ Main PowerShell script with comprehensive service management.
 - `restart-all.bat`: Quick restart both services
 - `check-status.bat`: Quick status check
 
-### 重启服务.bat
+### relaunch_service.bat
 One-click restart wrapper that delegates to `service-manager.ps1 restart` and waits for frontend readiness.
+（仓库根实际文件名为 `relaunch_service.bat`，与早期文档中提到的 `重启服务.bat` 对应。）
 
 ## Best Practices
 

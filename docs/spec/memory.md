@@ -58,9 +58,9 @@
 8. `docs/spec/module-onboarding.md` — 新增模块流程
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
 
-**涉及数据/存储/管道改动时**额外阅读：
-- `data_management_refactoring_control.md` — 重构进度
-- `data_management_refactoring_plan.md` — 重构实施
+> **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。本节原"额外阅读"的两份文件已转为历史档案：
+> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数改向 [control.md §二 可调参数](../data_management_refactoring_control.md#二可调参数)
+> - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 历史方案与安全机制设计查阅入口（📦 归档态）
 
 ---
 
@@ -94,7 +94,7 @@
 - 决策类内容 → `docs/spec/adr/NNNN-*.md`
 - 运行时模式 → 本文件 `memory.md`（保持简短，仅作速查）
 - 一次性诊断报告 → `docs/archive/YYYY-MM-DD/`
-- 阶段性总结 → `docs/roadmap/` 或 `docs/handoff.md`
+- 阶段性总结 → `docs/archive/YYYY-MM-DD/`（如需在 `AGENTS.md` 头部声明当前状态，附加 ~100 字摘要即可；`docs/roadmap/` 整目录已归档 2026-07-02，`docs/handoff.md` 不再设常驻位）
 - Agent 总则 → `.github/agent.md`
 - 错误模式 → `.github/knowledge/error-patterns.md`
 - 架构决策摘要 → `.github/knowledge/architecture-decisions.md`（本仓库 ADR 的对外映射）

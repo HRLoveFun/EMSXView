@@ -95,3 +95,49 @@ elif et == blpapi.Event.RESPONSE:
 1. **修复 `_fetch_fills_once` 错误处理**：检测 `ErrorResponse` 消息并抛出 `EMSXRequestError`
 2. **fetch_log 增加 error_message 列**：记录 Bloomberg 返回的错误码和消息
 3. **0 行数据告警**：拉取返回 0 行时检查是否为错误响应，避免静默写入 "fetched" 状态
+
+---
+
+## 修复实施记录（2026-07-02 完成）
+
+> 以下为实际实施的修复，与上方"建议补充修复项"有差异（用户审查后简化方案）。
+
+### 实施内容
+
+| # | 建议项 | 实施情况 | 说明 |
+|---|--------|:--------:|------|
+| 1 | 修复 `_fetch_fills_once` 错误处理 | ✅ 已实施 | 检测 `ErrorResponse` / `ErrorInfo` 消息，提取 ErrorCode/ErrorMsg 抛出 `EMSXRequestError`；`_parse_fill_messages` 的 `except: pass` 改为 `logger.warning` |
+| 2 | fetch_log 增加 error_message 列 | ❌ 未实施 | 用户决定不新增数据库审计列，保持 schema 不变 |
+| 3 | 0 行数据告警 | ❌ 未实施 | 简化方案移除，保留现有 0 行行为 |
+| ➕ | 完全移除 team 参数 | ✅ 已实施 | 用户追加需求：因根本不存在 Team scope 设置情景，移除 `team` 参数避免混淆 |
+
+### 移除 team 参数（用户追加的简化决策）
+
+用户审查后认为 Team scope 从未在生产环境使用，保留 `team` 参数会造成混淆。因此：
+
+- `fetch_fills` / `_fetch_fills_once` / `fetch_day` / `fetch_range` / `fetch_range_aggregated` 方法签名移除 `team` 参数
+- scope 固定为 `TradingSystem`（写死 `scope.setChoice("TradingSystem")`）
+- CLI `--team` 参数移除（`fill_fetch.py`、`fetch_and_inspect.py`）
+- `scope_compare.py` 保留（独立诊断工具，直接用 blpapi，不经过 DataPipeline 核心）
+
+### 修改文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `DataPipeline/acquisition/_constants.py` | 新增 `ERROR_RESPONSE = blpapi.Name("ErrorResponse")` 常量 |
+| `DataPipeline/acquisition/bloomberg_fill_fetcher.py` | 移除 team 参数；scope 固定 TradingSystem；检测 ErrorResponse/ErrorInfo 抛 `EMSXRequestError`；`except: pass` 改 `logger.warning`；新增 `_build_request_error` 辅助方法 |
+| `DataPipeline/acquisition/emsx_client.py` | 移除 team 参数；scope 固定 TradingSystem |
+| `DataPipeline/ingestion/fill_fetch.py` | 移除 `fetch_day`/`fetch_range`/`fetch_range_aggregated` team 参数；移除 CLI `--team`；archive 文件名移除 team 分支 |
+| `scripts/devtools/fetch_and_inspect.py` | 移除 team 参数和 CLI `--team`；清理 unused import |
+| `DataPipeline/tests/storage/test_fetch_scope_audit.py` | 新增 8 个单元测试（方法签名无 team、ErrorResponse 抛异常、解析异常记 warning） |
+
+### 行为变化
+
+- **正常路径**（GetFillsResponse）：完全不变，仅 `except: pass` → `logger.warning`（日志可见性提升）
+- **错误路径**（ErrorResponse）：从静默返回 `[]` 改为抛出 `EMSXRequestError`，`fetch_day` 的 except 块捕获后 `result['success']=False` + `result['error']` 记录详情，不再伪装为"0 行成功"
+- **生产调用点**（`CostView/src/__main__.py`、`CostView/scripts/daily_update.py`）：从未传 team，零影响
+
+### 测试结果
+
+- 新增测试：8 passed
+- storage 全量回归：34 passed（无回归）
