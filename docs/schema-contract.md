@@ -11,10 +11,12 @@ version bump and a migration period where both old and new formats are accepted.
 
 | Contract | Version | Python Source | TypeScript Source |
 |---|---|---|---|
-| Handoff Metadata | v1 | `platform_data/adapters.py::HandoffMetadata` | `handoff-api.ts::HandoffMetadata` |
-| Market→Execution | v1 | `platform_data/adapters.py::ExecutionCandidateHandoff` | `handoff-api.ts::MarketToExecutionHandoff` |
-| Execution→Cost | v1 | `platform_data/adapters.py::ExecutionPostTradeHandoff` | `handoff-api.ts::PostTradeHandoff` |
-| Cost→Execution | v1 | `platform_data/adapters.py::BrokerStrategyRecommendation` | `handoff-api.ts::BrokerRecommendation` |
+| Handoff Metadata | v1 | `platform_data/contracts/handoff_contracts.py::HandoffMetadata` | `handoff-api.ts::HandoffMetadata` |
+| Market→Execution | v1 | `platform_data/contracts/handoff_contracts.py::ExecutionCandidateHandoff` | `handoff-api.ts::MarketToExecutionHandoff` |
+| Execution→Cost | v1 | `platform_data/contracts/handoff_contracts.py::ExecutionPostTradeHandoff` | `handoff-api.ts::PostTradeHandoff` |
+| Cost→Execution | v1 | `platform_data/contracts/handoff_contracts.py::BrokerStrategyRecommendation` | `handoff-api.ts::BrokerRecommendation` |
+
+> 4 个类均由 `platform_data/adapters/handoff.py` 间接 re-export；详见 [ADR-0013](spec/adr/0013-platform-data-adapter-current-state.md)（`platform_data/adapters.py` → `adapters/` 子包 + `contracts/` 子包拆分）。
 
 ## Contract 1: HandoffMetadata
 

@@ -1,20 +1,26 @@
 ﻿# EMSXView 开发指南
 
-> Last updated: 2026-05-06 | Version: 2.1
+> Last updated: 2026-07-02 | Version: 2.2
+> 与 `CODEBUDDY.md` 的 Build & Run Commands 章节对齐
 
 ## 1. 快速启动
 
 推荐入口：
 
-- 双击 重启服务.bat（一键重启）
-- 或使用 scripts 下的 start-all.bat / restart-all.bat / check-status.bat
+- 双击 `relaunch_service.bat`（仓库根目录，一键重启 Windows 服务）
+- 或使用 `scripts/` 下的 `start-all.bat` / `restart-all.bat` / `check-status.bat`
 
 按模块单独启动：
 
 ```powershell
-# 后端
+# 后端（Core, :3000）
 Set-Location backend/api
-python start_server.py
+python main.py
+# 或：uvicorn main:app --port 3000
+
+# 单进程模式（dev/demo，含 MarketView + CostView 路由）
+$env:EMSXVIEW_MERGE_MODULES = "true"
+python main.py
 
 # 前端
 Set-Location frontend
@@ -26,6 +32,7 @@ npm run dev
 - 健康检查：http://localhost:3000/api/health
 - 市场快照基线：http://localhost:3000/api/marketview/snapshot?limit=3
 - 前端开发服务：http://localhost:5173
+- 完整启动/模块清单见 [CODEBUDDY.md Build & Run Commands](../CODEBUDDY.md#build--run-commands)
 
 ## 2. 当前工程事实
 
@@ -62,9 +69,10 @@ npm run dev
 
 文档改动：
 
-- 更新 docs/index.md 中的文档分层或入口说明
-- 如改变架构表述，同时检查 docs/spec/project-structure.md、docs/spec/data-domain.md、docs/spec/memory.md
-- 如改变当前运行状态或阻塞面，同时检查 docs/handoff.md
+- 更新 `docs/index.md` 中的文档分层或入口说明
+- 如改变架构表述，同时检查 `docs/spec/project-structure.md`、`docs/spec/data-domain.md`、`docs/spec/memory.md`
+- 如改变数据/存储/管道相关语义，同步检查 [data_management_refactoring_control.md §二 可调参数](../data_management_refactoring_control.md#二可调参数)
+- 如改变跨域类型契约，同步检查 `docs/schema-contract.md`
 
 ## 4. 常见任务入口
 
@@ -74,16 +82,16 @@ npm run dev
 
 - 路由：backend/api/routers/
 - 服务：backend/api/services/
-- 数据契约：backend/api/schemas.py
+- 数据契约：backend/api/schemas/（子包，按域拆分）
 - 共享适配：platform_data/
 
 ### 调整跨域数据访问
 
-优先走 platform_data/，不要默认新增深层直接导入。
+优先走 `platform_data/`，不要默认新增深层直接导入。
 
 典型顺序：
 
-1. 在 platform_data/adapters.py 增加或扩展适配器
+1. 在 `platform_data/adapters/` 子包下增加或扩展适配器（见 [ADR-0013](../spec/adr/0013-platform-data-adapter-current-state.md)）
 2. 修改调用方路由或服务
 3. 补对应测试
 4. 同步前端类型或展示
@@ -92,26 +100,26 @@ npm run dev
 
 优先查看：
 
-- logs/emsx_api.log 及其轮转文件
-- .github/knowledge/error-patterns.md
-- docs/handoff.md 中的当前运行状态
+- `logs/emsx_api.log` 及其轮转文件
+- `.github/knowledge/error-patterns.md`
+- [data_management_refactoring_control.md §二 可调参数](../data_management_refactoring_control.md#二可调参数)（当前运行时开关）
 
 ## 5. 当前文档地图
 
 优先阅读顺序：
 
-1. docs/index.md：文档入口与分类
-2. docs/spec/project-structure.md：当前仓库结构与权威实现面
-3. docs/spec/data-domain.md：逻辑数据域边界
-4. docs/spec/memory.md：稳定架构记忆与工作约束
-5. docs/handoff.md：当前阻塞、运行状态、下一步
+1. `docs/index.md`：文档入口与分类
+2. `docs/spec/project-structure.md`：当前仓库结构与权威实现面
+3. `docs/spec/data-domain.md`：逻辑数据域边界
+4. `docs/spec/memory.md`：稳定架构记忆与工作约束
+5. `CODEBUDDY.md` Build & Run Commands 章节：启动/运行/部署命令（与本文档 §1 等价）
 
 知识库位置：
 
-- 架构决策：.github/knowledge/architecture-decisions.md
-- 错误模式：.github/knowledge/error-patterns.md
-- 用户需求：.github/knowledge/user-needs.md
-- 迭代日志：.github/knowledge/iteration-log.md
+- 架构决策：`.github/knowledge/architecture-decisions.md`
+- 错误模式：`.github/knowledge/error-patterns.md`
+
+> 历史上曾存在 `.github/knowledge/user-needs.md` 与 `iteration-log.md`，已下线；新的跨阶段/跨需求总结请按 [docs/index.md §5 Archive Policy](index.md#5-archive-policy) 直接放入 `docs/archive/YYYY-MM-DD/`。
 
 ## 6. 工作约束
 

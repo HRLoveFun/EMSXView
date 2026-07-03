@@ -238,11 +238,12 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 
 ## Refactoring Context
 
-当前分支 `data_management_refactoring` 正在进行数据管理重构。在执行任何涉及数据库、存储或数据管道层的更改前，必须先查阅：
-
-1. `AGENTS.md` — 重构工作流规范（含安全规则）
-2. `data_management_refactoring_control.md` — 当前进度和任务状态
-3. `data_management_refactoring_plan.md` — 详细实施方案
+> **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB），归档提交 `3b00236 docs: 归档重构工作流并更新业务流程文档`。
+>
+> 后续涉及数据/存储/管道层的代码改动：
+> - **运行时参数**（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 各类保留月数）请查阅 [data_management_refactoring_control.md §二 可调参数](data_management_refactoring_control.md#二可调参数)
+> - **历史方案与安全机制设计**查阅 [`data_management_refactoring_plan.md`](data_management_refactoring_plan.md)（📦 归档态，不接受新执行指令）
+> - **运行时健康度**由 [`scripts/health_check.py`](scripts/health_check.py) 监控（DB 体积 / WAL / TCA 延迟 / 完整性）
 
 <!-- SPECKIT START -->
 ## Current Plan

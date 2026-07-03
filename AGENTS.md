@@ -16,9 +16,9 @@ This file provides guidance to coding agents (Claude Code, Copilot, Cursor, etc.
 8. `docs/spec/module-onboarding.md` — 新增模块流程
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
 
-涉及数据/存储/管道改动时**额外**阅读：
-- `data_management_refactoring_control.md` — 重构进度
-- `data_management_refactoring_plan.md` — 重构实施
+> **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。以下两文件仅作历史记录保留，不再作为活跃必读：
+> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 保留月数）改向 [control.md §二 可调参数](data_management_refactoring_control.md#二可调参数)
+> - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 历史方案与安全机制设计的查阅入口（不接受新执行指令）
 
 ## Project Overview
 

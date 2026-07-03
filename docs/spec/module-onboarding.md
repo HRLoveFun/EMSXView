@@ -329,4 +329,3 @@ pytest tests/boundaries/ -v   # 边界测试
 - [ ] 已建/更新对应 ADR
 - [ ] 已运行 `pytest tests/boundaries/ -v` 且未引入新违规
 - [ ] 已运行对应模块的单元/集成测试
-- [ ] 已在 `data_management_refactoring_control.md` 标记（如涉及数据/存储）

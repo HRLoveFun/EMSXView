@@ -1,21 +1,22 @@
 ﻿# EMSXView Documentation Guide
 
 > 当前 docs 目录入口与维护规则
-> Last updated: 2026-06-29
-> 📦 已重组为 spec/api/ops/roadmap 子目录结构
+> Last updated: 2026-07-02
+> 📦 已重组为 spec/api/ops 子目录结构；`docs/roadmap/` 整目录已归档（2026-07-02），详见 [§5 Archive Policy](#5-archive-policy)
 
 ---
 
 ## 1. Root Principles
 
-docs 根目录只保留入口导航和当前 handoff，其余按领域划入子目录：
+docs 根目录只保留入口导航，其余按领域划入子目录：
 
 - docs/spec/ — 架构规范（稳定、真相源）
 - docs/api/ — API 接口定义
 - docs/ops/ — 运维部署
-- docs/roadmap/ — 路线图与计划
 
 已完成阶段的实施总结、一次性诊断报告归入 docs/archive/。
+
+> **当前活跃 handoff 入口**：[`AGENTS.md` §data_management_refactoring 分支工作流](../AGENTS.md#data_management_refactoring-分支工作流-已完成归档--2026-07-02)（📦 已归档，运行时参数见 [control.md §二](../data_management_refactoring_control.md#二可调参数)）。无跨日进行中工作项时，docs 根目录不保留 `handoff.md` 占位。
 
 ---
 
@@ -27,11 +28,10 @@ docs 根目录只保留入口导航和当前 handoff，其余按领域划入子�
 | docs/spec/data-domain.md | 逻辑数据域与适配层边界 | 数据所有权或适配层变化时 |
 | docs/spec/memory.md | 稳定架构记忆与长期约束 | 形成新的稳定规则时 |
 | docs/dev-guide.md | 开发指南与验证约束 | 开发流程或权威入口变化时 |
-| docs/handoff.md | 当前阻塞、运行状态、下一步 | 每次阶段性收尾时 |
+| docs/schema-contract.md | 跨域类型契约（前端 TS ↔ 后端 Python） | 跨模块协议变更时 |
 | docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
 | docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
-| docs/roadmap/wbs.md | 活跃路线图与阶段拆解 | 路线图变更时 |
-| docs/roadmap/task-templates.md | WBS 任务开工摘要 | 精简版，详见 wbs.md |
+| [`data_management_refactoring_control.md §二`](../data_management_refactoring_control.md#二可调参数) | 数据/存储/管道运行时参数 | 修改 BDIB/分区/归档参数时 |
 
 ---
 
