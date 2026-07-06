@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 import warnings
+
+import pandas as pd
 from typing import List
 
 from .base import BaseStage

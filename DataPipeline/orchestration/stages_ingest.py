@@ -79,7 +79,10 @@ class ProcessRawFillsStage(BaseStage):
         raw_reader = context.db.raw_fills_read
         fills_reader = context.db.fills_read
 
-        all_raw_dates = raw_reader.get_all_source_dates()
+        # v2.0 修复: target_dates 维度从 source_date 改为 order_as_of_date
+        # S1 (Bloomberg 拉取) 以 source_date 为单位，一个 source_date 可能覆盖多交易日成交。
+        # S2 目标 schema 为 processed_fills.order_as_of_date (真实交易日)，旧逻转用 source_date 会导致跨日数据被拒绝。
+        all_raw_dates = raw_reader.get_distinct_order_as_of_dates()
         if not all_raw_dates:
             logger.info("No dates in raw_fills.db to process")
             context.summary["processing"] = {"rows_processed": 0}

@@ -59,8 +59,8 @@ run_full_pipeline() 入口
 | Stage | 类 (位置) | 关键输入 | 关键输出 | 主要表 |
 | --- | --- | --- | --- | --- |
 | **S1** Ingest Excel (Legacy) | `IngestExcelStage` (`stages_ingest.py`) | Excel 文件 | `raw_fills.db` 行 | `raw_fills` |
-| **S2** Process Raw Fills | `ProcessRawFillsStage` (`stages_ingest.py`) | `raw_fills.db` 当日数据 | processed_fills + `equ_ticker`（空字段 → NULL） | `processed_fills`、`route_registry`（含 4 个 `count_*` 列）、`route_history`、`route_event_history`（`order_history` 是 `route_history` 的 VIEW 派生） |
-| **S3** Aggregate Fills (10s) | `AggregateFillsStage` (`stages_ingest.py`) | `processed_fills` 单日 | route×timestamp 10s 桶（VWAP） | `agg_fills_10s` |
+| **S2** Process Raw Fills | `ProcessRawFillsStage` (`stages_ingest.py`) | `raw_fills.db` 当日数据 | processed_fills + `equ_ticker`（空字段 → NULL）；Exchange 空/未知直接报错；写入前校验 `order_as_of_date` 与输入日期一致 | `processed_fills`、`route_registry`（含 4 个 `count_*` 列）、`route_history`、`route_event_history`（`order_history` 是 `route_history` 的 VIEW 派生） |
+| **S3** Aggregate Fills (10s) | `AggregateFillsStage` (`stages_ingest.py`) | `processed_fills` 单日 | route×timestamp 10s 桶（VWAP）；聚合前从 `route_registry` 补全 `Ticker/Side/Currency/ccy_ticker`；过滤无成交量桶 | `agg_fills_10s` |
 | **S4** Generate Order Labels | `GenerateOrderLabelsStage` (`stages_ingest.py`) | `processed_fills` 单日 | 订单级标签 | `order_label`（`ticker_registry.db`） |
 | **S5** Integrate BDIB | `IntegrateBDIBStage` (`stages_process.py`) | `agg_fills_10s` + Bloomberg BDIB 10s bars + FX | TCA 衍生指标 | `raw_bdib`、`fill_bdib` |
 | **S6** Write Manifest | `WriteManifestStage` (`stages_process.py`) | ticker registry | `market_fetch_manifest.json` | （无） |
@@ -74,13 +74,48 @@ run_full_pipeline() 入口
 **默认 `--once` 模式**：`skip_ingest=True` + `skip_bdib=True`，仅执行 S2 → S3 → S4 → S6。
 **全量模式**（首跑或 force）：按上表顺序执行 S2..S10（S1 永不执行）。
 
+### 3.1.1 S2 跨日维度修复（2026-07-03）
+
+> **问题**：历史上 `ProcessRawFillsStage` 用 `raw_fills.source_date` 作为 `target_dates` 维度。Bloomberg 拉取按 `source_date`（拉取日）落库，一个 `source_date` 内的成交可能跨多个真实交易日（`order_as_of_date`）。S2 写入 `processed_fills` 前会校验 `order_as_of_date` 与输入日期一致，导致 13 个 `source_date` 因日期不匹配被整批拒绝——历史累计 3,600,000+ 行 raw_fills 未生成 processed_fills、agg_fills、route_registry、fill_bdib。
+>
+> **修复**：`target_dates` 维度从 `source_date` 改为 `raw_fills` 的 `DISTINCT order_as_of_date`，与 `processed_fills.order_as_of_date` 的真实交易日语义保持一致。
+
+**改动点**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `DataPipeline/orchestration/stages_ingest.py` | `ProcessRawFillsStage` 调 `raw_reader.get_distinct_order_as_of_dates()` 替代 `get_all_source_dates()` |
+| `DataPipeline/storage/repositories/raw_fills.py` | 新增 `get_distinct_order_as_of_dates()`：从 `raw_fills` 查 `DISTINCT order_as_of_date`，规范化为 `YYYYMMDD` 短格式；增强 `get_fills_for_date()`：接受 `YYYYMMDD` 输入并自动 `substr(order_as_of_date, 1, 10)` 匹配 `YYYY-MM-DD` ISO 日期，再回退到 `source_date` |
+| `DataPipeline/orchestration/core.py` | 补 `import pandas as pd` |
+| `DataPipeline/tests/guardrail/test_data_quality.py` | 新增 `TestStage2CrossDayProcessing` 三个回归测试：① `get_distinct_order_as_of_dates` 返回 `YYYYMMDD` 短格式；② `get_fills_for_date` 接受 `YYYYMMDD` 并匹配 ISO 日期；③ 回填后 `processed_fills` 完全覆盖 `raw_fills` 非 DFD 行（gap=0） |
+
+**回填记录**（2026-07-03 验证）：
+
+| 指标 | 数值 |
+| --- | --- |
+| 受影响 `source_date` 数量 | 13（`20250919` ~ `20251219`） |
+| 自动展开 `order_as_of_date` 数量 | 69 |
+| `raw_fills` 非 DFD 总行数 | 11,112,677 |
+| 回填后 `processed_fills` 总行数 | 11,112,677 |
+| `raw_fills` 与 `processed_fills` gap | **0** |
+| 增量 `agg_fills_10s` | 1,997,504 行 |
+| 增量 `order_label` | 71,435 条（覆盖 69/69 OAD） |
+| 回填脚本 | `scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5` |
+
+**回归测试**：`DataPipeline/tests/guardrail/test_data_quality.py::TestStage2CrossDayProcessing` 3/3 通过。
+
 ### 3.2 Stage 内部实现概要
 
 **S2 处理（Clean + Process）**  
-`processing/fill_cleaner.clean_emsx_fills` 三步：DFD 过滤 → 时区转换（NY → local exchange tz）→ 字段标准化。`processing/fill_processor.process_fills` 五步：algo 分类 → ccy/equ_ticker 推导 → 10s 钟时间戳 → 收盘竞价识别 → 路由 mkt_timestamp。`process_raw_fills_for_date` 再做：写 `processed_fills`、写 `route_registry`、构建 `route_history` / `route_event_history` 并 `upsert_execution_history`。S2 阶段的输入 `raw_fills` 由 `acquisition/bloomberg_fill_fetcher.py` + `ingestion/fill_fetch.py::FillFetch` 直接落库（内存 hash 集合 + DB hash 双层去重、SHA-256 校验、`upsert_raw_api_data` + `add_fetch_log_record`，并落 `fill_fetch_history` 审计）。
+`processing/fill_cleaner.clean_emsx_fills` 三步：DFD 过滤 → 时区转换（NY → local exchange tz，**空/未知 Exchange 直接报错**）→ 字段标准化。`processing/fill_processor.process_fills` 五步：algo 分类 → ccy/equ_ticker 推导 → 10s 钟时间戳 → 收盘竞价识别 → 路由 mkt_timestamp。`process_raw_fills_for_date` 再做：写 `processed_fills`、写 `route_registry`、构建 `route_history` / `route_event_history` 并 `upsert_execution_history`。`process_raw_fills_for_date` 在写入前校验 `order_as_of_date` 与输入日期一致，不一致则记录 ERROR 并标记该日期处理失败。S2 阶段的输入 `raw_fills` 由 `acquisition/bloomberg_fill_fetcher.py` + `ingestion/fill_fetch.py::FillFetch` 直接落库（内存 hash 集合 + DB hash 双层去重、SHA-256 校验、`upsert_raw_api_data` + `add_fetch_log_record`，并落 `fill_fetch_history` 审计）。
+
+> **关于 StrategyType 空值**：部分 Broker（如 CROSSING）在 EMSX 中本就不提供 StrategyType，因此 `raw_fills.StrategyType` 为 NULL 或空字符串属于正常业务现象；`fill_processor.add_algo_column` 会将其统一归类为 `algo="other"`，不应视为数据质量问题。
+
+> **关于 source_date 与 order_as_of_date 的语义**：`source_date` 是 S1 数据拉取/回填日期，`order_as_of_date` 是成交所在交易所的本地交易日。某些 `source_date`（特别是历史回填批次）可能包含多个 `order_as_of_date` 的成交。当 `process_raw_fills_for_date` 以 `source_date` 为输入时，若其对应记录的 `order_as_of_date` 不完全一致，S2 日期一致性校验会拒绝整批写入，这是导致 `raw_fills.db` 与 `processed_fills.db` 行数可能不一致的主要原因之一。
+
 
 **S3 聚合**  
-`processing/fill_aggregator.generate_agg_fills_10s`：按 `(OrderId, RouteId, mkt_timestamp)` groupby → 唯一值列 / `sum(FillShares)` / VWAP。
+`processing/fill_aggregator.generate_agg_fills_10s`：按 `(OrderId, RouteId, mkt_timestamp)` groupby → 唯一值列 / `sum(FillShares)` / VWAP。由于 `processed_fills` 的 schema 已将 `Ticker`、`Side`、`Currency`、`ccy_ticker` 去冗余，S3 在聚合前通过 `LEFT JOIN route_registry` 从 `equ_ticker`/`ccy_ticker` 推导补回这四列（与 `v_processed_fills_legacy` 视图保持一致）。VWAP 计算仅使用 `FillShares>0` 的记录；无成交量桶（`FillShares` 总和为 0）被丢弃，避免 `FillPrice` 出现单条 `NULL`。
 
 **S4 Order Label**  
 `processing/order_label.generate_order_label_incremental`：逐日处理（避免 OOM），累计标签集向后传递；写入 `ticker_registry.db` 中的 `order_label` 表。
@@ -150,7 +185,7 @@ S2 写入 4 张表的所有时间列统一归为 3 类，**严禁混用**：
 
 **实施细节**：
 
-- `local_fill_datetime` 在 `processing/fill_cleaner.derive_exchange_times` 中由 `batch_convert_ny_to_local(parsed, exchange_col)` 生成（10-50× vectorized 性能）。
+- `local_fill_datetime` 在 `processing/fill_cleaner.derive_exchange_times` 中由 `batch_convert_ny_to_local(parsed, exchange_col)` 生成（10-50× vectorized 性能）。**空/未知 Exchange code 不再回退到 NY 时间，直接抛出 `ValueError`，必须在 `EXCHANGE_TIMEZONE` 补齐映射或修复上游数据。**
 - `first_fill_time` / `last_fill_time` 在 `ingestion/fill_ingestion._first_last_event_time` 中**统一用 `local_fill_datetime`**。先 `pd.to_datetime(..., errors="coerce")` 解析为 datetime 对象，再 `min/max` 后用 `strftime("%Y-%m-%dT%H:%M:%S")` 输出。
 - `source_refreshed_at` 用 `datetime.now(timezone.utc).isoformat(timespec="seconds")`。
 - `event_timestamp`（`route_event_history`）统一为 `local_fill_datetime`。
@@ -179,9 +214,9 @@ S2 写入 4 张表的所有时间列统一归为 3 类，**严禁混用**：
 ### 3.3.6 `processed_fills.equ_ticker` 空字段处理
 
 - `add_equity_ticker` 拼接规则：`(Ticker + " " + Exchange + " Equity").str.strip()`。
-- **空字段处理**：当 `Ticker` 或 `Exchange` 为空/空白时，拼接出 `"Ticker  Equity"`（双空格）或 `" Equity"`，通过 `blank_mask`（覆盖 `isna()` / `str.strip()==""` / 字符串 `"nan"`/`"none"`）将 `df.loc[blank_mask, "equ_ticker"] = np.nan` 替换为 NULL。
+- **空字段处理**：当 `Ticker` 或 `Exchange` 为空/空白时，通过 `blank_mask`（覆盖 `isna()` / `str.strip()==""` / 字符串 `"nan"`/`"none"`）将 `df.loc[blank_mask, "equ_ticker"] = np.nan` 替换为 NULL，并记录 ERROR；若启用 `Config.STRICT_MISSING_TICKER_VALIDATION` 则直接抛 `ValueError` 阻止该日期入库。
 - **EUR composite ticker**：缓存优先策略：① 先查本地 `eur_composite_ticker_cache` → ② 缓存未命中 → 查询 Bloomberg（`xbbg blp.bdp` chunked + 单 chunk 独立线程超时）→ ③ BBG 结果回写缓存 → ④ 仍未命中 → 保留原始拼接 equ_ticker（fallback），记录 warning。
-- **单元测试**：`DataPipeline/tests/guardrail/test_add_equity_ticker.py` 8 个用例覆盖空 Exchange / None Exchange / NaN Exchange / 空 Ticker / 正常拼接 / KRW zfill / EUR 缓存全 miss fallback / EUR 部分命中。
+- **单元测试**：`DataPipeline/tests/guardrail/test_add_equity_ticker.py` 8 个用例覆盖空 Exchange / None Exchange / NaN Exchange / 空 Ticker / 正常拼接 / KRW zfill / EUR 缓存全 miss fallback / EUR 部分命中；`DataPipeline/tests/guardrail/test_data_quality.py` 覆盖 Exchange 空值/未知报错、日期一致性校验、route_registry 列补全、零股 VWAP 过滤。
 
 ### 3.3.7 raw_fills 派生列状态
 
@@ -323,6 +358,10 @@ FinancialPipeline  ──wrap──▶  GuardPipeline.run(context)
 | **去重** | `FillFetch._preload_known_hashes` + `compute_data_hash` | 内存 hash set + DB hash 双层 |
 | **FX 转换** | `acquisition/fx_fetcher.py` | `USD{ccy} Curncy` 取 PX_LAST 并取倒数，失败/空时降级为 1.0 |
 | **交易日期防护** | `bdib_fetcher._is_safe_bdib_query_date` | 拒未来日 + 周末/节假日 + 距当前不足 BDIB_LATEST_READY_HOUR_LOCAL |
+| **Exchange 空值/未知防护** | `common/exchange_tz.batch_convert_ny_to_local` + `fill_cleaner.derive_exchange_times` | 空/未知 Exchange 不再回退到 NY 时间，直接抛 `ValueError` 阻止错误日期入库 |
+| **S2 日期一致性校验** | `ingestion/fill_ingestion.process_raw_fills_for_date` | 写入 `processed_fills` 前校验 `order_as_of_date` 与输入日期一致，不一致则标记失败 |
+| **S3 列补全** | `processing/fill_aggregator.generate_agg_fills_10s` | 从 `route_registry` 补回 `Ticker/Side/Currency/ccy_ticker`，保持 `processed_fills` 去冗余设计 |
+| **零股 VWAP 过滤** | `processing/fill_aggregator.generate_agg_fills_10s` | `FillShares=0` 不贡献 VWAP；无成交量桶直接丢弃，避免 `FillPrice` 单条 `NULL` |
 | **KRW 补零** | `processing/fill_processor.add_equity_ticker` | KRW 股票 Ticker 自动 zfill(6) |
 | **荷兰 NA 修复** | `processing/fill_cleaner.normalize_fill_columns` | pandas 把字符串 `"NA"` 解析为 NaN，显式还原为 `"NA"` |
 | **归档加密** | `storage/crypto.py` | raw_fills 加密列（与 `access_impl.py` 配合） |
@@ -330,6 +369,7 @@ FinancialPipeline  ──wrap──▶  GuardPipeline.run(context)
 | **审计** | `audit_pipeline_runs`、`audit_research_snapshots` | 每次 stage 运行 SHA-256 快照，便于复现 |
 | **NaN/'NA' 恢复** | `storage/repositories/raw_fills.py::upsert_raw_api_data` | `pd.DataFrame(fills)` 后从原始字典反查字符串 `"NA"`（Exchange 荷兰 / Ticker National Bank of Canada），防止永久化到 DB |
 | **DuckDB 查询** | `storage/market_store.py` | BDIB Parquet/DuckDB 双引擎读路径（`BDIB_QUERY_ENGINE` 控制） |
+| **S2 target_date 维度** | `raw_fills.get_distinct_order_as_of_dates` + `ProcessRawFillsStage` | 维度固定为 `order_as_of_date`（真实交易日，`YYYYMMDD`），**禁止**回退到 `source_date`（拉取日）；S2 日期一致性校验在 `process_raw_fills_for_date` 写入前执行 |
 
 ---
 
@@ -410,6 +450,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | 护栏 | `GUARDRAIL_RETRY_MAX` | 3 | Fetcher（外部 Bloomberg 拉取）重试次数 |
 | 护栏 | `GUARDRAIL_VALIDATION_STRICT_MODE` | true | 全局严格模式 |
 | 护栏 | `GUARDRAIL_VALIDATION_BYPASS_ON_ERROR` | false | 校验降级放行 |
+| 护栏 | `STRICT_MISSING_TICKER_VALIDATION` | false | 缺失 Ticker/Exchange 时直接报错，阻止空 `equ_ticker` 流入下游 |
 | 护栏 | `GUARDRAIL_EMPTY_DATASET_POLICY` | `reject` | 空数据集策略 |
 | 护栏 | `GUARDRAIL_LOG_DIR` | `logs/pipeline/guardrail` | JSONL 日志目录 |
 | 护栏 | `GUARDRAIL_BASELINE_DIR` | `DataPipeline/tests/baselines` | 基线快照目录 |
@@ -457,6 +498,9 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 
 | 脚本 | 用途 |
 | --- | --- |
+| `scripts/ops/analyze_processed_fills_nulls.py` | 统计 `processed_fills.db` 各表每列 NULL / 空字符串数量，支持任意表名作为参数；只读 SELECT，不修改数据；用于 S2 跨日修复前后数据健康度对比 |
+| `scripts/ops/cleanup_processed_fills_mismatches.py` | 清理 `processed_fills` 中孤儿行、日期不匹配行与无效 `order_as_of_date` 行；自动备份 `processed_fills.db` / `raw_fills.db`，支持 `--dry-run` 与 `--dates` 参数 |
+| `scripts/ops/reprocess_affected_dates.py` | 对指定日期（或从清理日志解析）重新执行 S2/S3，通常与 `cleanup_processed_fills_mismatches.py` 配合使用 |
 | `scripts/ops/migrate_raw_fills_to_v3.py` | 显式迁移 `raw_fills.db` 至 v3（PK + fetch_log 软状态），含备份、SHA-256、排他锁、审计 |
 | `scripts/ops/apply_v3_to_v4.py` | 应用 v3→v4 迁移（`order_as_of_date` NOT NULL 约束），含前置 oaod NULL 校验与后置验收 |
 | `scripts/ops/backfill_raw_fills_oaod_eet.py` | 回填 `raw_fills.order_as_of_date` 与 `exchange_exec_time` NULL 行（`derive_exchange_times` 内存重算逐行 UPDATE） |

@@ -386,6 +386,22 @@ def process_raw_fills_for_date(
         processed = process_fills(cleaned)
         result["rows_processed"] = len(processed)
 
+        # Step 3.5: S2 日期一致性校验
+        # processed_fills 的 order_as_of_date 必须与输入 date_str 一致；
+        # 不一致意味着时区转换或 source_date 解析存在 bug，必须阻止入库。
+        if "order_as_of_date" in processed.columns and not processed.empty:
+            mismatch_mask = processed["order_as_of_date"].astype(str) != date_str
+            mismatch_count = int(mismatch_mask.sum())
+            if mismatch_count > 0:
+                mismatched_dates = processed.loc[mismatch_mask, "order_as_of_date"].unique().tolist()
+                logger.error(
+                    "%s: %d 行 order_as_of_date 与输入日期 %s 不一致 (实际: %s)",
+                    date_str, mismatch_count, date_str, mismatched_dates[:10],
+                )
+                raise ValueError(
+                    f"{date_str}: {mismatch_count} 行 order_as_of_date 与输入日期不一致"
+                )
+
         # Step 4: Upsert to processed_fills.db
         logger.info("%s: 写入 %d 行至 processed_fills.db...", date_str, len(processed))
         print(f"[PROGRESS] {date_str}: writing {len(processed)} rows to processed_fills.db", flush=True)

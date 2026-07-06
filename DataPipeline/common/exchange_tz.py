@@ -199,8 +199,20 @@ def batch_convert_ny_to_local(
             "America/New_York"
         )
 
-    # Clean exchange codes
+    # Clean exchange codes and detect invalid/empty values before converting.
     exch_clean = exchange_series.astype(str).str.strip().str.upper()
+
+    # Validate: every row must have a non-empty, known exchange code.
+    # Empty/None exchange codes previously fell back to NY time, producing
+    # wrong order_as_of_date / exchange_exec_time and orphan rows.
+    unknown = exch_clean[~exch_clean.isin(EXCHANGE_TIMEZONE) & exch_clean.notna() & (exch_clean.str.strip() != "")]
+    if not unknown.empty:
+        unique_unknown = unknown.unique().tolist()
+        raise ValueError(
+            f"未知 Exchange code: {unique_unknown[:10]}"
+            f"{' 等' if len(unique_unknown) > 10 else ''}；"
+            f"请在 EXCHANGE_TIMEZONE 中补齐映射，禁止回退到 NY 时间。"
+        )
 
     # Pre-allocate naive local wall-clock times using NY as the fallback.
     result = dt_ny.dt.tz_localize(None).copy()
@@ -208,11 +220,15 @@ def batch_convert_ny_to_local(
     # Group by exchange code and convert each group in bulk
     for exch_code, group_idx in exch_clean.groupby(exch_clean).groups.items():
         if not exch_code or exch_code in ("", "NONE", "NAN"):
-            continue
+            raise ValueError(
+                f"{len(group_idx)} 行 Exchange 为空/缺失，无法进行时区转换"
+            )
 
         tz_name = EXCHANGE_TIMEZONE.get(exch_code)
         if tz_name is None:
-            continue
+            raise ValueError(
+                f"未知 Exchange code: {exch_code}；请在 EXCHANGE_TIMEZONE 中补齐映射"
+            )
 
         # Convert to the exchange timezone, then drop tz info while preserving
         # the local wall-clock time so downstream string formatting remains
@@ -221,3 +237,4 @@ def batch_convert_ny_to_local(
         result.loc[group_idx] = group_dt.dt.tz_convert(tz_name).dt.tz_localize(None)
 
     return result
+
