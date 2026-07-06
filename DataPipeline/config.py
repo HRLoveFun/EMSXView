@@ -150,6 +150,10 @@ class Config:
     GUARDRAIL_VALIDATION_BYPASS_ON_ERROR: bool = (
         os.getenv("GUARDRAIL_VALIDATION_BYPASS_ON_ERROR", "0") == "1"
     )
+    # 缺失 Ticker/Exchange 时是否直接报错（用于 S2 阶段阻止空 equ_ticker 流入下游）
+    STRICT_MISSING_TICKER_VALIDATION: bool = (
+        os.getenv("STRICT_MISSING_TICKER_VALIDATION", "0") == "1"
+    )
 
     EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
         "fills": ("emsx.history:GetFills",),

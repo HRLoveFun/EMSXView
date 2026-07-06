@@ -16,6 +16,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+import numpy as np
 import pandas as pd
 
 from DataPipeline.common.exchange_tz import (
@@ -119,6 +120,14 @@ def derive_exchange_times(df: pd.DataFrame) -> pd.DataFrame:
     """
     exchange_col = df.get("Exchange", pd.Series("", index=df.index))
 
+    # 硬校验：所有需要时区转换的行必须有非空、已知的 Exchange code
+    empty_or_unknown = exchange_col.isna() | (exchange_col.astype(str).str.strip() == "")
+    if empty_or_unknown.any():
+        raise ValueError(
+            f"derive_exchange_times: {int(empty_or_unknown.sum())} 行 Exchange 为空/缺失，"
+            "无法进行时区转换。请检查上游 raw_fills 数据。"
+        )
+
     # ── Helper: parse datetime column and vectorize tz conversion + formatting ──
     def _vectorized_convert(col_name, datetime_fmt, date_fmt=None, time_fmt=None):
         """Parse a datetime column, batch-convert to local tz, return formatted Series."""
@@ -134,7 +143,8 @@ def derive_exchange_times(df: pd.DataFrame) -> pd.DataFrame:
                 if not still_nat.any():
                     break
                 try:
-                    parsed = parsed.fillna(pd.to_datetime(raw, format=fmt, errors="coerce"))
+                    # 使用 where 避免 object dtype 数组的 fillna 降级警告
+                    parsed = parsed.where(~parsed.isna(), pd.to_datetime(raw, format=fmt, errors="coerce"))
                 except Exception:
                     continue
 
@@ -217,8 +227,14 @@ def normalize_fill_columns(df: pd.DataFrame) -> pd.DataFrame:
     for col in string_cols:
         if col in df.columns:
             if col == "Exchange":
-                # Exchange 列特殊处理: "nan"→"NA" (荷兰交易所代码被 pandas 误转)
-                df[col] = df[col].astype(str).str.strip().replace("nan", "NA").replace("None", "")
+                # Exchange 列特殊处理:
+                # 1) 字符串 "nan" → "NA" (荷兰交易所代码被 pandas 误转)
+                # 2) 真正的 NaN/None 保持 NaN，不能降级为 "NA" 或空字符串，
+                #    否则会导致时区转换回退到 NY 时间并产生错误日期。
+                is_na = df[col].isna()
+                exchange_str = df[col].astype(str).str.strip().replace("nan", "NA")
+                empty_mask = exchange_str.isin(["", "None", "NONE", "nan"])
+                df[col] = np.where(is_na | empty_mask, np.nan, exchange_str)
             else:
                 df[col] = df[col].astype(str).str.strip().replace("nan", "").replace("None", "")
 

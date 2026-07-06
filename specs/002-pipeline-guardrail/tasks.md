@@ -351,3 +351,53 @@ Developer B: Phase 6 (US4) — run_id → PipelineRunLogger → StageLogger → 
 - 护栏机制仅存在于 `DataPipeline/` 命名空间内，不引入跨模块依赖
 - 统一命名约定：违规记录实体名称为 `ValidationViolation`（不可使用 `ViolationRecord`），在所有任务、代码、合约文档中保持一致
 - 避免：模糊任务描述、同文件冲突、破坏故事独立性的跨故事依赖
+---
+
+## Phase 8: 追加任务 — S2 跨日维度回归修复（2026-07-03）
+
+**Purpose**: 在护栏机制全部完成（Phase 1-7 共 80 个 tasks 全部勾选）后，发现 S2 `target_dates` 维度错误使用了 `source_date`（拉取日）而非 `order_as_of_date`（真实交易日），导致 13 个 `source_date`（覆盖 69 个 OAD）共 3,600,000+ 行 raw_fills 未被处理。补录修复与回归任务。
+
+### 代码修复
+
+- [X] T081 [US3] 修复 `DataPipeline/orchestration/stages_ingest.py::ProcessRawFillsStage`：将 `raw_reader.get_all_source_dates()` 改为 `raw_reader.get_distinct_order_as_of_dates()`，使 S2 按真实交易日语义增量处理
+- [X] T082 [US3] 在 `DataPipeline/storage/repositories/raw_fills.py` 新增 `SqliteRawFillReadRepository.get_distinct_order_as_of_dates()`：查询 `DISTINCT order_as_of_date`，规范化为 `YYYYMMDD` 短格式
+- [X] T083 [US3] 增强 `SqliteRawFillReadRepository.get_fills_for_date()`：接受 `YYYYMMDD` 输入，新增 `substr(order_as_of_date, 1, 10)` 匹配 `YYYY-MM-DD` ISO 日期的回退路径
+- [X] T084 [P] [US3] 补 `DataPipeline/orchestration/core.py` 缺失的 `import pandas as pd`（避免后续 S2 引用 `pd` 时 ImportError）
+
+### 回归测试
+
+- [X] T085 [P] [US3] 在 `DataPipeline/tests/guardrail/test_data_quality.py` 新增 `TestStage2CrossDayProcessing` 类：3 个 case 覆盖 `get_distinct_order_as_of_dates` 返回 `YYYYMMDD`、`get_fills_for_date` 接受 `YYYYMMDD`、回填后 `processed_fills` 完全覆盖 `raw_fills` 非 DFD 行（gap=0）。3/3 通过
+
+### 数据回填
+
+- [X] T086 [P] [US3] 备份 `CostView/data/{raw_fills,processed_fills}.db.<ts>` 至 `.bak.<ts>`
+- [X] T087 [P] [US3] 运行 `scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5`：13 个 `source_date` → 69 个 `order_as_of_date`，重跑 S2/S3/S4
+- [X] T088 [P] [US3] 验证：`raw_fills` 非 DFD 11,112,677 = `processed_fills` 11,112,677，gap=0；增量 `agg_fills_10s` 1,997,504 行；增量 `order_label` 71,435 条覆盖 69/69 OAD
+
+### 配套运维
+
+- [X] T089 [P] [US3] 新增 `scripts/ops/cleanup_processed_fills_mismatches.py`：检测/删除 `processed_fills` 中孤儿行、日期不匹配行、无效 `order_as_of_date` 行；自动备份、`--dry-run` 与 `--dates` 参数
+- [X] T090 [P] [US3] 新增 `scripts/ops/reprocess_affected_dates.py`：支持 `--dates` / `--from-cleanup` / `--missing-source-dates` / `--no-s5` 四种回填模式
+- [X] T091 [P] [US3] 新增 `scripts/ops/analyze_processed_fills_nulls.py`：每列 NULL/空字符串统计（只读），用于修复前后健康度对比
+- [X] T092 [P] [US3] 新增 `Config.STRICT_MISSING_TICKER_VALIDATION` 配置（默认 `false`）：启用时 `process_fills` 阶段 Exchange/equ_ticker 缺失直接抛 `ValueError`，阻止空 `equ_ticker` 流入下游
+
+### 文档同步
+
+- [X] T093 [P] [US3] 更新 `DataPipeline/BUSINESS_FLOW.md`：新增 §3.1.1 "S2 跨日维度修复" 章节、§6 横切关注点补 "S2 target_date 维度"、§11 运维脚本补 `analyze_processed_fills_nulls.py` 与 2 个新清理脚本说明
+- [X] T094 [P] [US3] 更新 `CODEBUDDY.md`：把 `001-architecture-module-completion` 状态置为完成，Current Plan 追加 "S2 跨日维度修复记录" 章节
+- [X] T095 [P] [US3] 更新 `specs/002-pipeline-guardrail/spec.md`：Status 由 `Draft` 改为 `Implemented (2026-06-25)`，追加 S2 跨日维度修复状态描述
+- [X] T096 [P] [US3] 更新本 `tasks.md`：追加 Phase 8 "S2 跨日维度回归修复" 章节，登记 T081-T096 共 16 个追加任务
+
+---
+
+## 总结
+
+| 维度 | 数量 |
+| --- | --- |
+| Phase 1-7 原始任务 | 80（全部完成） |
+| Phase 8 追加任务 | 16（全部完成） |
+| 总任务 | **96** |
+| 实现完成度 | **100%** |
+| 回归测试通过率 | **3/3（S2 跨日）+ 原 7 个质量测试** |
+| 数据回填验证 | raw 11,112,677 = processed 11,112,677（gap=0） |
+

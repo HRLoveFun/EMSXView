@@ -38,9 +38,14 @@ class SqliteRawFillReadRepository(BaseRepository):
             conn.close()
 
     def get_fills_for_date(self, date_str: str) -> pd.DataFrame:
-        """Return raw fills for an order_as_of_date (falls back to source_date)."""
+        """Return raw fills for an order_as_of_date. Accepts YYYYMMDD or YYYY-MM-DD.
+
+        raw_fills stores order_as_of_date as full datetime string (e.g.
+        "2025-09-15 00:00:00"), so we normalize YYYYMMDD input to ISO date and
+        try multiple matching strategies for robustness."""
         conn = self._get_read_conn()
         try:
+            # 1) Direct match (e.g. full datetime string or YYYY-MM-DD)
             df = pd.read_sql_query(
                 "SELECT * FROM raw_fills WHERE order_as_of_date = ?",
                 conn.raw_connection,
@@ -48,6 +53,19 @@ class SqliteRawFillReadRepository(BaseRepository):
             )
             if not df.empty:
                 return df
+            # 2) YYYYMMDD -> YYYY-MM-DD conversion
+            iso = None
+            if isinstance(date_str, str) and len(date_str) == 8 and date_str.isdigit():
+                iso = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+            if iso:
+                df = pd.read_sql_query(
+                    "SELECT * FROM raw_fills WHERE substr(order_as_of_date, 1, 10) = ?",
+                    conn.raw_connection,
+                    params=[iso],
+                )
+                if not df.empty:
+                    return df
+            # 3) Fallback: match by source_date
             return pd.read_sql_query(
                 "SELECT * FROM raw_fills WHERE source_date = ?",
                 conn.raw_connection,
@@ -66,6 +84,32 @@ class SqliteRawFillReadRepository(BaseRepository):
                 "ORDER BY source_date"
             )
             return [r[0] for r in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_distinct_order_as_of_dates(self) -> List[str]:
+        """Return all distinct order_as_of_date values in raw_fills -- the S2 incremental processing key.
+
+        raw_fills stores order_as_of_date as full datetime string (e.g.
+        "2025-09-15 00:00:00"), but downstream code (processing_log,
+        S2 target_dates, etc.) uses the YYYYMMDD short form. Normalize here to keep
+        a single canonical representation across the pipeline."""
+        conn = self._get_read_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT DISTINCT order_as_of_date FROM raw_fills "
+                "WHERE order_as_of_date IS NOT NULL AND order_as_of_date != '' "
+                "ORDER BY order_as_of_date"
+            )
+            oads: List[str] = []
+            for r in cursor.fetchall():
+                v = r[0]
+                if not v:
+                    continue
+                # Normalize to YYYYMMDD
+                compact = v.replace("-", "").split(" ")[0]
+                oads.append(compact)
+            return oads
         finally:
             conn.close()
 

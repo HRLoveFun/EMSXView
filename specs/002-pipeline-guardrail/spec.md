@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-16
 
-**Status**: Draft
+**Status**: Implemented (2026-06-25) — 80 个 tasks 全部完成。**追加 S2 跨日维度修复（2026-07-03）**：`ProcessRawFillsStage.target_dates` 从 `source_date` 改为 `order_as_of_date`，`raw_fills.get_distinct_order_as_of_dates()` + `get_fills_for_date(YYYYMMDD)` 增强；`TestStage2CrossDayProcessing` 3 个回归测试通过；13 个缺失 `source_date` → 69 个 OAD 回填完成，`processed_fills` 与 `raw_fills` 非 DFD 行数 gap=0。
 
 **Input**: User description: "为指定模块增加一个数据管道护栏机制，确保任何代码改动都不会意外破坏数据管道的正确流转流程。具体要求：1. 实现数据校验与模式检查，在管道各节点输入输出处拦截不合规数据；2. 增加异常捕获与熔断机制，当流程异常时自动阻断并报警，防止错误扩散；3. 编写自动化测试用例覆盖核心数据流转路径，验证代码变更后的管道完整性；4. 保留必要的日志记录，以便追踪数据流转状态与异常节点。"
 

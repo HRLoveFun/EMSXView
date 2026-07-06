@@ -35,9 +35,16 @@ def add_algo_column(df: pd.DataFrame) -> pd.DataFrame:
     """Classify fills into algo categories based on Broker + StrategyType.
 
     EMSX uses 'StrategyType' (not 'Strategy Type' as in Evaluation).
+
+    注意：
+      - 部分 Broker（例如 CROSSING）在 EMSX 中本就不提供 StrategyType，
+        因此 StrategyType 为 NULL 或空字符串属于正常业务现象。
+      - 这类记录无法匹配任何 algo 映射，最终归类为 ``algo="other"``，
+        下游不应将其视为数据质量问题。
     """
     df = df.copy()
     df["algo"] = "other"
+
 
     def _apply_mapping(algo_name: str, mapping_dict: Dict[str, List[str]]):
         for broker, strategies in mapping_dict.items():
@@ -181,6 +188,19 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
     ).str.strip()
     # 空 ticker/exchange → None（不再保留拼接后的空串）
     df.loc[blank_mask, "equ_ticker"] = np.nan
+
+    # 如果存在缺失 Ticker/Exchange 的行，记录为错误，避免后续聚合时产生空 equ_ticker
+    blank_count = int(blank_mask.sum())
+    if blank_count > 0:
+        logger.error(
+            "add_equity_ticker: %d 行因 Ticker 或 Exchange 缺失无法构造 equ_ticker",
+            blank_count,
+        )
+        # 只在严格模式下报错；默认先警告，允许后续清洗脚本处理
+        if Config.STRICT_MISSING_TICKER_VALIDATION:
+            raise ValueError(
+                f"{blank_count} 行缺少 Ticker 或 Exchange，无法构造 equ_ticker"
+            )
 
     # ── EUR composite ticker resolution（缓存优先策略）──
     eur_mask = df["Currency"] == "EUR"
@@ -431,8 +451,12 @@ def process_fills(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["Broker", "StrategyType", "Exchange", "Ticker", "Currency", "Side"]:
         if col in df.columns:
             if col == "Exchange":
-                # Exchange 列特殊处理: "nan"→"NA" (荷兰交易所代码被 pandas 误转)
-                df[col] = df[col].astype(str).str.strip().replace("nan", "NA").replace("None", "")
+                # Exchange 列特殊处理: 字符串 "nan" → "NA" (荷兰交易所代码被 pandas 误转)
+                # 但真正的缺失值必须保持 NaN，不能降级为空字符串，避免后续时区转换
+                # 回退到 NY 时间并产生错误日期。
+                exchange_clean = df[col].astype(str).str.strip().replace("nan", "NA")
+                empty_mask = exchange_clean.isin(["", "None", "NONE", "nan", "NaN"])
+                df[col] = np.where(empty_mask, np.nan, exchange_clean)
             else:
                 df[col] = df[col].astype(str).str.strip().replace("nan", "").replace("None", "")
 
@@ -445,6 +469,21 @@ def process_fills(df: pd.DataFrame) -> pd.DataFrame:
         .pipe(add_mkt_timestamp_columns)
         .pipe(add_route_mkt_timestamp_columns)
     )
+
+    # 处理完成后做硬校验：Exchange 与 equ_ticker 不允许出现空/NULL
+    # 这些空值会导致 S3 聚合缺 Ticker/Side/Currency 列或 BDIB 集成失败。
+    if "Exchange" in processed.columns:
+        empty_exchange = processed["Exchange"].isna() | (processed["Exchange"].astype(str).str.strip() == "")
+        if empty_exchange.any():
+            logger.error("process_fills: %d 行 Exchange 为空", int(empty_exchange.sum()))
+            if Config.STRICT_MISSING_TICKER_VALIDATION:
+                raise ValueError(f"{empty_exchange.sum()} 行 Exchange 为空，请检查上游数据")
+    if "equ_ticker" in processed.columns:
+        empty_equ = processed["equ_ticker"].isna() | (processed["equ_ticker"].astype(str).str.strip() == "")
+        if empty_equ.any():
+            logger.error("process_fills: %d 行 equ_ticker 为空", int(empty_equ.sum()))
+            if Config.STRICT_MISSING_TICKER_VALIDATION:
+                raise ValueError(f"{empty_equ.sum()} 行 equ_ticker 为空，请检查上游数据")
 
     logger.info(f"Processed {len(processed)} fills -> added algo/ccy/ticker/timestamp columns")
     return processed
