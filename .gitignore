@@ -65,6 +65,11 @@ pip-delete-this-directory.txt
 *.temp
 .cache/
 
+# --- Conversation / debug scratch files (see .codebuddy/rules/coding-style.md) ---
+_tmp/
+_tmp_*
+_tmp-*
+
 # --- Pipeline runtime artifacts ---
 .pipeline.lock
 

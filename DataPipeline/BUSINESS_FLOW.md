@@ -31,7 +31,7 @@ CLI 入口：`python -m DataPipeline --once`，对应 `DataPipeline/__main__.py`
 | `analysis/` | 市场状态分类、成交归因 | `regime.db`、`fill_attribution_metrics` |
 | `storage/` | 仓库模式访问、迁移、Facade | 跨库读写、DDL 版本管理 |
 | `validation/` | 护栏校验：Schema、契约、违规、结果 | `ValidationResult`、`GuardStageResult` |
-| `pipeline_guards/` | 启动前 Schema 漂移静态扫描 | `SchemaDriftGuard`、`run_schema_drift_check` |
+| `pipeline_guards/` | 启动前 Schema 漂移静态扫描 + S5 前置数据质量校验 | `SchemaDriftGuard`、`EmptyBarGuard`、`BDIBCoverageGuard` |
 | `circuit_breaker/` | 三态熔断、注册表、告警、重试 | `CircuitBreaker`、`RetryPolicy` |
 | `monitoring/` | 运行级 JSONL 日志、RunID、概要 | `{run_id}.jsonl`、summary dict |
 | `orchestration/` | 阶段基类、Stage 集合、Context、Guard 包装 | 整条管道编排入口 |
@@ -62,7 +62,7 @@ run_full_pipeline() 入口
 | **S2** Process Raw Fills | `ProcessRawFillsStage` (`stages_ingest.py`) | `raw_fills.db` 当日数据 | processed_fills + `equ_ticker`（空字段 → NULL）；Exchange 空/未知直接报错；写入前校验 `order_as_of_date` 与输入日期一致 | `processed_fills`、`route_registry`（含 4 个 `count_*` 列）、`route_history`、`route_event_history`（`order_history` 是 `route_history` 的 VIEW 派生） |
 | **S3** Aggregate Fills (10s) | `AggregateFillsStage` (`stages_ingest.py`) | `processed_fills` 单日 | route×timestamp 10s 桶（VWAP）；聚合前从 `route_registry` 补全 `Ticker/Side/Currency/ccy_ticker`；过滤无成交量桶 | `agg_fills_10s` |
 | **S4** Generate Order Labels | `GenerateOrderLabelsStage` (`stages_ingest.py`) | `processed_fills` 单日 | 订单级标签 | `order_label`（`ticker_registry.db`） |
-| **S5** Integrate BDIB | `IntegrateBDIBStage` (`stages_process.py`) | `agg_fills_10s` + Bloomberg BDIB 10s bars + FX | TCA 衍生指标 | `raw_bdib`、`fill_bdib` |
+| **S5** Integrate BDIB | `IntegrateBDIBStage` (`stages_process.py`) | `agg_fills_10s` + Bloomberg BDIB 10s bars + FX；ticker 宇宙由 `Config.BDIB_EXCHANGE`（33 个交易所白名单）过滤 `ticker_repository` 决定；前置校验 `EmptyBarGuard` + `BDIBCoverageGuard` | TCA 衍生指标 | `raw_bdib`、`fill_bdib` |
 | **S6** Write Manifest | `WriteManifestStage` (`stages_process.py`) | ticker registry | `market_fetch_manifest.json` | （无） |
 | **S7** Daily Metrics | `CalculateDailyMetricsStage` (`stages_process.py`) | `raw_bdib` + Bloomberg bdh | ADV(5d/20d)、年化波动率、daily_vwap | `bdib_daily_summary` |
 | **S8** Regime Daily Features | `RegimeDailyFeaturesStage` (`stages_analysis.py`) | 指数/BDIB 聚合 → market_index | vol/liq/trend 日级分类 | `daily_vol_regime`、`daily_liquidity_regime`、`daily_trend_regime` |
@@ -103,6 +103,37 @@ run_full_pipeline() 入口
 | 回填脚本 | `scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5` |
 
 **回归测试**：`DataPipeline/tests/guardrail/test_data_quality.py::TestStage2CrossDayProcessing` 3/3 通过。
+
+### 3.1.2 BDIB 覆盖率修复（2026-07-08）
+
+> **问题**：549 个 ticker 有成交记录（`processed_fills`）但无 BDIB 行情（`raw_bdib`），影响 TCA 分析完整性。经调查分三个根因：
+> - **根因一（424 个，77%）**：`Config.BDIB_EXCHANGE` 白名单遗漏 9 个交易所（HK/CN/BZ/MM/PW/DC/IT/NZ/MUMBAI），S5 和回补脚本通过 `get_ticker_exchange_map(exchanges=Config.BDIB_EXCHANGE)` 过滤 ticker 宇宙，白名单外的 ticker 从未被传入 BDIB fetcher。
+> - **根因二（108 个，20%）**：ticker 在 `processed_fills` 中有记录但 `ticker_repository` 中未注册，对 fetcher 不可见。
+> - **根因三（17 个，3%）**：ticker 在白名单内且已注册，但 Bloomberg BDIB API 返回空/报错（疑似退市/停牌）。
+
+**修复内容**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `DataPipeline/config.py` | `BDIB_EXCHANGE` 从 24 个扩展至 33 个交易所（追加 HK/CN/BZ/MM/PW/DC/IT/NZ/MUMBAI） |
+| `DataPipeline/common/exchange_tz.py` | NZ 时区修正 `Australia/Sydney` → `Australia/Auckland`（新西兰 NZX 实际时区 UTC+12/+13） |
+| `DataPipeline/orchestration/stages_process.py` | S5 前置校验追加 `BDIBCoverageGuard` 调用（紧随 `EmptyBarGuard`） |
+| `DataPipeline/pipeline_guards/bdib_coverage_guard.py` | 新增：对比 `processed_fills` vs `raw_bdib` 的 `equ_ticker` 差集，按 exchange 分组报告 `ValidationViolation` |
+| `scripts/ops/backfill_ticker_repository.py` | 新增：从 `processed_fills` 提取未注册 ticker 及其 Exchange，upsert 到 `ticker_repository`（支持 `--dry-run`/`--exchange`） |
+| `scripts/ops/investigate_bdib_api_failures.py` | 新增：排查 17 个 API 失败 ticker，确认退市/停牌后标记 outdated tombstone（支持 `--dry-run`，需要 Bloomberg 连接） |
+| `scripts/ops/backfill_bdib_by_market.py` | 新增：按市场分批编排 BDIB 回补，封装 `backfill_raw_bdib.py::run_backfill()`（支持 `--markets`/`--start`/`--end`/`--dry-run`） |
+
+**执行记录**（2026-07-08）：
+
+| 操作 | 结果 |
+| --- | --- |
+| `BDIB_EXCHANGE` 扩展 | 24 → 33 个交易所 |
+| NZ 时区修正 | `Australia/Sydney` → `Australia/Auckland` |
+| ticker_repository 补注册 | 108 个 ticker（涉及 20 个 exchange）成功写入 |
+| `BDIBCoverageGuard` 扫描 | 检测到 549 个 ticker 有成交但无 BDIB（24 个 exchange） |
+| BDIB 数据回补 | ✅ 已完成（2026-07-08）：9 个新市场 1,012 天成功，65,638,213 行写入，0 天失败 |
+| BDIB 保留窗口 | Bloomberg BDIB API 历史数据保留期限：US/LN/JP/KS 约 9 个月，HK/NZ/CN/BZ 约 6 个月。超出窗口返回空数据。回补脚本默认 `--start` 动态计算为 `today - 180 天`（`Config.BDIB_API_RETENTION_DAYS`） |
+| API 失败 ticker 排查 | ✅ 已完成（2026-07-08）：17 个 ticker 中 8 个确认无数据（已标记 outdated），8 个经复查 API 正常，1 个已预先标记 outdated |
 
 ### 3.2 Stage 内部实现概要
 
@@ -334,7 +365,7 @@ FinancialPipeline  ──wrap──▶  GuardPipeline.run(context)
 - `AccessTier.READ`：禁止 INSERT/UPDATE/DELETE；同一线程内通过 `threading.local` 缓存连接（避免每次 ~50µs 重建开销）。
 - `AccessTier.WRITE`：每次新建连接；自动应用 `journal_mode=WAL` + `foreign_keys=ON` + `busy_timeout=30s`。
 - 全部连接由 `AccessControlledConnection` 包装，在 `execute()` 时按 SQL 正则分类做权限校验。
-- 迁移统一走 `DataPipeline/storage/schema/migrations/apply.py` 与 `migration_framework.MigrationRunner`：读取 `PRAGMA user_version`，按 `vN_to_vN+1.sql` 顺序应用，跨进程排他锁（`os.O_CREAT | os.O_EXCL` 原子锁文件）。`_EXPECTED_CURRENT`：`raw_fills=v4` / `processed_fills=v1` / `raw_bdib=v1` / `processed_raw_bdib=v1` / `fill_bdib=v1` / `regime=v3`。
+- 迁移统一走 `DataPipeline/storage/schema/migrations/apply.py` 与 `migration_framework.MigrationRunner`：读取 `PRAGMA user_version`，按 `vN_to_vN+1.sql` 顺序应用，跨进程排他锁（`os.O_CREAT | os.O_EXCL` 原子锁文件）。`_EXPECTED_CURRENT`：`raw_fills=v4` / `processed_fills=v1` / `raw_bdib=v2` / `processed_raw_bdib=v1` / `fill_bdib=v1` / `regime=v3`。
 
 ### 5.3 仓库分层
 
@@ -399,10 +430,10 @@ order_label (S4) ── ticker_registry.db ─┐                       │
   │  订单级标签 (side/amount/algo)     │  BDIB                  │
   │                                     ▼                       │
   │  (BDIB 10s bars via xbbg)        raw_bdib (S5 拉取阶段)     │
-  │  + FX rates                         │  compute_derived_fields│
-  │                                     │  (vwap, log_chg_pct)   │
+  │  + FX rates                         │  10 列原始 Bloomberg   │
+  │                                     │  衍生字段内存计算      │
   │                                     ▼                       │
-  │                                  raw_bdib + 内存衍生        │
+  │                                  raw_bdib (10s bars)        │
   │                                     │                       │
   │                                     ▼                       │
   │                            fill_bdib (S5 集成阶段)           │
@@ -442,7 +473,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | BDIB | `BDIB_LATEST_READY_HOUR_LOCAL` | 8 | 当日 BDIB 安全就绪小时 |
 | BDIB | `BDIB_PARQUET_ENABLED` | false | Parquet 双写 (Phase A) |
 | BDIB | `BDIB_PARQUET_DIR` | `data/market/bdib_10s` | Parquet 目录 |
-| BDIB | `BDIB_QUERY_ENGINE` | `sqlite` | `sqlite` / `parquet` |
+| BDIB | `BDIB_QUERY_ENGINE` | `duckdb` | `sqlite` / `duckdb` |
 | 分区 | `PARTITION_DUAL_WRITE` | false | 分区双写 (Phase B) |
 | 分区 | `PARTITION_READ_NEW` | false | 读新分区 |
 | 护栏 | `GUARDRAIL_ENABLED` | true | 护栏总开关 |

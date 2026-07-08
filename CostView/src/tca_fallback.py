@@ -128,9 +128,9 @@ def _compute_route_metrics_from_raw_bdib(
             SELECT mkt_timestamp, close, volume, value
             FROM {Config.RAW_BDIB_TABLE}
             WHERE equ_ticker = ? AND order_as_of_date = ?
-              AND substr(mkt_timestamp, -8) >= ?
-              AND substr(mkt_timestamp, -8) <= ?
-            ORDER BY substr(mkt_timestamp, -8)
+              AND mkt_timestamp >= ?
+              AND mkt_timestamp <= ?
+            ORDER BY mkt_timestamp
             """,
             [ticker, trade_date, start_bucket, end_bucket],
         ).fetchall()

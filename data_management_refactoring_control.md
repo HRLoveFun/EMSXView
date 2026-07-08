@@ -51,7 +51,7 @@
 |------|-------|------|:--------:|
 | `BDIB_HOT_RETENTION_MONTHS` | 3 | SQLite中保留近几个月K线 | A7 |
 | `BDIB_PARQUET_ENABLED` | false | 启用BDIB Parquet双写 | A3, A4 |
-| `BDIB_QUERY_ENGINE` | sqlite | BDIB查询引擎: `sqlite` / `duckdb` | A5, A6 |
+| `BDIB_QUERY_ENGINE` | duckdb | BDIB查询引擎: `sqlite` / `duckdb` | A5, A6 |
 | `PARTITION_DUAL_WRITE` | false | 分区双写开关 | B2 |
 | `PARTITION_READ_NEW` | false | 读新分区DB开关 | B3 |
 | `PROCESSED_RAW_BDIB_ENABLED` | true | processed_raw_bdib写入开关 (false=退役) | A8 |

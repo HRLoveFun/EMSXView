@@ -516,8 +516,8 @@ def _get_market_context_sqlite(
                 cursor = conn.execute(
                     f"SELECT close FROM {Config.RAW_BDIB_TABLE} "
                     "WHERE equ_ticker = ? AND order_as_of_date = ? "
-                    "AND substr(mkt_timestamp, -8) < ? "
-                    "ORDER BY substr(mkt_timestamp, -8) DESC LIMIT 1",
+                    "AND mkt_timestamp < ? "
+                    "ORDER BY mkt_timestamp DESC LIMIT 1",
                     [ticker, trade_date, interval_start],
                 )
                 before_row = cursor.fetchone()
@@ -538,8 +538,8 @@ def _get_market_context_sqlite(
                 cursor = conn.execute(
                     f"SELECT close FROM {Config.RAW_BDIB_TABLE} "
                     "WHERE equ_ticker = ? AND order_as_of_date = ? "
-                    "AND substr(mkt_timestamp, -8) <= ? "
-                    "ORDER BY substr(mkt_timestamp, -8) DESC LIMIT 1",
+                    "AND mkt_timestamp <= ? "
+                    "ORDER BY mkt_timestamp DESC LIMIT 1",
                     [ticker, trade_date, interval_end],
                 )
                 close_row = cursor.fetchone()
@@ -560,7 +560,7 @@ def _get_market_context_sqlite(
                 cursor = conn.execute(
                     f"SELECT COUNT(*) FROM {Config.RAW_BDIB_TABLE} "
                     "WHERE equ_ticker = ? AND order_as_of_date = ? "
-                    "AND substr(mkt_timestamp, -8) >= ? AND substr(mkt_timestamp, -8) <= ?",
+                    "AND mkt_timestamp >= ? AND mkt_timestamp <= ?",
                     [ticker, trade_date, interval_start, interval_end],
                 )
                 actual_bars = cursor.fetchone()[0]

@@ -14,7 +14,8 @@ Also provides data cleaning, validation, and selective re-fetch capabilities:
     python backfill_raw_bdib.py --clean --repair
 
 Usage (backfill):
-    # Default: start from 2025-09-25 to today's previous weekday
+    # Default: start from (today - 180 days) to today's previous weekday
+    #         (180 days = BDIB API retention window, see Config.BDIB_API_RETENTION_DAYS)
     python backfill_raw_bdib.py
 
     # Custom start date
@@ -457,7 +458,7 @@ def repair_invalid_pairs(
 
 
 def run_backfill(
-    start_date_str: str = "2025-09-25",
+    start_date_str: Optional[str] = None,
     end_date_str: Optional[str] = None,
     force: bool = False,
     dry_run: bool = False,
@@ -465,7 +466,8 @@ def run_backfill(
     """Execute the backfill loop.
 
     Args:
-        start_date_str: Start date in YYYY-MM-DD format.
+        start_date_str: Start date in YYYY-MM-DD format. If None, automatically
+            computed as today - Config.BDIB_API_RETENTION_DAYS (180 days).
         end_date_str: End date in YYYY-MM-DD format (default: previous weekday).
         force: If True, re-fetch even if data already exists in raw_bdib.db.
         dry_run: If True, only print planned actions without fetching.
@@ -473,6 +475,17 @@ def run_backfill(
     Returns:
         Summary dict with counts and per-date results.
     """
+    # ── 未指定起始日期时，基于 BDIB 保留窗口动态计算 ──
+    if start_date_str is None:
+        start_dt = datetime.now().date() - timedelta(days=Config.BDIB_API_RETENTION_DAYS)
+        start_date_str = start_dt.strftime("%Y-%m-%d")
+        logger.info(
+            "未指定 --start，基于 BDIB 保留窗口（%d 天）自动计算起始日期: %s",
+            Config.BDIB_API_RETENTION_DAYS, start_date_str,
+        )
+    else:
+        start_dt = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+
     summary = {
         "start_date": start_date_str,
         "end_date": end_date_str or "auto(previous_weekday)",
@@ -488,8 +501,7 @@ def run_backfill(
         "per_date": [],
     }
 
-    # ── Parse date range ──
-    start_dt = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    # ── Parse end date ──
     end_dt = (
         datetime.strptime(end_date_str, "%Y-%m-%d").date()
         if end_date_str
@@ -630,7 +642,7 @@ def main():
         epilog="""
 Examples:
   # Backfill (default mode)
-  python backfill_raw_bdib.py                        # 2025-09-25 -> yesterday
+  python backfill_raw_bdib.py                        # auto: (today-180d) -> yesterday
   python backfill_raw_bdib.py --start 2025-01-02     # custom start
   python backfill_raw_bdib.py --start 2025-09-25 --end 2026-03-31
   python backfill_raw_bdib.py --force               # re-fetch all
@@ -644,8 +656,8 @@ Examples:
         """,
     )
     parser.add_argument(
-        "--start", type=str, default="2025-09-25",
-        help="Start date (YYYY-MM-DD). Default: 2025-09-25",
+        "--start", type=str, default=None,
+        help="Start date (YYYY-MM-DD). Default: today - 180 days (BDIB retention window)",
     )
     parser.add_argument(
         "--end", type=str, default=None,
