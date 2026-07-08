@@ -54,7 +54,7 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
             Exchange              TEXT,
             Currency              TEXT,
             Side                  TEXT,
-            Amount                TEXT,
+            Amount                REAL,
             NyOrderCreateAsOfDateTime TEXT,
             Type                  TEXT,
             LimitPrice            REAL,
@@ -65,12 +65,12 @@ def init_raw_fills_schema(conn: sqlite3.Connection) -> None:
             TraderUuid            TEXT,
             RouteId               TEXT NOT NULL,
             NyTranCreateAsOfDateTime TEXT,
-            RouteShares           TEXT,
+            RouteShares           INTEGER,
             FillId                TEXT NOT NULL,
             ExecType              TEXT,
             DateTimeOfFill        TEXT,
-            FillPrice             TEXT,
-            FillShares            TEXT,
+            FillPrice             REAL,
+            FillShares            INTEGER,
             LastCapacity          TEXT,
             LastMarket            TEXT,
             Liquidity             TEXT,
@@ -348,7 +348,15 @@ def _migrate_raw_fills_pk(conn: sqlite3.Connection) -> None:
 
 
 def init_raw_bdib_schema(conn: sqlite3.Connection) -> None:
-    """Create raw_bdib.db tables and indexes."""
+    """Create raw_bdib.db tables and indexes.
+
+    历史：物理表曾残留 3 个废弃衍生列（vwap / fluctuation / log_chg_pct_10s），
+    这些列是早期版本 DDL 直接 CREATE TABLE 时包含的，当前代码不再写入。
+    修复记录（2026-07-07）：
+    - v1: 运行 scripts/ops/cleanup_raw_bdib_empty_bars.py 清理 28,591 行空 bar
+    - v2: 运行 raw_bdib/v1_to_v2.sql 删除三个废弃列（SQLite 3.35+ DROP COLUMN）
+    当前 schema 已对齐代码定义（12 列），衍生字段由 compute_derived_fields() 内存即时计算。
+    """
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {Config.RAW_BDIB_TABLE} (
             equ_ticker       TEXT NOT NULL,
@@ -366,12 +374,11 @@ def init_raw_bdib_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (equ_ticker, order_as_of_date, mkt_timestamp)
         )
     """)
-    conn.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_raw_bdib_date ON {Config.RAW_BDIB_TABLE} (order_as_of_date)"
-    )
-    conn.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_raw_bdib_ticker ON {Config.RAW_BDIB_TABLE} (equ_ticker)"
-    )
+    # 冗余索引清理: idx_raw_bdib_date 被 idx_raw_bdib_date_ticker 前缀覆盖，
+    # idx_raw_bdib_ticker 被 PK(equ_ticker, ...) 覆盖，移除以减少写入开销
+    conn.execute(f"DROP INDEX IF EXISTS idx_raw_bdib_date")
+    conn.execute(f"DROP INDEX IF EXISTS idx_raw_bdib_ticker")
+    # 保留 (order_as_of_date, equ_ticker) 复合索引，覆盖按日期+ticker 查询场景
     conn.execute(
         f"CREATE INDEX IF NOT EXISTS idx_raw_bdib_date_ticker ON {Config.RAW_BDIB_TABLE} (order_as_of_date, equ_ticker)"
     )

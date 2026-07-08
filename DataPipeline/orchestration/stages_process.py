@@ -112,6 +112,37 @@ class IntegrateBDIBStage(BaseStage):
             context.summary["bdib"] = {"completed": True, "dates": 0}
             return True
 
+        # 前置校验：检测 raw_bdib 空 bar 残留（历史数据问题，不影响新数据拉取）
+        try:
+            from DataPipeline.pipeline_guards.empty_bar_guard import EmptyBarGuard
+            violations = EmptyBarGuard().scan(
+                run_id=getattr(context, "run_id", "S5_precheck")
+            )
+            if violations:
+                logger.warning(
+                    "raw_bdib 空 bar 检测: 发现 %d 条违规，建议运行 "
+                    "scripts/ops/cleanup_raw_bdib_empty_bars.py --apply 清理",
+                    len(violations),
+                )
+        except Exception as e:
+            logger.debug("空 bar 前置校验跳过: %s", e)
+
+        # 前置校验：检测 processed_fills 与 raw_bdib 的 ticker 覆盖缺口
+        try:
+            from DataPipeline.pipeline_guards.bdib_coverage_guard import BDIBCoverageGuard
+            coverage_violations = BDIBCoverageGuard().scan(
+                run_id=getattr(context, "run_id", "S5_precheck")
+            )
+            if coverage_violations:
+                logger.warning(
+                    "BDIB 覆盖率检测: 发现 %d 条覆盖率缺口（有成交但无 BDIB 行情），"
+                    "建议运行 scripts/ops/backfill_ticker_repository.py 补注册 ticker，"
+                    "再用 scripts/ops/backfill_bdib_by_market.py 回补 BDIB 数据",
+                    len(coverage_violations),
+                )
+        except Exception as e:
+            logger.debug("BDIB 覆盖率前置校验跳过: %s", e)
+
         latest_raw_date = context.db.market_data_read.get_latest_order_as_of_date()
         latest_proc_raw_date = context.db.market_data_read.get_latest_order_as_of_date()
         try:
@@ -217,7 +248,9 @@ class IntegrateBDIBStage(BaseStage):
                     try:
                         conn = cm.get_connection("raw_bdib", AccessTier.READ)
                         bdib_from_db = pd.read_sql_query(
-                            "SELECT * FROM raw_bdib WHERE order_as_of_date = ?",
+                            "SELECT equ_ticker, order_as_of_date, mkt_timestamp, "
+                            "open, high, low, close, volume, num_trds, value "
+                            "FROM raw_bdib WHERE order_as_of_date = ?",
                             conn.raw_connection,
                             params=[date_str],
                         )

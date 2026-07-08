@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 # -1 means "not tracked" (uses inline DDL).
 # These should be updated when formal migrations are added.
 EXPECTED_VERSIONS: Dict[str, int] = {
-    "raw_fills": -1,
-    "processed_fills": -1,
-    "raw_bdib": -1,
-    "processed_raw_bdib": -1,
-    "fill_bdib": -1,
+    "raw_fills": 5,  # v1=基线, v2=LimitPrice/StopPrice TEXT→REAL, v3=PK+source_date, v4=order_as_of_date NOT NULL, v5=Amount/FillPrice/FillShares/RouteShares TEXT→数值
+    "processed_fills": 1,  # v1=基线注册
+    "raw_bdib": 2,  # v1=空bar清理, v2=删除废弃衍生列(vwap/fluctuation/log_chg_pct_10s)
+    "processed_raw_bdib": 1,  # v1=基线注册
+    "fill_bdib": 1,  # v1=基线注册
     "regime": 3,  # regime.db uses formal migrations (currently at v3)
 }
 

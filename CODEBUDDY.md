@@ -248,7 +248,7 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 <!-- SPECKIT START -->
 ## Current Plan
 
-**Status**: ✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03，验证 `processed_fills` 与 `raw_fills` 非 DFD gap=0）
+**Status**: ✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08，白名单扩展 + ticker 补注册 + 覆盖率 guard + BDIB 回补 65M 行）
 
 **Feature**: 数据管道护栏机制 + S2 跨日维度修复
 **Branch**: `datapipeline-checking`（基于 `001-architecture-module-completion`）
@@ -270,4 +270,12 @@ Key artifacts:
 - **回填脚本**：`scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5`，对 13 个缺失 `source_date` 展开为 69 个 OAD 重新跑 S2/S3/S4。`raw_fills` 非 DFD 11,112,677 = `processed_fills` 11,112,677，gap=0。
 - **配套运维**：`scripts/ops/cleanup_processed_fills_mismatches.py`（孤儿/日期不匹配/无效 `order_as_of_date` 行清理，--dry-run、--dates、自动备份）+ `scripts/ops/analyze_processed_fills_nulls.py`（每列 NULL/空字符串统计）。
 - **新增配置**：`STRICT_MISSING_TICKER_VALIDATION`（默认 `false`，启用时 `process_fills` 阶段 Exchange/equ_ticker 缺失直接抛 `ValueError`）。
+
+### BDIB 覆盖率修复记录（2026-07-08）
+
+- **问题**：549 个 ticker 有成交但无 BDIB 行情。根因：① `BDIB_EXCHANGE` 白名单遗漏 9 个交易所（424 个 ticker）；② 108 个 ticker 未注册到 `ticker_repository`；③ 17 个 ticker Bloomberg BDIB API 返回空。
+- **修复**：`Config.BDIB_EXCHANGE` 从 24 扩展至 33 个交易所（+HK/CN/BZ/MM/PW/DC/IT/NZ/MUMBAI）；`exchange_tz.py` NZ 时区修正 `Australia/Sydney` → `Australia/Auckland`；补注册 108 个 ticker；新增 `BDIBCoverageGuard`（S5 前置校验）。
+- **运维脚本**：`scripts/ops/backfill_ticker_repository.py`（ticker 补注册）、`scripts/ops/investigate_bdib_api_failures.py`（17 个 API 失败排查）、`scripts/ops/backfill_bdib_by_market.py`（按市场分批 BDIB 回补）。
+- **执行记录**（2026-07-08）：BDIB 数据回补已完成——9 个新市场共 1,012 天成功、65,638,213 行写入、0 天失败（耗时 3.8 小时）。MUMBAI 市场 1 个 ticker 已标记 outdated。8 个 API 失败 ticker 已标记 outdated（BDIB 确认无数据）。8 个原 API 失败 ticker 经复查确认 API 正常（可正常拉取）。
+- **BDIB 保留窗口限制**：Bloomberg BDIB (intraday bar) API 对历史数据有保留期限——US/LN/JP/KS 等主要市场约 9 个月，HK/NZ/CN/BZ 等市场约 6 个月。超出保留窗口的日期返回空数据，无法回补。`backfill_bdib_by_market.py` 默认 `--start` 动态计算为 `today - 180 天`（`Config.BDIB_API_RETENTION_DAYS`），确保所有市场都在保留窗口内。
 <!-- SPECKIT END -->

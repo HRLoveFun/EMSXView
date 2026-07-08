@@ -88,6 +88,16 @@ class Config:
         "AU", "AV", "BB", "FH", "FP", "GA", "GR", "ID", "IJ", "IM",
         "IN", "JP", "KS", "LN", "MK", "NA", "NO", "PL", "SJ", "SM",
         "SP", "SS", "SW", "US",
+        # ── 2026-07-08 补齐：原白名单遗漏的 9 个交易所（424 个 ticker 无 BDIB 行情） ──
+        "HK",       # 香港 HKEX
+        "CN",       # 加拿大 TSX
+        "BZ",       # 巴西 B3
+        "MM",       # 墨西哥 BMV
+        "PW",       # 波兰 WSE
+        "DC",       # 丹麦 Nasdaq Copenhagen
+        "IT",       # 以色列 Tel Aviv (TASE)
+        "NZ",       # 新西兰 NZX
+        "MUMBAI",   # 印度 BSE (EMSX 返回的 Exchange code)
     ]
 
     MAX_PARALLEL_DATES: int = 1
@@ -100,9 +110,14 @@ class Config:
 
     # ── 数据管理重构: BDIB存储引擎 (Phase A) ──
     BDIB_PARQUET_ENABLED: bool = os.getenv("BDIB_PARQUET_ENABLED", "0") == "1"
-    BDIB_QUERY_ENGINE: str = os.getenv("BDIB_QUERY_ENGINE", "sqlite")
+    BDIB_QUERY_ENGINE: str = os.getenv("BDIB_QUERY_ENGINE", "duckdb")
     BDIB_PARQUET_DIR: Path = DATA_DIR / "market" / "bdib_10s"
     BDIB_HOT_RETENTION_MONTHS: int = int(os.getenv("BDIB_HOT_RETENTION_MONTHS", "3"))
+
+    # Bloomberg BDIB API 历史数据保留窗口（天）
+    # US/LN/JP/KS 等主要市场约 9 个月，HK/NZ/CN/BZ 等市场约 6 个月
+    # 取最保守值 180 天（6 个月），确保所有市场都在窗口内
+    BDIB_API_RETENTION_DAYS: int = 180
 
     # ── 数据管理重构: 分区双写/读 (Phase B) ──
     PARTITION_DUAL_WRITE: bool = os.getenv("PARTITION_DUAL_WRITE", "0") == "1"
