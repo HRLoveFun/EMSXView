@@ -642,6 +642,8 @@ def get_order_fill_stats(
     return result
 
 
+
+
 def get_fill_percentages(
     mgr: ConnectionManager,
     order_ids: list[str],
@@ -652,3 +654,97 @@ def get_fill_percentages(
         order_id: s.get("fill_pct")
         for order_id, s in stats.items()
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TCA route summaries (tca_route_summary table)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def get_tca_route_summaries(
+    mgr: ConnectionManager,
+    filters: TcaFilters,
+) -> tuple[list[dict], int]:
+    """Query tca_route_summary for routes matching filters.
+
+    Returns (page of route dicts, total_count_without_pagination).
+    """
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if filters.start_date:
+        conditions.append("order_as_of_date >= ?")
+        params.append(filters.start_date)
+    if filters.end_date:
+        conditions.append("order_as_of_date <= ?")
+        params.append(filters.end_date)
+    if filters.order_ids:
+        placeholders = ",".join(["?"] * len(filters.order_ids))
+        conditions.append(f"OrderId IN ({placeholders})")
+        params.extend(filters.order_ids)
+    if filters.algo:
+        conditions.append("algo = ?")
+        params.append(filters.algo)
+    if filters.broker:
+        conditions.append("Broker = ?")
+        params.append(filters.broker)
+    if filters.symbol:
+        conditions.append("equ_ticker = ?")
+        params.append(filters.symbol)
+
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    conn = _fill_bdib_conn(mgr)
+    try:
+        if not _table_exists(conn, Config.TCA_ROUTE_SUMMARY_TABLE):
+            return [], 0
+
+        base_sql = f"""
+            SELECT *
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where_clause}
+        """
+        count_sql = f"SELECT COUNT(*) FROM ({base_sql})"
+        total = int(conn.execute(count_sql, params).fetchone()[0])
+
+        paged_sql = base_sql + " ORDER BY order_as_of_date DESC, OrderId, RouteId LIMIT ? OFFSET ?"
+        cursor = conn.execute(paged_sql, params + [filters.limit, filters.offset])
+        columns = [desc[0] for desc in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return rows, total
+    finally:
+        conn.close()
+
+
+def get_tca_route_summaries_by_keys(
+    mgr: ConnectionManager,
+    route_keys: list[tuple[str, str, str]],
+) -> dict[tuple[str, str, str], dict]:
+    """Fetch tca_route_summary rows for specific (OrderId, RouteId, order_as_of_date) keys."""
+    if not route_keys:
+        return {}
+
+    placeholders = ",".join(["(?, ?, ?)"] * len(route_keys))
+    flat_params = [item for key in route_keys for item in key]
+
+    conn = _fill_bdib_conn(mgr)
+    try:
+        if not _table_exists(conn, Config.TCA_ROUTE_SUMMARY_TABLE):
+            return {}
+
+        sql = f"""
+            SELECT *
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            WHERE (OrderId, RouteId, order_as_of_date) IN ({placeholders})
+        """
+        cursor = conn.execute(sql, flat_params)
+        columns = [desc[0] for desc in cursor.description]
+        result: dict[tuple[str, str, str], dict] = {}
+        for row in cursor.fetchall():
+            d = dict(zip(columns, row))
+            key = (d["OrderId"], d["RouteId"], d["order_as_of_date"])
+            result[key] = d
+        return result
+    finally:
+        conn.close()
+

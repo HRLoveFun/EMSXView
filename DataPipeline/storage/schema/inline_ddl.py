@@ -29,6 +29,7 @@ from .columns import (
     ROUTE_EVENT_HISTORY_COLUMNS,
     ROUTE_HISTORY_COLUMNS,
     ROUTE_REGISTRY_COLUMNS,
+    TCA_ROUTE_SUMMARY_COLUMNS,
 )
 
 logger = logging.getLogger(__name__)
@@ -482,7 +483,35 @@ def init_fill_bdib_schema(conn: sqlite3.Connection) -> None:
         f"CREATE INDEX IF NOT EXISTS idx_fill_bdib_ticker ON {Config.FILL_BDIB_TABLE} (equ_ticker)"
     )
     conn.commit()
+
+    # 同时确保 tca_route_summary 表存在
+    init_tca_route_summary_schema(conn)
     logger.debug("fill_bdib.db schema ensured (inline DDL)")
+
+
+def init_tca_route_summary_schema(conn: sqlite3.Connection) -> None:
+    """Create tca_route_summary table in fill_bdib.db.
+
+    processed_bdib 层：存储基于 raw_bdib 衍生的路由级 TCA 指标，
+    作为 raw_bdib 相关衍生列/中间值的统一存储层。
+    """
+    trs_cols = _build_column_defs(TCA_ROUTE_SUMMARY_COLUMNS, COLUMN_TYPE_MAP)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.TCA_ROUTE_SUMMARY_TABLE} (
+            {trs_cols},
+            PRIMARY KEY (OrderId, RouteId, order_as_of_date)
+        )
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_trs_date
+        ON {Config.TCA_ROUTE_SUMMARY_TABLE} (order_as_of_date)
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_trs_ticker
+        ON {Config.TCA_ROUTE_SUMMARY_TABLE} (equ_ticker)
+    """)
+    conn.commit()
+    logger.debug("tca_route_summary schema ensured (inline DDL)")
 
 
 def init_processed_fills_schema(conn: sqlite3.Connection) -> None:

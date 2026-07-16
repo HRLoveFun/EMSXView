@@ -36,14 +36,14 @@ function formatRelativeTime(value: string | null): string | null {
 }
 
 export function OverviewView({ config, error, exportState, isLoading, report, onGoToAnalysis, onOpenExport, onRefresh, onNavigateToDatabase }: OverviewViewProps) {
-  const avgTracking = report ? averageMetric(report.orders, 'tracking_error_bps') : null;
+  const avgPnlVwap = report ? averageMetric(report.orders, 'tracking_error_bps') : null;
   const avgFill = report ? averageMetric(report.orders, 'fill_pct') : null;
-  const avgAdv = report ? averageMetric(report.orders, 'volume_pct_adv20') : null;
-  const avgVol = report ? averageMetric(report.orders, 'intraday_volatility') : null;
+  const avgParRate = report ? averageMetric(report.orders, 'volume_pct_adv20') : null;
+  const avgPnlVwapContinuous = report ? averageMetric(report.orders, 'intraday_volatility') : null;
   const alertCount = report ? countAlertOrders(report.orders, config) : 0;
-  const recentOrders = report?.orders.slice(0, 5) ?? [];
-  const latestOrderDate = report?.orders.reduce<string | null>((acc, order) => {
-    const d = order.order_as_of_date;
+  const recentRoutes = report?.orders.slice(0, 5) ?? [];
+  const latestOrderDate = report?.orders.reduce<string | null>((acc, route) => {
+    const d = route.order_as_of_date;
     if (!d) return acc;
     return !acc || d > acc ? d : acc;
   }, null) ?? null;
@@ -108,11 +108,11 @@ export function OverviewView({ config, error, exportState, isLoading, report, on
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Alert Orders</CardTitle>
+            <CardTitle className="text-sm">Alert Routes</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{alertCount}</div>
-            <p className="mt-2 text-xs text-muted-foreground">Orders currently breaching local threshold rules.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Routes currently breaching local threshold rules.</p>
           </CardContent>
         </Card>
         <Card>
@@ -127,7 +127,7 @@ export function OverviewView({ config, error, exportState, isLoading, report, on
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[{ label: 'Avg Tracking Error', value: avgTracking != null ? `${avgTracking.toFixed(1)} bps` : '—' }, { label: 'Avg Fill %', value: avgFill != null ? `${avgFill.toFixed(1)}%` : '—' }, { label: 'Avg Vol % ADV20', value: avgAdv != null ? `${avgAdv.toFixed(2)}%` : '—' }, { label: 'Avg Intraday Vol', value: avgVol != null ? `${avgVol.toFixed(2)}%` : '—' }].map((metric) => (
+        {[{ label: 'Avg Pnl VWAP', value: avgPnlVwap != null ? `${avgPnlVwap.toFixed(1)} bps` : '—' }, { label: 'Avg Fill %', value: avgFill != null ? `${avgFill.toFixed(1)}%` : '—' }, { label: 'Avg Par Rate', value: avgParRate != null ? `${avgParRate.toFixed(2)}%` : '—' }, { label: 'Avg Pnl VWAP (Cont)', value: avgPnlVwapContinuous != null ? `${avgPnlVwapContinuous.toFixed(2)}%` : '—' }].map((metric) => (
           <Card key={metric.label}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">{metric.label}</CardTitle>
@@ -150,18 +150,18 @@ export function OverviewView({ config, error, exportState, isLoading, report, on
           </div>
         </CardHeader>
         <CardContent>
-          {recentOrders.length ? (
+          {recentRoutes.length ? (
             <div className="space-y-2">
-              {recentOrders.map((order) => {
-                const severity = getHighestOrderSeverity(order, config);
+              {recentRoutes.map((route) => {
+                const severity = getHighestOrderSeverity(route, config);
                 return (
-                  <div key={order.order_id} className="flex flex-col gap-2 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
+                  <div key={`${route.order_id}/${route.route_id}/${route.order_as_of_date}`} className="flex flex-col gap-2 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <div className="font-mono text-sm">{order.order_id}</div>
-                      <div className="text-xs text-muted-foreground">{order.equ_ticker ?? 'Unknown symbol'} · {order.order_as_of_date}</div>
+                      <div className="font-mono text-sm">{route.order_id} · {route.route_id}</div>
+                      <div className="text-xs text-muted-foreground">{route.equ_ticker ?? 'Unknown symbol'} · {route.order_as_of_date}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline">{order.algo ?? '—'}</Badge>
+                      <Badge variant="outline">{route.algo ?? '—'}</Badge>
                       <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${getSeverityTone(severity)}`}>{getSeverityText(severity)}</span>
                     </div>
                   </div>

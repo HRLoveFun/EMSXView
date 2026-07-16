@@ -85,6 +85,13 @@ COLUMN_TYPE_MAP: Dict[str, str] = {
     "route_count": "INTEGER", "fill_count": "INTEGER",
     "total_fill_shares": "REAL", "order_amount": "REAL",
     "average_fill_price": "REAL",
+    # tca_route_summary 数值列
+    "fill": "REAL", "fill_continuous": "REAL", "fill_close": "REAL",
+    "par_rate": "REAL", "par_rate_continuous": "REAL", "par_rate_close": "REAL",
+    "p_avg": "REAL", "p_avg_continuous": "REAL",
+    "pnl_vwap": "REAL", "pnl_vwap_continuous": "REAL",
+    "RPM": "REAL", "RPM_continuous": "REAL",
+    "pwp_5": "REAL", "pwp_10": "REAL", "pwp_15": "REAL", "pwp_20": "REAL", "pwp_25": "REAL",
 }
 
 AGG_COLUMNS: List[str] = [
@@ -94,6 +101,21 @@ AGG_COLUMNS: List[str] = [
     "ccy_ticker", "is_closing_auction", "RouteShares",
     "route_as_of_time", "ExecType", "DateTimeOfFill",
     "FillPrice", "FillShares",
+]
+
+TCA_ROUTE_SUMMARY_COLUMNS: List[str] = [
+    # 源值字段（17）
+    "OrderId", "RouteId", "order_as_of_date", "Exchange", "Account",
+    "equ_ticker", "Currency", "Side", "Amount", "RouteShares",
+    "Type", "LimitPrice", "StopPrice", "Broker", "StrategyType",
+    "algo", "TraderName",
+    # 计算指标（17）
+    "fill", "fill_continuous", "fill_close",
+    "par_rate", "par_rate_continuous", "par_rate_close",
+    "p_avg", "p_avg_continuous",
+    "pnl_vwap", "pnl_vwap_continuous",
+    "RPM", "RPM_continuous",
+    "pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25",
 ]
 
 AGG_1MIN_COLUMNS: List[str] = [

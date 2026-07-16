@@ -4,7 +4,7 @@ import type {
   CostViewMetricKey,
   ExportDefaults,
   ScorecardCohortMetrics,
-  TcaOrderSummary,
+  TcaRouteSummary,
   ThresholdRule,
 } from '../types';
 
@@ -92,10 +92,24 @@ export function createDefaultCostViewConfig(): CostViewConfig {
 }
 
 export function getMetricValue(
-  order: TcaOrderSummary,
+  route: TcaRouteSummary,
   key: CostViewMetricKey,
 ): number | null | undefined {
-  return order[key];
+  switch (key) {
+    // tracking_error_bps 由后端新指标 pnl_vwap（basis points）承载
+    case 'tracking_error_bps': return route.pnl_vwap;
+    // fill_pct 由后端新指标 fill 承载（百分比，0-100）
+    case 'fill_pct': return route.fill;
+    // volume_pct_adv20 由后端参与率 par_rate 承载（0-1 小数，阈值按百分比 0-100）
+    case 'volume_pct_adv20': return route.par_rate != null ? route.par_rate * 100 : null;
+    // volume_pct_interval 由连续参与率 par_rate_continuous 承载（0-1 小数，阈值按百分比 0-100）
+    case 'volume_pct_interval': return route.par_rate_continuous != null ? route.par_rate_continuous * 100 : null;
+    // intraday_volatility 由 pnl_vwap_continuous 代理（basis points，阈值按百分比 0-100）
+    case 'intraday_volatility': return route.pnl_vwap_continuous != null ? route.pnl_vwap_continuous / 100 : null;
+    // price_movement_pct 由 rpm 代理（百分比，0-100）
+    case 'price_movement_pct': return route.rpm;
+    default: return undefined;
+  }
 }
 
 export function evaluateThreshold(
@@ -120,13 +134,13 @@ export function evaluateThreshold(
 }
 
 export function getOrderAlertDetails(
-  order: TcaOrderSummary,
+  route: TcaRouteSummary,
   config: CostViewConfig,
 ): Array<{ key: CostViewMetricKey; label: string; severity: AlertSeverity; value: number }> {
   const entries: Array<{ key: CostViewMetricKey; label: string; severity: AlertSeverity; value: number }> = [];
 
   for (const rule of Object.values(config.rules)) {
-    const value = getMetricValue(order, rule.key);
+    const value = getMetricValue(route, rule.key);
     const severity = evaluateThreshold(rule, value);
     if ((severity === 'warning' || severity === 'critical') && value != null) {
       entries.push({
@@ -142,11 +156,11 @@ export function getOrderAlertDetails(
 }
 
 export function getHighestOrderSeverity(
-  order: TcaOrderSummary,
+  route: TcaRouteSummary,
   config: CostViewConfig,
 ): AlertSeverity {
   const severities = Object.values(config.rules)
-    .map((rule) => evaluateThreshold(rule, getMetricValue(order, rule.key)));
+    .map((rule) => evaluateThreshold(rule, getMetricValue(route, rule.key)));
 
   if (severities.includes('critical')) return 'critical';
   if (severities.includes('warning')) return 'warning';
@@ -180,19 +194,19 @@ export function getSeverityText(severity: AlertSeverity): string {
   }
 }
 
-export function countAlertOrders(orders: TcaOrderSummary[], config: CostViewConfig): number {
-  return orders.filter((order) => {
-    const severity = getHighestOrderSeverity(order, config);
+export function countAlertOrders(routes: TcaRouteSummary[], config: CostViewConfig): number {
+  return routes.filter((route) => {
+    const severity = getHighestOrderSeverity(route, config);
     return severity === 'warning' || severity === 'critical';
   }).length;
 }
 
 export function averageMetric(
-  orders: TcaOrderSummary[],
+  routes: TcaRouteSummary[],
   key: CostViewMetricKey,
 ): number | null {
-  const values = orders
-    .map((order) => getMetricValue(order, key))
+  const values = routes
+    .map((route) => getMetricValue(route, key))
     .filter((value): value is number => value != null && Number.isFinite(value));
 
   if (!values.length) return null;

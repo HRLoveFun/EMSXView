@@ -2,9 +2,8 @@ import type {
   CostViewConfig,
   ExportFormat,
   ExportScope,
-  TcaOrderSummary,
   TcaReport,
-  TcaRouteDetail,
+  TcaRouteSummary,
 } from '../types';
 
 interface ExportParams {
@@ -12,25 +11,7 @@ interface ExportParams {
   scope: ExportScope;
   report: TcaReport;
   config: CostViewConfig;
-  selectedOrder: TcaOrderSummary | null;
-}
-
-interface FlatOrderRow {
-  [key: string]: string | number | boolean | null;
-  orderId: string;
-  date: string;
-  symbol: string;
-  side: string;
-  algo: string;
-  fillPct: number | null;
-  execPrice: number | null;
-  benchmarkVwap: number | null;
-  trackingErrorBps: number | null;
-  volumePctInterval: number | null;
-  volumePctAdv20: number | null;
-  intradayVolatility: number | null;
-  priceMovementPct: number | null;
-  dataQualityWarning: boolean;
+  selectedOrder: TcaRouteSummary | null;
 }
 
 interface FlatRouteRow {
@@ -38,15 +19,37 @@ interface FlatRouteRow {
   orderId: string;
   routeId: string;
   date: string;
-  broker: string;
+  exchange: string | null;
+  account: string | null;
+  symbol: string;
+  currency: string | null;
   side: string;
-  startTime: string;
-  endTime: string;
-  fillPct: number | null;
-  execPrice: number | null;
-  benchmarkVwap: number | null;
-  trackingErrorBps: number | null;
-  volumePctInterval: number | null;
+  type: string | null;
+  amount: number | null;
+  routeShares: number | null;
+  limitPrice: number | null;
+  stopPrice: number | null;
+  broker: string;
+  strategyType: string | null;
+  algo: string;
+  traderName: string | null;
+  fill: number | null;
+  fillContinuous: number | null;
+  fillClose: number | null;
+  parRate: number | null;
+  parRateContinuous: number | null;
+  parRateClose: number | null;
+  pAvg: number | null;
+  pAvgContinuous: number | null;
+  pnlVwap: number | null;
+  pnlVwapContinuous: number | null;
+  rpm: number | null;
+  rpmContinuous: number | null;
+  pwp5: number | string | null;
+  pwp10: number | string | null;
+  pwp15: number | string | null;
+  pwp20: number | string | null;
+  pwp25: number | string | null;
 }
 
 function downloadBlob(blob: Blob, fileName: string): void {
@@ -91,55 +94,54 @@ function rowsToCsv<T extends Record<string, unknown>>(rows: T[]): string {
   return lines.join('\n');
 }
 
-function flattenOrder(order: TcaOrderSummary): FlatOrderRow {
+function flattenRoute(route: TcaRouteSummary): FlatRouteRow {
   return {
-    orderId: order.order_id,
-    date: order.order_as_of_date,
-    symbol: order.equ_ticker ?? '',
-    side: order.side ?? '',
-    algo: order.algo ?? '',
-    fillPct: order.fill_pct,
-    execPrice: order.exec_price,
-    benchmarkVwap: order.interval_vwap,
-    trackingErrorBps: order.tracking_error_bps,
-    volumePctInterval: order.volume_pct_interval,
-    volumePctAdv20: order.volume_pct_adv20,
-    intradayVolatility: order.intraday_volatility,
-    priceMovementPct: order.price_movement_pct,
-    dataQualityWarning: order.data_quality_warning,
-  };
-}
-
-function flattenRoute(order: TcaOrderSummary, route: TcaRouteDetail): FlatRouteRow {
-  return {
-    orderId: order.order_id,
+    orderId: route.order_id,
     routeId: route.route_id,
-    date: order.order_as_of_date,
-    broker: route.broker ?? '',
+    date: route.order_as_of_date,
+    exchange: route.exchange,
+    account: route.account,
+    symbol: route.equ_ticker ?? '',
+    currency: route.currency,
     side: route.side ?? '',
-    startTime: route.start_time ?? '',
-    endTime: route.end_time ?? '',
-    fillPct: route.fill_pct,
-    execPrice: route.exec_price,
-    benchmarkVwap: route.interval_vwap,
-    trackingErrorBps: route.tracking_error_bps,
-    volumePctInterval: route.volume_pct_interval,
+    type: route.type,
+    amount: route.amount,
+    routeShares: route.route_shares,
+    limitPrice: route.limit_price,
+    stopPrice: route.stop_price,
+    broker: route.broker ?? '',
+    strategyType: route.strategy_type,
+    algo: route.algo ?? '',
+    traderName: route.trader_name,
+    fill: route.fill,
+    fillContinuous: route.fill_continuous,
+    fillClose: route.fill_close,
+    parRate: route.par_rate,
+    parRateContinuous: route.par_rate_continuous,
+    parRateClose: route.par_rate_close,
+    pAvg: route.p_avg,
+    pAvgContinuous: route.p_avg_continuous,
+    pnlVwap: route.pnl_vwap,
+    pnlVwapContinuous: route.pnl_vwap_continuous,
+    rpm: route.rpm,
+    rpmContinuous: route.rpm_continuous,
+    pwp5: route.pwp_5,
+    pwp10: route.pwp_10,
+    pwp15: route.pwp_15,
+    pwp20: route.pwp_20,
+    pwp25: route.pwp_25,
   };
-}
-
-function buildOrdersRows(report: TcaReport): FlatOrderRow[] {
-  return report.orders.map(flattenOrder);
 }
 
 function buildRouteRows(report: TcaReport): FlatRouteRow[] {
-  return report.orders.flatMap((order) => order.routes.map((route) => flattenRoute(order, route)));
+  return report.orders.map(flattenRoute);
 }
 
 function buildSummaryRows(report: TcaReport, config: CostViewConfig): Array<Record<string, unknown>> {
   return [
     {
       generatedAt: report.generated_at,
-      totalOrders: report.total_orders,
+      totalRoutes: report.total_orders,
       filters: JSON.stringify(report.filters),
       exportFormatDefault: config.exportDefaults.format,
       exportScopeDefault: config.exportDefaults.scope,
@@ -161,9 +163,9 @@ function buildThresholdRows(config: CostViewConfig): Array<Record<string, unknow
 }
 
 async function exportCsv(params: ExportParams): Promise<void> {
-  const rows: Array<Record<string, unknown>> = params.scope === 'selected-order' && params.selectedOrder
-    ? params.selectedOrder.routes.map((route) => flattenRoute(params.selectedOrder as TcaOrderSummary, route))
-    : buildOrdersRows(params.report);
+  const rows = params.scope === 'selected-order' && params.selectedOrder
+    ? [flattenRoute(params.selectedOrder)]
+    : buildRouteRows(params.report);
   const csv = rowsToCsv(rows);
   const fileName = `costview-${params.scope}-${new Date().toISOString().slice(0, 10)}.csv`;
   downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), fileName);
@@ -171,18 +173,14 @@ async function exportCsv(params: ExportParams): Promise<void> {
 
 async function exportExcel(params: ExportParams): Promise<void> {
   const routeRows = params.scope === 'selected-order' && params.selectedOrder
-    ? params.selectedOrder.routes.map((route) => flattenRoute(params.selectedOrder as TcaOrderSummary, route))
+    ? [flattenRoute(params.selectedOrder)]
     : buildRouteRows(params.report);
 
   const sheets: Array<{ name: string; rows: Array<Record<string, unknown>> }> = [
     { name: 'Summary', rows: buildSummaryRows(params.report, params.config) },
-    { name: 'Orders', rows: buildOrdersRows(params.report) },
+    { name: 'Routes', rows: routeRows },
     { name: 'Thresholds', rows: buildThresholdRows(params.config) },
   ];
-
-  if (routeRows.length) {
-    sheets.splice(2, 0, { name: 'Routes', rows: routeRows });
-  }
 
   const workbookXml = `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
@@ -231,13 +229,11 @@ async function exportPdf(params: ExportParams): Promise<void> {
     throw new Error('Popup blocked while opening PDF print preview.');
   }
 
-  const selectedOrderHtml = params.selectedOrder
+  const selectedRouteHtml = params.selectedOrder
     ? `
       <section>
-        <h2>Selected Order</h2>
-        ${renderRowsAsHtml([flattenOrder(params.selectedOrder)])}
-        <h3>Routes</h3>
-        ${renderRowsAsHtml(params.selectedOrder.routes.map((route) => flattenRoute(params.selectedOrder as TcaOrderSummary, route)))}
+        <h2>Selected Route</h2>
+        ${renderRowsAsHtml([flattenRoute(params.selectedOrder)])}
       </section>
     `
     : '';
@@ -266,10 +262,10 @@ async function exportPdf(params: ExportParams): Promise<void> {
           ${renderRowsAsHtml(buildSummaryRows(params.report, params.config))}
         </section>
         <section>
-          <h2>Orders</h2>
-          ${renderRowsAsHtml(buildOrdersRows(params.report))}
+          <h2>Routes</h2>
+          ${renderRowsAsHtml(buildRouteRows(params.report))}
         </section>
-        ${selectedOrderHtml}
+        ${selectedRouteHtml}
         <section>
           <h2>Thresholds</h2>
           ${renderRowsAsHtml(buildThresholdRows(params.config))}
@@ -287,7 +283,7 @@ async function exportPdf(params: ExportParams): Promise<void> {
 
 export async function exportCostViewReport(params: ExportParams): Promise<void> {
   if (params.scope === 'selected-order' && !params.selectedOrder) {
-    throw new Error('Select an order before exporting selected-order detail.');
+    throw new Error('Select a route before exporting selected-route detail.');
   }
 
   switch (params.format) {

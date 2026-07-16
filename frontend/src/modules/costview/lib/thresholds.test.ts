@@ -7,29 +7,45 @@ import {
   formatAnomalyFlag,
   getHighestOrderSeverity,
 } from './thresholds';
-import type { ScorecardCohortMetrics, TcaOrderSummary } from '../types';
+import type { ScorecardCohortMetrics, TcaRouteSummary } from '../types';
 
-function createOrder(overrides: Partial<TcaOrderSummary> = {}): TcaOrderSummary {
+function createRoute(overrides: Partial<TcaRouteSummary> = {}): TcaRouteSummary {
   return {
     order_id: 'ORDER-1',
+    route_id: 'ROUTE-1',
     order_as_of_date: '20260421',
+    exchange: 'US',
+    account: null,
     equ_ticker: 'AAPL US Equity',
+    currency: 'USD',
     side: 'BUY',
+    amount: 1000,
+    route_shares: 1000,
+    type: null,
+    limit_price: null,
+    stop_price: null,
+    broker: 'BROKER-A',
+    strategy_type: null,
     algo: 'VWAP',
-    start_time: '09:30:00',
-    end_time: '10:00:00',
-    fill_pct: 95,
-    exec_price: 100.25,
-    interval_vwap: 100.2,
-    tracking_error_bps: 3,
-    volume_pct_interval: 8,
-    volume_pct_adv5: 2,
-    volume_pct_adv20: 2,
-    daily_volatility: 12,
-    intraday_volatility: 1.5,
-    price_movement_pct: 0.4,
-    data_quality_warning: false,
-    routes: [],
+    trader_name: 'Trader',
+    fill: 95,
+    fill_continuous: 95,
+    fill_close: 95,
+    par_rate: 0.02,
+    par_rate_continuous: 0.02,
+    par_rate_close: 0.02,
+    p_avg: 100.25,
+    p_avg_continuous: 100.25,
+    pnl_vwap: 3,
+    pnl_vwap_continuous: 3,
+    rpm: 0.4,
+    rpm_continuous: 0.4,
+    pwp_5: null,
+    pwp_10: null,
+    pwp_15: null,
+    pwp_20: null,
+    pwp_25: null,
+    time_series: [],
     ...overrides,
   };
 }
@@ -44,26 +60,26 @@ describe('CostView thresholds', () => {
     expect(evaluateThreshold(trackingRule, -30)).toBe('critical');
   });
 
-  it('uses the highest breached rule as the order severity', () => {
+  it('uses the highest breached rule as the route severity', () => {
     const config = createDefaultCostViewConfig();
-    const order = createOrder({
-      fill_pct: 42,
-      tracking_error_bps: 28,
-      volume_pct_adv20: 11,
+    const route = createRoute({
+      fill: 42,
+      pnl_vwap: 28,
+      par_rate: 0.11,
     });
 
-    expect(getHighestOrderSeverity(order, config)).toBe('critical');
+    expect(getHighestOrderSeverity(route, config)).toBe('critical');
   });
 
-  it('counts only warning and critical orders as alerts', () => {
+  it('counts only warning and critical routes as alerts', () => {
     const config = createDefaultCostViewConfig();
-    const orders = [
-      createOrder({ order_id: 'ORDER-1', tracking_error_bps: 4 }),
-      createOrder({ order_id: 'ORDER-2', tracking_error_bps: 14 }),
-      createOrder({ order_id: 'ORDER-3', fill_pct: 45 }),
+    const routes = [
+      createRoute({ order_id: 'ORDER-1', route_id: 'ROUTE-1', pnl_vwap: 4 }),
+      createRoute({ order_id: 'ORDER-2', route_id: 'ROUTE-1', pnl_vwap: 14 }),
+      createRoute({ order_id: 'ORDER-3', route_id: 'ROUTE-1', fill: 45 }),
     ];
 
-    expect(countAlertOrders(orders, config)).toBe(2);
+    expect(countAlertOrders(routes, config)).toBe(2);
   });
 });
 

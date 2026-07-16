@@ -17,7 +17,7 @@ from .stages_ingest import (
     AggregateFillsStage, GenerateOrderLabelsStage,
 )
 from .stages_process import (
-    IntegrateBDIBStage, WriteManifestStage, CalculateDailyMetricsStage,
+    IntegrateBDIBStage, WriteManifestStage, CalculateDailyMetricsStage, ComputeRouteMetricsStage,
 )
 from .stages_analysis import (
     RegimeDailyFeaturesStage, RegimeFillTaggerStage, AttributionMetricsStage,
@@ -125,7 +125,9 @@ class PipelineFactory:
 
         if not skip_bdib:
             pipeline.add_stage(IntegrateBDIBStage())
+            pipeline.add_stage(ComputeRouteMetricsStage())
             pipeline.add_stage(CalculateDailyMetricsStage())
+
 
         pipeline.add_stage(WriteManifestStage())
         return pipeline

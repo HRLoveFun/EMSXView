@@ -21,6 +21,7 @@ from .tca_contracts import (
     TcaOrderSummary,
     TcaReport,
     TcaRouteDetail,
+    TcaRouteSummary,
 )
 
 # Protocol interfaces

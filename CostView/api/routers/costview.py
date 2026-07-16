@@ -29,6 +29,7 @@ from platform_data.adapters import (
     ScorecardReport,
     TcaFilters,
     TcaReport,
+    TcaRouteSummary,
 )
 from platform_data.contracts import SCORECARD_COHORTS
 from platform_data.regime_query import get_regime_distribution
@@ -152,10 +153,11 @@ async def analyze_tca(request: TcaAnalyzeRequest):
     All metrics are derived from the local fill and BDIB SQLite databases.
     No Bloomberg or external API calls are made during this endpoint.
 
-    Returns a structured report with per-order summaries and per-route details.
-    If fill_bdib.db is empty (pipeline not yet run), returns a clear 503 with
+    Returns a structured report with flat per-route summaries (34 fields each).
+    If tca_route_summary is empty (pipeline stage 5.5 not yet run), returns a clear 503 with
     instructions to trigger an update.
     """
+
     f = request.filters
     filters = TcaFilters(
         order_ids=f.order_ids,
@@ -188,20 +190,22 @@ async def analyze_tca(request: TcaAnalyzeRequest):
     return TcaAnalyzeResponse(
         success=True,
         data=report_dict,
-        message=f"TCA report: {report.total_orders} orders matched",
+        message=f"TCA report: {report.total_orders} routes matched",
     )
+
 
 
 @router.post("/api/tca/scorecard", response_model=ScorecardResponse)
 async def analyze_scorecard(request: ScorecardRequest):
     """Build a broker/strategy cohort scorecard.
 
-    Aggregates per-order TCA metrics across the requested cohort dimension
+    Aggregates per-route TCA metrics across the requested cohort dimension
     (broker, strategy, broker_strategy, asset_class, time_of_day,
     liquidity_adv20, or volatility). Cohorts with fewer than
-    ``min_sample_size`` orders carry a sample_size_warning so the frontend
+    ``min_sample_size`` routes carry a sample_size_warning so the frontend
     can de-emphasize them rather than display unstable rankings.
     """
+
     f = request.filters
     filters = ScorecardFilters(
         cohort=request.cohort,
@@ -235,9 +239,10 @@ async def analyze_scorecard(request: ScorecardRequest):
         data=_serialize_scorecard(report),
         message=(
             f"Scorecard across {len(report.cohorts)} {request.cohort} cohort(s) "
-            f"({report.total_orders_considered} orders)"
+            f"({report.total_orders_considered} routes)"
         ),
     )
+
 
 
 @router.post("/api/tca/trigger-update", response_model=TriggerUpdateResponse)
@@ -473,55 +478,60 @@ async def regime_distribution(
 # ── Serialization helpers ─────────────────────────────────────────────────────
 
 def _serialize_report(report: TcaReport) -> dict:
-    """Convert TcaReport dataclass tree to a JSON-safe dict."""
+    """Convert TcaReport dataclass tree to a JSON-safe flat per-route dict."""
     return {
         "filters": report.filters,
         "total_orders": report.total_orders,
         "offset": report.offset,
         "limit": report.limit,
         "generated_at": report.generated_at,
-        "orders": [
-            {
-                "order_id": o.order_id,
-                "order_as_of_date": o.order_as_of_date,
-                "equ_ticker": o.equ_ticker,
-                "side": o.side,
-                "algo": o.algo,
-                "start_time": o.start_time,
-                "end_time": o.end_time,
-                "fill_pct": o.fill_pct,
-                "exec_price": o.exec_price,
-                "interval_vwap": o.interval_vwap,
-                "tracking_error_bps": o.tracking_error_bps,
-                "volume_pct_interval": o.volume_pct_interval,
-                "volume_pct_adv5": o.volume_pct_adv5,
-                "volume_pct_adv20": o.volume_pct_adv20,
-                "daily_volatility": o.daily_volatility,
-                "intraday_volatility": o.intraday_volatility,
-                "price_movement_pct": o.price_movement_pct,
-                "data_quality_warning": o.data_quality_warning,
-                "routes": [
-                    {
-                        "order_id": r.order_id,
-                        "route_id": r.route_id,
-                        "order_as_of_date": r.order_as_of_date,
-                        "broker": r.broker,
-                        "side": r.side,
-                        "start_time": r.start_time,
-                        "end_time": r.end_time,
-                        "fill_pct": r.fill_pct,
-                        "exec_price": r.exec_price,
-                        "interval_vwap": r.interval_vwap,
-                        "tracking_error_bps": r.tracking_error_bps,
-                        "volume_pct_interval": r.volume_pct_interval,
-                        "time_series": r.time_series,
-                    }
-                    for r in o.routes
-                ],
-            }
-            for o in report.orders
-        ],
+        "orders": [_serialize_route(r) for r in report.orders],
     }
+
+
+def _serialize_route(route: TcaRouteSummary) -> dict:
+    """Serialize one TcaRouteSummary to a dict with snake_case keys."""
+    return {
+        # 源值
+        "order_id": route.OrderId,
+        "route_id": route.RouteId,
+        "order_as_of_date": route.order_as_of_date,
+        "exchange": route.Exchange,
+        "account": route.Account,
+        "equ_ticker": route.equ_ticker,
+        "currency": route.Currency,
+        "side": route.Side,
+        "amount": route.Amount,
+        "route_shares": route.RouteShares,
+        "type": route.Type,
+        "limit_price": route.LimitPrice,
+        "stop_price": route.StopPrice,
+        "broker": route.Broker,
+        "strategy_type": route.StrategyType,
+        "algo": route.algo,
+        "trader_name": route.TraderName,
+        # 计算指标
+        "fill": route.fill,
+        "fill_continuous": route.fill_continuous,
+        "fill_close": route.fill_close,
+        "par_rate": route.par_rate,
+        "par_rate_continuous": route.par_rate_continuous,
+        "par_rate_close": route.par_rate_close,
+        "p_avg": route.p_avg,
+        "p_avg_continuous": route.p_avg_continuous,
+        "pnl_vwap": route.pnl_vwap,
+        "pnl_vwap_continuous": route.pnl_vwap_continuous,
+        "rpm": route.RPM,
+        "rpm_continuous": route.RPM_continuous,
+        "pwp_5": route.pwp_5,
+        "pwp_10": route.pwp_10,
+        "pwp_15": route.pwp_15,
+        "pwp_20": route.pwp_20,
+        "pwp_25": route.pwp_25,
+        # 时序数据
+        "time_series": route.time_series,
+    }
+
 
 
 def _serialize_scorecard(report: ScorecardReport) -> dict:
