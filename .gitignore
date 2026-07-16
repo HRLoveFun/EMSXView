@@ -91,3 +91,5 @@ data/
 # --- OS generated files ---
 Thumbs.db
 Desktop.ini
+*.xlsx
+*.csv

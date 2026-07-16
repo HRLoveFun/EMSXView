@@ -12,6 +12,7 @@ from typing import Optional
 import pandas as pd
 
 from DataPipeline.config import Config
+from DataPipeline.storage.schema.columns import COLUMN_TYPE_MAP, TCA_ROUTE_SUMMARY_COLUMNS
 from ._base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -97,3 +98,45 @@ class SqliteIntegratedWriteRepository(BaseRepository):
             return len(rows)
         finally:
             conn.close()
+
+    def upsert_tca_route_summary(
+        self, df: pd.DataFrame, date_str: Optional[str] = None,
+    ) -> int:
+        """Upsert tca_route_summary rows. Returns row count."""
+        if df is None or df.empty:
+            return 0
+
+        insert_cols = [c for c in TCA_ROUTE_SUMMARY_COLUMNS if c in df.columns]
+        if not insert_cols:
+            return 0
+
+        placeholders = ", ".join(["?"] * len(insert_cols))
+        col_names = ", ".join(insert_cols)
+        sql = (
+            f"INSERT OR REPLACE INTO {Config.TCA_ROUTE_SUMMARY_TABLE} "
+            f"({col_names}) VALUES ({placeholders})"
+        )
+
+        conn = self._get_write_conn()
+        try:
+            rows = []
+            for tup in df[insert_cols].itertuples(index=False, name=None):
+                values = []
+                for i, col in enumerate(insert_cols):
+                    val = tup[i]
+                    if val is None or (isinstance(val, float) and val != val):
+                        values.append(None)
+                    elif col in COLUMN_TYPE_MAP and COLUMN_TYPE_MAP[col] == "REAL":
+                        values.append(float(val) if val is not None else None)
+                    elif col in COLUMN_TYPE_MAP and COLUMN_TYPE_MAP[col] == "INTEGER":
+                        values.append(int(val) if val is not None else None)
+                    else:
+                        values.append(str(val) if val is not None else None)
+                rows.append(tuple(values))
+            conn.executemany(sql, rows)
+            conn.commit()
+            logger.info(f"Upserted {len(rows)} tca_route_summary rows")
+            return len(rows)
+        finally:
+            conn.close()
+

@@ -12,6 +12,7 @@ from .stages_ingest import (
 )
 from .stages_process import (
     IntegrateBDIBStage, WriteManifestStage, CalculateDailyMetricsStage,
+    ComputeRouteMetricsStage,
 )
 from .stages_analysis import (
     RegimeDailyFeaturesStage, RegimeFillTaggerStage, AttributionMetricsStage,
@@ -28,6 +29,7 @@ __all__ = [
     "IngestExcelStage", "ProcessRawFillsStage",
     "AggregateFillsStage", "GenerateOrderLabelsStage",
     "IntegrateBDIBStage", "WriteManifestStage", "CalculateDailyMetricsStage",
+    "ComputeRouteMetricsStage",
     "RegimeDailyFeaturesStage", "RegimeFillTaggerStage", "AttributionMetricsStage",
     "FinancialPipeline", "PipelineFactory",
     "run_ingest", "run_process", "run_aggregate", "run_order_labels",

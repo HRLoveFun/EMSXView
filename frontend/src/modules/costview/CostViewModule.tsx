@@ -1,4 +1,4 @@
-import { Suspense, lazy, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, BarChart3, Settings2, Trophy } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -22,6 +22,7 @@ import type {
   ExportScope,
   TcaFilterPayload,
   TcaReport,
+  TcaRouteSummary,
 } from './types';
 import { ExportDialog } from './components/ExportDialog';
 import { OverviewView } from './components/OverviewView';
@@ -68,12 +69,9 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   const [isExporting, setIsExporting] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [exportState, setExportState] = useState(() => loadCostViewExportState());
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<TcaRouteSummary | null>(null);
   const [fullResultReport, setFullResultReport] = useState<TcaReport | null>(null);
   const hasLoadedInitialRef = useRef(false);
-
-  const selectedOrder = useMemo(() => report?.orders.find((order) => order.order_id === selectedOrderId) ?? null, [report, selectedOrderId]);
-
 
   useEffect(() => {
     saveCostViewActiveTab(activeTab);
@@ -120,8 +118,8 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         startTransition(() => {
           setFullResultReport(fullReport);
           setReport(nextReport);
-          if (selectedOrderId && !nextReport.orders.some((order) => order.order_id === selectedOrderId)) {
-            setSelectedOrderId(null);
+          if (selectedRoute && !nextReport.orders.some((route) => route.order_id === selectedRoute.order_id && route.route_id === selectedRoute.route_id && route.order_as_of_date === selectedRoute.order_as_of_date)) {
+            setSelectedRoute(null);
           }
         });
       } else {
@@ -134,8 +132,8 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         startTransition(() => {
           setFullResultReport(null);
           setReport(nextReport);
-          if (selectedOrderId && !nextReport.orders.some((order) => order.order_id === selectedOrderId)) {
-            setSelectedOrderId(null);
+          if (selectedRoute && !nextReport.orders.some((route) => route.order_id === selectedRoute.order_id && route.route_id === selectedRoute.route_id && route.order_as_of_date === selectedRoute.order_as_of_date)) {
+            setSelectedRoute(null);
           }
         });
       }
@@ -143,11 +141,11 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
       setError(nextError instanceof Error ? nextError.message : 'Unknown CostView error');
       setReport(null);
       setFullResultReport(null);
-      setSelectedOrderId(null);
+      setSelectedRoute(null);
     } finally {
       setIsLoading(false);
     }
-  }, [config, selectedOrderId]);
+  }, [config, selectedRoute]);
 
   useEffect(() => {
     if (hasLoadedInitialRef.current) return;
@@ -173,15 +171,15 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
       const nextReport = buildWarningOnlyPage(fullResultReport, config, filterForm, offset);
       startTransition(() => {
         setReport(nextReport);
-        if (selectedOrderId && !nextReport.orders.some((order) => order.order_id === selectedOrderId)) {
-          setSelectedOrderId(null);
+        if (selectedRoute && !nextReport.orders.some((route) => route.order_id === selectedRoute.order_id && route.route_id === selectedRoute.route_id && route.order_as_of_date === selectedRoute.order_as_of_date)) {
+          setSelectedRoute(null);
         }
       });
       return;
     }
 
     void fetchReport(filterForm, offset);
-  }, [config, fetchReport, filterForm, fullResultReport, selectedOrderId]);
+  }, [config, fetchReport, filterForm, fullResultReport, selectedRoute]);
 
   const handleExport = useCallback(async (format: ExportFormat, scope: ExportScope) => {
     if (!report) {
@@ -211,7 +209,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         scope,
         report: sourceReport,
         config,
-        selectedOrder,
+        selectedOrder: selectedRoute,
       });
 
       setExportState({
@@ -226,7 +224,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
     } finally {
       setIsExporting(false);
     }
-  }, [config, filterForm, fullResultReport, report, selectedOrder]);
+  }, [config, filterForm, fullResultReport, report, selectedRoute]);
 
   return (
     <div className="space-y-4">
@@ -260,14 +258,14 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
               filterForm={filterForm}
               isLoading={isLoading}
               report={report}
-              selectedOrder={selectedOrder}
+              selectedRoute={selectedRoute}
               onFilterChange={setFilterForm}
               onOpenExport={() => setIsExportDialogOpen(true)}
               onPageChange={handlePageChange}
               onRefresh={() => void fetchReport(filterForm, 0)}
               onResetFilters={handleResetFilters}
               onRunSearch={handleRunSearch}
-              onSelectOrder={(order) => setSelectedOrderId(order?.order_id ?? null)}
+              onSelectRoute={(route) => setSelectedRoute(route)}
             />
           </Suspense>
         </TabsContent>
@@ -289,7 +287,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         config={config}
         isExporting={isExporting}
         open={isExportDialogOpen}
-        selectedOrderAvailable={Boolean(selectedOrder)}
+        selectedOrderAvailable={Boolean(selectedRoute)}
         onExport={handleExport}
         onOpenChange={setIsExportDialogOpen}
       />

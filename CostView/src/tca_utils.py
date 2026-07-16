@@ -24,7 +24,7 @@ from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,
     TcaFilters,
-    TcaOrderSummary,
+    TcaRouteSummary,
 )
 
 
@@ -217,90 +217,86 @@ def bucket_time_of_day(start_time: Optional[str]) -> tuple[str, str]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def cohort_key_and_label(
-    order: TcaOrderSummary,
+    route: TcaRouteSummary,
     cohort: str,
 ) -> tuple[str, str]:
-    """Compute (machine_key, human_label) for the cohort of this order."""
-    broker = None
-    if order.routes:
-        broker = next((r.broker for r in order.routes if r.broker), None)
-    broker_label = broker or "Unknown"
-    algo_label = order.algo or "Unknown"
+    """计算 (machine_key, human_label) for the cohort of this route."""
+    broker = route.Broker or "Unknown"
+    algo = route.algo or "Unknown"
+    equ_ticker = route.equ_ticker
 
     if cohort == "broker":
-        return (broker_label, broker_label)
+        return (broker, broker)
     if cohort == "strategy":
-        return (algo_label, algo_label)
+        return (algo, algo)
     if cohort == "broker_strategy":
-        return (f"{broker_label}|{algo_label}", f"{broker_label} | {algo_label}")
+        return (f"{broker}|{algo}", f"{broker} | {algo}")
     if cohort == "asset_class":
-        return asset_class_from_ticker(order.equ_ticker)
+        return asset_class_from_ticker(equ_ticker)
     if cohort == "time_of_day":
-        return bucket_time_of_day(order.start_time)
+        # TcaRouteSummary 未携带 start_time，默认 unknown
+        return ("unknown", "Unknown")
     if cohort == "liquidity_adv20":
-        return bucket_liquidity(order.volume_pct_adv20)
+        # 使用 par_rate 作为参与率代理（par_rate 为 0-1 小数，bucket 需要百分比）
+        return bucket_liquidity(route.par_rate * 100 if route.par_rate is not None else None)
     if cohort == "volatility":
-        return bucket_volatility(order.daily_volatility)
+        # TcaRouteSummary 未携带 daily_volatility，使用 pnl_vwap 绝对值代理（bps）
+        return bucket_volatility(abs(route.pnl_vwap) if route.pnl_vwap is not None else None)
     return ("unknown", "Unknown")
 
 
 def aggregate_cohorts(
-    orders: list[TcaOrderSummary],
+    routes: list[TcaRouteSummary],
     cohort: str,
     min_sample_size: int,
 ) -> list[ScorecardCohortMetrics]:
-    """Group completed orders into cohorts and compute aggregate metrics."""
-    buckets: dict[tuple[str, str], list[TcaOrderSummary]] = defaultdict(list)
-    for order in orders:
-        if order.tracking_error_bps is None and order.exec_price is None:
+    """Group routes into cohorts and compute aggregate metrics."""
+    buckets: dict[tuple[str, str], list[TcaRouteSummary]] = defaultdict(list)
+    for route in routes:
+        if route.pnl_vwap is None and route.par_rate is None:
             continue
-        key_label = cohort_key_and_label(order, cohort)
-        buckets[key_label].append(order)
+        key_label = cohort_key_and_label(route, cohort)
+        buckets[key_label].append(route)
 
     results: list[ScorecardCohortMetrics] = []
     for (key, label), group in buckets.items():
         sample = len(group)
-        abs_tracking = [
-            abs(o.tracking_error_bps) for o in group if o.tracking_error_bps is not None
+        abs_pnl = [
+            abs(r.pnl_vwap) for r in group if r.pnl_vwap is not None
         ]
-        avg_tracking = mean_numeric(abs_tracking)
-        median_tracking = safe_percentile(abs_tracking, 50)
-        p95_tracking = safe_percentile(abs_tracking, 95)
-        stddev_tracking = std(abs_tracking)
+        avg_pnl = mean_numeric(abs_pnl)
+        median_pnl = safe_percentile(abs_pnl, 50)
+        p95_pnl = safe_percentile(abs_pnl, 95)
+        stddev_pnl = std(abs_pnl)
 
-        avg_fill = mean_numeric([o.fill_pct for o in group if o.fill_pct is not None])
-        avg_vol_interval = mean_numeric(
-            [o.volume_pct_interval for o in group if o.volume_pct_interval is not None]
+        avg_fill = mean_numeric([r.fill for r in group if r.fill is not None])
+        avg_par_rate = mean_numeric(
+            [r.par_rate for r in group if r.par_rate is not None]
         )
-        avg_vol_adv20 = mean_numeric(
-            [o.volume_pct_adv20 for o in group if o.volume_pct_adv20 is not None]
+        avg_par_rate_continuous = mean_numeric(
+            [r.par_rate_continuous for r in group if r.par_rate_continuous is not None]
         )
-        avg_daily_vol = mean_numeric(
-            [o.daily_volatility for o in group if o.daily_volatility is not None]
+        avg_rpm = mean_numeric(
+            [r.RPM for r in group if r.RPM is not None]
         )
-        avg_intraday_vol = mean_numeric(
-            [o.intraday_volatility for o in group if o.intraday_volatility is not None]
+        avg_pnl_continuous = mean_numeric(
+            [abs(r.pnl_vwap_continuous) for r in group if r.pnl_vwap_continuous is not None]
         )
-        avg_price_move = mean_numeric(
-            [abs(o.price_movement_pct) for o in group if o.price_movement_pct is not None]
-        )
-        dq_ratio = (
-            sum(1 for o in group if o.data_quality_warning) / sample if sample else 0.0
-        )
+        dq_ratio = 0.0
         sample_warn = sample < min_sample_size
 
         flags: list[str] = []
         if sample_warn:
             flags.append("sample_size")
-        if avg_tracking is not None and avg_tracking >= 25:
+        if avg_pnl is not None and avg_pnl >= 25:
             flags.append("high_tracking_error")
-        elif avg_tracking is not None and avg_tracking >= 10:
+        elif avg_pnl is not None and avg_pnl >= 10:
             flags.append("elevated_tracking_error")
-        if p95_tracking is not None and p95_tracking >= 50:
+        if p95_pnl is not None and p95_pnl >= 50:
             flags.append("tail_tracking_error")
         if avg_fill is not None and avg_fill < 80:
             flags.append("low_fill_rate")
-        if avg_vol_adv20 is not None and avg_vol_adv20 >= 10:
+        if avg_par_rate is not None and avg_par_rate >= 0.10:
             flags.append("high_participation")
         if dq_ratio >= 0.25:
             flags.append("data_quality")
@@ -311,16 +307,16 @@ def aggregate_cohorts(
                 cohort_label=label,
                 sample_size=sample,
                 order_count=sample,
-                avg_tracking_error_bps=avg_tracking,
-                median_tracking_error_bps=median_tracking,
-                p95_tracking_error_bps=p95_tracking,
-                stddev_tracking_error_bps=stddev_tracking,
+                avg_tracking_error_bps=avg_pnl,
+                median_tracking_error_bps=median_pnl,
+                p95_tracking_error_bps=p95_pnl,
+                stddev_tracking_error_bps=stddev_pnl,
                 avg_fill_pct=avg_fill,
-                avg_volume_pct_interval=avg_vol_interval,
-                avg_volume_pct_adv20=avg_vol_adv20,
-                avg_daily_volatility=avg_daily_vol,
-                avg_intraday_volatility=avg_intraday_vol,
-                avg_price_movement_pct=avg_price_move,
+                avg_volume_pct_interval=avg_par_rate_continuous * 100 if avg_par_rate_continuous is not None else None,
+                avg_volume_pct_adv20=avg_par_rate * 100 if avg_par_rate is not None else None,
+                avg_daily_volatility=avg_rpm * 100 if avg_rpm is not None else None,
+                avg_intraday_volatility=avg_pnl_continuous,
+                avg_price_movement_pct=None,
                 data_quality_ratio=round(dq_ratio, 4),
                 sample_size_warning=sample_warn,
                 anomaly_flags=flags,
@@ -328,11 +324,12 @@ def aggregate_cohorts(
         )
 
     def _sort_key(row: ScorecardCohortMetrics) -> tuple:
-        tracking = row.avg_tracking_error_bps if row.avg_tracking_error_bps is not None else -1.0
-        return (row.sample_size_warning, -tracking, -row.sample_size, row.cohort_label)
+        pnl = row.avg_tracking_error_bps if row.avg_tracking_error_bps is not None else -1.0
+        return (row.sample_size_warning, -pnl, -row.sample_size, row.cohort_label)
 
     results.sort(key=_sort_key)
     return results
+
 
 
 def bucket_liquidity(volume_pct_adv20: Optional[float]) -> tuple[str, str]:

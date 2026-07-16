@@ -51,7 +51,7 @@ export function ExportDialog({ config, isExporting, open, selectedOrderAvailable
             <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={scope} onChange={(event) => setScope(event.target.value as ExportScope)}>
               <option value="current-page">Current page</option>
               <option value="all-filtered">All filtered results</option>
-              <option value="selected-order" disabled={!selectedOrderAvailable}>Selected order detail</option>
+              <option value="selected-order" disabled={!selectedOrderAvailable}>Selected route detail</option>
             </select>
           </label>
           <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">

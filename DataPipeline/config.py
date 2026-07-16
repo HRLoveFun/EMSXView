@@ -194,6 +194,7 @@ class Config:
     BDIB_DAILY_SUMMARY_TABLE: str = "bdib_daily_summary"
     PROCESSED_RAW_BDIB_TABLE: str = "processed_raw_bdib"
     FILL_BDIB_TABLE: str = "fill_bdib"
+    TCA_ROUTE_SUMMARY_TABLE: str = "tca_route_summary"
     AGG_PROCESSED_FILLS_TABLE: str = "agg_processed_fills"
     PROCESSED_FILLS_1MIN_TABLE: str = "processed_fills_1min"
     ORDER_LABEL_TABLE: str = "order_label"

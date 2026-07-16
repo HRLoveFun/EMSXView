@@ -86,42 +86,45 @@ export interface TcaTimeSeriesPoint {
   cum_tracking_error: number | null;
 }
 
-export interface TcaRouteDetail {
+export interface TcaRouteSummary {
+  // 源值（17）
   order_id: string;
   route_id: string;
   order_as_of_date: string;
-  broker: string | null;
-  side: string | null;
-  start_time: string | null;
-  end_time: string | null;
-  fill_pct: number | null;
-  exec_price: number | null;
-  interval_vwap: number | null;
-  tracking_error_bps: number | null;
-  volume_pct_interval: number | null;
-  time_series: TcaTimeSeriesPoint[];
-}
-
-export interface TcaOrderSummary {
-  order_id: string;
-  order_as_of_date: string;
+  exchange: string | null;
+  account: string | null;
   equ_ticker: string | null;
+  currency: string | null;
   side: string | null;
+  amount: number | null;
+  route_shares: number | null;
+  type: string | null;
+  limit_price: number | null;
+  stop_price: number | null;
+  broker: string | null;
+  strategy_type: string | null;
   algo: string | null;
-  start_time: string | null;
-  end_time: string | null;
-  fill_pct: number | null;
-  exec_price: number | null;
-  interval_vwap: number | null;
-  tracking_error_bps: number | null;
-  volume_pct_interval: number | null;
-  volume_pct_adv5: number | null;
-  volume_pct_adv20: number | null;
-  daily_volatility: number | null;
-  intraday_volatility: number | null;
-  price_movement_pct: number | null;
-  data_quality_warning: boolean;
-  routes: TcaRouteDetail[];
+  trader_name: string | null;
+  // 计算指标（17）
+  fill: number | null;
+  fill_continuous: number | null;
+  fill_close: number | null;
+  par_rate: number | null;
+  par_rate_continuous: number | null;
+  par_rate_close: number | null;
+  p_avg: number | null;
+  p_avg_continuous: number | null;
+  pnl_vwap: number | null;
+  pnl_vwap_continuous: number | null;
+  rpm: number | null;
+  rpm_continuous: number | null;
+  pwp_5: number | string | null;
+  pwp_10: number | string | null;
+  pwp_15: number | string | null;
+  pwp_20: number | string | null;
+  pwp_25: number | string | null;
+  // 时序数据
+  time_series: TcaTimeSeriesPoint[];
 }
 
 export interface TcaReport {
@@ -130,8 +133,9 @@ export interface TcaReport {
   offset: number;
   limit: number;
   generated_at: string;
-  orders: TcaOrderSummary[];
+  orders: TcaRouteSummary[];
 }
+
 
 export interface TriggerUpdateResponse {
   job_id: string;

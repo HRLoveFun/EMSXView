@@ -8,11 +8,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { TcaRouteDetail } from '../types';
+import type { TcaRouteSummary } from '../types';
 
 interface VolumeDynamicsChartProps {
   orderId: string;
-  routes: TcaRouteDetail[];
+  routes: TcaRouteSummary[];
 }
 
 const ROUTE_COLORS = ['#2563eb', '#f59e0b', '#059669', '#e11d48', '#7c3aed'];
@@ -23,7 +23,7 @@ interface ChartPoint {
   [key: string]: number | string | null | undefined;
 }
 
-function buildChartData(routes: TcaRouteDetail[]): ChartPoint[] {
+function buildChartData(routes: TcaRouteSummary[]): ChartPoint[] {
   const timestamps = Array.from(new Set(routes.flatMap((route) => route.time_series.map((point) => point.ts)))).sort();
   const primaryTsMap = new Map(routes[0]?.time_series.map((point) => [point.ts, point]));
 

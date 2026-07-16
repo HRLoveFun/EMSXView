@@ -18,6 +18,7 @@ import pandas as pd
 
 from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier
+from DataPipeline.processing.tca_route_metrics import compute_route_metrics_for_date
 
 from .base import BaseStage, _to_iso_safe
 from .context import PipelineContext
@@ -334,8 +335,114 @@ class IntegrateBDIBStage(BaseStage):
         return True
 
 
+
+
+# ═══════════════════════════════════════════════════════════════
+# S5.5: ComputeRouteMetricsStage
+# ═══════════════════════════════════════════════════════════════
+class ComputeRouteMetricsStage(BaseStage):
+    """Stage 5.5: 计算并存储路由级 TCA 指标到 tca_route_summary 表。"""
+
+    @property
+    def name(self) -> str: return "5.5. Compute Route Metrics"
+
+    def process(self, context: PipelineContext) -> bool:
+        try:
+            from DataPipeline.storage.connection import ConnectionManager
+            cm = context.connection_manager
+        except ImportError as e:
+            logger.warning(f"Skipping route metrics computation: {e}")
+            context.summary["route_metrics"] = {"skipped": True, "error": str(e)}
+            return True
+
+        fills_reader = context.db.fills_read
+        raw_fills_reader = context.db.raw_fills_read
+
+        # 确定待处理日期：优先 target_dates，否则取已 bdib_integrated 的日期
+        if context.target_dates:
+            dates_to_process = list(context.target_dates)
+        else:
+            dates_to_process = fills_reader.get_processed_dates(stage="bdib_integrated") or []
+
+        if not dates_to_process:
+            logger.info("No dates for route metrics computation")
+            context.summary["route_metrics"] = {"completed": True, "dates": 0, "rows": 0}
+            return True
+
+        # 增量：跳过已计算 route_metrics 的日期（除非 force）
+        if not context.force:
+            try:
+                conn = cm.get_connection("fill_bdib", AccessTier.READ)
+                already_computed = set(
+                    r[0] for r in conn.execute(
+                        f"SELECT DISTINCT order_as_of_date FROM {Config.TCA_ROUTE_SUMMARY_TABLE}"
+                    ).fetchall()
+                )
+                conn.close()
+                dates_to_process = [d for d in dates_to_process if d not in already_computed]
+            except Exception as e:
+                logger.debug("tca_route_summary 增量判断跳过: %s", e)
+
+        if not dates_to_process:
+            logger.info("All candidate dates already have route metrics")
+            context.summary["route_metrics"] = {"completed": True, "dates": 0, "rows": 0}
+            return True
+
+        total_rows = 0
+        marker_name = str(context.config.get("stage_marker_name", "")).strip()
+        total_metric_dates = max(1, len(dates_to_process))
+
+        for metric_idx, date_str in enumerate(dates_to_process):
+            if marker_name:
+                stage_pct = 81 + int((metric_idx / total_metric_dates) * 2)
+                print(
+                    f"[STAGE] {marker_name} {stage_pct} "
+                    f"RouteMetrics date {metric_idx + 1}/{total_metric_dates}: {date_str}",
+                    flush=True,
+                )
+            try:
+                raw_fills_df = raw_fills_reader.get_fills_for_date(date_str)
+                processed_fills_df = fills_reader.get_fills_for_date(date_str)
+                if processed_fills_df.empty or raw_fills_df.empty:
+                    logger.info("  RouteMetrics %s: no fills, skipping", date_str)
+                    continue
+
+                conn = cm.get_connection("raw_bdib", AccessTier.READ)
+                raw_bdib_df = pd.read_sql_query(
+                    "SELECT equ_ticker, order_as_of_date, mkt_timestamp, volume, value "
+                    "FROM raw_bdib WHERE order_as_of_date = ?",
+                    conn.raw_connection,
+                    params=[date_str],
+                )
+                conn.close()
+
+                metrics_df = compute_route_metrics_for_date(
+                    raw_fills_df, processed_fills_df, raw_bdib_df, date_str,
+                )
+                if not metrics_df.empty:
+                    rows = context.db.integrated_write.upsert_tca_route_summary(metrics_df, date_str=date_str)
+                    total_rows += rows
+                    logger.info("  RouteMetrics %s: computed %d routes", date_str, len(metrics_df))
+                else:
+                    logger.info("  RouteMetrics %s: no routes computed", date_str)
+
+                del raw_fills_df, processed_fills_df, raw_bdib_df, metrics_df
+                gc.collect()
+            except Exception as e:
+                logger.error(f"  Error computing route metrics for {date_str}: {e}")
+                gc.collect()
+
+        context.summary["route_metrics"] = {
+            "completed": True,
+            "dates": len(dates_to_process),
+            "rows": total_rows,
+        }
+        return True
+
+
 # ═══════════════════════════════════════════════════════════════
 # S6: WriteManifestStage
+
 # ═══════════════════════════════════════════════════════════════
 class WriteManifestStage(BaseStage):
     """Stage 6: Write downstream manifest for MarketFetch."""

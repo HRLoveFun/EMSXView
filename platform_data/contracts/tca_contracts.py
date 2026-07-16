@@ -55,8 +55,52 @@ class TcaFilters:
 
 
 @dataclass
+class TcaRouteSummary:
+    """路由级 TCA 汇总，严格匹配新 schema 34 个字段。"""
+    # ── Group 1: Source values (17) ──
+    OrderId: str
+    RouteId: str
+    order_as_of_date: str
+    Exchange: Optional[str]
+    Account: Optional[str]
+    equ_ticker: Optional[str]
+    Currency: Optional[str]
+    Side: Optional[str]
+    Amount: Optional[float]
+    RouteShares: Optional[float]
+    Type: Optional[str]
+    LimitPrice: Optional[float]
+    StopPrice: Optional[float]
+    Broker: Optional[str]
+    StrategyType: Optional[str]
+    algo: Optional[str]
+    TraderName: Optional[str]
+    # ── Group 2-7: Computed metrics (17) ──
+    fill: Optional[float]
+    fill_continuous: Optional[float]
+    fill_close: Optional[float]
+    par_rate: Optional[float]
+    par_rate_continuous: Optional[float]
+    par_rate_close: Optional[float]
+    p_avg: Optional[float]
+    p_avg_continuous: Optional[float]
+    pnl_vwap: Optional[float]
+    pnl_vwap_continuous: Optional[float]
+    RPM: Optional[float]
+    RPM_continuous: Optional[float]
+    pwp_5: Optional[str | float]
+    pwp_10: Optional[str | float]
+    pwp_15: Optional[str | float]
+    pwp_20: Optional[str | float]
+    pwp_25: Optional[str | float]
+    # 附加时序数据（非数据库列，供前端图表使用）
+    time_series: list[dict] = field(default_factory=list)
+
+
+
+@dataclass
 class TcaRouteDetail:
-    """TCA metrics for a single broker route."""
+    """TCA metrics for a single broker route (legacy nested detail)."""
     order_id: str
     route_id: str
     order_as_of_date: str
@@ -103,11 +147,12 @@ class TcaReport:
     total_orders: int
     offset: int
     limit: int
-    orders: list[TcaOrderSummary]
+    orders: list[TcaRouteSummary]
     generated_at: str = field(
         default_factory=lambda: datetime.now().isoformat()
     )
     data_source_warning: Optional[str] = None
+
 
 
 @dataclass
