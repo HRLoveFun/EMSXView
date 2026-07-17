@@ -62,7 +62,7 @@ run_full_pipeline() 入口
 | **S2** Process Raw Fills | `ProcessRawFillsStage` (`stages_ingest.py`) | `raw_fills.db` 当日数据 | processed_fills + `equ_ticker`（空字段 → NULL）；Exchange 空/未知直接报错；写入前校验 `order_as_of_date` 与输入日期一致 | `processed_fills`、`route_registry`（含 4 个 `count_*` 列）、`route_history`、`route_event_history`（`order_history` 是 `route_history` 的 VIEW 派生） |
 | **S3** Aggregate Fills (10s) | `AggregateFillsStage` (`stages_ingest.py`) | `processed_fills` 单日 | route×timestamp 10s 桶（VWAP）；聚合前从 `route_registry` 补全 `Ticker/Side/Currency/ccy_ticker`；过滤无成交量桶 | `agg_fills_10s` |
 | **S4** Generate Order Labels | `GenerateOrderLabelsStage` (`stages_ingest.py`) | `processed_fills` 单日 | 订单级标签 | `order_label`（`ticker_registry.db`） |
-| **S5** Integrate BDIB | `IntegrateBDIBStage` (`stages_process.py`) | `agg_fills_10s` + Bloomberg BDIB 10s bars + FX；ticker 宇宙由 `Config.BDIB_EXCHANGE`（33 个交易所白名单）过滤 `ticker_repository` 决定；前置校验 `EmptyBarGuard` + `BDIBCoverageGuard` | TCA 衍生指标 | `raw_bdib`、`fill_bdib` |
+| **S5** Integrate BDIB | `IntegrateBDIBStage` (`stages_process.py`) | `agg_fills_10s` + Bloomberg BDIB 10s bars + FX；ticker 宇宙由 `Config.BDIB_EXCHANGE`（25 个交易所白名单；2026-07-16 业务决定仅保留 HK，剔除 8 个非分析范围市场）过滤 `ticker_repository` 决定；前置校验 `EmptyBarGuard` + `BDIBCoverageGuard` | TCA 衍生指标 | `raw_bdib`、`fill_bdib` |
 | **S6** Write Manifest | `WriteManifestStage` (`stages_process.py`) | ticker registry | `market_fetch_manifest.json` | （无） |
 | **S7** Daily Metrics | `CalculateDailyMetricsStage` (`stages_process.py`) | `raw_bdib` + Bloomberg bdh | ADV(5d/20d)、年化波动率、daily_vwap | `bdib_daily_summary` |
 | **S8** Regime Daily Features | `RegimeDailyFeaturesStage` (`stages_analysis.py`) | 指数/BDIB 聚合 → market_index | vol/liq/trend 日级分类 | `daily_vol_regime`、`daily_liquidity_regime`、`daily_trend_regime` |
@@ -134,6 +134,40 @@ run_full_pipeline() 入口
 | BDIB 数据回补 | ✅ 已完成（2026-07-08）：9 个新市场 1,012 天成功，65,638,213 行写入，0 天失败 |
 | BDIB 保留窗口 | Bloomberg BDIB API 历史数据保留期限：US/LN/JP/KS 约 9 个月，HK/NZ/CN/BZ 约 6 个月。超出窗口返回空数据。回补脚本默认 `--start` 动态计算为 `today - 180 天`（`Config.BDIB_API_RETENTION_DAYS`） |
 | API 失败 ticker 排查 | ✅ 已完成（2026-07-08）：17 个 ticker 中 8 个确认无数据（已标记 outdated），8 个经复查 API 正常，1 个已预先标记 outdated |
+
+### 3.1.3 BDIB 业务范围调整（2026-07-16）
+
+> **业务决定**：2026-07-08 临时补齐的 9 个交易所中，仅 **HK（香港 HKEX）** 进入分析范围；**CN / BZ / MM / PW / DC / IT / NZ / MUMBAI** 等 8 个市场的订单不在分析范围，从 `Config.BDIB_EXCHANGE` 白名单移除。这些 ticker 不再拉取 BDIB 行情、不进入 `processed_fills` / `fill_bdib`。
+>
+> **数据规模**（执行清理前）：8 个市场在 `ticker_repository` 中注册 ~424 个 ticker，`fill_bdib` 中存量约 50,000,000+ 行（占 fill_bdib 总体 ~80%），主要为 2026-07-08 回补批次。`raw_bdib`（原始 10s bars）不在清理范围（与 HK 等保留市场共用，按 ticker 区分），仅清理 S5 集成后的 fill_bdib 衍生指标层。
+
+**改动点**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `DataPipeline/config.py` | `BDIB_EXCHANGE` 从 33 个缩减至 25 个交易所：HK 保留在主白名单，CN / BZ / MM / PW / DC / IT / NZ / MUMBAI 8 个从白名单移除（不再拉取 BDIB） |
+| `scripts/ops/backfill_bdib_by_market.py` | `NEW_MARKETS` 从 9 个市场缩减至 1 个（仅 HK）；docstring 与 `--markets` help 同步更新 |
+| `scripts/ops/cleanup_excluded_exchanges_tickers.py` | 新增：分阶段清理 fill_bdib + ticker_repository 中这 8 个市场的残留数据（先 fill_bdib 后 ticker_repository） |
+
+**清理理由**：
+
+1. `ticker_repository` 中保留 8 个市场 ticker 会导致 S6 Manifest 输出包含这些 ticker，触发下游 `market_fetch_manifest.json` 持续包含已下线市场
+2. `fill_bdib` 中保留 8 个市场 ~50M 行 TCA 衍生数据，占用 ~80% 存储空间，且无业务消费方
+3. `BDIBCoverageGuard`（`pipeline_guards/bdib_coverage_guard.py`）扫描 `processed_fills` ∩ `raw_bdib` 的 equ_ticker 差集，受 `fill_bdib` 清理影响（fill_bdib 不在 guard 扫描范围），但**未来 S2 重跑这 8 个市场历史日期会持续触发 BDIBCoverageGuard**（因 `BDIB_EXCHANGE` 不再包含这些市场，ticker 无法重新拉取 BDIB），所以**必须同步清理 ticker_repository**，避免 S2 重新写入 processed_fills 时 BDIBCoverageGuard 持续告警
+
+**执行流程**：
+
+1. 停止 DataPipeline / backend 服务
+2. 预览：`python scripts/ops/cleanup_excluded_exchanges_tickers.py --dry-run`（输出 fill_bdib 命中行数、ticker_repository 命中 ticker 数、备份路径规划）
+3. 执行：`python scripts/ops/cleanup_excluded_exchanges_tickers.py --execute`（自动备份 + SHA-256 + 排他锁 + 阶段 A→B + audit + 回滚命令）
+4. 验证：fill_bdib 存储释放约 80%；`raw_bdib` 仍有 8 个市场历史 BDIB 行情（与 HK 等保留 ticker 物理共存，guard 不告警）
+
+**可调参数**：
+
+- `--skip-fill-bdib`：仅清 ticker_repository（保留 fill_bdib 现状，但 S6 Manifest 仍会输出下线市场 ticker）
+- `--skip-ticker-registry`：仅清 fill_bdib（不推荐，未来 S2 重跑历史日期时 BDIBCoverageGuard 会持续告警）
+- `--reuse-backup-timestamp <YYYYMMDD_HHMMSS>`：复用历史 dry-run 的备份路径
+- `--skip-backup`：跳过物理备份（依赖 DB 事务原子性）
 
 ### 3.2 Stage 内部实现概要
 
@@ -469,7 +503,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | --- | --- | --- | --- |
 | 数据根 | `DATA_DIR` | `CostView/data` | 通过 `EMSXVIEW_DATA_DIR` 覆盖 |
 | 拉取范围 | `FIRST_RUN_LOOKBACK_DAYS` | 60 | 首跑回溯天数 |
-| BDIB | `BDIB_EXCHANGE` | 24 个交易所 | 拉取白名单 |
+| BDIB | `BDIB_EXCHANGE` | 25 个交易所（含 HK 业务保留，2026-07-16 后从 33 个缩减） | 拉取白名单 |
 | BDIB | `BDIB_LATEST_READY_HOUR_LOCAL` | 8 | 当日 BDIB 安全就绪小时 |
 | BDIB | `BDIB_PARQUET_ENABLED` | false | Parquet 双写 (Phase A) |
 | BDIB | `BDIB_PARQUET_DIR` | `data/market/bdib_10s` | Parquet 目录 |
@@ -538,6 +572,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | `scripts/ops/fix_raw_fills_null_exchange.py` | 修复 raw_fills Exchange NULL（pandas 误转 "NA" 为 NaN） |
 | `scripts/ops/fix_raw_fills_null_ticker_national_bank.py` | 修复 raw_fills Ticker NULL（National Bank of Canada BBG mnemonic='NA'） |
 | `scripts/ops/cleanup_orphan_processed_fills.py` | 清理 processed_fills 中 209 条孤儿行（v3 PK 升级前跨日覆盖遗留） |
+| `scripts/ops/cleanup_excluded_exchanges_tickers.py` | 清理 8 个非分析范围市场（CN/BZ/MM/PW/DC/IT/NZ/MUMBAI）在 fill_bdib + ticker_repository 中的残留数据（2026-07-16 业务决定） |
 | `scripts/ops/verify_fix.py` | 验证 Exchange NULL 修复结果 |
 | `scripts/ops/verify_phase_a_b_integrated.py` | Phase A（PK v3）+ Phase B（NA 修复）综合验收 |
 | `scripts/backfill_eur_ticker.py` | EUR equ_ticker 历史回填（2025-09 ~ 2026-06） |

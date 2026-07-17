@@ -105,7 +105,8 @@ export interface TcaRouteSummary {
   strategy_type: string | null;
   algo: string | null;
   trader_name: string | null;
-  // 计算指标（17）
+  // 计算指标（18）：fill_count 为该路由下 FillId 的去重计数
+  fill_count: number | null;
   fill: number | null;
   fill_continuous: number | null;
   fill_close: number | null;

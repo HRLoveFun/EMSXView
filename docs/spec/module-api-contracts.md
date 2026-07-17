@@ -3,7 +3,7 @@
 > 跨域 API 真相源
 > 配套规范：`.codebuddy/rules/module-boundary.md`、`.codebuddy/rules/coding-style.md` §API 约定
 > 配套反模式：[anti-patterns.md §AP-05](../anti-patterns.md)
-> Last updated: 2026-06-03
+> Last updated: 2026-07-16
 
 ---
 
@@ -96,6 +96,106 @@
 |---|---|---|
 | `/api/tca/analyze` | POST | TCA 交易成本分析 |
 | `/api/tca/scorecard` | POST | 评分卡查询 |
+
+#### `POST /api/tca/analyze` 响应结构
+
+返回 `ApiResponse[TcaReport]`，其中 `data` 为扁平路由汇总报告。
+
+```json
+{
+  "success": true,
+  "data": {
+    "filters": { "start_date": "20260418", "end_date": "20260418", ... },
+    "total_orders": 1,
+    "offset": 0,
+    "limit": 50,
+    "orders": [
+      {
+        "OrderId": "O1",
+        "RouteId": "R1",
+        "order_as_of_date": "20260418",
+        "Exchange": "US",
+        "Account": null,
+        "equ_ticker": "AAPL US Equity",
+        "Currency": "USD",
+        "Side": "Buy",
+        "Amount": 1000.0,
+        "RouteShares": 500.0,
+        "Type": null,
+        "LimitPrice": null,
+        "StopPrice": null,
+        "Broker": "BrokerA",
+        "StrategyType": "VWAP",
+        "algo": "VWAP",
+        "TraderName": "Trader1",
+        "fill": 100.0,
+        "fill_continuous": 100.0,
+        "fill_close": 0.0,
+        "par_rate": 0.000217,
+        "par_rate_continuous": 0.000217,
+        "par_rate_close": null,
+        "p_avg": 50.25,
+        "p_avg_continuous": 50.25,
+        "pnl_vwap": -28.0,
+        "pnl_vwap_continuous": -28.0,
+        "RPM": 0.20,
+        "RPM_continuous": 0.0,
+        "pwp_5": null,
+        "pwp_10": null,
+        "pwp_15": null,
+        "pwp_20": null,
+        "pwp_25": null,
+        "time_series": []
+      }
+    ],
+    "generated_at": "2026-07-16T08:55:00",
+    "data_source_warning": null
+  },
+  "message": "",
+  "error_code": ""
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `OrderId` | `string` | 订单 ID |
+| `RouteId` | `string` | 路由 ID |
+| `order_as_of_date` | `string` | 交易日 `YYYYMMDD` |
+| `Exchange` | `string \| null` | Bloomberg 交易所代码 |
+| `Account` | `string \| null` | 账户 |
+| `equ_ticker` | `string \| null` | 股票代码，如 `AAPL US Equity` |
+| `Currency` | `string \| null` | 币种 |
+| `Side` | `string \| null` | 买卖方向 |
+| `Amount` | `float \| null` | 订单数量 |
+| `RouteShares` | `float \| null` | 路由股数 |
+| `Type` | `string \| null` | 订单类型 |
+| `LimitPrice` | `float \| null` | 限价 |
+| `StopPrice` | `float \| null` | 止损价 |
+| `Broker` | `string \| null` | 经纪商 |
+| `StrategyType` | `string \| null` | 策略类型 |
+| `algo` | `string \| null` | 算法名称 |
+| `TraderName` | `string \| null` | 交易员 |
+| `fill` | `float \| null` | 成交百分比（0-100）|
+| `fill_continuous` | `float \| null` | 连续交易时段成交百分比 |
+| `fill_close` | `float \| null` | 收盘时段成交百分比 |
+| `par_rate` | `float \| null` | 参与率（0-1 小数）|
+| `par_rate_continuous` | `float \| null` | 连续时段参与率 |
+| `par_rate_close` | `float \| null` | 收盘时段参与率 |
+| `p_avg` | `float \| null` | 成交均价 |
+| `p_avg_continuous` | `float \| null` | 连续时段成交均价 |
+| `pnl_vwap` | `float \| null` | 相对 VWAP 的盈亏（bps）|
+| `pnl_vwap_continuous` | `float \| null` | 连续时段相对 VWAP 盈亏（bps）|
+| `RPM` | `float \| null` | 日价格波动代理指标 |
+| `RPM_continuous` | `float \| null` | 连续时段 RPM |
+| `pwp_5` ... `pwp_25` | `string \| float \| null` | 5/10/15/20/25 分钟 PWP |
+| `time_series` | `list[dict]` | 时序数据，供前端图表使用 |
+
+> **Schema 变更说明**：2026-07-15 重构后，`/api/tca/analyze` 从嵌套订单结构
+> (`TcaOrderSummary` → `TcaRouteDetail`) 迁移为扁平路由结构 (`TcaRouteSummary`)，
+> 34 个字段严格对应数据库 `tca_route_summary` 表列。`TcaOrderSummary` 与
+> `TcaRouteDetail` 已标记为 deprecated，仅用于兼容旧归档代码。
 
 ### 执行历史
 

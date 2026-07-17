@@ -85,19 +85,15 @@ class Config:
     EXECTYPE_FILTER_OUT: set = {"DFD"}
     FIRST_RUN_LOOKBACK_DAYS: int = 60
     BDIB_EXCHANGE: list[str] = [
-        "AU", "AV", "BB", "FH", "FP", "GA", "GR", "ID", "IJ", "IM",
+        "AU", "AV", "BB", "FH", "FP", "GA", "GR", "HK", "ID", "IJ", "IM",
         "IN", "JP", "KS", "LN", "MK", "NA", "NO", "PL", "SJ", "SM",
         "SP", "SS", "SW", "US",
-        # ── 2026-07-08 补齐：原白名单遗漏的 9 个交易所（424 个 ticker 无 BDIB 行情） ──
-        "HK",       # 香港 HKEX
-        "CN",       # 加拿大 TSX
-        "BZ",       # 巴西 B3
-        "MM",       # 墨西哥 BMV
-        "PW",       # 波兰 WSE
-        "DC",       # 丹麦 Nasdaq Copenhagen
-        "IT",       # 以色列 Tel Aviv (TASE)
-        "NZ",       # 新西兰 NZX
-        "MUMBAI",   # 印度 BSE (EMSX 返回的 Exchange code)
+        # ── 2026-07-16 调整：2026-07-08 曾临时补齐 9 个交易所（424 个 ticker 无 BDIB 行情）。
+        # 业务决定仅保留 HK（香港 HKEX）进入分析范围；以下 8 个市场的订单不在分析范围，
+        # 从白名单移除：CN（加拿大 TSX）、BZ（巴西 B3）、MM（墨西哥 BMV）、PW（波兰 WSE）、
+        # DC（丹麦 Nasdaq Copenhagen）、IT（以色列 TASE）、NZ（新西兰 NZX）、
+        # MUMBAI（印度 BSE）。这些 ticker 在 S2 阶段会被排除，不再拉取 BDIB 行情、
+        # 也不进入 processed_fills / fill_bdib。
     ]
 
     MAX_PARALLEL_DATES: int = 1

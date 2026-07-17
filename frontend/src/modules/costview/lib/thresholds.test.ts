@@ -28,6 +28,7 @@ function createRoute(overrides: Partial<TcaRouteSummary> = {}): TcaRouteSummary 
     strategy_type: null,
     algo: 'VWAP',
     trader_name: 'Trader',
+    fill_count: 5,
     fill: 95,
     fill_continuous: 95,
     fill_close: 95,

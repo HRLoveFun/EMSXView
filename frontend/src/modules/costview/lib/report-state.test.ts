@@ -22,6 +22,7 @@ function createRoute(orderId: string, routeId: string, pnlVwap: number, fill = 9
     strategy_type: null,
     algo: 'VWAP',
     trader_name: 'Trader',
+    fill_count: 5,
     fill,
     fill_continuous: fill,
     fill_close: fill,

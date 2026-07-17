@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 EXCHANGE_TIMEZONE: dict[str, str] = {
     # ── APAC ────────────────────────────────────────────────────────────────
     "AU": "Australia/Sydney",
-    "NZ": "Australia/Auckland",     # 新西兰 NZX 实际时区（UTC+12/+13）
+    "NZ": "Pacific/Auckland",       # 新西兰 NZX 实际时区（UTC+12/+13）
     "JP": "Asia/Tokyo",
     "JT": "Asia/Tokyo",
     "KS": "Asia/Seoul",
