@@ -47,6 +47,31 @@ _LOCK_STALE_AGE_SECS = 14400    # 4 h → stale even if PID alive
 _SUBPROCESS_STARTUP_TIMEOUT_SECS = 120
 _MEM_WARN_GB = 12.0
 
+# 阶段分级 stall 阈值（秒）—— 不同阶段合理等待时间不同
+# 选择依据：
+#   - initialization: 启动快，超时短便于快速发现脚本问题
+#   - fill_fetch: Bloomberg EMSX 拉取 3 个日期 × 数千 ticker，单日可能 5-8 分钟
+#   - processing: S2-S4 + S5.5 含 33 个交易所 BDIB 整合，3 日期累计可能 20-30 分钟
+#   - pipeline: Stage 5 BDIB integration 主导，每日期 5-10 分钟无 stdout
+#   - archive: 数据归档，I/O 重但通常 5-10 分钟
+#   - completion: 校验 + 收尾，应快速
+#   - vacuum: 单线程阻塞操作，已设 3600s
+_STAGE_STALL_TIMEOUTS: dict[str, int] = {
+    "initialization":  300,
+    "fill_fetch":     1500,
+    "processing":     1200,
+    "pipeline":       1800,
+    "archive":         900,
+    "completion":      300,
+    "vacuum":         3600,
+}
+
+# 多信号活动检测的弱活动累积窗口（秒）
+# 弱信号: 1% ≤ CPU < 5% / 线程数变化 / 内存变化
+# 强信号: stdout 行 / CPU ≥ 5% / I/O 字节数变化
+# stall 判定: 强活动 idle > 阶段阈值 AND 弱活动 idle > _WEAK_ACTIVITY_GRACE_SECS
+_WEAK_ACTIVITY_GRACE_SECS = 60
+
 
 # ── Stage definitions ──────────────────────────────────────────────────────
 
@@ -71,6 +96,7 @@ _STAGE_WEIGHTS = {
 }
 
 # VACUUM 阶段专用停滞超时 — VACUUM 是单线程阻塞操作，大库可能持续数十分钟
+# （已并入 _STAGE_STALL_TIMEOUTS["vacuum"]，保留此常量供向后兼容）
 _VACUUM_STALL_TIMEOUT_SECS = 3600
 
 _STAGE_PREFIX = "[STAGE]"
@@ -274,11 +300,172 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+# ── 多信号活动检测器 ────────────────────────────────────────────────────────
+
+class _ActivityDetector:
+    """通过多维度信号检测子进程是否真的"卡住"。
+
+    仅依赖 stdout 行（行缓冲、管道断开、长 IO 调用）容易误判 stall。
+    整合以下信号源:
+      - 强活动: stdout 收到新行、CPU% ≥ 5%、I/O 字节数变化
+      - 弱活动: 1% ≤ CPU% < 5%、线程数变化、内存 RSS 变化 ≥ 1MB
+
+    判定规则（watchdog 调用）:
+      - 强活动 idle > 阶段阈值 AND 弱活动 idle > grace  → 真 stall
+      - 其它情况 → 视作"在干活"，重置计时
+
+    设计权衡:
+      - psutil.cpu_percent(interval=0.3) 引入 ~0.3s 阻塞，watchdog 15s 周期可接受
+      - I/O 计数器在 Windows 上同样可用 (psutil 5.x)
+      - 进程退出/权限不足时所有信号返回 0，不误报为活跃
+    """
+
+    _CPU_STRONG_THRESHOLD = 5.0    # CPU% ≥ 此值视为强活动
+    _CPU_WEAK_THRESHOLD = 1.0      # CPU% ≥ 此值视为弱活动
+    _MEM_DELTA_BYTES = 1024 * 1024  # 1MB 内存变化视为弱活动
+
+    def __init__(self, proc: "subprocess.Popen"):
+        self._proc = proc
+        self._p = None
+        self._init_psutil()
+        self._last_io_read = 0
+        self._last_io_write = 0
+        self._last_threads = 0
+        self._last_rss = 0
+        self._last_strong_at: float = time.monotonic()
+        self._last_any_at: float = time.monotonic()
+        self._strong_count = 0
+        self._weak_count = 0
+
+    def _init_psutil(self) -> None:
+        try:
+            import psutil  # noqa: F401
+            self._p = psutil.Process(self._proc.pid)
+            # 首次 cpu_percent 永远是 0.0（psutil 文档明确），先采集一次建立基线
+            self._p.cpu_percent(interval=None)
+            try:
+                io = self._p.io_counters()
+                self._last_io_read = io.read_bytes
+                self._last_io_write = io.write_bytes
+            except (AttributeError, NotImplementedError):
+                pass
+            self._last_threads = self._p.num_threads()
+            self._last_rss = self._p.memory_info().rss
+        except Exception:
+            self._p = None
+
+    def mark_stdout(self) -> None:
+        """在主循环 readline() 收到行时调用 —— 强活动。"""
+        now = time.monotonic()
+        self._last_strong_at = now
+        self._last_any_at = now
+        self._strong_count += 1
+
+    def probe(self) -> dict[str, Any]:
+        """采集一次进程级信号。
+
+        Returns:
+            dict 包含:
+              - available: psutil 是否可用
+              - cpu_pct: CPU 占用百分比（0.3s 采样窗口）
+              - io_active: I/O 字节数是否变化
+              - thread_change: 线程数是否变化
+              - mem_active: RSS 是否变化 ≥ 1MB
+              - strong_now: 本次采样是否产生强活动
+              - weak_now: 本次采样是否产生弱活动
+              - last_strong_idle_secs: 距上次强活动秒数
+              - last_any_idle_secs: 距上次任何活动秒数
+        """
+        result: dict[str, Any] = {
+            "available": False,
+            "cpu_pct": 0.0,
+            "io_active": False,
+            "thread_change": False,
+            "mem_active": False,
+            "strong_now": False,
+            "weak_now": False,
+            "last_strong_idle_secs": 0.0,
+            "last_any_idle_secs": 0.0,
+        }
+        if self._p is None:
+            return result
+        try:
+            # 0.3s 阻塞采样 —— 平衡精度与开销
+            cpu = self._p.cpu_percent(interval=0.3)
+            result["cpu_pct"] = cpu
+            result["available"] = True
+
+            try:
+                io = self._p.io_counters()
+                if io.read_bytes != self._last_io_read or io.write_bytes != self._last_io_write:
+                    result["io_active"] = True
+                self._last_io_read = io.read_bytes
+                self._last_io_write = io.write_bytes
+            except (AttributeError, NotImplementedError, OSError):
+                pass
+
+            try:
+                nt = self._p.num_threads()
+                if nt != self._last_threads:
+                    result["thread_change"] = True
+                self._last_threads = nt
+            except (OSError, AttributeError):
+                pass
+
+            try:
+                rss = self._p.memory_info().rss
+                if abs(rss - self._last_rss) >= self._MEM_DELTA_BYTES:
+                    result["mem_active"] = True
+                self._last_rss = rss
+            except (OSError, AttributeError):
+                pass
+        except (OSError, ProcessLookupError, AttributeError):
+            # 进程已退出 —— 让 watchdog 走正常退出分支
+            return result
+
+        now = time.monotonic()
+        # 强活动判定
+        if cpu >= self._CPU_STRONG_THRESHOLD or result["io_active"]:
+            self._last_strong_at = now
+            self._last_any_at = now
+            result["strong_now"] = True
+            self._strong_count += 1
+        # 弱活动判定
+        elif (
+            cpu >= self._CPU_WEAK_THRESHOLD
+            or result["thread_change"]
+            or result["mem_active"]
+        ):
+            self._last_any_at = now
+            result["weak_now"] = True
+            self._weak_count += 1
+
+        result["last_strong_idle_secs"] = now - self._last_strong_at
+        result["last_any_idle_secs"] = now - self._last_any_at
+        return result
+
+    @property
+    def strong_count(self) -> int:
+        return self._strong_count
+
+    @property
+    def weak_count(self) -> int:
+        return self._weak_count
+
+
 # ── Watchdog ─────────────────────────────────────────────────────────────────
 
-def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Event) -> None:
+def _watchdog_loop(
+    job_id: str,
+    proc: subprocess.Popen,
+    stop_event: threading.Event,
+    detector: _ActivityDetector,
+    detector_lock: threading.Lock,
+) -> None:
     started_at = datetime.now()
-    logger.info("Watchdog started for job %s", job_id)
+    logger.info("Watchdog started for job %s (multi-signal: stdout+CPU+I/O+threads)", job_id)
+
+    last_weak_warning_at: float = 0.0  # 节流弱活动告警频率
 
     while not stop_event.is_set():
         stop_event.wait(_WATCHDOG_INTERVAL_SECS)
@@ -294,37 +481,83 @@ def _watchdog_loop(job_id: str, proc: subprocess.Popen, stop_event: threading.Ev
             logger.warning("Watchdog: job %s vanished from registry", job_id)
             break
 
+        # ── 多信号活动采集 ──
+        # 加锁避免与主循环 mark_stdout() 竞争
+        with detector_lock:
+            signals = detector.probe()
         last_activity_str = job.get("last_activity_at")
         if last_activity_str:
             try:
                 last_ts = datetime.fromisoformat(last_activity_str)
-                stall_secs = (datetime.now() - last_ts).total_seconds()
+                stdout_idle_secs = (datetime.now() - last_ts).total_seconds()
             except ValueError:
-                stall_secs = 0
+                stdout_idle_secs = 0
         else:
-            stall_secs = 0
+            stdout_idle_secs = 0
 
         runtime_secs = (datetime.now() - started_at).total_seconds()
 
         if int(runtime_secs) % 30 < _WATCHDOG_INTERVAL_SECS:
             _log_subprocess_mem(proc, f"job={job_id} runtime={runtime_secs:.0f}s")
 
-        # VACUUM 阶段使用延长停滞超时：VACUUM 是单线程阻塞操作，大库可能持续数十分钟
+        # ── 阶段分级 stall 阈值 ──
         current_stage_name = (job.get("stage") or {}).get("name")
-        effective_stall_timeout = (
-            _VACUUM_STALL_TIMEOUT_SECS if current_stage_name == "vacuum"
-            else _STALL_TIMEOUT_SECS
+        effective_stall_timeout = _STAGE_STALL_TIMEOUTS.get(
+            current_stage_name, _STALL_TIMEOUT_SECS
         )
+
+        # ── stall 判定（多信号融合）──
+        #
+        # 真 stall 条件: stdout/CPU 强活动 idle 超过阶段阈值
+        #                AND 任意弱活动 idle 超过 grace 窗口
+        # 设计意图:
+        #   - 强活动 idle 大 → 进程至少在 stdout 维度无活动（可能是 Stage 5 BDIB）
+        #   - 但只要弱活动（CPU/线程/内存）还在变化 → 视作"在干活"
+        #   - 只有强 + 弱双 idle 都超时才判定 stall
+        strong_idle = max(stdout_idle_secs, signals["last_strong_idle_secs"])
+        weak_idle = signals["last_any_idle_secs"]
 
         reason = None
         if runtime_secs > _MAX_RUNTIME_SECS:
             reason = f"Pipeline exceeded max runtime of {_MAX_RUNTIME_SECS // 60} minutes"
-        elif stall_secs > effective_stall_timeout:
-            reason = (
-                f"No activity for {stall_secs:.0f}s "
-                f"(threshold: {effective_stall_timeout}s, stage={current_stage_name}) "
-                f"— subprocess stalled"
+        elif (
+            strong_idle > effective_stall_timeout
+            and weak_idle > _WEAK_ACTIVITY_GRACE_SECS
+        ):
+            signal_diag = (
+                f"cpu={signals['cpu_pct']:.1f}% io={'Y' if signals['io_active'] else 'N'} "
+                f"thr={'Y' if signals['thread_change'] else 'N'} "
+                f"mem={'Y' if signals['mem_active'] else 'N'}"
             )
+            reason = (
+                f"No strong activity for {strong_idle:.0f}s "
+                f"(stage={current_stage_name} threshold={effective_stall_timeout}s) "
+                f"AND no weak activity for {weak_idle:.0f}s "
+                f"(grace={_WEAK_ACTIVITY_GRACE_SECS}s) — subprocess stalled. "
+                f"Signals: {signal_diag}"
+            )
+
+        # ── 弱活动告警（不 kill，只 INFO）—— 便于运维识别"低活动但还在跑"的阶段 ──
+        if (
+            not reason
+            and stdout_idle_secs > effective_stall_timeout * 0.6
+            and signals["available"]
+            and (time.monotonic() - last_weak_warning_at) > 60
+        ):
+            with detector_lock:
+                strong_n = detector.strong_count
+                weak_n = detector.weak_count
+            logger.info(
+                "Watchdog: job %s stdout idle %.0fs (stage=%s threshold=%ds), "
+                "but weak signals active: cpu=%.1f%% io=%s thr=%s mem=%s "
+                "(strong=%d, weak=%d) — NOT killing",
+                job_id, stdout_idle_secs, current_stage_name,
+                effective_stall_timeout,
+                signals["cpu_pct"],
+                signals["io_active"], signals["thread_change"], signals["mem_active"],
+                strong_n, weak_n,
+            )
+            last_weak_warning_at = time.monotonic()
 
         if reason:
             logger.warning("Watchdog killing subprocess (job=%s): %s", job_id, reason)
@@ -366,6 +599,11 @@ def _run_pipeline_subprocess(job_id: str) -> None:
     started_at = datetime.now()
     have_seen_first_output = False
     startup_timeout_hit = False
+    # 共享的 stdout 强活动探测器 —— 主循环在收到行时调用 mark_stdout()，
+    # watchdog 在 _ActivityDetector.probe() 内部读 last_strong_idle_secs
+    # 使用 threading.Lock 保护跨线程读写
+    detector: Optional[_ActivityDetector] = None
+    detector_lock = threading.Lock()
     try:
         proc = subprocess.Popen(
             [sys.executable, "-u", str(_PROJECT_ROOT / "CostView" / "scripts" / "daily_update.py"), "--once"],
@@ -376,8 +614,11 @@ def _run_pipeline_subprocess(job_id: str) -> None:
         )
         logger.info("Pipeline subprocess launched: pid=%s job=%s", proc.pid, job_id)
 
+        detector = _ActivityDetector(proc)
         watchdog_thread = threading.Thread(
-            target=_watchdog_loop, args=(job_id, proc, stop_event), daemon=True,
+            target=_watchdog_loop,
+            args=(job_id, proc, stop_event, detector, detector_lock),
+            daemon=True,
         )
         watchdog_thread.start()
 
@@ -426,6 +667,10 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             captured_lines.append(line.rstrip())
             if len(captured_lines) > 400:
                 captured_lines = captured_lines[-400:]
+            # 标记 stdout 强活动 —— 让 watchdog 知道进程在产生输出
+            if detector is not None:
+                with detector_lock:
+                    detector.mark_stdout()
             parsed = _parse_stage_line(line)
             if parsed:
                 stage_name, stage_pct, stage_detail = parsed
@@ -508,7 +753,17 @@ def _run_pipeline_subprocess(job_id: str) -> None:
         if job_id in _jobs:
             _jobs[job_id]["status"] = status
             _jobs[job_id]["completed_at"] = datetime.now().isoformat()
-            _jobs[job_id]["error"] = error
+            # Bug #1 fix: 保留看门狗已写入的精确死因（如 stall/max runtime），
+            # 避免被 "Pipeline exit code" 兜底信息覆写而丢失真实原因。
+            existing_error = _jobs[job_id].get("error")
+            if not existing_error:
+                _jobs[job_id]["error"] = error
+            elif error and not startup_timeout_hit:
+                # 看门狗已写入死因时，附上 subprocess exit code 作为补充诊断信息
+                _jobs[job_id]["error"] = (
+                    f"{existing_error}\n\n[subprocess exit code: "
+                    f"{proc.returncode if proc else 'N/A'}]"
+                )
             _mark_job_activity(job_id)
             if status == "completed":
                 _jobs[job_id]["overall_progress"] = 100

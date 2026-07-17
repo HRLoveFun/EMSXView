@@ -13,10 +13,21 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+import zoneinfo
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+
+def _tz_available(tz_name: str) -> bool:
+    """检查当前环境是否包含指定的 IANA 时区数据。"""
+    try:
+        zoneinfo.ZoneInfo(tz_name)
+        return True
+    except zoneinfo.ZoneInfoNotFoundError:
+        return False
+
 
 from CostView.src.tca_query_service import TcaFilters, TcaQueryService
 from CostView.src.tca_utils import (
@@ -167,7 +178,7 @@ def _make_tca_route_summary_table(conn: sqlite3.Connection, empty: bool) -> None
             Side TEXT, Amount REAL, RouteShares REAL, Type TEXT,
             LimitPrice REAL, StopPrice REAL, Broker TEXT, StrategyType TEXT,
             algo TEXT, TraderName TEXT,
-            fill REAL, fill_continuous REAL, fill_close REAL,
+            fill_count INTEGER, fill REAL, fill_continuous REAL, fill_close REAL,
             par_rate REAL, par_rate_continuous REAL, par_rate_close REAL,
             p_avg REAL, p_avg_continuous REAL,
             pnl_vwap REAL, pnl_vwap_continuous REAL,
@@ -182,7 +193,7 @@ def _make_tca_route_summary_table(conn: sqlite3.Connection, empty: bool) -> None
         INSERT INTO tca_route_summary VALUES
             ('O1','R1','20260418','US',NULL,'AAPL US Equity','USD','Buy',
              1000.0,500.0,NULL,NULL,NULL,'BrokerA','VWAP','VWAP','Trader1',
-             100.0,100.0,0.0,
+             2,100.0,100.0,0.0,
              0.0002173913,0.0002173913,NULL,
              50.25,50.25,
              -28.0,-28.0,
@@ -190,7 +201,7 @@ def _make_tca_route_summary_table(conn: sqlite3.Connection, empty: bool) -> None
              NULL,NULL,NULL,NULL,NULL),
             ('O2','R2','20260418','US',NULL,'MSFT US Equity','USD','Sell',
              2000.0,1000.0,NULL,NULL,NULL,'BrokerB','TWAP','TWAP','Trader2',
-             50.0,50.0,0.0,
+             1,50.0,50.0,0.0,
              NULL,NULL,NULL,
              100.0,100.0,
              NULL,NULL,
@@ -568,7 +579,10 @@ class TestBuildTcaReport:
         assert route.RPM == pytest.approx(0.20)
 
 
-    @pytest.mark.skip(reason="当前环境 tzdata 缺少 Australia/Auckland 数据文件")
+    @pytest.mark.skipif(
+        not _tz_available("Pacific/Auckland"),
+        reason="当前环境 tzdata 缺少 Pacific/Auckland 数据文件",
+    )
     def test_matching_routes_derives_local_exchange_times_from_datetime(self, tmp_dbs):
         proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
         conn = sqlite3.connect(proc)
@@ -597,12 +611,11 @@ class TestBuildTcaReport:
         )
 
         assert total == 1
-        assert rows[0]["start_time"] == "15:00:00"
-        assert rows[0]["end_time"] == "15:10:00"
+        assert rows[0]["start_time"] == "17:00:00"
+        assert rows[0]["end_time"] == "17:10:00"
 
 
-    @pytest.mark.skip(reason="time-only mkt_timestamp 与当前 SQLite 字符串比较不兼容")
-    def test_market_context_supports_time_only_bdib_timestamps(self, tmp_path: Path):
+    def test_market_context_supports_time_only_bdib_timestamps(self, tmp_path: Path, monkeypatch):
         raw_bdib = str(tmp_path / "raw_bdib.db")
         _make_raw_bdib_db(raw_bdib)
 
@@ -622,6 +635,9 @@ class TestBuildTcaReport:
             conn.close()
 
         svc = TcaQueryService(raw_bdib_db_path=raw_bdib)
+        # 默认 BDIB_QUERY_ENGINE 为 duckdb，但本测试 fixture 仅提供 SQLite raw_bdib，
+        # 强制使用 sqlite 引擎以验证 time-only mkt_timestamp 的字符串比较行为。
+        monkeypatch.setattr("CostView.src.tca_query_builder._BDIB_ENGINE", "sqlite")
         market_ctx = get_market_context(svc._mgr,
             {("AAPL US Equity", "20260418")},
             [{"equ_ticker": "AAPL US Equity", "order_as_of_date": "20260418", "start_time": "10:00:00", "end_time": "10:10:00"}],

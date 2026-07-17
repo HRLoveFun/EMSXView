@@ -1,12 +1,17 @@
 """按市场分批编排 BDIB 数据回补。
 
 封装 CostView/scripts/backfill_raw_bdib.py 的 run_backfill()，
-按 exchange 分批执行，避免一次性拉取 532 个 ticker × 数百天
+按 exchange 分批执行，避免一次性拉取数百个 ticker × 数百天
 导致 Bloomberg API 过载或内存问题。
 
 背景：扩展 BDIB_EXCHANGE 白名单 + 补注册 ticker_repository 后，
-532 个 ticker 需要历史 BDIB 数据回补。按市场分批可控制
+新增市场 ticker 需要历史 BDIB 数据回补。按市场分批可控制
 每批的 Bloomberg API 调用量，便于监控和错误恢复。
+
+2026-07-16 调整：业务决定仅保留 HK（香港 HKEX）进入分析范围，
+2026-07-08 临时补齐的 CN / BZ / MM / PW / DC / IT / NZ / MUMBAI
+等 8 个市场订单不在分析范围，已从 Config.BDIB_EXCHANGE 白名单移除，
+这些 ticker 也已从 ticker_repository 清理。NEW_MARKETS 仅保留 HK。
 
 用法：
     # 预览将要回补的市场和 ticker 数
@@ -15,13 +20,13 @@
     # 仅回补 HK 市场
     python backfill_bdib_by_market.py --markets HK
 
-    # 回补 HK + CN + BZ 三个市场
-    python backfill_bdib_by_market.py --markets HK,CN,BZ
+    # 回补 HK + 显式指定其它市场（不推荐，仅 BDIB_EXCHANGE 内）
+    python backfill_bdib_by_market.py --markets HK,US
 
-    # 回补所有新增市场（9 个）
+    # 回补新增市场（当前仅 HK）
     python backfill_bdib_by_market.py --markets NEW
 
-    # 回补全部市场
+    # 回补 BDIB_EXCHANGE 全部市场
     python backfill_bdib_by_market.py --markets ALL
 
     # 指定日期范围
@@ -32,7 +37,7 @@
 ⚠️ BDIB 历史保留窗口限制：
     Bloomberg BDIB (intraday bar) API 对历史数据有保留期限——
     - US/LN/JP/KS 等主要市场：约 9 个月
-    - HK/NZ/CN/BZ 等市场：约 6 个月
+    - HK 等市场：约 6 个月
     超出保留窗口的日期 BDIB 返回空 DataFrame，无法回补。
     默认 --start 自动计算为 today - 180 天（Config.BDIB_API_RETENTION_DAYS），
     确保所有市场都在保留窗口内。
@@ -62,8 +67,11 @@ from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
 
-# 本次白名单扩展新增的 9 个市场
-NEW_MARKETS: List[str] = ["HK", "CN", "BZ", "MM", "PW", "DC", "IT", "NZ", "MUMBAI"]
+# 2026-07-16 调整：业务决定仅保留 HK（香港 HKEX）进入分析范围。
+# 2026-07-08 曾临时补齐 9 个市场（CN / BZ / MM / PW / DC / IT / NZ / MUMBAI），
+# 这些市场订单不在分析范围，已从 Config.BDIB_EXCHANGE 与 ticker_repository 中移除。
+# 当前 NEW_MARKETS 仅包含 HK。
+NEW_MARKETS: List[str] = ["HK"]
 
 
 def _count_tickers_per_market(markets: List[str]) -> Dict[str, int]:
@@ -139,8 +147,8 @@ def main() -> None:
         type=str,
         default="NEW",
         help=(
-            "逗号分隔的市场代码（如 HK,CN,BZ），"
-            "或 NEW（本次新增的 9 个市场），"
+            "逗号分隔的市场代码（如 HK,US），"
+            "或 NEW（当前仅 HK，2026-07-16 后从 9 个缩减为 1 个），"
             "或 ALL（BDIB_EXCHANGE 全部市场）"
         ),
     )

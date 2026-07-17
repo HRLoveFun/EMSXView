@@ -12,13 +12,13 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from DataPipeline.common.exchange_tz import convert_ny_to_local
+from DataPipeline.common.exchange_tz import batch_convert_ny_to_local, convert_ny_to_local
 from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
 
 # PWP 支持的 POV Rate 档位
-_PWP_POV_RATES = [0.05, 0.10, 0.15, 0.20, 0.25]
+_PWP_RATES = [0.05, 0.10, 0.15, 0.20, 0.25]
 _PWP_COLUMNS = ["pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25"]
 
 
@@ -29,8 +29,8 @@ _OUTPUT_COLUMNS = [
     "equ_ticker", "Currency", "Side", "Amount", "RouteShares",
     "Type", "LimitPrice", "StopPrice", "Broker", "StrategyType",
     "algo", "TraderName",
-    # 计算指标（17）
-    "fill", "fill_continuous", "fill_close",
+    # 计算指标（18）：fill_count 为该路由下 FillId 的去重计数
+    "fill_count", "fill", "fill_continuous", "fill_close",
     "par_rate", "par_rate_continuous", "par_rate_close",
     "p_avg", "p_avg_continuous",
     "pnl_vwap", "pnl_vwap_continuous",
@@ -79,6 +79,12 @@ def _build_source_values(
     date_str: str,
 ) -> pd.DataFrame:
     """从 raw_fills 和 processed_fills 构建路由级源值。"""
+    # 两个表 order_as_of_date 格式可能不一致：raw_fills 为 YYYY-MM-DD，processed_fills 为 YYYYMMDD
+    raw_fills_df = raw_fills_df.copy()
+    processed_fills_df = processed_fills_df.copy()
+    raw_fills_df["order_as_of_date"] = _normalize_oad(raw_fills_df["order_as_of_date"])
+    processed_fills_df["order_as_of_date"] = _normalize_oad(processed_fills_df["order_as_of_date"])
+
     raw = raw_fills_df[raw_fills_df["order_as_of_date"] == date_str].copy()
     if raw.empty:
         return pd.DataFrame()
@@ -127,6 +133,23 @@ def _build_source_values(
     return merged
 
 
+def _normalize_oad(series: pd.Series) -> pd.Series:
+    """将 order_as_of_date 统一规范化为 YYYYMMDD 字符串。"""
+    # 先尝试按 datetime 解析，否则保留原字符串并去除非数字字符
+    parsed = pd.to_datetime(series, errors="coerce", utc=True)
+    # 对于无法解析的字符串（如已经是 YYYYMMDD），直接保留并去除非数字
+    result = []
+    for dt, raw in zip(parsed, series):
+        if pd.notna(dt):
+            result.append(dt.strftime("%Y%m%d"))
+        else:
+            cleaned = str(raw).replace("-", "").replace(" ", "").split("+")[0]
+            result.append(cleaned[:8] if cleaned.isdigit() else str(raw))
+    return pd.Series(result, index=series.index)
+
+
+
+
 def _first_non_null(series: pd.Series) -> Any:
     """返回 Series 中第一个非空值。"""
     cleaned = series.dropna()
@@ -157,6 +180,11 @@ def _compute_route_metrics(
     fills = _prepare_fills(fills)
     total_fill = float(fills["FillShares"].sum())
     result["fill"] = total_fill if total_fill > 0 else 0.0
+    # fill_count：路由下 FillId 的去重计数
+    if "FillId" in fills.columns and not fills["FillId"].isna().all():
+        result["fill_count"] = int(fills["FillId"].nunique())
+    else:
+        result["fill_count"] = int(len(fills))
 
     continuous_fills = fills[fills["is_closing_auction"] == 0]
     close_fills = fills[fills["is_closing_auction"] == 1]
@@ -272,16 +300,19 @@ def _get_fill_time(
     """获取路由首笔或末笔成交的本地交易所时间。"""
     if fills.empty or "DateTimeOfFill" not in fills.columns:
         return None
-    times = []
-    for dt in fills["DateTimeOfFill"]:
-        if pd.isna(dt):
-            continue
-        local_dt = convert_ny_to_local(pd.to_datetime(dt), str(exchange_code) if exchange_code else None)
-        if local_dt is not None:
-            times.append(local_dt.strftime(Config.TIME_FORMAT))
+    try:
+        local_dts = batch_convert_ny_to_local(
+            fills["DateTimeOfFill"],
+            pd.Series([exchange_code] * len(fills), index=fills.index),
+        )
+        times = local_dts.dt.strftime(Config.TIME_FORMAT).dropna().tolist()
+    except ValueError:
+        # Exchange code 未知时与旧行为保持一致：返回 None
+        return None
     if not times:
         return None
     return min(times) if mode == "min" else max(times)
+
 
 
 def _get_all_day_bars(

@@ -56,7 +56,7 @@ class TcaFilters:
 
 @dataclass
 class TcaRouteSummary:
-    """路由级 TCA 汇总，严格匹配新 schema 34 个字段。"""
+    """路由级 TCA 汇总，严格匹配新 schema 35 个字段（17 源值 + 18 计算指标）。"""
     # ── Group 1: Source values (17) ──
     OrderId: str
     RouteId: str
@@ -75,7 +75,9 @@ class TcaRouteSummary:
     StrategyType: Optional[str]
     algo: Optional[str]
     TraderName: Optional[str]
-    # ── Group 2-7: Computed metrics (17) ──
+    # ── Group 2-7: Computed metrics (18) ──
+    # fill_count 为该路由下 FillId 的去重计数，位于 fill 左侧
+    fill_count: Optional[int]
     fill: Optional[float]
     fill_continuous: Optional[float]
     fill_close: Optional[float]
@@ -100,7 +102,11 @@ class TcaRouteSummary:
 
 @dataclass
 class TcaRouteDetail:
-    """TCA metrics for a single broker route (legacy nested detail)."""
+    """TCA metrics for a single broker route (legacy nested detail).
+
+    Deprecated: 新 /api/tca/analyze 返回扁平 TcaRouteSummary，本类型保留仅用于
+    兼容旧归档代码与历史序列化数据。
+    """
     order_id: str
     route_id: str
     order_as_of_date: str
@@ -118,7 +124,11 @@ class TcaRouteDetail:
 
 @dataclass
 class TcaOrderSummary:
-    """TCA summary for a single order (may contain multiple routes)."""
+    """TCA summary for a single order (may contain multiple routes).
+
+    Deprecated: 新 /api/tca/analyze 返回扁平路由列表 (TcaRouteSummary)，本类型保留仅
+    用于兼容旧归档代码与历史序列化数据。
+    """
     order_id: str
     order_as_of_date: str
     equ_ticker: Optional[str]
@@ -142,7 +152,11 @@ class TcaOrderSummary:
 
 @dataclass
 class TcaReport:
-    """Full TCA report for a set of filtered orders."""
+    """Full TCA report for a set of filtered orders.
+
+    orders 字段现在为路由级扁平列表 (TcaRouteSummary)，每个元素对应一条
+    独立路由；旧的订单嵌套结构 (TcaOrderSummary) 已弃用。
+    """
     filters: dict
     total_orders: int
     offset: int

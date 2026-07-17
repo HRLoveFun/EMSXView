@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -23,15 +23,8 @@ export function ExportDialog({ config, isExporting, open, selectedOrderAvailable
   const [format, setFormat] = useState<ExportFormat>(config.exportDefaults.format);
   const [scope, setScope] = useState<ExportScope>(config.exportDefaults.scope);
 
-  useEffect(() => {
-    if (open) {
-      setFormat(config.exportDefaults.format);
-      setScope(config.exportDefaults.scope);
-    }
-  }, [config.exportDefaults.format, config.exportDefaults.scope, open]);
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog key={open ? 'export-open' : 'export-closed'} open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Export CostView Report</DialogTitle>

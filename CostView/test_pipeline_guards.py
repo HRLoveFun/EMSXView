@@ -38,7 +38,7 @@ class PipelineGuardTests(unittest.TestCase):
             pd.Series(["NZ"]),
         )
 
-        self.assertEqual(converted.dt.strftime("%Y-%m-%d %H:%M:%S").iloc[0], "2026-04-20 15:00:14")
+        self.assertEqual(converted.dt.strftime("%Y-%m-%d %H:%M:%S").iloc[0], "2026-04-20 17:00:14")
 
     def test_bdib_latest_safe_date_moves_after_cutoff(self) -> None:
         morning = datetime(2026, 4, 22, 9, 26)

@@ -82,6 +82,7 @@ COLUMN_TYPE_MAP: Dict[str, str] = {
     "LimitPrice": "REAL", "StopPrice": "REAL",
     "count_fill": "INTEGER", "count_broker": "INTEGER",
     "count_algo": "INTEGER", "count_trader": "INTEGER",
+    "fill_count": "INTEGER",
     "route_count": "INTEGER", "fill_count": "INTEGER",
     "total_fill_shares": "REAL", "order_amount": "REAL",
     "average_fill_price": "REAL",
@@ -109,8 +110,8 @@ TCA_ROUTE_SUMMARY_COLUMNS: List[str] = [
     "equ_ticker", "Currency", "Side", "Amount", "RouteShares",
     "Type", "LimitPrice", "StopPrice", "Broker", "StrategyType",
     "algo", "TraderName",
-    # 计算指标（17）
-    "fill", "fill_continuous", "fill_close",
+    # 计算指标（18）：fill_count 为该路由下 FillId 的去重计数
+    "fill_count", "fill", "fill_continuous", "fill_close",
     "par_rate", "par_rate_continuous", "par_rate_close",
     "p_avg", "p_avg_continuous",
     "pnl_vwap", "pnl_vwap_continuous",
