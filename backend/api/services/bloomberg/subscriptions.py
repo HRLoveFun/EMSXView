@@ -266,10 +266,22 @@ class EMSXSubscriptionEngine:
             # ───────────────────────────────────────────────────
 
             if event_status == 8:
+                deleted_order = None
                 with self._data_lock:
                     if seq_key in self._orders:
+                        deleted_order = self._orders[seq_key]
                         del self._orders[seq_key]
                         logger.debug(f"Deleted order {seq_key}")
+                # 向前端广播删除事件，避免 stream store 保留已删除订单
+                if deleted_order:
+                    try:
+                        loop = asyncio.get_event_loop()
+                        asyncio.run_coroutine_threadsafe(
+                            realtime_gw.broadcast_order(deleted_order.model_dump(), event_type="delete"),
+                            loop,
+                        )
+                    except RuntimeError:
+                        pass
                 return
 
             if event_status == 11:
@@ -380,10 +392,22 @@ class EMSXSubscriptionEngine:
             route_key = f"{seq}.{route_id}"
 
             if event_status == 8:
+                deleted_route = None
                 with self._data_lock:
                     if route_key in self._routes:
+                        deleted_route = self._routes[route_key]
                         del self._routes[route_key]
                         logger.debug(f"Deleted route {route_key}")
+                # 向前端广播路由删除事件，保持订单/路由一致性
+                if deleted_route:
+                    try:
+                        loop = asyncio.get_event_loop()
+                        asyncio.run_coroutine_threadsafe(
+                            realtime_gw.broadcast_route(deleted_route.model_dump(), event_type="delete"),
+                            loop,
+                        )
+                    except RuntimeError:
+                        pass
                 return
 
             if event_status == 11:

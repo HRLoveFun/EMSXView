@@ -133,6 +133,11 @@ class MarketStoreReader:
     def parquet_dir(self) -> Path:
         return self._root
 
+    @property
+    def table_name(self) -> str:
+        """返回DuckDB视图表名，用于外部SQL构建。"""
+        return self._table_name
+
     def _ensure_connection(self) -> Any:
         if self._conn is not None:
             return self._conn

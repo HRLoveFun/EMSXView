@@ -186,8 +186,8 @@ async def refresh_orders(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
 ):
-    """Force-refresh order list from Bloomberg."""
-    orders = await bloomberg.get_orders()
+    """Force-refresh order list from Bloomberg by re-subscribing EMSX."""
+    orders = await bloomberg.refresh_subscription()
     audit_log("REFRESH_ORDERS", user.get("sub"), {})
     return ApiResponse(success=True, data=orders, message=f"Retrieved {len(orders)} orders")
 

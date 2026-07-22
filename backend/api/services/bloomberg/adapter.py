@@ -194,6 +194,36 @@ class BloombergEMSXService:
 
         return result
 
+    async def refresh_subscription(self) -> List[Order]:
+        """强制重新订阅 EMSX 订单/路由，清空本地缓存并对齐 EMSX 最新状态。"""
+        if not self._conn.connected or not self._conn.session:
+            logger.info("Bloomberg 未连接，refresh 回退到正常连接流程")
+            return await self.get_orders()
+
+        logger.info("正在刷新 EMSX 订阅以重新对齐最新状态...")
+        # 在后台线程停止订阅，避免阻塞事件循环
+        await asyncio.to_thread(self._sub.stop)
+        await asyncio.to_thread(self._enrich.stop)
+        self._sub.reset()
+        self._enrich.reset()
+        self._sub.start()
+        self._enrich.start()
+
+        # 等待新的 INIT_PAINT 完成，最多 30 秒
+        for _ in range(60):
+            await asyncio.sleep(0.5)
+            if self._sub.init_paint_done and self._sub.route_init_paint_done:
+                logger.info(
+                    "EMSX 订阅刷新完成 — orders=%d routes=%d",
+                    len(self._sub.orders), len(self._sub.routes),
+                )
+                break
+            if self._sub.subscription_failed:
+                logger.warning("EMSX 订阅刷新失败 — 返回当前缓存")
+                break
+
+        return await self.get_orders()
+
     # ── Public API: Orders (combines subscription + enrichment) ───────
 
     async def get_orders(self, filters: Optional[OrderFilters] = None) -> List[Order]:

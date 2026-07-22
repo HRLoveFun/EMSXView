@@ -1,0 +1,163 @@
+2026-07-21 10:19:27 [INFO] recompute_route_metrics: Schema ensured: C:\Users\hrchen\Documents\EMSXView\CostView\data\fill_bdib.db
+2026-07-21 10:19:27 [INFO] recompute_route_metrics: \u6267\u884c\u9636\u6bb5: 5.5. Compute Route Metrics
+2026-07-21 10:19:27 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-07-21 10:19:27 [INFO] DataPipeline.orchestration.base: ==> Starting Stage: 5.5. Compute Route Metrics
+2026-07-21 10:19:27 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-07-21 10:19:35 [INFO] DataPipeline.storage.repositories.integrated: Upserted 335 tca_route_summary rows
+2026-07-21 10:19:35 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250915: computed 335 routes
+2026-07-21 10:19:45 [INFO] DataPipeline.storage.repositories.integrated: Upserted 383 tca_route_summary rows
+2026-07-21 10:19:45 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250916: computed 383 routes
+2026-07-21 10:19:52 [INFO] DataPipeline.storage.repositories.integrated: Upserted 313 tca_route_summary rows
+2026-07-21 10:19:52 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250917: computed 313 routes
+2026-07-21 10:20:00 [INFO] DataPipeline.storage.repositories.integrated: Upserted 296 tca_route_summary rows
+2026-07-21 10:20:00 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250918: computed 296 routes
+2026-07-21 10:20:10 [INFO] DataPipeline.storage.repositories.integrated: Upserted 510 tca_route_summary rows
+2026-07-21 10:20:10 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250919: computed 510 routes
+2026-07-21 10:20:18 [INFO] DataPipeline.storage.repositories.integrated: Upserted 280 tca_route_summary rows
+2026-07-21 10:20:18 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250922: computed 280 routes
+2026-07-21 10:20:28 [INFO] DataPipeline.storage.repositories.integrated: Upserted 320 tca_route_summary rows
+2026-07-21 10:20:28 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250923: computed 320 routes
+2026-07-21 10:20:32 [INFO] DataPipeline.storage.repositories.integrated: Upserted 34 tca_route_summary rows
+2026-07-21 10:20:32 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250924: computed 34 routes
+2026-07-21 10:21:07 [INFO] DataPipeline.storage.repositories.integrated: Upserted 465 tca_route_summary rows
+2026-07-21 10:21:07 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250925: computed 465 routes
+2026-07-21 10:22:02 [INFO] DataPipeline.storage.repositories.integrated: Upserted 743 tca_route_summary rows
+2026-07-21 10:22:03 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250926: computed 743 routes
+2026-07-21 10:23:56 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1248 tca_route_summary rows
+2026-07-21 10:23:56 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250929: computed 1248 routes
+2026-07-21 10:25:57 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1301 tca_route_summary rows
+2026-07-21 10:25:57 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20250930: computed 1301 routes
+2026-07-21 10:28:26 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1384 tca_route_summary rows
+2026-07-21 10:28:26 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251001: computed 1384 routes
+2026-07-21 10:30:23 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1208 tca_route_summary rows
+2026-07-21 10:30:23 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251002: computed 1208 routes
+2026-07-21 10:32:37 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1378 tca_route_summary rows
+2026-07-21 10:32:37 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251003: computed 1378 routes
+2026-07-21 10:34:49 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1297 tca_route_summary rows
+2026-07-21 10:34:49 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251006: computed 1297 routes
+2026-07-21 10:36:36 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1182 tca_route_summary rows
+2026-07-21 10:36:36 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251007: computed 1182 routes
+2026-07-21 10:39:07 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1417 tca_route_summary rows
+2026-07-21 10:39:07 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251008: computed 1417 routes
+2026-07-21 10:40:56 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1200 tca_route_summary rows
+2026-07-21 10:40:56 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251009: computed 1200 routes
+2026-07-21 10:43:10 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1274 tca_route_summary rows
+2026-07-21 10:43:10 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251010: computed 1274 routes
+2026-07-21 10:44:29 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1001 tca_route_summary rows
+2026-07-21 10:44:29 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251013: computed 1001 routes
+2026-07-21 10:47:27 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1485 tca_route_summary rows
+2026-07-21 10:47:27 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251014: computed 1485 routes
+2026-07-21 10:49:29 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1215 tca_route_summary rows
+2026-07-21 10:49:29 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251015: computed 1215 routes
+2026-07-21 10:51:28 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1188 tca_route_summary rows
+2026-07-21 10:51:28 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251016: computed 1188 routes
+2026-07-21 10:53:44 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1270 tca_route_summary rows
+2026-07-21 10:53:44 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251017: computed 1270 routes
+2026-07-21 10:55:46 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1209 tca_route_summary rows
+2026-07-21 10:55:46 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251020: computed 1209 routes
+2026-07-21 10:58:02 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1368 tca_route_summary rows
+2026-07-21 10:58:02 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251021: computed 1368 routes
+2026-07-21 11:00:04 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1245 tca_route_summary rows
+2026-07-21 11:00:04 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251022: computed 1245 routes
+2026-07-21 11:00:32 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1302 tca_route_summary rows
+2026-07-21 11:00:32 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251023: computed 1302 routes
+2026-07-21 11:03:12 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1546 tca_route_summary rows
+2026-07-21 11:03:12 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251024: computed 1546 routes
+2026-07-21 11:05:41 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1337 tca_route_summary rows
+2026-07-21 11:05:41 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251027: computed 1337 routes
+2026-07-21 11:08:08 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1341 tca_route_summary rows
+2026-07-21 11:08:08 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251028: computed 1341 routes
+2026-07-21 11:10:29 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1226 tca_route_summary rows
+2026-07-21 11:10:29 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251029: computed 1226 routes
+2026-07-21 11:13:21 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1469 tca_route_summary rows
+2026-07-21 11:13:21 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251030: computed 1469 routes
+2026-07-21 11:16:09 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1553 tca_route_summary rows
+2026-07-21 11:16:09 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251031: computed 1553 routes
+2026-07-21 11:18:02 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1210 tca_route_summary rows
+2026-07-21 11:18:02 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251103: computed 1210 routes
+2026-07-21 11:21:39 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1844 tca_route_summary rows
+2026-07-21 11:21:39 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251104: computed 1844 routes
+2026-07-21 11:23:45 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1274 tca_route_summary rows
+2026-07-21 11:23:45 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251105: computed 1274 routes
+2026-07-21 11:26:06 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1310 tca_route_summary rows
+2026-07-21 11:26:06 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251106: computed 1310 routes
+2026-07-21 11:29:22 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1668 tca_route_summary rows
+2026-07-21 11:29:22 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251107: computed 1668 routes
+2026-07-21 11:32:08 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1608 tca_route_summary rows
+2026-07-21 11:32:08 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251110: computed 1608 routes
+2026-07-21 11:34:55 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1464 tca_route_summary rows
+2026-07-21 11:34:55 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251111: computed 1464 routes
+2026-07-21 11:37:18 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1377 tca_route_summary rows
+2026-07-21 11:37:18 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251112: computed 1377 routes
+2026-07-21 11:40:24 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1495 tca_route_summary rows
+2026-07-21 11:40:24 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251113: computed 1495 routes
+2026-07-21 11:43:27 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1748 tca_route_summary rows
+2026-07-21 11:43:27 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251114: computed 1748 routes
+2026-07-21 11:45:54 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1323 tca_route_summary rows
+2026-07-21 11:45:54 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251117: computed 1323 routes
+2026-07-21 11:48:26 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1331 tca_route_summary rows
+2026-07-21 11:48:26 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251118: computed 1331 routes
+2026-07-21 11:50:40 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1262 tca_route_summary rows
+2026-07-21 11:50:40 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251119: computed 1262 routes
+2026-07-21 11:53:31 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1491 tca_route_summary rows
+2026-07-21 11:53:31 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251120: computed 1491 routes
+2026-07-21 11:56:06 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1312 tca_route_summary rows
+2026-07-21 11:56:06 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251121: computed 1312 routes
+2026-07-21 12:07:52 [INFO] DataPipeline.storage.repositories.integrated: Upserted 3783 tca_route_summary rows
+2026-07-21 12:07:52 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251124: computed 3783 routes
+2026-07-21 12:10:54 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1584 tca_route_summary rows
+2026-07-21 12:10:54 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251125: computed 1584 routes
+2026-07-21 12:13:41 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1399 tca_route_summary rows
+2026-07-21 12:13:41 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251126: computed 1399 routes
+2026-07-21 12:15:18 [INFO] DataPipeline.storage.repositories.integrated: Upserted 705 tca_route_summary rows
+2026-07-21 12:15:18 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251127: computed 705 routes
+2026-07-21 12:17:40 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1517 tca_route_summary rows
+2026-07-21 12:17:40 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251128: computed 1517 routes
+2026-07-21 12:19:26 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1131 tca_route_summary rows
+2026-07-21 12:19:26 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251201: computed 1131 routes
+2026-07-21 12:21:20 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1119 tca_route_summary rows
+2026-07-21 12:21:20 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251202: computed 1119 routes
+2026-07-21 12:24:01 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1279 tca_route_summary rows
+2026-07-21 12:24:01 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251203: computed 1279 routes
+2026-07-21 12:26:12 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1164 tca_route_summary rows
+2026-07-21 12:26:12 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251204: computed 1164 routes
+2026-07-21 12:28:12 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1151 tca_route_summary rows
+2026-07-21 12:28:12 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251205: computed 1151 routes
+2026-07-21 12:30:14 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1202 tca_route_summary rows
+2026-07-21 12:30:14 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251208: computed 1202 routes
+2026-07-21 12:32:11 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1077 tca_route_summary rows
+2026-07-21 12:32:11 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251209: computed 1077 routes
+2026-07-21 12:33:59 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1052 tca_route_summary rows
+2026-07-21 12:33:59 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251210: computed 1052 routes
+2026-07-21 12:35:45 [INFO] DataPipeline.storage.repositories.integrated: Upserted 954 tca_route_summary rows
+2026-07-21 12:35:45 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251211: computed 954 routes
+2026-07-21 12:37:33 [INFO] DataPipeline.storage.repositories.integrated: Upserted 981 tca_route_summary rows
+2026-07-21 12:37:33 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251212: computed 981 routes
+2026-07-21 12:39:06 [INFO] DataPipeline.storage.repositories.integrated: Upserted 933 tca_route_summary rows
+2026-07-21 12:39:06 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251215: computed 933 routes
+2026-07-21 12:41:06 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1130 tca_route_summary rows
+2026-07-21 12:41:06 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251216: computed 1130 routes
+2026-07-21 12:44:07 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1322 tca_route_summary rows
+2026-07-21 12:44:07 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251217: computed 1322 routes
+2026-07-21 12:46:03 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1230 tca_route_summary rows
+2026-07-21 12:46:03 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251218: computed 1230 routes
+2026-07-21 12:47:52 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1145 tca_route_summary rows
+2026-07-21 12:47:52 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251219: computed 1145 routes
+2026-07-21 12:48:15 [INFO] DataPipeline.storage.repositories.integrated: Upserted 303 tca_route_summary rows
+2026-07-21 12:48:15 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251222: computed 303 routes
+2026-07-21 12:48:43 [INFO] DataPipeline.storage.repositories.integrated: Upserted 320 tca_route_summary rows
+2026-07-21 12:48:43 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251223: computed 320 routes
+2026-07-21 12:48:59 [INFO] DataPipeline.storage.repositories.integrated: Upserted 166 tca_route_summary rows
+2026-07-21 12:48:59 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251224: computed 166 routes
+2026-07-21 12:49:19 [INFO] DataPipeline.storage.repositories.integrated: Upserted 150 tca_route_summary rows
+2026-07-21 12:49:19 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251226: computed 150 routes
+2026-07-21 12:50:17 [INFO] DataPipeline.storage.repositories.integrated: Upserted 645 tca_route_summary rows
+2026-07-21 12:50:17 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251229: computed 645 routes
+2026-07-21 12:52:10 [INFO] DataPipeline.storage.repositories.integrated: Upserted 828 tca_route_summary rows
+2026-07-21 12:52:10 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251230: computed 828 routes
+2026-07-21 12:52:15 [INFO] DataPipeline.storage.repositories.integrated: Upserted 16 tca_route_summary rows
+2026-07-21 12:52:15 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20251231: computed 16 routes
+2026-07-21 12:52:15 [INFO] recompute_route_metrics: ================================================================
+2026-07-21 12:52:15 [INFO] recompute_route_metrics: \u6267\u884c\u5b8c\u6210: ok=True, summary={'completed': True, 'dates': 77, 'rows': 86326}
+2026-07-21 12:52:15 [INFO] recompute_route_metrics: \u9519\u8bef\u6570: 0
+2026-07-21 12:52:15 [INFO] recompute_route_metrics: ================================================================
