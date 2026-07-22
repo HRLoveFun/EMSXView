@@ -161,10 +161,10 @@ export function useExecutionViewData({
   // ── Mutations (delegated) ──────────────────────────────────────────────
   const mutations = useExecutionMutations({
     setAllOrders,
-    setAllRoutes,
     setSelectedOrders,
     setIsLoading,
     fetchOrders,
+    fetchOrdersAndRoutes,
     fetchTraderInfo,
     inflightMutationsRef,
     refreshInflightRef,

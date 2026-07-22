@@ -18,7 +18,8 @@ import pandas as pd
 
 from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier
-from DataPipeline.processing.tca_route_metrics import compute_route_metrics_for_date
+from DataPipeline.processing.tca_route_metrics import compute_route_metrics_for_date, load_raw_bdib_for_date
+
 
 from .base import BaseStage, _to_iso_safe
 from .context import PipelineContext
@@ -407,14 +408,8 @@ class ComputeRouteMetricsStage(BaseStage):
                     logger.info("  RouteMetrics %s: no fills, skipping", date_str)
                     continue
 
-                conn = cm.get_connection("raw_bdib", AccessTier.READ)
-                raw_bdib_df = pd.read_sql_query(
-                    "SELECT equ_ticker, order_as_of_date, mkt_timestamp, volume, value "
-                    "FROM raw_bdib WHERE order_as_of_date = ?",
-                    conn.raw_connection,
-                    params=[date_str],
-                )
-                conn.close()
+                equ_tickers = processed_fills_df["equ_ticker"].dropna().unique().tolist() if "equ_ticker" in processed_fills_df.columns else []
+                raw_bdib_df = load_raw_bdib_for_date(date_str, equ_tickers=equ_tickers)
 
                 metrics_df = compute_route_metrics_for_date(
                     raw_fills_df, processed_fills_df, raw_bdib_df, date_str,

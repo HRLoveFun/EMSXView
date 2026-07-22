@@ -7,13 +7,16 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 
 from DataPipeline.common.exchange_tz import batch_convert_ny_to_local, convert_ny_to_local
+from DataPipeline.common.mapping import closing_auction_times, EXCHANGE_AUCTION_TIME_ADJUST
 from DataPipeline.config import Config
+from DataPipeline.storage.market_store import MarketStoreReader
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,93 @@ def compute_route_metrics_for_date(
         rows.append(row)
 
     return pd.DataFrame(rows, columns=_OUTPUT_COLUMNS)
+
+
+def load_raw_bdib_for_date(
+    date_str: str,
+    equ_tickers: Optional[list[str]] = None,
+    raw_bdib_db_path: Optional[Path] = None,
+    parquet_dir: Optional[Path] = None,
+) -> pd.DataFrame:
+    """按日期读取 raw_bdib，SQLite 缺失时回退到 Parquet 分区。
+
+    生产环境中 raw_bdib.db 只保留较近热数据，历史 BDIB 已按年月分区写入
+    Parquet。本函数先尝试 SQLite，返回为空时回退到 Parquet 读取，确保
+    历史交易日（如 20260303 之前）也能纳入 TCA 计算。
+
+    Args:
+        date_str: 交易日（YYYYMMDD）。
+        equ_tickers: 可选的 ticker 过滤列表，用于减少 Parquet 读取量。
+        raw_bdib_db_path: SQLite 路径，默认使用 ``Config.RAW_BDIB_DB``。
+        parquet_dir: Parquet 分区根目录，默认使用 ``Config.BDIB_PARQUET_DIR``。
+
+    Returns:
+        包含 ``equ_ticker``、``order_as_of_date``、``mkt_timestamp``、
+        ``volume``、``value`` 的 DataFrame。
+    """
+    db_path = raw_bdib_db_path or Config.RAW_BDIB_DB
+    parquet_dir = parquet_dir or Config.BDIB_PARQUET_DIR
+    columns = ["equ_ticker", "order_as_of_date", "mkt_timestamp", "volume", "value"]
+    requested_tickers = set(equ_tickers) if equ_tickers else set()
+
+    # 1. 优先从 SQLite 热数据读取
+    df_sql = pd.DataFrame(columns=columns)
+    if db_path.exists():
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(str(db_path), timeout=Config.SQLITE_BUSY_TIMEOUT_MS)
+            sql = f"SELECT {', '.join(columns)} FROM raw_bdib WHERE order_as_of_date = ?"
+            params: list[Any] = [date_str]
+            if requested_tickers:
+                placeholders = ",".join(["?"] * len(requested_tickers))
+                sql += f" AND equ_ticker IN ({placeholders})"
+                params.extend(requested_tickers)
+            df_sql = pd.read_sql_query(sql, conn, params=params)
+            conn.close()
+        except Exception as e:
+            logger.warning("从 SQLite 读取 raw_bdib 失败: %s", e)
+
+    # 未指定 ticker 列表且 SQLite 有数据时直接返回；否则按需补全缺失 ticker
+    if requested_tickers:
+        sql_tickers = set(df_sql["equ_ticker"].unique()) if not df_sql.empty else set()
+        missing_tickers = requested_tickers - sql_tickers
+        if not missing_tickers:
+            return df_sql
+    else:
+        if not df_sql.empty:
+            return df_sql
+        missing_tickers = set()
+
+    # 2. SQLite 未覆盖时，从 Parquet 分区读取缺失 ticker 并合并
+    if not parquet_dir.exists():
+        return df_sql
+
+    if not any(parquet_dir.rglob("*.parquet")):
+        return df_sql
+
+    try:
+        reader = MarketStoreReader(parquet_dir)
+        sql = (
+            f"SELECT {', '.join(columns)} FROM {reader.table_name} "
+            "WHERE order_as_of_date = ?"
+        )
+        df_pq = reader.query(sql, [date_str])
+        reader.close()
+        if not df_pq.empty:
+            if missing_tickers:
+                df_pq = df_pq[df_pq["equ_ticker"].isin(missing_tickers)].copy()
+            df_pq = df_pq[columns]
+            if df_sql.empty:
+                return df_pq
+            return pd.concat([df_sql, df_pq], ignore_index=True)
+    except Exception as e:
+        logger.warning("从 Parquet 读取 raw_bdib 失败: %s", e)
+
+    return df_sql
+
+
+
 
 
 def _build_source_values(
@@ -206,9 +296,17 @@ def _compute_route_metrics(
     all_bars = _get_all_day_bars(raw_bdib_df, equ_ticker, date_str)
 
     if all_bars is not None and not all_bars.empty:
-        full_window = _slice_bars(all_bars, first_fill_time, last_fill_time)
+        last_bdib_time = _get_last_bar_time(all_bars)
+        # par_rate：终点取末笔 fill 与 bdib 末行时间的更前者，避免 closing auction fill
+        # 时间戳晚于 bdib 末行导致窗口越界
+        full_end_time = _min_time(last_fill_time, last_bdib_time)
+        full_window = _slice_bars(all_bars, first_fill_time, full_end_time)
+
+        # par_rate_continuous：保持原有逻辑（首笔 fill → 首笔 closing auction fill，不含）
         continuous_window = _slice_bars(all_bars, first_fill_time, first_close_time, inclusive_end=False)
-        close_window = _slice_bars(all_bars, first_close_time, last_fill_time)
+
+        # par_rate_close：按交易所收盘集合竞价固定时段取 bars，不依赖 fill 时间戳
+        close_window = _get_closing_auction_window(all_bars, exchange_code)
 
         # par_rate
         result["par_rate"] = _compute_par_rate(total_fill, full_window)
@@ -313,6 +411,52 @@ def _get_fill_time(
         return None
     return min(times) if mode == "min" else max(times)
 
+
+
+def _get_last_bar_time(bars: pd.DataFrame) -> Optional[str]:
+    """返回 bars 中最大的 mkt_timestamp。"""
+    if bars is None or bars.empty or "mkt_timestamp" not in bars.columns:
+        return None
+    return str(bars["mkt_timestamp"].max())
+
+
+def _min_time(a: Optional[str], b: Optional[str]) -> Optional[str]:
+    """返回两个时间字符串中较小者，任一为空则返回另一者。"""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a, b)
+
+
+def _get_closing_auction_window(
+    bars: pd.DataFrame,
+    exchange_code: Optional[str],
+) -> Optional[pd.DataFrame]:
+    """获取交易所收盘集合竞价时段的 bars。
+
+    收盘集合竞价结束时间由 ``closing_auction_times`` 定义；对于需要 +1min
+    调整的市场（``EXCHANGE_AUCTION_TIME_ADJUST``），开始时间为结束时间前
+    1 分钟，其余市场开始时间与结束时间相同。该定义与 fill_processor 中
+    ``is_closing_auction`` 的判定规则保持一致，避免 closing auction fill
+    时间戳与 bdib 时间不一致导致的窗口为空问题。
+    """
+    if bars is None or bars.empty or exchange_code is None:
+        return None
+
+    exch_upper = str(exchange_code).strip().upper()
+    close_time_str = closing_auction_times.get(exch_upper)
+    if close_time_str is None:
+        return None
+
+    # 与 fill_processor 保持一致：需要 +1min 调整的市场，auction 从 close-1min 开始
+    if exch_upper in EXCHANGE_AUCTION_TIME_ADJUST:
+        start_dt = pd.to_datetime(close_time_str, format=Config.TIME_FORMAT) - pd.Timedelta(minutes=1)
+        start_time = start_dt.strftime(Config.TIME_FORMAT)
+    else:
+        start_time = close_time_str
+
+    return _slice_bars(bars, start_time, close_time_str)
 
 
 def _get_all_day_bars(

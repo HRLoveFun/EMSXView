@@ -14,17 +14,16 @@ import type {
   ModifyOrderRequest,
   ModifyRouteRequest,
   Order,
-  Route,
   RouteOrderRequest,
 } from '@execution/types';
 import type { Toast } from '@shared/types';
 
 interface UseExecutionMutationsOptions {
   setAllOrders: React.Dispatch<React.SetStateAction<Order[]>>;
-  setAllRoutes: React.Dispatch<React.SetStateAction<Route[]>>;
   setSelectedOrders: React.Dispatch<React.SetStateAction<Set<string>>>;
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
   fetchOrders: () => Promise<void>;
+  fetchOrdersAndRoutes: () => Promise<void>;
   fetchTraderInfo: (forceRefresh?: boolean) => Promise<void>;
   inflightMutationsRef: React.MutableRefObject<number>;
   refreshInflightRef: React.MutableRefObject<boolean>;
@@ -33,10 +32,10 @@ interface UseExecutionMutationsOptions {
 
 export function useExecutionMutations({
   setAllOrders,
-  setAllRoutes,
   setSelectedOrders,
   setIsLoading,
   fetchOrders,
+  fetchOrdersAndRoutes,
   fetchTraderInfo,
   inflightMutationsRef,
   refreshInflightRef,
@@ -48,10 +47,7 @@ export function useExecutionMutations({
     refreshInflightRef.current = true;
     setIsLoading(true);
     try {
-      const [response, routesRes] = await Promise.all([
-        apiService.refreshOrders(),
-        apiService.getRoutes(),
-      ]);
+      const response = await apiService.refreshOrders();
       if (response.success && response.data) {
         setAllOrders(response.data);
         setSelectedOrders(new Set());
@@ -59,9 +55,8 @@ export function useExecutionMutations({
       } else {
         onToast('error', response.error || 'Failed to refresh orders');
       }
-      if (routesRes.success && routesRes.data) {
-        setAllRoutes(routesRes.data);
-      }
+      // 后端已重新订阅 EMSX，再拉取一次订单+路由完整快照，确保前端与 EMSX 对齐
+      await fetchOrdersAndRoutes();
       await fetchTraderInfo(true);
     } catch (error) {
       onToast('error', 'Network error while refreshing orders');
@@ -70,7 +65,7 @@ export function useExecutionMutations({
       setIsLoading(false);
       refreshInflightRef.current = false;
     }
-  }, [fetchTraderInfo, onToast, setAllOrders, setAllRoutes, setSelectedOrders, setIsLoading, refreshInflightRef]);
+  }, [fetchOrdersAndRoutes, fetchTraderInfo, onToast, setAllOrders, setSelectedOrders, setIsLoading, refreshInflightRef]);
 
   // ── Batch Update ───────────────────────────────────────────────────────
   const handleBatchUpdate = useCallback(async (request: BatchUpdateRequest) => {

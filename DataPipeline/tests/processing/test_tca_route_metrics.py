@@ -12,6 +12,7 @@ import pytest
 from DataPipeline.processing.tca_route_metrics import (
     _compute_all_pwp,
     compute_route_metrics_for_date,
+    load_raw_bdib_for_date,
 )
 
 
@@ -93,6 +94,134 @@ class TestComputeAllPwp:
         result = _compute_all_pwp(pd.DataFrame(), fill_volume=1000.0, p_avg=100.0, side_sign=1, start_time="09:30:00")
         for col in ["pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25"]:
             assert result[col] is None
+
+
+class TestLoadRawBdibForDate:
+    """测试 load_raw_bdib_for_date 的 SQLite/Parquet 双源读取。"""
+
+    def _write_sqlite(
+        self,
+        tmp_path: Path,
+        data: list[dict[str, Any]],
+        date_str: str = "20260201",
+    ) -> Path:
+        """构造临时 SQLite raw_bdib 文件。"""
+        db_path = tmp_path / "raw_bdib.db"
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "CREATE TABLE raw_bdib ("
+            "equ_ticker TEXT, order_as_of_date TEXT, mkt_timestamp TEXT, "
+            "volume REAL, value REAL)"
+        )
+        if data:
+            rows = [
+                (row["equ_ticker"], date_str, row["mkt_timestamp"], row["volume"], row["value"])
+                for row in data
+            ]
+            conn.executemany("INSERT INTO raw_bdib VALUES (?, ?, ?, ?, ?)", rows)
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def _write_parquet(
+        self,
+        tmp_path: Path,
+        data: list[dict[str, Any]],
+        date_str: str = "20260201",
+    ) -> Path:
+        """构造临时按年月分区的 Parquet 文件。"""
+        pytest.importorskip("pyarrow")
+        parquet_dir = tmp_path / "bdib_10s"
+        parquet_dir.mkdir(parents=True, exist_ok=True)
+        year = date_str[:4]
+        month = date_str[4:6]
+        partition_dir = parquet_dir / f"year={year}" / f"month={month}"
+        partition_dir.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(data)
+        df["order_as_of_date"] = date_str
+        df["year"] = int(year)
+        df["month"] = month
+        out_path = partition_dir / f"data_{date_str}.parquet"
+        df.to_parquet(out_path, index=False)
+        return parquet_dir
+
+    def test_prefers_sqlite_when_data_exists(self, tmp_path: Path) -> None:
+        """SQLite 中存在目标日期数据时，直接返回，不依赖 Parquet。"""
+        pytest.importorskip("duckdb")
+        pytest.importorskip("pyarrow")
+        bars = [
+            {"equ_ticker": "AAPL US Equity", "mkt_timestamp": "09:30:00", "volume": 100.0, "value": 10000.0},
+        ]
+        db_path = self._write_sqlite(tmp_path, bars)
+        parquet_dir = tmp_path / "empty_parquet"
+        parquet_dir.mkdir(parents=True, exist_ok=True)
+
+        df = load_raw_bdib_for_date(
+            "20260201", raw_bdib_db_path=db_path, parquet_dir=parquet_dir
+        )
+
+        assert len(df) == 1
+        assert df.iloc[0]["equ_ticker"] == "AAPL US Equity"
+
+    def test_falls_back_to_parquet_when_sqlite_empty(self, tmp_path: Path) -> None:
+        """SQLite 中无数据时，回退到 Parquet 分区读取。"""
+        pytest.importorskip("duckdb")
+        pytest.importorskip("pyarrow")
+        db_path = self._write_sqlite(tmp_path, [])
+        parquet_dir = self._write_parquet(
+            tmp_path,
+            [{"equ_ticker": "TSLA US Equity", "mkt_timestamp": "10:00:00", "volume": 200.0, "value": 40000.0}],
+            "20260201",
+        )
+
+        df = load_raw_bdib_for_date(
+            "20260201", raw_bdib_db_path=db_path, parquet_dir=parquet_dir
+        )
+
+        assert len(df) == 1
+        assert df.iloc[0]["equ_ticker"] == "TSLA US Equity"
+        assert df.iloc[0]["volume"] == pytest.approx(200.0)
+
+    def test_filters_by_equ_tickers(self, tmp_path: Path) -> None:
+        """Parquet 回退时支持按 equ_ticker 列表过滤。"""
+        pytest.importorskip("duckdb")
+        pytest.importorskip("pyarrow")
+        db_path = self._write_sqlite(tmp_path, [])
+        parquet_dir = self._write_parquet(
+            tmp_path,
+            [
+                {"equ_ticker": "AAPL US Equity", "mkt_timestamp": "09:30:00", "volume": 100.0, "value": 10000.0},
+                {"equ_ticker": "TSLA US Equity", "mkt_timestamp": "10:00:00", "volume": 200.0, "value": 40000.0},
+            ],
+            "20260201",
+        )
+
+        df = load_raw_bdib_for_date(
+            "20260201",
+            equ_tickers=["TSLA US Equity"],
+            raw_bdib_db_path=db_path,
+            parquet_dir=parquet_dir,
+        )
+
+        assert len(df) == 1
+        assert df.iloc[0]["equ_ticker"] == "TSLA US Equity"
+
+    def test_returns_empty_when_both_sources_empty(self, tmp_path: Path) -> None:
+        """SQLite 和 Parquet 均无数据时返回空 DataFrame。"""
+        pytest.importorskip("duckdb")
+        pytest.importorskip("pyarrow")
+        db_path = self._write_sqlite(tmp_path, [])
+        parquet_dir = tmp_path / "empty_parquet"
+        parquet_dir.mkdir(parents=True, exist_ok=True)
+
+        df = load_raw_bdib_for_date(
+            "20260201", raw_bdib_db_path=db_path, parquet_dir=parquet_dir
+        )
+
+        assert df.empty
+        assert list(df.columns) == ["equ_ticker", "order_as_of_date", "mkt_timestamp", "volume", "value"]
 
 
 class TestComputeRouteMetricsForDate:
@@ -213,5 +342,105 @@ class TestComputeRouteMetricsForDate:
 
         assert len(result) == 1
         assert result.iloc[0]["fill"] == pytest.approx(1000.0)
+
+    def test_par_rate_close_uses_closing_auction_window_not_fill_time(self) -> None:
+        """closing auction fill 时间戳晚于 bdib 末行时，par_rate_close 仍按交易所固定时段计算。"""
+        raw_fills = pd.DataFrame({
+            "OrderId": ["O1"],
+            "RouteId": ["R1"],
+            "order_as_of_date": ["20260421"],
+            "Exchange": ["US"],
+            "Account": ["A1"],
+            "Currency": ["USD"],
+            "Side": ["Buy"],
+            "Amount": [1000.0],
+            "RouteShares": [1000.0],
+            "Type": ["Limit"],
+            "LimitPrice": [100.0],
+            "StopPrice": [90.0],
+            "Broker": ["BRK"],
+            "StrategyType": ["TEST"],
+            "TraderName": ["TRADER"],
+        })
+
+        # fill 发生在 US 收盘集合竞价时段（15:59:40），但晚于 bdib 末行（15:59:50）之前，
+        # 用于验证 par_rate 终点被 bdib 末行限制，par_rate_close 按固定窗口计算。
+        processed_fills = pd.DataFrame({
+            "OrderId": ["O1"],
+            "RouteId": ["R1"],
+            "order_as_of_date": ["20260421"],
+            "equ_ticker": ["AAPL US Equity"],
+            "FillId": ["F1"],
+            "FillShares": [1000.0],
+            "FillPrice": [100.0],
+            # NY 15:59:40 -> local 15:59:40
+            "DateTimeOfFill": ["2026-04-21T15:59:40-04:00"],
+            "is_closing_auction": [1],
+        })
+
+        # US closing auction 窗口：15:59:00 - 16:00:00
+        raw_bdib = _make_bars(
+            times=["15:58:50", "15:59:00", "15:59:10", "15:59:20", "15:59:30", "15:59:40", "15:59:50"],
+            volumes=[1000.0, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0],
+            prices=[100.0] * 7,
+        )
+
+        result = compute_route_metrics_for_date(
+            raw_fills, processed_fills, raw_bdib, "20260421"
+        )
+
+        assert len(result) == 1
+        row = result.iloc[0]
+        # fill_close = 1000，closing auction 窗口成交量 = 3000
+        assert row["par_rate_close"] == pytest.approx(1000.0 / 3000.0)
+        # par_rate 分母终点取 min(15:59:40, 15:59:50) = 15:59:40，仅含该时刻 1 根 bar
+        assert row["par_rate"] == pytest.approx(1000.0 / 500.0)
+
+    def test_par_rate_capped_by_last_bdib_time(self) -> None:
+        """fill 结束时间晚于 bdib 末行时，par_rate 分母终点不超过 bdib 末行。"""
+        raw_fills = pd.DataFrame({
+            "OrderId": ["O1"],
+            "RouteId": ["R1"],
+            "order_as_of_date": ["20260421"],
+            "Exchange": ["US"],
+            "Account": ["A1"],
+            "Currency": ["USD"],
+            "Side": ["Buy"],
+            "Amount": [1000.0],
+            "RouteShares": [1000.0],
+            "Type": ["Limit"],
+            "LimitPrice": [100.0],
+            "StopPrice": [90.0],
+            "Broker": ["BRK"],
+            "StrategyType": ["TEST"],
+            "TraderName": ["TRADER"],
+        })
+
+        # 两笔 fill：首笔在 bdib 范围内，末笔晚于 bdib 末行
+        processed_fills = pd.DataFrame({
+            "OrderId": ["O1", "O1"],
+            "RouteId": ["R1", "R1"],
+            "order_as_of_date": ["20260421", "20260421"],
+            "equ_ticker": ["AAPL US Equity", "AAPL US Equity"],
+            "FillId": ["F1", "F2"],
+            "FillShares": [500.0, 500.0],
+            "FillPrice": [100.0, 100.0],
+            "DateTimeOfFill": ["2026-04-21T09:30:00-04:00", "2026-04-21T09:30:30-04:00"],
+            "is_closing_auction": [0, 0],
+        })
+
+        raw_bdib = _make_bars(
+            times=["09:30:00", "09:30:10"],
+            volumes=[300.0, 700.0],
+            prices=[100.0, 100.0],
+        )
+
+        result = compute_route_metrics_for_date(
+            raw_fills, processed_fills, raw_bdib, "20260421"
+        )
+
+        assert len(result) == 1
+        # par_rate 终点取 min(09:30:30, 09:30:10) = 09:30:10，分母 1000
+        assert result.iloc[0]["par_rate"] == pytest.approx(1000.0 / 1000.0)
 
 
