@@ -82,11 +82,12 @@ class Settings:
     # Optional module routers — comma-separated "module:label" pairs.
     # Set to empty string to disable all optional modules.
     # Set to "*" or "all" to load all known optional modules.
-    # Default loads DatabaseView.
+    # Default loads DatabaseView + CostView (bridged TCA/monitoring routers,
+    # so the frontend reaches /api/tca/* via :3000 without a separate :8002).
     # Example: EMSXVIEW_OPTIONAL_MODULES=costview:CostView,database:DB
     OPTIONAL_MODULES: str = os.getenv(
         "EMSXVIEW_OPTIONAL_MODULES",
-        "database:DatabaseView",
+        "database:DatabaseView,costview:CostView",
     )
 
 

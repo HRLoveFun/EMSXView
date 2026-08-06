@@ -32,6 +32,7 @@ EXCHANGE_TIMEZONE: dict[str, str] = {
     "CH": "Asia/Shanghai",
     "CG": "Asia/Shanghai",
     "CS": "Asia/Shanghai",
+    "C1": "Asia/Shanghai",         # Nth SSE-SEHK (沪港通) — 2026-08-03
     "IN": "Asia/Calcutta",
     "IS": "Asia/Calcutta",
     "IB": "Asia/Calcutta",

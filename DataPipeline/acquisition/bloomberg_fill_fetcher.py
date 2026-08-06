@@ -93,7 +93,10 @@ class BloombergFillFetcher:
         self.use_uat = os.getenv('USE_UAT', 'false').lower() == 'true'
         self.service_name = self._resolve_service()
         self.max_retries = max_retries
-        self.event_timeout_ms = event_timeout_ms
+        # 允许通过环境变量 BLOOMBERG_TIMEOUT 覆盖默认的 30s 事件超时
+        self.event_timeout_ms = int(
+            os.getenv("BLOOMBERG_TIMEOUT", str(event_timeout_ms))
+        )
         self._session: Optional[blpapi.Session] = None
         self._connected = False
 

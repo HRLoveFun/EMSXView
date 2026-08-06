@@ -73,6 +73,9 @@ _tmp-*
 # --- Pipeline runtime artifacts ---
 .pipeline.lock
 
+# --- TCA 报告运行时产物（scripts/reports/generate_tca_report.py 输出） ---
+scripts/reports/output/
+
 # ============================================================
 # Data files (runtime generated - NEVER commit)
 # ============================================================

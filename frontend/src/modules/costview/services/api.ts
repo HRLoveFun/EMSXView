@@ -1,8 +1,12 @@
 import type {
+  BdibHealthReport,
+  LastPreset,
+  MetricCoverageReport,
   ScorecardReport,
   ScorecardRequestPayload,
   TcaAnalyzeRequest,
   TcaReport,
+  TcaReportSummary,
   TriggerUpdateResponse,
   UpdateStatusResponse,
 } from '../types';
@@ -24,12 +28,36 @@ async function readError(response: Response): Promise<string> {
   return body?.detail ?? body?.error ?? `Request failed: ${response.status}`;
 }
 
+/** analyze 返回 202 时抛出：默认日期数据未生成，数据管道已自动触发 */
+export class PipelineTriggeredError extends Error {
+  readonly jobId: string;
+  readonly targetDate: string;
+
+  constructor(jobId: string, targetDate: string, message: string) {
+    super(message);
+    this.name = 'PipelineTriggeredError';
+    this.jobId = jobId;
+    this.targetDate = targetDate;
+  }
+}
+
 export async function analyzeTca(request: TcaAnalyzeRequest): Promise<TcaReport> {
   const response = await fetch(`${API_BASE_URL}/api/tca/analyze`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
+
+  // 202：默认日期数据未生成，后端已自动触发数据管道
+  if (response.status === 202) {
+    const json = await response.json();
+    const data = json.data ?? {};
+    throw new PipelineTriggeredError(
+      data.job_id ?? '',
+      data.target_date ?? '',
+      json.message ?? '数据管道已触发',
+    );
+  }
 
   if (!response.ok) {
     throw new Error(await readError(response));
@@ -121,6 +149,80 @@ export async function fetchScorecard(payload: ScorecardRequestPayload): Promise<
   const json = await response.json();
   return json.data as ScorecardReport;
 }
+// -- Monitoring（BDIB 健康 / 指标覆盖率 / 报告聚合）----------------------------
+
+/** 监控查询公共参数：last 预设与 start/end 显式区间二选一（YYYYMMDD） */
+export interface MonitoringQuery {
+  last?: LastPreset;
+  startDate?: string;
+  endDate?: string;
+}
+
+/** 组装监控端点查询串（时间范围互斥：显式区间优先忽略 last 由调用方保证） */
+function buildMonitoringUrl(path: string, query: MonitoringQuery, extra?: Record<string, string>): string {
+  const params = new URLSearchParams();
+  if (query.startDate && query.endDate) {
+    params.set('start_date', query.startDate);
+    params.set('end_date', query.endDate);
+  } else if (query.last) {
+    params.set('last', query.last);
+  }
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (value) params.set(key, value);
+  }
+  const qs = params.toString();
+  return `${API_BASE_URL}${path}${qs ? `?${qs}` : ''}`;
+}
+
+/** GET JSON 并解包 {success, data, message} 响应 */
+async function fetchMonitoringJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { headers: getAuthHeaders() });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  const json = await response.json();
+  return json.data as T;
+}
+
+export async function fetchBdibHealth(query: MonitoringQuery): Promise<BdibHealthReport> {
+  return fetchMonitoringJson<BdibHealthReport>(
+    buildMonitoringUrl('/api/tca/monitoring/bdib-health', query),
+  );
+}
+
+export async function fetchMetricCoverage(
+  query: MonitoringQuery,
+  metrics?: string[],
+  groupByExchange = false,
+): Promise<MetricCoverageReport> {
+  const extra: Record<string, string> = {};
+  if (metrics?.length) extra.metrics = metrics.join(',');
+  if (groupByExchange) extra.group_by_exchange = 'true';
+  return fetchMonitoringJson<MetricCoverageReport>(
+    buildMonitoringUrl('/api/tca/monitoring/metric-coverage', query, extra),
+  );
+}
+
+export interface ReportSummaryQuery extends MonitoringQuery {
+  broker?: string;
+  algo?: string;
+  symbol?: string;
+  exchange?: string;
+  metrics?: string[];
+}
+
+export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<TcaReportSummary> {
+  const extra: Record<string, string> = {};
+  if (query.broker) extra.broker = query.broker;
+  if (query.algo) extra.algo = query.algo;
+  if (query.symbol) extra.symbol = query.symbol;
+  if (query.exchange) extra.exchange = query.exchange;
+  if (query.metrics?.length) extra.metrics = query.metrics.join(',');
+  return fetchMonitoringJson<TcaReportSummary>(
+    buildMonitoringUrl('/api/tca/monitoring/report-summary', query, extra),
+  );
+}
+
 // -- Regime distribution ------------------------------------------------------
 
 export interface RegimeDistributionRow {

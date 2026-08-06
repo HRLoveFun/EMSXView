@@ -45,6 +45,14 @@ from platform_data.contracts.market_contracts import (
     MarketCandidatePayload,
     MarketCandidateRow,
 )
+from platform_data.contracts import (
+    ScorecardCohortMetrics,
+    ScorecardFilters,
+    ScorecardReport,
+    TcaFilters,
+    TcaReport,
+    TcaRouteSummary,
+)
 from platform_data.contracts.execution_contracts import (
     ExecutionHistoryFillRow,
     ExecutionHistoryFillSnapshot,

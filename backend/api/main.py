@@ -275,6 +275,10 @@ app.include_router(route_plans_router)
 # 记录为 AP-05 违规）。保留注释以追踪删除原因。
 _KNOWN_OPTIONAL_MODULES: dict[str, str] = {
     "database": "DatabaseView",
+    # costview 为桥接 router（backend/api/routers/costview.py），将 CostView
+    # 服务的 /api/tca/* 与 /api/tca/monitoring/* 合并进 core 进程，
+    # 使前端经 :3000 单入口即可访问 TCA 与监控端点。
+    "costview": "CostView",
 }
 
 

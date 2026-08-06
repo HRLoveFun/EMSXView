@@ -23,6 +23,7 @@ BloombergFillFetcher extracted to DataPipeline.acquisition.bloomberg_fill_fetche
 SQLAlchemy FillFetchDatabase replaced with ConnectionManager-based FillFetchDatabase.
 """
 
+import io
 import os
 import sys
 import logging
@@ -47,7 +48,26 @@ from DataPipeline.acquisition.bloomberg_fill_fetcher import (
     EMSXRequestError,
 )
 
-load_dotenv()
+# Windows 默认控制台编码为 cp1252，中文字符输出会触发 UnicodeEncodeError；
+# 强制 stdout/stderr 使用 UTF-8，避免日志中的中文消息编码失败。
+# 注意：当 stdout 被重定向为管道/文件时（如后端 subprocess.Popen），reconfigure 会抛出
+# OSError: [Errno 22] Invalid argument，因此根据流类型选择安全的包装方式。
+if sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+else:
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+        )
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
+        )
+
+# 显式指定 UTF-8 读取 .env，避免 Windows 默认 locale 编码（cp1252）
+# 对包含中文字符的配置值解码失败。
+load_dotenv(encoding="utf-8")
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +88,13 @@ def get_previous_weekday(today: Optional[date] = None) -> date:
 
 # ── Bloomberg EMSX Constants ─────────────────────────────────────────────
 
+# 校验 FILL_FIELD_EXTRACTORS 与 EMSX_FILL_COLUMNS 的字段一致性
+_MISSING_FIELDS = set(FILL_FIELD_EXTRACTORS.keys()) - set(EMSX_FILL_COLUMNS)
+_EXTRA_FIELDS = set(EMSX_FILL_COLUMNS) - set(FILL_FIELD_EXTRACTORS.keys())
+if _MISSING_FIELDS or _EXTRA_FIELDS:
     raise RuntimeError(
         f"FILL_FIELD_EXTRACTORS keys out of sync with EMSX_FILL_COLUMNS. "
-        f"Missing: {missing}, Extra: {extra}"
+        f"Missing: {_MISSING_FIELDS}, Extra: {_EXTRA_FIELDS}"
     )
 
 EXPECTED_FILL_COLUMNS: List[str] = EMSX_FILL_COLUMNS
@@ -193,6 +217,28 @@ class FillFetch:
         end = datetime.combine(target_date, datetime.max.time().replace(microsecond=0))
         return start, end
 
+    def _fetch_fills_split(
+        self,
+        client: "BloombergFillFetcher",
+        from_dt: datetime,
+        to_dt: datetime,
+        hours: int = 4,
+    ) -> List[Dict[str, Any]]:
+        """将大时间范围拆分为多个小时窗口分别拉取，用于规避后端 TIMEOUT。"""
+        all_fills: List[Dict[str, Any]] = []
+        window_start = from_dt
+        while window_start < to_dt:
+            window_end = min(window_start + timedelta(hours=hours), to_dt)
+            logger.info(
+                "拉取窗口 %s -> %s",
+                window_start.strftime("%Y-%m-%d %H:%M:%S"),
+                window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            window_fills = client.fetch_fills(window_start, window_end)
+            all_fills.extend(window_fills)
+            window_start = window_end
+        return all_fills
+
     def _save_to_excel(self, data: List[Dict[str, Any]], file_path: Path) -> bool:
         try:
             df = pd.DataFrame(data)
@@ -223,7 +269,19 @@ class FillFetch:
         try:
             from_dt, to_dt = self._get_date_range(target_date)
             with BloombergFillFetcher() as client:
-                fills = client.fetch_fills(from_dt, to_dt)
+                try:
+                    fills = client.fetch_fills(from_dt, to_dt)
+                except EMSXRequestError as exc:
+                    # 全天请求在后端超时（BACKEND.TIMEOUT）时，拆分为 4 小时窗口重试
+                    if "timeout" in str(exc).lower():
+                        logger.warning(
+                            "%s 全天请求超时，拆分为 4 小时窗口重试", order_date
+                        )
+                        fills = self._fetch_fills_split(
+                            client, from_dt, to_dt, hours=4
+                        )
+                    else:
+                        raise
             if not fills:
                 logger.info(f"No fills found for {order_date}")
                 result['success'] = True
@@ -457,14 +515,25 @@ class FillFetch:
         if self.db is not None and hasattr(self.db, 'close'):
             self.db.close()
 
-def setup_logging(level: str = "INFO"):
+def setup_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     if root.handlers:
         return
+    handlers: List[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    # 独立运行时同时写入日志文件，避免控制台输出丢失导致无法排查问题
+    log_dir = Path("logs/pipeline")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(
+        log_dir / "fill_fetch_direct.log", encoding="utf-8", mode="a"
+    )
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    handlers.append(file_handler)
     logging.basicConfig(
         level=getattr(logging, level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers,
     )
 
 def main():
@@ -560,4 +629,10 @@ def _print_summary(summary: Dict[str, Any]):
     print(f"  Total rows: {summary['total_rows']}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.exception("fill_fetch 主程序异常退出: %s", e)
+        print(f"FATAL: fill_fetch 异常退出: {e}", file=sys.stderr, flush=True)
+        raise

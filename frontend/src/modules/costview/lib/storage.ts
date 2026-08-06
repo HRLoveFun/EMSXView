@@ -4,8 +4,10 @@ import type {
   CostViewFilterFormState,
   CostViewModuleTab,
   CostViewViewState,
+  MonitoringViewState,
   ScorecardFormState,
 } from '../types';
+import { ALL_TCA_METRICS } from './monitoring-metrics';
 import { createDefaultCostViewConfig } from './thresholds';
 
 const COSTVIEW_CONFIG_KEY = 'emsx_costview_config_v1';
@@ -13,6 +15,7 @@ const COSTVIEW_FILTERS_KEY = 'emsx_costview_filters_v1';
 const COSTVIEW_VIEW_KEY = 'emsx_costview_view_v1';
 const COSTVIEW_EXPORT_KEY = 'emsx_costview_export_v1';
 const COSTVIEW_SCORECARD_KEY = 'emsx_costview_scorecard_v1';
+const COSTVIEW_MONITORING_KEY = 'emsx_costview_monitoring_v1';
 
 export const DEFAULT_FILTER_FORM_STATE: CostViewFilterFormState = {
   orderIds: '',
@@ -139,4 +142,31 @@ export function loadCostViewScorecardForm(): ScorecardFormState {
 export function saveCostViewScorecardForm(state: ScorecardFormState): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(COSTVIEW_SCORECARD_KEY, JSON.stringify(state));
+}
+
+// ── 监控页状态（时间范围预设 + 指标勾选）────────────────────────────────────
+
+export const DEFAULT_MONITORING_STATE: MonitoringViewState = {
+  lastPreset: 'month',
+  selectedMetrics: [...ALL_TCA_METRICS],
+};
+
+export function loadCostViewMonitoringState(): MonitoringViewState {
+  if (typeof window === 'undefined') return DEFAULT_MONITORING_STATE;
+  const parsed = safeParse<Partial<MonitoringViewState>>(
+    localStorage.getItem(COSTVIEW_MONITORING_KEY),
+    DEFAULT_MONITORING_STATE,
+  );
+  // 指标勾选需过滤掉白名单外的历史脏数据
+  const validMetrics = (parsed.selectedMetrics ?? DEFAULT_MONITORING_STATE.selectedMetrics)
+    .filter((m) => (ALL_TCA_METRICS as readonly string[]).includes(m));
+  return {
+    lastPreset: parsed.lastPreset ?? DEFAULT_MONITORING_STATE.lastPreset,
+    selectedMetrics: validMetrics.length ? validMetrics : [...ALL_TCA_METRICS],
+  };
+}
+
+export function saveCostViewMonitoringState(state: MonitoringViewState): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(COSTVIEW_MONITORING_KEY, JSON.stringify(state));
 }

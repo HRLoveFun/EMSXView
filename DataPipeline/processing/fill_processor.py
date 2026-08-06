@@ -183,8 +183,12 @@ def add_equity_ticker(df: pd.DataFrame) -> pd.DataFrame:
     )
     blank_mask = exchange_blank | ticker_blank
 
+    # C1 = Nth SSE-SEHK（沪港通），Bloomberg 行情实际使用 CH（上海证券交易所）代码，
+    # 因此构造 equ_ticker 时将 C1 映射为 CH，确保 S5 BDIB 行情能正确拉取。
+    exchange_for_ticker = df["Exchange"].replace({"C1": "CH"})
+
     df["equ_ticker"] = (
-        df["_processed_ticker"] + " " + df["Exchange"] + " Equity"
+        df["_processed_ticker"] + " " + exchange_for_ticker + " Equity"
     ).str.strip()
     # 空 ticker/exchange → None（不再保留拼接后的空串）
     df.loc[blank_mask, "equ_ticker"] = np.nan
