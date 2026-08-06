@@ -87,30 +87,32 @@ function Test-PortHttpReady {
     .SYNOPSIS
         HTTP 探测端口是否就绪。任何 HTTP 状态码 > 0 视为就绪
         （Vite/uvicorn 绑定后会立即响应；404/500 也意味着服务已起）。
+        依次尝试 127.0.0.1 和 localhost，兼容后端仅绑定 IPv4 或前端仅绑定 IPv6 的情况。
     #>
     param([int]$Port)
-    $url = "http://localhost:$Port/"
-    try {
-        $req = [System.Net.HttpWebRequest]::Create($url)
-        $req.Timeout = $Script:Config.HttpProbeTimeoutMs
-        $req.ReadWriteTimeout = $Script:Config.HttpProbeTimeoutMs
-        $req.AllowAutoRedirect = $false
-        $resp = $req.GetResponse()
-        $code = [int]$resp.StatusCode
-        $resp.Close()
-        return $code -gt 0
-    }
-    catch [System.Net.WebException] {
-        # 404/500 仍会抛 WebException 但带 Response，视为就绪
-        if ($_.Exception.Response) {
-            try { $_.Exception.Response.Close() } catch {}
-            return $true
+    foreach ($probeHost in @('127.0.0.1', 'localhost')) {
+        $url = "http://${probeHost}:$Port/"
+        try {
+            $req = [System.Net.HttpWebRequest]::Create($url)
+            $req.Timeout = $Script:Config.HttpProbeTimeoutMs
+            $req.ReadWriteTimeout = $Script:Config.HttpProbeTimeoutMs
+            $req.AllowAutoRedirect = $false
+            $req.Proxy = $null
+            $resp = $req.GetResponse()
+            $code = [int]$resp.StatusCode
+            $resp.Close()
+            if ($code -gt 0) { return $true }
         }
-        return $false
+        catch [System.Net.WebException] {
+            # 404/500 仍会抛 WebException 但带 Response，视为就绪
+            if ($_.Exception.Response) {
+                try { $_.Exception.Response.Close() } catch {}
+                return $true
+            }
+        }
+        catch {}
     }
-    catch {
-        return $false
-    }
+    return $false
 }
 
 function Wait-PortReady {
@@ -167,6 +169,65 @@ function Get-PortOccupancyInfo {
     }
     catch {}
     return $null
+}
+
+function Test-PortListening {
+    <#
+    .SYNOPSIS
+        检查指定端口是否处于 LISTEN 状态（不依赖 HTTP 响应）。
+    #>
+    param([int]$Port)
+    try {
+        $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        return $null -ne $connection
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-ProcessUsingPort {
+    <#
+    .SYNOPSIS
+        返回正在监听指定端口的进程对象（如有）。
+    #>
+    param([int]$Port)
+    try {
+        $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        if ($connection) {
+            return Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+        }
+    }
+    catch {}
+    return $null
+}
+
+function Test-BackendAlreadyHealthy {
+    <#
+    .SYNOPSIS
+        探测 127.0.0.1:<Port>/api/health 是否返回 HTTP 200。
+        只要后端已绑定端口并能响应，即视为“已有可用后端”。
+    #>
+    param([int]$Port)
+    $url = "http://127.0.0.1:$Port/api/health"
+    try {
+        $req = [System.Net.HttpWebRequest]::Create($url)
+        $req.Timeout = $Script:Config.HttpProbeTimeoutMs
+        $req.ReadWriteTimeout = $Script:Config.HttpProbeTimeoutMs
+        $req.AllowAutoRedirect = $false
+        $req.Proxy = $null
+        $resp = $req.GetResponse()
+        $code = [int]$resp.StatusCode
+        $resp.Close()
+        return $code -eq 200
+    }
+    catch [System.Net.WebException] {
+        if ($_.Exception.Response) { try { $_.Exception.Response.Close() } catch {} }
+        return $false
+    }
+    catch {
+        return $false
+    }
 }
 
 function Write-StartupErrorPage {
@@ -296,9 +357,35 @@ $ProjectRoot = Find-EmsxviewRoot
 Assert-ProjectRootValid -Root $ProjectRoot
 Write-Host "[launch] 项目根: $ProjectRoot" -ForegroundColor Green
 
+# 后端预检：如果 3000 已被健康后端占用，直接复用，避免重复启动导致端口冲突
+Write-Host '[launch] 检查后端端口占用情况...' -ForegroundColor Cyan
+$backendAlreadyRunning = $false
+if (Test-PortListening -Port $Script:Config.BackendPort) {
+    if (Test-BackendAlreadyHealthy -Port $Script:Config.BackendPort) {
+        Write-Host "[launch] 检测到后端已在端口 $($Script:Config.BackendPort) 运行且响应健康检查，直接复用" -ForegroundColor Green
+        $backendAlreadyRunning = $true
+    }
+    else {
+        Write-Host "[launch] 端口 $($Script:Config.BackendPort) 被占用但健康检查未通过，尝试结束残留进程..." -ForegroundColor Yellow
+        $staleProc = Get-ProcessUsingPort -Port $Script:Config.BackendPort
+        if ($staleProc) {
+            try {
+                Stop-Process -Id $staleProc.Id -Force -ErrorAction Stop
+                Write-Host "[launch] 已结束残留进程 $($staleProc.ProcessName) (PID $($staleProc.Id))" -ForegroundColor Green
+                Start-Sleep -Seconds 2
+            }
+            catch {
+                Write-Host "[launch] 无法结束残留进程: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    }
+}
+
 # 并行启动后端、前端（隐藏窗口）
 Write-Host '[launch] 并行启动后端 / 前端（隐藏窗口）...' -ForegroundColor Cyan
-Start-HiddenScript -ScriptPath (Join-Path $ProjectRoot 'scripts\deploy\start-backend.ps1')
+if (-not $backendAlreadyRunning) {
+    Start-HiddenScript -ScriptPath (Join-Path $ProjectRoot 'scripts\deploy\start-backend.ps1')
+}
 Start-HiddenScript -ScriptPath (Join-Path $ProjectRoot 'scripts\deploy\start-frontend.ps1')
 
 # 前端优先：等待 5173 就绪并打开浏览器
@@ -327,6 +414,12 @@ if (-not $frontendReady) {
 
 Write-Host '[launch] 前端就绪，打开浏览器...' -ForegroundColor Green
 Start-Process "http://localhost:$($Script:Config.FrontendPort)"
+
+# 若已复用健康后端，无需再等待新实例启动
+if ($backendAlreadyRunning) {
+    Write-Host '[launch] 复用已运行的后端，启动完成' -ForegroundColor Green
+    exit 0
+}
 
 # 后端不阻塞前端浏览器：继续等 3000
 $backendReady = Wait-PortReady `

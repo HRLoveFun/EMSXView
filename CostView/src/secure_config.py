@@ -112,7 +112,7 @@ class SecureConfigManager:
                     "Run: chmod 600 {self._credentials_file}"
                 )
             
-            with open(self._credentials_file, 'r') as f:
+            with open(self._credentials_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             uuid = data.get('uuid')
@@ -234,8 +234,8 @@ class SecureConfigManager:
             "saved_at": str(Path().home())  # Don't use datetime, avoid extra imports
         }
         
-        with open(self._credentials_file, 'w') as f:
-            json.dump(data, f, indent=2)
+        with open(self._credentials_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
         
         # Set restrictive permissions (user read/write only)
         os.chmod(self._credentials_file, 0o600)

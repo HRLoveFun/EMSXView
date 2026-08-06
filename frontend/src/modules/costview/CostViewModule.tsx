@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, BarChart3, Settings2, Trophy } from 'lucide-react';
+import { Activity, BarChart3, FileBarChart, HeartPulse, RefreshCw, Settings2, Trophy } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_FILTER_FORM_STATE,
@@ -13,7 +13,7 @@ import {
   saveCostViewFilters,
 } from './lib/storage';
 import { applyCostViewClientFilters, buildWarningOnlyPage } from './lib/report-state';
-import { analyzeTca, fetchAllFilteredOrders } from './services/api';
+import { analyzeTca, fetchAllFilteredOrders, getUpdateStatus, PipelineTriggeredError } from './services/api';
 import type {
   CostViewConfig,
   CostViewFilterFormState,
@@ -23,6 +23,7 @@ import type {
   TcaFilterPayload,
   TcaReport,
   TcaRouteSummary,
+  UpdateStatusResponse,
 } from './types';
 import { ExportDialog } from './components/ExportDialog';
 import { OverviewView } from './components/OverviewView';
@@ -40,6 +41,16 @@ const LazyConfigureView = lazy(async () => {
 const LazyScorecardView = lazy(async () => {
   const module = await import('./components/ScorecardView');
   return { default: module.ScorecardView };
+});
+
+const LazyReportView = lazy(async () => {
+  const module = await import('./components/ReportView');
+  return { default: module.ReportView };
+});
+
+const LazyMonitoringView = lazy(async () => {
+  const module = await import('./components/MonitoringView');
+  return { default: module.MonitoringView };
 });
 
 function normalizeOrderIds(value: string): string[] | undefined {
@@ -71,7 +82,11 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   const [exportState, setExportState] = useState(() => loadCostViewExportState());
   const [selectedRoute, setSelectedRoute] = useState<TcaRouteSummary | null>(null);
   const [fullResultReport, setFullResultReport] = useState<TcaReport | null>(null);
+  // 数据管道状态：analyze 返回 202（默认日期无数据自动触发跑数）时设置
+  const [pipelineJob, setPipelineJob] = useState<{ jobId: string; targetDate: string; form: CostViewFilterFormState } | null>(null);
+  const [pipelineStatus, setPipelineStatus] = useState<UpdateStatusResponse | null>(null);
   const hasLoadedInitialRef = useRef(false);
+  const pipelineTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     saveCostViewActiveTab(activeTab);
@@ -138,6 +153,14 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         });
       }
     } catch (nextError) {
+      // 202：默认日期数据未生成，后端已自动触发管道 —— 进入跑数进度状态
+      if (nextError instanceof PipelineTriggeredError) {
+        setPipelineJob({ jobId: nextError.jobId, targetDate: nextError.targetDate, form });
+        setReport(null);
+        setFullResultReport(null);
+        setSelectedRoute(null);
+        return;
+      }
       setError(nextError instanceof Error ? nextError.message : 'Unknown CostView error');
       setReport(null);
       setFullResultReport(null);
@@ -152,6 +175,43 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
     hasLoadedInitialRef.current = true;
     void fetchReport(filterForm, 0);
   }, [fetchReport, filterForm]);
+
+  // 管道轮询：job 进行中每 3s 查询状态，完成自动重新加载报告，失败展示错误
+  useEffect(() => {
+    if (!pipelineJob) return;
+
+    const poll = async () => {
+      try {
+        const status = await getUpdateStatus(pipelineJob.jobId);
+        setPipelineStatus(status);
+        if (status.status === 'completed' || status.status === 'failed') {
+          if (pipelineTimerRef.current !== null) {
+            window.clearInterval(pipelineTimerRef.current);
+            pipelineTimerRef.current = null;
+          }
+          const { form } = pipelineJob;
+          setPipelineJob(null);
+          setPipelineStatus(null);
+          if (status.status === 'completed') {
+            void fetchReport(form, 0);
+          } else {
+            setError(`数据管道执行失败: ${status.error ?? '未知错误'}`);
+          }
+        }
+      } catch {
+        // 单次轮询失败静默，下一周期重试
+      }
+    };
+
+    void poll();
+    pipelineTimerRef.current = window.setInterval(() => void poll(), 3000);
+    return () => {
+      if (pipelineTimerRef.current !== null) {
+        window.clearInterval(pipelineTimerRef.current);
+        pipelineTimerRef.current = null;
+      }
+    };
+  }, [pipelineJob, fetchReport]);
 
   const handleOpenAnalysis = useCallback(() => {
     setActiveTab('analysis');
@@ -228,11 +288,36 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
 
   return (
     <div className="space-y-4">
+      {pipelineJob && (
+        <div className="rounded-xl border border-primary/40 bg-primary/5 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+            <span>正在生成 {pipelineJob.targetDate} 数据</span>
+            {pipelineStatus?.stage && (
+              <span className="text-muted-foreground">· {pipelineStatus.stage.label}</span>
+            )}
+            <span className="ml-auto text-xs text-muted-foreground">
+              {pipelineStatus?.overall_progress ?? 0}%
+            </span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
+            <div
+              className="h-full rounded bg-primary transition-all duration-500"
+              style={{ width: `${pipelineStatus?.overall_progress ?? 0}%` }}
+            />
+          </div>
+          {pipelineStatus?.stage?.detail && (
+            <p className="mt-1.5 text-xs text-muted-foreground">{pipelineStatus.stage.detail}</p>
+          )}
+        </div>
+      )}
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CostViewModuleTab)}>
-        <TabsList className="grid h-auto w-full grid-cols-4 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
+        <TabsList className="grid h-auto w-full grid-cols-6 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
           <TabsTrigger value="overview"><Activity className="h-4 w-4" />Overview</TabsTrigger>
           <TabsTrigger value="analysis"><BarChart3 className="h-4 w-4" />Analysis</TabsTrigger>
           <TabsTrigger value="scorecard"><Trophy className="h-4 w-4" />Scorecard</TabsTrigger>
+          <TabsTrigger value="report"><FileBarChart className="h-4 w-4" />Report</TabsTrigger>
+          <TabsTrigger value="monitoring"><HeartPulse className="h-4 w-4" />Monitoring</TabsTrigger>
           <TabsTrigger value="configure"><Settings2 className="h-4 w-4" />Configure</TabsTrigger>
         </TabsList>
 
@@ -273,6 +358,18 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         <TabsContent value="scorecard" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading scorecard workspace…</div>}>
             <LazyScorecardView config={config} analysisFilters={filterForm} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="report" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading report workspace…</div>}>
+            <LazyReportView />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="monitoring" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading monitoring workspace…</div>}>
+            <LazyMonitoringView />
           </Suspense>
         </TabsContent>
 

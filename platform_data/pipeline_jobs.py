@@ -610,6 +610,8 @@ def _run_pipeline_subprocess(job_id: str) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(_PROJECT_ROOT),
         )
         logger.info("Pipeline subprocess launched: pid=%s job=%s", proc.pid, job_id)

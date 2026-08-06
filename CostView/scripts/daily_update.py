@@ -25,9 +25,28 @@ import logging.handlers
 import os
 import sqlite3
 import subprocess
+import io
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# Windows 默认控制台编码为 cp1252，中文字符输出会触发 UnicodeEncodeError；
+# 强制 stdout/stderr 使用 UTF-8，避免 progress callback 中的中文 detail 报错。
+# 注意：当 stdout 被重定向为管道/文件时（如后端 subprocess.Popen），reconfigure 会抛出
+# OSError: [Errno 22] Invalid argument，因此根据流类型选择安全的包装方式。
+if sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+else:
+    # 管道/文件场景：用 TextIOWrapper 重新包装底层 buffer
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+        )
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
+        )
 
 # Add EMSX root to path (parent of CostView/ and DataPipeline/)
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -109,6 +128,7 @@ def _run_b4_observation_step() -> None:
                 timeout=180,
                 cwd=str(Config._PROJECT_ROOT),
                 env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                encoding="utf-8", errors="replace",
             )
 
         if result.returncode == 0:
@@ -139,6 +159,33 @@ _KNOWN_DBS = [
     "execution_history.db",
     "ticker_registry.db",
 ]
+
+
+def _run_report_step() -> None:
+    """管线后自动生成 TCA 可视化报告（非阻塞，失败仅 warning）。
+
+    - 每次日更后生成当日报告（last day = 最近有数据的交易日）；
+    - 每周一额外生成上周汇总报告（last week，周一~周日）。
+    """
+    try:
+        from scripts.reports.generate_tca_report import generate_report
+
+        print("[STAGE] report 20 Generating daily TCA report...", flush=True)
+        daily_path = generate_report(last="day")
+        logger.info("当日 TCA 报告: %s", daily_path)
+        print(f"[STAGE] report 60 Daily report: {daily_path.name}", flush=True)
+
+        # 每周一额外生成上周汇总
+        if datetime.now().weekday() == 0:
+            weekly_path = generate_report(last="week")
+            logger.info("每周汇总 TCA 报告: %s", weekly_path)
+            print(f"[STAGE] report 80 Weekly report: {weekly_path.name}", flush=True)
+
+        print("[STAGE] report 100 Report generation complete", flush=True)
+    except Exception as e:
+        # 报告失败不阻断日更主流程
+        logger.warning("TCA 报告生成跳过: %s", e)
+        print(f"[STAGE] report 100 Report skipped ({e})", flush=True)
 
 
 def _log_mem(stage_label: str = "") -> None:
@@ -294,8 +341,12 @@ def _setup_logging() -> None:
         root.addHandler(fh)
 
 
-def run_daily_pipeline() -> dict:
+def run_daily_pipeline(generate_report: bool = True) -> dict:
     """Execute the full daily pipeline: fetch + process + aggregate + labels.
+
+    Args:
+        generate_report: 管线成功后是否自动生成 TCA 可视化报告（默认开启，
+            ``--no-report`` 关闭）。报告失败不影响管线状态。
 
     Returns:
         Summary dict with fetch and pipeline results.
@@ -400,6 +451,11 @@ def run_daily_pipeline() -> dict:
         gc.collect()
         _log_mem("completion_before_checkpoint")
 
+        # ── TCA 可视化报告（非阻塞，--no-report 可关闭）──
+        if generate_report:
+            print("[STAGE] report 10")
+            _run_report_step()
+
         # ── Build human-readable completion detail for the frontend ──
         fetch_result = summary.get("fetch") or {}
         if isinstance(fetch_result, dict) and fetch_result.get("status") == "up-to-date":
@@ -443,13 +499,17 @@ def main():
         "--time", type=str, default="18:00",
         help="Time to run daily (HH:MM format, default: 18:00)",
     )
+    parser.add_argument(
+        "--no-report", action="store_true",
+        help="Skip automatic TCA report generation after the pipeline",
+    )
     args = parser.parse_args()
 
     _setup_logging()
 
     if args.once:
         logger.info("Running once (--once mode)")
-        result = run_daily_pipeline()
+        result = run_daily_pipeline(generate_report=not args.no_report)
         sys.exit(0 if result["status"] == "success" else 1)
 
     # Schedule loop
@@ -464,7 +524,9 @@ def main():
         sys.exit(1)
 
     logger.info(f"Scheduling daily pipeline at {args.time}")
-    schedule.every().day.at(args.time).do(run_daily_pipeline)
+    schedule.every().day.at(args.time).do(
+        run_daily_pipeline, generate_report=not args.no_report
+    )
 
     logger.info("Scheduler started. Press Ctrl+C to stop.")
     try:

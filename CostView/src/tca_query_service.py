@@ -77,6 +77,32 @@ class TcaQueryService:
         else:
             self._mgr = ConnectionManager()
 
+    def has_data_for_date(self, date_str: str) -> bool:
+        """tca_route_summary 在指定日期（YYYYMMDD）是否有数据。
+
+        用于 analyze 端点在"默认日期"场景下探测数据是否已生成，
+        表不存在或无记录均返回 False。
+        """
+        conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+        try:
+            cursor = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ? LIMIT 1",
+                [Config.TCA_ROUTE_SUMMARY_TABLE],
+            )
+            if cursor.fetchone() is None:
+                return False
+            row = conn.execute(
+                f"SELECT 1 FROM {Config.TCA_ROUTE_SUMMARY_TABLE} "
+                "WHERE order_as_of_date = ? LIMIT 1",
+                [date_str],
+            ).fetchone()
+            return row is not None
+        except Exception as exc:
+            logger.warning("探测 tca_route_summary 数据失败(%s): %s", date_str, exc)
+            return False
+        finally:
+            conn.close()
+
     def build_tca_report(self, filters: TcaFilters) -> TcaReport:
         """Assemble a complete TcaReport for the given filters.
 

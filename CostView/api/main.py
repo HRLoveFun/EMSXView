@@ -51,6 +51,7 @@ def _setup_dependencies() -> None:
 _setup_dependencies()
 
 from routers.costview import router as costview_router
+from routers.monitoring import router as monitoring_router
 
 app = FastAPI(
     title="EMSXView — Cost View",
@@ -67,6 +68,7 @@ app.add_middleware(
 )
 
 app.include_router(costview_router)
+app.include_router(monitoring_router)
 
 logger.info("CostView service ready — listening on port %s", config.PORT)
 

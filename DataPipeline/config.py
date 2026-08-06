@@ -94,6 +94,8 @@ class Config:
         # DC（丹麦 Nasdaq Copenhagen）、IT（以色列 TASE）、NZ（新西兰 NZX）、
         # MUMBAI（印度 BSE）。这些 ticker 在 S2 阶段会被排除，不再拉取 BDIB 行情、
         # 也不进入 processed_fills / fill_bdib。
+        # ── 2026-08-03 调整：新增 C1（Nth SSE-SEHK，沪港通），其行情代码映射为 CH。
+        "C1",
     ]
 
     MAX_PARALLEL_DATES: int = 1
