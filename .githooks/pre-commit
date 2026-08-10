@@ -1,0 +1,36 @@
+#!/bin/bash
+# Pre-commit hook: 自动同步 CODEBUDDY.md 与 AGENTS.md
+# 规范源为 CODEBUDDY.md；若仅 AGENTS.md 被编辑，则反向同步
+# 设置方式: git config core.hooksPath .githooks
+
+CB="CODEBUDDY.md"
+AG="AGENTS.md"
+
+# 检查是否有任一文件被暂存
+CB_STAGED=$(git diff --cached --name-only -- "$CB")
+AG_STAGED=$(git diff --cached --name-only -- "$AG")
+
+# 两文件均未暂存则跳过
+if [ -z "$CB_STAGED" ] && [ -z "$AG_STAGED" ]; then
+    exit 0
+fi
+
+# 两文件内容一致则无需操作（使用 git diff 避免 diff 外部命令依赖）
+if git diff --no-index --quiet "$CB" "$AG" 2>/dev/null; then
+    exit 0
+fi
+
+# 确定同步方向
+if [ -n "$CB_STAGED" ]; then
+    # CODEBUDDY.md 被暂存 → 以暂存区版本为规范源写入 AGENTS.md
+    git show :"$CB" > "$AG"
+    git add "$AG"
+    echo "[pre-commit] 已同步 ${CB} → ${AG}"
+elif [ -n "$AG_STAGED" ]; then
+    # 仅 AGENTS.md 被暂存 → 反向同步到 CODEBUDDY.md
+    git show :"$AG" > "$CB"
+    git add "$CB"
+    echo "[pre-commit] 已同步 ${AG} → ${CB}"
+fi
+
+exit 0

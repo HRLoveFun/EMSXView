@@ -1,6 +1,26 @@
-# CODEBUDDY.md
+# EMSXView — AI Coding Agent Guide
 
-This file provides guidance to CodeBuddy Code when working with code in this repository.
+This file provides guidance to AI coding agents (CodeBuddy, Claude Code, Copilot, Cursor, etc.) when working in this repository.
+
+> **同步机制**：本文件与 `AGENTS.md` 内容完全相同，由 git pre-commit hook 自动同步。编辑任一文件后提交，另一文件自动同步。规范源为 `CODEBUDDY.md`。
+
+## 文档阅读顺序（必读）
+
+进入本仓库的 AI agent **必须**按以下顺序阅读文档，再开始任何代码改动：
+
+1. `CODEBUDDY.md` / `AGENTS.md`（本文件）— 工作流与安全规则
+2. `.codebuddy/rules/project-context.md` — 技术栈与模块清单
+3. `.codebuddy/rules/coding-style.md` — 命名/目录/状态管理
+4. `.codebuddy/rules/module-boundary.md` — ★ 模块边界契约
+5. `docs/spec/project-structure.md` — 当前仓库结构
+6. `docs/spec/data-domain.md` — 数据域所有权
+7. `docs/spec/memory.md` — 架构记忆入口（指向 ADR 列表）
+8. `docs/spec/module-onboarding.md` — 新增模块流程
+9. `docs/spec/anti-patterns.md` — ★ 禁止模式
+
+> **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。以下两文件仅作历史记录保留，不再作为活跃必读：
+> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 保留月数）改向 [control.md §二 可调参数](data_management_refactoring_control.md#二可调参数)
+> - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 历史方案与安全机制设计的查阅入口（不接受新执行指令）
 
 ## Project Overview
 
@@ -72,6 +92,8 @@ cd CostView/api
 pip install -r requirements.txt
 python main.py                     # Starts on :8002 (no Bloomberg dependency)
 ```
+
+CostView 独立服务包含 `costview`（TCA 查询）和 `monitoring`（BDIB 健康度、指标覆盖率、报告聚合）两个路由器。
 
 ### DataPipeline / CostView
 
@@ -185,6 +207,8 @@ Handoff between modules uses `platform_data/adapters.py` → `HandoffExchangeAda
 
 Data flows through SQLite databases: `raw_fills.db` → `processed_fills.db` → `fill_bdib.db` → `bdib_daily_summary`
 
+S3 阶段额外预计算 `tca_route_summary` 路由汇总表（`DataPipeline/processing/tca_route_metrics.py`），将路由层级 TCA 指标（VWAP 偏离、实现价差、fill_count 等）从订单层级实时计算改为管道批处理预计算，CostView 查询直接读取汇总表。
+
 All pipeline configuration is centralized in `DataPipeline/config.py` (Config class with DB paths, table names, date formats). Data directory is configurable via `EMSXVIEW_DATA_DIR` env var, defaulting to `CostView/data`.
 
 ### platform_data/ — Cross-Module Adapters
@@ -228,6 +252,8 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 - 数据库读写由 `RepositoryProvider` 统一控制，gate 为 `ENABLE_DB_PERSISTENCE` 标志
 - Pipeline config is the single source of truth — do not hardcode DB paths or table names; import from `DataPipeline/config.Config`.
 - Backend optional routers must never break the core ExecutionView — use the `_register_optional` pattern in `main.py`.
+- TCA 路由层级指标从 `tca_route_summary` 预计算表读取，禁止在查询时实时聚合。
+- CostView 监控数据通过 `monitoring` 路由器提供，逻辑封装在 `CostView/src/monitoring/` 模块。
 
 ### 启动器与项目根路径（★ 必须遵守）
 
@@ -248,9 +274,9 @@ Docker Compose (production) runs: backend (FastAPI :3000), postgres (:5432), fro
 <!-- SPECKIT START -->
 ## Current Plan
 
-**Status**: ✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08，白名单扩展 + ticker 补注册 + 覆盖率 guard + BDIB 回补 65M 行）
+**Status**: ✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08）；TCA 路由汇总表重构已完成（2026-07-16）；TCA 监控与报告生成已完成（2026-08-06）
 
-**Feature**: 数据管道护栏机制 + S2 跨日维度修复
+**Feature**: 数据管道护栏机制 + S2 跨日维度修复 + TCA 路由汇总 + 监控报告
 **Branch**: `datapipeline-checking`（基于 `001-architecture-module-completion`）
 **Plan**: `specs/002-pipeline-guardrail/plan.md`
 **Spec**: `specs/002-pipeline-guardrail/spec.md`
@@ -261,6 +287,14 @@ Key artifacts:
 - `specs/002-pipeline-guardrail/contracts/guard-pipeline-api.md` — GuardPipeline、Validator、CircuitBreaker、PipelineRunLogger API 契约
 - `specs/002-pipeline-guardrail/quickstart.md` — 10 个验证场景，覆盖校验/熔断/完整性/契约/日志
 - `DataPipeline/tests/guardrail/test_data_quality.py` — 单元/集成/回归测试：Exchange 空值/未知报错、S2 日期一致性、agg_fills_10s route_registry 列补全、零股 VWAP 过滤、S2 跨日维度回归（3 个 case，2026-07-03 新增）
+- `DataPipeline/processing/tca_route_metrics.py` — TCA 路由汇总表预计算（VWAP 偏离、实现价差、fill_count 等指标）
+- `DataPipeline/tests/processing/test_tca_route_metrics.py` — 路由汇总表计算单元/集成测试
+- `CostView/src/monitoring/` — 监控模块（`bdib_health.py` BDIB 健康度、`metric_coverage.py` 指标覆盖率、`report_aggregator.py` 报告聚合器、`time_range.py` 时间范围工具）
+- `CostView/api/routers/monitoring.py` — 监控 API 路由器
+- `CostView/tests/test_monitoring.py` — 监控模块单元/集成测试
+- `scripts/reports/generate_tca_report.py` — TCA HTML 报告生成 CLI（支持时间范围和指标过滤）
+- `scripts/reports/tca_report_html.py` — HTML 报告渲染器（内联 CSS + 服务端生成 SVG 图表，零外部依赖）
+- `docs/textbook/Algo_TCA.md` — TCA 算法教科书（840 行，涵盖 VWAP 偏离、实现价差、regime 检测等）
 
 ### S2 跨日维度修复记录（2026-07-03）
 
@@ -278,4 +312,40 @@ Key artifacts:
 - **运维脚本**：`scripts/ops/backfill_ticker_repository.py`（ticker 补注册）、`scripts/ops/investigate_bdib_api_failures.py`（17 个 API 失败排查）、`scripts/ops/backfill_bdib_by_market.py`（按市场分批 BDIB 回补）。
 - **执行记录**（2026-07-08）：BDIB 数据回补已完成——9 个新市场共 1,012 天成功、65,638,213 行写入、0 天失败（耗时 3.8 小时）。MUMBAI 市场 1 个 ticker 已标记 outdated。8 个 API 失败 ticker 已标记 outdated（BDIB 确认无数据）。8 个原 API 失败 ticker 经复查确认 API 正常（可正常拉取）。
 - **BDIB 保留窗口限制**：Bloomberg BDIB (intraday bar) API 对历史数据有保留期限——US/LN/JP/KS 等主要市场约 9 个月，HK/NZ/CN/BZ 等市场约 6 个月。超出保留窗口的日期返回空数据，无法回补。`backfill_bdib_by_market.py` 默认 `--start` 动态计算为 `today - 180 天`（`Config.BDIB_API_RETENTION_DAYS`），确保所有市场都在保留窗口内。
+
+### TCA 路由汇总表重构记录（2026-07-16）
+
+- **问题**：CostView TCA 查询在请求时从订单层级实时聚合路由指标（VWAP 偏离、实现价差等），大数据量下查询延迟高。
+- **修复**：新增 `tca_route_summary` 预计算表，管道 S3 阶段批量计算路由层级 TCA 指标并持久化。CostView 查询直接读取汇总表，消除实时聚合开销。
+- **改动**：
+  - `DataPipeline/processing/tca_route_metrics.py`（新增 408 行）— 路由汇总表计算逻辑
+  - `DataPipeline/orchestration/stages_process.py` — 新增路由汇总表计算 stage
+  - `DataPipeline/storage/schema/columns.py` + `inline_ddl.py` — `tca_route_summary` 表 DDL
+  - `CostView/src/tca_query_builder.py`（新增）— TCA 查询构建器，读取汇总表
+  - `CostView/src/tca_query_service.py` — 重构为使用汇总表查询
+  - `platform_data/contracts/tca_contracts.py` — 更新 TCA 契约定义
+  - 前端移除 `TcaRouteTable.tsx`，重构 `AnalysisView`/`OverviewView`/`TcaOrderTable`
+- **fill_count 指标**（2026-07-17 新增）：`tca_route_summary` 表新增 `fill_count` 列，统计每条路由的成交笔数。
+- **配套脚本**：`scripts/recompute_route_metrics.py`（路由汇总表重算）、`scripts/check_trs.py`（汇总表完整性检查）、`scripts/monitor_trs.py`（汇总表监控）、`scripts/ops/cleanup_excluded_exchanges_tickers.py`（清理排除交易所的 ticker 数据）。
+- **测试**：`DataPipeline/tests/processing/test_tca_route_metrics.py` — 路由汇总表计算单元/集成测试。
+
+### TCA 监控与报告生成记录（2026-08-06）
+
+- **新增监控模块**（`CostView/src/monitoring/`）：
+  - `bdib_health.py` — BDIB 数据健康度检查（覆盖率、缺失日期、ticker 状态）
+  - `metric_coverage.py` — TCA 指标覆盖率统计（按交易所/日期维度）
+  - `report_aggregator.py` — 报告聚合器（汇总多维度监控数据）
+  - `time_range.py` — 时间范围工具（支持日/周/月/季度/自定义区间）
+- **新增 API 路由器**：`CostView/api/routers/monitoring.py`（193 行）— 监控数据查询接口
+- **新增前端组件**：
+  - `MonitoringView.tsx`（296 行）— 监控主视图，含 BDIB 健康度、指标覆盖率看板
+  - `CoverageHeatmap.tsx`（112 行）— 覆盖率热力图
+  - `ReportView.tsx`（286 行）— 报告视图
+  - `lib/monitoring-metrics.ts` — 前端监控指标常量（与后端白名单对齐）
+- **TCA HTML 报告生成**（`scripts/reports/`）：
+  - `generate_tca_report.py`（164 行）— CLI 工具，支持时间范围和指标过滤
+  - `tca_report_html.py`（442 行）— HTML 渲染器，内联 CSS + 服务端生成 SVG 图表，零外部依赖
+- **测试**：`CostView/tests/test_monitoring.py`（469 行）、`frontend/src/modules/costview/__tests__/monitoring-view.test.tsx`（194 行）
+- **文档**：`docs/textbook/Algo_TCA.md`（840 行）— TCA 算法教科书
+- **清理**：移除临时文件 `generate_ks_bdib_stats.py`、`recompute_*.err`、`tca_plan.md`、`tca_route_summary_null_investigation.md`
 <!-- SPECKIT END -->
