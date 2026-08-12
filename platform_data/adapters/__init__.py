@@ -37,6 +37,7 @@ from platform_data.adapters.redis_handoff import (
 from platform_data.adapters.tca_bridge import (
     get_tca_query_service,
     register_tca_service_impl,
+    register_costview_bridge_dependencies,
     _ConnectionManagerDailySummaryReader,
 )
 

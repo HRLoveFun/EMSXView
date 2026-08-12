@@ -19,16 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 def _setup_costview_dependencies() -> None:
-    """注册 CostView 服务依赖（TCA 查询实现 + DataPipeline 配置）。"""
-    from CostView.src.tca_query_service import TcaQueryService
-    from platform_data.adapters.tca_bridge import register_tca_service_impl
+    """注册 CostView 服务依赖（TCA 查询实现 + DataPipeline 配置）。
 
-    register_tca_service_impl(TcaQueryService())
+    经 platform_data 桥接入口完成 DI 注册，避免 backend 直接
+    deep import ``CostView.src``（模块边界 AP-01）。
+    """
+    from platform_data.adapters import register_costview_bridge_dependencies
 
-    from DataPipeline.config import Config
-    from platform_data.config_bridge import register_config_impl
-
-    register_config_impl(Config)
+    register_costview_bridge_dependencies()
     logger.info("DI: CostView dependencies registered (bridge mode)")
 
 
