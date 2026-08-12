@@ -29,7 +29,6 @@ import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@executio
 import { hhmmToEmsxInt } from '@execution/data/broker-common-params';
 
 import type { Phase, AllocState, AllocStatus, RowState } from './types';
-import { PENDING_ROUTE_STATUSES } from './types';
 import {
   lotSizeOf,
   floorToLot,
@@ -87,7 +86,7 @@ export interface UseBatchRouteStateReturn {
   resetRatios: () => void;
 
   // ── Derived / computed ────────────────────────────────────────────
-  pendingWorkingByOrder: Record<string, number>;
+  routedAmountByOrder: Record<string, number>;
   effectiveRemainingOf: (o: Order) => number;
   allBrokers: string[];
   visibleBrokers: string[];
@@ -199,26 +198,29 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     [],
   );
 
-  // ── Pending working quantity ───────────────────────────────────────────
-  const pendingWorkingByOrder = useMemo(() => {
+  // ── Routed (placed) quantity per parent order ─────────────────────────
+  //  Sum of every route's `amount`, keyed by parent sequence. This yields the
+  //  unrouted (idle) capacity when subtracted from the order's quantity.
+  const routedAmountByOrder = useMemo(() => {
     const map: Record<string, number> = {};
     if (!routes || routes.length === 0) return map;
     for (const r of routes) {
-      if (!PENDING_ROUTE_STATUSES.has((r.status ?? '').toUpperCase())) continue;
       const oid = String(r.sequence);
-      const w = Number(r.working ?? 0);
-      if (!Number.isFinite(w) || w <= 0) continue;
-      map[oid] = (map[oid] ?? 0) + w;
+      const a = Number(r.amount ?? 0);
+      if (!Number.isFinite(a) || a <= 0) continue;
+      map[oid] = (map[oid] ?? 0) + a;
     }
     return map;
   }, [routes]);
 
+  //  Idle shares are locked at dialog-open time: the streaming `routes` feed
+  //  keeps updating as batch routing proceeds, but allocation capacity must
+  //  stay frozen so already-computed splits don't shift mid-flight.
+  const [idleByOrder, setIdleByOrder] = useState<Record<string, number>>({});
+
   const effectiveRemainingOf = useCallback(
-    (o: Order): number => {
-      const pending = pendingWorkingByOrder[o.id] ?? 0;
-      return Math.max(0, o.remainingQuantity - pending);
-    },
-    [pendingWorkingByOrder],
+    (o: Order): number => idleByOrder[o.id] ?? 0,
+    [idleByOrder],
   );
 
   // ── Catalog data ────────────────────────────────────────────────────────
@@ -314,9 +316,13 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       paramsBuildersRef.current.clear();
       paramsCacheRef.current.clear();
       const init: Record<string, RowState> = {};
+      const idle: Record<string, number> = {};
       for (const o of orders) {
         init[o.id] = { selected: true, allocations: {} };
+        const routed = routedAmountByOrder[o.id] ?? 0;
+        idle[o.id] = Math.max(0, o.quantity - routed);
       }
+      setIdleByOrder(idle);
       setRows(init);
     }
     prevOpenRef.current = open;
@@ -867,7 +873,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     // Ratio helpers
     ratioSum, ratioTotalValid, setRatioForBroker, resetRatios,
     // Derived / computed
-    pendingWorkingByOrder, effectiveRemainingOf, allBrokers, visibleBrokers,
+    routedAmountByOrder, effectiveRemainingOf, allBrokers, visibleBrokers,
     strategiesFor, isBrokerAllowedFor, selectedOrders, orderMarkets,
     totalDestinations, canValidate, blockedDetails, failedDetails, warnDetails,
     // Computed helpers
