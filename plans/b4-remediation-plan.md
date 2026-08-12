@@ -1,8 +1,8 @@
 # B1→B4 增量同步恢复执行计划
 
-> **📦 已归档（2026-07-02）** — 本计划已于 2026-07-02 完成；B4 行已在 [控制中心](../data_management_refactoring_control.md) 标记为 ✅，.BAK 全部清理（释放 24.57 GB）。本文件保留作历史复盘，不再接受新执行指令。
+> **📦 已归档（2026-07-02）** — 本计划已于 2026-07-02 完成；B4 行已在控制中心 `data_management_refactoring_control.md` 标记为 ✅（该文件已于 2026-08-12 删除，历史见 git 提交 `3b00236`），.BAK 全部清理（释放 24.57 GB）。本文件保留作历史复盘，不再接受新执行指令。
 >
-> 创建日期: 2026-06-15 | 关联: [控制中心](../data_management_refactoring_control.md) B4 行
+> 创建日期: 2026-06-15 | 关联: 控制中心 `data_management_refactoring_control.md` B4 行（已删除）
 
 ## 零、问题诊断
 

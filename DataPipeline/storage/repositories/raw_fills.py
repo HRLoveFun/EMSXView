@@ -251,8 +251,9 @@ class SqliteRawFillWriteRepository(BaseRepository):
             # v2 修复 (2026-07-02): cols 补上 exchange_exec_time 派生字段
             # 原 cols = EMSX_FILL_COLUMNS + ['order_as_of_date', 'source_date', 'fetched_at']
             # 缺失 exchange_exec_time 导致 4.6M 行 (41.7%) 该字段 NULL,
-            # 下游 S2 修复了源 bug 后历史数据无法回溯。详见
-            # docs/archive/2026-07-02/raw_fills_null_investigation.md 第一节问题 1。
+            # 下游 S2 修复了源 bug 后历史数据无法回溯。详见历史调查文档
+            # docs/archive/2026-07-02/raw_fills_null_investigation.md 第一节问题 1
+            # (已于 2026-08-12 随归档清理删除, 见 git 历史)。
             cols = (
                 list(EMSX_FILL_COLUMNS)
                 + ["order_as_of_date", "exchange_exec_time",

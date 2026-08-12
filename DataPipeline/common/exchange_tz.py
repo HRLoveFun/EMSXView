@@ -40,8 +40,9 @@ EXCHANGE_TIMEZONE: dict[str, str] = {
     # 是 "MUMBAI" (Bombay Stock Exchange), 而非 "IN"/"IS"/"IB"。
     # 缺失 MUMBAI 映射导致 2026-04-07 scope 切换重写 240 行 (5 个 OrderId, 5 个交易日)
     # order_as_of_date / exchange_exec_time 字段全部写 NULL, 下游 S2 抛错。
-    # 经验教训: EMSX 实际 Exchange code 与 Bloomberg 内部 BBG code 不同, 见
-    # docs/archive/2026-07-02/raw_fills_null_investigation.md 第二节。
+    # 经验教训: EMSX 实际 Exchange code 与 Bloomberg 内部 BBG code 不同 (详见
+    # 历史调查文档 docs/archive/2026-07-02/raw_fills_null_investigation.md 第二节,
+    # 已于 2026-08-12 随归档清理删除, 见 git 历史)。
     "MUMBAI": "Asia/Calcutta",
     "BSE": "Asia/Calcutta",
     "NSE": "Asia/Calcutta",

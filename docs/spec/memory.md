@@ -59,8 +59,8 @@
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
 
 > **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。本节原"额外阅读"的两份文件已转为历史档案：
-> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数改向 [control.md §二 可调参数](../data_management_refactoring_control.md#二可调参数)
-> - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 历史方案与安全机制设计查阅入口（📦 归档态）
+> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数以 `DataPipeline/config.py` 的 Config 类为唯一真相源
+> - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 已删除（2026-08-12），历史方案见 git 历史提交 `3b00236`
 
 ---
 
