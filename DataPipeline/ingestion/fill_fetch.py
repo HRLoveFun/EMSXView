@@ -176,40 +176,69 @@ class FillFetch:
         self._known_hashes[date_compact].add(hash_value)
 
     def determine_fetch_range(self) -> Optional[Tuple[date, date]]:
+        """计算增量拉取窗口。
+
+        缺口扫描策略（2026-08-12 重设计）：
+            - 不使用交易日历，不考虑任何假期；周一至周五一律视为需要拉取的
+              交易日（全球市场）。
+            - 从最早已拉取日期到上一工作日，逐日枚举所有 weekday，
+              start = 第一个「未成功拉取」的工作日，end = 上一工作日。
+            - 任何原因（拉取失败、进程中断、历史锚点跳过）造成的缺口，
+              都会在下一次运行时从缺口起点重新尝试拉取，不会 silently 跳过。
+            - 已拉取日期由 fetch_range_aggregated 的 hash 去重跳过，重复安全。
+            - 被标记为「永久空缺」（如 Bloomberg 保留窗口已过）的日期从缺口
+              集合中剔除，不再尝试拉取、不再告警。
+        """
         from DataPipeline.config import Config as Cfg
         today = date.today()
         prev_wd = get_previous_weekday(today)
-        last_fetch = None
+        fetched: Set[str] = set()
         if self.raw_fill_read is not None:
             try:
-                last_fetch_str = self.raw_fill_read.get_last_fetch_date()
-                if last_fetch_str is not None:
-                    last_fetch = datetime.strptime(last_fetch_str, "%Y%m%d").date()
+                stats = self.raw_fill_read.get_fetch_log_stats()
+                for record in stats:
+                    if record.get("status") == "fetched" and record.get("source_date"):
+                        fetched.add(record["source_date"])
             except Exception as e:
                 logger.debug(f"Could not read fetch_log: {e}")
-        last_processed = None
+        # 永久空缺豁免：Bloomberg 保留窗口已过、确认无法拉取的日期
+        permanent_gaps: Set[str] = set()
         try:
-            from DataPipeline.storage.facade import DatabaseFacade
-            proc_db = DatabaseFacade()
-            dates = proc_db.fills_read.get_processed_dates(stage="processed")
-            if dates:
-                last_processed = datetime.strptime(dates[-1], "%Y%m%d").date()
+            from DataPipeline.common.permanent_gap_dates import load_permanent_gap_set
+            permanent_gaps = load_permanent_gap_set()
         except Exception as e:
-            logger.debug(f"Could not read processing_log: {e}")
-        logger.info(
-            f"Fetch range decision: last_fetch={last_fetch}, "
-            f"last_processed={last_processed}, prev_wd={prev_wd}"
-        )
-        if last_fetch is None and last_processed is None:
+            logger.debug(f"Could not read permanent gap dates (non-fatal): {e}")
+        if not fetched:
             first_day = today - timedelta(days=Cfg.FIRST_RUN_LOOKBACK_DAYS)
             logger.info(f"FIRST RUN: fetching {first_day} -> {prev_wd}")
             return first_day, prev_wd
-        anchor = max(last_fetch or date.min, last_processed or date.min)
-        start = anchor + timedelta(days=1)
-        if start > prev_wd:
-            logger.info("Already up-to-date (start > previous weekday)")
+        earliest = datetime.strptime(min(fetched), "%Y%m%d").date()
+        start: Optional[date] = None
+        current = earliest
+        while current <= prev_wd:
+            ds = current.strftime("%Y%m%d")
+            if current.weekday() < 5 and ds not in fetched and ds not in permanent_gaps:
+                start = current
+                break
+            current += timedelta(days=1)
+        if start is None:
+            logger.info("Already up-to-date (no missing trading weekdays)")
             return None
-        logger.info(f"INCREMENTAL: {start} -> {prev_wd}")
+        # 收集缺口列表用于日志告警
+        missing: List[str] = []
+        current = start
+        while current <= prev_wd:
+            ds = current.strftime("%Y%m%d")
+            if current.weekday() < 5 and ds not in fetched and ds not in permanent_gaps:
+                missing.append(ds)
+            current += timedelta(days=1)
+        logger.warning(
+            "检测到 %d 个缺失交易日（未成功拉取）：%s — 将自 %s 起补齐",
+            len(missing),
+            ", ".join(missing),
+            start.strftime("%Y%m%d"),
+        )
+        logger.info(f"INCREMENTAL (gap-fill): {start} -> {prev_wd}")
         return start, prev_wd
 
     def _get_date_range(self, target_date: date) -> Tuple[datetime, datetime]:
