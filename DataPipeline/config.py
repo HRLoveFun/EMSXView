@@ -65,6 +65,7 @@ class Config:
     LOG_DEBUG_FILE: Path = LOGGING_DIR / "fillfetch_debug.log"
     MARKET_FETCH_MANIFEST: Path = DATA_DIR / "market_fetch_manifest.json"
     OUTDATED_TICKERS_FILE: Path = DATA_DIR / "outdated_tickers.json"
+    PERMANENT_GAP_DATES_FILE: Path = DATA_DIR / "permanent_gap_dates.json"
 
     DATE_FORMAT: str = "%Y%m%d"
     DATE_FORMAT_DASH: str = "%Y-%m-%d"
