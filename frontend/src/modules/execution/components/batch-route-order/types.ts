@@ -41,7 +41,7 @@ export interface OrderRowProps {
   lot: number;
   total: number;
   effectiveRemaining: number;
-  pendingWorking: number;
+  routedAmount: number;
   overAlloc: boolean;
   anyAlloc: boolean;
   selectedBrokers: string[];
@@ -153,7 +153,6 @@ export interface OrderAllocationTableProps {
   phase: Phase;
   ratios: Record<string, number>;
   effectiveRemainingOf: (o: Order) => number;
-  pendingWorkingByOrder: Record<string, number>;
   isBrokerAllowedFor: (broker: string, o: Order) => boolean;
   patchRow: (oid: string, patch: Partial<RowState>) => void;
   patchAlloc: (oid: string, broker: string, patch: Partial<AllocState>) => void;

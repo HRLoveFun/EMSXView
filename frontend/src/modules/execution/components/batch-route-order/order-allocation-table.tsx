@@ -18,7 +18,6 @@ export function OrderAllocationTable({
   phase,
   ratios,
   effectiveRemainingOf,
-  pendingWorkingByOrder,
   isBrokerAllowedFor,
   patchRow,
   patchAlloc,
@@ -45,7 +44,7 @@ export function OrderAllocationTable({
               <th className="text-left px-2 py-1">Side</th>
               <th className="text-left px-2 py-1">Type</th>
               <th className="text-right px-2 py-1">Price</th>
-              <th className="text-right px-2 py-1">Remain</th>
+              <th className="text-right px-2 py-1">Idle</th>
               {selectedBrokers.map(b => (
                 <th key={b} className="text-right px-2 py-1 font-mono">
                   <DropdownMenu>
@@ -54,7 +53,7 @@ export function OrderAllocationTable({
                         type="button"
                         disabled={!editable}
                         className="inline-flex items-center gap-1 hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={`Quick-fill ${b} column with % of each selected order's effective remaining`}
+                         title={`Quick-fill ${b} column with % of each selected order's idle qty`}
                       >
                         {b}
                         <span className="text-[9px] text-muted-foreground/70">{'\u25BE'}</span>
@@ -66,7 +65,7 @@ export function OrderAllocationTable({
                           key={pct}
                           onSelect={() => applyPercentToBroker(b, pct)}
                         >
-                          Set {b} = {pct}% of remain
+                          Set {b} = {pct}% of idle
                         </DropdownMenuItem>
                       ))}
                       <DropdownMenuSeparator />
@@ -96,7 +95,7 @@ export function OrderAllocationTable({
               const lot = lotSizeOf(o);
               const total = rowTotalQty(r);
               const effRemain = effectiveRemainingOf(o);
-              const pendingWorking = pendingWorkingByOrder[o.id] ?? 0;
+              const routedAmount = Math.max(0, o.quantity - effRemain);
               const overAlloc = total > effRemain;
               const anyAlloc = Object.values(r.allocations).some(a => computeAllocQty(a) > 0);
               return (
@@ -107,7 +106,7 @@ export function OrderAllocationTable({
                   lot={lot}
                   total={total}
                   effectiveRemaining={effRemain}
-                  pendingWorking={pendingWorking}
+                  routedAmount={routedAmount}
                   overAlloc={overAlloc}
                   anyAlloc={anyAlloc}
                   selectedBrokers={selectedBrokers}

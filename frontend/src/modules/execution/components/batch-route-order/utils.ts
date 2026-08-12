@@ -29,6 +29,7 @@ export function equalSplit(remaining: number, lot: number, n: number): number[] 
 /** Broker-specific default strategy overrides. */
 const BROKER_DEFAULT_STRATEGY: Record<string, string> = {
   'EQ-BARCLAY': 'VWAP-EU',
+  'EQ-CLSA': 'vwap_adp',
 };
 
 /** Pick a default strategy for a broker.
@@ -41,7 +42,10 @@ export function defaultStrategyFor(strategies: string[], broker?: string): strin
 
   if (broker && broker in BROKER_DEFAULT_STRATEGY) {
     const preferred = BROKER_DEFAULT_STRATEGY[broker];
-    if (strategies.includes(preferred)) return preferred;
+    const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const normPreferred = norm(preferred);
+    const match = strategies.find(s => norm(s) === normPreferred);
+    if (match) return match;
   }
 
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');

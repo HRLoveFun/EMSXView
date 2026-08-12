@@ -24,7 +24,7 @@ export function QuickFillToolbar({
           className="h-6 px-2 text-xs"
           onClick={() => onApplyPercentQty(pct)}
           disabled={disabled}
-          title={`Set each selected order's total qty to ${pct}% of its remaining, then split equally across the chosen brokers (lot-rounded).`}
+          title={`Set each selected order's total qty to ${pct}% of its idle qty, then split equally across the chosen brokers (lot-rounded).`}
         >
           {pct}%
         </Button>

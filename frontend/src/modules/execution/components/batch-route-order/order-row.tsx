@@ -7,7 +7,7 @@ import type { Violation } from '@execution/types';
 import type { AllocStatus, OrderRowProps } from './types';
 
 export function OrderRow(p: OrderRowProps) {
-  const { order: o, row: r, lot, total, effectiveRemaining, pendingWorking,
+  const { order: o, row: r, lot, total, effectiveRemaining, routedAmount,
     overAlloc, anyAlloc, selectedBrokers, isBrokerAllowedFor,
     onPatchRow, onPatchAlloc, editable, phase, ratios } = p;
 
@@ -55,9 +55,9 @@ export function OrderRow(p: OrderRowProps) {
       <td className="px-2 py-1 text-right font-mono-numbers">
         {effectiveRemaining.toLocaleString()}
         <div className="text-[10px] text-muted-foreground/70">
-          {pendingWorking > 0
-            ? `\u2212${pendingWorking.toLocaleString()} working \u00b7 lot ${lot}`
-            : `lot ${lot}`}
+          {routedAmount > 0
+            ? `\u2212${routedAmount.toLocaleString()} routed \u00b7 idle ${effectiveRemaining.toLocaleString()}`
+            : `idle ${effectiveRemaining.toLocaleString()}`}
         </div>
       </td>
       {selectedBrokers.map(b => {
