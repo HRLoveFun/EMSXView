@@ -1,4 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": ["CODEBUDDY.md", ".codebuddy", "AGENTS.md"]
+  "instructions": ["CODEBUDDY.md", ".codebuddy", "AGENTS.md"],
+  "agent": {
+    "default": {
+      "instructions": "默认用中文总结回答内容"
+    }
+  }
 }
