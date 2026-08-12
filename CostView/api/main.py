@@ -25,26 +25,12 @@ logger = logging.getLogger(__name__)
 def _setup_dependencies() -> None:
     """Initialize all dependency injection registrations.
 
-    Called early in module load to register implementations BEFORE any
-    routers or platform_data consumers are imported. This function is
-    designed to be appended to by subsequent phases — never remove or
-    reorder existing lines, only add new registrations at the end.
-
-    Phase 2: Register TCA query service implementation.
-    Phase 4: Register DataPipeline Config implementation.
+    通过 platform_data 桥接入口完成 CostView 分析层依赖注册（TCA 查询
+    实现 + DataPipeline 配置），与 core 单进程 merge 模式共用同一逻辑。
     """
-    from CostView.src.tca_query_service import TcaQueryService
-    from platform_data.adapters.tca_bridge import register_tca_service_impl
+    from platform_data.adapters import register_costview_bridge_dependencies
 
-    register_tca_service_impl(TcaQueryService())
-    logger.info("DI: TcaQueryService registered in platform_data bridge")
-
-    # Phase 4: Register DataPipeline Config for platform_data consumers
-    from DataPipeline.config import Config
-    from platform_data.config_bridge import register_config_impl
-
-    register_config_impl(Config)
-    logger.info("DI: DataPipeline Config registered in platform_data bridge")
+    register_costview_bridge_dependencies()
 
 
 # Must run BEFORE importing routers that consume platform_data

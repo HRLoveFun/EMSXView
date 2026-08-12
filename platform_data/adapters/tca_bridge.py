@@ -9,9 +9,12 @@ Extracted from the formerly monolithic adapters.py (lines 1-124).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from platform_data.contracts.tca_service_protocol import TcaQueryServiceProtocol
+
+logger_bridge = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -143,3 +146,31 @@ class _ConnectionManagerDailySummaryReader:
             )
         finally:
             conn.close()
+
+
+# ---------------------------------------------------------------------------
+# CostView bridge registration — single entry point for backend/costview merge
+# ---------------------------------------------------------------------------
+
+
+def register_costview_bridge_dependencies() -> None:
+    """注册 CostView 分析层依赖（TCA 查询实现 + DataPipeline 配置）。
+
+    集中封装对 ``CostView.src`` / ``DataPipeline.config`` 的 import，使
+    backend 桥接模块只依赖 platform_data，避免 backend → CostView.src 的
+    深度 import（违反模块边界 AP-01）。CostView 独立部署与 core 单进程
+    merge 模式共用本函数，注册逻辑幂等。
+
+    调用方：
+    - ``CostView/api/main.py``（独立 :8002）
+    - ``backend/api/routers/costview.py``（core :3000 merge 模式）
+    """
+    from CostView.src.tca_query_service import TcaQueryService
+
+    register_tca_service_impl(TcaQueryService())
+
+    from DataPipeline.config import Config
+    from platform_data.config_bridge import register_config_impl
+
+    register_config_impl(Config)
+    logger_bridge.info("CostView bridge dependencies registered (merge mode)")
