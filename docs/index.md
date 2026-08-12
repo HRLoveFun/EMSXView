@@ -16,7 +16,7 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 
 已完成阶段的实施总结、一次性诊断报告归入 docs/archive/。
 
-> **当前活跃 handoff 入口**：[`AGENTS.md` §data_management_refactoring 分支工作流](../AGENTS.md#data_management_refactoring-分支工作流-已完成归档--2026-07-02)（📦 已归档，运行时参数见 [control.md §二](../data_management_refactoring_control.md#二可调参数)）。无跨日进行中工作项时，docs 根目录不保留 `handoff.md` 占位。
+> **当前活跃 handoff 入口**：[`AGENTS.md` §data_management_refactoring 分支工作流](../AGENTS.md#data_management_refactoring-分支工作流-已完成归档--2026-07-02)（📦 已归档，运行时参数见 `DataPipeline/config.py`）。无跨日进行中工作项时，docs 根目录不保留 `handoff.md` 占位。
 
 ---
 
@@ -31,7 +31,7 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 | docs/schema-contract.md | 跨域类型契约（前端 TS ↔ 后端 Python） | 跨模块协议变更时 |
 | docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
 | docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
-| [`data_management_refactoring_control.md §二`](../data_management_refactoring_control.md#二可调参数) | 数据/存储/管道运行时参数 | 修改 BDIB/分区/归档参数时 |
+| `DataPipeline/config.py`（Config 类） | 数据/存储/管道运行时参数 | 修改 BDIB/分区/归档参数时 |
 
 ---
 

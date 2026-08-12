@@ -71,7 +71,7 @@ npm run dev
 
 - 更新 `docs/index.md` 中的文档分层或入口说明
 - 如改变架构表述，同时检查 `docs/spec/project-structure.md`、`docs/spec/data-domain.md`、`docs/spec/memory.md`
-- 如改变数据/存储/管道相关语义，同步检查 [data_management_refactoring_control.md §二 可调参数](../data_management_refactoring_control.md#二可调参数)
+- 如改变数据/存储/管道相关语义，同步检查 `DataPipeline/config.py` 的 Config 类（运行时参数唯一真相源）
 - 如改变跨域类型契约，同步检查 `docs/schema-contract.md`
 
 ## 4. 常见任务入口
@@ -102,7 +102,7 @@ npm run dev
 
 - `logs/emsx_api.log` 及其轮转文件
 - `.github/knowledge/error-patterns.md`
-- [data_management_refactoring_control.md §二 可调参数](../data_management_refactoring_control.md#二可调参数)（当前运行时开关）
+- `DataPipeline/config.py` 的 Config 类（当前运行时开关）
 
 ## 5. 当前文档地图
 
