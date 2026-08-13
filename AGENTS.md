@@ -192,7 +192,7 @@ connection、debug、mappings
 
 ### 跨模块通信
 
-模块间交接使用 `platform_data/adapters.py` → `HandoffExchangeAdapter`：
+模块间交接使用 `platform_data/adapters/` → `HandoffExchangeAdapter`：
 - **内存**（`HANDOFF_BACKEND=memory`）：进程内 dict + threading.Lock（单进程模式）
 - **Redis**（`HANDOFF_BACKEND=redis`）：Redis 发布/订阅（微服务模式，每个合约 3 个键）
 - `get_shared_handoff_exchange()` 透明返回配置好的适配器
@@ -213,13 +213,13 @@ S3 阶段额外预计算 `tca_route_summary` 路由汇总表（`DataPipeline/pro
 
 ### platform_data/ — 跨模块适配器
 
-共享的逻辑数据域适配器，连接各模块：
-- `CostViewAnalyticsAdapter` — TCA 查询接口
-- `CostViewDatabaseAdapter` — CostView 直连数据库
-- `MarketReferenceDataAdapter` — 市场快照数据
-- `ExecutionHistoryAdapter` — 历史执行数据
-- `HandoffExchangeAdapter` — 跨模块数据交接
-- `DataPlatformIngestionAdapter` — 管道摄取接口
+共享的逻辑数据域适配器，连接各模块（`platform_data/adapters/` 子包，`__init__.py` 向后兼容 re-export）：
+- `HandoffExchangeAdapter` + `get_shared_handoff_exchange()`（`adapters/handoff.py`）— 跨模块数据交接
+- `RedisHandoffExchangeAdapter`（`adapters/redis_handoff.py`）— Redis 微服务模式交接
+- `MarketReferenceDataAdapter`（`adapters/market.py`）— 市场快照数据
+- `get_tca_query_service()` / `register_tca_service_impl()` / `register_costview_bridge_dependencies()`（`adapters/tca_bridge.py`）— TCA 查询工厂与 CostView 桥接 DI 注册
+
+> 注意：`CostViewAnalyticsAdapter`、`CostViewDatabaseAdapter`、`ExecutionHistoryAdapter`、`DataPlatformIngestionAdapter` 与 `build_platform_data_access()` / `PlatformDataAccess` 为**规划中的统一入口，尚未实现**；当前按符号直接 import（见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）。
 - `register_costview_bridge_dependencies()`（`tca_bridge.py`）— backend/CostView 共用的 DI 注册入口，集中封装 `CostView.src` / `DataPipeline.config` 的 import（合并模式幂等）
 
 ### 基础设施

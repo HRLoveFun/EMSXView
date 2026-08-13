@@ -234,8 +234,10 @@ Responsibilities:
 - preserves ownership boundaries between Execution operational data and CostView analytical data
 - avoids direct cross-domain deep imports becoming the default integration pattern
 - `contracts/` defines the only legal cross-module data types (e.g. `SCORECARD_COHORTS`)
-- `CostViewDatabaseAdapter` provides read-only regime/fills/market data queries
+- `adapters/tca_bridge.py` 的 `get_tca_query_service()` 提供 TCA / scorecard 查询（读取 `tca_route_summary` 汇总表）
+- `execution_history_service.py` 提供执行历史读取路径
 - `repositories.py` provides DatabaseView diagnostic query access
+- `CostViewDatabaseAdapter` / `CostViewAnalyticsAdapter` 尚未实现（规划中，见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）
 
 ---
 
@@ -266,7 +268,7 @@ Current entry points:
 
 - `backend/api/db.py`
 - `backend/api/service_provider.py`
-- `platform_data.build_platform_data_access(...).operational`
+- `platform_data.adapters.HandoffExchangeAdapter` / `get_shared_handoff_exchange()` — 跨模块交接
 
 Current storage model:
 
@@ -289,9 +291,9 @@ Workload:
 
 Current entry points:
 
-- `CostView/src/tca_query_service.py`
-- `CostView/src/pipeline.py`
-- `platform_data.build_platform_data_access().analytics`
+- `CostView/src/tca_query_service.py`（读取 `tca_route_summary` 汇总表）
+- `platform_data.adapters.get_tca_query_service()` — 跨模块 TCA 查询工厂
+- `build_platform_data_access()` 尚未实现（规划中）
 
 Current storage model:
 
