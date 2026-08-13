@@ -522,7 +522,7 @@ async def regime_distribution(
 # ── Pipeline runner ────────────────────────────────────────────────────────────
 #
 # The pipeline job registry and subprocess runner live in
-# routers/_pipeline_jobs.py so that both /api/tca/trigger-update (this router,
+# platform_data/pipeline_jobs.py so that both /api/tca/trigger-update (this router,
 # deprecated alias) and /api/db/update (DatabaseView router) share state.
 
 

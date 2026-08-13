@@ -6,7 +6,6 @@ of user input) to prevent SQL injection.
 Delegates heavy lifting to sub-modules:
     tca_utils.py         — pure functions (date/time, numeric, cohort bucketing, scorecard)
     tca_query_builder.py — SQL query functions
-    tca_fallback.py      — raw-BDIB backfill for missing fill_bdib data
 
 Type definitions live in platform_data/contracts/tca_contracts.py
 and are re-exported here for caller convenience.
@@ -39,12 +38,7 @@ from .tca_utils import (
 
 from .tca_query_builder import (
     get_tca_route_summaries as _get_tca_route_summaries,
-    get_tca_route_summaries_by_keys as _get_tca_route_summaries_by_keys,
     get_time_series as _get_time_series,
-)
-
-from .tca_fallback import (
-    get_route_metric_fallbacks as _get_route_metric_fallbacks,
 )
 
 logger = logging.getLogger(__name__)
