@@ -45,7 +45,7 @@ class TestIngestExcelStage(unittest.TestCase):
         stage = IngestExcelStage()
         self.assertEqual(stage.name, "1. Ingest Excel (Legacy)")
 
-    @patch("DataPipeline.orchestration.stages.ingest_all_excel_files")
+    @patch("DataPipeline.ingestion.fill_ingestion.ingest_all_excel_files")
     def test_process_calls_ingest_all(self, mock_ingest):
         mock_ingest.return_value = [
             {"new_rows": 10, "skipped": False},
@@ -57,7 +57,7 @@ class TestIngestExcelStage(unittest.TestCase):
         self.assertTrue(result)
         mock_ingest.assert_called_once()
 
-    @patch("DataPipeline.orchestration.stages.ingest_all_excel_files")
+    @patch("DataPipeline.ingestion.fill_ingestion.ingest_all_excel_files")
     def test_process_populates_summary(self, mock_ingest):
         mock_ingest.return_value = [
             {"new_rows": 10, "skipped": False},
@@ -71,7 +71,7 @@ class TestIngestExcelStage(unittest.TestCase):
         self.assertEqual(ctx.summary["ingestion"]["new_rows"], 15)
         self.assertEqual(ctx.summary["ingestion"]["skipped"], 1)
 
-    @patch("DataPipeline.orchestration.stages.ingest_all_excel_files")
+    @patch("DataPipeline.ingestion.fill_ingestion.ingest_all_excel_files")
     def test_process_without_excel_dir(self, mock_ingest):
         mock_ingest.return_value = []
         ctx = FakePipelineContext()
@@ -94,26 +94,26 @@ class TestProcessRawFillsStage(unittest.TestCase):
 
     def test_no_raw_dates_returns_early(self):
         ctx = FakePipelineContext()
-        ctx._db.raw_fills_read.get_all_source_dates.return_value = []
+        ctx._db.raw_fills_read.get_distinct_order_as_of_dates.return_value = []
         stage = ProcessRawFillsStage()
         result = stage.process(ctx)
         self.assertTrue(result)
         self.assertEqual(ctx.summary["processing"]["rows_processed"], 0)
 
-    @patch("DataPipeline.orchestration.stages.process_raw_fills_for_date")
+    @patch("DataPipeline.orchestration.stages_ingest.process_raw_fills_for_date")
     def test_processes_selected_dates(self, mock_process):
         mock_process.return_value = {
             "success": True, "rows_processed": 10,
             "order_history_rows": 5, "route_history_rows": 3, "route_event_rows": 1,
         }
         ctx = FakePipelineContext(target_dates=["20260408"])
-        ctx._db.raw_fills_read.get_all_source_dates.return_value = ["20260408", "20260409"]
+        ctx._db.raw_fills_read.get_distinct_order_as_of_dates.return_value = ["20260408", "20260409"]
         stage = ProcessRawFillsStage()
         result = stage.process(ctx)
         self.assertTrue(result)
         mock_process.assert_called_once()
 
-    @patch("DataPipeline.orchestration.stages.process_raw_fills_for_date")
+    @patch("DataPipeline.orchestration.stages_ingest.process_raw_fills_for_date")
     def test_error_date_does_not_block_others(self, mock_process):
         mock_process.side_effect = [
             {"success": False, "error": "bad date"},
@@ -121,28 +121,31 @@ class TestProcessRawFillsStage(unittest.TestCase):
              "order_history_rows": 0, "route_history_rows": 0, "route_event_rows": 0},
         ]
         ctx = FakePipelineContext(target_dates=["20260408", "20260409"])
-        ctx._db.raw_fills_read.get_all_source_dates.return_value = ["20260408", "20260409"]
+        ctx._db.raw_fills_read.get_distinct_order_as_of_dates.return_value = ["20260408", "20260409"]
         stage = ProcessRawFillsStage()
         result = stage.process(ctx)
         self.assertTrue(result)
         self.assertEqual(mock_process.call_count, 2)
 
-    @patch("DataPipeline.orchestration.stages.process_raw_fills_for_date")
+    @patch("DataPipeline.orchestration.stages_ingest.process_raw_fills_for_date")
     def test_summary_contains_row_counts(self, mock_process):
         mock_process.return_value = {
             "success": True, "rows_processed": 25,
             "order_history_rows": 10, "route_history_rows": 5, "route_event_rows": 2,
         }
         ctx = FakePipelineContext(target_dates=["20260408"])
-        ctx._db.raw_fills_read.get_all_source_dates.return_value = ["20260408"]
+        ctx._db.raw_fills_read.get_distinct_order_as_of_dates.return_value = ["20260408"]
         stage = ProcessRawFillsStage()
         stage.process(ctx)
         self.assertEqual(ctx.summary["processing"]["rows_processed"], 25)
-        self.assertEqual(ctx.summary["processing"]["order_history_rows"], 10)
+        # PR-1: order_history 是 route_history 的派生 VIEW，无独立行数，
+        # summary 恒为 0；真实行数走 route_history_rows
+        self.assertEqual(ctx.summary["processing"]["order_history_rows"], 0)
+        self.assertEqual(ctx.summary["processing"]["route_history_rows"], 5)
 
     def test_no_target_dates_no_force_incremental(self):
         ctx = FakePipelineContext()
-        ctx._db.raw_fills_read.get_all_source_dates.return_value = ["20260408"]
+        ctx._db.raw_fills_read.get_distinct_order_as_of_dates.return_value = ["20260408"]
         ctx._db.fills_read.get_unprocessed_dates.return_value = []
         ctx._db.fills_read.get_processed_dates.return_value = []
         stage = ProcessRawFillsStage()
@@ -170,7 +173,7 @@ class TestAggregateFillsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["aggregation"]["dates"], 0)
 
-    @patch("DataPipeline.orchestration.stages.generate_agg_fills_10s")
+    @patch("DataPipeline.orchestration.stages_ingest.generate_agg_fills_10s")
     def test_empty_processed_df_skipped(self, mock_gen):
         mock_gen.return_value = pd.DataFrame()
         ctx = FakePipelineContext(target_dates=["20260408"])
@@ -213,7 +216,7 @@ class TestGenerateOrderLabelsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["order_labels"]["orders"], 0)
 
-    @patch("DataPipeline.orchestration.stages.generate_order_label_incremental")
+    @patch("DataPipeline.orchestration.stages_ingest.generate_order_label_incremental")
     def test_generates_labels_for_dates(self, mock_gen):
         mock_gen.return_value = pd.DataFrame({"OrderId": ["ORD001"], "order_as_of_date": ["20260408"]})
         ctx = FakePipelineContext(target_dates=["20260408"])
@@ -227,7 +230,7 @@ class TestGenerateOrderLabelsStage(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(ctx.summary["order_labels"]["orders"], 1)
 
-    @patch("DataPipeline.orchestration.stages.generate_order_label_incremental")
+    @patch("DataPipeline.orchestration.stages_ingest.generate_order_label_incremental")
     def test_force_regenerates_all(self, mock_gen):
         mock_gen.return_value = pd.DataFrame()
         ctx = FakePipelineContext(target_dates=["20260408"], force=True)
@@ -251,6 +254,7 @@ class TestIntegrateBDIBStage(unittest.TestCase):
         stage = IntegrateBDIBStage()
         self.assertEqual(stage.name, "5. Integrate BDIB Market Data")
 
+    @patch.dict("sys.modules", {"DataPipeline.acquisition.bdib_fetcher": None})
     def test_import_error_graceful(self):
         """When bdib_fetcher import fails, stage logs warning and returns True."""
         stage = IntegrateBDIBStage()
@@ -277,9 +281,13 @@ class TestIntegrateBDIBStage(unittest.TestCase):
         self.assertEqual(prev, date(2026, 4, 10))  # Friday
 
     def test_get_latest_safe_bdib_date_cutoff(self):
-        """Cut-off time before/after changes safe date."""
-        morning = datetime(2026, 4, 22, 9, 26)
-        evening = datetime(2026, 4, 22, 18, 30)
+        """Cut-off time before/after changes safe date.
+
+        BDIB_LATEST_READY_HOUR_LOCAL=8：当地时间 8 点前，前一交易日的
+        BDIB 数据尚未就绪，safe date 需再往前推一个工作日。
+        """
+        morning = datetime(2026, 4, 22, 7, 30)   # 8 点前 → 数据未就绪
+        evening = datetime(2026, 4, 22, 18, 30)  # 8 点后 → 数据就绪
         self.assertEqual(
             IntegrateBDIBStage._get_latest_safe_bdib_date(morning),
             date(2026, 4, 20),
@@ -346,6 +354,7 @@ class TestCalculateDailyMetricsStage(unittest.TestCase):
         stage = CalculateDailyMetricsStage()
         self.assertEqual(stage.name, "7. Calculate Daily Metrics (ADV + Volatility)")
 
+    @patch.dict("sys.modules", {"DataPipeline.processing.daily_metrics_calculator": None})
     def test_import_error_graceful(self):
         """ImportError skips stage gracefully."""
         stage = CalculateDailyMetricsStage()
@@ -382,9 +391,26 @@ class TestRegimeDailyFeaturesStage(unittest.TestCase):
         self.assertTrue(ctx.summary.get("regime_daily", {}).get("skipped", False))
 
     def test_import_error_graceful(self):
-        stage = RegimeDailyFeaturesStage()
-        ctx = FakePipelineContext(target_dates=["20260408"])
-        result = stage.process(ctx)
+        """Regime 子模块缺失时 stage 优雅降级。
+
+        注意：stage 使用 `from DataPipeline.analysis.regime import liquidity_regime`
+        包属性式导入。包已被其他测试加载时，包属性优先级高于 sys.modules，
+        仅置空 sys.modules 无法触发 ImportError，须先移除包属性。
+        """
+        import DataPipeline.analysis.regime as regime_pkg
+
+        saved = regime_pkg.__dict__.pop("liquidity_regime", None)
+        with patch.dict(
+            "sys.modules",
+            {"DataPipeline.analysis.regime.liquidity_regime": None},
+        ):
+            try:
+                stage = RegimeDailyFeaturesStage()
+                ctx = FakePipelineContext(target_dates=["20260408"])
+                result = stage.process(ctx)
+            finally:
+                if saved is not None:
+                    regime_pkg.__dict__["liquidity_regime"] = saved
         self.assertTrue(result)
         self.assertTrue(ctx.summary.get("regime_daily", {}).get("skipped", False))
 
@@ -439,6 +465,7 @@ class TestAttributionMetricsStage(unittest.TestCase):
         result = stage.process(ctx)
         self.assertTrue(result)
 
+    @patch.dict("sys.modules", {"DataPipeline.analysis.attribution.writer": None})
     def test_import_error_graceful(self):
         stage = AttributionMetricsStage()
         ctx = FakePipelineContext(target_dates=["20260408"])
@@ -478,11 +505,11 @@ class TestLegacyRunners(unittest.TestCase):
 
     def setUp(self):
         self.ingest_patcher = patch(
-            "DataPipeline.orchestration.stages.ingest_all_excel_files",
+            "DataPipeline.ingestion.fill_ingestion.ingest_all_excel_files",
             return_value=[],
         )
         self.process_patcher = patch(
-            "DataPipeline.orchestration.stages.process_raw_fills_for_date",
+            "DataPipeline.orchestration.stages_ingest.process_raw_fills_for_date",
             return_value={"success": True, "rows_processed": 0,
                           "order_history_rows": 0, "route_history_rows": 0,
                           "route_event_rows": 0},
@@ -515,7 +542,7 @@ class TestLegacyRunners(unittest.TestCase):
         ctx.proc_db.get_processed_dates.return_value = ["20260408"]
         ctx.proc_db.get_unprocessed_dates.return_value = []
         # run_aggregate creates its own context, so we need to patch PipelineContext
-        with patch("DataPipeline.orchestration.runners.PipelineContext",
+        with patch("DataPipeline.orchestration.core.PipelineContext",
                    return_value=ctx):
             run_aggregate(dates=["20260408"])
 
@@ -528,16 +555,17 @@ class TestLegacyRunners(unittest.TestCase):
         ctx.proc_db.get_processed_dates.return_value = ["20260408"]
         ctx.proc_db.get_all_processed_fills.return_value = pd.DataFrame()
 
-        with patch("DataPipeline.orchestration.runners.PipelineContext",
+        with patch("DataPipeline.orchestration.core.PipelineContext",
                    return_value=ctx):
             result = run_order_labels(dates=["20260408"])
             self.assertIsInstance(result, pd.DataFrame)
 
+    @patch.dict("sys.modules", {"DataPipeline.acquisition.bdib_fetcher": None})
     def test_run_bdib_integration(self):
         """run_bdib_integration does not crash (imports fail gracefully)."""
         run_bdib_integration(dates=["20260408"])
 
-    @patch("DataPipeline.orchestration.runners.PipelineFactory.create_daily_e2e_pipeline")
+    @patch("DataPipeline.orchestration.core.PipelineFactory.create_daily_e2e_pipeline")
     def test_run_full_pipeline_default(self, mock_factory):
         """run_full_pipeline with defaults returns summary dict."""
         mock_pipeline = MagicMock()
@@ -547,7 +575,7 @@ class TestLegacyRunners(unittest.TestCase):
         result = run_full_pipeline()
         self.assertIsInstance(result, dict)
 
-    @patch("DataPipeline.orchestration.runners.PipelineFactory.create_daily_e2e_pipeline")
+    @patch("DataPipeline.orchestration.core.PipelineFactory.create_daily_e2e_pipeline")
     def test_run_full_pipeline_with_params(self, mock_factory):
         """run_full_pipeline passes parameters through."""
         mock_pipeline = MagicMock()
@@ -565,7 +593,7 @@ class TestLegacyRunners(unittest.TestCase):
         )
         self.assertIsInstance(result, dict)
 
-    @patch("DataPipeline.orchestration.runners.run_full_pipeline")
+    @patch("DataPipeline.orchestration.core.run_full_pipeline")
     def test_run_incremental_calls_through(self, mock_run):
         """run_incremental delegates to run_full_pipeline."""
         mock_run.return_value = {"incremental": True}

@@ -14,7 +14,7 @@ from DataPipeline.storage.repositories.integrated import (
     SqliteIntegratedReadRepository,
     SqliteIntegratedWriteRepository,
 )
-from CostView.tests.testing_helpers import create_temp_db, make_integrated_dataframe
+from CostView.tests.testing_helpers import close_temp_db, create_temp_db, make_integrated_dataframe
 
 
 class SqliteIntegratedReadRepositoryTest(unittest.TestCase):
@@ -27,6 +27,7 @@ class SqliteIntegratedReadRepositoryTest(unittest.TestCase):
         self.write_repo = SqliteIntegratedWriteRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def _seed_data(self, date_str: str = "20260408", num_rows: int = 3):
@@ -68,6 +69,7 @@ class SqliteIntegratedWriteRepositoryTest(unittest.TestCase):
         self.read_repo = SqliteIntegratedReadRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def test_upsert_integrated_data(self):
