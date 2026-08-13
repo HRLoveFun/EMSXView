@@ -28,7 +28,12 @@ import { getVolumeCapField, VOLUME_CAP_MULTIPLIER } from '@execution/data/broker
 import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@execution/data/broker-time-mapping';
 import { hhmmToEmsxInt } from '@execution/data/broker-common-params';
 
-import type { Phase, AllocState, AllocStatus, RowState } from './types';
+import {
+  PENDING_ROUTE_STATUSES,
+  type Phase,
+  type AllocState,
+  type RowState,
+} from './types';
 import {
   lotSizeOf,
   floorToLot,
@@ -199,12 +204,16 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   );
 
   // ── Routed (placed) quantity per parent order ─────────────────────────
-  //  Sum of every route's `amount`, keyed by parent sequence. This yields the
-  //  unrouted (idle) capacity when subtracted from the order's quantity.
+  //  Sum of each pending route's `amount`, keyed by parent sequence. Only
+  //  statuses in PENDING_ROUTE_STATUSES still consume parent capacity —
+  //  terminal routes (FILLED/CANCEL/DONE/REJECTED…) release their amount back
+  //  to idle. Mirrors backend batch_route_service.pending_route_statuses so
+  //  user UI and server agree on what counts as "already routed".
   const routedAmountByOrder = useMemo(() => {
     const map: Record<string, number> = {};
     if (!routes || routes.length === 0) return map;
     for (const r of routes) {
+      if (!PENDING_ROUTE_STATUSES.has(r.status)) continue;
       const oid = String(r.sequence);
       const a = Number(r.amount ?? 0);
       if (!Number.isFinite(a) || a <= 0) continue;
