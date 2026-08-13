@@ -552,7 +552,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 | 外部 → DataPipeline | `python -m DataPipeline --once` | 后端子进程调用 |
 | 外部 → DataPipeline | `from DataPipeline import Config, DatabaseFacade, ConnectionManager, AccessTier` | 集成层（CostView / MarketView / 后端） |
 | 外部 ← DataPipeline | `CostView/src/costview.py` (CostView API :8002) | TCA 查询 |
-| 外部 ← DataPipeline | `CostView/src/adapters.py` (CostViewAnalyticsAdapter) | 跨模块数据适配 |
+| 外部 ← DataPipeline | `platform_data.adapters.get_tca_query_service()`（读取 `tca_route_summary` 汇总表） | 跨模块 TCA 数据适配 |
 | 外部 ← DataPipeline | `market_fetch_manifest.json` (S5 输出) | 下游 MarketFetch 监听 |
 | DataPipeline → Bloomberg | blpapi / xbbg | 拉取 fills、BDIB、FX、日线 |
 | DataPipeline → Outdated Ticker File | `outdated_tickers.json` | 写入墓碑；下次启动加载 |

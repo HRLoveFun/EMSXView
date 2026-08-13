@@ -14,7 +14,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
-# ── 检测规则: (扫描根, 适配后缀, 禁止的 import 前缀, 规则 ID, 描述) ──
+# ── 检测规则: (扫描根, 适配后缀, 禁止的 import 前缀, 规则 ID, 描述, 修复建议, 豁免清单) ──
+# 豁免清单为 REPO_ROOT 相对路径（posix 风格）；列入豁免的文件允许命中前缀。
+# 豁免仅限设计内受许可的深导入（如 DI 注册、桥接入口），新增豁免须在注释说明理由。
 PYTHON_RULES = [
     (
         REPO_ROOT / "backend" / "api",
@@ -23,14 +25,20 @@ PYTHON_RULES = [
         "AP-01",
         "backend → CostView deep import",
         "改走 platform_data.<domain>.*",
+        set(),
     ),
     (
         REPO_ROOT / "backend" / "api",
         "*.py",
-        "DataPipeline.src",
+        "DataPipeline.",
         "AP-01",
         "backend → DataPipeline deep import",
-        "改走 platform_data.data_platform.*",
+        "改走 platform_data.config_bridge / register_costview_bridge_dependencies()",
+        {
+            # 豁免：main.py 启动时向 config_bridge 注册 DataPipeline Config（DI 注册，
+            # CLAUDE.md 约定"应从 DataPipeline/config.Config 导入"，是设计内入口）
+            "backend/api/main.py",
+        },
     ),
     (
         REPO_ROOT / "platform_data",
@@ -39,6 +47,11 @@ PYTHON_RULES = [
         "AP-01",
         "platform_data → CostView deep import",
         "platform_data 内部应保持中立，避免直接依赖业务模块",
+        {
+            # 豁免：tca_bridge 是集中封装 CostView.src 深导入的唯一桥接入口
+            #（e2c382e 设计，backend 仅依赖 platform_data，不直接依赖 CostView.src）
+            "platform_data/adapters/tca_bridge.py",
+        },
     ),
 ]
 
@@ -50,6 +63,7 @@ TS_RULES = [
         "AP-01",
         "execution → costview 跨模块 import",
         "改走 navigateTo / useHandoffContracts / @shared/types",
+        set(),
     ),
     (
         REPO_ROOT / "frontend" / "src" / "modules" / "execution",
@@ -58,6 +72,7 @@ TS_RULES = [
         "AP-01",
         "execution → costview 跨模块 import",
         "改走 navigateTo / useHandoffContracts / @shared/types",
+        set(),
     ),
     (
         REPO_ROOT / "frontend" / "src" / "modules" / "costview",
@@ -66,6 +81,7 @@ TS_RULES = [
         "AP-01",
         "costview → execution 跨模块 import",
         "改走 navigateTo / useHandoffContracts / @shared/types",
+        set(),
     ),
     (
         REPO_ROOT / "frontend" / "src" / "modules" / "costview",
@@ -74,6 +90,7 @@ TS_RULES = [
         "AP-01",
         "costview → execution 跨模块 import",
         "改走 navigateTo / useHandoffContracts / @shared/types",
+        set(),
     ),
 ]
 
@@ -102,14 +119,15 @@ def _scan_ts_imports(file: Path):
 
 @pytest.mark.boundary_violation
 @pytest.mark.parametrize(
-    "base_dir,suffix,forbidden,rule_id,message,fix_hint",
+    "base_dir,suffix,forbidden,rule_id,message,fix_hint,exempt",
     PYTHON_RULES + TS_RULES,
     ids=[r[3] + ":" + str(r[0].name) + ":" + r[2] for r in PYTHON_RULES + TS_RULES],
 )
 def test_no_forbidden_imports(
-    violations_recorder, base_dir, suffix, forbidden, rule_id, message, fix_hint
+    violations_recorder, enforcement_mode, base_dir, suffix, forbidden, rule_id,
+    message, fix_hint, exempt
 ):
-    """不阻断：检测到违规时 pytest.skip 记录，但测试套件继续"""
+    """block 模式（默认）：检测到违规即 fail，CI 生效；record/warn 仅记录"""
     if not base_dir.exists():
         pytest.skip(f"{base_dir} not found")
 
@@ -117,13 +135,15 @@ def test_no_forbidden_imports(
 
     violations = []
     for f in base_dir.rglob(suffix):
+        try:
+            rel = f.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            rel = str(f)
+        if rel in exempt:
+            continue
         for imp in scanner(f):
             if imp and imp.startswith(forbidden):
-                try:
-                    rel = f.relative_to(REPO_ROOT)
-                except ValueError:
-                    rel = f
-                violations.append((str(rel), imp))
+                violations.append((rel, imp))
 
     if violations:
         for path, imp in violations:
@@ -132,6 +152,11 @@ def test_no_forbidden_imports(
                 path,
                 f"import '{imp}' is forbidden ({message})",
                 fix_hint=fix_hint,
+            )
+        if enforcement_mode == "block":
+            pytest.fail(
+                f"{len(violations)} {rule_id} violation(s) [{message}]: "
+                + "; ".join(f"{p} -> {i}" for p, i in violations)
             )
         pytest.skip(
             f"violation recorded: {len(violations)} {rule_id} violation(s); "
@@ -165,7 +190,7 @@ UNDERSCORE_RULES = [
     ids=[r[3] + ":" + str(r[0].name) for r in UNDERSCORE_RULES],
 )
 def test_no_underscore_adapter_access(
-    violations_recorder, base_dir, suffix, pattern, rule_id, message
+    violations_recorder, enforcement_mode, base_dir, suffix, pattern, rule_id, message
 ):
     if not base_dir.exists():
         pytest.skip(f"{base_dir} not found")
@@ -178,10 +203,10 @@ def test_no_underscore_adapter_access(
             continue
         for m in re.finditer(pattern, text):
             try:
-                rel = f.relative_to(REPO_ROOT)
+                rel = f.relative_to(REPO_ROOT).as_posix()
             except ValueError:
-                rel = f
-            violations.append((str(rel), m.group(0)))
+                rel = str(f)
+            violations.append((rel, m.group(0)))
 
     if violations:
         for path, snippet in violations:
@@ -190,6 +215,11 @@ def test_no_underscore_adapter_access(
                 path,
                 f"underscore method access: {snippet} ({message})",
                 fix_hint="改用适配器公开 API（无下划线前缀）",
+            )
+        if enforcement_mode == "block":
+            pytest.fail(
+                f"{len(violations)} {rule_id} violation(s) [{message}]: "
+                + "; ".join(f"{p} -> {s}" for p, s in violations)
             )
         pytest.skip(
             f"violation recorded: {len(violations)} {rule_id} violation(s); "

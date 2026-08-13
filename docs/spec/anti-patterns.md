@@ -166,7 +166,7 @@ rg "include_router|app\.include" backend/api/main.py | rg -v "_register_optional
 # 前端
 npx tsc --noEmit
 # 后端
-pyright backend/ CostView/src/ DataPipeline/src/ platform_data/
+pyright backend/ CostView/src/ DataPipeline/ platform_data/
 ```
 **修复**: 添加完整类型注解
 **参考**: `.codebuddy/rules/coding-style.md` §类型定义

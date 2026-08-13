@@ -1,9 +1,14 @@
 """边界测试配置
 
 提供:
-- violations 收集器（pytest_terminal_summary 输出但不阻断）
-- 模式标记 (boundary_violation: 当前不阻断的边界违规记录)
+- violations 收集器（pytest_terminal_summary 输出；block 模式下测试直接失败）
+- 模式标记 (boundary_violation)
 - 项目根路径
+
+执行模式 ENFORCEMENT_MODE:
+- "record": 仅记录违规，不阻断
+- "warn":   黄色告警（不阻断）
+- "block":  红色阻断（检测到违规时测试失败，CI 生效）
 """
 import json
 import sys
@@ -17,7 +22,7 @@ VIOLATIONS_LOG = PROJECT_ROOT / "tests" / "boundaries" / ".scan_log.jsonl"
 BASELINE_FILE = PROJECT_ROOT / "tests" / "boundaries" / "baseline_violations.json"
 
 # 强制模式: "record"（仅记录）| "warn"（黄色告警）| "block"（红色阻断）
-ENFORCEMENT_MODE = "record"
+ENFORCEMENT_MODE = "block"
 
 
 def pytest_configure(config):
@@ -27,7 +32,7 @@ def pytest_configure(config):
 
     config.addinivalue_line(
         "markers",
-        "boundary_violation: 标记测试函数检测到跨边界违规（不阻断）",
+        "boundary_violation: 标记测试函数检测到跨边界违规（block 模式下阻断）",
     )
 
 
@@ -42,7 +47,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if not violations:
         return
 
-    terminalreporter.write_sep("=", "BOUNDARY VIOLATIONS (non-blocking)", yellow=True)
+    terminalreporter.write_sep("=", "BOUNDARY VIOLATIONS", yellow=True)
     terminalreporter.write_line(f"Total: {len(violations)} | Mode: {ENFORCEMENT_MODE}")
     terminalreporter.write_line("")
 
@@ -90,3 +95,9 @@ def violations_recorder(request):
     def _record(rule_id, file, message, line=0, fix_hint=""):
         record_violation(config, rule_id, file, message, line=line, fix_hint=fix_hint)
     return _record
+
+
+@pytest.fixture
+def enforcement_mode():
+    """返回当前边界违规执行模式（record/warn/block）"""
+    return ENFORCEMENT_MODE
