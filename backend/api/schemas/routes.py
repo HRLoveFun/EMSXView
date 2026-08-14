@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -112,28 +112,30 @@ class ModifyRouteRequest(BaseModel):
 
     sequence: int = Field(..., description="EMSX_SEQUENCE (parent order ID)")
     routeId: int = Field(..., description="EMSX_ROUTE_ID")
-    amount: Optional[int] = Field(None, description="New quantity")
-    orderType: Optional[str] = Field(None, description="MKT, LMT, STP, STOP_LIMIT")
+    amount: Optional[int] = Field(None, description="New quantity", ge=1)
+    orderType: Optional[Literal["MKT", "LMT", "STP", "STOP_LIMIT", "LIMIT", "MARKET", "STOP"]] = Field(
+        None, description="MKT, LMT, STP, STOP_LIMIT"
+    )
     limitPrice: Optional[float] = Field(None, description="Limit price (0=ignore, -99999=reset)")
     stopPrice: Optional[float] = Field(None, description="Stop price (-1=clear)")
-    tif: Optional[str] = Field(None, description="DAY, GTC, IOC, FOK, GTD")
-    broker: Optional[str] = Field(None, description="New broker")
-    exchangeDestination: Optional[str] = Field(None, description="Exchange destination")
-    notes: Optional[str] = Field(None, description="Route notes")
+    tif: Optional[Literal["DAY", "GTC", "IOC", "FOK", "GTD"]] = Field(None, description="DAY, GTC, IOC, FOK, GTD")
+    broker: Optional[str] = Field(None, description="New broker", max_length=128)
+    exchangeDestination: Optional[str] = Field(None, description="Exchange destination", max_length=64)
+    notes: Optional[str] = Field(None, description="Route notes", max_length=2000)
     strategyParams: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters")
 
 
 class RouteOrderRequest(BaseModel):
     """Route order request - creates a child route from a parent order."""
 
-    orderId: str = Field(..., description="EMSX_SEQUENCE (parent order ID)")
-    broker: str = Field(..., description="Broker code for routing")
+    orderId: str = Field(..., description="EMSX_SEQUENCE (parent order ID)", max_length=64)
+    broker: str = Field(..., description="Broker code for routing", max_length=128)
     quantity: int = Field(..., description="Quantity to route", ge=1)
-    orderType: str = Field(..., description="LIMIT, MARKET, STOP, STOP_LIMIT")
-    price: Optional[float] = Field(None, description="Limit price")
-    stopPrice: Optional[float] = Field(None, description="Stop price")
-    timeInForce: str = Field(..., description="DAY, GTC, IOC, FOK")
-    exchangeDestination: Optional[str] = Field(None, description="Exchange destination")
-    notes: Optional[str] = Field(None, description="Route notes")
+    orderType: Literal["LIMIT", "MARKET", "STOP", "STOP_LIMIT"] = Field(..., description="LIMIT, MARKET, STOP, STOP_LIMIT")
+    price: Optional[float] = Field(None, description="Limit price", ge=0)
+    stopPrice: Optional[float] = Field(None, description="Stop price", ge=0)
+    timeInForce: Literal["DAY", "GTC", "IOC", "FOK", "GTD"] = Field(..., description="DAY, GTC, IOC, FOK, GTD")
+    exchangeDestination: Optional[str] = Field(None, description="Exchange destination", max_length=64)
+    notes: Optional[str] = Field(None, description="Route notes", max_length=2000)
     strategyParams: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters")
-    releaseTime: Optional[int] = Field(None, description="EMSX_RELEASE_TIME in HHMM format")
+    releaseTime: Optional[int] = Field(None, description="EMSX_RELEASE_TIME in HHMM format", ge=0, le=2359)

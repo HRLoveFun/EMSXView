@@ -165,6 +165,9 @@ class IntegrateBDIBStage(BaseStage):
         total_processed_raw_bdib_rows = 0
         total_fill_bdib_rows = 0
         skipped_raw = 0; skipped_proc_raw = 0; skipped_fill = 0
+        # 防护 (M10): 失败显式化 — 日期级失败进健康清单, 全部失败时阶段失败
+        failed_dates: list[str] = []
+        failed_chunks = 0
 
         # Chunk tickers to avoid loading ALL BDIB data into memory at once
         all_tickers = list(ticker_exchange_map_all.keys())
@@ -241,6 +244,7 @@ class IntegrateBDIBStage(BaseStage):
                             del chunk_map, chunk_dfs, chunk_bdib_df, enriched
                             gc.collect()
                         except Exception as chunk_err:
+                            failed_chunks += 1
                             logger.warning("  BDIB chunk %d error for %s: %s", chunk_i, date_str, chunk_err)
 
                 # ── 回补路径: BDIB 拉取跳过时, 从 raw_bdib 加载已有数据 ──
@@ -324,6 +328,7 @@ class IntegrateBDIBStage(BaseStage):
                             date_str, date_raw_rows, date_proc_raw_rows, fill_bdib_rows)
 
             except Exception as e:
+                failed_dates.append(date_str)
                 logger.error(f"  Error in BDIB integration for {date_str}: {e}")
                 gc.collect()
 
@@ -332,8 +337,15 @@ class IntegrateBDIBStage(BaseStage):
             "processed_dates": len(all_candidate_dates) - skipped_raw - skipped_proc_raw - skipped_fill,
             "skipped_raw": skipped_raw, "skipped_processed_raw": skipped_proc_raw, "skipped_fill": skipped_fill,
             "raw_bdib_rows": total_raw_bdib_rows, "processed_raw_bdib_rows": total_processed_raw_bdib_rows, "fill_bdib_rows": total_fill_bdib_rows,
+            # M10: 健康清单 — 失败日期与失败分块数 (部分失败不再被静默掩盖)
+            "failed_dates": failed_dates,
+            "failed_chunks": failed_chunks,
         }
-        return True
+        # M10: 全部候选日期失败时阶段返回 False; 部分失败显式记录于 summary
+        all_failed = bool(all_candidate_dates) and len(failed_dates) >= len(all_candidate_dates)
+        if all_failed:
+            logger.error("BDIB 阶段全部 %d 个日期失败", len(all_candidate_dates))
+        return not all_failed
 
 
 

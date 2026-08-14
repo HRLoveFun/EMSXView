@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 RawFillsDB = Any  # backward compat alias; was CostView/src/raw_fills_db.py
 
 import pandas as pd
+import numpy as np
 
 from DataPipeline.processing.fill_cleaner import clean_emsx_fills
 from DataPipeline.processing.fill_processor import process_fills
@@ -361,6 +362,8 @@ def process_raw_fills_for_date(
         "rows_cleaned": 0,
         "rows_processed": 0,
         "error": None,
+        # M1: 输出校验样本 (护栏输出校验臂使用), NaN 清洗为 None
+        "sample_records": [],
     }
 
     try:
@@ -459,6 +462,13 @@ def process_raw_fills_for_date(
             f"Processed {date_str}: {len(processed)} rows "
             f"(from {len(raw_fills)} raw)"
         )
+
+        # M1: 暴露输出样本供护栏校验 (最多 100 条, NaN → None)
+        try:
+            sample = processed.head(100).replace({np.nan: None})
+            result["sample_records"] = sample.to_dict(orient="records")
+        except Exception as sample_err:
+            logger.debug("输出样本构造失败: %s", sample_err)
 
     except Exception as e:
         result["error"] = str(e)

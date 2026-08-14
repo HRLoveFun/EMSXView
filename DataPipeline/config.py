@@ -211,3 +211,41 @@ class Config:
         directories = [cls.DATA_DIR, cls.LOGGING_DIR]
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
+
+
+def _validate_config() -> None:
+    """校验关键配置参数边界 (M6)。
+
+    非法值在模块导入时即抛 ValueError — 配置错误 fail-fast,
+    禁止静默降级 (如非法 BDIB_QUERY_ENGINE 静默走 sqlite 分支)。
+    """
+    engine = Config.BDIB_QUERY_ENGINE.strip().lower()
+    if engine not in ("sqlite", "duckdb"):
+        raise ValueError(
+            f"BDIB_QUERY_ENGINE 非法值: {Config.BDIB_QUERY_ENGINE!r} "
+            f"(允许: sqlite, duckdb)"
+        )
+    Config.BDIB_QUERY_ENGINE = engine  # 归一化大小写
+
+    if Config.BDIB_HOT_RETENTION_MONTHS < 1:
+        raise ValueError(
+            f"BDIB_HOT_RETENTION_MONTHS 必须 >= 1, "
+            f"收到 {Config.BDIB_HOT_RETENTION_MONTHS}"
+        )
+    if Config.BDIB_API_RETENTION_DAYS < 1:
+        raise ValueError(
+            f"BDIB_API_RETENTION_DAYS 必须 >= 1, 收到 {Config.BDIB_API_RETENTION_DAYS}"
+        )
+    if Config.GUARDRAIL_EMPTY_DATASET_POLICY not in ("reject", "accept"):
+        raise ValueError(
+            f"GUARDRAIL_EMPTY_DATASET_POLICY 非法值: "
+            f"{Config.GUARDRAIL_EMPTY_DATASET_POLICY!r} (允许: reject, accept)"
+        )
+    if Config.GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD < 1:
+        raise ValueError(
+            f"GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD 必须 >= 1, "
+            f"收到 {Config.GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD}"
+        )
+
+
+_validate_config()

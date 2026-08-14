@@ -36,6 +36,15 @@ class BaseStage(abc.ABC):
             context.log_error(self.name, e)
             return False
 
+    def get_output(self) -> Optional[list]:
+        """返回本阶段最后输出的记录样本 (M1, 供护栏输出校验使用)。
+
+        默认返回 None — 护栏校验臂对未暴露样本的阶段保持跳过。
+        阶段可在 process 中通过 ``self._output_sample = records`` 暴露
+        最多 N 条输出记录 (NaN 需清洗为 None)。
+        """
+        return getattr(self, "_output_sample", None)
+
     @abc.abstractmethod
     def process(self, context: PipelineContext) -> bool:
         """

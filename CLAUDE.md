@@ -17,6 +17,7 @@
 7. `docs/spec/memory.md` — 架构记忆入口（指向 ADR 列表）
 8. `docs/spec/module-onboarding.md` — 新增模块流程
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
+10. `docs/spec/plan-design-principles.md` — ★ 计划设计原则（G0 数据零受损 / G1 三性齐备 / G2 全程防漂移 / G3 充分且必要）
 
 > **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。以下两文件仅作历史记录保留，不再作为活跃必读：
 > - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 保留月数）以 `DataPipeline/config.py` 的 Config 类为唯一真相源

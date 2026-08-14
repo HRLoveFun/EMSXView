@@ -6,8 +6,10 @@ Contains HandoffExchangeAdapter and get_shared_handoff_exchange() singleton fact
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from platform_data.config import HANDOFF_BACKEND, REDIS_URL
@@ -22,6 +24,28 @@ from platform_data.contracts.handoff_contracts import (
 from platform_data.contracts.market_contracts import MarketCandidatePayload
 
 _log = logging.getLogger(__name__)
+
+# 防护 (H4): 内存后端的容量边界 — 防止无界写入撑爆进程内存
+_MAX_EXECUTION_TO_COST = 500        # Execution→Cost 映射条目上限
+_MAX_COST_TO_EXECUTION = 200        # Cost→Execution 列表上限 (与既有实现对齐)
+_HANDOFF_TTL = timedelta(days=7)    # 条目过期时间, 读取/写入时惰性清理
+
+# 防护 (M3): 跨模块策略参数载荷大小上限 64KB (API 层 schema 校验的适配器侧双保险)
+_MAX_STRATEGY_PARAMS_BYTES = 64 * 1024
+
+
+def _bounded_strategy_params(strategy_params: dict[str, Any] | None) -> dict[str, Any]:
+    """校验并复制策略参数, 超限抛 ValueError。"""
+    params = dict(strategy_params or {})
+    try:
+        size = len(json.dumps(params, default=str))
+    except (TypeError, ValueError):
+        raise ValueError("strategy_params 无法序列化") from None
+    if size > _MAX_STRATEGY_PARAMS_BYTES:
+        raise ValueError(
+            f"strategy_params 大小超限 (max {_MAX_STRATEGY_PARAMS_BYTES // 1024}KB)"
+        )
+    return params
 
 
 class HandoffExchangeAdapter:
@@ -51,6 +75,31 @@ class HandoffExchangeAdapter:
             "storage": "in-memory process-local store",
             "entrypoint": "HandoffExchangeAdapter",
         }
+
+    # — 容量防护 (H4) —
+
+    @staticmethod
+    def _expired(handoff: ExecutionPostTradeHandoff) -> bool:
+        """判定条目是否超过 TTL (解析失败按过期处理, 保守清理)。"""
+        try:
+            generated = datetime.fromisoformat(handoff.metadata.generated_at)
+        except (TypeError, ValueError):
+            return True
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+        else:
+            generated = generated.astimezone(timezone.utc)
+        return datetime.now(timezone.utc) - generated > _HANDOFF_TTL
+
+    def _prune_execution_to_cost(self) -> None:
+        """惰性清理过期条目 (调用方需持有 _lock)。"""
+        expired_keys = [
+            oid for oid, h in self._execution_to_cost.items() if self._expired(h)
+        ]
+        for oid in expired_keys:
+            del self._execution_to_cost[oid]
+        if expired_keys:
+            _log.debug("handoff: 清理 %d 条过期 Execution→Cost 条目", len(expired_keys))
 
     # — Market → Execution —
 
@@ -122,19 +171,33 @@ class HandoffExchangeAdapter:
             asset_class=asset_class,
             urgency=urgency,
             route_ids=[str(rid) for rid in route_ids],
-            strategy_params=dict(strategy_params or {}),
+            strategy_params=_bounded_strategy_params(strategy_params),
             candidate_trace_id=candidate_trace_id,
         )
         with self._lock:
+            self._prune_execution_to_cost()
+            if len(self._execution_to_cost) >= _MAX_EXECUTION_TO_COST:
+                # 容量上限: 按 generated_at 淘汰最旧条目, 防止无界增长
+                oldest = min(
+                    self._execution_to_cost,
+                    key=lambda oid: self._execution_to_cost[oid].metadata.generated_at,
+                )
+                del self._execution_to_cost[oldest]
+                _log.warning(
+                    "handoff: Execution→Cost 映射达上限 %d, 淘汰最旧条目 %s",
+                    _MAX_EXECUTION_TO_COST, oldest,
+                )
             self._execution_to_cost[str(order_id)] = handoff
         return handoff
 
     def get_execution_to_cost(self, order_id: str) -> ExecutionPostTradeHandoff | None:
         with self._lock:
+            self._prune_execution_to_cost()
             return self._execution_to_cost.get(str(order_id))
 
     def list_execution_to_cost(self, limit: int = 50) -> list[ExecutionPostTradeHandoff]:
         with self._lock:
+            self._prune_execution_to_cost()
             values = list(self._execution_to_cost.values())
         values.sort(key=lambda h: h.metadata.generated_at, reverse=True)
         return values[:limit]
@@ -181,8 +244,8 @@ class HandoffExchangeAdapter:
         )
         with self._lock:
             self._cost_to_execution.append(rec)
-            if len(self._cost_to_execution) > 200:
-                self._cost_to_execution = self._cost_to_execution[-200:]
+            if len(self._cost_to_execution) > _MAX_COST_TO_EXECUTION:
+                self._cost_to_execution = self._cost_to_execution[-_MAX_COST_TO_EXECUTION:]
         return rec
 
     def list_cost_to_execution(

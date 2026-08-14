@@ -457,8 +457,7 @@ class SqliteFillWriteRepository(BaseRepository):
 
         try:
             # 检测表已有列，为缺失列自动执行 ALTER TABLE ADD COLUMN
-            # 注意: ALTER TABLE 被访问控制层归为 "destructive"，必须通过
-            # raw_connection 绕过 AccessControlledConnection 的权限检查
+            # M9: 改用 execute_ddl 显式越权通道 (替代 raw_connection 绕过访问控制)
             raw_conn = conn.raw_connection
             existing_cols = {
                 row[1] for row in raw_conn.execute("PRAGMA table_info(order_label)").fetchall()
@@ -466,8 +465,11 @@ class SqliteFillWriteRepository(BaseRepository):
             cols = list(df.columns)
             for col in cols:
                 if col not in existing_cols:
-                    logger.info("order_label 表缺少列 %s，通过 raw_connection 自动添加", col)
-                    raw_conn.execute(f'ALTER TABLE order_label ADD COLUMN "{col}" TEXT')
+                    logger.info("order_label 表缺少列 %s，通过 execute_ddl 自动添加", col)
+                    self._mgr.execute_ddl(
+                        target_db or "processed_fills",
+                        f'ALTER TABLE order_label ADD COLUMN "{col}" TEXT',
+                    )
 
             placeholders = ", ".join(["?"] * len(cols))
             col_names = ", ".join(f'"{c}"' for c in cols)
