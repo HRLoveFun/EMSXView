@@ -75,6 +75,8 @@ class Settings:
 
     # Development mode
     BYPASS_AUTH: bool = os.getenv("BYPASS_AUTH", "false").lower() == "true"
+    # DEBUG 模式下 API 响应透传内部异常 detail (默认遮蔽)
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"

@@ -12,7 +12,7 @@ import pandas as pd
 
 from DataPipeline.storage.repositories.raw_fills import SqliteRawFillReadRepository
 from DataPipeline.storage.repositories.raw_fills import SqliteRawFillWriteRepository
-from CostView.tests.testing_helpers import create_temp_db
+from CostView.tests.testing_helpers import close_temp_db, create_temp_db
 
 
 class SqliteRawFillReadRepositoryTest(unittest.TestCase):
@@ -25,6 +25,7 @@ class SqliteRawFillReadRepositoryTest(unittest.TestCase):
         self.write_repo = SqliteRawFillWriteRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def _insert_raw_row(self, date_str: str, order_id: str = "ORD001",
@@ -118,6 +119,7 @@ class SqliteRawFillWriteRepositoryTest(unittest.TestCase):
         self.read_repo = SqliteRawFillReadRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def test_upsert_raw_api_data(self):
@@ -194,5 +196,7 @@ class SqliteRawFillWriteRepositoryTest(unittest.TestCase):
         self.write_repo.upsert_raw_api_data(fills, source_date="20260408")
         df = self.read_repo.get_fills_for_source_date("20260408")
         self.assertEqual(df.iloc[0]["Ticker"], "AAPL")
-        self.assertEqual(df.iloc[0]["FillPrice"], "100.50")
-        self.assertEqual(df.iloc[0]["FillShares"], "200")
+        # 仓储层将价格/数量规范化为数值列（REAL），EMSX 原始字符串输入
+        # 读回后为数值类型，按数值断言
+        self.assertEqual(df.iloc[0]["FillPrice"], 100.5)
+        self.assertEqual(df.iloc[0]["FillShares"], 200)

@@ -9,9 +9,10 @@ See docs/spec/data-domain.md for WBS-08 contract specification.
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Shared metadata model (contracts 1-3) ───────────────────────────────────
@@ -86,15 +87,35 @@ class MarketToExecutionPublishRequest(BaseModel):
 
 
 class PostTradeHandoffRequest(BaseModel):
-    order_id: str = Field(min_length=1)
-    parent_execution_id: Optional[str] = None
-    broker: Optional[str] = None
-    strategy: Optional[str] = None
-    asset_class: Optional[str] = None
-    urgency: Optional[str] = None
-    route_ids: list[str] = Field(default_factory=list)
+    order_id: str = Field(min_length=1, max_length=64)
+    parent_execution_id: Optional[str] = Field(default=None, max_length=64)
+    broker: Optional[str] = Field(default=None, max_length=64)
+    strategy: Optional[str] = Field(default=None, max_length=64)
+    asset_class: Optional[str] = Field(default=None, max_length=32)
+    urgency: Optional[str] = Field(default=None, max_length=32)
+    route_ids: list[str] = Field(default_factory=list, max_length=1000)
     strategy_params: dict = Field(default_factory=dict)
-    candidate_trace_id: Optional[str] = None
+    candidate_trace_id: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("route_ids")
+    @classmethod
+    def _validate_route_ids(cls, v: list[str]) -> list[str]:
+        for rid in v:
+            if len(rid) > 64:
+                raise ValueError("route_id 长度超限 (max 64)")
+        return v
+
+    @field_validator("strategy_params")
+    @classmethod
+    def _validate_strategy_params(cls, v: dict) -> dict:
+        # 防护: 跨模块载荷大小上限 64KB, 防止无界 dict 撑爆内存/日志
+        try:
+            size = len(json.dumps(v, default=str))
+        except (TypeError, ValueError):
+            raise ValueError("strategy_params 无法序列化")
+        if size > 64 * 1024:
+            raise ValueError("strategy_params 大小超限 (max 64KB)")
+        return v
 
 
 class PostTradeHandoffPayload(BaseModel):

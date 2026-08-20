@@ -438,6 +438,11 @@ def main():
     is_dry = not args.confirm_shrink
     retention = args.months or Config.BDIB_HOT_RETENTION_MONTHS
 
+    # 防护: 保留月数必须 >= 1 — 负数会令 cutoff 计算错位 (删除未来日期)
+    if retention < 1:
+        logger.error("--months 必须 >= 1, 收到 %s", retention)
+        sys.exit(2)
+
     if not args.confirm_shrink:
         logger.info("*** DRY-RUN模式: 仅检查不修改 ***")
         logger.info("使用 --confirm-shrink 执行实际收缩")

@@ -221,6 +221,7 @@ class GuardPipeline:
                 breaker=breaker,
                 run_logger=self._run_logger,
                 policy=policy,
+                short_name=short_name,
             )
 
             # 将输出记录数注入上下文（供 GuardStage 校验使用）

@@ -39,6 +39,15 @@ _OUTPUT_COLUMNS = [
     "pnl_vwap", "pnl_vwap_continuous",
     "RPM", "RPM_continuous",
     "pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25",
+    # 003-tca-core-benchmarks: Phase 0 核心基准
+    "p_arrival", "p_close", "arrival_cost_bps", "close_cost_bps",
+    "opportunity_cost",
+    # 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击分解
+    "p_decision", "delay_cost", "trading_cost", "wagner_is", "wagner_is_bps",
+    "cost_stddev", "cost_p95", "cost_cvar",
+    "order_duration_sec", "exec_rate_shares_per_min",
+    "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
+    "perm_impact_bps", "recovery_truncated",
 ]
 
 
@@ -47,6 +56,7 @@ def compute_route_metrics_for_date(
     processed_fills_df: pd.DataFrame,
     raw_bdib_df: pd.DataFrame,
     date_str: str,
+    daily_summary_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """计算单个交易日的所有路由级 TCA 指标。
 
@@ -55,9 +65,11 @@ def compute_route_metrics_for_date(
         processed_fills_df: processed_fills 表数据，至少包含成交明细。
         raw_bdib_df: raw_bdib 表数据，包含市场分时行情。
         date_str: 交易日（YYYYMMDD），用于过滤和日志。
+        daily_summary_df: bdib_daily_summary 表数据（可选，Phase 0 起用于
+            收盘价基准；缺失时 p_close/close_cost_bps/opportunity_cost 保持 None）。
 
     Returns:
-        包含 34 个字段的 DataFrame，每行对应一个 (OrderId, RouteId, order_as_of_date)。
+        包含 55 个字段的 DataFrame，每行对应一个 (OrderId, RouteId, order_as_of_date)。
     """
     if raw_fills_df.empty or processed_fills_df.empty:
         return pd.DataFrame(columns=_OUTPUT_COLUMNS)
@@ -70,7 +82,10 @@ def compute_route_metrics_for_date(
     rows: list[dict[str, Any]] = []
 
     for route in routes:
-        row = _compute_route_metrics(route, processed_fills_df, raw_bdib_df, date_str)
+        row = _compute_route_metrics(
+            route, processed_fills_df, raw_bdib_df, date_str,
+            daily_summary_df=daily_summary_df,
+        )
         rows.append(row)
 
     return pd.DataFrame(rows, columns=_OUTPUT_COLUMNS)
@@ -96,11 +111,14 @@ def load_raw_bdib_for_date(
 
     Returns:
         包含 ``equ_ticker``、``order_as_of_date``、``mkt_timestamp``、
-        ``volume``、``value`` 的 DataFrame。
+        ``volume``、``value``、``close``、``open`` 的 DataFrame。
     """
     db_path = raw_bdib_db_path or Config.RAW_BDIB_DB
     parquet_dir = parquet_dir or Config.BDIB_PARQUET_DIR
-    columns = ["equ_ticker", "order_as_of_date", "mkt_timestamp", "volume", "value"]
+    columns = [
+        "equ_ticker", "order_as_of_date", "mkt_timestamp",
+        "volume", "value", "close", "open",
+    ]
     requested_tickers = set(equ_tickers) if equ_tickers else set()
 
     # 1. 优先从 SQLite 热数据读取
@@ -183,6 +201,7 @@ def _build_source_values(
         "OrderId", "RouteId", "order_as_of_date", "Exchange", "Account",
         "Currency", "Side", "Amount", "RouteShares", "Type", "LimitPrice",
         "StopPrice", "Broker", "StrategyType", "TraderName",
+        "NyOrderCreateAsOfDateTime",
     ]
     for col in raw_source_cols:
         if col not in raw.columns:
@@ -201,6 +220,7 @@ def _build_source_values(
         Broker=("Broker", lambda x: _first_non_null(x)),
         StrategyType=("StrategyType", lambda x: _first_non_null(x)),
         TraderName=("TraderName", lambda x: _first_non_null(x)),
+        NyOrderCreateAsOfDateTime=("NyOrderCreateAsOfDateTime", lambda x: _first_non_null(x)),
     )
 
     proc = processed_fills_df[processed_fills_df["order_as_of_date"] == date_str].copy()
@@ -251,8 +271,9 @@ def _compute_route_metrics(
     processed_fills_df: pd.DataFrame,
     raw_bdib_df: pd.DataFrame,
     date_str: str,
+    daily_summary_df: Optional[pd.DataFrame] = None,
 ) -> dict[str, Any]:
-    """计算单个路由的 34 个字段。"""
+    """计算单个路由的 55 个字段。"""
     order_id = route["OrderId"]
     route_id = route["RouteId"]
 
@@ -325,6 +346,78 @@ def _compute_route_metrics(
     # RPM
     result["RPM"] = _compute_rpm(fills, result["p_avg"], total_fill, side)
     result["RPM_continuous"] = _compute_rpm(continuous_fills, result["p_avg_continuous"], result["fill_continuous"], side)
+
+    # ── 003-tca-core-benchmarks: Phase 0 核心基准（flag 门控）──
+    if Config.TCA_CORE_BENCHMARKS_ENABLED:
+        # 到达价 P0：首笔成交时间之前最近 bar 的 close
+        p_arrival = _compute_arrival_price(all_bars, first_fill_time)
+        result["p_arrival"] = p_arrival
+        # 收盘价 Pn：bdib_daily_summary.daily_close（缺省回退到当日最后 bar close）
+        p_close = _compute_close_price(daily_summary_df, equ_ticker, date_str, all_bars)
+        result["p_close"] = p_close
+
+        result["arrival_cost_bps"] = _pnl_in_bps(p_arrival, result["p_avg"], side_sign)
+        result["close_cost_bps"] = _pnl_in_bps(p_close, result["p_avg"], side_sign)
+
+        # 机会成本 = (RouteShares - fill) * (Pn - P0) * side_sign
+        route_shares = route.get("RouteShares")
+        if route_shares is not None and p_arrival is not None and p_close is not None and side_sign != 0:
+            try:
+                unexecuted = float(route_shares) - total_fill
+                result["opportunity_cost"] = unexecuted * (p_close - p_arrival) * side_sign
+            except (TypeError, ValueError):
+                result["opportunity_cost"] = None
+
+        # ── 003-tca-core-benchmarks: Phase 1（flag 门控）──
+        if Config.TCA_RISK_IMPACT_ENABLED:
+            # 决策价 Pd：NyOrderCreateAsOfDateTime 之前最近 bar close；盘前取首 bar open
+            order_create = route.get("NyOrderCreateAsOfDateTime")
+            p_decision = _compute_decision_price(all_bars, order_create, exchange_code)
+            result["p_decision"] = p_decision
+
+            # Wagner IS 分解（全部为货币成本，单位与成交价一致）
+            if p_decision is not None and side_sign != 0:
+                route_shares = route.get("RouteShares")
+                if route_shares is not None:
+                    try:
+                        rs = float(route_shares)
+                        result["delay_cost"] = rs * (p_arrival - p_decision) * side_sign if p_arrival is not None else None
+                    except (TypeError, ValueError):
+                        result["delay_cost"] = None
+                result["trading_cost"] = (
+                    total_fill * (result["p_avg"] - p_arrival) * side_sign
+                    if p_arrival is not None and result["p_avg"] is not None
+                    else None
+                )
+                # wagner_is = delay + trading + opportunity
+                parts = [result.get("delay_cost"), result.get("trading_cost"), result.get("opportunity_cost")]
+                if all(p is not None for p in parts):
+                    result["wagner_is"] = parts[0] + parts[1] + parts[2]
+                    if p_decision != 0:
+                        try:
+                            result["wagner_is_bps"] = result["wagner_is"] / (rs * p_decision) * 10000
+                        except (TypeError, ZeroDivisionError):
+                            result["wagner_is_bps"] = None
+
+            # 风险维度：fill_bdib cum_slippage_bps 时间序列
+            risk_metrics = _compute_risk_metrics(
+                processed_fills_df, order_id, route_id, date_str
+            )
+            result.update(risk_metrics)
+
+            # 订单历时与执行速率
+            duration, rate = _compute_order_duration(fills, total_fill, exchange_code)
+            result["order_duration_sec"] = duration
+            result["exec_rate_shares_per_min"] = rate
+
+            # 暂时/永久冲击分解（4 恢复窗口：5/10/30min + 次日收盘）
+            impact = _compute_impact_metrics(
+                all_bars, daily_summary_df, result["p_avg"],
+                p_arrival, last_fill_time, side_sign, date_str,
+                equ_ticker,
+            )
+            for col, val in impact.items():
+                result[col] = val
 
     return result
 
@@ -581,3 +674,306 @@ def _compute_rpm(
         return None
 
     return float(better / fill_total) if fill_total > 0 else None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 003-tca-core-benchmarks: Phase 0 + Phase 1 新增计算函数
+# 理论依据: Perold (1988) "The Implementation Shortfall"; Kissell (2014)
+# *The Science of Algorithmic Trading and Portfolio Management* §3.7-3.13
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _compute_arrival_price(
+    all_bars: Optional[pd.DataFrame],
+    first_fill_time: Optional[str],
+) -> Optional[float]:
+    """到达价 P0：首笔成交时间之前最近 bar 的 close。
+
+    理论依据: Kissell (2014) §3.11 Arrival Cost —— P0 为订单进入市场时点
+    的市场价格。取首笔成交前最近 10s bar 的 close 作为到达价。
+
+    边界处理:
+    - 首笔成交在开盘前（无更早 bar）→ 取当日首个 bar 的 close
+    - 无 BDIB 数据 / 无成交时间 → None
+    """
+    if all_bars is None or all_bars.empty or first_fill_time is None:
+        return None
+    prior = all_bars[all_bars["mkt_timestamp"] < first_fill_time]
+    if not prior.empty:
+        last = prior.sort_values("mkt_timestamp").iloc[-1]
+        return float(last["close"]) if pd.notna(last["close"]) else None
+    # 首笔成交在开盘前或正好等于首 bar 时间：取当日首 bar close 作为到达参考价
+    first = all_bars.sort_values("mkt_timestamp").iloc[0]
+    return float(first["close"]) if pd.notna(first["close"]) else None
+
+
+def _compute_close_price(
+    daily_summary_df: Optional[pd.DataFrame],
+    equ_ticker: Optional[str],
+    date_str: str,
+    all_bars: Optional[pd.DataFrame] = None,
+) -> Optional[float]:
+    """收盘价 Pn：bdib_daily_summary.daily_close。
+
+    理论依据: Kissell (2014) §3.13 Benchmark PnL —— 收盘价基准用于
+    端到端跟踪误差评估。
+
+    数据源优先级:
+    1. bdib_daily_summary.daily_close（Bloomberg PX_LAST，权威值）
+    2. 回退：raw_bdib 当日最后一个 bar 的 close（当 S7 未跑时，
+       用日内收盘 bar 近似，保证 p_close 覆盖率不依赖 Bloomberg 补跑）
+    """
+    if equ_ticker:
+        if daily_summary_df is not None and not daily_summary_df.empty:
+            # 兼容 trade_date 的 YYYYMMDD / YYYY-MM-DD 两种格式
+            match = daily_summary_df[
+                (daily_summary_df["equ_ticker"] == equ_ticker)
+                & (daily_summary_df["trade_date"].astype(str).str.replace("-", "", regex=False) == date_str)
+            ]
+            if not match.empty:
+                val = match.iloc[0].get("daily_close")
+                if val is not None and not pd.isna(val):
+                    return float(val)
+
+    # 回退：取当日最后一个 bar 的 close（收盘集合竞价后的最后价格）
+    if all_bars is not None and not all_bars.empty:
+        last = all_bars.sort_values("mkt_timestamp").iloc[-1]
+        if pd.notna(last.get("close")):
+            return float(last["close"])
+    return None
+
+
+def _compute_decision_price(
+    all_bars: Optional[pd.DataFrame],
+    order_create: Optional[Any],
+    exchange_code: Optional[str],
+) -> Optional[float]:
+    """决策价 Pd：订单创建时间（NyOrderCreateAsOfDateTime）之前最近 bar close。
+
+    理论依据: Perold (1988) "The Implementation Shortfall: Paper versus Reality"
+    —— Pd 为投资决策时点的市场价格，用于 Wagner IS 的延迟成本分量
+    （Kissell 2014 §3.7）。
+
+    边界处理:
+    - 订单在盘前创建（无更早 bar）→ 取当日首个 bar 的 open（开盘参考价）
+    - 无 NyOrderCreateAsOfDateTime / 转换失败 → None
+    """
+    if all_bars is None or all_bars.empty or order_create is None:
+        return None
+    if isinstance(order_create, str) and not order_create.strip():
+        return None
+    try:
+        # 与 _get_fill_time 保持一致：用 Series + batch_convert_ny_to_local 处理字符串时间戳
+        s = pd.Series([order_create])
+        local_dts = batch_convert_ny_to_local(s, pd.Series([exchange_code], index=s.index))
+        local_dt = local_dts.iloc[0]
+    except (ValueError, TypeError, KeyError):
+        return None
+    if local_dt is None or pd.isna(local_dt):
+        return None
+    local_time = local_dt.strftime(Config.TIME_FORMAT)
+    prior = all_bars[all_bars["mkt_timestamp"] < local_time]
+    if not prior.empty:
+        last = prior.sort_values("mkt_timestamp").iloc[-1]
+        return float(last["close"]) if pd.notna(last["close"]) else None
+    # 盘前订单：取当日首 bar 的 open 作为决策参考价
+    first = all_bars.sort_values("mkt_timestamp").iloc[0]
+    return float(first["open"]) if pd.notna(first["open"]) else None
+
+
+def _compute_risk_metrics(
+    processed_fills_df: pd.DataFrame,
+    order_id: str,
+    route_id: str,
+    date_str: str,
+) -> dict[str, Optional[float]]:
+    """成本风险维度：从成交时间序列计算成本标准差 / P95 / CVaR。
+
+    理论依据: Bertsimas & Lo (1998) "Optimal Control of Execution Costs";
+    Almgren & Chriss (1999) "Optimal Execution of Portfolio Transactions"
+    —— 成本-风险权衡需报告成本分布的离散程度与尾部风险。
+
+    实现: 用 processed_fills 中该路由每笔成交的 FillPrice 偏离 p_avg 的
+    bps 序列近似 cum_slippage 分布（pipeline 未直接落库逐笔 slippage 时）。
+    """
+    result: dict[str, Optional[float]] = {
+        "cost_stddev": None, "cost_p95": None, "cost_cvar": None,
+    }
+    fills = processed_fills_df[
+        (processed_fills_df["OrderId"] == order_id)
+        & (processed_fills_df["RouteId"] == route_id)
+        & (processed_fills_df["order_as_of_date"] == date_str)
+    ]
+    if fills.empty or "FillPrice" not in fills.columns:
+        return result
+    prices = pd.to_numeric(fills["FillPrice"], errors="coerce").dropna()
+    shares = pd.to_numeric(fills["FillShares"], errors="coerce")
+    mask = prices.index.isin(shares[shares > 0].index)
+    prices = prices[mask]
+    if prices.empty or len(prices) < 2:
+        return result
+    p_avg = float((prices * shares.loc[prices.index]).sum() / shares.loc[prices.index].sum())
+    if p_avg <= 0:
+        return result
+    bps = (prices / p_avg - 1.0) * 10000.0
+    result["cost_stddev"] = float(bps.std(ddof=1)) if len(bps) >= 2 else None
+    result["cost_p95"] = float(np.percentile(bps, 95))
+    tail = bps[bps > result["cost_p95"]]
+    result["cost_cvar"] = float(tail.mean()) if not tail.empty else result["cost_p95"]
+    return result
+
+
+def _compute_order_duration(
+    fills: pd.DataFrame,
+    total_fill: float,
+    exchange_code: Optional[str],
+) -> tuple[Optional[float], Optional[float]]:
+    """订单历时（秒）与执行速率（股/分钟）。
+
+    历时 = 首笔成交 → 末笔成交（本地交易所时间）。
+    执行速率 = 总成交股数 / (历时/60)。
+    """
+    if fills.empty:
+        return None, None
+    times = []
+    if "DateTimeOfFill" in fills.columns and not fills["DateTimeOfFill"].isna().all():
+        try:
+            local_dts = batch_convert_ny_to_local(
+                fills["DateTimeOfFill"],
+                pd.Series([exchange_code] * len(fills), index=fills.index),
+            )
+            times = local_dts.dt.strftime(Config.TIME_FORMAT).dropna().tolist()
+        except ValueError:
+            times = []
+    if len(times) < 2:
+        return None, None
+    try:
+        t_first = pd.to_datetime(min(times), format=Config.TIME_FORMAT)
+        t_last = pd.to_datetime(max(times), format=Config.TIME_FORMAT)
+        duration_sec = float((t_last - t_first).total_seconds())
+    except (ValueError, TypeError):
+        return None, None
+    if duration_sec <= 0 or total_fill is None or total_fill <= 0:
+        return duration_sec if duration_sec > 0 else None, None
+    rate = total_fill / (duration_sec / 60.0)
+    return duration_sec, rate
+
+
+def _compute_recovery_price(
+    all_bars: Optional[pd.DataFrame],
+    last_fill_time: Optional[str],
+    recovery_minutes: int,
+) -> tuple[Optional[float], bool]:
+    """恢复价格：末笔成交 + N 分钟后的最近 bar close。
+
+    返回 (recovery_price, truncated)。truncated=True 表示末笔成交 + N 分钟
+    已超出当日最后 bar。越界时本函数返回当日最后 bar close 仅作占位，
+    调用方（_compute_impact_metrics）会改用次日收盘价作为跨日恢复价格。
+    """
+    if all_bars is None or all_bars.empty or last_fill_time is None:
+        return None, False
+    try:
+        base = pd.to_datetime(last_fill_time, format=Config.TIME_FORMAT)
+        target = base + pd.Timedelta(minutes=recovery_minutes)
+    except (ValueError, TypeError):
+        return None, False
+    target_str = target.strftime(Config.TIME_FORMAT)
+    after = all_bars[all_bars["mkt_timestamp"] >= target_str]
+    if not after.empty:
+        first = after.sort_values("mkt_timestamp").iloc[0]
+        return (float(first["close"]) if pd.notna(first["close"]) else None), False
+    # 越界：取当日最后 bar close，标记截断
+    last = all_bars.sort_values("mkt_timestamp").iloc[-1]
+    return (float(last["close"]) if pd.notna(last["close"]) else None), True
+
+
+def _get_next_day_close(
+    daily_summary_df: Optional[pd.DataFrame],
+    equ_ticker: Optional[str],
+    date_str: str,
+) -> Optional[float]:
+    """次日收盘价（跨日恢复窗口）：下一交易日的 daily_close。
+
+    理论依据: 论文 B2.2 市场冲击 —— 用次日收盘价区分暂时/永久冲击
+    （Almgren & Chriss 1999; Obizhaeva & Wang 2013）。跨日数据通过
+    bdib_daily_summary 的逐日 daily_close 获取。
+    """
+    if daily_summary_df is None or daily_summary_df.empty or not equ_ticker:
+        return None
+    ticker_df = daily_summary_df[daily_summary_df["equ_ticker"] == equ_ticker].copy()
+    if ticker_df.empty:
+        return None
+    ticker_df["trade_date_compact"] = (
+        ticker_df["trade_date"].astype(str).str.replace("-", "", regex=False)
+    )
+    target_dates = ticker_df["trade_date_compact"].sort_values().tolist()
+    if date_str not in target_dates:
+        return None
+    idx = target_dates.index(date_str)
+    if idx + 1 >= len(target_dates):
+        return None  # 无下一交易日数据
+    next_row = ticker_df[ticker_df["trade_date_compact"] == target_dates[idx + 1]]
+    if next_row.empty:
+        return None
+    val = next_row.iloc[0].get("daily_close")
+    if pd.isna(val):
+        return None
+    return float(val)
+
+
+def _compute_impact_metrics(
+    all_bars: Optional[pd.DataFrame],
+    daily_summary_df: Optional[pd.DataFrame],
+    p_avg: Optional[float],
+    p_arrival: Optional[float],
+    last_fill_time: Optional[str],
+    side_sign: int,
+    date_str: str,
+    equ_ticker: Optional[str],
+) -> dict[str, Any]:
+    """暂时/永久市场冲击分解（4 恢复窗口：5/10/30min + 次日收盘）。
+
+    理论依据:
+    - 暂时冲击: Obizhaeva & Wang (2013) "Optimal Trading Strategy and
+      Supply/Demand Dynamics" —— 流动性消耗导致的暂时价格偏离，随时间恢复
+    - 永久冲击: Gatheral (2010) "No-Dynamic-Arbitrage and Market Impact"
+      —— 信息含量导致的永久价格移动
+
+    4 恢复窗口:
+    - 暂时冲击: 执行结束后 5/10/30min 恢复价格 vs 成交均价；
+      末笔成交 + N min 越出当日最后 bar 时改用次日收盘价
+      （跨日/隔夜恢复，recovery_truncated=1 标记）
+    - 永久冲击: 次日收盘价 vs 到达价（跨日区分暂时/永久，决策#4）
+    """
+    result: dict[str, Any] = {
+        "temp_impact_5min_bps": None,
+        "temp_impact_10min_bps": None,
+        "temp_impact_30min_bps": None,
+        "perm_impact_bps": None,
+        "recovery_truncated": 0,
+    }
+    if p_avg is None or p_avg == 0 or side_sign == 0:
+        return result
+
+    # 次日收盘（跨日恢复价格）：窗口越界时替代当日最后 bar 近似
+    next_close = _get_next_day_close(daily_summary_df, equ_ticker, date_str)
+
+    # 暂时冲击：执行结束后 5/10/30min 恢复价格 vs 成交均价。
+    # 订单成交时刻是客观事实，恢复窗口定义不变；仅当末笔成交 + N min
+    # 越出当日最后 bar 时，恢复价格改用次日收盘价（隔夜恢复，
+    # Almgren & Chriss 1999 / Obizhaeva & Wang 2013），并标记 truncated。
+    truncated = False
+    for minutes, col in ((5, "temp_impact_5min_bps"), (10, "temp_impact_10min_bps"), (30, "temp_impact_30min_bps")):
+        recovery, is_trunc = _compute_recovery_price(all_bars, last_fill_time, minutes)
+        if is_trunc:
+            truncated = True
+            recovery = next_close
+        if recovery is not None and recovery != 0:
+            result[col] = _pnl_in_bps(recovery, p_avg, side_sign)
+    result["recovery_truncated"] = 1 if truncated else 0
+
+    # 永久冲击：次日收盘价 vs 到达价（跨日恢复窗口，决策#4）
+    if next_close is not None and p_arrival is not None and p_arrival != 0:
+        result["perm_impact_bps"] = (next_close / p_arrival - 1.0) * side_sign * 10000.0
+
+    return result

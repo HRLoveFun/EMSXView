@@ -5,6 +5,7 @@ import type {
   ScorecardReport,
   ScorecardRequestPayload,
   TcaAnalyzeRequest,
+  TcaOrderAggregate,
   TcaReport,
   TcaReportSummary,
   TriggerUpdateResponse,
@@ -78,6 +79,31 @@ export async function triggerUpdate(): Promise<TriggerUpdateResponse> {
   }
 
   return response.json() as Promise<TriggerUpdateResponse>;
+}
+
+/** 003-tca-core-benchmarks: Order 级 TCA 聚合查询 */
+export interface TcaOrderReport {
+  filters: TcaAnalyzeRequest['filters'] & { aggregation: string; limit: number; offset: number };
+  total_orders: number;
+  offset: number;
+  limit: number;
+  generated_at: string;
+  orders: TcaOrderAggregate[];
+}
+
+export async function analyzeTcaOrders(request: TcaAnalyzeRequest): Promise<TcaOrderReport> {
+  const response = await fetch(`${API_BASE_URL}/api/tca/analyze-orders`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as TcaOrderReport;
 }
 
 export async function getUpdateStatus(jobId: string): Promise<UpdateStatusResponse> {

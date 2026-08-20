@@ -21,7 +21,8 @@ from DataPipeline.orchestration.stages_ingest import (
     AggregateFillsStage, GenerateOrderLabelsStage,
 )
 from DataPipeline.orchestration.stages_process import (
-    IntegrateBDIBStage, WriteManifestStage, CalculateDailyMetricsStage,
+    ComputeRouteMetricsStage, IntegrateBDIBStage, WriteManifestStage,
+    CalculateDailyMetricsStage,
 )
 from DataPipeline.orchestration.stages_analysis import (
     RegimeDailyFeaturesStage, RegimeFillTaggerStage, AttributionMetricsStage,
@@ -270,9 +271,10 @@ class PipelineFactoryTest(unittest.TestCase):
         """E2E pipeline with BDIB includes extra stages."""
         pipeline = PipelineFactory.create_daily_e2e_pipeline(skip_bdib=False)
         stages = pipeline._stages
-        self.assertEqual(len(stages), 6)
+        self.assertEqual(len(stages), 7)
         self.assertIsInstance(stages[3], IntegrateBDIBStage)
-        self.assertIsInstance(stages[4], CalculateDailyMetricsStage)
+        self.assertIsInstance(stages[4], ComputeRouteMetricsStage)
+        self.assertIsInstance(stages[5], CalculateDailyMetricsStage)
 
     def test_create_daily_e2e_pipeline_with_ingest(self):
         """E2E pipeline with ingest includes IngestExcelStage at start."""

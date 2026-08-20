@@ -56,7 +56,7 @@ class TcaFilters:
 
 @dataclass
 class TcaRouteSummary:
-    """路由级 TCA 汇总，严格匹配新 schema 35 个字段（17 源值 + 18 计算指标）。"""
+    """路由级 TCA 汇总，严格匹配新 schema 55 个字段（17 源值 + 38 计算指标）。"""
     # ── Group 1: Source values (17) ──
     OrderId: str
     RouteId: str
@@ -95,6 +95,28 @@ class TcaRouteSummary:
     pwp_15: Optional[str | float]
     pwp_20: Optional[str | float]
     pwp_25: Optional[str | float]
+    # ── 003-tca-core-benchmarks: Phase 0 核心基准 (5) ──
+    p_arrival: Optional[float] = None
+    p_close: Optional[float] = None
+    arrival_cost_bps: Optional[float] = None
+    close_cost_bps: Optional[float] = None
+    opportunity_cost: Optional[float] = None
+    # ── 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击 (15) ──
+    p_decision: Optional[float] = None
+    delay_cost: Optional[float] = None
+    trading_cost: Optional[float] = None
+    wagner_is: Optional[float] = None
+    wagner_is_bps: Optional[float] = None
+    cost_stddev: Optional[float] = None
+    cost_p95: Optional[float] = None
+    cost_cvar: Optional[float] = None
+    order_duration_sec: Optional[float] = None
+    exec_rate_shares_per_min: Optional[float] = None
+    temp_impact_5min_bps: Optional[float] = None
+    temp_impact_10min_bps: Optional[float] = None
+    temp_impact_30min_bps: Optional[float] = None
+    perm_impact_bps: Optional[float] = None
+    recovery_truncated: Optional[int] = None
     # 附加时序数据（非数据库列，供前端图表使用）
     time_series: list[dict] = field(default_factory=list)
 
@@ -148,6 +170,61 @@ class TcaOrderSummary:
     price_movement_pct: Optional[float]
     data_quality_warning: bool = False
     routes: list[TcaRouteDetail] = field(default_factory=list)
+
+
+@dataclass
+class TcaOrderAggregate:
+    """Order 级 TCA 汇总（由 route 值按聚合策略合并，003-tca-core-benchmarks）。
+
+    聚合规则（详见 specs/003-tca-core-benchmarks/plan.md §3.2）:
+    - 货币成本 (delay/trading/opportunity/wagner_is): SUM
+    - 价格基准 (p_arrival/p_decision/p_close): 最早 route 取值
+    - bps 绩效 (arrival/close/temp/perm_impact): 成交额加权平均
+    - 完成率 (fill): Σfill / Σroute_shares
+    - 风险 (cost_stddev/p95/cvar): 各 route 独立，order 取 max（保守）
+    - 时点 (order_duration_sec): min(route_as_of) → max(last_fill)
+    - 执行速率: Σfill / (duration/60)
+    """
+    OrderId: str
+    order_as_of_date: str
+    equ_ticker: Optional[str]
+    Exchange: Optional[str]
+    Side: Optional[str]
+    Broker: Optional[str]
+    algo: Optional[str]
+    TraderName: Optional[str]
+    route_count: int
+    fill_count: Optional[int] = None
+    # 货币成本（SUM）
+    delay_cost: Optional[float] = None
+    trading_cost: Optional[float] = None
+    opportunity_cost: Optional[float] = None
+    wagner_is: Optional[float] = None
+    # 价格基准（最早 route）
+    p_arrival: Optional[float] = None
+    p_decision: Optional[float] = None
+    p_close: Optional[float] = None
+    # bps 绩效（成交额加权）
+    arrival_cost_bps: Optional[float] = None
+    close_cost_bps: Optional[float] = None
+    wagner_is_bps: Optional[float] = None
+    temp_impact_5min_bps: Optional[float] = None
+    temp_impact_10min_bps: Optional[float] = None
+    temp_impact_30min_bps: Optional[float] = None
+    perm_impact_bps: Optional[float] = None
+    # 完成率 / 参与率
+    fill: Optional[float] = None
+    route_shares: Optional[float] = None
+    par_rate: Optional[float] = None
+    # 风险（order 取 max，保守）
+    cost_stddev: Optional[float] = None
+    cost_p95: Optional[float] = None
+    cost_cvar: Optional[float] = None
+    # 时点 / 速率
+    order_duration_sec: Optional[float] = None
+    exec_rate_shares_per_min: Optional[float] = None
+    # 附加
+    recovery_truncated: Optional[int] = None
 
 
 @dataclass

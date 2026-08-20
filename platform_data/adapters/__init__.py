@@ -51,6 +51,7 @@ from platform_data.contracts import (
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
+    TcaOrderAggregate,
     TcaReport,
     TcaRouteSummary,
 )

@@ -21,6 +21,23 @@ function fmtBps(value: number | null | undefined): string {
   return `${prefix}${value.toFixed(1)} bps`;
 }
 
+function fmtCurrency(value: number | null | undefined): string {
+  if (value == null) return '—';
+  const abs = Math.abs(value);
+  const prefix = value > 0 ? '+' : value < 0 ? '-' : '';
+  if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(1)}K`;
+  return `${prefix}${abs.toFixed(0)}`;
+}
+
+function fmtDurationSec(value: number | null | undefined): string {
+  if (value == null) return '—';
+  if (value < 60) return `${value.toFixed(0)}s`;
+  const min = Math.floor(value / 60);
+  const sec = Math.round(value % 60);
+  return `${min}m${sec}s`;
+}
+
 function routeKey(route: TcaRouteSummary): string {
   return `${route.order_id}/${route.route_id}/${route.order_as_of_date}`;
 }
@@ -40,7 +57,7 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1160px] text-sm">
+        <table className="w-full min-w-[1640px] text-sm">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="sticky left-0 z-10 bg-muted/50 px-3 py-3 text-left font-medium">Order · Route</th>
@@ -50,6 +67,13 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
               <th className="px-3 py-3 text-left font-medium">Alert</th>
               <th className="px-3 py-3 text-right font-medium">Fill %</th>
               <th className="px-3 py-3 text-right font-medium">Pnl VWAP</th>
+              <th className="px-3 py-3 text-right font-medium">Arrival Cost</th>
+              <th className="px-3 py-3 text-right font-medium">Close Cost</th>
+              <th className="px-3 py-3 text-right font-medium">Wagner IS</th>
+              <th className="px-3 py-3 text-right font-medium">Cost SD</th>
+              <th className="px-3 py-3 text-right font-medium">Duration</th>
+              <th className="px-3 py-3 text-right font-medium">Temp Imp 5m</th>
+              <th className="px-3 py-3 text-right font-medium">Perm Imp</th>
               <th className="px-3 py-3 text-right font-medium">Par Rate</th>
               <th className="px-3 py-3 text-right font-medium">Par Rate (Cont)</th>
               <th className="px-3 py-3 text-right font-medium">RPM</th>
@@ -87,6 +111,13 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                       {fmtBps(route.pnl_vwap)}
                     </span>
                   </td>
+                  <td className="px-3 py-3 text-right" title={route.p_arrival != null ? `P₀ ${route.p_arrival.toFixed(2)}` : undefined}>{fmtBps(route.arrival_cost_bps)}</td>
+                  <td className="px-3 py-3 text-right" title={route.p_close != null ? `Pn ${route.p_close.toFixed(2)}` : undefined}>{fmtBps(route.close_cost_bps)}</td>
+                  <td className="px-3 py-3 text-right" title={route.wagner_is_bps != null ? `${fmtBps(route.wagner_is_bps)} · $${fmtCurrency(route.wagner_is)}` : undefined}>{fmtCurrency(route.wagner_is)}</td>
+                  <td className="px-3 py-3 text-right">{route.cost_stddev != null ? `${route.cost_stddev.toFixed(1)} bps` : '—'}</td>
+                  <td className="px-3 py-3 text-right">{fmtDurationSec(route.order_duration_sec)}</td>
+                  <td className="px-3 py-3 text-right">{fmtBps(route.temp_impact_5min_bps)}</td>
+                  <td className="px-3 py-3 text-right">{fmtBps(route.perm_impact_bps)}</td>
                   <td className="px-3 py-3 text-right">{fmtPercent((route.par_rate ?? 0) * 100, 2)}</td>
                   <td className="px-3 py-3 text-right">{fmtPercent((route.par_rate_continuous ?? 0) * 100, 2)}</td>
                   <td className="px-3 py-3 text-right">{fmtNum(route.rpm)}</td>

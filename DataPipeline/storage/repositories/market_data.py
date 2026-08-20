@@ -109,6 +109,65 @@ class SqliteMarketDataReadRepository(BaseRepository):
         finally:
             conn.close()
 
+    def get_daily_summary_for_date(
+        self, trade_date: str,
+    ) -> pd.DataFrame:
+        """Return all bdib_daily_summary rows for a given trade_date.
+
+        用于 TCA 路由指标计算（003-tca-core-benchmarks）：按交易日一次性
+        读取全部 ticker 的 daily_close，避免逐 ticker 查询的 N+1 开销。
+        trade_date 兼容 YYYYMMDD 与 YYYY-MM-DD 两种格式（做前缀匹配）。
+        """
+        conn = self._get_read_conn()
+        try:
+            compact = trade_date.replace("-", "")
+            rows = pd.read_sql_query(
+                "SELECT * FROM bdib_daily_summary ORDER BY trade_date",
+                conn.raw_connection,
+            )
+            if rows.empty:
+                return rows
+            rows["_trade_date_compact"] = (
+                rows["trade_date"].astype(str).str.replace("-", "", regex=False)
+            )
+            matched = rows[rows["_trade_date_compact"] == compact]
+            return matched.drop(columns=["_trade_date_compact"])
+        finally:
+            conn.close()
+
+    def get_daily_summary_for_date_range(
+        self, start_date: str, end_date: str,
+        equ_tickers: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        """Return bdib_daily_summary rows within [start_date, end_date].
+
+        003-tca-core-benchmarks: TCA 路由指标计算需一次加载区间内全部 ticker
+        的 daily_close（当日收盘基准 + 跨日次日收盘恢复窗口），避免逐 ticker
+        N+1 查询。trade_date 兼容 YYYYMMDD 与 YYYY-MM-DD 两种格式。
+        """
+        conn = self._get_read_conn()
+        try:
+            rows = pd.read_sql_query(
+                "SELECT * FROM bdib_daily_summary ORDER BY trade_date",
+                conn.raw_connection,
+            )
+            if rows.empty:
+                return rows
+            rows["_trade_date_compact"] = (
+                rows["trade_date"].astype(str).str.replace("-", "", regex=False)
+            )
+            start_compact = start_date.replace("-", "")
+            end_compact = end_date.replace("-", "")
+            mask = (rows["_trade_date_compact"] >= start_compact) & (
+                rows["_trade_date_compact"] <= end_compact
+            )
+            if equ_tickers:
+                mask = mask & rows["equ_ticker"].isin(equ_tickers)
+            matched = rows[mask]
+            return matched.drop(columns=["_trade_date_compact"])
+        finally:
+            conn.close()
+
     def get_latest_daily_summary(
         self, limit: int = 25, trade_date: Optional[str] = None,
     ) -> pd.DataFrame:

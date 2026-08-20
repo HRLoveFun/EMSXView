@@ -29,6 +29,8 @@ from .columns import (
     ROUTE_EVENT_HISTORY_COLUMNS,
     ROUTE_HISTORY_COLUMNS,
     ROUTE_REGISTRY_COLUMNS,
+    TCA_CORE_BENCHMARKS_COLUMNS,
+    TCA_RISK_IMPACT_COLUMNS,
     TCA_ROUTE_SUMMARY_COLUMNS,
 )
 
@@ -511,7 +513,70 @@ def init_tca_route_summary_schema(conn: sqlite3.Connection) -> None:
         ON {Config.TCA_ROUTE_SUMMARY_TABLE} (equ_ticker)
     """)
     conn.commit()
+
+    # 003-tca-core-benchmarks: 追加 Phase 0 + Phase 1 新列（幂等表重建迁移）
+    _migrate_tca_route_summary_v2(conn)
+
     logger.debug("tca_route_summary schema ensured (inline DDL)")
+
+
+# 003-tca-core-benchmarks: Phase 0 + Phase 1 新增列（一次表重建，幂等）
+_TCA_V2_NEW_COLUMNS: list[str] = TCA_CORE_BENCHMARKS_COLUMNS + TCA_RISK_IMPACT_COLUMNS
+
+
+def _migrate_tca_route_summary_v2(conn: sqlite3.Connection) -> None:
+    """tca_route_summary 表重建迁移：追加 Phase0 + Phase1 新列（幂等）。
+
+    遵循项目表重建模式（CREATE _new + COPY + DROP + RENAME），而非 ALTER
+    TABLE ADD COLUMN —— 与 ``_migrate_raw_fills_column_types`` 一致。
+    安全保证：
+    - 幂等：PRAGMA table_info 检查新列已存在即跳过
+    - 单事务：BEGIN/COMMIT 包裹整个操作
+    - 崩溃恢复：开头 DROP TABLE IF EXISTS _new 清理残留
+    - 现有列原样复制，新列填 NULL（数据零改动）
+    """
+    table = Config.TCA_ROUTE_SUMMARY_TABLE
+    col_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    if not col_info:
+        return  # 表不存在，由 CREATE TABLE IF NOT EXISTS 处理
+
+    existing = {row[1] for row in col_info}
+    if set(_TCA_V2_NEW_COLUMNS) <= existing:
+        return  # 幂等：已迁移完成
+
+    all_cols = TCA_ROUTE_SUMMARY_COLUMNS  # 35 现有 + 20 新列（columns.py 已更新）
+    conn.execute(f"DROP TABLE IF EXISTS {table}_new")
+    conn.execute("BEGIN")
+    try:
+        cols_def = _build_column_defs(all_cols, COLUMN_TYPE_MAP)
+        conn.execute(f"""
+            CREATE TABLE {table}_new (
+                {cols_def},
+                PRIMARY KEY (OrderId, RouteId, order_as_of_date)
+            )
+        """)
+        select_exprs = ", ".join(
+            f"[{c}]" if c in existing else "NULL"
+            for c in all_cols
+        )
+        conn.execute(f"""
+            INSERT INTO {table}_new ({", ".join(all_cols)})
+            SELECT {select_exprs} FROM {table}
+        """)
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+        conn.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_trs_date ON {table} (order_as_of_date)"
+        )
+        conn.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_trs_ticker ON {table} (equ_ticker)"
+        )
+        conn.execute("COMMIT")
+        logger.info("tca_route_summary 表重建迁移完成: +%d 新列", len(_TCA_V2_NEW_COLUMNS))
+    except Exception:
+        conn.execute("ROLLBACK")
+        conn.execute(f"DROP TABLE IF EXISTS {table}_new")
+        raise
 
 
 def init_processed_fills_schema(conn: sqlite3.Connection) -> None:

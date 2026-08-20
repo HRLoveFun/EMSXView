@@ -169,6 +169,20 @@ class Config:
         os.getenv("STRICT_MISSING_TICKER_VALIDATION", "0") == "1"
     )
 
+    # ── TCA 核心指标补全 (003-tca-core-benchmarks) ──
+    # Phase 0: 核心基准（到达价/收盘价/机会成本），默认关闭，可即时回退
+    TCA_CORE_BENCHMARKS_ENABLED: bool = (
+        os.getenv("TCA_CORE_BENCHMARKS_ENABLED", "0") == "1"
+    )
+    # Phase 1: Wagner IS 分解 + 风险维度 + 冲击分解，默认关闭
+    TCA_RISK_IMPACT_ENABLED: bool = (
+        os.getenv("TCA_RISK_IMPACT_ENABLED", "0") == "1"
+    )
+    # Phase 2: route→order 聚合视图/API，默认关闭
+    TCA_ORDER_AGG_ENABLED: bool = (
+        os.getenv("TCA_ORDER_AGG_ENABLED", "0") == "1"
+    )
+
     EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
         "fills": ("emsx.history:GetFills",),
         "orders": ("costview.fill-rollup", "executionview.orders_projection"),
@@ -211,3 +225,41 @@ class Config:
         directories = [cls.DATA_DIR, cls.LOGGING_DIR]
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
+
+
+def _validate_config() -> None:
+    """校验关键配置参数边界 (M6)。
+
+    非法值在模块导入时即抛 ValueError — 配置错误 fail-fast,
+    禁止静默降级 (如非法 BDIB_QUERY_ENGINE 静默走 sqlite 分支)。
+    """
+    engine = Config.BDIB_QUERY_ENGINE.strip().lower()
+    if engine not in ("sqlite", "duckdb"):
+        raise ValueError(
+            f"BDIB_QUERY_ENGINE 非法值: {Config.BDIB_QUERY_ENGINE!r} "
+            f"(允许: sqlite, duckdb)"
+        )
+    Config.BDIB_QUERY_ENGINE = engine  # 归一化大小写
+
+    if Config.BDIB_HOT_RETENTION_MONTHS < 1:
+        raise ValueError(
+            f"BDIB_HOT_RETENTION_MONTHS 必须 >= 1, "
+            f"收到 {Config.BDIB_HOT_RETENTION_MONTHS}"
+        )
+    if Config.BDIB_API_RETENTION_DAYS < 1:
+        raise ValueError(
+            f"BDIB_API_RETENTION_DAYS 必须 >= 1, 收到 {Config.BDIB_API_RETENTION_DAYS}"
+        )
+    if Config.GUARDRAIL_EMPTY_DATASET_POLICY not in ("reject", "accept"):
+        raise ValueError(
+            f"GUARDRAIL_EMPTY_DATASET_POLICY 非法值: "
+            f"{Config.GUARDRAIL_EMPTY_DATASET_POLICY!r} (允许: reject, accept)"
+        )
+    if Config.GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD < 1:
+        raise ValueError(
+            f"GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD 必须 >= 1, "
+            f"收到 {Config.GUARDRAIL_CIRCUIT_BREAKER_THRESHOLD}"
+        )
+
+
+_validate_config()

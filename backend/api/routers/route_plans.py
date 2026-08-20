@@ -353,7 +353,8 @@ async def apply_route_engine(
         proposals = await engine.process_order(parent_order, plan_id=plan_id)
     except Exception as exc:
         logger.exception("RouteEngine failed for order %s", order_id)
-        return ApiResponse(success=False, error=str(exc))
+        # 防护 (M5): 内部异常不原样返回
+        return ApiResponse(success=False, error="Failed to generate sub-order proposals")
 
     result = [_proposal_to_response(p) for p in proposals]
     return ApiResponse(success=True, data=result,
@@ -413,7 +414,8 @@ async def confirm_proposal(
         return ApiResponse(success=True, message=f"Proposal {proposal_id} submitted as route {route_id}")
     except Exception as exc:
         logger.exception("Failed to submit proposal %d", proposal_id)
-        return ApiResponse(success=False, error=str(exc))
+        # 防护 (M5): 内部异常不原样返回
+        return ApiResponse(success=False, error="Failed to submit proposal")
 
 
 @router.post("/api/sub-order-proposals/batch-confirm")
