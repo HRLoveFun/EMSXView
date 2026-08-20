@@ -1,6 +1,6 @@
 # 实施计划: CostView TCA 核心指标补全
 
-**Branch**: `003-tca-core-benchmarks` | **Date**: 2026-08-14 | **状态**: 进行中
+**Branch**: `003-tca-core-benchmarks` | **Date**: 2026-08-14 | **状态**: 已完成（2026-08-19，已合并至 `tca` 分支）
 
 **理论依据**: `docs/textbook/股票交易执行质量与交易成本分析（TCA）：跨时期学术研究综述与方法框架.md`（模块 B/D）+ `docs/textbook/Algo_TCA.md`（Kissell, 2014, *The Science of Algorithmic Trading and Portfolio Management*, Chapter 3）
 

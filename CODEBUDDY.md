@@ -277,27 +277,39 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 <!-- SPECKIT START -->
 ## 当前计划
 
-**状态**：✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08）；TCA 路由汇总表重构已完成（2026-07-16）；TCA 监控与报告生成已完成（2026-08-06）
+**状态**：✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08）；TCA 路由汇总表重构已完成（2026-07-16）；TCA 监控与报告生成已完成（2026-08-06）；**TCA 核心指标补全已完成（2026-08-19）**
 
-**特性**：数据管道护栏机制 + S2 跨日维度修复 + TCA 路由汇总 + 监控报告
-**分支**：`datapipeline-checking`（基于 `001-architecture-module-completion`）
-**计划**：`specs/002-pipeline-guardrail/plan.md`
-**规格**：`specs/002-pipeline-guardrail/spec.md`
+**特性**：TCA 核心指标补全（003-tca-core-benchmarks）
+**分支**：`tca`
+**计划**：`specs/003-tca-core-benchmarks/plan.md`
+**进度**：`specs/003-tca-core-benchmarks/checklists/progress.md`
 
 关键产物：
-- `specs/002-pipeline-guardrail/research.md` — 熔断器模式、Pydantic 校验、基线测试、契约检查、日志方案研究
-- `specs/002-pipeline-guardrail/data-model.md` — PipelineRun、StageExecution、ValidationViolation、CircuitBreakerState、PipelineSchema 实体定义
-- `specs/002-pipeline-guardrail/contracts/guard-pipeline-api.md` — GuardPipeline、Validator、CircuitBreaker、PipelineRunLogger API 契约
-- `specs/002-pipeline-guardrail/quickstart.md` — 10 个验证场景，覆盖校验/熔断/完整性/契约/日志
-- `DataPipeline/tests/guardrail/test_data_quality.py` — 单元/集成/回归测试：Exchange 空值/未知报错、S2 日期一致性、agg_fills_10s route_registry 列补全、零股 VWAP 过滤、S2 跨日维度回归（3 个 case，2026-07-03 新增）
-- `DataPipeline/processing/tca_route_metrics.py` — TCA 路由汇总表预计算（VWAP 偏离、实现价差、fill_count 等指标）
-- `DataPipeline/tests/processing/test_tca_route_metrics.py` — 路由汇总表计算单元/集成测试
-- `CostView/src/monitoring/` — 监控模块（`bdib_health.py` BDIB 健康度、`metric_coverage.py` 指标覆盖率、`report_aggregator.py` 报告聚合器、`time_range.py` 时间范围工具）
-- `CostView/api/routers/monitoring.py` — 监控 API 路由器
-- `CostView/tests/test_monitoring.py` — 监控模块单元/集成测试
-- `scripts/reports/generate_tca_report.py` — TCA HTML 报告生成 CLI（支持时间范围和指标过滤）
-- `scripts/reports/tca_report_html.py` — HTML 报告渲染器（内联 CSS + 服务端生成 SVG 图表，零外部依赖）
-- `docs/textbook/Algo_TCA.md` — TCA 算法教科书（840 行，涵盖 VWAP 偏离、实现价差、regime 检测等）
+- `DataPipeline/processing/tca_route_metrics.py` — TCA 路由汇总表 35→55 列（Phase 0 到达/收盘基准 + 机会成本；Phase 1 Wagner IS 分解、成本风险、市场冲击分解）
+- `DataPipeline/storage/schema/inline_ddl.py` — `_migrate_tca_route_summary_v2` 幂等表重建迁移
+- `DataPipeline/config.py` — `TCA_CORE_BENCHMARKS_ENABLED` / `TCA_RISK_IMPACT_ENABLED` / `TCA_ORDER_AGG_ENABLED` 三 flag（默认关闭）
+- `CostView/src/tca_query_service.py` — `build_order_report()` + `_aggregate_order()`（order 级聚合策略）
+- `platform_data/contracts/tca_contracts.py` — `TcaOrderAggregate` + `TcaRouteSummary` 扩展 20 字段
+- `CostView/api/routers/costview.py` — `POST /api/tca/analyze-orders` order 聚合端点
+- `frontend/src/modules/costview/components/OrderAggregateTable.tsx` — Order 级聚合视图
+- `frontend/src/modules/costview/components/TcaOrderTable.tsx` — Route 级新增 7 列（Arrival/Close/Wagner IS/Cost SD/Duration/Temp/Perm Impact）
+- `frontend/src/modules/costview/components/AnalysisView.tsx` — Route/Order 视图切换 + Selected Route 新指标卡片
+- `CostView/src/monitoring/metric_coverage.py` — 计算指标白名单 18→38
+- `CostView/tests/test_order_aggregation.py` — order 聚合单元测试（8 用例）
+- `frontend/src/modules/costview/__tests__/order-aggregate-table.test.tsx` — order 聚合表测试（5 用例）
+- 运维脚本：`scripts/ops/snapshot_guard.py`（G0 快照）、`scripts/ops/backfill_daily_metrics.py`（S7 daily_close 补跑）、`scripts/ops/backfill_bdib_gaps.py`（缺口日期精准回补）、`scripts/ops/check_cp1_consistency.py`（CP-1 一致性检查）
+
+### TCA 核心指标补全记录（2026-08-19）
+
+- **特性**：为 CostView 补齐论文模块 B2.1-B2.4 核心 TCA 指标——到达价/收盘价基准、Wagner IS 分解（延迟/交易/机会成本）、成本风险维度（标准差/P95/CVaR）、订单历时、暂时/永久市场冲击分解（5/10/30min + 跨日次日收盘 4 恢复窗口），以及 route→order 聚合视图/API。
+- **Phase 0**：p_arrival/p_close/arrival_cost_bps/close_cost_bps/opportunity_cost（flag `TCA_CORE_BENCHMARKS_ENABLED`）
+- **Phase 1**：p_decision/delay_cost/trading_cost/wagner_is/wagner_is_bps + cost_stddev/p95/cvar + order_duration/exec_rate + temp/perm_impact + recovery_truncated（flag `TCA_RISK_IMPACT_ENABLED`）
+- **Phase 2**：`tca_order_summary` order 级聚合（`build_order_report()` + `/api/tca/analyze-orders` + 前端 Order View，flag `TCA_ORDER_AGG_ENABLED`）
+- **数据治理**：BDIB 缺口精准回补（15 日期，p_arrival 覆盖率 84.6%→92.7%）；历史 161 日期 S7 daily_close 补跑（Bloomberg 日频 PX_LAST，不受 BDIB 180 天保留窗口限制）；CP-0a~CP-2a 全部通过（含 CP-1 四项：回归一致 / wagner_is 分解恒等式 / 恢复窗口非NULL率 90.49% / 风险覆盖率）。
+- **不可修复**：20260511/12 Bloomberg 侧无日内 bar（欧美/日韩/澳市场缺，仅亚洲有）；20250915~20260430 超 180 天保留窗口无法回补。
+- **范围外**：D2 可操作性（订单类型/队列/费用）、B2.5 订单簿流动性（无 L2 数据）、B2.6 事前预测（P3 后续）。
+
+### TCA 监控与报告生成记录（2026-08-06）
 
 ### S2 跨日维度修复记录（2026-07-03）
 
