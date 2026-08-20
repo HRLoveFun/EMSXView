@@ -277,27 +277,23 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 <!-- SPECKIT START -->
 ## 当前计划
 
-**状态**：✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08）；TCA 路由汇总表重构已完成（2026-07-16）；TCA 监控与报告生成已完成（2026-08-06）；**TCA 核心指标补全已完成（2026-08-19）**
+**状态**：✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08）；TCA 路由汇总表重构已完成（2026-07-16）；TCA 监控与报告生成已完成（2026-08-06）；TCA 核心指标补全已完成（2026-08-19，已合并 main）；**backend 测试存量失败修复进行中（2026-08-20）**
 
-**特性**：TCA 核心指标补全（003-tca-core-benchmarks）
-**分支**：`tca`
-**计划**：`specs/003-tca-core-benchmarks/plan.md`
-**进度**：`specs/003-tca-core-benchmarks/checklists/progress.md`
+**特性**：backend 测试存量失败修复（004-backend-test-stabilization）
+**分支**：`004-backend-test-stabilization`
+**计划**：`specs/004-backend-test-stabilization/plan.md`
+**进度**：`specs/004-backend-test-stabilization/checklists/progress.md`
 
-关键产物：
-- `DataPipeline/processing/tca_route_metrics.py` — TCA 路由汇总表 35→55 列（Phase 0 到达/收盘基准 + 机会成本；Phase 1 Wagner IS 分解、成本风险、市场冲击分解）
-- `DataPipeline/storage/schema/inline_ddl.py` — `_migrate_tca_route_summary_v2` 幂等表重建迁移
-- `DataPipeline/config.py` — `TCA_CORE_BENCHMARKS_ENABLED` / `TCA_RISK_IMPACT_ENABLED` / `TCA_ORDER_AGG_ENABLED` 三 flag（默认关闭）
-- `CostView/src/tca_query_service.py` — `build_order_report()` + `_aggregate_order()`（order 级聚合策略）
-- `platform_data/contracts/tca_contracts.py` — `TcaOrderAggregate` + `TcaRouteSummary` 扩展 20 字段
-- `CostView/api/routers/costview.py` — `POST /api/tca/analyze-orders` order 聚合端点
-- `frontend/src/modules/costview/components/OrderAggregateTable.tsx` — Order 级聚合视图
-- `frontend/src/modules/costview/components/TcaOrderTable.tsx` — Route 级新增 7 列（Arrival/Close/Wagner IS/Cost SD/Duration/Temp/Perm Impact）
-- `frontend/src/modules/costview/components/AnalysisView.tsx` — Route/Order 视图切换 + Selected Route 新指标卡片
-- `CostView/src/monitoring/metric_coverage.py` — 计算指标白名单 18→38
-- `CostView/tests/test_order_aggregation.py` — order 聚合单元测试（8 用例）
-- `frontend/src/modules/costview/__tests__/order-aggregate-table.test.tsx` — order 聚合表测试（5 用例）
-- 运维脚本：`scripts/ops/snapshot_guard.py`（G0 快照）、`scripts/ops/backfill_daily_metrics.py`（S7 daily_close 补跑）、`scripts/ops/backfill_bdib_gaps.py`（缺口日期精准回补）、`scripts/ops/check_cp1_consistency.py`（CP-1 一致性检查）
+关键产物（进行中）：
+- `specs/004-backend-test-stabilization/plan.md` — 26 项存量失败 5 类根因 + 修复方案（G0-G3 门控）
+- 修复对象：`test_connection_router.py`(4) / `test_bloomberg_adapter_refdata.py`(2) / `test_bloomberg_adapter_routing.py`(9) / `test_batch_route_endpoints.py`(9) / `test_pipeline_watchdog.py`(2)
+- `boundary.yml` backend 全量测试恢复硬阻断
+
+### backend 测试存量失败修复记录（2026-08-20）
+
+- **背景**：CI `boundary-protection` 接入后 backend 全量测试 26/189 失败，全部为存量测试腐化（测试文件最后改动早于 deps 重构 `cfb3c9f`）。
+- **分类**：C1(4) `routers.connection` 无 `get_bloomberg` / C2(3) `bloomberg_adapter` 无 `logger` / C3(9) `connected` property 无 setter / C4(9) fixture 未注入 `app.state.bloomberg_service` / C5(2) `psutil` 依赖缺失。
+- **方案**：测试侧最小修复（TestClient + app.state 注入、logger 指向、_conn.connected 注入、fixture 更新），不触碰业务逻辑；CI 恢复硬阻断。
 
 ### TCA 核心指标补全记录（2026-08-19）
 
