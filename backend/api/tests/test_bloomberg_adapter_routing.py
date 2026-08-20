@@ -1,8 +1,19 @@
-"""Regression tests for RouteEx/ModifyRouteEx request construction."""
+"""Regression tests for RouteEx/ModifyRouteEx request construction.
+
+Note (004-backend-test-stabilization): these tests were written against the
+pre-refactor God-Class BloombergEMSXService (direct `_request_service`,
+`_send_request_async`, `_orders`/`_routes` instance attributes). After the
+refactor (cfb3c9f) those internals moved to sub-components (`_conn`,
+`_sub`, `_handler`). Tests are rewritten to inject via the new seams:
+  - request service:  `service._conn._request_service`
+  - subscription cache: `service._sub._orders` / `service._sub._routes`
+  - request send:      patch `service._handler._send_request_async`
+"""
 
 from __future__ import annotations
 
 import sys
+import threading
 from types import SimpleNamespace
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -16,7 +27,8 @@ pytestmark = pytest.mark.anyio
 from schemas import ModifyRouteRequest, Order, Route, RouteOrderRequest
 import services.bloomberg_adapter as bloomberg_adapter
 
-from services.bloomberg_adapter import BloombergEMSXService
+from services.bloomberg.adapter import BloombergEMSXService
+from services.bloomberg.request_handler import Event as HandlerEvent
 
 
 class FakeSequenceItem:
@@ -116,7 +128,7 @@ class FakeRequestSession:
         self._events: list[FakeEvent] = []
 
     def sendRequest(self, request, correlationId):
-        other_cid = bloomberg_adapter.blpapi.CorrelationId("other")
+        other_cid = object()
         keep_partial = FakeMessage({"TOKEN": "keep-partial"})
         keep_partial._correlation_ids = [correlationId]
         ignore_partial = FakeMessage({"TOKEN": "ignore-partial"})
@@ -127,14 +139,14 @@ class FakeRequestSession:
         ignore_final._correlation_ids = [other_cid]
 
         self._events = [
-            FakeEvent(bloomberg_adapter.Event.PARTIAL_RESPONSE, [ignore_partial, keep_partial]),
-            FakeEvent(bloomberg_adapter.Event.RESPONSE, [ignore_final, keep_final]),
+            FakeEvent(HandlerEvent.PARTIAL_RESPONSE, [ignore_partial, keep_partial]),
+            FakeEvent(HandlerEvent.RESPONSE, [ignore_final, keep_final]),
         ]
 
     def nextEvent(self, timeout_ms):
         if self._events:
             return self._events.pop(0)
-        return FakeEvent(bloomberg_adapter.Event.TIMEOUT, [])
+        return FakeEvent(HandlerEvent.TIMEOUT, [])
 
 
 def make_order() -> Order:
@@ -181,19 +193,32 @@ async def _connect_ok() -> bool:
     return True
 
 
-async def test_route_order_maps_frontend_order_types_and_keeps_strategy_name():
+def _make_service(fake_service: FakeRequestService | None = None) -> BloombergEMSXService:
+    """Build a BloombergEMSXService wired to the new sub-component seams.
+
+    - connected via ``_conn.connected``
+    - request service injected via ``_conn._request_service`` (so the handler's
+      ``_req_service`` property returns the fake)
+    - connect() stubbed to skip real Bloomberg session startup
+    """
     service = BloombergEMSXService()
-    fake_service = FakeRequestService()
-    service.connected = True
-    service._request_service = fake_service
-    service._orders = {"1001": make_order()}
+    service._conn.connected = True
     service.connect = _connect_ok  # type: ignore[method-assign]
+    if fake_service is not None:
+        service._conn._request_service = fake_service
+    return service
+
+
+async def test_route_order_maps_frontend_order_types_and_keeps_strategy_name():
+    fake_service = FakeRequestService()
+    service = _make_service(fake_service)
+    service._sub._orders = {"1001": make_order()}
     service.get_terminal_trader_name = lambda: "TRADER1"  # type: ignore[method-assign]
 
     async def fake_send_request(request):
         return [FakeMessage({"EMSX_ROUTE_ID": 42})]
 
-    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+    service._handler._send_request_async = fake_send_request  # type: ignore[method-assign]
 
     result = await service.route_order(
         RouteOrderRequest(
@@ -216,17 +241,14 @@ async def test_route_order_maps_frontend_order_types_and_keeps_strategy_name():
 
 
 async def test_modify_route_uses_reset_sentinels_for_explicit_null_prices():
-    service = BloombergEMSXService()
     fake_service = FakeRequestService()
-    service.connected = True
-    service._request_service = fake_service
-    service._routes = {"1001.7": make_route(order_type="LMT", limit_price=123.45, stop_price=95.0)}
-    service.connect = _connect_ok  # type: ignore[method-assign]
+    service = _make_service(fake_service)
+    service._sub._routes = {"1001.7": make_route(order_type="LMT", limit_price=123.45, stop_price=95.0)}
 
     async def fake_send_request(request):
         return [FakeMessage()]
 
-    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+    service._handler._send_request_async = fake_send_request  # type: ignore[method-assign]
 
     ok = await service.modify_route(
         ModifyRouteRequest(
@@ -247,17 +269,14 @@ async def test_modify_route_uses_reset_sentinels_for_explicit_null_prices():
 
 
 async def test_modify_route_auto_resets_limit_when_switching_away_from_limit_type():
-    service = BloombergEMSXService()
     fake_service = FakeRequestService()
-    service.connected = True
-    service._request_service = fake_service
-    service._routes = {"1001.7": make_route(order_type="LMT", limit_price=123.45, stop_price=None)}
-    service.connect = _connect_ok  # type: ignore[method-assign]
+    service = _make_service(fake_service)
+    service._sub._routes = {"1001.7": make_route(order_type="LMT", limit_price=123.45, stop_price=None)}
 
     async def fake_send_request(request):
         return [FakeMessage()]
 
-    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+    service._handler._send_request_async = fake_send_request  # type: ignore[method-assign]
 
     await service.modify_route(
         ModifyRouteRequest(
@@ -278,17 +297,14 @@ async def test_modify_route_treats_empty_strategy_fields_as_skipped():
     as indicator=1 (skip) so that changing a single parameter (e.g. Max%Vol)
     does not fail because unrelated fields have no default value.
     """
-    service = BloombergEMSXService()
     fake_service = FakeRequestService()
-    service.connected = True
-    service._request_service = fake_service
-    service._routes = {"1001.7": make_route(order_type="LMT", limit_price=10.0, stop_price=None)}
-    service.connect = _connect_ok  # type: ignore[method-assign]
+    service = _make_service(fake_service)
+    service._sub._routes = {"1001.7": make_route(order_type="LMT", limit_price=10.0, stop_price=None)}
 
     async def fake_send_request(request):
         return [FakeMessage()]
 
-    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+    service._handler._send_request_async = fake_send_request  # type: ignore[method-assign]
 
     await service.modify_route(
         ModifyRouteRequest(
@@ -316,16 +332,13 @@ async def test_modify_route_treats_empty_strategy_fields_as_skipped():
 
 
 async def test_get_asset_class_uses_request_response_value():
-    service = BloombergEMSXService()
     fake_service = FakeRequestService()
-    service.connected = True
-    service._request_service = fake_service
-    service.connect = _connect_ok  # type: ignore[method-assign]
+    service = _make_service(fake_service)
 
     async def fake_send_request(request):
         return [FakeMessage({"EMSX_ASSET_CLASS": "FUT"})]
 
-    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+    service._handler._send_request_async = fake_send_request  # type: ignore[method-assign]
 
     asset_class = await service.get_asset_class("ESM6 Index")
 
@@ -336,16 +349,13 @@ async def test_get_asset_class_uses_request_response_value():
 
 
 async def test_get_asset_class_defaults_to_eqty_when_response_missing():
-    service = BloombergEMSXService()
     fake_service = FakeRequestService()
-    service.connected = True
-    service._request_service = fake_service
-    service.connect = _connect_ok  # type: ignore[method-assign]
+    service = _make_service(fake_service)
 
     async def fake_send_request(request):
         return [FakeMessage()]
 
-    service._send_request_async = fake_send_request  # type: ignore[method-assign]
+    service._handler._send_request_async = fake_send_request  # type: ignore[method-assign]
 
     asset_class = await service.get_asset_class("IBM US Equity")
 
@@ -354,14 +364,14 @@ async def test_get_asset_class_defaults_to_eqty_when_response_missing():
 
 
 def test_send_request_filters_messages_by_correlation_id():
-    service = BloombergEMSXService()
-    service.connected = True
-    service._request_sessions = [FakeRequestSession()]
-    service._request_locks = [threading.Lock()]
-    service._pool_index = 0
-    bloomberg_adapter.settings = SimpleNamespace(BLOOMBERG_TIMEOUT=1000)
+    fake_service = FakeRequestService()
+    service = _make_service(fake_service)
+    service._conn._request_sessions = [FakeRequestSession()]
+    service._conn._request_locks = [threading.Lock()]
+    service._conn.pool_index = 0
+    service._handler._settings = SimpleNamespace(BLOOMBERG_TIMEOUT=1000)
 
-    messages = service._send_request(FakeRequest("GetBrokersWithAssetClass"))
+    messages = service._handler._send_request(FakeRequest("GetBrokersWithAssetClass"))
 
     assert [msg.getElementAsString("TOKEN") for msg in messages] == ["keep-partial", "keep-final"]
 
@@ -380,13 +390,12 @@ def test_track_api_seq_num_warns_on_gap(monkeypatch):
 
 
 def test_get_startup_status_infers_ready_from_populated_caches():
-    service = BloombergEMSXService()
-    service.connected = True
-    service.connection_time = datetime.now() - timedelta(seconds=5)
-    service._orders = {"1001": make_order()}
-    service._routes = {"1001.7": make_route()}
-    service._init_paint_done = False
-    service._route_init_paint_done = False
+    service = _make_service()
+    service._conn.connection_time = datetime.now() - timedelta(seconds=5)
+    service._sub._orders = {"1001": make_order()}
+    service._sub._routes = {"1001.7": make_route()}
+    service._sub._init_paint_done = False
+    service._sub._route_init_paint_done = False
 
     status = service.get_startup_status()
 
