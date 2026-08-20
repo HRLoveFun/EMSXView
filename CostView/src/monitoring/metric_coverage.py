@@ -1,8 +1,11 @@
-"""指标覆盖率服务 — tca_route_summary 18 项计算指标的非 NULL 率聚合。
+"""指标覆盖率服务 — tca_route_summary 38 项计算指标的非 NULL 率聚合。
 
 按 order_as_of_date（可选按 Exchange 分层）统计各计算指标的覆盖率，
 用于区分"BDIB 数据缺失导致的 NULL"与"有数据但计算异常"。
 聚合全部在 SQL 侧完成（GROUP BY + SUM(CASE WHEN ...)），避免 Python 逐行遍历。
+
+003-tca-core-benchmarks: 白名单由 18 项扩展至 38 项，新增 Phase 0/1 的
+到达价/收盘价基准、Wagner IS 分解、成本风险、市场冲击等 20 项指标。
 """
 
 from __future__ import annotations
@@ -15,26 +18,44 @@ from DataPipeline.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
 
-#: 18 项计算指标白名单（与 tca_route_metrics._OUTPUT_COLUMNS[17:] 保持一致）
+#: 38 项计算指标白名单（与 tca_route_metrics._OUTPUT_COLUMNS[17:] 保持一致；
+#: 003-tca-core-benchmarks 由 18 项扩展至 38 项，新增 Phase 0/1 的 20 项指标）
 COMPUTED_METRICS: tuple[str, ...] = (
+    # 原有 18 项
     "fill_count", "fill", "fill_continuous", "fill_close",
     "par_rate", "par_rate_continuous", "par_rate_close",
     "p_avg", "p_avg_continuous",
     "pnl_vwap", "pnl_vwap_continuous",
     "RPM", "RPM_continuous",
     "pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25",
+    # 003-tca-core-benchmarks: Phase 0 核心基准（5）
+    "p_arrival", "p_close", "arrival_cost_bps", "close_cost_bps",
+    "opportunity_cost",
+    # 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击（15）
+    "p_decision", "delay_cost", "trading_cost", "wagner_is", "wagner_is_bps",
+    "cost_stddev", "cost_p95", "cost_cvar",
+    "order_duration_sec", "exec_rate_shares_per_min",
+    "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
+    "perm_impact_bps", "recovery_truncated",
 )
 
 #: 依赖 BDIB 行情的指标（BDIB 缺失时这些指标为 NULL 属预期行为）
 BDIB_DEPENDENT_METRICS: frozenset[str] = frozenset({
+    # 原有 BDIB 依赖项
     "par_rate", "par_rate_continuous", "par_rate_close",
     "pnl_vwap", "pnl_vwap_continuous",
     "pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25",
+    # 003-tca-core-benchmarks: 到达价/决策价/收盘价/冲击均依赖 BDIB bar
+    "p_arrival", "p_close", "arrival_cost_bps", "close_cost_bps",
+    "opportunity_cost",
+    "p_decision", "delay_cost", "trading_cost", "wagner_is", "wagner_is_bps",
+    "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
+    "perm_impact_bps",
 })
 
 
 def validate_metrics(metrics: Optional[list[str]]) -> list[str]:
-    """校验并规范化指标子集；None/空列表表示全部 18 个指标。
+    """校验并规范化指标子集；None/空列表表示全部 38 个指标。
 
     Raises:
         ValueError: 含白名单外的指标名。

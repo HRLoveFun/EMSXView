@@ -43,6 +43,16 @@ _TCA_DDL = """
         pnl_vwap REAL, pnl_vwap_continuous REAL,
         RPM REAL, RPM_continuous REAL,
         pwp_5 REAL, pwp_10 REAL, pwp_15 REAL, pwp_20 REAL, pwp_25 REAL,
+        -- 003-tca-core-benchmarks: Phase 0 核心基准
+        p_arrival REAL, p_close REAL, arrival_cost_bps REAL, close_cost_bps REAL,
+        opportunity_cost REAL,
+        -- 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击
+        p_decision REAL, delay_cost REAL, trading_cost REAL, wagner_is REAL,
+        wagner_is_bps REAL, cost_stddev REAL, cost_p95 REAL, cost_cvar REAL,
+        order_duration_sec REAL, exec_rate_shares_per_min REAL,
+        temp_impact_5min_bps REAL, temp_impact_10min_bps REAL,
+        temp_impact_30min_bps REAL, perm_impact_bps REAL,
+        recovery_truncated INTEGER,
         PRIMARY KEY (OrderId, RouteId, order_as_of_date)
     )
 """
