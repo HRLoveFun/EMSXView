@@ -9,13 +9,13 @@
 |------|------|
 | 方案落盘 (plan.md) | ✅ |
 | 根因调查（26 项，5 类） | ✅ 本地复现与 CI 一致 |
-| C1: test_connection_router 4 项 | ⏳ |
-| C2: logger 3 项 | ⏳ |
-| C3: connected 9 项 | ⏳ |
-| C4: batch fixture 9 项 | ⏳ |
-| C5: psutil 2 项 | ⏳ |
-| CP-1: backend 全量 189 全绿 | ⏳ |
-| CI 恢复硬阻断 (boundary.yml) | ⏳ |
+| C1: test_connection_router 4 项 | ✅ TestClient + app.state 注入（be429f7） |
+| C2: logger 3 项 | ✅ re-export logger + _track_api_seq_num 重定向（18a0fc3） |
+| C3: connected 9 项 | ✅ 重写注入匹配重构后 handler 接口（ccb99f1） |
+| C4: batch fixture 9 项 | ✅ app.state 注入 + mock 契约属性（cd6be3e） |
+| C5: psutil 2 项 | ✅ 依赖已声明 + 本地 16 passed |
+| CP-1: backend 全量 189 全绿 | ✅ 本地 195 passed，0 failed |
+| CI 恢复硬阻断 (boundary.yml) | ✅ 598e172 |
 | PR 合并回 main | ⏳ |
 
 ## 根因调查记录（2026-08-20）
@@ -27,10 +27,14 @@
 ## Checkpoint 记录
 
 ### CP-0 单文件修复验证
-（待实施）
+- [x] C1: test_connection_router 4 passed
+- [x] C2: refdata 5 + routing logger 1 passed
+- [x] C3: routing 15 passed（含 asyncio/trio 双参数化；修复 Event 整数导致的死循环）
+- [x] C4: batch route 9 passed
+- [x] C5: pipeline_watchdog 16 passed
 
 ### CP-1 backend 全量 189 全绿
-（待实施）
+- [x] 本地 `pytest tests/ -q --ignore=tests/boundaries` → **195 passed, 0 failed**
 
 ### CP-2 CI 硬阻断恢复
-（待实施）
+- [x] boundary.yml 全量测试去掉 `|| echo WARN`，恢复硬阻断（598e172）
