@@ -142,6 +142,24 @@ class SqliteFillReadRepository(BaseRepository):
         finally:
             conn.close()
 
+    def get_distinct_tickers_for_date(self, trade_date: str) -> List[str]:
+        """返回某交易日 processed_fills 中所有不重复的 equ_ticker。
+
+        003-tca-core-benchmarks: ticker_date_mapping 可能滞后于 processed_fills
+        时，S7 daily metrics 用此方法回退获取当日成交 ticker。
+        """
+        conn = self._get_read_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT DISTINCT equ_ticker FROM processed_fills "
+                "WHERE order_as_of_date = ? AND equ_ticker IS NOT NULL "
+                "AND equ_ticker != ''",
+                (trade_date,),
+            )
+            return [r[0] for r in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def get_unprocessed_dates(
         self, candidate_dates: List[str], stage: str = "processed",
     ) -> List[str]:

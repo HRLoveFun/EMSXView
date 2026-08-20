@@ -128,13 +128,28 @@ class CalculateDailyMetrics:
     def _get_active_tickers_for_date(self, trade_date: str) -> list[str]:
         ticker_dates = self._db.fills_read.get_ticker_dates("equ_ticker")
         outdated = load_outdated_ticker_set()
-        return sorted(
-            {
-                ticker
-                for ticker, dates in ticker_dates.items()
-                if ticker not in outdated and trade_date in dates
-            }
-        )
+        active = {
+            ticker
+            for ticker, dates in ticker_dates.items()
+            if ticker not in outdated and trade_date in dates
+        }
+
+        # 003-tca-core-benchmarks: ticker_date_mapping 可能滞后于 processed_fills
+        # （未随近期日期更新）。此时回退到 processed_fills 直接查当日成交 ticker，
+        # 保证 S7 能对近期日期补算 daily_close。
+        if not active:
+            try:
+                active = {
+                    ticker
+                    for ticker in self._db.fills_read.get_distinct_tickers_for_date(trade_date)
+                    if ticker not in outdated
+                }
+            except Exception as exc:
+                logger.warning(
+                    f"processed_fills ticker 回退查询失败 ({trade_date}): {exc}"
+                )
+
+        return sorted(active)
 
     def _fetch_daily_history(self, tickers: list[str], trade_date: str) -> pd.DataFrame:
         if not tickers:

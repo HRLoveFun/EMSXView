@@ -169,6 +169,20 @@ class Config:
         os.getenv("STRICT_MISSING_TICKER_VALIDATION", "0") == "1"
     )
 
+    # ── TCA 核心指标补全 (003-tca-core-benchmarks) ──
+    # Phase 0: 核心基准（到达价/收盘价/机会成本），默认关闭，可即时回退
+    TCA_CORE_BENCHMARKS_ENABLED: bool = (
+        os.getenv("TCA_CORE_BENCHMARKS_ENABLED", "0") == "1"
+    )
+    # Phase 1: Wagner IS 分解 + 风险维度 + 冲击分解，默认关闭
+    TCA_RISK_IMPACT_ENABLED: bool = (
+        os.getenv("TCA_RISK_IMPACT_ENABLED", "0") == "1"
+    )
+    # Phase 2: route→order 聚合视图/API，默认关闭
+    TCA_ORDER_AGG_ENABLED: bool = (
+        os.getenv("TCA_ORDER_AGG_ENABLED", "0") == "1"
+    )
+
     EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
         "fills": ("emsx.history:GetFills",),
         "orders": ("costview.fill-rollup", "executionview.orders_projection"),
