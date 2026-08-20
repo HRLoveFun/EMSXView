@@ -65,11 +65,11 @@ jobs:
           pip install pytest-asyncio
           # 依赖内部包: 仓库根(platform_data/CostView/DataPipeline) + blpapi stub
           echo "PYTHONPATH=$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
-      - name: 边界测试 (硬阻断: 真正的边界违规)
+      - name: "边界测试 (硬阻断: 真正的边界违规)"
         run: |
           cd backend/api
           python -m pytest tests/boundaries/ -q
-      - name: 全量测试 (存量测试腐化不阻断; 由 PR 审查跟踪)
+      - name: "全量测试 (存量测试腐化不阻断; 由 PR 审查跟踪)"
         run: |
           cd backend/api
           # 部分测试依赖真实 Bloomberg 行为/旧版 fixture (connected setter, logger,
