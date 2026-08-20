@@ -372,10 +372,10 @@ def test_track_api_seq_num_warns_on_gap(monkeypatch):
 
     monkeypatch.setattr(bloomberg_adapter.logger, "warning", lambda message: warnings.append(message))
 
-    service._track_api_seq_num(FakeMessage({"API_SEQ_NUM": 1}), "order")
-    service._track_api_seq_num(FakeMessage({"API_SEQ_NUM": 3}), "order")
+    service._sub._track_api_seq_num(FakeMessage({"API_SEQ_NUM": 1}), "order")
+    service._sub._track_api_seq_num(FakeMessage({"API_SEQ_NUM": 3}), "order")
 
-    assert service._last_order_api_seq_num == 3
+    assert service._sub._last_order_api_seq_num == 3
     assert any("ORDER API_SEQ_NUM gap detected" in message for message in warnings)
 
 
