@@ -49,49 +49,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: 安装依赖 (blpapi 无 PyPI 发行版, 用 stub 替代)
+      - name: 安装依赖 (blpapi 无 PyPI 发行版, 用仓库内 stub 替代)
         run: |
           cd backend/api
           # 过滤 blpapi 行 (Bloomberg 私有源, 公共 runner 无法安装)
           grep -v '^blpapi' requirements.txt > requirements.ci.txt
           pip install -r requirements.ci.txt
-          # 注入 blpapi stub: 仅编译/导入期占位, 测试全部用 MagicMock 模拟真实服务
-          mkdir -p /tmp/ci_stub/blpapi
-          cat > /tmp/ci_stub/blpapi/__init__.py <<'EOF'
-"""blpapi CI stub — 仅满足 import 期占位, 无真实 Bloomberg 逻辑."""
-class Event:
-    RESPONSE = "RESPONSE"
-    PARTIAL_RESPONSE = "PARTIAL_RESPONSE"
-    SUBSCRIPTION_DATA = "SUBSCRIPTION_DATA"
-    SESSION_STATUS = "SESSION_STATUS"
-    def eventType(self): return self.RESPONSE
-    def __iter__(self): return iter(())
-class SessionOptions:
-    def __init__(self, *a, **k): pass
-    def setServerHost(self, *a, **k): pass
-    def setServerPort(self, *a, **k): pass
-    def setAuthenticationOptions(self, *a, **k): pass
-class Session:
-    def __init__(self, *a, **k): pass
-    def start(self, *a, **k): return False
-    def nextEvent(self, *a, **k): return Event()
-    def openService(self, *a, **k): return True
-    def getService(self, *a, **k): raise RuntimeError("stub")
-class Service:
-    def __init__(self, *a, **k): pass
-class Element:
-    def __init__(self, *a, **k): pass
-    def getElementAsFloat(self, *a, **k): return 0.0
-class Message:
-    def __init__(self, *a, **k): pass
-class Subscription:
-    def __init__(self, *a, **k): pass
-class CorrelationId:
-    def __init__(self, *a, **k): pass
-EOF
-          echo "$HOME/.ci_stub:/tmp/ci_stub" > /dev/null
-          export PYTHONPATH=/tmp/ci_stub:$PYTHONPATH
-          echo "PYTHONPATH=$PYTHONPATH" >> "$GITHUB_ENV"
+          # blpapi stub: 仅编译/导入期占位, 测试全部用 MagicMock 模拟真实服务
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
       - name: 边界测试
         run: |
           cd backend/api
@@ -111,42 +76,8 @@ EOF
           python-version: "3.12"
       - name: 安装依赖 (--no-deps 避免 blpapi 解析; 按需装测试依赖)
         run: |
-          # 注入 blpapi stub (与 backend-tests 一致)
-          mkdir -p /tmp/ci_stub/blpapi
-          cat > /tmp/ci_stub/blpapi/__init__.py <<'EOF'
-"""blpapi CI stub — 仅满足 import 期占位, 无真实 Bloomberg 逻辑."""
-class Event:
-    RESPONSE = "RESPONSE"
-    PARTIAL_RESPONSE = "PARTIAL_RESPONSE"
-    SUBSCRIPTION_DATA = "SUBSCRIPTION_DATA"
-    SESSION_STATUS = "SESSION_STATUS"
-    def eventType(self): return self.RESPONSE
-    def __iter__(self): return iter(())
-class SessionOptions:
-    def __init__(self, *a, **k): pass
-    def setServerHost(self, *a, **k): pass
-    def setServerPort(self, *a, **k): pass
-    def setAuthenticationOptions(self, *a, **k): pass
-class Session:
-    def __init__(self, *a, **k): pass
-    def start(self, *a, **k): return False
-    def nextEvent(self, *a, **k): return Event()
-    def openService(self, *a, **k): return True
-    def getService(self, *a, **k): raise RuntimeError("stub")
-class Service:
-    def __init__(self, *a, **k): pass
-class Element:
-    def __init__(self, *a, **k): pass
-    def getElementAsFloat(self, *a, **k): return 0.0
-class Message:
-    def __init__(self, *a, **k): pass
-class Subscription:
-    def __init__(self, *a, **k): pass
-class CorrelationId:
-    def __init__(self, *a, **k): pass
-EOF
-          export PYTHONPATH=/tmp/ci_stub:$PYTHONPATH
-          echo "PYTHONPATH=$PYTHONPATH" >> "$GITHUB_ENV"
+          # blpapi stub (与 backend-tests 一致)
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
           pip install -e DataPipeline --no-deps
           pip install pytest numpy pandas duckdb pyarrow python-dotenv
       - name: 存储层边界回归 (P0/P1)
