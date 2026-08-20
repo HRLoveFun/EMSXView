@@ -70,6 +70,11 @@ def app_with_mock_bloomberg(monkeypatch, make_order_record):
     bloomberg._orders = {}
     bloomberg._routes = {}
     bloomberg._data_lock = threading.Lock()
+    # MagicMock 默认惰性返回 mock 属性, 这里显式配置空缓存, 避免
+    # _evaluate_route_item 把 mock 注入 parent_order 导致序列化循环引用
+    bloomberg._permfail_last_prices = {}
+    bloomberg._ticker_currencies = {}
+    bloomberg._fx_rates = {}
     bloomberg.get_terminal_trader_name = MagicMock(return_value="TRADER1")
     bloomberg.route_order = AsyncMock(
         side_effect=lambda req: {
@@ -82,9 +87,8 @@ def app_with_mock_bloomberg(monkeypatch, make_order_record):
     )
     bloomberg.modify_route = AsyncMock(return_value=True)
 
-    deps._bloomberg_service = bloomberg
-
     app = FastAPI()
+    app.state.bloomberg_service = bloomberg
     app.include_router(orders_router.router)
     app.include_router(routes_router.router)
     return app, bloomberg
