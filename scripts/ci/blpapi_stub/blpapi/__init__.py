@@ -11,12 +11,28 @@ class Event:
     PARTIAL_RESPONSE = "PARTIAL_RESPONSE"
     SUBSCRIPTION_DATA = "SUBSCRIPTION_DATA"
     SESSION_STATUS = "SESSION_STATUS"
+    ADMIN = "ADMIN"
+    SUBSCRIPTION_STATUS = "SUBSCRIPTION_STATUS"
+    TIMEOUT = "TIMEOUT"
 
     def eventType(self) -> str:
         return self.RESPONSE
 
     def __iter__(self):
         return iter(())
+
+
+class Request:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+
+class SubscriptionList:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def add(self, *args, **kwargs) -> None:
+        pass
 
 
 class SessionOptions:
@@ -47,6 +63,9 @@ class Session:
         return True
 
     def getService(self, *args, **kwargs) -> "Service":
+        raise RuntimeError("stub: 不应在 CI 中调用真实 Bloomberg 服务")
+
+    def sendRequest(self, *args, **kwargs) -> None:
         raise RuntimeError("stub: 不应在 CI 中调用真实 Bloomberg 服务")
 
 
