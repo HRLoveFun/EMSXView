@@ -124,8 +124,67 @@ export interface TcaRouteSummary {
   pwp_15: number | string | null;
   pwp_20: number | string | null;
   pwp_25: number | string | null;
+  // 003-tca-core-benchmarks: Phase 0 核心基准（可选，S7 未跑或 BDIB 缺失时为 null）
+  p_arrival?: number | null;
+  p_close?: number | null;
+  arrival_cost_bps?: number | null;
+  close_cost_bps?: number | null;
+  opportunity_cost?: number | null;
+  // 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击（可选）
+  p_decision?: number | null;
+  delay_cost?: number | null;
+  trading_cost?: number | null;
+  wagner_is?: number | null;
+  wagner_is_bps?: number | null;
+  cost_stddev?: number | null;
+  cost_p95?: number | null;
+  cost_cvar?: number | null;
+  order_duration_sec?: number | null;
+  exec_rate_shares_per_min?: number | null;
+  temp_impact_5min_bps?: number | null;
+  temp_impact_10min_bps?: number | null;
+  temp_impact_30min_bps?: number | null;
+  perm_impact_bps?: number | null;
+  recovery_truncated?: number | null;
   // 时序数据
   time_series: TcaTimeSeriesPoint[];
+}
+
+// 003-tca-core-benchmarks: Order 级 TCA 汇总（route 聚合）
+export interface TcaOrderAggregate {
+  order_id: string;
+  order_as_of_date: string;
+  equ_ticker: string | null;
+  exchange: string | null;
+  side: string | null;
+  broker: string | null;
+  algo: string | null;
+  trader_name: string | null;
+  route_count: number;
+  fill_count: number | null;
+  delay_cost: number | null;
+  trading_cost: number | null;
+  opportunity_cost: number | null;
+  wagner_is: number | null;
+  p_arrival: number | null;
+  p_decision: number | null;
+  p_close: number | null;
+  arrival_cost_bps: number | null;
+  close_cost_bps: number | null;
+  wagner_is_bps: number | null;
+  temp_impact_5min_bps: number | null;
+  temp_impact_10min_bps: number | null;
+  temp_impact_30min_bps: number | null;
+  perm_impact_bps: number | null;
+  fill: number | null;
+  route_shares: number | null;
+  par_rate: number | null;
+  cost_stddev: number | null;
+  cost_p95: number | null;
+  cost_cvar: number | null;
+  order_duration_sec: number | null;
+  exec_rate_shares_per_min: number | null;
+  recovery_truncated: number | null;
 }
 
 export interface TcaReport {
