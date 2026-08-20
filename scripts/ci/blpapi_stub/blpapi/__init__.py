@@ -94,4 +94,7 @@ class Subscription:
 
 class CorrelationId:
     def __init__(self, *args, **kwargs) -> None:
-        pass
+        self._value = args[0] if args else 0
+
+    def value(self):
+        return self._value

@@ -1,10 +1,14 @@
 """Tests for connection health endpoint behavior."""
 
-import asyncio
 import os
 
-os.environ.setdefault("JWT_SECRET", "unit-test-secret")
+import pytest
 
+os.environ.setdefault("JWT_SECRET", "unit-test-secret")
+os.environ.setdefault("BYPASS_AUTH", "true")
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from routers import connection
 from schemas import BackendStartupStatus, ConnectionStatus, StartupStatus, SubscriptionStartupStatus
 
@@ -19,6 +23,7 @@ class _FakeBloombergStatus:
 
 class _FakeBloomberg:
     def __init__(self, status: str, startup_status: StartupStatus | None = None):
+        self.connected = status == "connected"
         self._status = _FakeBloombergStatus(status)
         self._startup_status = startup_status or StartupStatus(
             phase="ready" if status == "connected" else "bloomberg_connecting",
@@ -43,34 +48,48 @@ class _FakeBloomberg:
     def get_startup_status(self):
         return self._startup_status
 
+    async def connect(self):
+        self.connected = True
 
-def test_health_check_treats_disabled_database_as_optional(monkeypatch):
+
+@pytest.fixture
+def client(monkeypatch):
+    """Build a TestClient with a fake Bloomberg service injected via app.state."""
+    app = FastAPI()
+    app.include_router(connection.router)
+    app.state.bloomberg_service = _FakeBloomberg("connected")
+    return TestClient(app)
+
+
+def test_health_check_treats_disabled_database_as_optional(monkeypatch, client):
     monkeypatch.setattr(connection.settings, "ENABLE_DB_PERSISTENCE", False)
-    monkeypatch.setattr(connection, "get_bloomberg", lambda: _FakeBloomberg("connected"))
 
-    response = asyncio.run(connection.health_check())
+    response = client.get("/api/health")
 
-    assert response.success is True
-    assert response.data["database"]["status"] == "disabled"
-    assert response.data["database"]["message"] == "DB persistence disabled"
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["database"]["status"] == "disabled"
+    assert body["data"]["database"]["message"] == "DB persistence disabled"
 
 
-def test_health_check_reports_database_failure_when_enabled(monkeypatch):
+def test_health_check_reports_database_failure_when_enabled(monkeypatch, client):
     async def _fake_check_database_connection():
         return False, "dns failure"
 
     monkeypatch.setattr(connection.settings, "ENABLE_DB_PERSISTENCE", True)
-    monkeypatch.setattr(connection, "get_bloomberg", lambda: _FakeBloomberg("connected"))
     monkeypatch.setattr(connection, "check_database_connection", _fake_check_database_connection)
 
-    response = asyncio.run(connection.health_check())
+    response = client.get("/api/health")
 
-    assert response.success is False
-    assert response.data["database"]["status"] == "disconnected"
-    assert response.data["database"]["message"] == "dns failure"
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["data"]["database"]["status"] == "disconnected"
+    assert body["data"]["database"]["message"] == "dns failure"
 
 
-def test_startup_status_reports_subscription_warmup(monkeypatch):
+def test_startup_status_reports_subscription_warmup(monkeypatch, client):
     startup_status = StartupStatus(
         phase="subscriptions_warming",
         ready=False,
@@ -87,18 +106,20 @@ def test_startup_status_reports_subscription_warmup(monkeypatch):
             ready=False,
         ),
     )
-    monkeypatch.setattr(connection, "get_bloomberg", lambda: _FakeBloomberg("connected", startup_status=startup_status))
+    client.app.state.bloomberg_service = _FakeBloomberg("connected", startup_status=startup_status)
 
-    response = asyncio.run(connection.get_startup_status(user={}))
+    response = client.get("/api/startup-status")
 
-    assert response.success is True
-    assert response.data["phase"] == "subscriptions_warming"
-    assert response.data["backend"]["httpReady"] is True
-    assert response.data["subscriptions"]["ordersInitPaintDone"] is True
-    assert response.data["subscriptions"]["routesInitPaintDone"] is False
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["phase"] == "subscriptions_warming"
+    assert body["data"]["backend"]["httpReady"] is True
+    assert body["data"]["subscriptions"]["ordersInitPaintDone"] is True
+    assert body["data"]["subscriptions"]["routesInitPaintDone"] is False
 
 
-def test_startup_status_reports_error_when_subscription_failed(monkeypatch):
+def test_startup_status_reports_error_when_subscription_failed(monkeypatch, client):
     startup_status = StartupStatus(
         phase="error",
         ready=False,
@@ -115,11 +136,13 @@ def test_startup_status_reports_error_when_subscription_failed(monkeypatch):
             ready=False,
         ),
     )
-    monkeypatch.setattr(connection, "get_bloomberg", lambda: _FakeBloomberg("connected", startup_status=startup_status))
+    client.app.state.bloomberg_service = _FakeBloomberg("connected", startup_status=startup_status)
 
-    response = asyncio.run(connection.get_startup_status(user={}))
+    response = client.get("/api/startup-status")
 
-    assert response.success is True
-    assert response.data["phase"] == "error"
-    assert response.data["subscriptions"]["subscriptionFailed"] is True
-    assert response.message == "Subscription failed"
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["phase"] == "error"
+    assert body["data"]["subscriptions"]["subscriptionFailed"] is True
+    assert body["message"] == "Subscription failed"

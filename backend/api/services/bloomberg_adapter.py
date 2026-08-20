@@ -22,6 +22,7 @@ from __future__ import annotations
 from services.bloomberg.adapter import (
     BloombergEMSXService,
     configure,
+    logger,
 )
 
-__all__ = ["BloombergEMSXService", "configure"]
+__all__ = ["BloombergEMSXService", "configure", "logger"]
