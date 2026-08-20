@@ -93,6 +93,18 @@ COLUMN_TYPE_MAP: Dict[str, str] = {
     "pnl_vwap": "REAL", "pnl_vwap_continuous": "REAL",
     "RPM": "REAL", "RPM_continuous": "REAL",
     "pwp_5": "REAL", "pwp_10": "REAL", "pwp_15": "REAL", "pwp_20": "REAL", "pwp_25": "REAL",
+    # 003-tca-core-benchmarks: Phase 0 核心基准
+    "p_arrival": "REAL", "p_close": "REAL",
+    "arrival_cost_bps": "REAL", "close_cost_bps": "REAL",
+    "opportunity_cost": "REAL",
+    # 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击
+    "p_decision": "REAL", "delay_cost": "REAL", "trading_cost": "REAL",
+    "wagner_is": "REAL", "wagner_is_bps": "REAL",
+    "cost_stddev": "REAL", "cost_p95": "REAL", "cost_cvar": "REAL",
+    "order_duration_sec": "REAL", "exec_rate_shares_per_min": "REAL",
+    "temp_impact_5min_bps": "REAL", "temp_impact_10min_bps": "REAL",
+    "temp_impact_30min_bps": "REAL", "perm_impact_bps": "REAL",
+    "recovery_truncated": "INTEGER",
 }
 
 AGG_COLUMNS: List[str] = [
@@ -117,6 +129,30 @@ TCA_ROUTE_SUMMARY_COLUMNS: List[str] = [
     "pnl_vwap", "pnl_vwap_continuous",
     "RPM", "RPM_continuous",
     "pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25",
+    # 003-tca-core-benchmarks: Phase 0 核心基准（到达价/收盘价/机会成本）
+    "p_arrival", "p_close", "arrival_cost_bps", "close_cost_bps",
+    "opportunity_cost",
+    # 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击分解
+    "p_decision", "delay_cost", "trading_cost", "wagner_is", "wagner_is_bps",
+    "cost_stddev", "cost_p95", "cost_cvar",
+    "order_duration_sec", "exec_rate_shares_per_min",
+    "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
+    "perm_impact_bps", "recovery_truncated",
+]
+
+# 003-tca-core-benchmarks: Phase 0 新列（核心基准）
+TCA_CORE_BENCHMARKS_COLUMNS: List[str] = [
+    "p_arrival", "p_close", "arrival_cost_bps", "close_cost_bps",
+    "opportunity_cost",
+]
+
+# 003-tca-core-benchmarks: Phase 1 新列（Wagner IS / 风险 / 冲击）
+TCA_RISK_IMPACT_COLUMNS: List[str] = [
+    "p_decision", "delay_cost", "trading_cost", "wagner_is", "wagner_is_bps",
+    "cost_stddev", "cost_p95", "cost_cvar",
+    "order_duration_sec", "exec_rate_shares_per_min",
+    "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
+    "perm_impact_bps", "recovery_truncated",
 ]
 
 AGG_1MIN_COLUMNS: List[str] = [

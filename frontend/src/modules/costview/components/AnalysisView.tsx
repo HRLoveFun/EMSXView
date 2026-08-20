@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { averageMetric, countAlertOrders, evaluateThreshold, getSeverityText, getSeverityTone } from '../lib/thresholds';
 import type { AlertSeverity, CostViewConfig, CostViewFilterFormState, TcaRouteSummary, TcaReport } from '../types';
+import type { TcaOrderReport } from '../services/api';
 import { TcaFilterWorkbench } from './TcaFilterWorkbench';
 import { TcaOrderTable } from './TcaOrderTable';
+import { OrderAggregateTable } from './OrderAggregateTable';
 
 const LazyPriceDynamicsChart = lazy(async () => {
   const module = await import('./PriceDynamicsChart');
@@ -24,6 +26,8 @@ interface AnalysisViewProps {
   filterForm: CostViewFilterFormState;
   isLoading: boolean;
   report: TcaReport | null;
+  orderReport: TcaOrderReport | null;
+  viewMode: 'routes' | 'orders';
   selectedRoute: TcaRouteSummary | null;
   onFilterChange: (next: CostViewFilterFormState) => void;
   onOpenExport: () => void;
@@ -32,6 +36,7 @@ interface AnalysisViewProps {
   onResetFilters: () => void;
   onRunSearch: () => void;
   onSelectRoute: (route: TcaRouteSummary | null) => void;
+  onViewModeChange: (mode: 'routes' | 'orders') => void;
 }
 
 interface SummaryCard {
@@ -93,7 +98,7 @@ function createSummaryCards(report: TcaReport | null, config: CostViewConfig) {
   ] satisfies SummaryCard[];
 }
 
-export function AnalysisView({ config, error, filterForm, isLoading, report, selectedRoute, onFilterChange, onOpenExport, onPageChange, onRefresh, onResetFilters, onRunSearch, onSelectRoute }: AnalysisViewProps) {
+export function AnalysisView({ config, error, filterForm, isLoading, report, orderReport, viewMode, selectedRoute, onFilterChange, onOpenExport, onPageChange, onRefresh, onResetFilters, onRunSearch, onSelectRoute, onViewModeChange }: AnalysisViewProps) {
   const summaryCards = createSummaryCards(report, config);
 
   return (
@@ -125,6 +130,24 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, sel
 
       <TcaFilterWorkbench form={filterForm} isLoading={isLoading} onChange={onFilterChange} onReset={onResetFilters} onSearch={onRunSearch} />
 
+      <div className="flex items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5">
+          {(['routes', 'orders'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => onViewModeChange(mode)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === mode ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {mode === 'routes' ? 'Route View' : 'Order View'}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {viewMode === 'orders' ? 'Order View 按订单聚合多 route 指标（后端 /api/tca/analyze-orders）' : 'Route View 逐 route 明细'}
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {summaryCards.map((card) => (
           <Card key={card.label}>
@@ -141,7 +164,9 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, sel
         ))}
       </div>
 
-      {report ? (
+      {viewMode === 'orders' ? (
+        <OrderAggregateTable report={orderReport} error={error} isLoading={isLoading} />
+      ) : report ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
             <div>
@@ -181,6 +206,24 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, sel
                       <div className="text-xs text-muted-foreground">{metric.label}</div>
                       <div className="mt-1 text-lg font-semibold">{metric.value}</div>
                       <div className={`mt-2 inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone(metric.severity)}`}>{getSeverityText(metric.severity)}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    { label: 'Arrival Cost', value: selectedRoute.arrival_cost_bps != null ? `${selectedRoute.arrival_cost_bps > 0 ? '+' : ''}${selectedRoute.arrival_cost_bps.toFixed(1)} bps` : '—', hint: selectedRoute.p_arrival != null ? `P₀ ${selectedRoute.p_arrival.toFixed(2)}` : undefined },
+                    { label: 'Close Cost', value: selectedRoute.close_cost_bps != null ? `${selectedRoute.close_cost_bps > 0 ? '+' : ''}${selectedRoute.close_cost_bps.toFixed(1)} bps` : '—', hint: selectedRoute.p_close != null ? `Pn ${selectedRoute.p_close.toFixed(2)}` : undefined },
+                    { label: 'Wagner IS', value: selectedRoute.wagner_is != null ? `${selectedRoute.wagner_is > 0 ? '+' : ''}${selectedRoute.wagner_is.toFixed(0)}` : '—', hint: selectedRoute.wagner_is_bps != null ? `${selectedRoute.wagner_is_bps.toFixed(1)} bps` : undefined },
+                    { label: 'Cost StdDev', value: selectedRoute.cost_stddev != null ? `${selectedRoute.cost_stddev.toFixed(1)} bps` : '—', hint: selectedRoute.cost_p95 != null ? `P95 ${selectedRoute.cost_p95.toFixed(1)} bps` : undefined },
+                    { label: 'Order Duration', value: selectedRoute.order_duration_sec != null ? `${(selectedRoute.order_duration_sec / 60).toFixed(1)} min` : '—', hint: selectedRoute.exec_rate_shares_per_min != null ? `${selectedRoute.exec_rate_shares_per_min.toFixed(0)} sh/min` : undefined },
+                    { label: 'Temp Impact 5m', value: selectedRoute.temp_impact_5min_bps != null ? `${selectedRoute.temp_impact_5min_bps > 0 ? '+' : ''}${selectedRoute.temp_impact_5min_bps.toFixed(1)} bps` : '—', hint: selectedRoute.temp_impact_30min_bps != null ? `30m ${selectedRoute.temp_impact_30min_bps.toFixed(1)} bps` : undefined },
+                    { label: 'Perm Impact', value: selectedRoute.perm_impact_bps != null ? `${selectedRoute.perm_impact_bps > 0 ? '+' : ''}${selectedRoute.perm_impact_bps.toFixed(1)} bps` : '—', hint: selectedRoute.recovery_truncated ? 'recovery truncated' : undefined },
+                    { label: 'Pnl VWAP (Cont)', value: selectedRoute.pnl_vwap_continuous != null ? `${selectedRoute.pnl_vwap_continuous > 0 ? '+' : ''}${selectedRoute.pnl_vwap_continuous.toFixed(1)} bps` : '—' },
+                  ].map((metric) => (
+                    <div key={metric.label} className="rounded-lg border border-border bg-muted/30 p-3">
+                      <div className="text-xs text-muted-foreground">{metric.label}</div>
+                      <div className="mt-1 text-lg font-semibold" title={metric.hint}>{metric.value}</div>
                     </div>
                   ))}
                 </div>

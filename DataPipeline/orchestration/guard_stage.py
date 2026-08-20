@@ -42,6 +42,7 @@ class GuardStage:
         breaker: CircuitBreaker | None = None,
         run_logger: PipelineRunLogger | None = None,
         policy: ValidationPolicy = ValidationPolicy.STRICT,
+        short_name: str | None = None,
     ) -> None:
         """初始化阶段护栏包装器。
 
@@ -51,6 +52,7 @@ class GuardStage:
             breaker: 熔断器实例（可选）
             run_logger: 日志记录器（可选）
             policy: 校验策略（默认 STRICT）
+            short_name: 阶段短名（如 "S2", 用于 Schema 注册表查询; 缺省从 name 提取）
         """
         self.name: str = getattr(stage, "name", stage.__class__.__name__)
         self._stage = stage
@@ -58,6 +60,7 @@ class GuardStage:
         self._breaker = breaker
         self._run_logger = run_logger
         self._policy = policy
+        self._short_name = short_name or self._extract_short_name(self.name)
 
     def execute(self, context: Any, run_id: str = "") -> GuardStageResult:
         """执行阶段并注入护栏行为。
@@ -190,6 +193,18 @@ class GuardStage:
             logger.debug("阶段 %s: 无输出数据可校验", self.name)
             return ValidationResult(passed=0, failed=0)
 
+        # M1: 用短名查询 Schema (注册表按 "S2" 等短名注册)
         return self._validator.validate_output(
-            self.name, output_records, run_id=run_id
+            self._short_name, output_records, run_id=run_id
         )
+
+    @staticmethod
+    def _extract_short_name(stage_name: str) -> str:
+        """从完整阶段名称提取短名称（如 "2. Process Raw Fills" → "S2"）。
+
+        与 GuardPipeline._extract_short_name 保持一致。
+        """
+        parts = stage_name.split(".")
+        if parts and parts[0].strip().isdigit():
+            return f"S{parts[0].strip()}"
+        return stage_name

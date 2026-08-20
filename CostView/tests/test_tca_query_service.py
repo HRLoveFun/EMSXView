@@ -12,21 +12,9 @@ Tests:
 from __future__ import annotations
 
 import sqlite3
-import tempfile
-import zoneinfo
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
-
-def _tz_available(tz_name: str) -> bool:
-    """检查当前环境是否包含指定的 IANA 时区数据。"""
-    try:
-        zoneinfo.ZoneInfo(tz_name)
-        return True
-    except zoneinfo.ZoneInfoNotFoundError:
-        return False
 
 
 from CostView.src.tca_query_service import TcaFilters, TcaQueryService
@@ -40,9 +28,8 @@ from CostView.src.tca_utils import (
     std,
 )
 from CostView.src.tca_query_builder import (
-    get_fill_percentages,
     get_market_context,
-    get_matching_routes,
+    get_tca_route_summaries,
 )
 
 
@@ -334,81 +321,6 @@ class TestTcaFilters:
         assert resolved.end_date is None
 
 
-class TestGetMatchingRoutes:
-    def test_route_history_is_preferred_when_present(self, tmp_dbs):
-        proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
-        conn = sqlite3.connect(proc)
-        try:
-            conn.execute(
-                "UPDATE route_history SET Broker = ? WHERE OrderId = ? AND RouteId = ? AND order_as_of_date = ?",
-                ("HistoryBroker", "O1", "R1", "20260418"),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        svc = _make_service(tmp_dbs)
-        rows, total = get_matching_routes(svc._mgr, 
-            TcaFilters(start_date="20260418", end_date="20260418", broker="HistoryBroker")
-        )
-        assert total == 1
-        assert rows[0]["order_id"] == "O1"
-
-    def test_date_filter(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(start_date="20260418", end_date="20260418")
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 2  # O1/R1 and O2/R2
-
-    def test_order_id_filter(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(order_ids=["O1"])
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 1
-        assert rows[0]["order_id"] == "O1"
-
-    def test_algo_filter(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(start_date="20260418", end_date="20260418", algo="TWAP")
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 1
-        assert rows[0]["order_id"] == "O2"
-
-    def test_broker_filter(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(start_date="20260418", end_date="20260418", broker="BrokerA")
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 1
-        assert rows[0]["order_id"] == "O1"
-
-    def test_symbol_filter(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(
-            start_date="20260418", end_date="20260418",
-            symbol="MSFT US Equity"
-        )
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 1
-        assert rows[0]["order_id"] == "O2"
-
-    def test_pagination(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(
-            start_date="20260418", end_date="20260418",
-            limit=1, offset=0
-        )
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 2      # total without pagination
-        assert len(rows) == 1  # only 1 row returned
-
-    def test_no_results_for_unknown_algo(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        filters = TcaFilters(start_date="20260418", end_date="20260418", algo="NONEXISTENT")
-        rows, total = get_matching_routes(svc._mgr, filters)
-        assert total == 0
-        assert rows == []
-
-
 class TestSqlInjectionSafety:
     """Verify that malicious filter values cannot execute arbitrary SQL."""
 
@@ -423,7 +335,7 @@ class TestSqlInjectionSafety:
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(order_ids=[payload])
-            rows, total = get_matching_routes(svc._mgr, filters)
+            rows, total = get_tca_route_summaries(svc._mgr, filters)
             # Must return 0 rows (payload doesn't match real data)
             assert total == 0, f"Injection payload returned rows: {payload!r}"
 
@@ -431,38 +343,37 @@ class TestSqlInjectionSafety:
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(start_date="20260418", end_date="20260418", algo=payload)
-            rows, total = get_matching_routes(svc._mgr, filters)
+            rows, total = get_tca_route_summaries(svc._mgr, filters)
             assert total == 0, f"Injection payload returned rows: {payload!r}"
 
     def test_broker_injection(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(start_date="20260418", end_date="20260418", broker=payload)
-            rows, total = get_matching_routes(svc._mgr, filters)
+            rows, total = get_tca_route_summaries(svc._mgr, filters)
             assert total == 0
 
     def test_symbol_injection(self, tmp_dbs):
         svc = _make_service(tmp_dbs)
         for payload in self.INJECTION_STRINGS:
             filters = TcaFilters(start_date="20260418", end_date="20260418", symbol=payload)
-            rows, total = get_matching_routes(svc._mgr, filters)
+            rows, total = get_tca_route_summaries(svc._mgr, filters)
             assert total == 0
 
-    def test_processed_fills_table_still_exists(self, tmp_dbs):
+    def test_route_summary_table_still_exists(self, tmp_dbs):
         """After injection attempts the table must still exist."""
         svc = _make_service(tmp_dbs)
         # Try the most aggressive payload
-        filters = TcaFilters(order_ids=["'; DROP TABLE processed_fills; --"])
+        filters = TcaFilters(order_ids=["'; DROP TABLE tca_route_summary; --"])
         try:
-            get_matching_routes(svc._mgr, filters)
+            get_tca_route_summaries(svc._mgr, filters)
         except Exception:
             pass
-        # If table was dropped, this query would raise
-        conn = svc._proc_fills_conn()
-        cursor = conn.execute("SELECT COUNT(*) FROM processed_fills")
-        count = cursor.fetchone()[0]
-        conn.close()
-        assert count == 3, "processed_fills was modified by injection attempt"
+        # If table was dropped, this query would return 0 (table missing)
+        rows, total = get_tca_route_summaries(
+            svc._mgr, TcaFilters(start_date="20260418", end_date="20260418")
+        )
+        assert total == 2, "tca_route_summary was modified by injection attempt"
 
 
 class TestFillBdibEmpty:
@@ -488,42 +399,6 @@ class TestFillBdibEmpty:
         report = svc.build_tca_report(filters)
         assert report.data_source_warning is not None
         assert "tca_route_summary" in report.data_source_warning.lower()
-
-
-
-class TestFillPercentages:
-    def test_fill_pct_prefers_order_history_table(self, tmp_dbs):
-        proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
-        conn = sqlite3.connect(proc)
-        try:
-            conn.execute(
-                "UPDATE order_history SET total_fill_shares = ? WHERE OrderId = ? AND order_as_of_date = ?",
-                (900.0, "O1", "20260418"),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        svc = _make_service(tmp_dbs)
-        pcts = get_fill_percentages(svc._mgr, ["O1"])
-        assert pcts.get("O1") == pytest.approx(90.0)
-
-    def test_fill_pct_100(self, tmp_dbs):
-        """O1 filled 1000 shares out of 1000 â†’ 100%."""
-        svc = _make_service(tmp_dbs)
-        pcts = get_fill_percentages(svc._mgr, ["O1"])
-        assert pcts.get("O1") == pytest.approx(100.0)
-
-    def test_fill_pct_50(self, tmp_dbs):
-        """O2 filled 1000 out of 2000 â†’ 50%."""
-        svc = _make_service(tmp_dbs)
-        pcts = get_fill_percentages(svc._mgr, ["O2"])
-        assert pcts.get("O2") == pytest.approx(50.0)
-
-    def test_unknown_order_returns_empty(self, tmp_dbs):
-        svc = _make_service(tmp_dbs)
-        pcts = get_fill_percentages(svc._mgr, ["UNKNOWN"])
-        assert pcts.get("UNKNOWN") is None
 
 
 class TestBuildTcaReport:
@@ -577,42 +452,6 @@ class TestBuildTcaReport:
         route = report.orders[0]
         # 新 schema 用 RPM 代理 daily_volatility（见 scorecard 聚合逻辑）
         assert route.RPM == pytest.approx(0.20)
-
-
-    @pytest.mark.skipif(
-        not _tz_available("Pacific/Auckland"),
-        reason="当前环境 tzdata 缺少 Pacific/Auckland 数据文件",
-    )
-    def test_matching_routes_derives_local_exchange_times_from_datetime(self, tmp_dbs):
-        proc, _bdib, _raw_bdib, _raw_fills = tmp_dbs
-        conn = sqlite3.connect(proc)
-        try:
-            conn.execute(
-                "UPDATE processed_fills SET Exchange = ?, DateTimeOfFill = ?, exchange_exec_time = ? WHERE OrderId = ? AND RouteId = ? AND FillId = ?",
-                ("NZ", "2026-04-18T01:00:00-04:00", "01:00:00", "O1", "R1", "F1"),
-            )
-            conn.execute(
-                "UPDATE processed_fills SET Exchange = ?, DateTimeOfFill = ?, exchange_exec_time = ? WHERE OrderId = ? AND RouteId = ? AND FillId = ?",
-                ("NZ", "2026-04-18T01:10:00-04:00", "01:10:00", "O1", "R1", "F2"),
-            )
-            conn.execute(
-                "UPDATE route_registry SET Exchange = ?, equ_ticker = ? WHERE OrderId = ? AND RouteId = ?",
-                ("NZ", "AIA NZ Equity", "O1", "R1"),
-            )
-            conn.execute("DROP TABLE route_history")
-            conn.execute("DROP TABLE order_history")
-            conn.commit()
-        finally:
-            conn.close()
-
-        svc = _make_service(tmp_dbs)
-        rows, total = get_matching_routes(svc._mgr,
-            TcaFilters(start_date="20260418", end_date="20260418", order_ids=["O1"])
-        )
-
-        assert total == 1
-        assert rows[0]["start_time"] == "17:00:00"
-        assert rows[0]["end_time"] == "17:10:00"
 
 
     def test_market_context_supports_time_only_bdib_timestamps(self, tmp_path: Path, monkeypatch):

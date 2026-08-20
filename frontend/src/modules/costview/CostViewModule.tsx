@@ -13,7 +13,7 @@ import {
   saveCostViewFilters,
 } from './lib/storage';
 import { applyCostViewClientFilters, buildWarningOnlyPage } from './lib/report-state';
-import { analyzeTca, fetchAllFilteredOrders, getUpdateStatus, PipelineTriggeredError } from './services/api';
+import { analyzeTca, analyzeTcaOrders, fetchAllFilteredOrders, getUpdateStatus, PipelineTriggeredError, type TcaOrderReport } from './services/api';
 import type {
   CostViewConfig,
   CostViewFilterFormState,
@@ -75,6 +75,8 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   const [config, setConfig] = useState<CostViewConfig>(() => loadCostViewConfig());
   const [filterForm, setFilterForm] = useState<CostViewFilterFormState>(() => loadCostViewFilters());
   const [report, setReport] = useState<TcaReport | null>(null);
+  const [orderReport, setOrderReport] = useState<TcaOrderReport | null>(null);
+  const [viewMode, setViewMode] = useState<'routes' | 'orders'>('routes');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -169,6 +171,32 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
       setIsLoading(false);
     }
   }, [config, selectedRoute]);
+
+  const fetchOrderReport = useCallback(async (form: CostViewFilterFormState) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const nextReport = await analyzeTcaOrders({
+        filters: formToPayload(form),
+        aggregation: 'aggregated',
+        limit: Math.max(form.limit, 200),
+        offset: 0,
+      });
+      startTransition(() => {
+        setOrderReport(nextReport);
+      });
+    } catch (nextError) {
+      if (nextError instanceof PipelineTriggeredError) {
+        setPipelineJob({ jobId: nextError.jobId, targetDate: nextError.targetDate, form });
+        setOrderReport(null);
+        return;
+      }
+      setError(nextError instanceof Error ? nextError.message : 'Unknown CostView order aggregation error');
+      setOrderReport(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (hasLoadedInitialRef.current) return;
@@ -343,6 +371,8 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
               filterForm={filterForm}
               isLoading={isLoading}
               report={report}
+              orderReport={orderReport}
+              viewMode={viewMode}
               selectedRoute={selectedRoute}
               onFilterChange={setFilterForm}
               onOpenExport={() => setIsExportDialogOpen(true)}
@@ -351,6 +381,12 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
               onResetFilters={handleResetFilters}
               onRunSearch={handleRunSearch}
               onSelectRoute={(route) => setSelectedRoute(route)}
+              onViewModeChange={(mode) => {
+                setViewMode(mode);
+                if (mode === 'orders') {
+                  void fetchOrderReport(filterForm);
+                }
+              }}
             />
           </Suspense>
         </TabsContent>

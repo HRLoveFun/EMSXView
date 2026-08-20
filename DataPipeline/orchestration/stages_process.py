@@ -27,6 +27,27 @@ from .context import PipelineContext
 logger = logging.getLogger(__name__)
 
 
+def _load_daily_summary_for_metrics(
+    cm, date_str: str, equ_tickers: Optional[List[str]],
+) -> Optional[pd.DataFrame]:
+    """加载 bdib_daily_summary 供 TCA 路由指标计算使用。
+
+    003-tca-core-benchmarks:
+    - Phase 0 需要当日 daily_close（收盘价基准 / 机会成本）
+    - Phase 1 需要下一交易日 daily_close（跨日次日收盘恢复窗口）
+
+    加载区间 [date_str, date_str + 10 日历日]，覆盖下一交易日的 daily_close。
+    """
+    from DataPipeline.storage.repositories.market_data import SqliteMarketDataReadRepository
+
+    reader = SqliteMarketDataReadRepository(cm)
+    start = date_str
+    base = datetime.strptime(date_str, Config.DATE_FORMAT)
+    end = (base + timedelta(days=10)).strftime(Config.DATE_FORMAT)
+    df = reader.get_daily_summary_for_date_range(start, end, equ_tickers)
+    return df if df is not None and not df.empty else None
+
+
 # ═══════════════════════════════════════════════════════════════
 # S5: IntegrateBDIBStage
 # ═══════════════════════════════════════════════════════════════
@@ -165,6 +186,9 @@ class IntegrateBDIBStage(BaseStage):
         total_processed_raw_bdib_rows = 0
         total_fill_bdib_rows = 0
         skipped_raw = 0; skipped_proc_raw = 0; skipped_fill = 0
+        # 防护 (M10): 失败显式化 — 日期级失败进健康清单, 全部失败时阶段失败
+        failed_dates: list[str] = []
+        failed_chunks = 0
 
         # Chunk tickers to avoid loading ALL BDIB data into memory at once
         all_tickers = list(ticker_exchange_map_all.keys())
@@ -241,6 +265,7 @@ class IntegrateBDIBStage(BaseStage):
                             del chunk_map, chunk_dfs, chunk_bdib_df, enriched
                             gc.collect()
                         except Exception as chunk_err:
+                            failed_chunks += 1
                             logger.warning("  BDIB chunk %d error for %s: %s", chunk_i, date_str, chunk_err)
 
                 # ── 回补路径: BDIB 拉取跳过时, 从 raw_bdib 加载已有数据 ──
@@ -324,6 +349,7 @@ class IntegrateBDIBStage(BaseStage):
                             date_str, date_raw_rows, date_proc_raw_rows, fill_bdib_rows)
 
             except Exception as e:
+                failed_dates.append(date_str)
                 logger.error(f"  Error in BDIB integration for {date_str}: {e}")
                 gc.collect()
 
@@ -332,8 +358,15 @@ class IntegrateBDIBStage(BaseStage):
             "processed_dates": len(all_candidate_dates) - skipped_raw - skipped_proc_raw - skipped_fill,
             "skipped_raw": skipped_raw, "skipped_processed_raw": skipped_proc_raw, "skipped_fill": skipped_fill,
             "raw_bdib_rows": total_raw_bdib_rows, "processed_raw_bdib_rows": total_processed_raw_bdib_rows, "fill_bdib_rows": total_fill_bdib_rows,
+            # M10: 健康清单 — 失败日期与失败分块数 (部分失败不再被静默掩盖)
+            "failed_dates": failed_dates,
+            "failed_chunks": failed_chunks,
         }
-        return True
+        # M10: 全部候选日期失败时阶段返回 False; 部分失败显式记录于 summary
+        all_failed = bool(all_candidate_dates) and len(failed_dates) >= len(all_candidate_dates)
+        if all_failed:
+            logger.error("BDIB 阶段全部 %d 个日期失败", len(all_candidate_dates))
+        return not all_failed
 
 
 
@@ -411,8 +444,19 @@ class ComputeRouteMetricsStage(BaseStage):
                 equ_tickers = processed_fills_df["equ_ticker"].dropna().unique().tolist() if "equ_ticker" in processed_fills_df.columns else []
                 raw_bdib_df = load_raw_bdib_for_date(date_str, equ_tickers=equ_tickers)
 
+                # 003-tca-core-benchmarks: 加载 bdib_daily_summary（含下一交易日，
+                # 供收盘价基准 + 跨日次日收盘恢复窗口使用）
+                daily_summary_df = None
+                if (Config.TCA_CORE_BENCHMARKS_ENABLED or Config.TCA_RISK_IMPACT_ENABLED):
+                    try:
+                        daily_summary_df = _load_daily_summary_for_metrics(cm, date_str, equ_tickers)
+                    except Exception as e:
+                        logger.warning("  RouteMetrics %s: 加载 daily_summary 失败: %s", date_str, e)
+                        daily_summary_df = None
+
                 metrics_df = compute_route_metrics_for_date(
                     raw_fills_df, processed_fills_df, raw_bdib_df, date_str,
+                    daily_summary_df=daily_summary_df,
                 )
                 if not metrics_df.empty:
                     rows = context.db.integrated_write.upsert_tca_route_summary(metrics_df, date_str=date_str)
@@ -422,6 +466,8 @@ class ComputeRouteMetricsStage(BaseStage):
                     logger.info("  RouteMetrics %s: no routes computed", date_str)
 
                 del raw_fills_df, processed_fills_df, raw_bdib_df, metrics_df
+                if daily_summary_df is not None:
+                    del daily_summary_df
                 gc.collect()
             except Exception as e:
                 logger.error(f"  Error computing route metrics for {date_str}: {e}")

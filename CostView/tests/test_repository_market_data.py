@@ -12,7 +12,7 @@ import pandas as pd
 
 from DataPipeline.storage.repositories.market_data import SqliteMarketDataReadRepository
 from DataPipeline.storage.repositories.market_data import SqliteMarketDataWriteRepository
-from CostView.tests.testing_helpers import create_temp_db, make_bdib_dataframe
+from CostView.tests.testing_helpers import close_temp_db, create_temp_db, make_bdib_dataframe
 
 
 class SqliteMarketDataReadRepositoryTest(unittest.TestCase):
@@ -25,6 +25,7 @@ class SqliteMarketDataReadRepositoryTest(unittest.TestCase):
         self.write_repo = SqliteMarketDataWriteRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def _seed_bars(self, num_bars: int = 5, date_str: str = "20260408",
@@ -122,6 +123,7 @@ class SqliteMarketDataWriteRepositoryTest(unittest.TestCase):
         self.read_repo = SqliteMarketDataReadRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def test_upsert_bdib_data(self):

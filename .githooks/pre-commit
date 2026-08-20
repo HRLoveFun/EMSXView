@@ -47,4 +47,25 @@ case "$SRC" in
     "$CL") sync_files "$CL" "$AG" "$CB" ;;
 esac
 
+# ═══════════════════════════════════════════════════════════════════════
+# 边界审计快路径 (P2, 2026-08-14)
+# 仅当暂存文件含 .py/.ts/.tsx 时执行; 违规即阻断提交。
+# 审计规则从 platform_data/contracts/boundary_registry.py 生成。
+# ═══════════════════════════════════════════════════════════════════════
+CODE_STAGED=$(git diff --cached --name-only | grep -E '\.(py|ts|tsx)$' || true)
+if [ -n "$CODE_STAGED" ] && command -v python >/dev/null 2>&1; then
+    AUDIT_FAILED=0
+    for audit in audit_cross_imports audit_underscore_access audit_db_paths; do
+        if ! python "scripts/$audit.py" >/dev/null 2>&1; then
+            echo "[pre-commit] 边界审计失败: scripts/$audit.py"
+            python "scripts/$audit.py" >&2
+            AUDIT_FAILED=1
+        fi
+    done
+    if [ "$AUDIT_FAILED" -eq 1 ]; then
+        echo "[pre-commit] 请修复上述边界违规后重新提交"
+        exit 1
+    fi
+fi
+
 exit 0

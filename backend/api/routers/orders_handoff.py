@@ -7,7 +7,9 @@ import paths per the plan's import path specification.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from deps import verify_token
 
 from schemas.handoff import (
     HandoffMetadataResponse,
@@ -43,7 +45,7 @@ def _serialize_metadata(metadata) -> HandoffMetadataResponse:
     "/api/executions/handoff/candidates",
     response_model=MarketToExecutionHandoffEnvelope,
 )
-async def get_active_candidate_handoff():
+async def get_active_candidate_handoff(user: dict = Depends(verify_token)):
     """Peek the latest MarketView → ExecutionView candidate handoff."""
     handoff = get_shared_handoff_exchange().get_market_to_execution()
     if handoff is None:
@@ -93,7 +95,9 @@ async def get_active_candidate_handoff():
     "/api/executions/handoff/post-trade",
     response_model=PostTradeHandoffResponse,
 )
-async def publish_post_trade_handoff(request: PostTradeHandoffRequest):
+async def publish_post_trade_handoff(
+    request: PostTradeHandoffRequest, user: dict = Depends(verify_token),
+):
     """Publish an ExecutionView → CostView post-trade context handoff."""
     handoff = get_shared_handoff_exchange().publish_execution_to_cost(
         order_id=request.order_id,

@@ -92,6 +92,7 @@
 ## 7. 文档维护规则
 
 - 决策类内容 → `docs/spec/adr/NNNN-*.md`
+- 计划类规范 → `docs/spec/plan-design-principles.md`（计划门控 G0-G3，跨计划复用）
 - 运行时模式 → 本文件 `memory.md`（保持简短，仅作速查）
 - 一次性诊断报告 → `docs/archive/YYYY-MM-DD/`
 - 阶段性总结 → `docs/archive/YYYY-MM-DD/`（如需在 `AGENTS.md` 头部声明当前状态，附加 ~100 字摘要即可；`docs/roadmap/` 整目录已归档 2026-07-02，`docs/handoff.md` 不再设常驻位）

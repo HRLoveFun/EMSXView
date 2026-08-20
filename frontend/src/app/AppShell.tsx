@@ -10,7 +10,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { useModuleNavigation } from '@app/hooks/use-module-navigation';
 import { useStartupStatus } from '@app/hooks/use-startup-status';
 import { createRealtimeClient, type RealtimeClient } from '@shared/services/realtime';
-import { tokenService } from '@shared/services/token-service';
+import { tokenService, getToken } from '@shared/services/token-service';
 import { HandoffContractsProvider } from '@shared/hooks/use-handoff-contracts';
 import { moduleRegistry } from '@shared/lib/module-registry';
 import { ShellContext } from '@shared/lib/shell-context';
@@ -76,14 +76,17 @@ export function AppShell() {
   const rtClientRef = useRef<RealtimeClient | null>(null);
 
   // Discover realtime WS path from module descriptors (P1-B3 fix).
+  // 防护 (P2): 冲突已在 moduleRegistry.register 层告警, 此处取首个声明模块
   const realtimeWsPath = useMemo(() => {
-    const modules = moduleRegistry.getAll();
-    const rtModule = modules.find(m => m.realtimeWsPath);
-    return rtModule?.realtimeWsPath ?? null;
+    return moduleRegistry.findRealtimeDeclarations()[0]?.realtimeWsPath ?? null;
   }, []);
 
   useEffect(() => {
     if (!realtimeWsPath) return; // No module declared a WS path — skip
+
+    // 防护 (H3): WS 握手附加认证 token (浏览器 WebSocket 无法携带自定义 header)
+    const token = getToken();
+    if (!token) return; // 未登录不建立实时连接
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const envUrl = import.meta.env.VITE_API_URL;
@@ -104,7 +107,8 @@ export function AppShell() {
     } else {
       wsBase = `${proto}//${window.location.host}`;
     }
-    const client = createRealtimeClient({ url: `${wsBase}${realtimeWsPath}` });
+    const wsUrl = `${wsBase}${realtimeWsPath}?token=${encodeURIComponent(token)}`;
+    const client = createRealtimeClient({ url: wsUrl });
     rtClientRef.current = client;
 
     client.onStatus((s) => {
@@ -175,7 +179,11 @@ export function AppShell() {
 
   // ─── Shell context value (provided to all modules via React context) ──
   const shellContext: ShellContextValue = useMemo(() => ({
-    navigateTo: (moduleId: ModuleId) => setActiveModule(moduleId),
+    // 防护 (P2): 导航前校验目标模块已注册 — 未注册 id 拒绝切换, 避免空白页
+    navigateTo: (moduleId: ModuleId) => {
+      const validated = moduleRegistry.navigateTo(moduleId, activeModule);
+      if (validated !== null) setActiveModule(validated);
+    },
     addToast,
     realtimeClient: rtClientRef.current,
     streamConnected,
@@ -183,7 +191,7 @@ export function AppShell() {
     subscriptionsWarming,
     subscriptionsWarmingMode,
     logout: handleLogout,
-  }), [setActiveModule, addToast, streamConnected, streamEverConnected, subscriptionsWarming, subscriptionsWarmingMode, handleLogout]);
+  }), [setActiveModule, activeModule, addToast, streamConnected, streamEverConnected, subscriptionsWarming, subscriptionsWarmingMode, handleLogout]);
 
   // ─── Build module views from registry — generic ModuleShellProps only ──
   const moduleViews = useMemo(() => {
@@ -195,9 +203,12 @@ export function AppShell() {
       return {
         moduleId: descriptor.id,
         content: (
-          <Suspense key={descriptor.id} fallback={<ModuleLoadingSkeleton name={descriptor.label} />}>
-            <LazyModule onContribute={setModuleContribution} />
-          </Suspense>
+          // 防护 (P2): 每个模块独立 ErrorBoundary — 模块崩溃不拖垮外壳与其他模块
+          <ErrorBoundary label={`Module:${descriptor.id}`}>
+            <Suspense key={descriptor.id} fallback={<ModuleLoadingSkeleton name={descriptor.label} />}>
+              <LazyModule onContribute={setModuleContribution} />
+            </Suspense>
+          </ErrorBoundary>
         ),
       };
     });

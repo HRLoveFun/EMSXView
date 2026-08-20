@@ -266,10 +266,29 @@ def _run_with_guardrail(pipe: FinancialPipeline, ctx: PipelineContext) -> Dict[s
     from DataPipeline.orchestration.guard import GuardPipeline
     from DataPipeline.validation.enums import RunStatus
     from DataPipeline.validation.schema_registry import SchemaRegistry
+    from DataPipeline.validation.enums import ValidationPolicy
+    from DataPipeline.validation.schemas import (
+        RawFillsSchema,
+        ProcessedFillsSchema,
+        AggregateFillsSchema,
+        OrderLabelsSchema,
+        FillBdibSchema,
+        DailyMetricsSchema,
+        RegimeSchema,
+        AttributionSchema,
+    )
 
     schemas = SchemaRegistry()
-    # 注意：当前阶段 Schema 尚未注册（各阶段输出通过 DB 中介，非内存流），
-    # Validator 在无 Schema 时默认通过所有记录。护栏仍提供异常捕获 + 日志记录。
+    # M1: 生产路径注册各阶段输出 Schema (此前为空注册, 输出校验臂恒跳过)。
+    # 使用 RELAXED 策略 — 仅拦截类型不匹配违规, 避免历史数据值域差异误伤管道。
+    schemas.register("S1", "output", RawFillsSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S2", "output", ProcessedFillsSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S3", "output", AggregateFillsSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S4", "output", OrderLabelsSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S5", "output", FillBdibSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S7", "output", DailyMetricsSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S8", "output", RegimeSchema, policy=ValidationPolicy.RELAXED)
+    schemas.register("S10", "output", AttributionSchema, policy=ValidationPolicy.RELAXED)
 
     guard = GuardPipeline(pipe, schemas=schemas)
     result = guard.run(ctx)

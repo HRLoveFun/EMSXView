@@ -29,12 +29,14 @@ from platform_data.adapters import (
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
+    TcaOrderAggregate,
     TcaReport,
     TcaRouteSummary,
 )
 from platform_data.contracts import SCORECARD_COHORTS
 from platform_data.regime_query import get_regime_distribution
 from CostView.src.tca_query_service import TcaQueryService
+from CostView.src.tca_utils import filters_to_dict as _filters_to_dict
 from CostView.src.tca_utils import resolve_date_defaults
 
 from platform_data.pipeline_jobs import get_job, trigger_pipeline
@@ -242,6 +244,53 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
         success=True,
         data=report_dict,
         message=f"TCA report: {report.total_orders} routes matched",
+    )
+
+
+@router.post("/api/tca/analyze-orders", response_model=TcaAnalyzeResponse)
+async def analyze_tca_orders(request: TcaAnalyzeRequest):
+    """Run TCA analysis aggregated at order level (003-tca-core-benchmarks).
+
+    Aggregates per-route TCA metrics to order level via the documented
+    aggregation strategy (SUM for currency costs, turnover-weighted for
+    bps, first-route for price benchmarks, etc.). Gated by
+    TCA_ORDER_AGG_ENABLED — when disabled returns empty orders.
+    """
+    f = request.filters
+    filters = TcaFilters(
+        order_ids=f.order_ids,
+        algo=f.algo,
+        start_date=f.start_date,
+        end_date=f.end_date,
+        broker=f.broker,
+        symbol=f.symbol,
+        aggregation="aggregated",
+        limit=request.limit,
+        offset=request.offset,
+    )
+
+    try:
+        aggregates = _analytics.build_order_report(filters)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"CostView database not found: {exc}. Run the data pipeline first.",
+        )
+    except Exception as exc:
+        logger.error(f"TCA order aggregation failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"TCA order aggregation error: {exc}")
+
+    return TcaAnalyzeResponse(
+        success=True,
+        data={
+            "filters": _filters_to_dict(filters),
+            "total_orders": len(aggregates),
+            "offset": request.offset,
+            "limit": request.limit,
+            "generated_at": datetime.now().isoformat(),
+            "orders": [_serialize_order_aggregate(a) for a in aggregates],
+        },
+        message=f"TCA order report: {len(aggregates)} orders matched",
     )
 
 
@@ -522,7 +571,7 @@ async def regime_distribution(
 # ── Pipeline runner ────────────────────────────────────────────────────────────
 #
 # The pipeline job registry and subprocess runner live in
-# routers/_pipeline_jobs.py so that both /api/tca/trigger-update (this router,
+# platform_data/pipeline_jobs.py so that both /api/tca/trigger-update (this router,
 # deprecated alias) and /api/db/update (DatabaseView router) share state.
 
 
@@ -579,8 +628,72 @@ def _serialize_route(route: TcaRouteSummary) -> dict:
         "pwp_15": route.pwp_15,
         "pwp_20": route.pwp_20,
         "pwp_25": route.pwp_25,
+        # 003-tca-core-benchmarks: Phase 0 核心基准
+        "p_arrival": route.p_arrival,
+        "p_close": route.p_close,
+        "arrival_cost_bps": route.arrival_cost_bps,
+        "close_cost_bps": route.close_cost_bps,
+        "opportunity_cost": route.opportunity_cost,
+        # 003-tca-core-benchmarks: Phase 1 Wagner IS / 风险 / 冲击
+        "p_decision": route.p_decision,
+        "delay_cost": route.delay_cost,
+        "trading_cost": route.trading_cost,
+        "wagner_is": route.wagner_is,
+        "wagner_is_bps": route.wagner_is_bps,
+        "cost_stddev": route.cost_stddev,
+        "cost_p95": route.cost_p95,
+        "cost_cvar": route.cost_cvar,
+        "order_duration_sec": route.order_duration_sec,
+        "exec_rate_shares_per_min": route.exec_rate_shares_per_min,
+        "temp_impact_5min_bps": route.temp_impact_5min_bps,
+        "temp_impact_10min_bps": route.temp_impact_10min_bps,
+        "temp_impact_30min_bps": route.temp_impact_30min_bps,
+        "perm_impact_bps": route.perm_impact_bps,
+        "recovery_truncated": route.recovery_truncated,
         # 时序数据
         "time_series": route.time_series,
+    }
+
+
+def _serialize_order_aggregate(order: TcaOrderAggregate) -> dict:
+    """Serialize one TcaOrderAggregate to a dict with snake_case keys.
+
+    003-tca-core-benchmarks: order 级 TCA 汇总序列化（route 聚合）。
+    """
+    return {
+        "order_id": order.OrderId,
+        "order_as_of_date": order.order_as_of_date,
+        "equ_ticker": order.equ_ticker,
+        "exchange": order.Exchange,
+        "side": order.Side,
+        "broker": order.Broker,
+        "algo": order.algo,
+        "trader_name": order.TraderName,
+        "route_count": order.route_count,
+        "fill_count": order.fill_count,
+        "delay_cost": order.delay_cost,
+        "trading_cost": order.trading_cost,
+        "opportunity_cost": order.opportunity_cost,
+        "wagner_is": order.wagner_is,
+        "p_arrival": order.p_arrival,
+        "p_decision": order.p_decision,
+        "p_close": order.p_close,
+        "arrival_cost_bps": order.arrival_cost_bps,
+        "close_cost_bps": order.close_cost_bps,
+        "wagner_is_bps": order.wagner_is_bps,
+        "temp_impact_5min_bps": order.temp_impact_5min_bps,
+        "temp_impact_10min_bps": order.temp_impact_10min_bps,
+        "temp_impact_30min_bps": order.temp_impact_30min_bps,
+        "perm_impact_bps": order.perm_impact_bps,
+        "fill": order.fill,
+        "route_shares": order.route_shares,
+        "par_rate": order.par_rate,
+        "cost_stddev": order.cost_stddev,
+        "cost_p95": order.cost_p95,
+        "cost_cvar": order.cost_cvar,
+        "order_duration_sec": order.order_duration_sec,
+        "exec_rate_shares_per_min": order.exec_rate_shares_per_min,
+        "recovery_truncated": order.recovery_truncated,
     }
 
 

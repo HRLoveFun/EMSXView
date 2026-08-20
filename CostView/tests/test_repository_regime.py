@@ -21,7 +21,7 @@ from DataPipeline.storage.repositories.regime import (
     SqliteRegimeReadRepository,
     SqliteRegimeWriteRepository,
 )
-from CostView.tests.testing_helpers import create_temp_db
+from CostView.tests.testing_helpers import close_temp_db, create_temp_db
 
 
 def _make_attribution_rows(num_rows: int = 3, date_iso: str = "2026-04-08",
@@ -72,6 +72,7 @@ class SqliteRegimeReadRepositoryTest(unittest.TestCase):
         self.write_repo = SqliteRegimeWriteRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def _seed_attribution(self, num_rows: int = 3, date_iso: str = "2026-04-08"):
@@ -84,10 +85,17 @@ class SqliteRegimeReadRepositoryTest(unittest.TestCase):
         try:
             conn.execute("""
                 INSERT INTO audit_regime_config_versions
-                    (version_id, description, parameters, is_active, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (version_id, "Test config", '{"key": "value"}', is_active,
-                  datetime.now().isoformat()))
+                    (version_id, created_at, is_active,
+                     vol_method, vol_thresholds_json,
+                     liq_method, liq_thresholds_json,
+                     trend_method, trend_thresholds_json,
+                     time_buckets_json, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (version_id, datetime.now().isoformat(), is_active,
+                  "vix_percentile", '{"low":10,"normal":50,"high":90,"extreme":99}',
+                  "turnover_zscore", '{"low":-1.0,"normal":0.5,"high":1.5}',
+                  "ma_alignment", '{"fast":5,"slow":20}',
+                  '[]', "Test config"))
             conn.commit()
         finally:
             conn.close()
@@ -109,9 +117,31 @@ class SqliteRegimeReadRepositoryTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def _seed_market_mapping(self, market_code: str = "US"):
+        """Seed a market row into ref_market_mapping (FK 依赖，如 fill_regime_labels)。"""
+        conn = self.mgr.get_admin_connection("regime")
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO ref_market_mapping
+                    (market_code, description, currency, benchmark,
+                     session_open, session_close, closing_auction_start,
+                     source_file_version, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (market_code, "United States", "USD", "SPX",
+                  "09:30", "16:00", "15:50", "1.0",
+                  datetime.now().isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_get_attribution_metrics_via_dto(self):
         """Metrics query via FillMetricsQueryDTO returns rows."""
+        # fill_attribution_metrics.config_version 外键引用
+        # audit_attribution_config_versions；get_fill_metrics 的
+        # config_version=None 路径读取 audit_regime_config_versions.is_active=1，
+        # 两者都需要 seed。
         self._seed_regime_config("test-v1", is_active=1)
+        self._seed_attr_config("test-v1", is_active=1)
         self._seed_attribution(2, "2026-04-08")
         self._seed_attribution(3, "2026-04-09")
         query = FillMetricsQueryDTO(
@@ -159,15 +189,18 @@ class SqliteRegimeReadRepositoryTest(unittest.TestCase):
     def test_get_regime_distribution(self):
         """Regime distribution query returns data."""
         self._seed_regime_config("test-v1", is_active=1)
+        self._seed_market_mapping("US")
         conn = self.mgr.get_admin_connection("regime")
         try:
             conn.execute("""
                 INSERT INTO fill_regime_labels
                     (OrderId, RouteId, FillId, order_as_of_date_iso,
-                     trade_date, config_version, market_code, vol_regime)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     trade_date, config_version, market_code, vol_regime,
+                     source_version, ingested_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, ("ORD001", "RTE000", "FILL00001", "2026-04-08",
-                  "2026-04-08", "test-v1", "US", "high_vol"))
+                  "2026-04-08", "test-v1", "US", "high_vol",
+                  "1.0", datetime.now().isoformat()))
             conn.commit()
         finally:
             conn.close()
@@ -187,15 +220,18 @@ class SqliteRegimeReadRepositoryTest(unittest.TestCase):
     def test_get_regime_labels(self):
         """Regime labels query."""
         self._seed_regime_config("test-v1", is_active=1)
+        self._seed_market_mapping("US")
         conn = self.mgr.get_admin_connection("regime")
         try:
             conn.execute("""
                 INSERT INTO fill_regime_labels
                     (OrderId, RouteId, FillId, order_as_of_date_iso,
-                     trade_date, config_version, market_code, vol_regime)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     trade_date, config_version, market_code, vol_regime,
+                     source_version, ingested_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, ("ORD001", "RTE000", "FILL00001", "2026-04-08",
-                  "2026-04-08", "test-v1", "US", "high_vol"))
+                  "2026-04-08", "test-v1", "US", "high_vol",
+                  "1.0", datetime.now().isoformat()))
             conn.commit()
         finally:
             conn.close()
@@ -208,6 +244,8 @@ class SqliteRegimeReadRepositoryTest(unittest.TestCase):
 
     def test_compute_snapshot_hash(self):
         """Snapshot hash computation returns non-empty hash."""
+        # fill_attribution_metrics.config_version 外键需要 attr config 先行
+        self._seed_attr_config("test-v1", is_active=1)
         self._seed_attribution(2, "2026-04-08")
         self._seed_regime_config("test-v1", is_active=1)
         h, total = self.read_repo.compute_snapshot_hash(
@@ -228,6 +266,7 @@ class SqliteRegimeWriteRepositoryTest(unittest.TestCase):
         self.read_repo = SqliteRegimeReadRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def _seed_regime_config(self, version_id: str = "test-v1", is_active: int = 1):
@@ -236,16 +275,43 @@ class SqliteRegimeWriteRepositoryTest(unittest.TestCase):
         try:
             conn.execute("""
                 INSERT INTO audit_regime_config_versions
-                    (version_id, description, parameters, is_active, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (version_id, "Test config", '{"key": "value"}', is_active,
-                  datetime.now().isoformat()))
+                    (version_id, created_at, is_active,
+                     vol_method, vol_thresholds_json,
+                     liq_method, liq_thresholds_json,
+                     trend_method, trend_thresholds_json,
+                     time_buckets_json, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (version_id, datetime.now().isoformat(), is_active,
+                  "vix_percentile", '{"low":10,"normal":50,"high":90,"extreme":99}',
+                  "turnover_zscore", '{"low":-1.0,"normal":0.5,"high":1.5}',
+                  "ma_alignment", '{"fast":5,"slow":20}',
+                  '[]', "Test config"))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _seed_attr_config(self, version_id: str = "test-v1", is_active: int = 1):
+        """Seed config into audit_attribution_config_versions（外键依赖）。"""
+        conn = self.mgr.get_admin_connection("regime")
+        try:
+            conn.execute("""
+                INSERT INTO audit_attribution_config_versions
+                    (version_id, bench_methods, reversal_windows_min,
+                     winsor_pct, adv_window_days, bootstrap_n, min_cell_n,
+                     is_active, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (version_id, "arrival_mid,interval_vwap", "1,5,30",
+                  0.05, 20, 5000, 30, is_active,
+                  "Test config", datetime.now().isoformat()))
             conn.commit()
         finally:
             conn.close()
 
     def test_upsert_attribution_metrics(self):
         """Attribution metrics upserted correctly."""
+        # fill_attribution_metrics.config_version 外键引用
+        # audit_attribution_config_versions，须先行 seed
+        self._seed_attr_config("test-v1", is_active=1)
         rows = _make_attribution_rows(2, "2026-04-08")
         count = self.write_repo.upsert_attribution_metrics(rows)
         self.assertEqual(count, 2)
@@ -265,6 +331,7 @@ class SqliteRegimeWriteRepositoryTest(unittest.TestCase):
 
     def test_upsert_is_idempotent(self):
         """Same metrics upserted twice do not duplicate."""
+        self._seed_attr_config("test-v1", is_active=1)
         rows = _make_attribution_rows(2, "2026-04-08")
         self.write_repo.upsert_attribution_metrics(rows)
         self.write_repo.upsert_attribution_metrics(rows)
@@ -333,7 +400,7 @@ class SqliteRegimeWriteRepositoryTest(unittest.TestCase):
         result = PipelineRunResultDTO(
             run_id=run_id,
             run_finished_at=datetime.now().isoformat(),
-            status="completed",
+            status="success",
             rows_written=100,
             rows_updated=0,
             error_message=None,
@@ -350,11 +417,13 @@ class SqliteRegimeWriteRepositoryTest(unittest.TestCase):
             ).fetchone()
         finally:
             conn.close()
-        self.assertEqual(row[0], "completed")
+        self.assertEqual(row[0], "success")
         self.assertEqual(row[1], 100)
 
     def test_get_recommendations(self):
         """Recommender query works."""
+        # fill_attribution_metrics.config_version 外键需要 attr config 先行
+        self._seed_attr_config("test-v1", is_active=1)
         rows = _make_attribution_rows(5, "2026-04-08")
         self.write_repo.upsert_attribution_metrics(rows)
         self._seed_regime_config("test-v1", is_active=1)

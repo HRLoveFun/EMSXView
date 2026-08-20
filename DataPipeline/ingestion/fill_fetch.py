@@ -48,22 +48,29 @@ from DataPipeline.acquisition.bloomberg_fill_fetcher import (
     EMSXRequestError,
 )
 
-# Windows 默认控制台编码为 cp1252，中文字符输出会触发 UnicodeEncodeError；
-# 强制 stdout/stderr 使用 UTF-8，避免日志中的中文消息编码失败。
-# 注意：当 stdout 被重定向为管道/文件时（如后端 subprocess.Popen），reconfigure 会抛出
-# OSError: [Errno 22] Invalid argument，因此根据流类型选择安全的包装方式。
-if sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-else:
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
-        )
-    if hasattr(sys.stderr, "buffer"):
-        sys.stderr = io.TextIOWrapper(
-            sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
-        )
+def _configure_console_encoding() -> None:
+    """配置控制台 stdout/stderr 为 UTF-8（仅独立运行时调用）。
+
+    Windows 默认控制台编码为 cp1252，中文字符输出会触发 UnicodeEncodeError；
+    强制 stdout/stderr 使用 UTF-8，避免日志中的中文消息编码失败。
+    注意：当 stdout 被重定向为管道/文件时（如后端 subprocess.Popen），reconfigure 会抛出
+    OSError: [Errno 22] Invalid argument，因此根据流类型选择安全的包装方式。
+
+    禁止在模块级调用：import 时替换 sys.stdout 会破坏 pytest fd capture 的
+    tmpfile 生命周期，导致 session 清理阶段 "I/O operation on closed file" 崩溃。
+    """
+    if sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        if hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+        if hasattr(sys.stderr, "buffer"):
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
 
 # 显式指定 UTF-8 读取 .env，避免 Windows 默认 locale 编码（cp1252）
 # 对包含中文字符的配置值解码失败。
@@ -583,6 +590,7 @@ def main():
     parser.add_argument('--auto', action='store_true', help='Auto mode')
     parser.add_argument('--archive-excel', action='store_true', help='Save Excel archives')
     args = parser.parse_args()
+    _configure_console_encoding()
     setup_logging(args.log_level)
     if args.get_teams or args.get_trade_desks:
         from DataPipeline.acquisition.emsx_client import EMSXHistoryClient

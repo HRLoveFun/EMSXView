@@ -181,7 +181,8 @@ async def refresh_broker_algorithms(
         raise
     except Exception as e:
         logger.error(f"[RefreshBrokerAlgorithms] Failed: {e}")
-        raise HTTPException(500, f"Failed to refresh broker algorithms: {str(e)}")
+        # 防护 (M5): 内部异常 detail 不直接透传 (全局 handler 会再次遮蔽, 双保险)
+        raise HTTPException(500, "Failed to refresh broker algorithms")
 
 
 @router.get("/api/broker-algorithms/status", response_model=ApiResponse)

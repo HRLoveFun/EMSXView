@@ -6,7 +6,9 @@ truth), not reinvent DDL here. Zero duplication with production code.
 
 from __future__ import annotations
 
+import gc
 import logging
+import weakref
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
@@ -20,24 +22,87 @@ logger = logging.getLogger(__name__)
 logging.disable(logging.CRITICAL)
 
 
+def _close_cached_connections(mgr: ConnectionManager) -> None:
+    """关闭 ConnectionManager 的线程本地缓存连接（供 weakref.finalize 使用）。"""
+    mgr.close_thread_cached_connections()
+
+
+def close_temp_db(mgr: ConnectionManager) -> None:
+    """关闭测试用临时数据库的全部连接并触发 GC 回收。
+
+    Windows 下 SQLite 以 WAL 模式打开时会产生 -wal/-shm 伴生文件，
+    即使连接已 close，若底层 sqlite3.Connection 对象尚未被垃圾回收，
+    临时目录清理（TemporaryDirectory.cleanup）仍会抛 WinError 32。
+    显式 gc.collect() 确保所有连接对象释放文件句柄。
+    """
+    if isinstance(mgr, _FinalizingConnectionManager):
+        mgr.close()
+    else:
+        mgr.close_thread_cached_connections()
+    gc.collect()
+
+
+class _FinalizingConnectionManager(ConnectionManager):
+    """在对象被回收时自动关闭线程本地缓存连接。
+
+    Windows 下 SQLite 文件句柄需显式释放才能删除临时目录。
+    测试 tearDown 清理 TemporaryDirectory 前，若 READ 缓存连接仍被
+    ConnectionManager 持有，tempfile 删除会抛 WinError 32。
+    本类通过 weakref.finalize 在回收时统一关闭缓存连接。
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 使用模块级函数 + 显式参数，避免 finalize 强引用 self 造成循环引用
+        self._finalizer = weakref.finalize(self, _close_cached_connections, self)
+
+    def close(self) -> None:
+        """显式关闭缓存连接（幂等）。"""
+        if not self._finalizer.alive:
+            return
+        self.close_thread_cached_connections()
+        self._finalizer.detach()
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Temp database creation — delegates to production DB classes
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def create_temp_db(db_key: str, tmp_dir: str | Path) -> ConnectionManager:
+def create_temp_db(
+    db_key: str,
+    tmp_dir: str | Path,
+    extra_dbs: Optional[List[str]] = None,
+) -> ConnectionManager:
     """Create a temporary SQLite database, bootstrapping schema via production classes.
 
-    Returns a ConnectionManager pointing at the temp file.
+    Parameters
+    ----------
+    db_key : str
+        主数据库键（如 ``"processed_fills"``），临时文件为 ``{db_key}.db``。
+    tmp_dir : str | Path
+        临时目录。
+    extra_dbs : list[str] | None
+        额外覆盖到同一临时目录的分区数据库键（如 ``"ticker_registry"``），
+        防止测试写入落到真实数据目录。
+
+    Returns
+    -------
+    ConnectionManager
+        指向临时文件的 ConnectionManager。
 
     Usage::
         mgr = create_temp_db("processed_fills", self.tmp_dir.name)
         repo = SqliteFillReadRepository(mgr)
     """
     tmp_dir = Path(tmp_dir)
-    db_path = tmp_dir / f"{db_key}.db"
-    mgr = ConnectionManager(path_overrides={db_key: db_path})
-    _bootstrap_schema(db_key, db_path, mgr)
+    overrides: Dict[str, Path] = {db_key: tmp_dir / f"{db_key}.db"}
+    for extra in extra_dbs or []:
+        overrides[extra] = tmp_dir / f"{extra}.db"
+    mgr = _FinalizingConnectionManager(path_overrides=overrides)
+    _bootstrap_schema(db_key, overrides[db_key], mgr)
+    for extra in extra_dbs or []:
+        _bootstrap_schema(extra, overrides[extra], mgr)
     return mgr
 
 
@@ -69,8 +134,36 @@ def _bootstrap_schema(db_key: str, db_path: Path, mgr: ConnectionManager) -> Non
         apply_pending(db_path)
         # Add tables not managed by regime migrations (attribution, pipeline runs)
         _ensure_regime_extra_tables(mgr)
+    elif db_key == "ticker_registry":
+        _bootstrap_ticker_registry(db_path)
     else:
         raise ValueError(f"Unknown db_key: {db_key}")
+
+
+def _bootstrap_ticker_registry(db_path: Path) -> None:
+    """从 db_partition.sql 切出 ticker_registry 段执行（schema 单一来源）。
+
+    db_partition.sql 同时包含 execution_history 与 ticker_registry 两段 DDL，
+    此处按段注释标记切片，仅执行 ticker_registry 部分。
+    """
+    import sqlite3
+
+    import DataPipeline
+
+    sql_file = (
+        Path(DataPipeline.__file__).resolve().parent
+        / "storage" / "schema" / "db_partition.sql"
+    )
+    content = sql_file.read_text(encoding="utf-8")
+    start = content.index("-- ticker_registry.db")
+    end_marker = "-- processed_fills.db"
+    end = content.index(end_marker, start)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.executescript(content[start:end])
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _ensure_regime_extra_tables(mgr: ConnectionManager) -> None:
@@ -362,6 +455,10 @@ class FakePipelineContext:
         self.summary: Dict[str, Any] = {}
         self.is_successful = True
         self.errors: List[Dict[str, Any]] = []
+        # stage 实现演进后新增的上下文字段；真实 PipelineContext 均有，
+        # Fake 版保持 None 以模拟"无连接管理器"环境
+        self.connection_manager = None
+        self.run_id = None
 
         # Repository injection fields
         self.fill_repo = None

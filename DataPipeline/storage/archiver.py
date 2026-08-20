@@ -16,6 +16,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import datetime
@@ -71,6 +72,15 @@ class DataArchiver:
         dry_run: bool = False,
         progress_callback: Optional[callable] = None,
     ) -> Dict[str, int]:
+        # 防护: retention 必须 >= 1 — 原实现 `retention_months or 24` 吞掉 0,
+        # 负数会令 cutoff 计算失效 (range 为空 → cutoff=当月1日 → 全量误删)。
+        # 校验置于最前, 参数错误在任何情况下尽早暴露。
+        retention = retention_months if retention_months is not None else 24
+        if retention < 1:
+            raise ValueError(
+                f"retention_months 必须 >= 1, 收到 {retention} (db={db_name})"
+            )
+
         db_path = self._data_dir / f"{db_name}.db"
         if not db_path.exists():
             logger.warning("Database not found: %s", db_path)
@@ -85,7 +95,6 @@ class DataArchiver:
                 logger.debug("archive progress_callback (start) failed", exc_info=True)
 
         archive_path = self._archive_dir / f"{db_name}_archive.db"
-        retention = retention_months or 24
 
         cutoff = datetime.now().replace(day=1)
         for _ in range(retention):
@@ -114,16 +123,23 @@ class DataArchiver:
                 if not self._ensure_table_in_archive(src, dst, table):
                     continue
 
+                # 防护: 按日期列实际存储格式构造比较谓词, 避免
+                # "YYYY-MM-DD HH:MM:SS" 全时间串与 YYYYMMDD cutoff
+                # 字符串比较时 ('-' < '0') 将同一年数据全部误判为过期
+                predicate, params = self._build_date_predicate(
+                    src, table, actual_date_col, cutoff
+                )
+
                 count = src.execute(
-                    f"SELECT COUNT(*) FROM [{table}] WHERE [{actual_date_col}] < ?",
-                    (cutoff_str,),
+                    f"SELECT COUNT(*) FROM [{table}] WHERE {predicate}",
+                    params,
                 ).fetchone()[0]
 
                 if count == 0:
                     continue
 
                 if not dry_run:
-                    self._migrate_data(src, dst, table, actual_date_col, cutoff_str)
+                    self._migrate_data(src, dst, table, predicate, params)
 
                 results[table] = count
                 logger.info(
@@ -134,6 +150,7 @@ class DataArchiver:
 
             if not dry_run and results:
                 _vacuum_incremental(src, db_name)
+                self._write_archive_manifest(db_name, results, cutoff_str)
         finally:
             src.close()
             dst.close()
@@ -179,6 +196,73 @@ class DataArchiver:
         return None
 
     @staticmethod
+    def _detect_date_format(
+        conn: sqlite3.Connection, table: str, date_col: str
+    ) -> str:
+        """采样日期列值, 判定存储格式。
+
+        Returns:
+            "compact"      — YYYYMMDD (如 processed_fills.order_as_of_date)
+            "iso-date"     — YYYY-MM-DD
+            "iso-datetime" — YYYY-MM-DD HH:MM:SS (如 raw_fills.order_as_of_date)
+        """
+        row = conn.execute(
+            f"SELECT [{date_col}] FROM [{table}] "
+            f"WHERE [{date_col}] IS NOT NULL AND [{date_col}] != '' LIMIT 1"
+        ).fetchone()
+        if not row or not row[0]:
+            return "compact"
+        value = str(row[0])
+        if "-" not in value[:10]:
+            return "compact"
+        return "iso-datetime" if (" " in value or "T" in value) else "iso-date"
+
+    @staticmethod
+    def _build_date_predicate(
+        conn: sqlite3.Connection,
+        table: str,
+        date_col: str,
+        cutoff: datetime,
+    ) -> tuple[str, tuple]:
+        """按日期列实际格式构建过期比较谓词 (含参数)。
+
+        对 ISO 全时间串格式使用 substr 截取日期部分再比较,
+        避免字符串比较中 '-' < '0' 导致整年数据被误判过期。
+        """
+        fmt = DataArchiver._detect_date_format(conn, table, date_col)
+        cutoff_iso = cutoff.strftime("%Y-%m-%d")
+        if fmt == "iso-datetime":
+            return f"substr([{date_col}], 1, 10) < ?", (cutoff_iso,)
+        if fmt == "iso-date":
+            return f"[{date_col}] < ?", (cutoff_iso,)
+        return f"[{date_col}] < ?", (cutoff.strftime("%Y%m%d"),)
+
+    def _write_archive_manifest(
+        self, db_name: str, results: Dict[str, int], cutoff_str: str
+    ) -> None:
+        """写入归档清单快照 — 删除前可追溯记录 (替代全量 .bak 备份)。
+
+        快照仅含元数据 (表名/行数/cutoff/时间), 几 KB 级, 规避
+        历史 .BAK 安全网 57.58 GB 堆积问题。
+        """
+        manifest = {
+            "db_name": db_name,
+            "cutoff": cutoff_str,
+            "archived_at": datetime.now().isoformat(),
+            "tables": results,
+        }
+        manifest_path = self._archive_dir / (
+            f"archive_manifest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        )
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, default=str), encoding="utf-8"
+            )
+            logger.info("归档清单快照: %s", manifest_path)
+        except Exception as e:
+            logger.warning("归档清单快照写入失败: %s", e)
+
+    @staticmethod
     def _ensure_table_in_archive(
         src: sqlite3.Connection, dst: sqlite3.Connection, table: str
     ) -> bool:
@@ -201,8 +285,8 @@ class DataArchiver:
         src: sqlite3.Connection,
         dst: sqlite3.Connection,
         table: str,
-        date_col: str,
-        cutoff_str: str,
+        predicate: str,
+        params: tuple,
     ) -> None:
         """Safe two-step migration with idempotent archive insert.
 
@@ -218,8 +302,8 @@ class DataArchiver:
         try:
             dst.execute(
                 f"INSERT OR IGNORE INTO [{table}] "
-                f"SELECT * FROM [{table}] WHERE [{date_col}] < ?",
-                (cutoff_str,),
+                f"SELECT * FROM [{table}] WHERE {predicate}",
+                params,
             )
             dst.execute("COMMIT")
         except Exception:
@@ -230,8 +314,8 @@ class DataArchiver:
         src.execute("BEGIN IMMEDIATE")
         try:
             src.execute(
-                f"DELETE FROM [{table}] WHERE [{date_col}] < ?",
-                (cutoff_str,),
+                f"DELETE FROM [{table}] WHERE {predicate}",
+                params,
             )
             src.execute("COMMIT")
         except Exception:

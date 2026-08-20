@@ -117,4 +117,5 @@ async def query_round_lot(
         )
     except Exception as e:
         logger.error(f"[DEBUG_BDP] Error querying {ticker}: {e}")
-        return ApiResponse(success=False, error=str(e))
+        # 防护 (M5): 内部异常不原样返回
+        return ApiResponse(success=False, error="Failed to query round lot size")

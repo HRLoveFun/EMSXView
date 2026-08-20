@@ -105,6 +105,8 @@ class ProcessRawFillsStage(BaseStage):
         total_processed = 0
         total_route_history = 0
         total_route_events = 0
+        # M1: 输出样本收集 (护栏输出校验臂)
+        output_samples: list[dict] = []
         max_workers = min(Config.MAX_PARALLEL_DATES, len(target_dates))
 
         def _process_one(date_str: str) -> dict:
@@ -124,11 +126,14 @@ class ProcessRawFillsStage(BaseStage):
                         # PR-1: order_history 是 route_history 的 VIEW 派生，无独立行数
                         total_route_history += result.get("route_history_rows", 0)
                         total_route_events += result.get("route_event_rows", 0)
+                        output_samples.extend(result.get("sample_records") or [])
                     else:
                         logger.error(f"  Failed to process {date_str}: {result.get('error')}")
                 except Exception as exc:
                     logger.error(f"  Exception processing {date_str}: {exc}")
 
+        # M1: 暴露输出样本 (最多 100 条) 供护栏校验
+        self._output_sample = output_samples[:100]
         gc.collect()
         context.summary["processing"] = {
             "rows_processed": total_processed,

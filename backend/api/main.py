@@ -331,9 +331,15 @@ for _mod_name, _mod_label in _parse_optional_modules(settings.OPTIONAL_MODULES):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
+    # 防护 (M5): 5xx 的 detail 不得泄漏内部异常 — 非 DEBUG 模式遮蔽为稳定错误码。
+    # 4xx (业务拒绝/校验) 保持原样, 便于前端展示具体原因。
+    detail = exc.detail
+    if exc.status_code >= 500 and not settings.DEBUG:
+        logger.error("5xx detail 已遮蔽: %s", exc.detail)
+        detail = "Internal server error"
     return JSONResponse(
         status_code=exc.status_code,
-        content=ApiResponse(success=False, error=exc.detail).model_dump()
+        content=ApiResponse(success=False, error=detail).model_dump()
     )
 
 @app.exception_handler(Exception)

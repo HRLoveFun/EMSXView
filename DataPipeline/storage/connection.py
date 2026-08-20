@@ -74,6 +74,11 @@ _PRAGMA_SAFE = re.compile(
     re.IGNORECASE,
 )
 
+# execute_ddl 允许的 DDL 语句白名单 (M9): 仅 ALTER TABLE 与 CREATE TABLE/INDEX
+_DDL_ALLOWED_PATTERN = re.compile(
+    r"^\s*(ALTER\s+TABLE|CREATE\s+(TABLE|INDEX|VIEW))\b", re.IGNORECASE
+)
+
 
 def _classify_sql(sql: str) -> str:
     """Classify a SQL statement into an operation category.
@@ -134,7 +139,12 @@ class AccessControlledConnection:
 
     @property
     def raw_connection(self) -> sqlite3.Connection:
-        """Access the underlying sqlite3.Connection (for pd.read_sql_query etc.)."""
+        """Access the underlying sqlite3.Connection (for pd.read_sql_query etc.).
+
+        警告 (M9): 此属性绕过 execute() 的权限检查 — 仅限只读用途
+        (pandas 读取、PRAGMA table_info 元数据查询)。任何 DDL/DML 写入
+        必须走 ConnectionManager.execute_ddl() 或正规写连接。
+        """
         return self._conn
 
     def execute(self, sql: str, parameters: Any = ()) -> sqlite3.Cursor:
@@ -388,6 +398,41 @@ class ConnectionManager:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute(f"PRAGMA busy_timeout = {self._config.SQLITE_BUSY_TIMEOUT_MS}")
         return conn
+
+    def execute_ddl(
+        self,
+        database: str,
+        sql: str,
+        params: tuple = (),
+    ) -> None:
+        """执行 DDL 语句 (ALTER TABLE 等) — 唯一的越权通道 (M9)。
+
+        访问控制层将 ALTER/DROP 等归类为 destructive, 业务写入连接无法执行。
+        此前代码通过 ``conn.raw_connection`` 绕过权限检查自行执行 DDL,
+        形成隐式越权通道。本方法收敛该通道:
+        - 显式命名 (execute_ddl), 调用意图自文档化
+        - 仅允许 DDL 类别语句 (ALTER/CREATE), 拒绝 DML/DROP
+        - 全程审计日志
+
+        Args:
+            database: 数据库名 (DB_* 常量)
+            sql: DDL 语句
+            params: 绑定参数
+
+        Raises:
+            ValueError: 语句不属于允许的 DDL 类别
+        """
+        if not _DDL_ALLOWED_PATTERN.match(sql or ""):
+            raise ValueError(
+                f"execute_ddl 仅允许 ALTER TABLE/CREATE 语句: {sql[:120]}"
+            )
+        logger.warning("DDL 越权通道调用: %s on %s: %s", database, sql[:200], params)
+        conn = self.get_admin_connection(database)
+        try:
+            conn.execute(sql, params)
+            conn.commit()
+        finally:
+            conn.close()
 
     def connection(
         self,

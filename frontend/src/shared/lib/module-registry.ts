@@ -81,11 +81,30 @@ class ModuleRegistry {
   /** Register a module descriptor. Later registrations for the same id are ignored. */
   register(descriptor: ModuleDescriptor): void {
     if (this.modules.has(descriptor.id)) {
+      // 防护 (P2): 重复注册不再静默 — DEV 警告, 生产环境 error 级日志,
+      // 便于发现模块更新未生效等注册问题
+      const message = `[ModuleRegistry] Module "${descriptor.id}" is already registered — skipping duplicate.`;
       if (import.meta.env.DEV) {
-        console.warn(`[ModuleRegistry] Module "${descriptor.id}" is already registered — skipping duplicate.`);
+        console.warn(message);
+      } else {
+        console.error(message);
       }
       return;
     }
+
+    // 防护 (P2): realtimeWsPath 冲突检测 — 多个模块声明不同的 WS 路径时
+    // shell 只会连接第一个, 其余被静默忽略。注册时即告警, 避免隐性失效。
+    if (descriptor.realtimeWsPath) {
+      const existing = this.findRealtimeDeclarations();
+      if (existing.length > 0 && existing[0].realtimeWsPath !== descriptor.realtimeWsPath) {
+        console.error(
+          `[ModuleRegistry] realtimeWsPath conflict: "${descriptor.id}" declares ` +
+          `"${descriptor.realtimeWsPath}" but "${existing[0].id}" already declares ` +
+          `"${existing[0].realtimeWsPath}". Shell connects only to the first.`,
+        );
+      }
+    }
+
     this.modules.set(descriptor.id, descriptor);
   }
 
@@ -104,6 +123,11 @@ class ModuleRegistry {
     return this.modules.get(id);
   }
 
+  /** Modules declaring a realtime WS path, sorted by `order`. */
+  findRealtimeDeclarations(): ModuleDescriptor[] {
+    return this.getAll().filter(m => m.realtimeWsPath);
+  }
+
   /** The module marked as default, or the first module by order. */
   getDefault(): ModuleDescriptor | undefined {
     const all = this.getAll();
@@ -113,6 +137,19 @@ class ModuleRegistry {
   /** Check if a module id is registered. */
   has(id: ModuleId): boolean {
     return this.modules.has(id);
+  }
+
+  /**
+   * 校验并安全切换激活模块 (防护 P2)。
+   * 未注册 id 返回 null 且不改变状态 — 调用方应忽略 null 结果,
+   * 避免渲染空白页 (旧行为: setActiveModule 直接透传任意字符串)。
+   */
+  navigateTo(id: ModuleId, current: ModuleId): ModuleId | null {
+    if (!this.has(id)) {
+      console.error(`[ModuleRegistry] navigateTo: unknown module id "${id}" (current: "${current}")`);
+      return null;
+    }
+    return id;
   }
 }
 

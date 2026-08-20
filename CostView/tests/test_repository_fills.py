@@ -15,6 +15,7 @@ import pandas as pd
 from DataPipeline.storage.repositories.fills import SqliteFillReadRepository
 from DataPipeline.storage.repositories.fills import SqliteFillWriteRepository
 from CostView.tests.testing_helpers import (
+    close_temp_db,
     create_temp_db,
     make_fills_dataframe,
 )
@@ -30,6 +31,7 @@ class SqliteFillReadRepositoryTest(unittest.TestCase):
         self.write_repo = SqliteFillWriteRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def _seed_data(self, date_str: str = "20260408", num_rows: int = 5):
@@ -175,11 +177,24 @@ class SqliteFillWriteRepositoryTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
-        self.mgr = create_temp_db("processed_fills", self.tmp_dir.name)
+        # ticker_registry 为分区 DB：order_label 的读写均路由至此，
+        # 覆盖到临时目录避免污染真实数据
+        self.mgr = create_temp_db(
+            "processed_fills", self.tmp_dir.name, extra_dbs=["ticker_registry"],
+        )
+        # 模拟 B4 迁移后的状态：order_label 已从旧 processed_fills.db 移除，
+        # 读取路径经 _conn_for 自动检测回退到 ticker_registry.db
+        conn = self.mgr.get_admin_connection("processed_fills")
+        try:
+            conn.execute("DROP TABLE IF EXISTS order_label")
+            conn.commit()
+        finally:
+            conn.close()
         self.write_repo = SqliteFillWriteRepository(self.mgr)
         self.read_repo = SqliteFillReadRepository(self.mgr)
 
     def tearDown(self):
+        close_temp_db(self.mgr)
         self.tmp_dir.cleanup()
 
     def test_upsert_empty_returns_zero(self):

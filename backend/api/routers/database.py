@@ -22,8 +22,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+
+from deps import verify_token
 
 from platform_data import database_diagnostics as repo  # noqa: E402
 
@@ -180,8 +182,21 @@ class UpdateStatusResponse(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
+# 防护 (H3): 所有诊断端点要求认证, 防止未认证访问泄漏 DB 元数据。
+# path 字段在响应层遮蔽为文件名 — 绝对文件系统路径不对外暴露。
+
+
+def _redact_path(item: dict) -> dict:
+    """遮蔽绝对路径为文件名, 防止 DB 文件系统路径泄漏。"""
+    if item.get("path"):
+        item["path"] = Path(item["path"]).name
+    return item
+
+
 @router.get("/api/db/overview", response_model=OverviewResponse)
-async def get_database_overview() -> OverviewResponse:
+async def get_database_overview(
+    user: dict = Depends(verify_token),
+) -> OverviewResponse:
     """Cheap overview of every registered database.
 
     Uses index-based fast counts / endpoint MIN-MAX on date columns, so this
@@ -189,21 +204,27 @@ async def get_database_overview() -> OverviewResponse:
     multi-GB. Distinct-date counts are deferred to /summary.
     """
     overviews = repo.get_overview()
-    items = [OverviewItem(**ov.to_dict()) for ov in overviews]
+    items = [OverviewItem(**_redact_path(ov.to_dict())) for ov in overviews]
     return OverviewResponse(items=items)
 
 
 @router.get("/api/db/{key}/summary", response_model=SummaryResponse)
-async def get_database_summary(key: str, date_limit: int = 800) -> SummaryResponse:
+async def get_database_summary(
+    key: str,
+    date_limit: int = Query(800, ge=1, le=3650),
+    user: dict = Depends(verify_token),
+) -> SummaryResponse:
     """Per-table date-coverage statistics (driver of the frontend heatmap)."""
     if key not in repo.list_database_keys():
         raise HTTPException(status_code=404, detail=f"Unknown database key: {key}")
     summary = repo.get_summary(key, date_limit=date_limit)
-    return SummaryResponse(**summary.to_dict())
+    return SummaryResponse(**_redact_path(summary.to_dict()))
 
 
 @router.get("/api/db/{key}/integrity", response_model=IntegrityResponse)
-async def get_database_integrity(key: str) -> IntegrityResponse:
+async def get_database_integrity(
+    key: str, user: dict = Depends(verify_token),
+) -> IntegrityResponse:
     """Bounded integrity check (recent-window scans only)."""
     if key not in repo.list_database_keys():
         raise HTTPException(status_code=404, detail=f"Unknown database key: {key}")
@@ -215,7 +236,9 @@ async def get_database_integrity(key: str) -> IntegrityResponse:
     "/api/db/{key}/tables/{table}/schema",
     response_model=SchemaResponse,
 )
-async def get_table_schema(key: str, table: str) -> SchemaResponse:
+async def get_table_schema(
+    key: str, table: str, user: dict = Depends(verify_token),
+) -> SchemaResponse:
     """Return column / index metadata for a registered table.
 
     Both `key` and `table` are validated against the static registry; any
@@ -237,7 +260,7 @@ async def get_table_schema(key: str, table: str) -> SchemaResponse:
     response_model=SampleResponse,
 )
 async def get_table_sample(
-    key: str, table: str, limit: int = 50
+    key: str, table: str, limit: int = 50, user: dict = Depends(verify_token),
 ) -> SampleResponse:
     """Return the most recent rows of a registered table (≤ 200)."""
     if key not in repo.list_database_keys():
@@ -275,7 +298,9 @@ async def trigger_database_update(request: Request) -> TriggerUpdateResponse:
 
 
 @router.get("/api/db/update-status/{job_id}", response_model=UpdateStatusResponse)
-async def get_database_update_status(job_id: str) -> UpdateStatusResponse:
+async def get_database_update_status(
+    job_id: str, user: dict = Depends(verify_token),
+) -> UpdateStatusResponse:
     job = get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")

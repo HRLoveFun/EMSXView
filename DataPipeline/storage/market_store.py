@@ -46,6 +46,9 @@ class MarketStoreWriter:
     def write_batch(self, df: pd.DataFrame) -> int:
         """将DataFrame写入Parquet, 按order_as_of_date分区。
 
+        同日期文件已存在时执行合并写 (读旧+concat+去重+写回),
+        避免调用方按 ticker 分块循环写入时后写覆盖前写导致静默丢数据。
+
         返回写入行数。
         """
         if df is None or df.empty:
@@ -74,6 +77,9 @@ class MarketStoreWriter:
             write_df = group[cols].copy()
             write_df["order_as_of_date"] = write_df["order_as_of_date"].astype(str)
 
+            # 防护: 合并已有文件, 防止分块循环写同一日期时覆盖丢数据
+            write_df = self._merge_with_existing(out_path, write_df)
+
             try:
                 write_df.to_parquet(
                     out_path,
@@ -88,6 +94,36 @@ class MarketStoreWriter:
                 logger.error("Parquet写入失败 %s: %s", out_path, e)
 
         return total_rows
+
+    @staticmethod
+    def _merge_with_existing(out_path: Path, write_df: pd.DataFrame) -> pd.DataFrame:
+        """读取已有Parquet文件并与新增数据合并去重。
+
+        去重键: (equ_ticker, order_as_of_date, mkt_timestamp), keep="last"
+        保证同一根K线重复写入时以最新数据为准。
+        读取失败时回退覆盖写并记录告警。
+        """
+        if not out_path.exists():
+            return write_df
+        try:
+            existing = pd.read_parquet(out_path)
+        except Exception as e:
+            logger.warning("读取已有Parquet失败 %s, 回退覆盖写: %s", out_path, e)
+            return write_df
+        if existing.empty:
+            return write_df
+
+        merged = pd.concat([existing, write_df], ignore_index=True)
+        if "order_as_of_date" in merged.columns:
+            merged["order_as_of_date"] = merged["order_as_of_date"].astype(str)
+        key_cols = ["equ_ticker", "order_as_of_date", "mkt_timestamp"]
+        if all(c in merged.columns for c in key_cols):
+            before = len(merged)
+            merged = merged.drop_duplicates(subset=key_cols, keep="last")
+            dropped = before - len(merged)
+            if dropped:
+                logger.debug("Parquet合并去重: 丢弃 %d 行重复数据", dropped)
+        return merged
 
     def get_partition_months(self) -> list[str]:
         """返回所有已存在的year=YYYY/month=MM分区."""
@@ -128,6 +164,8 @@ class MarketStoreReader:
         self._root = root_dir or Config.BDIB_PARQUET_DIR
         self._table_name = "bdib_bars"
         self._conn: Any = None
+        # 防护 (M7): 最近一次查询错误 — 调用方可区分"真无数据"与"查询失败"
+        self.last_query_error: Optional[str] = None
 
     @property
     def parquet_dir(self) -> Path:
@@ -172,13 +210,22 @@ class MarketStoreReader:
             self._conn = None
 
     def query(self, sql: str, params: Optional[list] = None) -> pd.DataFrame:
-        """执行DuckDB查询."""
+        """执行DuckDB查询.
+
+        防护 (M7): 查询失败不再静默返回空 DataFrame — 记录 error 日志并
+        写入 last_query_error, 调用方可区分"真无数据"与"查询失败"。
+        """
         conn = self._ensure_connection()
         try:
             if params:
-                return conn.execute(sql, params).fetchdf()
-            return conn.execute(sql).fetchdf()
-        except Exception:
+                result = conn.execute(sql, params).fetchdf()
+            else:
+                result = conn.execute(sql).fetchdf()
+            self.last_query_error = None
+            return result
+        except Exception as e:
+            self.last_query_error = str(e)
+            logger.error("DuckDB 查询失败: %s", e)
             return pd.DataFrame()
 
     def get_bars(

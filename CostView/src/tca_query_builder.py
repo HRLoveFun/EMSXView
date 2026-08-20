@@ -13,14 +13,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier, ConnectionManager
 from platform_data.contracts import TcaFilters
 
 from .tca_utils import (
-    derive_local_exchange_time as _derive_local_exchange_time,
     to_optional_float as _to_optional_float,
 )
 
@@ -35,10 +34,6 @@ _BDIB_ENGINE = Config.BDIB_QUERY_ENGINE
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _proc_conn(mgr: ConnectionManager) -> sqlite3.Connection:
-    return mgr.get_connection("processed_fills", AccessTier.READ, row_factory=sqlite3.Row)
-
-
 def _fill_bdib_conn(mgr: ConnectionManager) -> sqlite3.Connection:
     return mgr.get_connection("fill_bdib", AccessTier.READ)
 
@@ -47,231 +42,12 @@ def _raw_bdib_conn(mgr: ConnectionManager) -> sqlite3.Connection:
     return mgr.get_connection("raw_bdib", AccessTier.READ, row_factory=sqlite3.Row)
 
 
-def _raw_fills_conn(mgr: ConnectionManager) -> sqlite3.Connection:
-    return mgr.get_connection("raw_fills", AccessTier.READ)
-
-
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     cursor = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ? LIMIT 1",
         [table_name],
     )
     return cursor.fetchone() is not None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Route matching
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def get_matching_routes(
-    mgr: ConnectionManager,
-    filters: TcaFilters,
-) -> tuple[list[dict], int]:
-    """Query processed_fills.db for routes matching all active filters.
-
-    Returns (page of route dicts, total_count_without_pagination).
-    All filter parameters are passed as SQL ? bind values.
-    """
-    conditions: list[str] = []
-    params: list[Any] = []
-
-    # Date range — applied to processed_fills.order_as_of_date
-    if filters.start_date:
-        conditions.append("pf.order_as_of_date >= ?")
-        params.append(filters.start_date)
-    if filters.end_date:
-        conditions.append("pf.order_as_of_date <= ?")
-        params.append(filters.end_date)
-
-    # Order ID filter — IN clause with individual ? per id
-    if filters.order_ids:
-        placeholders = ",".join(["?"] * len(filters.order_ids))
-        conditions.append(f"pf.OrderId IN ({placeholders})")
-        params.extend(filters.order_ids)
-
-    # Algo filter — exact match
-    if filters.algo:
-        conditions.append("pf.algo = ?")
-        params.append(filters.algo)
-
-    # Broker filter — exact match
-    if filters.broker:
-        conditions.append("pf.Broker = ?")
-        params.append(filters.broker)
-
-    # Symbol / equ_ticker filter (from route_registry)
-    if filters.symbol:
-        conditions.append("rr.equ_ticker = ?")
-        params.append(filters.symbol)
-
-    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-
-    history_conditions: list[str] = []
-    history_params: list[Any] = []
-    if filters.start_date:
-        history_conditions.append("rh.order_as_of_date >= ?")
-        history_params.append(filters.start_date)
-    if filters.end_date:
-        history_conditions.append("rh.order_as_of_date <= ?")
-        history_params.append(filters.end_date)
-    if filters.order_ids:
-        placeholders = ",".join(["?"] * len(filters.order_ids))
-        history_conditions.append(f"rh.OrderId IN ({placeholders})")
-        history_params.extend(filters.order_ids)
-    if filters.algo:
-        history_conditions.append("COALESCE(rh.algo, oh.algo) = ?")
-        history_params.append(filters.algo)
-    if filters.broker:
-        history_conditions.append("COALESCE(rh.Broker, oh.Broker) = ?")
-        history_params.append(filters.broker)
-    if filters.symbol:
-        history_conditions.append("COALESCE(rh.equ_ticker, oh.equ_ticker) = ?")
-        history_params.append(filters.symbol)
-
-    history_where_clause = (
-        "WHERE " + " AND ".join(history_conditions)
-        if history_conditions
-        else ""
-    )
-
-    conn = _proc_conn(mgr)
-    try:
-        if _table_exists(conn, Config.ROUTE_HISTORY_TABLE) and _table_exists(conn, Config.ORDER_HISTORY_TABLE):
-            history_sql = f"""
-                SELECT
-                    rh.OrderId AS order_id,
-                    rh.RouteId AS route_id,
-                    rh.order_as_of_date,
-                    COALESCE(rh.equ_ticker, oh.equ_ticker) AS equ_ticker,
-                    COALESCE(rh.ccy_ticker, oh.ccy_ticker) AS ccy_ticker,
-                    COALESCE(rh.Side, oh.Side) AS side,
-                    COALESCE(rh.algo, oh.algo) AS algo,
-                    COALESCE(rh.Broker, oh.Broker) AS broker,
-                    COALESCE(rh.TraderName, oh.TraderName) AS trader_name,
-                    COALESCE(rh.Exchange, oh.Exchange) AS exchange,
-                    rh.first_fill_time AS first_fill_datetime,
-                    rh.last_fill_time AS last_fill_datetime,
-                    substr(rh.first_fill_time, -8) AS start_time,
-                    substr(rh.last_fill_time, -8) AS end_time
-                FROM {Config.ROUTE_HISTORY_TABLE} rh
-                LEFT JOIN {Config.ORDER_HISTORY_TABLE} oh
-                  ON rh.OrderId = oh.OrderId
-                 AND rh.order_as_of_date = oh.order_as_of_date
-                {history_where_clause}
-            """
-
-            count_sql = f"SELECT COUNT(*) FROM ({history_sql})"
-            total = int(conn.execute(count_sql, history_params).fetchone()[0])
-
-            paged_sql = (
-                history_sql
-                + " ORDER BY rh.order_as_of_date DESC, rh.last_fill_time DESC, rh.OrderId LIMIT ? OFFSET ?"
-            )
-            cursor = conn.execute(paged_sql, history_params + [filters.limit, filters.offset])
-            columns = [desc[0] for desc in cursor.description]
-            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            return rows, total
-    finally:
-        conn.close()
-
-    base_sql = f"""
-        SELECT
-            pf.OrderId      AS order_id,
-            pf.RouteId      AS route_id,
-            pf.order_as_of_date,
-            rr.equ_ticker,
-            rr.ccy_ticker,
-            rr.Side         AS side,
-            pf.algo,
-            pf.Broker       AS broker,
-            pf.TraderName   AS trader_name,
-            COALESCE(MAX(rr.Exchange), MAX(pf.Exchange)) AS exchange,
-            MIN(pf.DateTimeOfFill) AS first_fill_datetime,
-            MAX(pf.DateTimeOfFill) AS last_fill_datetime,
-            MIN(pf.exchange_exec_time) AS start_time,
-            MAX(pf.exchange_exec_time) AS end_time
-        FROM {Config.PROCESSED_FILLS_TABLE} pf
-        LEFT JOIN route_registry rr
-            ON pf.OrderId = rr.OrderId AND pf.RouteId = rr.RouteId
-        {where_clause}
-        GROUP BY pf.OrderId, pf.RouteId, pf.order_as_of_date
-    """
-
-    conn = _proc_conn(mgr)
-    try:
-        # Total count (without pagination)
-        count_sql = f"SELECT COUNT(*) FROM ({base_sql})"
-        cursor = conn.execute(count_sql, params)
-        total = int(cursor.fetchone()[0])
-
-        # Paginated rows
-        paged_sql = base_sql + " ORDER BY pf.order_as_of_date DESC, pf.OrderId LIMIT ? OFFSET ?"
-        cursor = conn.execute(paged_sql, params + [filters.limit, filters.offset])
-        columns = [desc[0] for desc in cursor.description]
-        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    finally:
-        conn.close()
-
-    for row in rows:
-        local_start = _derive_local_exchange_time(row.get("first_fill_datetime"), row.get("exchange"))
-        local_end = _derive_local_exchange_time(row.get("last_fill_datetime"), row.get("exchange"))
-        if local_start is not None:
-            row["start_time"] = local_start
-        if local_end is not None:
-            row["end_time"] = local_end
-
-    return rows, total
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# TCA metrics (fill_bdib.db)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def get_tca_metrics(
-    mgr: ConnectionManager,
-    route_keys: list[tuple[str, str, str]],
-) -> dict[tuple[str, str, str], dict]:
-    """Fetch the LAST row per (OrderId, RouteId, date) from fill_bdib.db.
-
-    Returns a dict keyed by (order_id, route_id, order_as_of_date).
-    """
-    if not route_keys:
-        return {}
-
-    order_ids = list({k[0] for k in route_keys})
-    placeholders = ",".join(["?"] * len(order_ids))
-
-    conn = _fill_bdib_conn(mgr)
-    try:
-        count_cursor = conn.execute(f"SELECT COUNT(*) FROM {Config.FILL_BDIB_TABLE}")
-        if count_cursor.fetchone()[0] == 0:
-            return {}
-
-        sql = f"""
-            SELECT *
-            FROM {Config.FILL_BDIB_TABLE}
-            WHERE OrderId IN ({placeholders})
-            ORDER BY OrderId, RouteId, order_as_of_date, mkt_timestamp
-        """
-        cursor = conn.execute(sql, order_ids)
-        columns = [desc[0] for desc in cursor.description]
-        all_rows = cursor.fetchall()
-    finally:
-        conn.close()
-
-    if not all_rows:
-        return {}
-
-    result: dict[tuple[str, str, str], dict] = {}
-    for row in all_rows:
-        d = dict(zip(columns, row))
-        key = (d["OrderId"], d["RouteId"], d["order_as_of_date"])
-        if key in {k for k in route_keys}:
-            result[key] = d  # last row wins
-
-    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -582,81 +358,6 @@ def _get_market_context_sqlite(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Order fill stats (raw_fills.db / order_history)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-def get_order_fill_stats(
-    mgr: ConnectionManager,
-    order_ids: list[str],
-) -> dict[str, dict[str, Optional[float]]]:
-    """Return fill-level order stats derived from raw_fills.db."""
-    if not order_ids:
-        return {}
-
-    placeholders = ",".join(["?"] * len(order_ids))
-
-    proc = _proc_conn(mgr)
-    try:
-        if _table_exists(proc, Config.ORDER_HISTORY_TABLE):
-            cursor = proc.execute(
-                f"SELECT OrderId, SUM(total_fill_shares), MAX(order_amount) "
-                f"FROM {Config.ORDER_HISTORY_TABLE} "
-                f"WHERE OrderId IN ({placeholders}) "
-                "GROUP BY OrderId",
-                order_ids,
-            )
-            result: dict[str, dict[str, Optional[float]]] = {}
-            for row in cursor.fetchall():
-                oid, total_filled, amount = row
-                filled_volume = float(total_filled) if total_filled is not None else None
-                amount_value = float(amount) if amount is not None else None
-                fill_pct = None
-                if amount_value and amount_value > 0 and filled_volume is not None:
-                    fill_pct = round(filled_volume / amount_value * 100.0, 2)
-                result[str(oid)] = {"fill_pct": fill_pct, "filled_volume": filled_volume}
-            return result
-    finally:
-        proc.close()
-
-    conn = _raw_fills_conn(mgr)
-    try:
-        cursor = conn.execute(
-            f"SELECT OrderId, SUM(CAST(FillShares AS REAL)), MAX(CAST(Amount AS REAL)) "
-            f"FROM {Config.RAW_FILLS_TABLE} "
-            f"WHERE OrderId IN ({placeholders}) "
-            "GROUP BY OrderId",
-            order_ids,
-        )
-        result = {}
-        for row in cursor.fetchall():
-            oid, total_filled, amount = row
-            filled_volume = float(total_filled) if total_filled is not None else None
-            amount_value = float(amount) if amount is not None else None
-            fill_pct = None
-            if amount_value and amount_value > 0 and filled_volume is not None:
-                fill_pct = round(filled_volume / amount_value * 100.0, 2)
-            result[str(oid)] = {"fill_pct": fill_pct, "filled_volume": filled_volume}
-    finally:
-        conn.close()
-    return result
-
-
-
-
-def get_fill_percentages(
-    mgr: ConnectionManager,
-    order_ids: list[str],
-) -> dict[str, Optional[float]]:
-    """Compute fill % = sum(FillShares) / Amount per order from raw_fills.db."""
-    stats = get_order_fill_stats(mgr, order_ids)
-    return {
-        order_id: s.get("fill_pct")
-        for order_id, s in stats.items()
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # TCA route summaries (tca_route_summary table)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -712,39 +413,6 @@ def get_tca_route_summaries(
         columns = [desc[0] for desc in cursor.description]
         rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return rows, total
-    finally:
-        conn.close()
-
-
-def get_tca_route_summaries_by_keys(
-    mgr: ConnectionManager,
-    route_keys: list[tuple[str, str, str]],
-) -> dict[tuple[str, str, str], dict]:
-    """Fetch tca_route_summary rows for specific (OrderId, RouteId, order_as_of_date) keys."""
-    if not route_keys:
-        return {}
-
-    placeholders = ",".join(["(?, ?, ?)"] * len(route_keys))
-    flat_params = [item for key in route_keys for item in key]
-
-    conn = _fill_bdib_conn(mgr)
-    try:
-        if not _table_exists(conn, Config.TCA_ROUTE_SUMMARY_TABLE):
-            return {}
-
-        sql = f"""
-            SELECT *
-            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
-            WHERE (OrderId, RouteId, order_as_of_date) IN ({placeholders})
-        """
-        cursor = conn.execute(sql, flat_params)
-        columns = [desc[0] for desc in cursor.description]
-        result: dict[tuple[str, str, str], dict] = {}
-        for row in cursor.fetchall():
-            d = dict(zip(columns, row))
-            key = (d["OrderId"], d["RouteId"], d["order_as_of_date"])
-            result[key] = d
-        return result
     finally:
         conn.close()
 

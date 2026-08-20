@@ -5,7 +5,17 @@
  *   1. MarketView → ExecutionView   publishMarketCandidates / fetchActiveCandidateHandoff
  *   2. ExecutionView → CostView     publishPostTradeHandoff
  *   3. CostView → ExecutionView     pinBrokerRecommendation / fetchBrokerRecommendations
+ *
+ * 防护 (M2): 所有响应经 zod 运行时校验 (shared/lib/api-schema.ts),
+ * 替换纯类型断言 — 后端契约变更时前端立即显式报错。
  */
+
+import {
+  parseApiData,
+  parseApiDataNullable,
+  marketToExecutionHandoffSchema,
+  brokerRecommendationSchema,
+} from '@shared/lib/api-schema';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -99,7 +109,7 @@ export async function publishMarketCandidates(
   });
   if (!response.ok) throw new Error(await readError(response));
   const body = await response.json();
-  return (body?.data ?? body) as MarketToExecutionHandoff;
+  return parseApiData(marketToExecutionHandoffSchema, body, 'publishMarketCandidates');
 }
 
 export async function fetchActiveCandidateHandoff(): Promise<MarketToExecutionHandoff | null> {
@@ -109,7 +119,7 @@ export async function fetchActiveCandidateHandoff(): Promise<MarketToExecutionHa
   });
   if (!response.ok) throw new Error(await readError(response));
   const body = await response.json();
-  return (body?.data ?? null) as MarketToExecutionHandoff | null;
+  return parseApiDataNullable(marketToExecutionHandoffSchema, body, 'fetchActiveCandidateHandoff');
 }
 
 // ─── Contract 2: ExecutionView → CostView ────────────────────────────────────
@@ -177,5 +187,9 @@ export async function fetchBrokerRecommendations(
   if (!response.ok) throw new Error(await readError(response));
   const body = await response.json();
   const recs = body?.data?.recommendations ?? [];
-  return recs as BrokerRecommendation[];
+  return parseApiData(
+    brokerRecommendationSchema.array(),
+    { data: recs },
+    'fetchBrokerRecommendations',
+  );
 }
