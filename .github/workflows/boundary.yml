@@ -69,12 +69,10 @@ jobs:
         run: |
           cd backend/api
           python -m pytest tests/boundaries/ -q
-      - name: "全量测试 (存量测试腐化不阻断; 由 PR 审查跟踪)"
+      - name: "全量测试 (硬阻断)"
         run: |
           cd backend/api
-          # 部分测试依赖真实 Bloomberg 行为/旧版 fixture (connected setter, logger,
-          # get_bloomberg 等), 在干净 CI 环境属存量失败, 不阻塞合并
-          python -m pytest tests/ -q --ignore=tests/boundaries || echo "[WARN] backend 全量测试存在存量失败, 待后续清理"
+          python -m pytest tests/ -q --ignore=tests/boundaries
 
   pipeline-tests:
     name: DataPipeline 回归测试
