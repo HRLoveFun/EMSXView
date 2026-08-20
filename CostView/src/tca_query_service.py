@@ -23,6 +23,7 @@ from platform_data.contracts import (
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
+    TcaOrderAggregate,
     TcaReport,
     TcaRouteSummary,
 )
@@ -181,6 +182,130 @@ class TcaQueryService:
             total_orders_considered=len(collected),
             total_orders_capped=capped, cohorts=cohorts,
             data_source_warning=warning,
+        )
+
+    def build_order_report(self, filters: TcaFilters) -> list[TcaOrderAggregate]:
+        """将路由级 TCA 结果聚合为 order 级汇总（003-tca-core-benchmarks）。
+
+        聚合规则（见 specs/003-tca-core-benchmarks/plan.md §3.2）:
+        - 货币成本: SUM
+        - 价格基准: 最早 route（按 order_as_of_date + RouteId 排序稳定取首）
+        - bps 绩效: 成交额加权平均 (权重 = fill × p_avg)
+        - 完成率: Σfill / Σroute_shares
+        - 风险: order 取 max（保守）
+        - 时点: min(route 历时) / 最大成交额 route 的历时
+
+        仅当 TCA_ORDER_AGG_ENABLED 开启时聚合（否则返回空列表）。
+        """
+        if not Config.TCA_ORDER_AGG_ENABLED:
+            return []
+
+        filters = _resolve_date_defaults(filters)
+        rows, _ = _get_tca_route_summaries(self._mgr, filters)
+        if not rows:
+            return []
+
+        # 按 (OrderId, order_as_of_date) 分组
+        groups: dict[tuple[str, str], list[dict]] = {}
+        for r in rows:
+            key = (r["OrderId"], r["order_as_of_date"])
+            groups.setdefault(key, []).append(r)
+
+        aggregates: list[TcaOrderAggregate] = []
+        for (order_id, oad), routes in groups.items():
+            aggregates.append(self._aggregate_order(order_id, oad, routes))
+        return aggregates
+
+    @staticmethod
+    def _aggregate_order(order_id: str, oad: str, routes: list[dict]) -> TcaOrderAggregate:
+        """按聚合策略合并单订单的多条 route。"""
+        def _num(v) -> Optional[float]:
+            if v is None:
+                return None
+            try:
+                f = float(v)
+                return f if f == f else None  # 清理 NaN
+            except (TypeError, ValueError):
+                return None
+
+        def _first(attr: str) -> Optional[Any]:
+            for r in routes:
+                v = r.get(attr)
+                if v is not None:
+                    return v
+            return None
+
+        # 货币成本 SUM
+        def _sum(attr: str) -> Optional[float]:
+            vals = [_num(r.get(attr)) for r in routes]
+            vals = [v for v in vals if v is not None]
+            return sum(vals) if vals else None
+
+        # 成交额加权 bps
+        def _weighted_bps(attr: str) -> Optional[float]:
+            num_w = 0.0
+            den_w = 0.0
+            for r in routes:
+                bps = _num(r.get(attr))
+                fill = _num(r.get("fill"))
+                pavg = _num(r.get("p_avg"))
+                if bps is None or fill is None or pavg is None:
+                    continue
+                w = fill * pavg
+                if w > 0:
+                    num_w += bps * w
+                    den_w += w
+            return (num_w / den_w) if den_w > 0 else None
+
+        route_shares = sum(
+            (_num(r.get("RouteShares")) or 0) for r in routes
+        )
+        fill = sum((_num(r.get("fill")) or 0) for r in routes)
+
+        # 风险：order 取 max（保守）
+        def _max(attr: str) -> Optional[float]:
+            vals = [_num(r.get(attr)) for r in routes]
+            vals = [v for v in vals if v is not None]
+            return max(vals) if vals else None
+
+        return TcaOrderAggregate(
+            OrderId=order_id,
+            order_as_of_date=oad,
+            equ_ticker=_first("equ_ticker"),
+            Exchange=_first("Exchange"),
+            Side=_first("Side"),
+            Broker=_first("Broker"),
+            algo=_first("algo"),
+            TraderName=_first("TraderName"),
+            route_count=len(routes),
+            fill_count=sum((_num(r.get("fill_count")) or 0) for r in routes),
+            delay_cost=_sum("delay_cost"),
+            trading_cost=_sum("trading_cost"),
+            opportunity_cost=_sum("opportunity_cost"),
+            wagner_is=_sum("wagner_is"),
+            p_arrival=_first("p_arrival"),
+            p_decision=_first("p_decision"),
+            p_close=_first("p_close"),
+            arrival_cost_bps=_weighted_bps("arrival_cost_bps"),
+            close_cost_bps=_weighted_bps("close_cost_bps"),
+            wagner_is_bps=_weighted_bps("wagner_is_bps"),
+            temp_impact_5min_bps=_weighted_bps("temp_impact_5min_bps"),
+            temp_impact_10min_bps=_weighted_bps("temp_impact_10min_bps"),
+            temp_impact_30min_bps=_weighted_bps("temp_impact_30min_bps"),
+            perm_impact_bps=_weighted_bps("perm_impact_bps"),
+            fill=fill if fill > 0 else None,
+            route_shares=route_shares if route_shares > 0 else None,
+            par_rate=(fill / route_shares) if route_shares > 0 else None,
+            cost_stddev=_max("cost_stddev"),
+            cost_p95=_max("cost_p95"),
+            cost_cvar=_max("cost_cvar"),
+            order_duration_sec=_max("order_duration_sec"),
+            exec_rate_shares_per_min=(
+                (fill / max(_max("order_duration_sec") or 1, 1) * 60.0)
+                if _max("order_duration_sec")
+                else None
+            ),
+            recovery_truncated=max((_num(r.get("recovery_truncated")) or 0) for r in routes) if routes else None,
         )
 
     def _assemble_report(

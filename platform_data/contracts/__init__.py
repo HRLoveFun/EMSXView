@@ -18,6 +18,7 @@ from .tca_contracts import (
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
+    TcaOrderAggregate,
     TcaOrderSummary,
     TcaReport,
     TcaRouteDetail,
