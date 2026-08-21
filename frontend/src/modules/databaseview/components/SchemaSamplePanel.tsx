@@ -28,21 +28,30 @@ export function SchemaSamplePanel({ dbKey, tables, dbExists = true }: SchemaSamp
   const [sampleLoading, setSampleLoading] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
 
-  // Reset selection when the database key changes.
-  useEffect(() => {
+  // 数据库切换或表列表变化时重置当前选中的表。
+  // 采用 React 官方"渲染期间调整 state"模式，避免 effect 内同步 setState。
+  const [prevDbKey, setPrevDbKey] = useState(dbKey);
+  const [prevTableNames, setPrevTableNames] = useState(tableNames);
+  if (prevDbKey !== dbKey || prevTableNames !== tableNames) {
+    setPrevDbKey(dbKey);
+    setPrevTableNames(tableNames);
     setActiveTable(tableNames[0] ?? null);
-  }, [dbKey, tableNames]);
+  }
 
-  // Load schema whenever (db, table) changes.
-  useEffect(() => {
-    if (!activeTable) {
-      setSchema(null);
-      return;
-    }
-    let cancelled = false;
+  // 加载键变化时在渲染期重置加载态，避免 effect 内同步 setState
+  const schemaLoadKey = `${dbKey}:${activeTable ?? ''}`;
+  const [prevSchemaLoadKey, setPrevSchemaLoadKey] = useState(schemaLoadKey);
+  if (prevSchemaLoadKey !== schemaLoadKey) {
+    setPrevSchemaLoadKey(schemaLoadKey);
     setSchemaLoading(true);
     setSchema(null);
     setSchemaError(null);
+  }
+
+  // Load schema whenever (db, table) changes.
+  useEffect(() => {
+    if (!activeTable) return;
+    let cancelled = false;
     fetchTableSchema(dbKey, activeTable)
       .then((data) => {
         if (!cancelled) setSchema(data);
@@ -59,16 +68,20 @@ export function SchemaSamplePanel({ dbKey, tables, dbExists = true }: SchemaSamp
     };
   }, [dbKey, activeTable]);
 
-  // Load sample whenever (db, table, limit) changes.
-  useEffect(() => {
-    if (!activeTable) {
-      setSample(null);
-      return;
-    }
-    let cancelled = false;
+  // 加载键变化时在渲染期重置加载态，避免 effect 内同步 setState
+  const sampleLoadKey = `${dbKey}:${activeTable ?? ''}:${limit}:${refreshTick}`;
+  const [prevSampleLoadKey, setPrevSampleLoadKey] = useState(sampleLoadKey);
+  if (prevSampleLoadKey !== sampleLoadKey) {
+    setPrevSampleLoadKey(sampleLoadKey);
     setSampleLoading(true);
     setSample(null);
     setSampleError(null);
+  }
+
+  // Load sample whenever (db, table, limit) changes.
+  useEffect(() => {
+    if (!activeTable) return;
+    let cancelled = false;
     fetchTableSample(dbKey, activeTable, limit)
       .then((data) => {
         if (!cancelled) setSample(data);

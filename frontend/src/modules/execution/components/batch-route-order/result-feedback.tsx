@@ -1,6 +1,6 @@
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ViolationList, violationLabel } from '@execution/components/compliance-violation';
+import { violationLabel } from '@execution/components/compliance-violation';
 import type { ResultFeedbackProps } from './types';
 
 export function ResultFeedback({

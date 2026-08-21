@@ -106,7 +106,7 @@ export default function DatabaseViewModule() {
         }));
       }
     },
-    [clearPoll, loadOverview],
+    [clearPoll, loadOverview, MAX_POLL_DURATION_MS],
   );
 
   const handleTrigger = useCallback(async () => {

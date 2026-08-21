@@ -1,6 +1,6 @@
 // ExecutionModule — self-contained entry point for the Execution domain
 // Receives shell services via useShellContext() and contributes toolbar info via onContribute.
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { MonitorBoard } from '@execution/views/MonitorBoard';
 import { ExecutionBoard } from '@execution/views/ExecutionBoard';
 import { ExecutionViewTabs } from '@execution/views/ExecutionViewTabs';
@@ -32,7 +32,8 @@ export default function ExecutionModule({ onContribute }: ModuleShellProps) {
   const isAuthenticated = true;
 
   // Local UI state
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  // lastUpdatedAt 仅用于对外贡献信息，用 ref 记录以避免 effect 内同步 setState
+  const lastUpdatedAtRef = useRef<number | null>(null);
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     'global' | 'monitor-conditions' | 'broker-algo' | 'parameter-frequency' | 'route-plans' | 'data-manager' | 'about'
   >('global');
@@ -92,7 +93,7 @@ export default function ExecutionModule({ onContribute }: ModuleShellProps) {
 
   useEffect(() => {
     if (effectiveOrders.length > 0 || effectiveRoutes.length > 0) {
-      setLastUpdatedAt(Date.now());
+      lastUpdatedAtRef.current = Date.now();
     }
   }, [effectiveOrders, effectiveRoutes]);
 
@@ -126,11 +127,11 @@ export default function ExecutionModule({ onContribute }: ModuleShellProps) {
         routes: effectiveRoutes.length,
       },
       isLoading,
-      lastUpdatedAt,
+      lastUpdatedAt: lastUpdatedAtRef.current,
       refresh: handleRefresh,
       clearCache: handleClearCache,
     });
-  }, [toolbarOrderCount, effectiveRoutes.length, isLoading, lastUpdatedAt, handleRefresh, handleClearCache, onContribute]);
+  }, [toolbarOrderCount, effectiveRoutes.length, isLoading, effectiveOrders, effectiveRoutes, handleRefresh, handleClearCache, onContribute]);
 
   return (
     <div className="space-y-3">

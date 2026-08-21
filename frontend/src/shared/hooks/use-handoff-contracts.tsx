@@ -55,7 +55,8 @@ const HandoffContext = createContext<HandoffContextValue | null>(null);
 export function HandoffContractsProvider({ children }: { children: ReactNode }) {
   const [activeCandidateHandoff, setActive] = useState<MarketToExecutionHandoff | null>(null);
   const [recommendations, setRecommendations] = useState<BrokerRecommendation[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // 初始加载态为 true，首次 effect 加载完成后置 false，避免 effect 内同步 setIsLoading(true)
+  const [isLoading, setIsLoading] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const refreshCandidate = useCallback(async () => {
@@ -77,8 +78,10 @@ export function HandoffContractsProvider({ children }: { children: ReactNode }) 
   }, []);
 
   useEffect(() => {
-    setIsLoading(true);
-    Promise.all([refreshCandidate(), refreshRecommendations()]).finally(() => setIsLoading(false));
+    // 在微任务中触发加载，避免 effect 同步路径调用含 setState 的函数
+    queueMicrotask(() => {
+      void Promise.all([refreshCandidate(), refreshRecommendations()]).finally(() => setIsLoading(false));
+    });
     const id = window.setInterval(() => {
       refreshCandidate();
       refreshRecommendations();
@@ -135,6 +138,8 @@ export function HandoffContractsProvider({ children }: { children: ReactNode }) 
   return <HandoffContext.Provider value={value}>{children}</HandoffContext.Provider>;
 }
 
+// 与 Provider 组件同文件导出 hook 会牺牲 fast refresh，属可接受取舍
+// eslint-disable-next-line react-refresh/only-export-components
 export function useHandoffContracts(): HandoffContextValue {
   const ctx = useContext(HandoffContext);
   if (!ctx) {

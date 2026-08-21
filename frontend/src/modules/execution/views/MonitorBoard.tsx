@@ -19,7 +19,6 @@ import {
   type LazyContext,
 } from '@execution/lib/health-palette';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -39,51 +38,6 @@ import type { Order, Route } from '@execution/types'
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TOTAL_COLS = 26; // Health strip + 25 data cols (see ColHeader list below)
 
-// ─── Threshold input (commit on blur / Enter) ───────────────────────────────
-function ThresholdInput({
-  value, onChange, step, className, disabled,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  step: number;
-  className?: string;
-  disabled?: boolean;
-}) {
-  const [local, setLocal] = useState(String(value));
-  // Track an "invalid" flag so an empty / non-numeric commit visibly snaps
-  // back to the previous value with a brief amber flash, instead of
-  // silently reverting and leaving the user thinking their edit was saved.
-  const [flashInvalid, setFlashInvalid] = useState(false);
-  useEffect(() => { setLocal(String(value)); }, [value]);
-
-  const commit = () => {
-    const v = parseFloat(local);
-    if (!isNaN(v) && v >= 0) {
-      onChange(v);
-    } else {
-      setLocal(String(value));
-      setFlashInvalid(true);
-      setTimeout(() => setFlashInvalid(false), 800);
-    }
-  };
-
-  return (
-    <input
-      type="number"
-      value={local}
-      onChange={e => setLocal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => { if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur(); } }}
-      min={0}
-      step={step}
-      disabled={disabled}
-      title={flashInvalid ? 'Invalid value, restored to original' : undefined}
-      className={`h-6 rounded border ${flashInvalid ? 'border-amber-500 ring-1 ring-amber-500' : 'border-input'} bg-background px-1.5 text-xs text-foreground tabular-nums
-        focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${className ?? ''}`}
-    />
-  );
-}
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 type SortField = keyof Order | 'flagCount' | null;
 type SortDirection = 'asc' | 'desc';
@@ -97,6 +51,34 @@ interface CondGroup {
   bgColor: string;
   count: number;
   subgroups: Subgroup[];
+}
+
+// ─── 排序图标：根据当前排序状态渲染箭头或中性图标 ────────────────────────────
+function SortIcon({ field, sortConfig }: { field: SortField; sortConfig: SortConfig }) {
+  if (sortConfig.field !== field) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+  return sortConfig.direction === 'asc'
+    ? <ArrowUp className="h-3 w-3 text-primary" />
+    : <ArrowDown className="h-3 w-3 text-primary" />;
+}
+
+// ─── 可排序列头：点击切换排序方向 ─────────────────────────────────────────────
+function ColHeader({
+  label, field, className = '', sortConfig, onToggle,
+}: {
+  label: string;
+  field: SortField;
+  className?: string;
+  sortConfig: SortConfig;
+  onToggle: (field: SortField) => void;
+}) {
+  return (
+    <th
+      className={`px-2 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:text-foreground ${className}`}
+      onClick={() => onToggle(field)}
+    >
+      <span className="inline-flex items-center gap-1">{label}<SortIcon field={field} sortConfig={sortConfig} /></span>
+    </th>
+  );
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -121,14 +103,6 @@ export function MonitorBoard({
   onExceptionCountChange,
 }: MonitorBoardProps) {
   // ── Condition helpers ──────────────────────────────────────────────────────
-  const toggleCondition = useCallback((id: ConditionId) => {
-    onConditionsChange({ ...conditions, [id]: { ...conditions[id], enabled: !conditions[id].enabled } });
-  }, [conditions, onConditionsChange]);
-
-  const updateThreshold = useCallback((id: ConditionId, value: number) => {
-    onConditionsChange({ ...conditions, [id]: { ...conditions[id], threshold: value } });
-  }, [conditions, onConditionsChange]);
-
   const resetConditions = useCallback(() => {
     onConditionsChange(structuredClone(DEFAULT_CONDITIONS));
   }, [onConditionsChange]);
@@ -319,22 +293,6 @@ export function MonitorBoard({
     );
   }, []);
 
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortConfig.field !== field) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
-    return sortConfig.direction === 'asc'
-      ? <ArrowUp className="h-3 w-3 text-primary" />
-      : <ArrowDown className="h-3 w-3 text-primary" />;
-  };
-
-  const ColHeader = ({ label, field, className = '' }: { label: string; field: SortField; className?: string }) => (
-    <th
-      className={`px-2 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:text-foreground ${className}`}
-      onClick={() => toggleSort(field)}
-    >
-      <span className="inline-flex items-center gap-1">{label}<SortIcon field={field} /></span>
-    </th>
-  );
-
   // ── Helper functions ──────────────────────────────────────────────────────
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -524,30 +482,30 @@ export function MonitorBoard({
           <thead className="sticky top-0 bg-card z-10 border-b border-border">
             <tr>
               <th className="w-1 p-0" aria-label="Health" />
-              <ColHeader label="Order ID" field="id" />
-              <ColHeader label="Ticker"    field="symbol" />
-              <ColHeader label="Side"      field="side" />
-              <ColHeader label="Status"    field="status" />
-              <ColHeader label="Type"      field="orderType" />
-              <ColHeader label="Qty"       field="quantity" className="text-right" />
-              <ColHeader label="%Filled"   field="percentFilled" className="text-right" />
-              <ColHeader label="Limit Px"  field="price" className="text-right" />
-              <ColHeader label="Avg Px"    field="avgPrice" className="text-right" />
-              <ColHeader label="Arr Px"    field="arrivalPrice" className="text-right" />
-              <ColHeader label="Last Px"   field="lastPrice" className="text-right" />
-              <ColHeader label="Ivl VWAP"  field="mktVwap" className="text-right" />
-              <ColHeader label="$Value"    field="dollarValueUsd" className="text-right" />
-              <ColHeader label="%Change"   field="pctChange" className="text-right" />
-              <ColHeader label="ADV 5D"    field="adv5d" className="text-right" />
-              <ColHeader label="Portfolio" field="portfolio" />
-              <ColHeader label="Trader"    field="trader" />
-              <ColHeader label="Exchange"  field="exchange" />
-              <ColHeader label="Ccy"       field="currency" />
-              <ColHeader label="FX Rate"   field="fxRate" className="text-right" />
-              <ColHeader label="Strategy"  field="strategyType" />
-              <ColHeader label="Strat Params" field="strategyPartRate" />
-              <ColHeader label="PM Note"   field="notes" />
-              <ColHeader label="Created"   field="createdAt" />
+              <ColHeader label="Order ID" field="id" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Ticker"    field="symbol" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Side"      field="side" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Status"    field="status" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Type"      field="orderType" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Qty"       field="quantity" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="%Filled"   field="percentFilled" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Limit Px"  field="price" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Avg Px"    field="avgPrice" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Arr Px"    field="arrivalPrice" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Last Px"   field="lastPrice" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Ivl VWAP"  field="mktVwap" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="$Value"    field="dollarValueUsd" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="%Change"   field="pctChange" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="ADV 5D"    field="adv5d" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Portfolio" field="portfolio" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Trader"    field="trader" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Exchange"  field="exchange" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Ccy"       field="currency" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="FX Rate"   field="fxRate" className="text-right" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Strategy"  field="strategyType" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Strat Params" field="strategyPartRate" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="PM Note"   field="notes" sortConfig={sortConfig} onToggle={toggleSort} />
+              <ColHeader label="Created"   field="createdAt" sortConfig={sortConfig} onToggle={toggleSort} />
               <th className="px-2 py-1.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                 Flags
               </th>

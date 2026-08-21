@@ -138,7 +138,7 @@ export function UnifiedModifyRouteDialog({
   // Editable strategy fields — shared between Modify Route and Route Order.
   const strategyFieldsState = useStrategyFields(broker, strategy, assetClass);
   const { fields: strategyFields, setFields: setStrategyFields, isLoading: isLoadingFields,
-    refresh: refreshStrategyFields, dirty: dirtyStrategyFields, toStrategyParams } = strategyFieldsState;
+    dirty: dirtyStrategyFields, toStrategyParams } = strategyFieldsState;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -208,51 +208,20 @@ export function UnifiedModifyRouteDialog({
     }
   }, [assetClass]);
 
-  const fetchStrategyInfo = useCallback(async (brokerCode: string, strategyName: string, force = false) => {
-    if (!brokerCode || !strategyName) { setStrategyFields([]); return; }
-    setIsLoadingFields(true);
-    try {
-      const res = await cachedApiService.getBrokerStrategyInfo(brokerCode, strategyName, assetClass, force);
-      if (res.success && res.data) {
-        setStrategyFields(res.data.fields.map((f: BrokerStrategyField) => {
-          const value = f.stringValue || '';
-          const disabled = f.disable === '1';
-          return {
-            fieldName: f.fieldName,
-            value,
-            disabled,
-            defaultValue: value,
-            originalValue: value,
-            originalDisabled: disabled,
-          };
-        }));
-      } else {
-        setStrategyFields([]);
-      }
-    } finally {
-      setIsLoadingFields(false);
-    }
-  }, [assetClass]);
-
   // Load strategy list whenever broker changes
   useEffect(() => {
     if (!open) return;
     if (broker) void fetchStrategies(broker);
   }, [open, broker, fetchStrategies]);
 
-  // Load strategy fields whenever strategy changes
-  useEffect(() => {
-    if (!open) return;
-    if (broker && strategy) void fetchStrategyInfo(broker, strategy);
-    else setStrategyFields([]);
-  }, [open, broker, strategy, fetchStrategyInfo]);
+  // 策略字段加载由 useStrategyFields hook 自动管理（依赖 broker/strategy/assetClass 变化）
 
   const handleRefreshStrategy = async () => {
     if (!broker) return;
     setIsRefreshing(true);
     try {
       await fetchStrategies(broker, true);
-      if (strategy) await fetchStrategyInfo(broker, strategy, true);
+      if (strategy) await strategyFieldsState.refresh();
     } finally { setIsRefreshing(false); }
   };
 

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown, ChevronRight } from 'lucide-react';
+import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
@@ -53,7 +53,7 @@ export function ExecutionBoard({
   const [algoLaunchOrder] = useState<Order | null>(null);
   const [isAlgoDialogOpen, setIsAlgoDialogOpen] = useState(false);
   const [showSubOrderPanel, setShowSubOrderPanel] = useState(false);
-  const [pendingProposalCount, setPendingProposalCount] = useState(0);
+  const [pendingProposalCount] = useState(0);
 
   const handleAlgoConfirm = useCallback(async (request: CreateParentExecutionRequest) => {
     if (onLaunchExecution) {
@@ -74,7 +74,7 @@ export function ExecutionBoard({
 
   const {
     activePane, setActivePane,
-    cursorOrderIdx, cursorRouteIdx,
+    cursorOrderIdx,
     moveCursor, resetCursors,
   } = useBoardNavigation({
     orders,

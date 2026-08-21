@@ -83,7 +83,7 @@ export function useMarketBrokerMapping(): UseMarketBrokerMappingResult {
   const [loading, setLoading] = useState<boolean>(cachedSelection === null);
 
   const reload = useCallback(async (force = false) => {
-    setLoading(true);
+    // setState 放在 await 之后（异步），避免 effect 内同步 setState
     const next = await fetchSelection(force);
     setSelection(next);
     setLoading(false);
@@ -91,7 +91,8 @@ export function useMarketBrokerMapping(): UseMarketBrokerMappingResult {
 
   useEffect(() => {
     if (cachedSelection === null) {
-      void reload(false);
+      // 在微任务中触发加载，避免 effect 同步路径调用含 setState 的函数
+      queueMicrotask(() => { void reload(false); });
     }
     const handler = () => { void reload(true); };
     window.addEventListener(EVENT_NAME, handler);

@@ -57,11 +57,15 @@ class TcaReportAggregator:
 
         metrics 控制附加的覆盖率小节统计口径（默认全部 38 个指标）。
         thresholds 控制 S6 异常路由明细的判定阈值（None/空 → 默认阈值）。
+        markets 清单忽略 exchange 过滤（供前端分市场标签页展示全部市场）。
         表不存在时返回带 data_source_warning 的空报告。
         """
         selected = validate_metrics(metrics)
         where, params = self._build_where(
             start_date, end_date, broker, algo, symbol, exchange,
+        )
+        where_no_exchange, params_no_exchange = self._build_where(
+            start_date, end_date, broker, algo, symbol, None,
         )
         conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
         try:
@@ -73,6 +77,7 @@ class TcaReportAggregator:
                 "filters": self._filters_dict(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
                 ),
+                "markets": self._query_markets(conn, where_no_exchange, params_no_exchange),
                 "kpi": self._query_kpi(conn, where, params),
                 "daily_series": self._query_daily_series(conn, where, params),
                 "rankings": {
@@ -131,6 +136,26 @@ class TcaReportAggregator:
         return "WHERE " + " AND ".join(conditions), params
 
     # ── 各小节查询 ───────────────────────────────────────────────────────
+
+    def _query_markets(
+        self, conn, where: str, params: list[Any],
+    ) -> list[dict[str, Any]]:
+        """可选市场清单：Exchange 去重（忽略 exchange 过滤，尊重其余过滤）。
+
+        供前端分市场标签页使用：每条含 Exchange 与 route 数，按 route 数降序。
+        """
+        sql = f"""
+            SELECT COALESCE(Exchange, '(unknown)') AS exchange,
+                   COUNT(*) AS route_count
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where}
+            GROUP BY Exchange
+            ORDER BY route_count DESC, exchange ASC
+        """
+        return [
+            {"exchange": str(r[0]), "route_count": int(r[1])}
+            for r in conn.execute(sql, params).fetchall()
+        ]
 
     def _query_kpi(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
         """KPI：route 数、总股数、加权 pnl_vwap、平均 par_rate / RPM。"""
@@ -328,6 +353,7 @@ class TcaReportAggregator:
             "filters": self._filters_dict(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
             ),
+            "markets": [],
             "kpi": None,
             "daily_series": [],
             "rankings": {"by_broker": [], "by_algo": []},

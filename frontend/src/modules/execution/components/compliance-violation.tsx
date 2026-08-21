@@ -19,6 +19,8 @@ const VIOLATION_LABELS: Record<ViolationCode, string> = {
   NOTIONAL_UNKNOWN: 'Cannot estimate notional (last price missing)',
 };
 
+// 与组件同文件导出工具函数会牺牲 fast refresh，属可接受取舍
+// eslint-disable-next-line react-refresh/only-export-components
 export function violationLabel(code: ViolationCode): string {
   return VIOLATION_LABELS[code] ?? code;
 }

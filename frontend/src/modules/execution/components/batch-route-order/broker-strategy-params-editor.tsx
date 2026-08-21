@@ -40,7 +40,7 @@ export function BrokerStrategyParamsEditor({
     };
     registerFieldSetter(broker, setter);
     return () => registerFieldSetter(broker, null);
-  }, [broker, state.setFields, registerFieldSetter]);
+  }, [broker, state, registerFieldSetter]);
 
   // Restore cached params after the catalog finishes loading the defaults.
   const restoredKeyRef = useRef<string>('');

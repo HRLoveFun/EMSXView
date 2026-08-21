@@ -60,7 +60,7 @@ export function BrokerStrategySection({
           strategies={strategiesFor(b)}
           onStrategyChange={(s) => setBrokerStrategy(b, s)}
           registerParamsBuilder={registerParamsBuilder}
-          getCachedSnapshot={(br, st) => paramsCacheRef.current.get(cacheKey(br, st)) as ReturnType<typeof import('@execution/components/broker-strategy-fields').useStrategyFields>['toStrategyParams'] | undefined}
+          getCachedSnapshot={(br, st) => paramsCacheRef.current.get(cacheKey(br, st)) as ReturnType<ReturnType<typeof import('@execution/components/broker-strategy-fields').useStrategyFields>['toStrategyParams']> | undefined}
           registerFieldSetter={registerFieldSetter}
           disabled={!editable}
         />
