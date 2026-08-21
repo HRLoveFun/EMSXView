@@ -386,8 +386,15 @@ export interface TcaReportSummaryFilters {
   metrics: string[];
 }
 
+/** 可选市场清单（前端分市场标签页使用） */
+export interface TcaReportMarket {
+  exchange: string;
+  route_count: number;
+}
+
 export interface TcaReportSummary {
   filters: TcaReportSummaryFilters;
+  markets: TcaReportMarket[];
   kpi: TcaReportKpi | null;
   daily_series: TcaDailySeriesPoint[];
   rankings: { by_broker: TcaRankingRow[]; by_algo: TcaRankingRow[] };

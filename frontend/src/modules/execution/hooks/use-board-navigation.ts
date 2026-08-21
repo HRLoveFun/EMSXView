@@ -28,13 +28,18 @@ export function useBoardNavigation({
   const [cursorOrderIdx, setCursorOrderIdx] = useState(0);
   const [cursorRouteIdx, setCursorRouteIdx] = useState(0);
 
-  useEffect(() => {
-    if (cursorOrderIdx >= orders.length) setCursorOrderIdx(Math.max(0, orders.length - 1));
-  }, [orders.length, cursorOrderIdx]);
-
-  useEffect(() => {
-    if (cursorRouteIdx >= displayedRoutesLength) setCursorRouteIdx(Math.max(0, displayedRoutesLength - 1));
-  }, [displayedRoutesLength, cursorRouteIdx]);
+  // 列表变短时将光标钳制在有效范围内。
+  // 采用渲染期间调整 state 的模式，避免 effect 内同步 setState。
+  const [prevOrdersLength, setPrevOrdersLength] = useState(orders.length);
+  if (prevOrdersLength !== orders.length) {
+    setPrevOrdersLength(orders.length);
+    setCursorOrderIdx(i => Math.max(0, Math.min(i, Math.max(0, orders.length - 1))));
+  }
+  const [prevRoutesLength, setPrevRoutesLength] = useState(displayedRoutesLength);
+  if (prevRoutesLength !== displayedRoutesLength) {
+    setPrevRoutesLength(displayedRoutesLength);
+    setCursorRouteIdx(i => Math.max(0, Math.min(i, Math.max(0, displayedRoutesLength - 1))));
+  }
 
   const moveCursor = useCallback((pane: TradePane, delta: number) => {
     if (pane === 'orders') {
@@ -68,7 +73,7 @@ export function useBoardNavigation({
     if (selectedOrders.size !== 1 || !selectedOrders.has(target.id)) {
       onSelectionChange(next);
     }
-  }, [cursorOrderIdx, activePane]);
+  }, [cursorOrderIdx, activePane, onSelectionChange, orders, selectedOrders]);
 
   useEffect(() => {
     const pane = activePane;

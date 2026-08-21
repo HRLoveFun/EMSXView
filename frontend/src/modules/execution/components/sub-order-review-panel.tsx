@@ -29,11 +29,11 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
   const [batchResult, setBatchResult] = useState<BatchOperationResult | null>(null);
 
   const loadProposals = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
+    // setState 全部放在 await 之后（异步），避免 effect 内同步 setState
     const result = await apiService.listSubOrderProposals('PENDING_CONFIRM', currentTrader);
     if (result.success && result.data) {
       setProposals(result.data);
+      setError('');
     } else {
       setError(result.error || 'Failed to load proposals');
     }
@@ -41,7 +41,8 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
   }, [currentTrader]);
 
   useEffect(() => {
-    loadProposals();
+    // 在微任务中触发加载，避免 effect 同步路径调用含 setState 的函数
+    queueMicrotask(() => { void loadProposals(); });
   }, [loadProposals]);
 
   // Auto-poll every 15 seconds
@@ -56,14 +57,6 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === proposals.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(proposals.map(p => p.id)));
-    }
   };
 
   const handleConfirmOne = async (proposalId: number) => {
@@ -102,7 +95,7 @@ export function SubOrderReviewPanel({ currentTrader, onRefresh }: SubOrderReview
         items: [item],
       });
     };
-    const onSummary = (_summary: BatchOperationResult) => {
+    const onSummary = () => {
       loadProposals();
       setSelectedIds(new Set());
       onRefresh?.();

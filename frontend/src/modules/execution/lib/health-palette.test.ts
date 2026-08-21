@@ -10,6 +10,7 @@ import {
   HEALTH_PALETTE,
 } from './health-palette';
 import { DEFAULT_CONDITIONS } from './monitor-conditions';
+import type { HealthLevel } from './health-palette';
 import type { Order, Route } from '@execution/types';
 
 function createOrder(overrides?: Partial<Order>): Order {
@@ -37,7 +38,7 @@ function createOrder(overrides?: Partial<Order>): Order {
     currency: 'USD',
     timeInForce: 'DAY',
     percentFilled: 0,
-    stopPrice: null,
+    stopPrice: undefined,
     notes: '',
     customNote1: '',
     customNote2: '',
@@ -178,7 +179,7 @@ describe('maxHealth / compareHealth', () => {
   });
 
   it('compareHealth sorts critical first', () => {
-    const levels = ['healthy', 'critical', 'warning', 'info'];
+    const levels: HealthLevel[] = ['healthy', 'critical', 'warning', 'info'];
     levels.sort(compareHealth);
     expect(levels).toEqual(['critical', 'warning', 'info', 'healthy']);
   });

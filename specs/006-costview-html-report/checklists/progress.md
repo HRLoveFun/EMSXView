@@ -18,8 +18,16 @@
 | 全量验证（pytest 258 / vitest 105 / lint / build） | ✅ |
 | 提交 `5c9d9ba` | ✅ |
 | 后端重启生效 + 404 故障修复 | ✅ |
+| 第二批：分市场标签页 + 排行 SVG 自适应（CP-5） | ✅ |
 
 ## 检查点记录
+
+### CP-5 第二批增强（2026-08-21）
+- [x] 分市场标签页：后端 `markets` 清单（忽略 exchange 过滤）+ 前端 ReportView 标签页
+- [x] 执行方排行 SVG 宽度自适应（`width=100%` + `preserveAspectRatio`）
+- [x] 后端 `test_monitoring.py` 47 passed（+4 markets 用例）；CostView 全量 262 passed
+- [x] 前端 costview 29 passed（+2 标签页用例）；tsc/lint 零错误
+- [x] CLI 真实生成报告 5 张 SVG 全部 `width=100%`，无固定宽度残留
 
 ### CP-1 后端
 - [x] `test_monitoring.py` 43 passed（含 export-html 200/422/空库降级、anomaly 判定）

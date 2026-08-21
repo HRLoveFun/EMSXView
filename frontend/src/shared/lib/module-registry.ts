@@ -55,6 +55,9 @@ export interface ModuleDescriptor {
   /** If true, this module is the active tab on initial load. */
   isDefault?: boolean;
   /** Dynamic import returning the module's root React component. */
+  // 模块入口组件 props 各异（ModuleShellProps / onNavigateToDatabase / 无 props），
+  // 此处以 any 放宽 loader 类型以支持任意模块入口，属必要类型逃逸。
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   loader: () => Promise<{ default: ComponentType<any> }>;
   /** Optional hover-prefetch callback to warm the chunk cache. */
   prefetch?: () => void;

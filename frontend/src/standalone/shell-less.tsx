@@ -8,7 +8,7 @@
 import { ShellContext } from '@shared/lib/shell-context';
 import type { ShellContextValue } from '@shared/lib/shell-context';
 
-function noop(..._args: unknown[]): void {
+function noop(): void {
   /* no-op in standalone mode */
 }
 

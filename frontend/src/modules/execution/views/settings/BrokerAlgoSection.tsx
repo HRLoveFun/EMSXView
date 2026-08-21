@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Database, ChevronRight, ChevronDown, Clock, RefreshCw, CheckCircle2,
   AlertCircle, Plus, Save, Trash2, FileJson, AlertTriangle,
@@ -14,9 +14,6 @@ import {
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { useBrokerAlgorithms } from '@execution/hooks/use-broker-algorithms';
 import type { StrategyParameter } from '@execution/types';
 import { StrategyDataManagerDialog } from '@execution/components/strategy-data-manager-dialog';
@@ -40,7 +37,20 @@ export function BrokerAlgoSection() {
     getParametersForStrategy,
   } = useBrokerAlgorithms();
 
-  const [treeData, setTreeData] = useState<TreeNode[]>([]);
+  // treeData 由 configs 派生，改用 useMemo 避免 effect 内同步 setState
+  const treeData = useMemo<TreeNode[]>(() => {
+    if (configs.length === 0) return [];
+    return configs.map(config => ({
+      id: `broker::${config.broker}`,
+      name: config.broker,
+      type: 'broker' as const,
+      children: getStrategiesForBroker(config.broker).map(strategy => ({
+        id: `algo::${config.broker}::${strategy.name}`,
+        name: strategy.name,
+        type: 'algorithm' as const,
+      })),
+    }));
+  }, [configs, getStrategiesForBroker]);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<{ broker: string; strategy: string } | null>(null);
   const [algorithmParams, setAlgorithmParams] = useState<StrategyParameter[]>([]);
@@ -50,23 +60,6 @@ export function BrokerAlgoSection() {
   const [newAlgoName, setNewAlgoName] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isStrategyManagerOpen, setIsStrategyManagerOpen] = useState(false);
-
-  useEffect(() => {
-    if (configs.length === 0) {
-      setTreeData([]);
-      return;
-    }
-    setTreeData(configs.map(config => ({
-      id: `broker::${config.broker}`,
-      name: config.broker,
-      type: 'broker' as const,
-      children: getStrategiesForBroker(config.broker).map(strategy => ({
-        id: `algo::${config.broker}::${strategy.name}`,
-        name: strategy.name,
-        type: 'algorithm' as const,
-      })),
-    })));
-  }, [configs, getStrategiesForBroker]);
 
   const toggleNode = (nodeId: string) => {
     setExpandedNodes(prev => {

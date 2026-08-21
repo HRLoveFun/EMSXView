@@ -34,11 +34,11 @@ export function RoutePlanManager() {
   const [testResult, setTestResult] = useState<{ planId: number; matchCount: number } | null>(null);
 
   const loadPlans = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
+    // setState 全部放在 await 之后（异步），避免 effect 内同步 setState
     const result = await apiService.listRoutePlans();
     if (result.success && result.data) {
       setPlans(result.data);
+      setError('');
     } else {
       setError(result.error || 'Failed to load route plans');
     }
@@ -46,7 +46,8 @@ export function RoutePlanManager() {
   }, []);
 
   useEffect(() => {
-    loadPlans();
+    // 在微任务中触发加载，避免 effect 同步路径调用含 setState 的函数
+    queueMicrotask(() => { void loadPlans(); });
   }, [loadPlans]);
 
   const handleToggleEnabled = async (plan: RoutePlan) => {
@@ -312,7 +313,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
         setAvailableBrokers(rosters?.[matchMarket] || []);
       }
     }).catch(() => { /* silently ignore */ });
-  }, [open]);
+  }, [open, matchMarket]);
 
   useEffect(() => {
     if (!matchMarket) { setAvailableBrokers([]); return; }
@@ -375,7 +376,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
           scheduleType: (splitType === 'TIME_SCHEDULE' || splitType === 'HYBRID') ? scheduleType : null,
           numSlices: (splitType === 'TIME_SCHEDULE' || splitType === 'HYBRID') ? numSlices : null,
           defaultEndTimeLocal: (splitType === 'TIME_SCHEDULE' || splitType === 'HYBRID') ? defaultEndTimeLocal : null,
-          allocations: (splitType === 'BROKER_SPLIT' || splitType === 'HYBRID') ? allocations : null,
+          allocations: (splitType === 'BROKER_SPLIT' || splitType === 'HYBRID') ? allocations : undefined,
         };
         await apiService.updateRoutePlan(editPlan.id, req);
       } else {
@@ -393,7 +394,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
           scheduleType: (splitType === 'TIME_SCHEDULE' || splitType === 'HYBRID') ? scheduleType : null,
           numSlices: (splitType === 'TIME_SCHEDULE' || splitType === 'HYBRID') ? numSlices : null,
           defaultEndTimeLocal: (splitType === 'TIME_SCHEDULE' || splitType === 'HYBRID') ? defaultEndTimeLocal : null,
-          allocations: (splitType === 'BROKER_SPLIT' || splitType === 'HYBRID') ? allocations : null,
+          allocations: (splitType === 'BROKER_SPLIT' || splitType === 'HYBRID') ? allocations : undefined,
         };
         await apiService.createRoutePlan(req);
       }

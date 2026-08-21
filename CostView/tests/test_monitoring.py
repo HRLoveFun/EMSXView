@@ -340,6 +340,31 @@ class TestTcaReportAggregator:
         )
         assert report["kpi"]["route_count"] == 2
 
+    def test_markets_listed(self, mgr: ConnectionManager):
+        """markets 清单列出全部市场（忽略 exchange 过滤），按 route 数降序。"""
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        exchanges = {m["exchange"] for m in report["markets"]}
+        assert exchanges == {"US", "HK"}
+        # US 有 2 条（O1/O3），HK 1 条（O2），US 在前
+        assert report["markets"][0]["exchange"] == "US"
+
+    def test_markets_ignore_exchange_filter(self, mgr: ConnectionManager):
+        """exchange 过滤只影响报告主体，不影响市场标签页清单。"""
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", exchange="HK",
+        )
+        assert report["kpi"]["route_count"] == 1
+        exchanges = {m["exchange"] for m in report["markets"]}
+        assert exchanges == {"US", "HK"}
+
+    def test_markets_respect_other_filters(self, mgr: ConnectionManager):
+        """broker 过滤作用于市场清单（仅列该 broker 出现的市场）。"""
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", broker="BROKERB",
+        )
+        exchanges = {m["exchange"] for m in report["markets"]}
+        assert exchanges == {"HK"}
+
     def test_metric_coverage_embedded(self, mgr: ConnectionManager):
         report = TcaReportAggregator(mgr).build_report(
             "20260803", "20260804", metrics=["pnl_vwap"],
@@ -451,6 +476,16 @@ class TestMonitoringRouter:
         })
         assert resp.status_code == 200
         assert resp.json()["data"]["kpi"]["route_count"] == 1
+
+    def test_report_summary_markets(self, client):
+        """report-summary 返回 markets 清单（忽略 exchange 过滤）。"""
+        resp = client.get("/api/tca/monitoring/report-summary", params={
+            "start_date": "20260803", "end_date": "20260804", "exchange": "HK",
+        })
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        exchanges = {m["exchange"] for m in data["markets"]}
+        assert exchanges == {"US", "HK"}
 
     def test_export_html_ok(self, client):
         resp = client.get("/api/tca/monitoring/export-html", params={

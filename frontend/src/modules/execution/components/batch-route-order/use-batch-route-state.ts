@@ -429,7 +429,6 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       }
     }
     return c;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrders, rows, selectedBrokers]);
 
   // ── Mutations ───────────────────────────────────────────────────────────

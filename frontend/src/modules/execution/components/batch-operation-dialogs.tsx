@@ -69,9 +69,15 @@ export function BatchCancelDialog({
   const [progress, setProgress] = useState(0);
   const [errors, setErrors] = useState<{ route: Route; message: string }[]>([]);
 
-  useEffect(() => {
-    if (open) { setProgress(0); setErrors([]); }
-  }, [open]);
+  // 对话框打开时重置进度与错误（渲染期间调整 state，避免 effect 内同步 setState）
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setProgress(0);
+      setErrors([]);
+    }
+  }
 
   const run = async () => {
     setSubmitting(true);
@@ -225,15 +231,21 @@ export function BatchModifyDialog({
     }).catch(() => { /* ignore */ });
   }, []);
 
-  // Reset on open
-  useEffect(() => {
+  // 对话框打开时重置表单（渲染期间调整 state，避免 effect 内同步 setState）
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setNewQty(''); setNewOrderType(''); setNewLimitPrice('');
       setNewStopPrice(''); setNewTif(''); setNewNotes(''); setNotesDirty(false);
       setProgress(0); setErrorMsg(''); setPerRoute({}); setSummary(null);
-      summaryRef.current = null;
       setPhase('configure');
     }
+  }
+
+  // 打开时重置 summaryRef（effect 中写 ref 合法，不触发 setState）
+  useEffect(() => {
+    if (open) summaryRef.current = null;
   }, [open]);
 
   const currentOrderType = useMemo(

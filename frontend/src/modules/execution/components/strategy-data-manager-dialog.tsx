@@ -32,13 +32,17 @@ export function StrategyDataManagerDialog({ open, onOpenChange, configs }: Strat
   const [isStrategyLoading, setIsStrategyLoading] = useState(false);
 
   const loadStrategyStatus = useCallback(async () => {
-    setFileStatus(getFileCacheStatus());
+    // setState 放在 await 之后（异步），避免 effect 内同步 setState
     const brokerList = await getAvailableBrokersFromFile();
+    setFileStatus(getFileCacheStatus());
     setBrokers(brokerList);
   }, []);
 
   useEffect(() => {
-    if (open) loadStrategyStatus();
+    if (open) {
+      // 在微任务中触发加载，避免 effect 同步路径调用含 setState 的函数
+      queueMicrotask(() => { void loadStrategyStatus(); });
+    }
   }, [open, loadStrategyStatus]);
 
   const handleImport = async () => {
