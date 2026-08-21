@@ -318,6 +318,43 @@ class SqliteRawFillWriteRepository(BaseRepository):
         finally:
             conn.close()
 
+    def record_fetch_failed(
+        self, source_date: str, reason: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """记录一次拉取失败 (status='failed')，不推翻既有成功记录。
+
+        005-bloomberg-quota-pause: 额度爆满等场景下 Bloomberg 可能返回空响应
+        或额度类错误，若把该日当作"已拉取"将导致缺数据且不重拉。此方法把
+        失败写入 fetch_log.status='failed'，而 determine_fetch_range 只认
+        'fetched'，故失败日期会留在缺口扫描中，额度恢复后自动重拉。
+
+        与 add_fetch_log_record 的区别:
+        - 不把同 source_date 旧 'fetched' 行标 'deprecated'（不推翻既有成功）
+        - data_hash 用确定性占位 ("failed:" + reason)，保证可重入
+        """
+        conn = self._get_write_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            hash_placeholder = f"failed:{reason}"
+            detail_suffix = f" ({detail})" if detail else ""
+            conn.execute(
+                "INSERT OR REPLACE INTO fetch_log "
+                "(source_date, row_count, data_hash, file_path, status) "
+                "VALUES (?, 0, ?, ?, 'failed')",
+                (source_date, hash_placeholder, detail_suffix),
+            )
+            conn.commit()
+            logger.warning(
+                "Recorded fetch failure for %s (reason=%s%s)",
+                source_date, reason, detail_suffix,
+            )
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
+
     def upsert_order_fetch_log(
         self, fills: list[dict], source_date: str,
     ) -> None:
