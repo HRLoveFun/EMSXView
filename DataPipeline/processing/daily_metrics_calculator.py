@@ -24,6 +24,7 @@ import pandas as pd
 
 from DataPipeline.storage.connection import AccessTier, ConnectionManager
 from DataPipeline.common.outdated_tickers import load_outdated_ticker_set
+from DataPipeline.common.quota_pause import is_quota_paused
 from DataPipeline.storage.facade import DatabaseFacade
 from DataPipeline.config import Config
 
@@ -153,6 +154,14 @@ class CalculateDailyMetrics:
 
     def _fetch_daily_history(self, tickers: list[str], trade_date: str) -> pd.DataFrame:
         if not tickers:
+            return pd.DataFrame()
+
+        # 005-bloomberg-quota-pause: 额度暂停时短路，跳过 Bloomberg 日频拉取
+        if is_quota_paused():
+            logger.info(
+                f"Quota paused — skipping daily history fetch for {trade_date} "
+                f"({len(tickers)} tickers, quota_paused)"
+            )
             return pd.DataFrame()
 
         try:
