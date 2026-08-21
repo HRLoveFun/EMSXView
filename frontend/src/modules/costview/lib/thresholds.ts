@@ -98,8 +98,8 @@ export function getMetricValue(
   switch (key) {
     // tracking_error_bps 由后端新指标 pnl_vwap（basis points）承载
     case 'tracking_error_bps': return route.pnl_vwap;
-    // fill_pct 由后端新指标 fill 承载（百分比，0-100）
-    case 'fill_pct': return route.fill;
+    // fill_pct（完成率）由成交股数 fill 与目标股数 RouteShares 换算（0-1 小数 ×100 → 阈值按百分比 0-100）
+    case 'fill_pct': return route.fill != null && route.route_shares ? (route.fill / route.route_shares) * 100 : null;
     // volume_pct_adv20 由后端参与率 par_rate 承载（0-1 小数，阈值按百分比 0-100）
     case 'volume_pct_adv20': return route.par_rate != null ? route.par_rate * 100 : null;
     // volume_pct_interval 由连续参与率 par_rate_continuous 承载（0-1 小数，阈值按百分比 0-100）

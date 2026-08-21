@@ -105,7 +105,7 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                       {severity === 'none' ? 'N/A' : getSeverityText(severity)}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-right">{fmtPercent(route.fill)}</td>
+                  <td className="px-3 py-3 text-right">{fmtPercent(route.fill != null && route.route_shares ? (route.fill / route.route_shares) * 100 : null)}</td>
                   <td className="px-3 py-3 text-right">
                     <span className={`inline-flex rounded border px-2 py-0.5 ${getSeverityTone(alerts.some((alert) => alert.key === 'tracking_error_bps') ? severity : 'none')}`}>
                       {fmtBps(route.pnl_vwap)}

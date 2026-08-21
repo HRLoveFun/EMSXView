@@ -29,9 +29,10 @@ function createRoute(overrides: Partial<TcaRouteSummary> = {}): TcaRouteSummary 
     algo: 'VWAP',
     trader_name: 'Trader',
     fill_count: 5,
-    fill: 95,
-    fill_continuous: 95,
-    fill_close: 95,
+    // fill 为成交股数（FillShares 口径）；950/1000 = 95% 完成率
+    fill: 950,
+    fill_continuous: 950,
+    fill_close: 950,
     par_rate: 0.02,
     par_rate_continuous: 0.02,
     par_rate_close: 0.02,

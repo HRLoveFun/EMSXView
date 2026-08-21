@@ -59,12 +59,15 @@ _TCA_DDL = """
 
 
 def _insert_route(conn: sqlite3.Connection, order_id: str, oad: str, **overrides) -> None:
-    """插入一条最小 tca_route_summary 记录，指标默认有值，可用 overrides 置 None。"""
+    """插入一条最小 tca_route_summary 记录，指标默认有值，可用 overrides 置 None。
+
+    fill 为成交股数（FillShares 口径，非百分比）；par_rate 为 0-1 小数。
+    """
     values = {
         "OrderId": order_id, "RouteId": "R1", "order_as_of_date": oad,
         "Exchange": "US", "equ_ticker": "AAPL US Equity", "Side": "BUY",
         "RouteShares": 1000.0, "Broker": "BROKERA", "algo": "VWAP",
-        "fill_count": 3, "fill": 0.9, "par_rate": 0.15, "p_avg": 150.0,
+        "fill_count": 3, "fill": 900.0, "par_rate": 0.15, "p_avg": 150.0,
         "pnl_vwap": -2.5, "RPM": 0.3,
         "pwp_5": -10.0, "pwp_10": -11.0, "pwp_15": -12.0,
         "pwp_20": -13.0, "pwp_25": -14.0,
@@ -344,6 +347,52 @@ class TestTcaReportAggregator:
         assert report["metric_coverage"]["metrics"] == ["pnl_vwap"]
         assert len(report["metric_coverage"]["rows"]) == 2
 
+    def test_extra_kpis_present(self, mgr: ConnectionManager):
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        extra = report["extra_kpis"]
+        # 决策基准 / 风险 / 完成率 均返回（值为 None 或数值）
+        assert "arrival_cost_bps" in extra
+        assert "wagner_is_bps" in extra
+        assert "cost_stddev" in extra
+        assert "cost_cvar" in extra
+        assert "avg_fill" in extra
+
+    def test_impact_breakdown_present(self, mgr: ConnectionManager):
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        impact = report["impact_breakdown"]
+        assert "temp_impact_5min_bps" in impact
+        assert "perm_impact_bps" in impact
+        assert "close_cost_bps" in impact
+
+    def test_anomaly_routes_detected(self, mgr: ConnectionManager):
+        """默认阈值下 O1(par_rate 15%>10) / O2(pnl_vwap 15 / fill 30%) 触发 critical。"""
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        anomaly = report["anomaly"]
+        assert anomaly["count"] == 2
+        assert anomaly["critical_count"] == 2
+        severities = {r["severity"] for r in anomaly["rows"]}
+        assert severities == {"critical"}
+
+    def test_anomaly_thresholds_overridable(self, mgr: ConnectionManager):
+        """放宽 pnl_vwap / fill / par_rate 阈值后仅 O1 触发（par_rate 无法豁免时仍触发）。"""
+        thresholds = {
+            "tracking_error_bps": {"mode": "absolute-above", "warning": 50, "critical": 100},
+            "fill_pct": {"mode": "below", "warning": 10, "critical": 5},
+            "volume_pct_adv20": {"mode": "above", "warning": 50, "critical": 100},
+        }
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", thresholds=thresholds,
+        )
+        assert report["anomaly"]["count"] == 0
+
+    def test_anomaly_empty_on_missing_table(self, tmp_path: Path):
+        empty_mgr = ConnectionManager(path_overrides={
+            "fill_bdib": tmp_path / "fill_bdib.db",  # 空库无表
+        })
+        report = TcaReportAggregator(empty_mgr).build_report("20260803", "20260804")
+        assert report["anomaly"]["count"] == 0
+        assert report["anomaly"]["rows"] == []
+
 
 # ── monitoring router ─────────────────────────────────────────────────────
 
@@ -402,6 +451,46 @@ class TestMonitoringRouter:
         })
         assert resp.status_code == 200
         assert resp.json()["data"]["kpi"]["route_count"] == 1
+
+    def test_export_html_ok(self, client):
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20260803", "end_date": "20260804",
+        })
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        disposition = resp.headers.get("content-disposition", "")
+        assert "tca_report_20260803_20260804.html" in disposition
+        body = resp.text
+        assert "<html" in body
+        assert "TCA 可视化报告" in body
+        assert "口径" in body          # 口径脚注
+        assert "市场冲击分解" in body   # S4
+        assert "异常路由明细" in body   # S6
+
+    def test_export_html_conflict_422(self, client):
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20260101", "end_date": "20260131", "last": "week",
+        })
+        assert resp.status_code == 422
+        assert "不能同时使用" in resp.json()["detail"]
+
+    def test_export_html_bad_thresholds_422(self, client):
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20260803", "end_date": "20260804",
+            "thresholds": "not-json",
+        })
+        assert resp.status_code == 422
+        assert "thresholds 非法" in resp.json()["detail"]
+
+    def test_export_html_empty_data_no_500(self, client):
+        """无数据范围返回正常 HTML（route_count=0），不 500。"""
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20270101", "end_date": "20270131",
+        })
+        assert resp.status_code == 200
+        assert "<html" in resp.text
+        assert "异常路由明细" in resp.text  # 空态提示存在
+        assert "本期无异常路由" in resp.text
 
 
 # ── analyze 默认日期自动触发管道 ─────────────────────────────────────────────

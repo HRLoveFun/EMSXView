@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileBarChart, RefreshCw } from 'lucide-react';
+import { FileBarChart, FileDown, RefreshCw } from 'lucide-react';
 import {
   Bar,
   BarChart,
@@ -25,7 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { fetchTcaReportSummary } from '../services/api';
+import { fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
+import { loadCostViewConfig } from '../lib/storage';
 import type {
   LastPreset,
   TcaRankingRow,
@@ -186,6 +187,7 @@ export function ReportView() {
   const [report, setReport] = useState<TcaReportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const loadReport = useCallback(async (current: ReportFormState) => {
     setIsLoading(true);
@@ -214,6 +216,36 @@ export function ReportView() {
   const updateField = (key: keyof ReportFormState) => (event: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }));
 
+  // 006: 本地阈值规则 → 导出端点 thresholds 参数（与后端 DEFAULT_THRESHOLDS 契约对齐）
+  const handleExportHtml = useCallback(async () => {
+    setIsExporting(true);
+    setError(null);
+    try {
+      const config = loadCostViewConfig();
+      const thresholds: Record<string, ExportHtmlThresholdPayload> = {};
+      for (const rule of Object.values(config.rules)) {
+        thresholds[rule.key] = {
+          mode: rule.mode,
+          warning: rule.warningThreshold,
+          critical: rule.criticalThreshold,
+          enabled: rule.enabled,
+        };
+      }
+      await fetchExportHtml({
+        last: form.preset,
+        broker: form.broker.trim() || undefined,
+        algo: form.algo.trim() || undefined,
+        symbol: form.symbol.trim() || undefined,
+        exchange: form.exchange.trim() || undefined,
+        thresholds,
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'HTML 报告导出失败');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [form]);
+
   return (
     <div className="space-y-4">
       {/* 过滤栏 */}
@@ -239,6 +271,10 @@ export function ReportView() {
           <Button onClick={() => void loadReport(form)} disabled={isLoading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             生成报告
+          </Button>
+          <Button variant="outline" onClick={() => void handleExportHtml()} disabled={isExporting}>
+            <FileDown className="mr-2 h-4 w-4" />
+            {isExporting ? '导出中…' : '导出 HTML 报告'}
           </Button>
         </CardContent>
       </Card>
@@ -273,9 +309,9 @@ export function ReportView() {
             <CardContent className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
               <FileBarChart className="h-4 w-4 shrink-0" />
               <span>
-                需要可分发的独立 HTML 报告？运行
+                导出的 HTML 为自包含文件（内联样式 + SVG 图表，无外部依赖），可邮件分发/离线归档。
+                命令行等价：
                 <code className="mx-1 rounded bg-muted px-1.5 py-0.5 text-xs">python scripts/reports/generate_tca_report.py --last {form.preset}</code>
-                生成自包含 HTML 文件（每日日更后与每周一自动生成）。
               </span>
             </CardContent>
           </Card>

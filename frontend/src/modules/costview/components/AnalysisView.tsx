@@ -197,7 +197,7 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, ord
               <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {[
-                    { label: 'Fill %', value: selectedRoute.fill != null ? `${selectedRoute.fill.toFixed(1)}%` : '—', severity: evaluateThreshold(config.rules.fill_pct, selectedRoute.fill) },
+                    { label: 'Fill %', value: selectedRoute.fill != null && selectedRoute.route_shares ? `${((selectedRoute.fill / selectedRoute.route_shares) * 100).toFixed(1)}%` : '—', severity: evaluateThreshold(config.rules.fill_pct, selectedRoute.fill != null && selectedRoute.route_shares ? (selectedRoute.fill / selectedRoute.route_shares) * 100 : null) },
                     { label: 'Pnl VWAP', value: selectedRoute.pnl_vwap != null ? `${selectedRoute.pnl_vwap.toFixed(1)} bps` : '—', severity: evaluateThreshold(config.rules.tracking_error_bps, selectedRoute.pnl_vwap) },
                     { label: 'Par Rate', value: selectedRoute.par_rate != null ? `${(selectedRoute.par_rate * 100).toFixed(2)}%` : '—', severity: evaluateThreshold(config.rules.volume_pct_adv20, selectedRoute.par_rate != null ? selectedRoute.par_rate * 100 : null) },
                     { label: 'Par Rate (Cont)', value: selectedRoute.par_rate_continuous != null ? `${(selectedRoute.par_rate_continuous * 100).toFixed(2)}%` : '—', severity: evaluateThreshold(config.rules.volume_pct_interval, selectedRoute.par_rate_continuous != null ? selectedRoute.par_rate_continuous * 100 : null) },
