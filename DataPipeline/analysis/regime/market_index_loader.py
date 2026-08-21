@@ -29,6 +29,7 @@ from DataPipeline.analysis.regime.schema import (
     connect,
     ensure_schema_current,
 )
+from DataPipeline.common.quota_pause import is_quota_paused
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,12 @@ def _load_markets(db_path: Path) -> List[_MarketRef]:
 
 def _xbbg_fetcher(ticker: str, fields: List[str], start: dt.date, end: dt.date) -> pd.DataFrame:
     """Default Bloomberg fetcher (lazy-imports xbbg)."""
+    # 005-bloomberg-quota-pause: 额度暂停时短路，跳过 Bloomberg 指数拉取
+    if is_quota_paused():
+        logger.info(
+            f"Quota paused — skipping index fetch for {ticker} (quota_paused)"
+        )
+        return pd.DataFrame(columns=fields)
     from xbbg import blp  # noqa: WPS433
     df = blp.bdh(tickers=ticker, flds=fields,
                  start_date=start.strftime("%Y-%m-%d"),

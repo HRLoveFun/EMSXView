@@ -61,6 +61,7 @@ class HealthChecker:
             ("disk_space", self._check_disk_space),
             ("tca_latency", self._check_tca_latency),
             ("file_count", self._check_file_count),
+            ("quota_status", self._check_quota_status),
         ]
 
         if self._quick:
@@ -92,6 +93,25 @@ class HealthChecker:
             pass
 
         return self._results
+
+    # ── 005-bloomberg-quota-pause: 额度暂停状态（只读，不改健康判定）──
+
+    def _check_quota_status(self) -> dict[str, Any]:
+        """只读报告 Bloomberg 额度暂停标记状态（不产生 alert）。"""
+        try:
+            from DataPipeline.common.quota_pause import load_quota_pause
+            rec = load_quota_pause()
+            return {
+                "paused": rec is not None,
+                "reason": (rec or {}).get("reason"),
+                "detail": (rec or {}).get("detail"),
+                "first_seen_at": (rec or {}).get("first_seen_at"),
+                "last_seen_at": (rec or {}).get("last_seen_at"),
+                "hit_count": (rec or {}).get("hit_count"),
+                "alert": False,
+            }
+        except Exception as e:
+            return {"paused": False, "error": str(e), "alert": False}
 
     # ── D1: DB体积 ──
 

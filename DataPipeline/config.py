@@ -66,6 +66,9 @@ class Config:
     MARKET_FETCH_MANIFEST: Path = DATA_DIR / "market_fetch_manifest.json"
     OUTDATED_TICKERS_FILE: Path = DATA_DIR / "outdated_tickers.json"
     PERMANENT_GAP_DATES_FILE: Path = DATA_DIR / "permanent_gap_dates.json"
+    # Bloomberg 额度爆满暂停标记（005-bloomberg-quota-pause）
+    # 命中额度类错误/预期有数据但拉取为空时置位，各拉取入口短路；恢复后清除。
+    QUOTA_PAUSE_FILE: Path = DATA_DIR / "quota_pause.json"
 
     DATE_FORMAT: str = "%Y%m%d"
     DATE_FORMAT_DASH: str = "%Y-%m-%d"
