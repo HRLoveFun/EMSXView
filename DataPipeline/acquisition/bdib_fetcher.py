@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from DataPipeline.common.outdated_tickers import load_outdated_ticker_set, record_outdated_ticker
+from DataPipeline.common.quota_pause import is_quota_paused
 from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,13 @@ def fetch_bdib_for_ticker_date(
         DataFrame with columns: [mkt_timestamp, open, high, low, close, volume,
         num_trds, value] or None on failure / empty data.
     """
+    # 005-bloomberg-quota-pause: 额度暂停时短路，避免反复打爆额度
+    if is_quota_paused():
+        logger.info(
+            f"Quota paused — skipping BDIB fetch for {ticker} on {date_str} (quota_paused)"
+        )
+        return None
+
     try:
         from xbbg import blp
     except ImportError:

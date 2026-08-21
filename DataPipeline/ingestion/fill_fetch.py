@@ -46,6 +46,12 @@ from DataPipeline.acquisition.bloomberg_fill_fetcher import (
     EMSXSessionError,
     EMSXServiceError,
     EMSXRequestError,
+    EMSXQuotaError,
+)
+from DataPipeline.common.quota_pause import (
+    is_quota_paused,
+    set_quota_pause,
+    clear_quota_pause,
 )
 
 def _configure_console_encoding() -> None:
@@ -182,6 +188,83 @@ class FillFetch:
     def _record_hash_in_memory(self, date_compact: str, hash_value: str):
         self._known_hashes[date_compact].add(hash_value)
 
+    def _has_fetched_record(self, date_compact: str) -> bool:
+        """该 source_date 是否曾在 fetch_log 中以 status='fetched' 记录过。
+
+        用于空响应完整性判断：若预期有数据（合法工作日）但本次拉取为空，
+        且从未成功拉取过，则判定为"应拉未拉"（可能是额度受限），写 failed。
+        """
+        if self.raw_fill_read is None:
+            return False
+        try:
+            stats = self.raw_fill_read.get_fetch_log_stats()
+            for record in stats:
+                if (
+                    record.get("source_date") == date_compact
+                    and record.get("status") == "fetched"
+                ):
+                    return True
+        except Exception as e:
+            logger.debug(f"Could not check fetch_log for {date_compact}: {e}")
+        return False
+
+    def _is_expectable_trading_day(self, date_compact: str) -> bool:
+        """判断某日期是否为预期应有数据的工作日（用于空响应完整性判断）。
+
+        规则:
+        - 非未来日期
+        - 非周末 (周一~周五)
+        - 不在 permanent_gap_dates（永久空缺豁免）中
+        """
+        try:
+            from DataPipeline.common.permanent_gap_dates import load_permanent_gap_set
+            permanent_gaps = load_permanent_gap_set()
+            if date_compact in permanent_gaps:
+                return False
+        except Exception:
+            pass
+        try:
+            target = datetime.strptime(date_compact, "%Y%m%d").date()
+        except ValueError:
+            return False
+        if target > datetime.now().date():
+            return False
+        if target.weekday() >= 5:  # Sat=5, Sun=6
+            return False
+        return True
+
+    def _should_treat_empty_as_quota(self, date_compact: str) -> bool:
+        """空响应完整性判断：本次拉取为空是否应视为"应拉未拉"（额度受限）。
+
+        返回 True 当且仅当：预期应有数据（合法工作日）且该日期从未成功拉取过。
+        两者皆满足才写 failed + 置位暂停，避免把法定节假日误判为失败。
+        """
+        if not self._is_expectable_trading_day(date_compact):
+            return False
+        if self._has_fetched_record(date_compact):
+            # 已成功拉取过：本次空更可能是"真无新增成交"或非交易日，维持 empty
+            return False
+        return True
+
+    def _record_quota_failure(
+        self, date_compact: str, reason: str, detail: Optional[str] = None,
+    ) -> None:
+        """额度受限统一处理：写 fetch_log failed + 置位暂停标记。"""
+        if self.raw_fill_write is not None:
+            try:
+                self.raw_fill_write.record_fetch_failed(
+                    date_compact, reason, detail=detail
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to record fetch failure for {date_compact}: {e}"
+                )
+        set_quota_pause(reason, detail=detail)
+        logger.warning(
+            "QUOTA: %s %s — 置位暂停标记，额度恢复后自动重拉",
+            date_compact, detail or reason,
+        )
+
     def determine_fetch_range(self) -> Optional[Tuple[date, date]]:
         """计算增量拉取窗口。
 
@@ -307,6 +390,16 @@ class FillFetch:
             with BloombergFillFetcher() as client:
                 try:
                     fills = client.fetch_fills(from_dt, to_dt)
+                except EMSXQuotaError as exc:
+                    # 005-bloomberg-quota-pause: 额度类错误不重试，直接记录并置位暂停
+                    self._record_quota_failure(
+                        date_compact,
+                        "fill_api_error",
+                        detail=f"quota-class API error: {exc}",
+                    )
+                    result['success'] = False
+                    result['error'] = f"Bloomberg quota likely exhausted: {exc}"
+                    return result
                 except EMSXRequestError as exc:
                     # 全天请求在后端超时（BACKEND.TIMEOUT）时，拆分为 4 小时窗口重试
                     if "timeout" in str(exc).lower():
@@ -319,6 +412,17 @@ class FillFetch:
                     else:
                         raise
             if not fills:
+                # 005-bloomberg-quota-pause: 空响应完整性判断。
+                # 额度受限时 Bloomberg 可能返回空 GetFillsResponse，不能被当"无成交日"。
+                if self._should_treat_empty_as_quota(date_compact):
+                    self._record_quota_failure(
+                        date_compact,
+                        "fill_empty_response",
+                        detail="expected fills but API returned empty (possible quota exhaustion)",
+                    )
+                    result['success'] = False
+                    result['error'] = "Quota likely exhausted: empty fill response for a trading day with no prior fetch"
+                    return result
                 logger.info(f"No fills found for {order_date}")
                 result['success'] = True
                 result['message'] = "No fills found"
@@ -416,6 +520,37 @@ class FillFetch:
         with BloombergFillFetcher() as client:
             current = start_date
             day_idx = 0
+            # 005-bloomberg-quota-pause: 置位暂停时，先用首个工作日做一次真实探测。
+            # 成功即清除标记并继续正常拉取；失败则保持置位并短路剩余日期。
+            if is_quota_paused():
+                probe_date = current
+                while probe_date.weekday() >= 5:
+                    probe_date += timedelta(days=1)
+                if probe_date > end_date:
+                    logger.warning("QUOTA paused — no probe day in range; skipping fetch")
+                    current = end_date + timedelta(days=1)
+                else:
+                    try:
+                        probe_from, probe_to = self._get_date_range(probe_date)
+                        probe_fills = client.fetch_fills(probe_from, probe_to)
+                        clear_quota_pause()
+                        logger.warning(
+                            "QUOTA probe SUCCESS on %s — quota recovered, resuming fetch",
+                            probe_date.strftime("%Y%m%d"),
+                        )
+                        current = probe_date
+                    except EMSXQuotaError as exc:
+                        logger.warning(
+                            "QUOTA probe FAILED on %s (%s) — staying paused, skipping fetch",
+                            probe_date.strftime("%Y%m%d"), exc,
+                        )
+                        current = end_date + timedelta(days=1)
+                    except Exception as exc:
+                        logger.warning(
+                            "QUOTA probe error on %s (%s) — staying paused, skipping fetch",
+                            probe_date.strftime("%Y%m%d"), exc,
+                        )
+                        current = end_date + timedelta(days=1)
             while current <= end_date:
                 if current.weekday() >= 5:
                     current += timedelta(days=1)
@@ -432,6 +567,26 @@ class FillFetch:
                     from_dt, to_dt = self._get_date_range(current)
                     fills = client.fetch_fills(from_dt, to_dt)
                     if not fills:
+                        # 005-bloomberg-quota-pause: 空响应完整性判断
+                        if self._should_treat_empty_as_quota(date_compact):
+                            self._record_quota_failure(
+                                date_compact,
+                                "fill_empty_response",
+                                detail="expected fills but API returned empty (possible quota exhaustion)",
+                            )
+                            day_summaries.append({
+                                'order_date': order_date, 'rows': 0,
+                                'status': 'failed',
+                                'error': 'quota_paused(fill_empty)',
+                            })
+                            error_days += 1
+                            if progress_callback:
+                                progress_callback(
+                                    day_idx, weekdays_in_range, order_date, 0,
+                                    "Quota paused (empty response)",
+                                )
+                            current += timedelta(days=1)
+                            continue
                         day_summaries.append({'order_date': order_date, 'rows': 0, 'status': 'empty'})
                         no_fill_days += 1
                         if progress_callback:
@@ -495,6 +650,24 @@ class FillFetch:
                                 "fill_fetch_history 审计记录写入失败 (%s): %s",
                                 order_date, e,
                             )
+                except EMSXQuotaError as exc:
+                    # 005-bloomberg-quota-pause: 额度类错误置位暂停并记录 failed
+                    self._record_quota_failure(
+                        date_compact,
+                        "fill_api_error",
+                        detail=f"quota-class API error: {exc}",
+                    )
+                    day_summaries.append({
+                        'order_date': order_date, 'rows': 0,
+                        'status': 'failed',
+                        'error': f'quota_paused(fill_api_error): {exc}',
+                    })
+                    error_days += 1
+                    if progress_callback:
+                        progress_callback(
+                            day_idx, weekdays_in_range, order_date, 0,
+                            f"Quota paused: {exc}",
+                        )
                 except Exception as e:
                     logger.error(f"  Error fetching {order_date}: {e}")
                     day_summaries.append({'order_date': order_date, 'rows': 0, 'status': 'error', 'error': str(e)})
@@ -509,6 +682,8 @@ class FillFetch:
             'days_fetched': len([s for s in day_summaries if s['status'] == 'fetched']),
             'days_skipped': skipped_days, 'days_empty': no_fill_days, 'days_error': error_days,
             'total_rows': len(all_records), 'files': saved_files, 'success': error_days == 0,
+            # 005-bloomberg-quota-pause: 摘要标记
+            'quota_paused': is_quota_paused(),
         }
         logger.info(f"Range fetch complete: {summary['total_rows']} rows across {summary['days_fetched']} days")
         return summary

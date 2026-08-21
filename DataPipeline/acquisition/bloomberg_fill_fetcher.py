@@ -45,6 +45,34 @@ class EMSXServiceError(Exception):
 class EMSXRequestError(Exception):
     """Bloomberg request returned an error or timed out."""
 
+class EMSXQuotaError(EMSXRequestError):
+    """Bloomberg 额度类错误（额度爆满/速率受限），不应重试，应触发暂停。
+
+    005-bloomberg-quota-pause: 命中明确额度错误码白名单时抛出，
+    由 FillFetch 捕获后置位暂停标记并记录 failed，额度恢复后自动重拉。
+    """
+
+
+# ── 额度错误识别白名单（005-bloomberg-quota-pause）──
+# 只匹配明确的额度/速率受限信号，不做关键词猜测，避免误判。
+# 错误码需经 Bloomberg EMSX 文档/实测确认后补充。
+QUOTA_ERROR_TOKENS: tuple[str, ...] = (
+    "QUOTA_EXCEEDED",
+    "RATE_LIMIT",
+    "MKT_LIMIT",
+    "MAX_MESSAGES",
+)
+
+
+def _is_quota_error(error_code: str, error_msg: str) -> bool:
+    """判断 ErrorCode / ErrorMsg 是否命中额度类错误白名单。
+
+    仅做显式 token 匹配（大小写不敏感），未命中一律视为普通错误，
+    由调用方按既有指数退避重试逻辑处理。
+    """
+    haystack = f"{error_code} {error_msg}".upper()
+    return any(token in haystack for token in QUOTA_ERROR_TOKENS)
+
 
 # ── Parse Helpers ──────────────────────────────────────────────────────────
 
@@ -146,6 +174,10 @@ class BloombergFillFetcher:
             is_timeout = False
             try:
                 return self._fetch_fills_once(from_date, to_date)
+            except EMSXQuotaError:
+                # 005-bloomberg-quota-pause: 额度类错误不重试（重试只会反复打爆额度），
+                # 直接抛出由调用方置位暂停标记。
+                raise
             except EMSXRequestError as exc:
                 last_error = exc
                 is_timeout = (
@@ -236,7 +268,10 @@ class BloombergFillFetcher:
 
     @staticmethod
     def _build_request_error(msg) -> EMSXRequestError:
-        """从 ErrorResponse / ErrorInfo 消息提取错误码和消息，构造 EMSXRequestError。
+        """从 ErrorResponse / ErrorInfo 消息提取错误码和消息，构造异常。
+
+        005-bloomberg-quota-pause: 命中额度类错误码白名单时抛 EMSXQuotaError
+        （由调用方置位暂停），否则维持普通 EMSXRequestError（走指数退避重试）。
 
         不同错误场景字段可能缺失，提取时 try-except 包裹以防再次抛异常。
         """
@@ -250,6 +285,10 @@ class BloombergFillFetcher:
             error_msg = msg.getElementAsString("ErrorMsg")
         except Exception:
             pass
+        if _is_quota_error(error_code, error_msg):
+            detail = f"Bloomberg quota error: {error_code} - {error_msg}".strip(" -")
+            logger.error(detail)
+            return EMSXQuotaError(detail)
         detail = f"Bloomberg API error: {error_code} - {error_msg}".strip(" -")
         logger.error(detail)
         return EMSXRequestError(detail)
