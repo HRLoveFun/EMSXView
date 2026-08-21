@@ -2,8 +2,9 @@
 
 提供：
   GET /api/tca/monitoring/bdib-health      — BDIB 数据健康（双源扫描 + 四级分级）
-  GET /api/tca/monitoring/metric-coverage  — 18 项计算指标覆盖率（日期 × 指标）
+  GET /api/tca/monitoring/metric-coverage  — 38 项计算指标覆盖率（日期 × 指标）
   GET /api/tca/monitoring/report-summary   — TCA 可视化报告聚合数据
+  GET /api/tca/monitoring/export-html      — 一键导出自包含 HTML 报告（附件下载）
 
 时间范围二选一互斥：start_date/end_date 显式区间 或 last 预设
 （day/week/month/quarter/year，默认 day）。冲突输入返回 422。
@@ -12,9 +13,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from CostView.src.monitoring import (
@@ -22,8 +25,10 @@ from CostView.src.monitoring import (
     BdibHealthService,
     MetricCoverageService,
     TcaReportAggregator,
+    ThresholdRules,
     TimeRange,
     fetch_latest_tca_date,
+    render_report_html,
     resolve_time_range,
 )
 from CostView.src.tca_cache import TcaCacheManager
@@ -191,3 +196,77 @@ async def get_report_summary(
         success=True, data=data,
         message=f"报告聚合完成：{kpi.get('route_count', 0)} 条路由",
     )
+
+
+@router.get("/api/tca/monitoring/export-html")
+async def export_tca_html(
+    start_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
+    end_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
+    last: Optional[str] = Query(None, description=f"预设: {', '.join(LAST_PRESETS)}"),
+    broker: Optional[str] = Query(None, max_length=100),
+    algo: Optional[str] = Query(None, max_length=50),
+    symbol: Optional[str] = Query(None, max_length=100),
+    exchange: Optional[str] = Query(None, max_length=20),
+    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
+    thresholds: Optional[str] = Query(None, description="JSON 阈值规则覆盖（S6 明细判定）"),
+):
+    """导出自包含 HTML 报告（附件下载，文件名 tca_report_<start>_<end>.html）。
+
+    内容与 CLI ``generate_tca_report.py`` 同源（同一渲染器）：KPI（10 卡）、
+    分布/走势/排行/PWP、市场冲击分解、异常路由明细、指标覆盖率、BDIB 缺口附录。
+    含口径脚注（价格偏离，不含费用/L2/事前预测）。
+    """
+    tr = _resolve_range(start_date, end_date, last)
+    selected = _parse_metrics(metrics)
+
+    try:
+        rules = ThresholdRules.from_payload(_parse_thresholds(thresholds))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
+
+    try:
+        report = TcaReportAggregator().build_report(
+            tr.start_date, tr.end_date,
+            broker=broker, algo=algo, symbol=symbol, exchange=exchange,
+            metrics=selected, thresholds=rules.rules,
+        )
+        health = _load_health_appendix(tr.start_date, tr.end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.error("HTML 报告生成失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"HTML 报告错误: {exc}")
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    html = render_report_html(report, health, generated_at)
+    filename = f"tca_report_{tr.start_date}_{tr.end_date}.html"
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+def _parse_thresholds(raw: Optional[str]) -> Optional[dict]:
+    """解析 thresholds JSON 查询参数；None/空 → None（默认阈值）。"""
+    if not raw:
+        return None
+    import json
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON 解析失败: {exc}")
+    if not isinstance(parsed, dict):
+        raise ValueError("thresholds 必须是 JSON 对象")
+    return parsed
+
+
+def _load_health_appendix(start_date: str, end_date: str) -> Optional[dict]:
+    """加载 BDIB 健康数据作附录；失败降级为 None 不阻断报告。"""
+    try:
+        return BdibHealthService().get_health(start_date, end_date)
+    except Exception as exc:
+        logger.warning("BDIB 健康附录加载失败（跳过）: %s", exc)
+        return None

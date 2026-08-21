@@ -78,6 +78,9 @@ python main.py                      # All modules in one process
 | `GET /api/tca/monitoring/bdib-health` | BDIB data health scan |
 | `GET /api/tca/monitoring/metric-coverage` | Computed-metric non-NULL coverage |
 | `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) |
+| `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download |
+
+> 报告口径缺陷清单见 `docs/report-tca-known-limitations.md`。
 
 ## Dependencies
 

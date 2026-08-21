@@ -42,9 +42,9 @@ from CostView.src.monitoring import (  # noqa: E402
     BdibHealthService,
     TcaReportAggregator,
     fetch_latest_tca_date,
+    render_report_html,
     resolve_time_range,
 )
-from tca_report_html import render_report_html  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

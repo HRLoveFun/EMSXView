@@ -19,6 +19,10 @@ from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier, ConnectionManager
 
 from .metric_coverage import MetricCoverageService, validate_metrics
+from .anomaly_query import (
+    ThresholdRules,
+    query_anomaly_routes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +51,12 @@ class TcaReportAggregator:
         symbol: Optional[str] = None,
         exchange: Optional[str] = None,
         metrics: Optional[list[str]] = None,
+        thresholds: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """组装报告聚合数据。
 
-        metrics 控制附加的覆盖率小节统计口径（默认全部 18 个指标）。
+        metrics 控制附加的覆盖率小节统计口径（默认全部 38 个指标）。
+        thresholds 控制 S6 异常路由明细的判定阈值（None/空 → 默认阈值）。
         表不存在时返回带 data_source_warning 的空报告。
         """
         selected = validate_metrics(metrics)
@@ -75,6 +81,9 @@ class TcaReportAggregator:
                 },
                 "pnl_vwap_histogram": self._query_pnl_histogram(conn, where, params),
                 "pwp_curve": self._query_pwp_curve(conn, where, params),
+                # 006: 决策基准 / 风险 / 完成率 / 冲击分解 / 异常明细
+                "extra_kpis": self._query_extra_kpis(conn, where, params),
+                "impact_breakdown": self._query_impact_breakdown(conn, where, params),
             }
         finally:
             conn.close()
@@ -82,6 +91,19 @@ class TcaReportAggregator:
         # 附加所选指标的覆盖率小节（复用覆盖率服务，口径与监控页一致）
         report["metric_coverage"] = MetricCoverageService(self._mgr).get_coverage(
             start_date, end_date, selected,
+        )
+        # S6 异常路由明细（阈值可参数化，默认同前端）
+        rules = ThresholdRules.from_payload(thresholds)
+        anomalies = query_anomaly_routes(
+            self._mgr, start_date, end_date, rules,
+            broker=broker, algo=algo, symbol=symbol, exchange=exchange,
+        )
+        report["anomaly"] = {
+            "count": len(anomalies),
+            "rows": [a.__dict__ for a in anomalies],
+        }
+        report["anomaly"]["critical_count"] = sum(
+            1 for r in anomalies if r.severity == "critical"
         )
         return report
 
@@ -207,6 +229,58 @@ class TcaReportAggregator:
             for i, (_, rate) in enumerate(_PWP_RATE_LABELS)
         ]
 
+    def _query_extra_kpis(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
+        """决策基准 / 实现短缺 / 风险 / 完成率 聚合（006 增补）。
+
+        对齐文献 D1（决策基准 + 市场时间基准并存）与 B2-3（风险维度）：
+        - arrival_cost_bps / wagner_is_bps：成交额加权
+        - cost_stddev / cost_cvar / cost_p95：成交额加权
+        - avg_fill：平均完成率
+        """
+        weighted = lambda m: self._weighted_avg_sql(m)  # noqa: E731
+        sql = f"""
+            SELECT
+                {weighted("arrival_cost_bps")} AS arrival_cost_bps,
+                {weighted("wagner_is_bps")} AS wagner_is_bps,
+                {weighted("cost_stddev")} AS cost_stddev,
+                {weighted("cost_cvar")} AS cost_cvar,
+                {weighted("cost_p95")} AS cost_p95,
+                AVG(fill / NULLIF(RouteShares, 0)) AS avg_fill
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where}
+        """
+        row = conn.execute(sql, params).fetchone()
+        return {
+            "arrival_cost_bps": self._to_float(row[0]),
+            "wagner_is_bps": self._to_float(row[1]),
+            "cost_stddev": self._to_float(row[2]),
+            "cost_cvar": self._to_float(row[3]),
+            "cost_p95": self._to_float(row[4]),
+            "avg_fill": self._to_float(row[5]),
+        }
+
+    def _query_impact_breakdown(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
+        """市场冲击分解（B2-2）：暂时冲击 5/10/30min + 永久冲击 聚合。"""
+        weighted = lambda m: self._weighted_avg_sql(m)  # noqa: E731
+        sql = f"""
+            SELECT
+                {weighted("temp_impact_5min_bps")} AS t5,
+                {weighted("temp_impact_10min_bps")} AS t10,
+                {weighted("temp_impact_30min_bps")} AS t30,
+                {weighted("perm_impact_bps")} AS perm,
+                {weighted("close_cost_bps")} AS close_cost
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where}
+        """
+        row = conn.execute(sql, params).fetchone()
+        return {
+            "temp_impact_5min_bps": self._to_float(row[0]),
+            "temp_impact_10min_bps": self._to_float(row[1]),
+            "temp_impact_30min_bps": self._to_float(row[2]),
+            "perm_impact_bps": self._to_float(row[3]),
+            "close_cost_bps": self._to_float(row[4]),
+        }
+
     # ── 工具函数 ─────────────────────────────────────────────────────────
 
     @staticmethod
@@ -259,6 +333,9 @@ class TcaReportAggregator:
             "rankings": {"by_broker": [], "by_algo": []},
             "pnl_vwap_histogram": [],
             "pwp_curve": [],
+            "extra_kpis": None,
+            "impact_breakdown": None,
+            "anomaly": {"count": 0, "critical_count": 0, "rows": []},
             "metric_coverage": None,
             "data_source_warning": "tca_route_summary 不存在 — 请先运行管道 S5.5",
         }

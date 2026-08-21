@@ -11,13 +11,15 @@ vi.mock('../services/api', () => ({
   fetchBdibHealth: vi.fn(),
   fetchMetricCoverage: vi.fn(),
   fetchTcaReportSummary: vi.fn(),
+  fetchExportHtml: vi.fn(),
 }));
 
-import { fetchBdibHealth, fetchMetricCoverage, fetchTcaReportSummary } from '../services/api';
+import { fetchBdibHealth, fetchExportHtml, fetchMetricCoverage, fetchTcaReportSummary } from '../services/api';
 
 const mockFetchBdibHealth = vi.mocked(fetchBdibHealth);
 const mockFetchMetricCoverage = vi.mocked(fetchMetricCoverage);
 const mockFetchReportSummary = vi.mocked(fetchTcaReportSummary);
+const mockFetchExportHtml = vi.mocked(fetchExportHtml);
 
 // ── 测试数据 ──
 
@@ -190,5 +192,34 @@ describe('ReportView', () => {
     render(<ReportView />);
     await waitFor(() => expect(screen.getByText('报告加载失败')).toBeInTheDocument());
     expect(screen.getByText('boom')).toBeInTheDocument();
+  });
+
+  it('点击导出 HTML 触发 fetchExportHtml 并带阈值参数', async () => {
+    mockFetchExportHtml.mockResolvedValue('tca_report_20260803_20260803.html');
+    const user = userEvent.setup();
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '导出 HTML 报告' }));
+    await waitFor(() => expect(mockFetchExportHtml).toHaveBeenCalled());
+
+    const call = mockFetchExportHtml.mock.calls[0][0]!;
+    expect(call.last).toBe('day');
+    // 默认阈值随请求下发（与 DEFAULT_RULES 对齐）
+    expect(call.thresholds).toBeDefined();
+    expect(call.thresholds!.tracking_error_bps).toMatchObject({
+      mode: 'absolute-above', warning: 10, critical: 25, enabled: true,
+    });
+  });
+
+  it('导出失败显示错误提示', async () => {
+    mockFetchReportSummary.mockResolvedValue(reportSummary);
+    mockFetchExportHtml.mockRejectedValue(new Error('export failed'));
+    const user = userEvent.setup();
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '导出 HTML 报告' }));
+    await waitFor(() => expect(screen.getByText('export failed')).toBeInTheDocument());
   });
 });
