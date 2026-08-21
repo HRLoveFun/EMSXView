@@ -25,6 +25,7 @@ from DataPipeline.common.mapping import (
     twap,
     vwap,
 )
+from DataPipeline.common.quota_pause import is_quota_paused
 from DataPipeline.config import Config
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,14 @@ def _fetch_composite_tickers(
 
     results: Dict[str, str] = {}
     if not tickers:
+        return results
+
+    # 005-bloomberg-quota-pause: 额度暂停时短路，跳过 EUR 复合代码解析
+    if is_quota_paused():
+        logger.info(
+            f"Quota paused — skipping EU_COMPOSITE_TICKER lookup "
+            f"({len(tickers)} tickers, quota_paused)"
+        )
         return results
 
     try:

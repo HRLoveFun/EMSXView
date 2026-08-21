@@ -13,6 +13,8 @@ from datetime import datetime
 
 import pandas as pd
 
+from DataPipeline.common.quota_pause import is_quota_paused
+
 logger = logging.getLogger(__name__)
 
 _BLOOMBERG_FIELD = "PX_LAST"
@@ -27,6 +29,13 @@ def fetch_fx_rate_for_ccy(ccy_ticker: str, date_str: str) -> float:
     Returns fx_rate as USD per 1 unit of currency.
     Defaults to 1.0 on any failure (no FX impact on TCA).
     """
+    # 005-bloomberg-quota-pause: 额度暂停时短路（fx_rate 默认 1.0，TCA 不受影响）
+    if is_quota_paused():
+        logger.info(
+            f"Quota paused — skipping FX rate fetch for {ccy_ticker} on {date_str} (quota_paused)"
+        )
+        return 1.0
+
     from xbbg import blp
 
     ccy_upper = ccy_ticker.upper().strip()

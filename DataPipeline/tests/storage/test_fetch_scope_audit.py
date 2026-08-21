@@ -20,6 +20,7 @@ import pytest
 from DataPipeline.acquisition.bloomberg_fill_fetcher import (
     BloombergFillFetcher,
     EMSXRequestError,
+    EMSXQuotaError,
 )
 from DataPipeline.acquisition._constants import (
     ERROR_RESPONSE,
@@ -205,3 +206,52 @@ def test_build_request_error_handles_missing_fields():
     assert isinstance(err, EMSXRequestError)
     # 不抛异常即可
     assert "Bloomberg API error" in str(err)
+
+
+# ── 测试 6: 额度错误识别 (005-bloomberg-quota-pause) ────────────────────────
+
+
+@pytest.mark.parametrize("error_code,error_msg", [
+    ("QUOTA_EXCEEDED", "Quota exhausted for this service"),
+    ("RATE_LIMIT", "Rate limit exceeded"),
+    ("", "MKT_LIMIT reached"),
+    ("MAX_MESSAGES", ""),
+])
+def test_build_request_error_quota_raises_emsxquotaerror(error_code, error_msg):
+    """命中额度类错误码白名单 → 抛 EMSXQuotaError（非普通 EMSXRequestError）。"""
+    msg = _make_mock_msg(ERROR_RESPONSE, error_code, error_msg)
+    err = BloombergFillFetcher._build_request_error(msg)
+    assert isinstance(err, EMSXQuotaError)
+
+
+def test_build_request_error_non_quota_is_request_error():
+    """非额度类错误码 → 仍为普通 EMSXRequestError（走指数退避重试）。"""
+    msg = _make_mock_msg(ERROR_RESPONSE, "ERROR_PERMISSION", "User not permissioned.")
+    err = BloombergFillFetcher._build_request_error(msg)
+    assert isinstance(err, EMSXRequestError)
+    assert not isinstance(err, EMSXQuotaError)
+
+
+def test_fetch_fills_does_not_retry_quota_error():
+    """fetch_fills 遇 EMSXQuotaError 不重试（额度错误重试只会反复打爆额度）。"""
+    fetcher = _make_fetcher_with_mock_session()
+    error_msg = _make_mock_msg(ERROR_RESPONSE, "QUOTA_EXCEEDED", "Quota exhausted")
+    response_event = MagicMock()
+
+    with patch("blpapi.Event") as mock_event_cls, \
+         patch.object(fetcher._session, "nextEvent") as mock_next_event:
+        mock_event_cls.RESPONSE = MagicMock()
+        mock_event_cls.PARTIAL_RESPONSE = MagicMock()
+        mock_event_cls.TIMEOUT = MagicMock()
+        response_event.eventType.return_value = mock_event_cls.RESPONSE
+        response_event.__iter__ = lambda self, it=iter([error_msg]): it
+        mock_next_event.return_value = response_event
+
+        with pytest.raises(EMSXQuotaError):
+            fetcher.fetch_fills(
+                __import__("datetime").datetime(2026, 6, 29),
+                __import__("datetime").datetime(2026, 6, 30),
+            )
+
+    # 每次 nextEvent 都是一次尝试；配额错误应直接抛出不重试，仅触发 1 次 nextEvent
+    assert mock_next_event.call_count == 1
