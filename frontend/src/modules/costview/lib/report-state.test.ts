@@ -3,7 +3,7 @@ import { buildWarningOnlyPage } from './report-state';
 import { createDefaultCostViewConfig } from './thresholds';
 import type { CostViewFilterFormState, TcaReport, TcaRouteSummary } from '../types';
 
-function createRoute(orderId: string, routeId: string, pnlVwap: number, fill = 95): TcaRouteSummary {
+function createRoute(orderId: string, routeId: string, pnlVwap: number, fill = 950): TcaRouteSummary {
   return {
     order_id: orderId,
     route_id: routeId,

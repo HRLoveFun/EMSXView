@@ -249,6 +249,65 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
   );
 }
 
+/** 006: 阈值规则 → 导出端点 thresholds 查询参数（与后端 ThresholdRules 契约对齐） */
+export interface ExportHtmlThresholdPayload {
+  mode: 'absolute-above' | 'above' | 'below';
+  warning: number;
+  critical: number;
+  enabled: boolean;
+}
+
+export interface ExportHtmlQuery extends MonitoringQuery {
+  broker?: string;
+  algo?: string;
+  symbol?: string;
+  exchange?: string;
+  thresholds?: Record<string, ExportHtmlThresholdPayload>;
+}
+
+/** 006: 一键导出 HTML 报告（附件下载）。返回下载文件名。 */
+export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
+  const params = new URLSearchParams();
+  if (query.startDate && query.endDate) {
+    params.set('start_date', query.startDate);
+    params.set('end_date', query.endDate);
+  } else if (query.last) {
+    params.set('last', query.last);
+  }
+  for (const [key, value] of Object.entries({
+    broker: query.broker, algo: query.algo,
+    symbol: query.symbol, exchange: query.exchange,
+  })) {
+    if (value) params.set(key, value);
+  }
+  if (query.thresholds && Object.keys(query.thresholds).length) {
+    params.set('thresholds', JSON.stringify(query.thresholds));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/tca/monitoring/export-html?${params.toString()}`,
+    { headers: getAuthHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const fileName = match?.[1] ?? `tca_report_${new Date().toISOString().slice(0, 10)}.html`;
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+  return fileName;
+}
+
 // -- Regime distribution ------------------------------------------------------
 
 export interface RegimeDistributionRow {

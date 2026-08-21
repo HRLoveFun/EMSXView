@@ -4,9 +4,13 @@
 浏览器直接打开即可查看，可邮件分发、离线归档。
 
 报告结构：
-    报告头（标题/生成时间/过滤条件） → KPI 卡片 →
+    报告头（标题/生成时间/过滤条件/口径脚注） → KPI 卡片 →
     pnl_vwap 直方图 + 按日走势 → broker/algo 排行 + PWP 曲线 →
-    指标覆盖率表 → BDIB 缺口附录
+    市场冲击分解表 → 异常路由明细表 → 指标覆盖率表 → BDIB 缺口附录 → 页脚
+
+口径脚注：报告为价格偏离口径，不含显性费用/返佣/税费；无 L2 订单簿流动性；
+不含事前预测；机会成本按 (Pn−P0)×未成交×方向计。
+（对应 docs/report-tca-known-limitations.md 清单）
 """
 
 from __future__ import annotations
@@ -37,10 +41,14 @@ def render_report_html(
     sections = [
         _html_head(f"TCA 可视化报告 {title_range}"),
         _render_header(filters, generated_at),
-        _render_kpi_cards(report.get("kpi")),
+        _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
+                          report.get("anomaly")),
         _render_charts(report),
+        _render_impact_breakdown(report.get("impact_breakdown")),
+        _render_anomaly_table(report.get("anomaly")),
         _render_coverage_table(report.get("metric_coverage")),
         _render_health_appendix(health),
+        _render_footer(),
         "</body></html>",
     ]
     return "\n".join(s for s in sections if s)
@@ -66,6 +74,7 @@ h1 {{ font-size: 22px; color: #eceff4; }}
 h2 {{ font-size: 16px; color: #9fb3c8; margin: 28px 0 12px; border-left: 3px solid #4fc3f7; padding-left: 10px; }}
 .meta {{ color: #7d8fa3; font-size: 13px; margin-top: 6px; }}
 .meta span {{ margin-right: 16px; }}
+.disclaimer {{ color: #5f7186; font-size: 11px; margin-top: 8px; border-top: 1px solid #22304a; padding-top: 6px; }}
 .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }}
 .card {{ background: #1a2332; border: 1px solid #2a3648; border-radius: 8px; padding: 14px 16px; }}
 .card .label {{ font-size: 12px; color: #7d8fa3; }}
@@ -90,7 +99,7 @@ svg text {{ font-family: inherit; }}
 
 
 def _render_header(filters: dict[str, Any], generated_at: str) -> str:
-    """报告头：标题 + 过滤条件摘要。"""
+    """报告头：标题 + 过滤条件摘要 + 口径脚注。"""
     cond = [f"日期 {filters.get('start_date')} ~ {filters.get('end_date')}"]
     for key, label in (("broker", "Broker"), ("algo", "Algo"),
                        ("symbol", "Symbol"), ("exchange", "市场")):
@@ -101,20 +110,48 @@ def _render_header(filters: dict[str, Any], generated_at: str) -> str:
     cond_html = "".join(f"<span>{_esc(c)}</span>" for c in cond)
     return f"""
 <h1>TCA 可视化报告 <span style="font-size:14px;color:#7d8fa3">tca_route_summary</span></h1>
-<div class="meta"><span>生成时间 {_esc(generated_at)}</span>{cond_html}</div>"""
+<div class="meta"><span>生成时间 {_esc(generated_at)}</span>{cond_html}</div>
+<div class="disclaimer">口径：价格偏离（不含显性费用/返佣/税费）；无 L2 订单簿流动性；不含事前预测；机会成本按 (Pn−P0)×未成交×方向计。</div>"""
 
 
-def _render_kpi_cards(kpi: Optional[dict[str, Any]]) -> str:
-    """KPI 卡片区。"""
+def _render_footer() -> str:
+    """页脚：口径脚注重复 + 数据源。"""
+    return (
+        '<div class="footer">'
+        "EMSXView CostView · 数据源 tca_route_summary / fill_bdib / raw_bdib · "
+        "口径：价格偏离，不含显性费用/返佣/税费；无 L2 订单簿流动性；不含事前预测"
+        "</div>"
+    )
+
+
+def _render_kpi_cards(
+    kpi: Optional[dict[str, Any]],
+    extra: Optional[dict[str, Any]],
+    anomaly: Optional[dict[str, Any]],
+) -> str:
+    """KPI 卡片区：整体水位（5）+ 基准/短缺/风险/完成率/异常（5）。"""
     if not kpi:
         return '<div class="warn">tca_route_summary 无数据 — 请先运行管道 S5.5。</div>'
     cards = [
         ("Route 总数", f"{kpi['route_count']:,}", ""),
         ("总成交股数", _fmt_big(kpi["total_route_shares"]), "RouteShares 合计"),
-        ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")), "成交额加权"),
+        ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")), "成交额加权 · VWAP 基准"),
         ("平均 par_rate", _fmt_num(kpi.get("avg_par_rate")), "参与率均值"),
         ("平均 RPM", _fmt_num(kpi.get("avg_rpm")), ""),
     ]
+    if extra:
+        cards += [
+            ("加权 arrival 成本", _fmt_num(extra.get("arrival_cost_bps")), "决策基准 · 成交额加权"),
+            ("加权 IS (bps)", _fmt_num(extra.get("wagner_is_bps")), "实现短缺 · 成交额加权"),
+            ("成本风险 stddev/CVaR", _fmt_risk(extra.get("cost_stddev"), extra.get("cost_cvar")), "尾部风险"),
+            ("平均完成率", _fmt_pct(extra.get("avg_fill")), "fill 均值"),
+        ]
+    if anomaly is not None:
+        cards.append(
+            ("异常路由", f"{anomaly.get('count', 0):,}", (
+                f"critical {anomaly.get('critical_count', 0)} · 见下方明细"
+            )),
+        )
     inner = "".join(
         f'<div class="card"><div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
@@ -149,6 +186,84 @@ def _render_charts(report: dict[str, Any]) -> str:
 </div>
 <h2>PWP 分档均值</h2>
 <div class="panel">{pwp}</div>"""
+
+
+def _render_impact_breakdown(impact: Optional[dict[str, Any]]) -> str:
+    """市场冲击分解表（B2-2）：暂时冲击 5/10/30min + 永久冲击。"""
+    if not impact:
+        return ""
+    rows = [
+        ("暂时冲击 5min", _fmt_num(impact.get("temp_impact_5min_bps")), "成交后 5 分钟价格恢复偏离"),
+        ("暂时冲击 10min", _fmt_num(impact.get("temp_impact_10min_bps")), "成交后 10 分钟价格恢复偏离"),
+        ("暂时冲击 30min", _fmt_num(impact.get("temp_impact_30min_bps")), "成交后 30 分钟价格恢复偏离"),
+        ("永久冲击", _fmt_num(impact.get("perm_impact_bps")), "收盘价相对到达价的持续偏离"),
+        ("收盘价成本", _fmt_num(impact.get("close_cost_bps")), "收盘价基准偏离"),
+    ]
+    body = "".join(
+        f'<tr><td class="l">{_esc(label)}</td><td>{_esc(value)} bps</td>'
+        f'<td class="l" style="white-space:normal">{_esc(desc)}</td></tr>'
+        for label, value, desc in rows
+    )
+    return f"""
+<h2>市场冲击分解</h2>
+<div class="panel" style="overflow-x:auto">
+<table><thead><tr><th class="l">冲击维度</th><th>加权值</th><th class="l">说明</th></tr></thead>
+<tbody>{body}</tbody></table>
+<div class="meta" style="margin-top:8px">成交额加权（RouteShares × p_avg）；恢复窗口越界时使用次日收盘价作跨日恢复价格。</div>
+</div>"""
+
+
+def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
+    """异常路由明细表（S6）：触发阈值规则的路由逐单清单（无上限）。"""
+    if anomaly is None:
+        return ""
+    rows = anomaly.get("rows") or []
+    count = anomaly.get("count", len(rows))
+    if not rows:
+        return f"""
+<h2>异常路由明细</h2>
+<div class="panel">本期无异常路由（{_esc(str(count))} 条触发阈值）。</div>"""
+    body_rows = []
+    for r in rows:
+        hits = r.get("hits") or []
+        tags = "".join(
+            f'<span class="tag tag-{"critical" if h["severity"] == "critical" else "warning"}">{_esc(h["label"])}</span>'
+            for h in hits
+        )
+        body_rows.append(
+            f'<tr>'
+            f'<td><span class="tag tag-{_esc(r.get("severity", "warning"))}">{_esc(r.get("severity", ""))}</span></td>'
+            f'<td class="l">{_esc(r.get("date", ""))}</td>'
+            f'<td class="l">{_esc(r.get("order_id", ""))}</td>'
+            f'<td class="l">{_esc(r.get("route_id", ""))}</td>'
+            f'<td class="l">{_esc(r.get("ticker", ""))}</td>'
+            f'<td class="l">{_esc(r.get("exchange") or "")}</td>'
+            f'<td class="l">{_esc(r.get("side") or "")}</td>'
+            f'<td class="l">{_esc(r.get("broker") or "")}</td>'
+            f'<td class="l">{_esc(r.get("algo") or "")}</td>'
+            f'<td>{_fmt_pct(r.get("completion_rate"))}</td>'
+            f'<td>{_fmt_pct(r.get("par_rate"))}</td>'
+            f'<td>{_fmt_num(r.get("pnl_vwap"))}</td>'
+            f'<td>{_fmt_num(r.get("arrival_cost_bps"))}</td>'
+            f'<td>{_fmt_num(r.get("wagner_is_bps"))}</td>'
+            f'<td>{_fmt_num(r.get("opportunity_cost"))}</td>'
+            f'<td>{_fmt_big(r.get("unfilled"))}</td>'
+            f'<td>{_fmt_num(r.get("cost_cvar"))}</td>'
+            f'<td>{_fmt_duration(r.get("order_duration_sec"))}</td>'
+            f'<td>{_esc("1" if r.get("recovery_truncated") else "")}</td>'
+            f'<td class="l" style="white-space:normal">{tags}</td>'
+            f'</tr>'
+        )
+    return f"""
+<h2>异常路由明细（{_esc(str(count))} 条）</h2>
+<div class="panel" style="overflow-x:auto;max-height:520px;overflow-y:auto">
+<table><thead><tr>
+<th>严重度</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
+<th class="l">标的</th><th class="l">交易所</th><th class="l">方向</th><th class="l">Broker</th>
+<th class="l">Algo</th><th>完成率</th><th>参与率</th><th>pnl_vwap</th>
+<th>arrival</th><th>IS</th><th>机会成本</th><th>未成交</th><th>CVaR</th>
+<th>历时</th><th>跨日</th><th class="l">命中规则</th>
+</tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>"""
 
 
 def _svg_histogram(buckets: list[dict[str, Any]]) -> str:
@@ -424,6 +539,33 @@ def _fmt_big(value: Optional[float]) -> str:
     if abs_v >= 1e3:
         return f"{value / 1e3:.1f}K"
     return f"{value:.0f}"
+
+
+def _fmt_risk(stddev: Optional[float], cvar: Optional[float]) -> str:
+    """风险卡片：stddev / CVaR 合并展示。"""
+    if stddev is None and cvar is None:
+        return "-"
+    s = "-" if stddev is None else f"{stddev:.2f}"
+    c = "-" if cvar is None else f"{cvar:.2f}"
+    return f"{s} / {c}"
+
+
+def _fmt_pct(value: Optional[float]) -> str:
+    """百分比展示（0-1 小数 → %，None → '-'）。"""
+    if value is None:
+        return "-"
+    return f"{value * 100.0:.1f}%"
+
+
+def _fmt_duration(seconds: Optional[float]) -> str:
+    """历时展示：秒 → 分钟/小时。"""
+    if seconds is None:
+        return "-"
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f}h"
+    if seconds >= 60:
+        return f"{seconds / 60:.1f}m"
+    return f"{seconds:.0f}s"
 
 
 def _trunc(text: str, max_len: int) -> str:
