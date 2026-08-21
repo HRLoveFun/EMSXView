@@ -1,6 +1,6 @@
 // AppShell — layout and state orchestration
 // All shell-level state lives here. No hidden contexts.
-import { Suspense, lazy, useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { Suspense, lazy, useState, useCallback, useEffect, useMemo } from 'react';
 import { Toolbar } from '@app/Toolbar';
 import { ToastContainer } from '@app/ToastContainer';
 import { StartupGate } from '@/components/startup-gate';
@@ -73,7 +73,7 @@ export function AppShell() {
   // realtimeWsPath (currently only ExecutionView). No more shell hardcode.
   const [streamConnected, setStreamConnected] = useState(false);
   const [streamEverConnected, setStreamEverConnected] = useState(false);
-  const rtClientRef = useRef<RealtimeClient | null>(null);
+  const [realtimeClient, setRealtimeClient] = useState<RealtimeClient | null>(null);
 
   // Discover realtime WS path from module descriptors (P1-B3 fix).
   // 防护 (P2): 冲突已在 moduleRegistry.register 层告警, 此处取首个声明模块
@@ -96,10 +96,11 @@ export function AppShell() {
       const envIsInsecure = /^http:\/\//i.test(envUrl) || /^ws:\/\//i.test(envUrl);
       if (isPageSecure && envIsInsecure) {
         console.error('[realtime] Refusing to use insecure VITE_API_URL on https page');
-        addToast(
+        // 在微任务中通知，避免 effect 内同步 setState
+        queueMicrotask(() => addToast(
           'error',
           'Insecure VITE_API_URL protocol detected (http/ws). Automatically switched to same-origin WSS. Please check your environment configuration.',
-        );
+        ));
         wsBase = `${proto}//${window.location.host}`;
       } else {
         wsBase = envUrl.replace(/^http/i, 'ws');
@@ -109,9 +110,10 @@ export function AppShell() {
     }
     const wsUrl = `${wsBase}${realtimeWsPath}?token=${encodeURIComponent(token)}`;
     const client = createRealtimeClient({ url: wsUrl });
-    rtClientRef.current = client;
 
     client.onStatus((s) => {
+      // 在回调（非渲染期）中同步 client 到 state，避免渲染期访问 ref
+      setRealtimeClient(client);
       const isConnected = s === 'connected';
       setStreamConnected(isConnected);
       if (isConnected) {
@@ -122,9 +124,8 @@ export function AppShell() {
 
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return;
-      const c = rtClientRef.current;
-      if (c && !c.connected) {
-        c.forceReconnect();
+      if (!client.connected) {
+        client.forceReconnect();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -132,7 +133,7 @@ export function AppShell() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
       client.disconnect();
-      rtClientRef.current = null;
+      setRealtimeClient(null);
     };
   }, [addToast, realtimeWsPath]);
 
@@ -185,13 +186,13 @@ export function AppShell() {
       if (validated !== null) setActiveModule(validated);
     },
     addToast,
-    realtimeClient: rtClientRef.current,
+    realtimeClient,
     streamConnected,
     streamEverConnected,
     subscriptionsWarming,
     subscriptionsWarmingMode,
     logout: handleLogout,
-  }), [setActiveModule, activeModule, addToast, streamConnected, streamEverConnected, subscriptionsWarming, subscriptionsWarmingMode, handleLogout]);
+  }), [setActiveModule, activeModule, addToast, realtimeClient, streamConnected, streamEverConnected, subscriptionsWarming, subscriptionsWarmingMode, handleLogout]);
 
   // ─── Build module views from registry — generic ModuleShellProps only ──
   const moduleViews = useMemo(() => {

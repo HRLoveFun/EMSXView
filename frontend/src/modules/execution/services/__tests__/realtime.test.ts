@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRealtimeClient, type DeltaEvent } from '@shared/services/realtime';
 import { createOrderStreamStore } from '@execution/stores/order-stream-store';
 import { createRouteStreamStore } from '@execution/stores/route-stream-store';
+import type { Order, Route } from '@execution/types';
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -28,6 +29,7 @@ class MockWebSocket {
   sent: string[] = [];
 
   constructor(_url: string) {
+    void _url; // Mock 不需要保存 URL，仅保持构造签名与全局 WebSocket 一致
     // Auto-fire open on next tick
     queueMicrotask(() => this.onopen?.());
   }
@@ -273,7 +275,7 @@ describe('OrderStreamStore', () => {
       version: null, ts: Date.now(), data: { id: '1' },
     } as DeltaEvent);
 
-    store.reset([{ id: '2' }, { id: '3' }] as any);
+    store.reset([{ id: '2' }, { id: '3' }] as unknown as Order[]);
     expect(store.size).toBe(2);
     expect(store.snapshot().map((o) => o.id)).toEqual(['2', '3']);
   });
@@ -302,7 +304,7 @@ describe('RouteStreamStore', () => {
 
   it('reset replaces all routes', () => {
     const store = createRouteStreamStore();
-    store.reset([{ id: '1.1' }, { id: '2.1' }] as any);
+    store.reset([{ id: '1.1' }, { id: '2.1' }] as unknown as Route[]);
     expect(store.size).toBe(2);
   });
 });

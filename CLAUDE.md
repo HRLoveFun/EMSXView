@@ -359,4 +359,16 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - **测试**：`CostView/tests/test_monitoring.py`（469 行）、`frontend/src/modules/costview/__tests__/monitoring-view.test.tsx`（194 行）
 - **文档**：`docs/textbook/Algo_TCA.md`（840 行）— TCA 算法教科书
 - **清理**：移除临时文件 `generate_ks_bdib_stats.py`、`recompute_*.err`、`tca_plan.md`、`tca_route_summary_null_investigation.md`
+
+### HTML 报告第二批增强记录（2026-08-21）
+
+- **分市场标签页**：后端 `report_aggregator.py` 新增 `_query_markets()`（Exchange 去重 + route 数，
+  **忽略 exchange 过滤**、尊重 broker/algo/symbol/preset），报告响应新增 `markets` 清单；
+  前端 `ReportView.tsx` 过滤栏去掉 exchange 输入框，改为「全部 + 各市场」标签页，切换标签按
+  Exchange 重载报告，导出 HTML 自动携带当前市场。
+- **执行方排行 SVG 宽度自适应**：`tca_report_html.py::_svg_hbar` 宽度从固定 `780` 改为
+  `width="100%"` + `preserveAspectRatio`（与分布与走势图 `_svg_wrap` 一致）。
+- **测试**：`test_monitoring.py` 47 passed（+4 markets 用例）、CostView 262 passed、
+  前端 costview 29 passed（+2 标签页用例）、tsc/lint 零错误、boundary 12 passed。
+- **关联**：`docs/handoff-costview-html-report.md`、`specs/006-costview-html-report/plan.md`
 <!-- SPECKIT END -->

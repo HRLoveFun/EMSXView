@@ -70,7 +70,11 @@ S8  BDIB 缺口附录
 - 前端：vitest 全量 105 passed（含导出按钮 2 用例）；tsc/lint 本次改动零错误
 - CLI 兼容：`generate_tca_report.py --last day` 真实生成 143KB HTML 含全部新小节
 
-## 后续优化方向（下一会话）
+## 后续优化方向
 
+- **已增强（2026-08-21 第二批）**：分市场标签页（后端 `markets` 清单 + 前端 ReportView 标签页，忽略
+  exchange 过滤）+ 执行方排行 SVG 宽度自适应（`width=100%` + `preserveAspectRatio`）。
+  测试：后端 `test_monitoring.py` 47 passed（+4 markets 用例）、CostView 262 passed、
+  前端 costview 29 passed（+2 标签页用例）、tsc/lint 零错误。
 - **已知范围外**（`docs/report-tca-known-limitations.md`）：显性费用/返佣、L2 订单簿、事前预测、可操作性维度
 - **可增强**：报告加导出时间戳文件名；明细表按需分页/排序控件；报告内嵌过滤条件回显；支持 order 级明细

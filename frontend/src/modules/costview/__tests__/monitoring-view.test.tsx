@@ -76,6 +76,10 @@ const reportSummary: TcaReportSummary = {
     broker: null, algo: null, symbol: null, exchange: null,
     metrics: [],
   },
+  markets: [
+    { exchange: 'US', route_count: 10 },
+    { exchange: 'HK', route_count: 5 },
+  ],
   kpi: {
     route_count: 1232,
     total_route_shares: 133144041,
@@ -221,5 +225,47 @@ describe('ReportView', () => {
 
     await user.click(screen.getByRole('button', { name: '导出 HTML 报告' }));
     await waitFor(() => expect(screen.getByText('export failed')).toBeInTheDocument());
+  });
+
+  it('渲染分市场标签页，切换市场时携带 exchange 重新加载', async () => {
+    mockFetchReportSummary.mockResolvedValue(reportSummary);
+    const user = userEvent.setup();
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    // 标签页包含 全部 / US / HK
+    expect(screen.getByRole('tab', { name: '全部' })).toBeInTheDocument();
+    const usTab = screen.getByRole('tab', { name: 'US' });
+    expect(usTab).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'HK' })).toBeInTheDocument();
+
+    // 初始加载两个请求：报告（全部）+ 市场清单
+    mockFetchReportSummary.mockClear();
+    await user.click(usTab);
+    await waitFor(() => {
+      expect(mockFetchReportSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ last: 'day', exchange: 'US' }),
+      );
+    });
+  });
+
+  it('导出 HTML 时携带当前选中市场', async () => {
+    mockFetchReportSummary.mockResolvedValue(reportSummary);
+    mockFetchExportHtml.mockResolvedValue('tca_report_20260803_20260803.html');
+    const user = userEvent.setup();
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('tab', { name: 'HK' }));
+    await waitFor(() => {
+      expect(mockFetchReportSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ last: 'day', exchange: 'HK' }),
+      );
+    });
+
+    await user.click(screen.getByRole('button', { name: '导出 HTML 报告' }));
+    await waitFor(() => expect(mockFetchExportHtml).toHaveBeenCalled());
+    const call = mockFetchExportHtml.mock.calls[0][0]!;
+    expect(call.exchange).toBe('HK');
   });
 });

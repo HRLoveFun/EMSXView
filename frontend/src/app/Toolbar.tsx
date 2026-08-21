@@ -47,12 +47,11 @@ export function Toolbar({
   checkingStartup,
   lastUpdatedAt,
 }: ToolbarProps) {
-  // Re-render once a second so the "x seconds ago" relative label stays
-  // current. Required because lastUpdatedAt itself only changes on data
-  // refresh; without this tick the label would freeze between updates.
-  const [, setNowTick] = useState(0);
+  // 每秒更新当前时间戳 state，使 "x seconds ago" 相对标签保持实时。
+  // 渲染期间禁止调用 Date.now()（impure），时间通过 interval 回调写入 state。
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNowTick(t => t + 1), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -61,7 +60,7 @@ export function Toolbar({
   // of looking fresh forever.
   const lastUpdatedLabel = (() => {
     if (!lastUpdatedAt) return { abs: '—', rel: 'no data yet' };
-    const ageMs = Date.now() - lastUpdatedAt;
+    const ageMs = now - lastUpdatedAt;
     const ageSec = Math.max(0, Math.floor(ageMs / 1000));
     const rel =
       ageSec < 5 ? 'just now'
@@ -70,7 +69,7 @@ export function Toolbar({
       : `${Math.floor(ageSec / 3600)}h ago`;
     return { abs: new Date(lastUpdatedAt).toLocaleTimeString(), rel };
   })();
-  const isStale = lastUpdatedAt !== null && (Date.now() - lastUpdatedAt) > 30_000;
+  const isStale = lastUpdatedAt !== null && (now - lastUpdatedAt) > 30_000;
 
   // Logout confirmation gate — prevents an accidental click from wiping the
   // session and silently destroying any in-progress Modify Route / Modify

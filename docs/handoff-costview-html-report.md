@@ -87,6 +87,20 @@ CostView Report 页已有"导出 HTML 报告"按钮 → `GET /api/tca/monitoring
 4. **范围外**（`docs/report-tca-known-limitations.md`）：显性费用/返佣/税费（K1）、L2 订单簿（K2）、事前预测（K3）、可操作性（K4）——有条件后补齐。
 5. **order 级明细**：当前 S6 是 route 级；如需 order 级可复用 `build_order_report()` 聚合逻辑。
 
+## 已完成增强（2026-08-21 第二批）
+
+### 分市场标签页
+- 后端 `report_aggregator.py::_query_markets()`：报告新增 `markets` 清单（Exchange 去重 + route 数，
+  **忽略 exchange 过滤**，尊重 broker/algo/symbol/preset），供前端标签页展示全部市场。
+- 前端 `ReportView.tsx`：过滤栏去掉 exchange 输入框，改为**分市场标签页**（全部 + 各市场）。
+  切换标签 → 按 Exchange 重载报告；导出 HTML 时自动携带当前市场。
+- 测试：后端 `test_monitoring.py` 新增 markets 4 用例；前端 monitoring-view 新增标签页 2 用例。
+
+### 执行方排行 SVG 宽度自适应
+- `tca_report_html.py::_svg_hbar`：`width` 从固定 `780` 改为 `100%` + `preserveAspectRatio`
+  （与分布与走势图 `_svg_wrap` 一致），排行图不再溢出面板。
+- 验证：CLI 生成报告 5 张 SVG 全部 `width="100%"`，无固定宽度残留。
+
 ## 验证命令
 
 ```bash

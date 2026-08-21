@@ -42,6 +42,8 @@ function isTypingTarget(e: KeyboardEvent): boolean {
   return false;
 }
 
+// 与 HotkeyCheatsheet 组件同文件导出 hook 会牺牲 fast refresh，属可接受取舍
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTradeHotkeys(
   enabled: boolean,
   activePane: TradePane,
@@ -49,9 +51,13 @@ export function useTradeHotkeys(
   onPaneChange?: (pane: TradePane) => void,
 ) {
   const handlersRef = useRef(handlers);
-  handlersRef.current = handlers;
   const activePaneRef = useRef(activePane);
-  activePaneRef.current = activePane;
+
+  // 渲染后同步最新值到 ref（effect 中写 ref 合法，避免渲染期访问 ref）
+  useEffect(() => {
+    handlersRef.current = handlers;
+    activePaneRef.current = activePane;
+  });
 
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
 

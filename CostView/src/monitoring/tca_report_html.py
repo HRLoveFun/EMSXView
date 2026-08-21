@@ -317,7 +317,10 @@ def _svg_daily_series(series: list[dict[str, Any]]) -> str:
 
 
 def _svg_hbar(rows: list[dict[str, Any]], title: str) -> str:
-    """横向条形排行：正(成本)红 / 负(优)绿，零轴按符号自适应定位。"""
+    """横向条形排行：正(成本)红 / 负(优)绿，零轴按符号自适应定位。
+
+    宽度自适应（width=100% + preserveAspectRatio），与分布/走势图一致。
+    """
     if not rows:
         return _empty_hint("无排行数据")
     shown = rows[:10]
@@ -337,7 +340,7 @@ def _svg_hbar(rows: list[dict[str, Any]], title: str) -> str:
     else:
         zero_x, scale_w = label_w, plot_w
     parts = [f'<h2 style="margin-top:0">{_esc(title)}</h2>',
-             f'<svg width="{_CHART_W}" height="{height}" viewBox="0 0 {_CHART_W} {height}">']
+             f'<svg width="100%" height="{height}" viewBox="0 0 {_CHART_W} {height}" preserveAspectRatio="xMidYMid meet">']
     for i, r in enumerate(shown):
         y = _PAD_T + i * (bar_h + gap)
         v = r["weighted_pnl_vwap"]

@@ -35,7 +35,7 @@ function createOrder(overrides?: Partial<Order>): Order {
     currency: 'USD',
     timeInForce: 'DAY',
     percentFilled: 20,
-    stopPrice: null,
+    stopPrice: undefined,
     notes: '',
     customNote1: '',
     customNote2: '',

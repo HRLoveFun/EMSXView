@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileBarChart, FileDown, RefreshCw } from 'lucide-react';
 import {
   Bar,
@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
 import { loadCostViewConfig } from '../lib/storage';
 import type {
@@ -185,11 +186,29 @@ const ChartPanel = ({ title, empty, children }: { title: string; empty: boolean;
 export function ReportView() {
   const [form, setForm] = useState<ReportFormState>(DEFAULT_FORM);
   const [report, setReport] = useState<TcaReportSummary | null>(null);
+  const [markets, setMarkets] = useState<TcaReportSummary['markets']>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  // 分市场标签页：'' 表示全部，其余为 Exchange 代码
+  const [activeMarket, setActiveMarket] = useState<string>('');
 
-  const loadReport = useCallback(async (current: ReportFormState) => {
+  // 市场清单：尊重 broker/algo/symbol/preset 过滤，但忽略 exchange（标签页需要全部市场）
+  const loadMarkets = useCallback(async (current: ReportFormState) => {
+    try {
+      const data = await fetchTcaReportSummary({
+        last: current.preset,
+        broker: current.broker.trim() || undefined,
+        algo: current.algo.trim() || undefined,
+        symbol: current.symbol.trim() || undefined,
+      });
+      setMarkets(data.markets ?? []);
+    } catch {
+      // 市场清单加载失败不阻断报告主体，保持上次清单
+    }
+  }, []);
+
+  const loadReport = useCallback(async (current: ReportFormState, market: string = '') => {
     setIsLoading(true);
     setError(null);
     try {
@@ -198,7 +217,7 @@ export function ReportView() {
         broker: current.broker.trim() || undefined,
         algo: current.algo.trim() || undefined,
         symbol: current.symbol.trim() || undefined,
-        exchange: current.exchange.trim() || undefined,
+        exchange: market || undefined,
       });
       setReport(data);
     } catch (nextError) {
@@ -211,10 +230,28 @@ export function ReportView() {
 
   useEffect(() => {
     void loadReport(DEFAULT_FORM);
-  }, [loadReport]);
+    void loadMarkets(DEFAULT_FORM);
+  }, [loadReport, loadMarkets]);
 
   const updateField = (key: keyof ReportFormState) => (event: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }));
+
+  // 生成报告：重新加载市场清单（随 broker/algo/symbol 变化）与当前市场报告
+  const handleGenerate = useCallback(() => {
+    void loadMarkets(form);
+    void loadReport(form, activeMarket);
+  }, [form, activeMarket, loadMarkets, loadReport]);
+
+  // 分市场标签页：切换市场 → 按该 Exchange 重新加载报告（市场清单保持不变）
+  const handleMarketChange = useCallback((market: string) => {
+    setActiveMarket(market);
+    void loadReport(form, market);
+  }, [form, loadReport]);
+
+  // 市场标签列表（含全部）
+  const marketTabs = useMemo(() => {
+    return [{ exchange: '', label: '全部' }, ...markets.map((m) => ({ exchange: m.exchange, label: m.exchange }))];
+  }, [markets]);
 
   // 006: 本地阈值规则 → 导出端点 thresholds 参数（与后端 DEFAULT_THRESHOLDS 契约对齐）
   const handleExportHtml = useCallback(async () => {
@@ -236,7 +273,7 @@ export function ReportView() {
         broker: form.broker.trim() || undefined,
         algo: form.algo.trim() || undefined,
         symbol: form.symbol.trim() || undefined,
-        exchange: form.exchange.trim() || undefined,
+        exchange: activeMarket || undefined,
         thresholds,
       });
     } catch (nextError) {
@@ -244,7 +281,7 @@ export function ReportView() {
     } finally {
       setIsExporting(false);
     }
-  }, [form]);
+  }, [form, activeMarket]);
 
   return (
     <div className="space-y-4">
@@ -262,13 +299,13 @@ export function ReportView() {
               </SelectContent>
             </Select>
           </div>
-          {(['broker', 'algo', 'symbol', 'exchange'] as const).map((key) => (
+          {(['broker', 'algo', 'symbol'] as const).map((key) => (
             <div key={key} className="space-y-1">
               <Label className="text-xs capitalize">{key}</Label>
               <Input className="w-32" value={form[key]} onChange={updateField(key)} placeholder="全部" />
             </div>
           ))}
-          <Button onClick={() => void loadReport(form)} disabled={isLoading}>
+          <Button onClick={() => void handleGenerate()} disabled={isLoading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             生成报告
           </Button>
@@ -278,6 +315,23 @@ export function ReportView() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* 分市场标签页：全部 + 各市场（后端 markets 清单驱动） */}
+      {marketTabs.length > 1 && (
+        <Card>
+          <CardContent className="p-3">
+            <Tabs value={activeMarket} onValueChange={handleMarketChange}>
+              <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/60 p-1">
+                {marketTabs.map((tab) => (
+                  <TabsTrigger key={tab.exchange} value={tab.exchange} className="data-[state=active]:bg-background">
+                    {tab.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <Alert variant="destructive">

@@ -35,7 +35,6 @@ export function UpdateControl({ onTrigger, status, pending }: UpdateControlProps
   }, [active]);
   const stalled = useMemo(
     () => (tick >= 0 ? computeStalled(status) : false),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [status, tick],
   );
   const overall = Math.max(0, Math.min(100, status?.overall_progress ?? 0));

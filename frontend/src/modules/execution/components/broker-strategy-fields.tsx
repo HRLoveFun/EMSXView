@@ -50,6 +50,8 @@ export interface UseStrategyFieldsResult {
  *  are present, the hook fetches the field metadata via
  *  `cachedApiService.getBrokerStrategyInfo` and seeds editable state.
  */
+// 与组件同文件导出 hook 会牺牲 fast refresh，属可接受取舍
+// eslint-disable-next-line react-refresh/only-export-components
 export function useStrategyFields(
   broker: string,
   strategy: string,

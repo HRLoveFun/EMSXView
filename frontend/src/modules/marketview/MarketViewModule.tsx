@@ -4,12 +4,11 @@ import { Activity, AlertTriangle, ArrowUpDown, Gauge } from 'lucide-react';
 import { buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
 import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
 import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
-import { fmtNumber, fmtCompact, fmtPercent, getSeverityTone, getSeverityText, renderSeverityBadge } from './marketview-utils';
+import { fmtNumber, fmtCompact, fmtPercent, getSeverityText, renderSeverityBadge } from './marketview-utils';
 import { IntradayFeaturePanel } from './intraday-feature-panel';
 import type {
   IntradayBucketMinutes,
   IntradayFeatureSnapshot,
-  MarketAlertSeverity,
   MarketSnapshotPayload,
   MarketSnapshotRequest,
 } from './types';
@@ -107,19 +106,7 @@ export default function MarketViewModule() {
     return () => {
       cancelled = true;
     };
-  }, [
-    query.limit,
-    query.pool_id,
-    query.min_adv_20d,
-    query.min_total_volume,
-    query.min_daily_volatility,
-    query.min_intraday_volatility,
-    query.liquidity_alert,
-    query.volatility_alert,
-    query.sort_by,
-    query.sort_direction,
-    query.trade_date,
-  ]);
+  }, [query]);
 
   useEffect(() => {
     if (!snapshot) {
