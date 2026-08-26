@@ -83,10 +83,14 @@ const DEFAULT_EXPORTS: ExportDefaults = {
   pdfIncludeCharts: false,
 };
 
+/** 默认 Report 交易所范围：空数组表示包含全部市场 */
+const DEFAULT_REPORT_EXCHANGES: string[] = [];
+
 export function createDefaultCostViewConfig(): CostViewConfig {
   return {
     rules: structuredClone(DEFAULT_RULES),
     exportDefaults: { ...DEFAULT_EXPORTS },
+    reportExchanges: [...DEFAULT_REPORT_EXCHANGES],
     updatedAt: new Date().toISOString(),
   };
 }

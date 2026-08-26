@@ -230,19 +230,30 @@ export async function fetchMetricCoverage(
 }
 
 export interface ReportSummaryQuery extends MonitoringQuery {
-  broker?: string;
-  algo?: string;
-  symbol?: string;
-  exchange?: string;
+  broker?: string | string[];
+  algo?: string | string[];
+  symbol?: string | string[];
+  exchange?: string | string[];
   metrics?: string[];
+}
+
+/** 将单值/数组筛选参数序列化为逗号分隔串 */
+function joinFilter(value: string | string[] | undefined): string | undefined {
+  if (!value) return undefined;
+  if (Array.isArray(value)) return value.filter(Boolean).join(',') || undefined;
+  return value;
 }
 
 export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<TcaReportSummary> {
   const extra: Record<string, string> = {};
-  if (query.broker) extra.broker = query.broker;
-  if (query.algo) extra.algo = query.algo;
-  if (query.symbol) extra.symbol = query.symbol;
-  if (query.exchange) extra.exchange = query.exchange;
+  const broker = joinFilter(query.broker);
+  const algo = joinFilter(query.algo);
+  const symbol = joinFilter(query.symbol);
+  const exchange = joinFilter(query.exchange);
+  if (broker) extra.broker = broker;
+  if (algo) extra.algo = algo;
+  if (symbol) extra.symbol = symbol;
+  if (exchange) extra.exchange = exchange;
   if (query.metrics?.length) extra.metrics = query.metrics.join(',');
   return fetchMonitoringJson<TcaReportSummary>(
     buildMonitoringUrl('/api/tca/monitoring/report-summary', query, extra),
@@ -258,10 +269,10 @@ export interface ExportHtmlThresholdPayload {
 }
 
 export interface ExportHtmlQuery extends MonitoringQuery {
-  broker?: string;
-  algo?: string;
-  symbol?: string;
-  exchange?: string;
+  broker?: string | string[];
+  algo?: string | string[];
+  symbol?: string | string[];
+  exchange?: string | string[];
   thresholds?: Record<string, ExportHtmlThresholdPayload>;
 }
 
@@ -275,8 +286,8 @@ export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
     params.set('last', query.last);
   }
   for (const [key, value] of Object.entries({
-    broker: query.broker, algo: query.algo,
-    symbol: query.symbol, exchange: query.exchange,
+    broker: joinFilter(query.broker), algo: joinFilter(query.algo),
+    symbol: joinFilter(query.symbol), exchange: joinFilter(query.exchange),
   })) {
     if (value) params.set(key, value);
   }

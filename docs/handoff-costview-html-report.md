@@ -96,6 +96,13 @@ CostView Report 页已有"导出 HTML 报告"按钮 → `GET /api/tca/monitoring
   切换标签 → 按 Exchange 重载报告；导出 HTML 时自动携带当前市场。
 - 测试：后端 `test_monitoring.py` 新增 markets 4 用例；前端 monitoring-view 新增标签页 2 用例。
 
+### HTML 分市场标签页（radio 驱动，修复虚假跳转）
+- `tca_report_html.py::_render_market_tabs`：从 CSS `:target` 锚点方案改为 **radio 驱动的纯 CSS 标签页**
+  （`input:checked + label` 高亮 + `:checked ~ .mk-panel` 显示面板）。
+- 修复 `:target` 的"虚假跳转"：早期方案点击标签产生页面锚点跳转（滚动跳动），且首次加载不显示任何面板；
+  radio 方案默认选中「全部」、切换无滚动跳转，零 JS 保持离线自包含。
+- 面板序号约定：panel 1 = 全部，市场 i → `nth-of-type(i+2)`。
+
 ### 执行方排行 SVG 宽度自适应
 - `tca_report_html.py::_svg_hbar`：`width` 从固定 `780` 改为 `100%` + `preserveAspectRatio`
   （与分布与走势图 `_svg_wrap` 一致），排行图不再溢出面板。

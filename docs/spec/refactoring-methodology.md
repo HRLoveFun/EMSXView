@@ -1,4 +1,10 @@
-系统性安全重构框架
+# 系统性安全重构框架（Refactoring Methodology）
+
+> 跨特性可复用规范 —— 任何重构（数据改造 / 优化 / 模块重构）执行前必读
+> 关联：`docs/spec/plan-design-principles.md`（★ 计划设计原则 G0-G3）、`docs/spec/anti-patterns.md`（★ 禁止模式）
+> Last updated: 2026-08-26
+
+---
 
 ### 一、方案总览与核心原则
 

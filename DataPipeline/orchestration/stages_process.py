@@ -12,17 +12,25 @@ import gc
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pandas as pd
 
 from DataPipeline.config import Config
 from DataPipeline.storage.connection import AccessTier
 from DataPipeline.processing.tca_route_metrics import compute_route_metrics_for_date, load_raw_bdib_for_date
+from DataPipeline.storage.repositories.bdib_fetch_history import (
+    SqliteBdibFetchHistoryRepository,
+    compute_bdib_data_hash,
+)
 
 
 from .base import BaseStage, _to_iso_safe
 from .context import PipelineContext
+
+if TYPE_CHECKING:
+    # 仅类型标注用：fx_rates 汇率表仓储（fx-rate-persistence）
+    from DataPipeline.storage.repositories.fx_rates import SqliteFxRatesRepository
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,72 @@ def _load_daily_summary_for_metrics(
     end = (base + timedelta(days=10)).strftime(Config.DATE_FORMAT)
     df = reader.get_daily_summary_for_date_range(start, end, equ_tickers)
     return df if df is not None and not df.empty else None
+
+
+def _enrich_fills_with_fx_rate(
+    cm, processed_fills_df: pd.DataFrame, date_str: str,
+) -> pd.DataFrame:
+    """从 fill_bdib 回填 processed_fills 的 fx_rate（007-costview-report-filters）。
+
+    processed_fills 本身不拉取 FX（S2 无 Bloomberg 依赖）；fx_rate 在 S5
+    fill_bdib 集成时才有。此处按 (OrderId, RouteId, mkt_timestamp) 连接 fill_bdib，
+    把 fill 级 fx_rate 合并回 processed_fills（缺失保持 None），并写回
+    processed_fills 表持久化（方案 B：processed_fills 加列）。
+
+    Returns:
+        已附加 fx_rate 列的 processed_fills 副本（原 df 不变）。
+    """
+    if processed_fills_df.empty or "fx_rate" in processed_fills_df.columns and processed_fills_df["fx_rate"].notna().all():
+        return processed_fills_df
+
+    from DataPipeline.storage.repositories.integrated import SqliteIntegratedReadRepository
+
+    try:
+        fb = SqliteIntegratedReadRepository(cm).get_integrated_data_for_date(date_str)
+    except Exception as exc:
+        logger.warning("  RouteMetrics %s: 加载 fill_bdib 失败，fx_rate 跳过: %s", date_str, exc)
+        return processed_fills_df
+
+    if fb.empty or "fx_rate" not in fb.columns:
+        return processed_fills_df
+
+    fx = fb[["OrderId", "RouteId", "mkt_timestamp", "fx_rate"]].dropna(subset=["fx_rate"])
+    if fx.empty:
+        return processed_fills_df
+
+    df = processed_fills_df.copy()
+    for col in ("OrderId", "RouteId", "mkt_timestamp"):
+        df[col] = df[col].astype(str)
+        fx[col] = fx[col].astype(str)
+    df = df.merge(
+        fx, on=["OrderId", "RouteId", "mkt_timestamp"], how="left",
+        suffixes=("", "_fb"),
+    )
+    if "fx_rate_fb" in df.columns:
+        df["fx_rate"] = df["fx_rate_fb"]
+        df = df.drop(columns=["fx_rate_fb"])
+
+    # 持久化回 processed_fills（方案 B）
+    try:
+        from DataPipeline.storage.repositories.fills import SqliteFillWriteRepository
+        cols_to_write = [c for c in df.columns if c in PROCESSED_COLUMNS_FX]
+        if "fx_rate" in df.columns:
+            SqliteFillWriteRepository(cm).upsert_processed_fills(df[cols_to_write])
+    except Exception as exc:
+        logger.warning("  RouteMetrics %s: fx_rate 写回 processed_fills 失败: %s", date_str, exc)
+
+    return df
+
+
+#: processed_fills 列（供 fx_rate 写回时过滤）
+PROCESSED_COLUMNS_FX: List[str] = [
+    "FillId", "OrderId", "RouteId", "mkt_timestamp",
+    "order_as_of_date", "local_fill_datetime", "exchange_exec_time",
+    "route_as_of_time", "DateTimeOfFill", "Broker", "StrategyType",
+    "algo", "TraderName", "Exchange", "Amount", "RouteShares",
+    "is_closing_auction", "ExecType", "region", "equ_ticker",
+    "FillPrice", "FillShares", "fx_rate",
+]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -84,6 +158,27 @@ class IntegrateBDIBStage(BaseStage):
             current += timedelta(days=1)
         return dates
 
+    @staticmethod
+    def _init_fx_repo(cm) -> Optional["SqliteFxRatesRepository"]:
+        """构造 fx_rates 仓储并确保表存在（fx-rate-persistence）。
+
+        初始化失败时降级为 None（fx_fetcher 退化为无持久化拉取，不阻断 S5）。
+        """
+        from DataPipeline.storage.repositories.fx_rates import SqliteFxRatesRepository
+        from DataPipeline.storage.schema.inline_ddl import init_fx_rates_schema
+
+        try:
+            repo = SqliteFxRatesRepository(connection_manager=cm)
+            conn = repo._get_admin_conn()
+            try:
+                init_fx_rates_schema(conn)
+            finally:
+                conn.close()
+            return repo
+        except Exception as exc:
+            logger.warning("fx_rates 仓储初始化失败，退化为无持久化 FX 拉取: %s", exc)
+            return None
+
     def process(self, context: PipelineContext) -> bool:
         try:
             from DataPipeline.acquisition.bdib_fetcher import fetch_bdib_for_fills
@@ -100,6 +195,16 @@ class IntegrateBDIBStage(BaseStage):
         market_write = SqliteMarketDataWriteRepository(connection_manager=cm) if cm else context.db.market_data_write
         fills_reader = context.db.fills_read
         fills_writer = context.db.fills_write
+        # fx-rate-persistence: fx_rates 汇率表仓储（查表优先/成功落表/有界回退）
+        fx_repo = self._init_fx_repo(cm)
+        # BDIB 拉取历史审计（对齐 fill_fetch_history）：初始化失败仅告警，不阻断 S5
+        bdib_history_repo = None
+        try:
+            bdib_history_repo = SqliteBdibFetchHistoryRepository(
+                connection_manager=cm
+            ) if cm else None
+        except Exception as exc:
+            logger.warning("bdib_fetch_history 仓储初始化失败，审计记录不可用: %s", exc)
 
         latest_safe_bdib_date = self._get_latest_safe_bdib_date()
         latest_safe_bdib_str = latest_safe_bdib_date.strftime("%Y%m%d")
@@ -240,6 +345,7 @@ class IntegrateBDIBStage(BaseStage):
 
                 # ── Phase A+B: BDIB 拉取 + 写入 (仅当需要时) ──
                 if need_bdib_fetch:
+                    fetched_tickers: set[str] = set()
                     for chunk_i in range(0, len(all_tickers), ticker_chunk_size):
                         chunk_tickers = all_tickers[chunk_i:chunk_i + ticker_chunk_size]
                         chunk_ticker_dates = {t: [date_str] for t in chunk_tickers}
@@ -247,6 +353,9 @@ class IntegrateBDIBStage(BaseStage):
                             chunk_map = fetch_bdib_for_fills(chunk_ticker_dates, interval=10, ticker_exchange_map=ticker_exchange_map_all)
                             if not chunk_map:
                                 continue
+                            fetched_tickers.update(
+                                k.split("|")[0] for k in chunk_map
+                            )
                             chunk_dfs = [df for key, df in chunk_map.items() if key.endswith(f"|{date_str}")]
                             if not chunk_dfs:
                                 continue
@@ -267,6 +376,23 @@ class IntegrateBDIBStage(BaseStage):
                         except Exception as chunk_err:
                             failed_chunks += 1
                             logger.warning("  BDIB chunk %d error for %s: %s", chunk_i, date_str, chunk_err)
+                    # ── BDIB 拉取历史审计（对齐 fill_fetch_history）──
+                    # 仅在本次确实向 Bloomberg 发起拉取并成功写入时记录
+                    if date_raw_rows > 0 and bdib_history_repo is not None:
+                        try:
+                            bdib_history_repo.record_fetch(
+                                source_date=date_str,
+                                data_hash=compute_bdib_data_hash(
+                                    fetched_tickers, date_raw_rows
+                                ),
+                                row_count=date_raw_rows,
+                                ticker_count=len(fetched_tickers),
+                            )
+                        except Exception as hist_err:
+                            logger.warning(
+                                "  BDIB %s: 拉取历史记录失败（不影响数据）: %s",
+                                date_str, hist_err,
+                            )
 
                 # ── 回补路径: BDIB 拉取跳过时, 从 raw_bdib 加载已有数据 ──
                 # Phase A8 后 processed_raw_bdib 已退役，直接从 raw_bdib 读取
@@ -323,10 +449,12 @@ class IntegrateBDIBStage(BaseStage):
                     continue
 
                 # ── Phase FX: Fetch FX rates for this date ──
+                # fx-rate-persistence: 注入 fx_repo —— 查表优先（命中零配额消耗）、
+                # miss 才拉 Bloomberg、成功即落表、失败/暂停按表内 ≤目标日期 回退
                 from DataPipeline.acquisition.fx_fetcher import fetch_fx_rates_for_date, fx_rates_to_dataframe
                 ccy_tickers = agg_df["ccy_ticker"].dropna().unique().tolist() if "ccy_ticker" in agg_df.columns else []
                 if ccy_tickers:
-                    fx_dict = fetch_fx_rates_for_date(ccy_tickers, date_str)
+                    fx_dict = fetch_fx_rates_for_date(ccy_tickers, date_str, fx_repo=fx_repo)
                     fx_rates = fx_rates_to_dataframe(fx_dict, date_str)
                     logger.info("Fetched FX rates for %s: %d ccy_tickers", date_str, len(fx_rates))
                 else:
@@ -440,6 +568,14 @@ class ComputeRouteMetricsStage(BaseStage):
                 if processed_fills_df.empty or raw_fills_df.empty:
                     logger.info("  RouteMetrics %s: no fills, skipping", date_str)
                     continue
+
+                # 007: 从 fill_bdib 回填 processed_fills 的 fx_rate（方案 B）
+                try:
+                    processed_fills_df = _enrich_fills_with_fx_rate(
+                        cm, processed_fills_df, date_str,
+                    )
+                except Exception as exc:
+                    logger.warning("  RouteMetrics %s: fx_rate 回填失败，继续: %s", date_str, exc)
 
                 equ_tickers = processed_fills_df["equ_ticker"].dropna().unique().tolist() if "equ_ticker" in processed_fills_df.columns else []
                 raw_bdib_df = load_raw_bdib_for_date(date_str, equ_tickers=equ_tickers)

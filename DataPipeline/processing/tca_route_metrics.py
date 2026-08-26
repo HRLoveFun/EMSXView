@@ -48,6 +48,8 @@ _OUTPUT_COLUMNS = [
     "order_duration_sec", "exec_rate_shares_per_min",
     "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
     "perm_impact_bps", "recovery_truncated",
+    # 007-costview-report-filters: 路由级 USD 汇率（fill 量加权，成交金额换算）
+    "fx_rate",
 ]
 
 
@@ -305,6 +307,9 @@ def _compute_route_metrics(
     result["p_avg"] = _weighted_average(fills, "FillPrice", "FillShares")
     result["p_avg_continuous"] = _weighted_average(continuous_fills, "FillPrice", "FillShares")
 
+    # 007-costview-report-filters: 路由级 fx_rate（fill 量加权，USD per 1 单位本币）
+    result["fx_rate"] = _weighted_average(fills, "fx_rate", "FillShares")
+
     side = str(route.get("Side") or "").strip().upper()
     side_sign = _pnl_side_sign(side)
 
@@ -440,12 +445,14 @@ def _prepare_fills(fills: pd.DataFrame) -> pd.DataFrame:
         .fillna(0)
         .astype(int)
     )
+    if "fx_rate" in fills.columns:
+        fills["fx_rate"] = pd.to_numeric(fills["fx_rate"], errors="coerce")
     return fills
 
 
 def _weighted_average(df: pd.DataFrame, value_col: str, weight_col: str) -> Optional[float]:
     """计算加权平均值。"""
-    if df.empty:
+    if df.empty or value_col not in df.columns or weight_col not in df.columns:
         return None
     values = pd.to_numeric(df[value_col], errors="coerce")
     weights = pd.to_numeric(df[weight_col], errors="coerce")

@@ -60,6 +60,7 @@ Examples:
 - fill cleaning and processing pipeline
 - BDIB bar acquisition and storage
 - daily summary metrics computation
+- FX rate persistence（`fill_bdib.db` 的 `fx_rates` 表，币种 × 交易日汇率唯一真相源；S5 查表优先、成功拉取落表、失败/暂停按 ≤目标日期 有界回退；仓储 `storage/repositories/fx_rates.py`，回填脚本 `scripts/ops/backfill_fx_rates.py`）
 - pipeline orchestration and migration management
 - data quality monitoring
 

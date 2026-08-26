@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DatabaseSummary, IntegrityIssue } from '../types';
 import { fetchIntegrity, fetchSummary } from '../services/api';
-import { DateCoverageHeatmap } from './DateCoverageHeatmap';
+import { DateCoverageTable } from './DateCoverageTable';
 import { IntegrityBanner } from './IntegrityBanner';
 import { SchemaSamplePanel } from './SchemaSamplePanel';
 import { formatBytes, formatRowCount, normalizeTradeDate } from '../lib/format';
@@ -111,11 +111,13 @@ export function DatabaseDetailDrawer({ dbKey }: DatabaseDetailDrawerProps) {
                   </span>
                   <span className="mx-1">→</span>
                   <span className="font-mono">{normalizeTradeDate(table.latest_trade_date) ?? '—'}</span>
-                  <span className="ml-1">({table.distinct_trade_dates} days)</span>
+                  {table.distinct_trade_dates > 0 && (
+                    <span className="ml-1">({table.distinct_trade_dates} days)</span>
+                  )}
                 </div>
               </div>
               {table.per_date_counts.length > 0 ? (
-                <DateCoverageHeatmap counts={table.per_date_counts} />
+                <DateCoverageTable counts={table.per_date_counts} />
               ) : (
                 <div className="text-xs text-muted-foreground">No per-date coverage (table has no indexed date column).</div>
               )}

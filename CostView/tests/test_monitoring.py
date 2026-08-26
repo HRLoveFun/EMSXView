@@ -21,11 +21,13 @@ from CostView.src.monitoring import (
     MetricCoverageService,
     TcaReportAggregator,
     fetch_latest_tca_date,
+    get_filter_options,
+    refresh_dim_values,
     resolve_time_range,
     validate_metrics,
 )
 from CostView.src.monitoring.metric_coverage import COMPUTED_METRICS
-from DataPipeline.storage.connection import ConnectionManager
+from DataPipeline.storage.connection import AccessTier, ConnectionManager
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -340,6 +342,179 @@ class TestTcaReportAggregator:
         )
         assert report["kpi"]["route_count"] == 2
 
+    def test_multivalue_filters(self, mgr: ConnectionManager):
+        """逗号分隔多值 → IN 匹配（007 前端多选）。"""
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", exchange="US,HK",
+        )
+        assert report["kpi"]["route_count"] == 3
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", broker="BROKERA,BROKERB",
+        )
+        assert report["kpi"]["route_count"] == 3
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", algo="VWAP,TWAP",
+        )
+        assert report["kpi"]["route_count"] == 3
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", broker="BROKERA,BROKERB", exchange="HK",
+        )
+        assert report["kpi"]["route_count"] == 1
+
+    def test_kpi_notional(self, mgr: ConnectionManager):
+        """总成交金额：notional（本币）+ notional_usd + fx_coverage（007）。
+
+        fixture 无 fx_rate 列 → notional_usd/fx_coverage 为 None（向后兼容）。
+        """
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        kpi = report["kpi"]
+        # O1(900×150) + O2(900×150) + O3(900×150) = 405000；O2 fill=900? 见 _insert_route 默认 fill=900
+        assert kpi["notional"] == pytest.approx(3 * 900.0 * 150.0)
+        assert kpi["notional_usd"] is None  # 无 fx_rate 列
+        assert kpi["fx_coverage"] is None
+
+    def test_kpi_notional_usd(self, tmp_path: Path):
+        """含 fx_rate 列时计算 USD notional 与 fx 覆盖率（007）。"""
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        # 两条：JP(JPY, fx_rate=0.006) + US(USD, fx_rate=1.0)
+        _insert_route(conn, "JP1", "20260803", Exchange="JP", Currency="JPY",
+                      fill=1000.0, p_avg=1000.0, fx_rate=0.006)
+        _insert_route(conn, "US1", "20260803", Exchange="US", Currency="USD",
+                      fill=1000.0, p_avg=100.0, fx_rate=1.0)
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
+        kpi = report["kpi"]
+        # notional 本币 = 1000×1000 + 1000×100 = 1,100,000
+        assert kpi["notional"] == pytest.approx(1_100_000.0)
+        # notional_usd = 1000×1000×0.006 + 1000×100×1.0 = 6000 + 100000 = 106000
+        assert kpi["notional_usd"] == pytest.approx(106_000.0)
+        # fx_coverage：仅 1 条非 1.0（JPY）→ 1/2 = 0.5
+        assert kpi["fx_coverage"] == pytest.approx(0.5)
+
+    def test_kpi_notional_usd_minor_unit(self, tmp_path: Path):
+        """小计价单位货币（GBp/ILs/ZAr）USD 成交金额 ÷100（008）。
+
+        本币 notional 不做修正；仅 USD 换算时对 GBp/ILs/ZAr 乘 0.01。
+        """
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        # GBp：1000×100×1.30×0.01 = 1300；ILs：1000×100×0.28×0.01 = 280
+        # ZAr：1000×100×0.055×0.01 = 55；USD：1000×100×1.0 = 100000（不修正）
+        _insert_route(conn, "G1", "20260803", Exchange="LN", Currency="GBp",
+                      fill=1000.0, p_avg=100.0, fx_rate=1.30)
+        _insert_route(conn, "I1", "20260803", Exchange="IT", Currency="ILs",
+                      fill=1000.0, p_avg=100.0, fx_rate=0.28)
+        _insert_route(conn, "Z1", "20260803", Exchange="SJ", Currency="ZAr",
+                      fill=1000.0, p_avg=100.0, fx_rate=0.055)
+        _insert_route(conn, "U1", "20260803", Exchange="US", Currency="USD",
+                      fill=1000.0, p_avg=100.0, fx_rate=1.0)
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
+        kpi = report["kpi"]
+        # notional_usd = 1300 + 280 + 55 + 100000 = 101635
+        assert kpi["notional_usd"] == pytest.approx(101_635.0)
+        # 本币 notional 不做 ÷100 修正：1000×100×4 = 400000
+        assert kpi["notional"] == pytest.approx(400_000.0)
+
+    def test_kpi_notional_usd_non_usd_missing_fx_returns_none(self, tmp_path: Path):
+        """非 USD 币种 fx_rate 缺失时 notional_usd 返回 NULL（不按 1.0 兜底）。
+
+        KS 市场根因回归：KRW 本币金额若被当作 USD 会虚高 3 个数量级
+        （16.74B vs 真实 12M）。任意非 USD 行缺汇率 → 整组 notional_usd 为 None，
+        报告侧展示 "-" 并提示 fx_rate 覆盖率，而非给出失真数值。
+        """
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        # KS(KRW, fx_rate=NULL) + US(USD, fx_rate=1.0)：KRW 缺汇率 → 整组 NULL
+        _insert_route(conn, "K1", "20260803", Exchange="KS", Currency="KRW",
+                      fill=1000.0, p_avg=1000.0, fx_rate=None)
+        _insert_route(conn, "U1", "20260803", Exchange="US", Currency="USD",
+                      fill=1000.0, p_avg=100.0, fx_rate=1.0)
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
+        kpi = report["kpi"]
+        # 本币 notional 不受影响
+        assert kpi["notional"] == pytest.approx(1000 * 1000.0 + 1000 * 100.0)
+        # KRW 缺汇率 → notional_usd 为 None（而非 KRW×1.0 的虚高值）
+        assert kpi["notional_usd"] is None
+        # fx_coverage：仅 1 条非 1.0 缺汇率？KRW fx_rate=NULL 不计入 → 0/2 = 0.0
+        assert kpi["fx_coverage"] == pytest.approx(0.0)
+
+    def test_kpi_notional_usd_usd_missing_fx_defaults_one(self, tmp_path: Path):
+        """USD/未知币种 fx_rate 缺失时仍按 1.0 兜底（USD 无需换算）。"""
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        _insert_route(conn, "U1", "20260803", Exchange="US", Currency="USD",
+                      fill=1000.0, p_avg=100.0, fx_rate=None)
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
+        kpi = report["kpi"]
+        # USD 缺汇率 → 1.0 兜底，notional_usd = 本币
+        assert kpi["notional_usd"] == pytest.approx(100_000.0)
+
+    def test_market_ranking_non_usd_missing_fx_falls_back_notional(self, tmp_path: Path):
+        """有 fx_rate 列但非 USD 缺汇率时，市场排名排序回退到本币 notional。"""
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        # KS(KRW, fx_rate=NULL, 本币大) + US(USD, fx_rate=1.0, 本币小)
+        _insert_route(conn, "K1", "20260803", Exchange="KS", Currency="KRW",
+                      fill=1000.0, p_avg=1000.0, fx_rate=None)
+        _insert_route(conn, "U1", "20260803", Exchange="US", Currency="USD",
+                      fill=1000.0, p_avg=100.0, fx_rate=1.0)
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
+        ranking = report["market_notional_ranking"]
+        # KS 本币成交额更大；notional_usd 因缺汇率排序回退本币 → KS 排第一
+        assert [r["exchange"] for r in ranking] == ["KS", "US"]
+        assert ranking[0]["notional_usd"] is None
+        assert ranking[1]["notional_usd"] == pytest.approx(100_000.0)
+
     def test_markets_listed(self, mgr: ConnectionManager):
         """markets 清单列出全部市场（忽略 exchange 过滤），按 route 数降序。"""
         report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
@@ -364,6 +539,41 @@ class TestTcaReportAggregator:
         )
         exchanges = {m["exchange"] for m in report["markets"]}
         assert exchanges == {"HK"}
+
+    def test_market_notional_ranking(self, mgr: ConnectionManager):
+        """按市场成交金额排名：成交额降序 + 中文名（fixture 无 fx_rate → USD 为 None）。"""
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        ranking = report["market_notional_ranking"]
+        exchanges = [r["exchange"] for r in ranking]
+        assert exchanges == ["US", "HK"]  # US(2 条) 成交额 > HK(1 条)
+        assert ranking[0]["name"] == "美国"
+        assert ranking[1]["name"] == "香港"
+        # 每条含 route 数与成交金额
+        assert ranking[0]["route_count"] == 2
+        assert ranking[0]["notional"] == pytest.approx(2 * 900.0 * 150.0)
+        assert ranking[0]["notional_usd"] is None  # 无 fx_rate 列 → USD 不换算
+
+    def test_market_notional_trend(self, mgr: ConnectionManager):
+        """按市场成交金额每日趋势：date × exchange。"""
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        trend = report["market_notional_trend"]
+        # 3 条路由：US(20260803, 20260804) + HK(20260803)
+        assert len(trend) == 3
+        assert {p["date"] for p in trend} == {"20260803", "20260804"}
+        assert {p["exchange"] for p in trend} == {"US", "HK"}
+        assert all(p["name"] in ("美国", "香港") for p in trend)
+        # 无 fx_rate 列 → notional_usd 为 None（前端空态兜底）
+        assert all(p["notional_usd"] is None for p in trend)
+
+    def test_market_notional_respects_filters(self, mgr: ConnectionManager):
+        """排名/趋势均尊重 broker 过滤（仅含该 broker 的市场）。"""
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", broker="BROKERB",
+        )
+        ranking = report["market_notional_ranking"]
+        assert [r["exchange"] for r in ranking] == ["HK"]
+        trend = report["market_notional_trend"]
+        assert {p["exchange"] for p in trend} == {"HK"}
 
     def test_metric_coverage_embedded(self, mgr: ConnectionManager):
         report = TcaReportAggregator(mgr).build_report(
@@ -417,6 +627,100 @@ class TestTcaReportAggregator:
         report = TcaReportAggregator(empty_mgr).build_report("20260803", "20260804")
         assert report["anomaly"]["count"] == 0
         assert report["anomaly"]["rows"] == []
+
+
+# ── report_dims（筛选维度持久化列表）────────────────────────────────────────
+
+class TestReportDims:
+    def test_refresh_builds_dims(self, mgr: ConnectionManager):
+        """全量抽取：四类维度值 + 水位 + 累计次数。"""
+        result = refresh_dim_values(mgr)
+        assert result["refreshed"] is True
+        assert result["watermark"] == "20260804"
+        options = get_filter_options(mgr)
+        assert set(options["exchanges"]) == {"US", "HK"}
+        assert set(options["brokers"]) == {"BROKERA", "BROKERB"}
+        assert set(options["algos"]) == {"VWAP", "TWAP"}
+        assert set(options["symbols"]) == {"AAPL US Equity", "0700 HK Equity"}
+
+    def test_refresh_incremental_adds_new(self, mgr: ConnectionManager):
+        """增量刷新：仅扫描新日期，存量次数累加、新值首见日期正确。"""
+        refresh_dim_values(mgr)
+        # 追加新交易日 + 新 broker（模拟日更新增数据）
+        conn = mgr.get_connection("fill_bdib", AccessTier.WRITE)
+        try:
+            _insert_route(conn, "O4", "20260805", Broker="BROKERC")
+            conn.commit()
+        finally:
+            conn.close()
+        result = refresh_dim_values(mgr)
+        assert result["watermark"] == "20260805"
+        options = get_filter_options(mgr)
+        assert set(options["brokers"]) == {"BROKERA", "BROKERB", "BROKERC"}
+        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+        try:
+            # BROKERA 出现在 O1/O3 两天，次数累加为 2
+            row = conn.execute(
+                "SELECT occurrences FROM tca_report_dims "
+                "WHERE dim_type='broker' AND value='BROKERA'",
+            ).fetchone()
+            assert row[0] == 2
+            # 新值 BROKERC 首见/末见日期均为新日期
+            row = conn.execute(
+                "SELECT first_seen_date, last_seen_date FROM tca_report_dims "
+                "WHERE dim_type='broker' AND value='BROKERC'",
+            ).fetchone()
+            assert (row[0], row[1]) == ("20260805", "20260805")
+        finally:
+            conn.close()
+
+    def test_refresh_full_rebuild(self, mgr: ConnectionManager):
+        """full=True 清空重建：源表已删除的值从维度表移除。"""
+        refresh_dim_values(mgr)
+        # 删除 O2（唯一 HK 路由），模拟历史数据回填/清理
+        admin = mgr.get_admin_connection("fill_bdib")
+        try:
+            admin.execute("DELETE FROM tca_route_summary WHERE OrderId='O2'")
+            admin.commit()
+        finally:
+            admin.close()
+        refresh_dim_values(mgr, full=True)
+        options = get_filter_options(mgr)
+        assert "HK" not in options["exchanges"]
+        assert "0700 HK Equity" not in options["symbols"]
+        assert "BROKERB" not in options["brokers"]
+
+    def test_filter_options_from_dims(self, mgr: ConnectionManager):
+        """刷新后 build_report 的 filter_options 来自维度表（时间无关，含 exchanges）。"""
+        refresh_dim_values(mgr)
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        options = report["filter_options"]
+        assert set(options["brokers"]) == {"BROKERA", "BROKERB"}
+        assert set(options["exchanges"]) == {"US", "HK"}
+        # 时间范围只影响报告主体，选项覆盖全量日期（BROKERB 仅在范围外日期出现）
+        assert "BROKERB" in options["brokers"]
+
+    def test_filter_options_fallback(self, mgr: ConnectionManager):
+        """维度表未初始化时回退原时间范围查询，仍返回 exchanges。"""
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        options = report["filter_options"]
+        assert set(options["brokers"]) == {"BROKERA", "BROKERB"}
+        assert set(options["exchanges"]) == {"US", "HK"}
+
+    def test_get_filter_options_unavailable(self, tmp_path: Path):
+        """源库无表时 get_filter_options 返回 None（调用方回退空列表）。"""
+        empty_mgr = ConnectionManager(path_overrides={
+            "fill_bdib": tmp_path / "fill_bdib.db",
+        })
+        assert get_filter_options(empty_mgr) is None
+
+    def test_refresh_skips_missing_source(self, tmp_path: Path):
+        """源表不存在时刷新不抛异常，返回 refreshed=False。"""
+        empty_mgr = ConnectionManager(path_overrides={
+            "fill_bdib": tmp_path / "fill_bdib.db",
+        })
+        result = refresh_dim_values(empty_mgr)
+        assert result["refreshed"] is False
 
 
 # ── monitoring router ─────────────────────────────────────────────────────
@@ -501,6 +805,32 @@ class TestMonitoringRouter:
         assert "口径" in body          # 口径脚注
         assert "市场冲击分解" in body   # S4
         assert "异常路由明细" in body   # S6
+
+    def test_export_html_market_tabs_radio(self, client):
+        """分市场标签页为 radio 驱动（无 :target 锚点跳转），默认展示全部。"""
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20260803", "end_date": "20260804",
+        })
+        body = resp.text
+        # radio 标签页结构（不是 :target 锚点）
+        assert 'id="mk-all" checked' in body
+        assert 'id="mk-US"' in body
+        assert 'id="mk-HK"' in body
+        # 不再使用 :target 锚点方案（避免虚假跳转）
+        assert 'href="#mk-' not in body
+        assert 'tab-panel:target' not in body
+        # 面板显示规则存在（radio 选中驱动）
+        assert ':checked ~ .mk-panel' in body
+
+    def test_export_html_usd_amount(self, client):
+        """HTML 报告落实「总成交金额（美元）」字段（KPI 卡片 + 市场表列头）。"""
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20260803", "end_date": "20260804",
+        })
+        body = resp.text
+        assert "总成交金额（美元）" in body          # KPI 卡片
+        assert "成交金额（美元）" in body            # 市场汇总表列头
+        assert "成交金额（本币）" in body
 
     def test_export_html_conflict_422(self, client):
         resp = client.get("/api/tca/monitoring/export-html", params={

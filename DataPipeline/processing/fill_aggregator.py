@@ -92,12 +92,14 @@ def _enrich_from_route_registry(processed_df: pd.DataFrame) -> pd.DataFrame:
     registry_df = registry_df.copy()
     # 从 equ_ticker 提取 Ticker（取空格前第一段）
     registry_df["Ticker"] = registry_df["equ_ticker"].astype(str).str.split(" ").str[0]
-    # 从 ccy_ticker 提取 Currency（如 "USD Curncy" -> "USD"；"USDJPY Curncy" -> "USD"）
+    # 从 ccy_ticker 提取 Currency（如 "USD Curncy" -> "USD"；"USDJPY Curncy" -> "JPY"）。
+    # 取 " Curncy" 前的后 3 字符（本币），修复此前误取前 3 字符导致
+    # "USDKRW Curncy" -> "USD" 的错误（Currency 影响 minor_unit 修正与汇率兜底判断）。
     registry_df["Currency"] = (
         registry_df["ccy_ticker"]
         .astype(str)
         .str.replace(" Curncy", "", regex=False)
-        .str[:3]
+        .str[-3:]
     )
 
     merge_cols = ["OrderId", "RouteId"] + [c for c in enriched_cols if c in registry_df.columns]
@@ -122,11 +124,12 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame, *, route_registry_df: Opt
     if route_registry_df is not None:
         registry_df = route_registry_df.copy()
         registry_df["Ticker"] = registry_df["equ_ticker"].astype(str).str.split(" ").str[0]
+        # 提取本币（后 3 字符）："USDJPY Curncy" -> "JPY"，修复此前 -> "USD" 的错误
         registry_df["Currency"] = (
             registry_df["ccy_ticker"]
             .astype(str)
             .str.replace(" Curncy", "", regex=False)
-            .str[:3]
+            .str[-3:]
         )
         merge_cols = ["OrderId", "RouteId", "Ticker", "Side", "Currency", "ccy_ticker"]
         processed_df = processed_df.merge(
@@ -139,19 +142,25 @@ def generate_agg_fills_10s(processed_df: pd.DataFrame, *, route_registry_df: Opt
 
     agg_rules: Dict[str, any] = {}
 
+    # 数值列不能用 _unique_or_mult —— 多值时返回 "Mult" 字符串，
+    # 下游 upsert 到 REAL 列时 float("Mult") 报错（2026-08-21 死循环根因）。
+    # RouteShares / Amount 改用 sum 聚合，语义正确（10s 窗口内总股数/金额）。
+    sum_cols = ["FillShares", "RouteShares", "Amount"]
+
     unique_cols = [
-        "Ticker", "equ_ticker", "Exchange", "Amount", "Side", "Currency", "region",
+        "Ticker", "equ_ticker", "Exchange", "Side", "Currency", "region",
         "order_as_of_date", "route_as_of_time",
         "Broker", "StrategyType", "algo", "TraderName",
         "ccy_ticker", "is_closing_auction",
-        "RouteShares", "ExecType", "DateTimeOfFill",
+        "ExecType", "DateTimeOfFill",
     ]
     for col in unique_cols:
         if col in processed_df.columns:
             agg_rules[col] = _unique_or_mult
 
-    if "FillShares" in processed_df.columns:
-        agg_rules["FillShares"] = "sum"
+    for col in sum_cols:
+        if col in processed_df.columns:
+            agg_rules[col] = "sum"
 
     # Route-level groupby: (OrderId, RouteId, mkt_timestamp)
     res = processed_df.groupby(["OrderId", "RouteId", "mkt_timestamp"]).agg(agg_rules)
@@ -217,17 +226,18 @@ def generate_agg_fills_1min(agg_10s_df: pd.DataFrame) -> pd.DataFrame:
 
     agg_rules: Dict[str, any] = {}
     for col in [
-        "Ticker", "equ_ticker", "Exchange", "Amount", "Side", "Currency", "region",
+        "Ticker", "equ_ticker", "Exchange", "Side", "Currency", "region",
         "order_as_of_date", "route_as_of_time",
         "Broker", "StrategyType", "algo", "TraderName",
         "ccy_ticker", "is_closing_auction",
-        "RouteShares", "ExecType",
+        "ExecType",
     ]:
         if col in df.columns:
             agg_rules[col] = _unique_or_mult
 
-    if "FillShares" in df.columns:
-        agg_rules["FillShares"] = "sum"
+    for col in ["FillShares", "RouteShares", "Amount"]:
+        if col in df.columns:
+            agg_rules[col] = "sum"
 
     res = df.groupby(
         ["OrderId", "RouteId", "mkt_timestamp_1min"]

@@ -3,7 +3,12 @@
 > AI agent 写代码 / Code Review 必查
 > 每个反模式含 ID / 描述 / 检测命令 / 修复方案 / 优先级
 > 配套测试：`tests/boundaries/`
-> Last updated: 2026-06-29
+> Last updated: 2026-08-21
+>
+> **过度工程监测（OE-xx）**：本文件管 AP-xx 契约违规；过度工程（冗余模块/
+> 过度抽象/不必要设计模式/重复代码块/复杂度超标）由 `scripts/quality_gate/`
+> 框架检测，规则与量化模型详见 [`docs/spec/quality-gate.md`](quality-gate.md)。
+> AP-xx 与 OE-xx 共用同一套 CLI / 基线 / 报告 / pre-commit 集成。
 
 ---
 

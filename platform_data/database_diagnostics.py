@@ -16,25 +16,41 @@ Scope (per iteration plan Phase A1):
 - fill_bdib.db          → fill_bdib
 - fill_fetch_history.db → fetch_records (if present)
 
-All queries run in READ tier (access_tier=AccessTier.READ). No writes here.
+Diagnostic queries run in READ tier (access_tier=AccessTier.READ). The only
+exception is the summary cache table (db_summary_cache) written to
+fill_fetch_history.db via get_summary_cached() — a performance optimization
+whose failures silently degrade to live recomputation.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import sqlite3
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Phase 3/A2: ConnectionManager is injected via init_diagnostics_db() at module
 # load time by the caller (e.g. backend/api/routers/database.py). platform_data
 # no longer imports DataPipeline directly for diagnostics.
-from platform_data.contracts.protocols import ConnectionManagerProtocol, ConfigProtocol
+from platform_data.contracts.protocols import (
+    AccessTier,
+    ConnectionManagerProtocol,
+    ConfigProtocol,
+)
 
 # Inlined from DataPipeline.storage.connection.DB_FETCH_HISTORY
 _DB_FETCH_HISTORY_KEY: str = "fill_fetch_history"
+# Inlined from DataPipeline.storage.connection.DB_BDIB_FETCH_HISTORY
+_DB_BDIB_FETCH_HISTORY_KEY: str = "bdib_fetch_history"
+
+# Summary 缓存表（建在 fill_fetch_history.db）：
+# 每次切换数据库都实时重算 summary 在多 GB 表上耗时较长，将计算结果
+# 缓存于此表，源库文件 mtime/size 未变且未跨天时直接复用。
+_SUMMARY_CACHE_TABLE: str = "db_summary_cache"
 
 # Table name constants (stable, synced with DataPipeline.config.Config)
 _RAW_FILLS_TABLE: str = "raw_fills"
@@ -42,6 +58,7 @@ _PROCESSED_FILLS_TABLE: str = "processed_fills"
 _FETCH_LOG_TABLE: str = "fetch_log"
 _RAW_BDIB_TABLE: str = "raw_bdib"
 _FILL_BDIB_TABLE: str = "fill_bdib"
+_BDIB_FETCH_HISTORY_TABLE: str = "bdib_fetch_history"
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +203,20 @@ def _build_registry() -> tuple[_DatabaseSpec, ...]:
                 ),
             ),
         ),
+        _DatabaseSpec(
+            key="bdib_fetch_history",
+            label="BDIB Fetch History",
+            path=paths.get(_DB_BDIB_FETCH_HISTORY_KEY, Path("bdib_fetch_history.db")),
+            description="Per-trading-day BDIB fetch records (audit + coverage review).",
+            tables=(
+                _TableSpec(
+                    name=_BDIB_FETCH_HISTORY_TABLE,
+                    date_column="source_date",
+                    primary_key="(source_date, data_hash)",
+                    description="Per-day BDIB fetch records (row_count, ticker_count).",
+                ),
+            ),
+        ),
     )
 
 
@@ -289,6 +320,10 @@ class DatabaseOverview:
 class DateRowCount:
     trade_date: str
     row_count: int
+    # 该交易日数据最近一次拉取日 (YYYY-MM-DD)；仅 raw_fills 有拉取元数据
+    fetch_date: Optional[str] = None
+    # 更新过程中值得告知用户的异常信息（如延迟拉取、多次拉取、拉取失败、无数据）
+    note: Optional[str] = None
 
 
 @dataclass
@@ -572,7 +607,7 @@ def _per_date_counts(
         rows = conn.execute(
             f"SELECT [{date_column}] AS d, COUNT(*) AS c "
             f"FROM [{table}] "
-            f"WHERE [{date_column}] IS NOT NULL AND TRIM([{date_column}]) != '' "
+            f"WHERE [{date_column}] IS NOT NULL AND [{date_column}] != '' "
             f"GROUP BY [{date_column}] "
             f"ORDER BY d ASC "
             f"LIMIT ?",
@@ -581,6 +616,189 @@ def _per_date_counts(
     except sqlite3.Error:
         return []
     return [DateRowCount(trade_date=str(r[0]), row_count=int(r[1])) for r in rows]
+
+
+# Overview 表格只展示最近的工作日窗口（周一至周五）。
+_RECENT_TRADING_DAYS: int = 20
+# 全量统计降级阈值：行数（MAX rowid 近似）超过该值时跳过 GROUP BY 全量聚合，
+# 避免 80GB 级表（如 raw_bdib 3.7 亿行）上 30s+ 的首屏等待。
+_FULL_STATS_THRESHOLD: int = 50_000_000
+_DATE_ISO_RE = re.compile(r"^(\d{4})[-/]?(\d{2})[-/]?(\d{2})")
+
+
+def _to_ymd(value: str) -> str:
+    """归一化日期为 YYYY-MM-DD（兼容 YYYYMMDD / YYYY-MM-DD / datetime 字符串）。"""
+    m = _DATE_ISO_RE.match(str(value).strip())
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return str(value).strip()
+
+
+def _previous_weekdays(reference: date, n: int) -> list[date]:
+    """从 reference（含）向前枚举 n 个工作日（周一至周五），升序返回。"""
+    days: list[date] = []
+    current = reference
+    while len(days) < n:
+        if current.weekday() < 5:
+            days.append(current)
+        current -= timedelta(days=1)
+    days.reverse()
+    return days
+
+
+def _weekday_delta(later: str, earlier: str) -> int:
+    """计算 later 相对 earlier 之间的工作日（周一至周五）数量，later <= earlier 返回 0。"""
+    try:
+        a = datetime.strptime(later, "%Y-%m-%d").date()
+        b = datetime.strptime(earlier, "%Y-%m-%d").date()
+    except ValueError:
+        return 0
+    if b <= a:
+        return 0
+    delta = 0
+    current = a + timedelta(days=1)
+    while current <= b:
+        if current.weekday() < 5:
+            delta += 1
+        current += timedelta(days=1)
+    return delta
+
+
+def _window_ranges(days: list[date], date_column: str) -> tuple[str, str]:
+    """为窗口日期生成两段闭区间范围条件（SARGable，可走索引）。
+
+    返回 (iso_cond, compact_cond)，分别覆盖 YYYY-MM-DD(datetime) 与
+    YYYYMMDD 两种存储格式：
+        [col] >= '2026-07-28' AND [col] < '2026-08-25'
+    范围含窗口内的周末日期（无数据则无行），Python 侧按工作日键取值。
+    注意：必须避免 LIKE/OR 链/TRIM() 等表达式，否则 SQLite 无法使用
+    日期索引，多 GB 表上会退化为全表扫描（分钟级）。
+    """
+    start = days[0]
+    end = days[-1] + timedelta(days=1)
+    iso = (
+        f"[{date_column}] >= '{start.isoformat()}' "
+        f"AND [{date_column}] < '{end.isoformat()}'"
+    )
+    compact = (
+        f"[{date_column}] >= '{start.strftime('%Y%m%d')}' "
+        f"AND [{date_column}] < '{end.strftime('%Y%m%d')}'"
+    )
+    return iso, compact
+
+
+def _window_group_by(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    days: list[date],
+) -> dict[str, int]:
+    """对窗口范围执行索引友好的 GROUP BY 计数，合并两种格式，返回 {iso_day: count}。"""
+    result: dict[str, int] = {}
+    for cond in _window_ranges(days, date_column):
+        try:
+            rows = conn.execute(
+                f"SELECT [{date_column}] AS d, COUNT(*) AS c "
+                f"FROM [{table}] "
+                f"WHERE {cond} "
+                f"GROUP BY [{date_column}]"
+            ).fetchall()
+        except sqlite3.Error:
+            continue
+        for r in rows:
+            key = _to_ymd(str(r[0]))
+            result[key] = result.get(key, 0) + int(r[1])
+    return result
+
+
+def _recent_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    days: list[date],
+) -> list[DateRowCount]:
+    """最近 n 个交易日的覆盖行；缺失日期以 row_count=0 + note='no data' 占位。"""
+    if not days:
+        return []
+    by_day = _window_group_by(conn, table, date_column, days)
+    result: list[DateRowCount] = []
+    for d in days:
+        iso_day = d.isoformat()
+        count = by_day.get(iso_day, 0)
+        note = None if count > 0 else "no data"
+        result.append(DateRowCount(trade_date=iso_day, row_count=count, note=note))
+    return result
+
+
+def _recent_raw_fills_rows(
+    conn: sqlite3.Connection,
+    days: list[date],
+) -> list[DateRowCount]:
+    """raw_fills 最近 n 个交易日窗口行：行数 + fetch_date（最近拉取日）+ note。
+
+    note 判定（更新过程中值得告知用户的异常）：
+    - 无数据且 fetch_log 存在 failed 记录 → "fetch failed"
+    - 无数据                             → "no data"
+    - 多个 source_date（多次拉取）        → "fetched N times"
+    - 唯一 source_date 且晚于交易日       → "delayed N days"
+    """
+    if not days:
+        return []
+    date_column = "order_as_of_date"
+    # 行数（不要求 source_date 非空，兼容老数据）
+    count_by_day = _window_group_by(conn, _RAW_FILLS_TABLE, date_column, days)
+    # 每交易日对应的拉取日集合（同样按范围查询，避免全表扫描）
+    sources_by_day: dict[str, set[str]] = {}
+    for cond in _window_ranges(days, date_column):
+        try:
+            src_rows = conn.execute(
+                f"SELECT DISTINCT [{date_column}] AS d, [source_date] AS s "
+                f"FROM [{_RAW_FILLS_TABLE}] "
+                f"WHERE {cond} AND [source_date] IS NOT NULL "
+                f"AND TRIM([source_date]) != ''"
+            ).fetchall()
+        except sqlite3.Error:
+            continue
+        for oad, src in src_rows:
+            sources_by_day.setdefault(_to_ymd(str(oad)), set()).add(_to_ymd(str(src)))
+    # fetch_log 中 failed 的拉取日
+    try:
+        failed_rows = conn.execute(
+            f"SELECT [source_date] FROM [{_FETCH_LOG_TABLE}] "
+            f"WHERE status = 'failed'"
+        ).fetchall()
+        failed_sources = {_to_ymd(str(r[0])) for r in failed_rows}
+    except sqlite3.Error:
+        failed_sources = set()
+    result: list[DateRowCount] = []
+    for d in days:
+        iso_day = d.isoformat()
+        count = count_by_day.get(iso_day, 0)
+        sources = sorted(sources_by_day.get(iso_day, set()))
+        if count == 0 and not sources:
+            note = "fetch failed" if iso_day in failed_sources else "no data"
+            result.append(
+                DateRowCount(trade_date=iso_day, row_count=0, note=note)
+            )
+            continue
+        notes: list[str] = []
+        if len(sources) > 1:
+            notes.append(f"fetched {len(sources)} times")
+        elif sources:
+            delayed = _weekday_delta(iso_day, sources[0])
+            if delayed > 0:
+                notes.append(f"delayed {delayed}d")
+        if any(s in failed_sources for s in sources):
+            notes.append("fetch failed")
+        result.append(
+            DateRowCount(
+                trade_date=iso_day,
+                row_count=count,
+                fetch_date=sources[-1] if sources else None,
+                note="; ".join(notes) if notes else None,
+            )
+        )
+    return result
 
 
 def _stat_file(path: Path) -> tuple[bool, int, Optional[str], bool]:
@@ -595,6 +813,34 @@ def _stat_file(path: Path) -> tuple[bool, int, Optional[str], bool]:
     )
     wal = (path.with_name(path.name + "-wal")).exists()
     return True, int(st.st_size), last_mod, wal
+
+
+def _source_fingerprint(
+    path: Path,
+) -> tuple[Optional[int], int, Optional[int], Optional[int]]:
+    """返回源库变更指纹 (data_version, size, mtime_ns, wal_mtime_ns)。
+
+    - size / mtime_ns：主文件字节数与纳秒级 mtime（管道写入或 checkpoint 后变化）
+    - wal_mtime_ns：WAL 文件 mtime —— WAL 模式下写入不落主文件，仅更新
+      -wal 文件；纳入指纹可在 checkpoint 前即时感知写入
+    - data_version：SQLite 3.31+ 写入计数器，尽力而为的附加校验
+    （部分环境下跨连接传播不可靠，不作为唯一判定）
+    文件不存在返回 (None, 0, None, None)。
+    """
+    if not path.exists():
+        return None, 0, None, None
+    st = path.stat()
+    wal = path.with_name(path.name + "-wal")
+    wal_ns: Optional[int] = int(wal.stat().st_mtime_ns) if wal.exists() else None
+    data_version: Optional[int] = None
+    try:
+        with _open_ro(path) as conn:
+            row = conn.execute("PRAGMA data_version").fetchone()
+            if row:
+                data_version = int(row[0])
+    except sqlite3.Error:
+        pass
+    return data_version, int(st.st_size), int(st.st_mtime_ns), wal_ns
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -658,8 +904,9 @@ def get_overview() -> list[DatabaseOverview]:
 def get_summary(key: str, date_limit: int = 800) -> DatabaseSummary:
     """Per-table statistics including trade-date × row-count breakdown.
 
-    `date_limit` caps the per-date series to keep payloads small — the
-    heatmap only needs one point per trading day.
+    `date_limit` caps the full per-date series used for row-count stats.
+    `per_date_counts` is bounded to the most recent `_RECENT_TRADING_DAYS`
+    trading days (Mon–Fri); raw_fills additionally carries fetch_date/note.
     """
     spec = _spec_by_key(key)
     exists, size, last_mod, _ = _stat_file(spec.path)
@@ -709,23 +956,221 @@ def get_summary(key: str, date_limit: int = 800) -> DatabaseSummary:
                     row_count=0,
                 )
                 if t.date_column:
-                    # Per-date counts use the date index — efficient even on
-                    # multi-GB tables — and summing them gives us an exact
-                    # row total consistent with the heatmap.
-                    per_date = _per_date_counts(
-                        conn, t.name, t.date_column, limit=date_limit
-                    )
-                    ts.per_date_counts = per_date
-                    ts.row_count = sum(r.row_count for r in per_date)
-                    ts.distinct_trade_dates = len(per_date)
-                    if per_date:
-                        ts.earliest_trade_date = per_date[0].trade_date
-                        ts.latest_trade_date = per_date[-1].trade_date
+                    # 全量统计（用于 row_count / distinct_trade_dates / 日期范围）
+                    # 超大表（如 3.7 亿行的 raw_bdib）全量 GROUP BY 聚合需 30s+，
+                    # 改用 rowid 近似行数 + 索引端点日期（毫秒级）；distinct 数
+                    # 置 0 由前端兜底显示。其余表保留精确统计。
+                    fast_count = _count_rows_fast(conn, t.name)
+                    if fast_count >= _FULL_STATS_THRESHOLD:
+                        ts.row_count = fast_count
+                        e, l = _date_range_fast(conn, t.name, t.date_column)
+                        ts.earliest_trade_date = e
+                        ts.latest_trade_date = l
+                        ts.distinct_trade_dates = 0
+                    else:
+                        per_date = _per_date_counts(
+                            conn, t.name, t.date_column, limit=date_limit
+                        )
+                        ts.row_count = sum(r.row_count for r in per_date)
+                        ts.distinct_trade_dates = len(per_date)
+                        if per_date:
+                            ts.earliest_trade_date = per_date[0].trade_date
+                            ts.latest_trade_date = per_date[-1].trade_date
+                    # 表格视图：最近 _RECENT_TRADING_DAYS 个工作日窗口
+                    # raw_fills 附带 fetch_date/note（拉取日与异常信息），
+                    # 其余表无拉取元数据，仅展示日期与行数。
+                    today = datetime.now().astimezone().date()
+                    days = _previous_weekdays(today, _RECENT_TRADING_DAYS)
+                    if t.name == _RAW_FILLS_TABLE:
+                        ts.per_date_counts = _recent_raw_fills_rows(conn, days)
+                    else:
+                        ts.per_date_counts = _recent_rows(
+                            conn, t.name, t.date_column, days
+                        )
                 else:
                     ts.row_count = _count_rows_fast(conn, t.name)
                 summary.tables.append(ts)
     except sqlite3.Error as exc:
         logger.warning("Summary query failed for %s: %s", spec.key, exc)
+    return summary
+
+
+# ── Summary 缓存（性能优化）─────────────────────────────────────────────
+# 每次切换数据库都实时重算 summary 在多 GB 表上耗时较长。将计算结果
+# 序列化缓存到 fill_fetch_history.db 的 db_summary_cache 表，命中条件：
+# 1) 源库变更指纹一致（data_version + size + mtime_ns；管道写入会变化）
+# 2) 窗口锚点（计算日的 YYYY-MM-DD）相同（跨天后最近 20 工作日窗口移动）
+# 缓存读写失败一律静默降级为实时计算，不影响功能正确性。
+
+
+def _ensure_summary_cache_table(conn: Any) -> None:
+    """确保缓存表存在（幂等；WRITE tier 允许 CREATE/INSERT）。"""
+    conn.execute(
+        f"CREATE TABLE IF NOT EXISTS [{_SUMMARY_CACHE_TABLE}] ("
+        "  db_key           TEXT PRIMARY KEY,"
+        "  computed_at      TEXT NOT NULL,"
+        "  window_anchor    TEXT NOT NULL,"
+        "  source_version   INTEGER NOT NULL,"
+        "  source_size      INTEGER NOT NULL,"
+        "  source_mtime_ns  TEXT NOT NULL,"
+        "  source_wal_ns    TEXT NOT NULL,"
+        "  payload          TEXT NOT NULL"
+        ")"
+    )
+    conn.commit()
+
+
+def _cache_fingerprint_matches(
+    row: tuple,
+    fingerprint: tuple[Optional[int], int, Optional[int], Optional[int]],
+) -> bool:
+    """缓存行指纹与源库当前指纹是否一致（None 字段跳过比对）。
+
+    row 顺序：source_version, source_size, source_mtime_ns, source_wal_ns。
+    可选字段统一以 0 归一化比较（None 与缺失均视为无变化）。
+    """
+    source_version, source_size, source_mtime_ns, source_wal_ns = fingerprint
+    if int(row[1]) != source_size:
+        return False
+    if str(row[2]) != str(source_mtime_ns):
+        return False
+    if str(row[3]) != str(source_wal_ns or 0):
+        return False
+    if source_version is not None and int(row[0]) != source_version:
+        return False
+    return True
+
+
+def _summary_from_dict(data: dict) -> DatabaseSummary:
+    """从 JSON dict 递归重建 DatabaseSummary（含嵌套 TableSummary/DateRowCount）。"""
+    tables = [
+        TableSummary(
+            name=t["name"],
+            description=t["description"],
+            primary_key=t.get("primary_key"),
+            date_column=t.get("date_column"),
+            row_count=t["row_count"],
+            latest_trade_date=t.get("latest_trade_date"),
+            earliest_trade_date=t.get("earliest_trade_date"),
+            distinct_trade_dates=t.get("distinct_trade_dates", 0),
+            per_date_counts=[
+                DateRowCount(
+                    trade_date=r["trade_date"],
+                    row_count=r["row_count"],
+                    fetch_date=r.get("fetch_date"),
+                    note=r.get("note"),
+                )
+                for r in t.get("per_date_counts", [])
+            ],
+        )
+        for t in data.get("tables", [])
+    ]
+    return DatabaseSummary(
+        key=data["key"],
+        label=data["label"],
+        path=data["path"],
+        exists=data["exists"],
+        size_bytes=data["size_bytes"],
+        last_modified=data.get("last_modified"),
+        description=data["description"],
+        tables=tables,
+    )
+
+
+def _load_summary_cache(
+    db_key: str,
+    window_anchor: str,
+    fingerprint: tuple[Optional[int], int, Optional[int], Optional[int]],
+) -> Optional[DatabaseSummary]:
+    """命中缓存则返回 DatabaseSummary，否则返回 None（任何异常按未命中处理）。"""
+    if fingerprint[2] is None:
+        return None
+    if _diagnostics_mgr is None:
+        return None
+    try:
+        conn = _diagnostics_mgr.get_connection(
+            _DB_FETCH_HISTORY_KEY, AccessTier.WRITE
+        )
+        try:
+            _ensure_summary_cache_table(conn)
+            row = conn.execute(
+                f"SELECT window_anchor, source_version, source_size, "
+                f"source_mtime_ns, source_wal_ns, payload "
+                f"FROM [{_SUMMARY_CACHE_TABLE}] WHERE db_key = ?",
+                (db_key,),
+            ).fetchone()
+            if not row:
+                return None
+            anchor, version, size, mtime_ns, wal_ns, payload = row
+            if anchor != window_anchor:
+                return None
+            if not _cache_fingerprint_matches(
+                (version, size, mtime_ns, wal_ns), fingerprint
+            ):
+                return None
+            return _summary_from_dict(json.loads(payload))
+        finally:
+            conn.close()
+    except Exception:
+        logger.debug("Summary cache read failed for %s", db_key, exc_info=True)
+        return None
+
+
+def _save_summary_cache(
+    db_key: str,
+    window_anchor: str,
+    fingerprint: tuple[Optional[int], int, Optional[int], Optional[int]],
+    summary: DatabaseSummary,
+) -> None:
+    """写入 summary 缓存；写失败仅告警，不抛出。"""
+    if fingerprint[2] is None:
+        return
+    if _diagnostics_mgr is None:
+        return
+    source_version, source_size, source_mtime_ns, source_wal_ns = fingerprint
+    try:
+        conn = _diagnostics_mgr.get_connection(
+            _DB_FETCH_HISTORY_KEY, AccessTier.WRITE
+        )
+        try:
+            _ensure_summary_cache_table(conn)
+            conn.execute(
+                f"INSERT OR REPLACE INTO [{_SUMMARY_CACHE_TABLE}] "
+                f"(db_key, computed_at, window_anchor, source_version, "
+                f"source_size, source_mtime_ns, source_wal_ns, payload) "
+                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    db_key,
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    window_anchor,
+                    int(source_version or 0),
+                    int(source_size),
+                    str(source_mtime_ns),
+                    str(source_wal_ns or 0),
+                    json.dumps(summary.to_dict(), ensure_ascii=False),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.debug("Summary cache write failed for %s", db_key, exc_info=True)
+
+
+def get_summary_cached(key: str, date_limit: int = 800) -> DatabaseSummary:
+    """get_summary 的缓存版本，用于反复切换数据库时避免重复重算。"""
+    spec = _spec_by_key(key)
+    exists, size, last_mod, _ = _stat_file(spec.path)
+    if not exists:
+        return get_summary(key, date_limit=date_limit)
+    window_anchor = datetime.now().astimezone().date().isoformat()
+    fingerprint = _source_fingerprint(spec.path)
+    cached = _load_summary_cache(key, window_anchor, fingerprint)
+    if cached is not None:
+        logger.debug("Summary cache hit for %s", key)
+        return cached
+    summary = get_summary(key, date_limit=date_limit)
+    _save_summary_cache(key, window_anchor, fingerprint, summary)
     return summary
 
 
@@ -1091,7 +1536,7 @@ def get_integrity(key: str) -> IntegrityReport:
                             ),
                         ).fetchone()[0]
                         pending = conn.execute(
-                            f"SELECT COUNT(*) FROM [{_Config.RAW_FILLS_TABLE}] "
+                            f"SELECT COUNT(*) FROM [{_RAW_FILLS_TABLE}] "
                             f"WHERE _rowid_ > ? "
                             f"AND source_date >= ? "
                             f"AND (order_as_of_date IS NULL "
@@ -1159,6 +1604,7 @@ __all__ = [
     "get_sample",
     "get_schema",
     "get_summary",
+    "get_summary_cached",
     "list_database_keys",
     "list_tables",
 ]

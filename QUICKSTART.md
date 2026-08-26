@@ -14,9 +14,9 @@ scripts\restart-all.bat
 
 | Action | Command |
 |--------|---------|
-| **Start** | `scripts\start-all.bat` or `重启服务.bat` |
+| **Start** | `scripts\start-all.bat` or `relaunch_service.bat` |
 | **Stop** | `scripts\stop-all.bat` |
-| **Restart** | `scripts\restart-all.bat` or `重启服务.bat` |
+| **Restart** | `scripts\restart-all.bat` or `relaunch_service.bat` |
 | **Status** | `scripts\check-status.bat` |
 
 ## Service URLs
@@ -44,7 +44,7 @@ scripts\restart-all.bat
 scripts\check-status.bat
 
 # View logs
-scripts\service-manager.ps1 logs
+scripts\ops\service-manager.ps1 logs
 ```
 
 ### Connection Errors
@@ -56,14 +56,15 @@ scripts\service-manager.ps1 logs
 
 ```
 EMSXView/
-├── 重启服务.bat            # One-click restart
+├── relaunch_service.bat     # One-click restart
 ├── frontend/               # React frontend
 ├── backend/                # Python backend
 │   └── api/                # FastAPI application
 ├── scripts/
 │   ├── start-all.bat       # Quick start
 │   ├── stop-all.bat        # Quick stop
-│   └── service-manager.ps1 # PowerShell manager
+│   └── ops/
+│       └── service-manager.ps1 # PowerShell manager
 └── logs/                   # Service logs
 ```
 

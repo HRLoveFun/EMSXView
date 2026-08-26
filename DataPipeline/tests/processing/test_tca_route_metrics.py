@@ -264,6 +264,8 @@ class TestComputeRouteMetricsForDate:
             "order_duration_sec", "exec_rate_shares_per_min",
             "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
             "perm_impact_bps", "recovery_truncated",
+            # 007-costview-report-filters
+            "fx_rate",
         ]
 
     def test_computes_pwp_columns_for_single_route(self) -> None:
@@ -317,6 +319,96 @@ class TestComputeRouteMetricsForDate:
         for col in ["pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25"]:
             assert row[col] is not None
             assert row[col] == pytest.approx(0.0)
+
+    def test_computes_route_fx_rate_weighted(self) -> None:
+        """路由级 fx_rate 按 fill 量加权聚合（007）。"""
+        raw_fills = pd.DataFrame({
+            "OrderId": ["O1"],
+            "RouteId": ["R1"],
+            "order_as_of_date": ["20260421"],
+            "Exchange": ["JP"],
+            "Account": ["A1"],
+            "Currency": ["JPY"],
+            "Side": ["Buy"],
+            "Amount": [3000.0],
+            "RouteShares": [3000.0],
+            "Type": ["Limit"],
+            "LimitPrice": [1000.0],
+            "StopPrice": [900.0],
+            "Broker": ["BRK"],
+            "StrategyType": ["TEST"],
+            "TraderName": ["TRADER"],
+        })
+
+        processed_fills = pd.DataFrame({
+            "OrderId": ["O1", "O1"],
+            "RouteId": ["R1", "R1"],
+            "order_as_of_date": ["20260421", "20260421"],
+            "equ_ticker": ["AAPL US Equity", "AAPL US Equity"],
+            "FillId": ["F1", "F2"],
+            "FillShares": [1000.0, 2000.0],
+            "FillPrice": [1000.0, 1000.0],
+            "DateTimeOfFill": ["2026-04-21T09:30:00-04:00", "2026-04-21T09:30:10-04:00"],
+            "is_closing_auction": [0, 0],
+            "fx_rate": [0.006, 0.007],  # F1 1000 股, F2 2000 股 → 加权 = (6 + 14)/3 = 0.00667
+        })
+
+        raw_bdib = _make_bars(
+            times=["09:30:00", "09:30:10", "09:30:20", "09:30:30", "09:30:40"],
+            volumes=[5000.0] * 5,
+            prices=[1000.0] * 5,
+        )
+
+        result = compute_route_metrics_for_date(
+            raw_fills, processed_fills, raw_bdib, "20260421"
+        )
+
+        assert len(result) == 1
+        row = result.iloc[0]
+        assert row["fx_rate"] == pytest.approx((1000 * 0.006 + 2000 * 0.007) / 3000)
+
+    def test_route_fx_rate_none_without_column(self) -> None:
+        """processed_fills 无 fx_rate 列时 route 级 fx_rate 为 None（向后兼容）。"""
+        raw_fills = pd.DataFrame({
+            "OrderId": ["O1"],
+            "RouteId": ["R1"],
+            "order_as_of_date": ["20260421"],
+            "Exchange": ["US"],
+            "Account": ["A1"],
+            "Currency": ["USD"],
+            "Side": ["Buy"],
+            "Amount": [1000.0],
+            "RouteShares": [1000.0],
+            "Type": ["Limit"],
+            "LimitPrice": [100.0],
+            "StopPrice": [90.0],
+            "Broker": ["BRK"],
+            "StrategyType": ["TEST"],
+            "TraderName": ["TRADER"],
+        })
+
+        processed_fills = pd.DataFrame({
+            "OrderId": ["O1"],
+            "RouteId": ["R1"],
+            "order_as_of_date": ["20260421"],
+            "equ_ticker": ["AAPL US Equity"],
+            "FillId": ["F1"],
+            "FillShares": [1000.0],
+            "FillPrice": [100.0],
+            "DateTimeOfFill": ["2026-04-21T09:30:00-04:00"],
+            "is_closing_auction": [0],
+        })
+
+        raw_bdib = _make_bars(
+            times=["09:30:00", "09:30:10", "09:30:20", "09:30:30", "09:30:40"],
+            volumes=[5000.0] * 5,
+            prices=[100.0] * 5,
+        )
+
+        result = compute_route_metrics_for_date(
+            raw_fills, processed_fills, raw_bdib, "20260421"
+        )
+        assert result.iloc[0]["fx_rate"] is None
 
     def test_normalizes_raw_fills_date_format(self) -> None:
         """raw_fills 的 order_as_of_date 为 YYYY-MM-DD 时仍能与 processed_fills 匹配。"""

@@ -24,6 +24,10 @@ export interface DatabaseOverview {
 export interface DateRowCount {
   trade_date: string;
   row_count: number;
+  // 该交易日数据最近一次拉取日（YYYY-MM-DD）；仅 raw_fills 有拉取元数据
+  fetch_date?: string | null;
+  // 更新过程中值得告知用户的异常信息（延迟拉取/多次拉取/拉取失败/无数据等）
+  note?: string | null;
 }
 
 export interface TableSummary {

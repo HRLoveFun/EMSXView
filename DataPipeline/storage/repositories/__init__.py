@@ -13,6 +13,8 @@ from .raw_fills import SqliteRawFillReadRepository, SqliteRawFillWriteRepository
 from .market_data import SqliteMarketDataReadRepository, SqliteMarketDataWriteRepository  # noqa: F401
 from .integrated import SqliteIntegratedReadRepository, SqliteIntegratedWriteRepository  # noqa: F401
 from .regime import SqliteRegimeReadRepository, SqliteRegimeWriteRepository  # noqa: F401
+from .fx_rates import SqliteFxRatesRepository  # noqa: F401
+from .bdib_fetch_history import SqliteBdibFetchHistoryRepository  # noqa: F401
 
 __all__ = [
     "BaseRepository",
@@ -26,4 +28,6 @@ __all__ = [
     "SqliteIntegratedWriteRepository",
     "SqliteRegimeReadRepository",
     "SqliteRegimeWriteRepository",
+    "SqliteFxRatesRepository",
+    "SqliteBdibFetchHistoryRepository",
 ]
