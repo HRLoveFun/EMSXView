@@ -315,27 +315,3 @@ export function clearAllCaches(): void {
 
   }
 }
-
-/**
- * Get cache statistics
- */
-export function getCacheStats(): {
-  memoryEntries: number;
-  localStorageEntries: number;
-} {
-  let localStorageEntries = 0;
-  
-  if (isBrowser()) {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(CACHE_PREFIX)) {
-        localStorageEntries++;
-      }
-    }
-  }
-
-  return {
-    memoryEntries: memoryCache.size,
-    localStorageEntries,
-  };
-}
