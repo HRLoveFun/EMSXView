@@ -205,13 +205,12 @@ EMSXView/
 │   │   │   ├── metrics.py            # Performance metrics
 │   │   │   ├── recommender.py        # Broker recommendation engine
 │   │   │   └── writer.py             # Analysis output writer
-│   │   └── regime/                   # Market regime classification (16 files)
+│   │   └── regime/                   # Market regime classification (13 files)
 │   │       ├── fill_regime_tagger.py      # Tag fills with regime labels
 │   │       ├── liquidity_regime.py        # Liquidity regime detection
 │   │       ├── trend_regime.py            # Trend regime detection
 │   │       ├── vol_regime.py              # Volatility regime detection
-│   │       ├── market_index_loader.py     # Market index data loading
-│   │       └── sync_macro_calendar.py     # Macro calendar synchronization
+│   │       └── market_index_loader.py     # Market index data loading
 │   ├── storage/                      # Data persistence layer
 │   │   ├── connection.py             # ConnectionManager (6 SQLite databases)
 │   │   ├── facade.py                 # DatabaseFacade (unified query interface)
@@ -237,7 +236,6 @@ EMSXView/
 │   │   ├── protocols.py              # Interface protocols (ConnectionManager, Config)
 │   │   └── db_constants.py           # Database constant definitions
 │   ├── config_bridge.py              # Cross-module config bridge
-│   ├── execution_history_service.py  # Historical execution queries
 │   ├── pipeline_jobs.py              # Pipeline job management
 │   ├── regime_query.py               # Market regime query interface
 │   └── database_diagnostics.py       # Database diagnostics utility

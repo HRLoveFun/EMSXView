@@ -47,7 +47,7 @@
   - 迁移幂等可重入（重复执行不产生副作用）
 - **落地手段**：
   - 迁移脚本 + 轻量备份 + 基线快照对比
-  - 参照 `scripts/ops/cleanup_raw_bdib_empty_bars.py` 三道安全闸模式
+  - 三道安全闸模式（范例：原 `scripts/ops/cleanup_raw_bdib_empty_bars.py`，已随 2026-08-26 清理归档，git 历史可查）
   - 破坏性操作（ALTER / DROP / VACUUM）需维护窗口 + 空间预检
 - **反模式**：
   - 无备份直接 `ALTER` / `DROP`

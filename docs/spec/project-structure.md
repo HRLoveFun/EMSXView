@@ -234,7 +234,7 @@ Responsibilities:
 - avoids direct cross-domain deep imports becoming the default integration pattern
 - `contracts/` defines the only legal cross-module data types (e.g. `SCORECARD_COHORTS`)
 - `adapters/tca_bridge.py` 的 `get_tca_query_service()` 提供 TCA / scorecard 查询（读取 `tca_route_summary` 汇总表）
-- `execution_history_service.py` 提供执行历史读取路径
+- 执行历史读取由 `CostView/src/tca_query_builder.py` 直接 SQL 提供（原平行实现 `execution_history_service.py` 已于 2026-08-26 移除，见 ADR-0014）
 - `repositories.py` provides DatabaseView diagnostic query access
 - `CostViewDatabaseAdapter` / `CostViewAnalyticsAdapter` 尚未实现（规划中，见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）
 
