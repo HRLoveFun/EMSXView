@@ -133,14 +133,13 @@ Primary code surfaces (actual, 2026-08):
 - `CostView/src/query_cli.py` / `secure_config.py` — CLI / 加密配置
 - `backend/api/routers/costview.py` — API surface
 
-> 注：`evaluation/`、`models/`、`attribution/`、`regime/`、`db/repositories/regime.py`、`execution_history_service.py` 为历史规划路径，当前不存在；执行历史读取经 `platform_data.execution_history_service` 提供。
+> 注：`evaluation/`、`models/`、`attribution/`、`regime/`、`db/repositories/regime.py` 为历史规划路径，当前不存在；原规划中的 `execution_history_service.py` 从未接线，已于 2026-08-26 移除——执行历史读取由 `CostView/src/tca_query_builder.py` 直接 SQL JOIN `route_registry` 提供。
 
 Cross-module adapters (actual):
 
 - `platform_data.adapters.get_tca_query_service()` — TCA / scorecard 查询工厂
 - `platform_data.adapters.register_tca_service_impl()` — TCA 实现注入
 - `platform_data.adapters.MarketReferenceDataAdapter` — 市场快照（BDIB / 日内特征）
-- `platform_data.execution_history_service` — 执行历史读取路径
 - `build_platform_data_access()` / `PlatformDataAccess` 未实现（规划中，见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)）
 
 ### 4. MarketView — pre-trade market context (placeholder)

@@ -248,8 +248,8 @@ class IntegrateBDIBStage(BaseStage):
             )
             if violations:
                 logger.warning(
-                    "raw_bdib 空 bar 检测: 发现 %d 条违规，建议运行 "
-                    "scripts/ops/cleanup_raw_bdib_empty_bars.py --apply 清理",
+                    "raw_bdib 空 bar 检测: 发现 %d 条违规（历史残留；清理脚本已归档 git 历史，"
+                    "见 ADR-0014，可恢复后运行 cleanup_raw_bdib_empty_bars.py --apply）",
                     len(violations),
                 )
         except Exception as e:

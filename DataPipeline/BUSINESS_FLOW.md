@@ -100,7 +100,7 @@ run_full_pipeline() 入口
 | `raw_fills` 与 `processed_fills` gap | **0** |
 | 增量 `agg_fills_10s` | 1,997,504 行 |
 | 增量 `order_label` | 71,435 条（覆盖 69/69 OAD） |
-| 回填脚本 | `scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5` |
+| 回填脚本 | `reprocess_affected_dates.py --missing-source-dates --no-s5`（已随 2026-08-26 清理归档，git 历史可查） |
 
 **回归测试**：`DataPipeline/tests/guardrail/test_data_quality.py::TestStage2CrossDayProcessing` 3/3 通过。
 
@@ -273,7 +273,7 @@ S2 写入 4 张表的所有时间列统一归为 3 类，**严禁混用**：
 
 ### 3.3.5 `route_history` / `route_event_history` 字段来源
 
-- **保留字段**：`equ_ticker` / `ccy_ticker` / `Side`（**必须保留**）。证据：`CostView/src/tca_query_builder.py:129, 146-148, 183-185, 195, 217` 与 `platform_data/execution_history_service.py:85-87, 147-148, 216-217` 全部 `LEFT JOIN route_registry` 或 `route_history` 取这 3 列做高频 JOIN key。`route_event_history` 同样保留以做调试追溯。
+- **保留字段**：`equ_ticker` / `ccy_ticker` / `Side`（**必须保留**）。证据：`CostView/src/tca_query_builder.py:129, 146-148, 183-185, 195, 217` 全部 `LEFT JOIN route_registry` 或 `route_history` 取这 3 列做高频 JOIN key。`route_event_history` 同样保留以做调试追溯。
 - 所有字段（`equ_ticker` / `ccy_ticker` / `Side` / `Broker` / `algo` / `TraderName` / `Exchange`）直接从 `processed_df` 自身取（`groupby` 取 `group.get(...)` 与 `itertuples` 取 `row._asdict()[...]`），与 `event_records` 同源。
 
 ### 3.3.6 `processed_fills.equ_ticker` 空字段处理
@@ -303,13 +303,14 @@ S2 写入 4 张表的所有时间列统一归为 3 类，**严禁混用**：
 - **raw_fills PK**：`PRIMARY KEY (OrderId, RouteId, FillId, source_date)`（4 元组）。同 `OrderId` 跨日 fetch 时自然分离为新行，不再覆盖。
 - **fetch_log 软状态机制**：`status` 字段使用 CHECK 约束 `('fetched','deprecated','superseded','failed')`。同 `source_date` 多次 fetch 时，`add_fetch_log_record` 自动软标记旧行 `deprecated`，与 `UNIQUE(source_date, data_hash)` 共同实现 latest-wins 语义同时保留审计。
 - **order_as_of_date NOT NULL 约束**（v4）：业务语义为每个订单都必须有执行日期。违反约束的 INSERT 会被 DB 拒绝，必须在 `upsert_raw_api_data` / `clean_emsx_fills` 处保证 `order_as_of_date` 计算成功（`EXCHANGE_TIMEZONE` 字典必须含 Bloomberg 实际 Exchange code）。
-- **迁移路径**：`inline_ddl._migrate_raw_fills_column_types` + `_migrate_raw_fills_pk` 提供幂等自动升级（首次启动触发，覆盖 v1/v2/v3 变更）。运维显式迁移脚本：`scripts/ops/migrate_raw_fills_to_v3.py`（v0→v3）、`scripts/ops/apply_v3_to_v4.py`（v3→v4，含前置 oaod NULL 校验）。SQL 版本链：`migrations/raw_fills/v0_to_v1.sql` / `v1_to_v2.sql` / `v2_to_v3.sql` / `v3_to_v4.sql`。
-- **raw_fills 写入 NaN/NA 修复**：`upsert_raw_api_data` 在 `pd.DataFrame(fills)` 之后反查原始字典，恢复被 pandas 误转为 NaN 的字符串 `"NA"`（Exchange 荷兰 Amsterdam / Ticker National Bank of Canada BBG mnemonic）。运维脚本：`scripts/ops/fix_raw_fills_null_exchange.py`、`scripts/ops/fix_raw_fills_null_ticker_national_bank.py`。
+- **迁移路径**：`inline_ddl._migrate_raw_fills_column_types` + `_migrate_raw_fills_pk` 提供幂等自动升级（首次启动触发，覆盖 v1/v2/v3 变更）。历史显式迁移脚本 `migrate_raw_fills_to_v3.py` / `apply_v3_to_v4.py` 已随 2026-08-26 清理归档（自动升级覆盖同等变更）。SQL 版本链：`migrations/raw_fills/v0_to_v1.sql` / `v1_to_v2.sql` / `v2_to_v3.sql` / `v3_to_v4.sql`。
+- **raw_fills 写入 NaN/NA 修复**：`upsert_raw_api_data` 在 `pd.DataFrame(fills)` 之后反查原始字典，恢复被 pandas 误转为 NaN 的字符串 `"NA"`（Exchange 荷兰 Amsterdam / Ticker National Bank of Canada BBG mnemonic）。2026-06 两轮修复所用脚本 `fix_raw_fills_null_exchange.py` / `fix_raw_fills_null_ticker_national_bank.py` 已完成使命并归档；现行防护即 upsert 反查逻辑本身。
+- **EUR equ_ticker 历史回填**：2025-09 ~ 2026-06 缓存建立前的受影响 source_date 已通过一次性回填修复（脚本 `backfill_eur_ticker.py` 已归档；分析见 `docs/archive/2026-06-29/eur_ticker_issue_analysis.md`）。
 - **oaod/eet 历史回填**：`scripts/ops/backfill_raw_fills_oaod_eet.py` 用 `derive_exchange_times` 内存重算逐行 UPDATE，回填 `order_as_of_date` 与 `exchange_exec_time` 字段 NULL 行。
 
 ### 3.3.9 EUR equ_ticker 历史回填
 
-- **历史回填脚本**：`scripts/backfill_eur_ticker.py` 对 2025-09 ~ 2026-06 期间（缓存建立前）的受影响 source_date 重跑 S2-S4，恢复 EUR 股票的 `equ_ticker` 字段。回填前自动备份，支持 `--dry-run`、`--retention` 自动清理旧备份。
+- **历史回填脚本**：`scripts/backfill_eur_ticker.py`（已随 2026-08-26 清理归档，git 历史可查）对 2025-09 ~ 2026-06 期间（缓存建立前）的受影响 source_date 重跑 S2-S4，恢复 EUR 股票的 `equ_ticker` 字段。回填前自动备份，支持 `--dry-run`、`--retention` 自动清理旧备份。
 - **处理结果**（2026-06-30 验证）：EUR 行 `equ_ticker NULL` 率从 93.17% 降至 10.13%（残留 NULL 仅来自 raw_fills 中 `Exchange IS NULL` 的行）；EU Equity 命中行从 6.83% 升至 88.75%。
 - **详细分析**：[`docs/archive/2026-06-29/eur_ticker_issue_analysis.md`](../../docs/archive/2026-06-29/eur_ticker_issue_analysis.md)（📦 已归档，2026-07-02 修复完成）。
 
@@ -429,7 +430,7 @@ FinancialPipeline  ──wrap──▶  GuardPipeline.run(context)
 | **零股 VWAP 过滤** | `processing/fill_aggregator.generate_agg_fills_10s` | `FillShares=0` 不贡献 VWAP；无成交量桶直接丢弃，避免 `FillPrice` 单条 `NULL` |
 | **KRW 补零** | `processing/fill_processor.add_equity_ticker` | KRW 股票 Ticker 自动 zfill(6) |
 | **荷兰 NA 修复** | `processing/fill_cleaner.normalize_fill_columns` | pandas 把字符串 `"NA"` 解析为 NaN，显式还原为 `"NA"` |
-| **归档加密** | `storage/crypto.py` | raw_fills 加密列（与 `access_impl.py` 配合） |
+| **归档加密** | （已移除） | 原 `storage/crypto.py` + `access_impl.py` 加密列特性无消费者，随 2026-08-26 清理移除（ADR-0014）；如需启用从 git 历史恢复 |
 | **备份/归档** | `storage/backup.py` / `storage/archiver.py` | 时间戳 `.bak` 文件 / 长期冷存 |
 | **审计** | `audit_pipeline_runs`、`audit_research_snapshots` | 每次 stage 运行 SHA-256 快照，便于复现 |
 | **NaN/'NA' 恢复** | `storage/repositories/raw_fills.py::upsert_raw_api_data` | `pd.DataFrame(fills)` 后从原始字典反查字符串 `"NA"`（Exchange 荷兰 / Ticker National Bank of Canada），防止永久化到 DB |
@@ -563,21 +564,10 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 
 | 脚本 | 用途 |
 | --- | --- |
-| `scripts/ops/analyze_processed_fills_nulls.py` | 统计 `processed_fills.db` 各表每列 NULL / 空字符串数量，支持任意表名作为参数；只读 SELECT，不修改数据；用于 S2 跨日修复前后数据健康度对比 |
-| `scripts/ops/cleanup_processed_fills_mismatches.py` | 清理 `processed_fills` 中孤儿行、日期不匹配行与无效 `order_as_of_date` 行；自动备份 `processed_fills.db` / `raw_fills.db`，支持 `--dry-run` 与 `--dates` 参数 |
-| `scripts/ops/reprocess_affected_dates.py` | 对指定日期（或从清理日志解析）重新执行 S2/S3，通常与 `cleanup_processed_fills_mismatches.py` 配合使用 |
-| `scripts/ops/migrate_raw_fills_to_v3.py` | 显式迁移 `raw_fills.db` 至 v3（PK + fetch_log 软状态），含备份、SHA-256、排他锁、审计 |
-| `scripts/ops/apply_v3_to_v4.py` | 应用 v3→v4 迁移（`order_as_of_date` NOT NULL 约束），含前置 oaod NULL 校验与后置验收 |
+
+> 注：S2 跨日修复与 Phase A/B 迁移期的一次性脚本（`reprocess_affected_dates` / `cleanup_processed_fills_mismatches` / `analyze_processed_fills_nulls` / `migrate_raw_fills_to_v3` / `apply_v3_to_v4` / `fix_raw_fills_null_*` / `cleanup_orphan_processed_fills` / `verify_*` / `backfill_fill_bdib_*` / `backfill_daily_metrics` / `cleanup_raw_bdib_empty_bars` / `backfill_eur_ticker` 及 devtools、diagnose 诊断件）已于 2026-08-26 死代码清理中移除（ADR-0014），需要时从 git 历史恢复。
+>
 | `scripts/ops/backfill_raw_fills_oaod_eet.py` | 回填 `raw_fills.order_as_of_date` 与 `exchange_exec_time` NULL 行（`derive_exchange_times` 内存重算逐行 UPDATE） |
-| `scripts/ops/fix_raw_fills_null_exchange.py` | 修复 raw_fills Exchange NULL（pandas 误转 "NA" 为 NaN） |
-| `scripts/ops/fix_raw_fills_null_ticker_national_bank.py` | 修复 raw_fills Ticker NULL（National Bank of Canada BBG mnemonic='NA'） |
-| `scripts/ops/cleanup_orphan_processed_fills.py` | 清理 processed_fills 中 209 条孤儿行（v3 PK 升级前跨日覆盖遗留） |
-| `scripts/ops/cleanup_excluded_exchanges_tickers.py` | 清理 8 个非分析范围市场（CN/BZ/MM/PW/DC/IT/NZ/MUMBAI）在 fill_bdib + ticker_repository 中的残留数据（2026-07-16 业务决定） |
-| `scripts/ops/verify_fix.py` | 验证 Exchange NULL 修复结果 |
-| `scripts/ops/verify_phase_a_b_integrated.py` | Phase A（PK v3）+ Phase B（NA 修复）综合验收 |
-| `scripts/backfill_eur_ticker.py` | EUR equ_ticker 历史回填（2025-09 ~ 2026-06） |
-| `scripts/devtools/scope_compare.py` | EMSX Team vs TradingSystem scope A/B 对比诊断（行数、PK 交集、字段 NULL 率、字段差异）。独立诊断工具，直接用 blpapi，不经过 DataPipeline 核心；生产 fetch 路径已移除 team 参数，scope 固定 TradingSystem |
-| `scripts/devtools/fetch_and_inspect.py` | Bloomberg EMSX 拉取与数据检查工具 |
 | `scripts/ops/cleanup-logs.ps1` | 清理历史日志 |
 | `scripts/ops/service-manager.ps1` | DataPipeline 服务管理 |
 

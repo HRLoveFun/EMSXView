@@ -339,8 +339,8 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - **问题**：`ProcessRawFillsStage` 历史上以 `source_date`（拉取日）作 `target_dates` 维度。一个 `source_date` 内的成交可能跨多个真实交易日（`order_as_of_date`），S2 写入前校验 `order_as_of_date` 与输入日期一致时，整批拒绝。13 个 `source_date` 共 3,600,000+ 行未生成 `processed_fills`/`agg_fills`/`route_registry`/`fill_bdib`。
 - **修复**：`target_dates` 维度从 `source_date` 改为 `raw_fills` 的 `DISTINCT order_as_of_date`，与 `processed_fills.order_as_of_date` 真实交易日语义保持一致。
 - **改动**：`orchestration/stages_ingest.py` + `storage/repositories/raw_fills.py`（新增 `get_distinct_order_as_of_dates()` + `get_fills_for_date()` 接受 `YYYYMMDD`）；新增回归测试 `TestStage2CrossDayProcessing`。
-- **回填脚本**：`scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5`，对 13 个缺失 `source_date` 展开为 69 个 OAD 重新跑 S2/S3/S4。`raw_fills` 非 DFD 11,112,677 = `processed_fills` 11,112,677，gap=0。
-- **配套运维**：`scripts/ops/cleanup_processed_fills_mismatches.py`（孤儿/日期不匹配/无效 `order_as_of_date` 行清理，--dry-run、--dates、自动备份）+ `scripts/ops/analyze_processed_fills_nulls.py`（每列 NULL/空字符串统计）。
+- **回填脚本**：一次性回填经 `scripts/ops/reprocess_affected_dates.py --missing-source-dates --no-s5` 完成（13 个缺失 `source_date` 展开为 69 个 OAD 重跑 S2/S3/S4；`raw_fills` 非 DFD 11,112,677 = `processed_fills` 11,112,677，gap=0）。该脚本已随 2026-08-26 死代码清理归档（ADR-0014），需要时从 git 历史恢复。
+- **配套运维**：`cleanup_processed_fills_mismatches.py` / `analyze_processed_fills_nulls.py` 已完成使命并随 2026-08-26 清理归档（git 历史可查）。
 - **新增配置**：`STRICT_MISSING_TICKER_VALIDATION`（默认 `false`，启用时 `process_fills` 阶段 Exchange/equ_ticker 缺失直接抛 `ValueError`）。
 
 ### BDIB 覆盖率修复记录（2026-07-08）
@@ -364,7 +364,7 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
   - `platform_data/contracts/tca_contracts.py` — 更新 TCA 契约定义
   - 前端移除 `TcaRouteTable.tsx`，重构 `AnalysisView`/`OverviewView`/`TcaOrderTable`
 - **fill_count 指标**（2026-07-17 新增）：`tca_route_summary` 表新增 `fill_count` 列，统计每条路由的成交笔数。
-- **配套脚本**：`scripts/recompute_route_metrics.py`（路由汇总表重算）、`scripts/check_trs.py`（汇总表完整性检查）、`scripts/monitor_trs.py`（汇总表监控）、`scripts/ops/cleanup_excluded_exchanges_tickers.py`（清理排除交易所的 ticker 数据）。
+- **配套脚本**：`scripts/ops/cleanup_excluded_exchanges_tickers.py`（清理排除交易所的 ticker 数据）；原 recompute_route_metrics / check_trs / monitor_trs 已随 2026-08-26 清理归档（路由汇总表重算用 `scripts/ops/recompute_all_tca_route_metrics.py`）。
 - **测试**：`DataPipeline/tests/processing/test_tca_route_metrics.py` — 路由汇总表计算单元/集成测试。
 
 ### TCA 监控与报告生成记录（2026-08-06）

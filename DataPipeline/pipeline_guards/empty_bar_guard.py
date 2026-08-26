@@ -6,7 +6,8 @@
 - value 为 0 或 NULL
 
 历史：早期写入路径曾产生 28,591 行完全空 bar（集中在 2026-04-08），
-已于 2026-07-07 通过 scripts/ops/cleanup_raw_bdib_empty_bars.py 清理。
+已于 2026-07-07 通过 scripts/ops/cleanup_raw_bdib_empty_bars.py 清理
+（该清理脚本已随 2026-08-26 死代码清理归档，git 历史可查）。
 当前 _validate_bdib_response 已能过滤，不会再产生新的空 bar。
 
 该模块作为 IntegrateBDIBStage (S5) 的前置校验运行：
