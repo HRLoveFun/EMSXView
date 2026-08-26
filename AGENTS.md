@@ -2,13 +2,13 @@
 
 本文件为在本代码仓库工作的 AI 编码代理（CodeBuddy、Claude Code、Copilot、Cursor 等）提供指导。
 
-> **同步机制**：`AGENTS.md`、`CODEBUDDY.md`、`CLAUDE.md` 三份文件内容完全相同，由 git pre-commit hook（`.githooks/pre-commit`）自动同步。编辑任一文件后提交，其余文件自动同步。规范源为 `AGENTS.md`（其余两份仅服务各自 Agent 的加载约定）。
+> **同步机制**：`AGENTS.md` 与 `CODEBUDDY.md` 两份文件内容完全相同，由 git pre-commit hook（`.githooks/pre-commit`）自动同步。编辑任一文件后提交，另一文件自动同步。规范源为 `AGENTS.md`（`CODEBUDDY.md` 仅服务 CodeBuddy 的加载约定）。
 
 ## 文档阅读顺序（必读）
 
 进入本仓库的 AI 代理 **必须** 按以下顺序阅读文档，再开始任何代码改动：
 
-1. `CODEBUDDY.md` / `AGENTS.md` / `CLAUDE.md`（本文件）— 工作流与安全规则
+1. `CODEBUDDY.md` / `AGENTS.md`（本文件）— 工作流与安全规则
 2. `.codebuddy/rules/project-context.md` — 技术栈与模块清单
 3. `.codebuddy/rules/coding-style.md` — 命名/目录/状态管理
 4. `.codebuddy/rules/module-boundary.md` — ★ 模块边界契约
@@ -18,6 +18,7 @@
 8. `docs/spec/module-onboarding.md` — 新增模块流程
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
 10. `docs/spec/plan-design-principles.md` — ★ 计划设计原则（G0 数据零受损 / G1 三性齐备 / G2 全程防漂移 / G3 充分且必要）
+11. `docs/spec/refactoring-methodology.md` — ★ 系统性安全重构框架（10 步流程 + 门禁，重构前必读）
 
 > **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。以下两文件仅作历史记录保留，不再作为活跃必读：
 > - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 保留月数）以 `DataPipeline/config.py` 的 Config 类为唯一真相源
@@ -247,6 +248,16 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - 实时数据流（订单/路由）使用 Zustand store（`order-stream-store`、`route-stream-store`）
 - 跨模块通信：`ModuleRegistry` 注册 + `useHandoffContracts()` hook + `handoff-api.ts` 服务
 
+### Broker ↔ Exchange 映射清单（★ 维护点，2026-08-25）
+
+- **唯一数据源**：`frontend/src/shared/lib/broker-exchange-mapping.ts`（导出 `EXCHANGE_FOR_BROKER` / `getBrokerExchangeMapping()` / `EXCHANGE_LIST`）
+- **维护方式**：增删交易所或 broker 时**只改 shared 文件**，两个使用方自动同步生效：
+  - ExecutionView **Market Broker Mapping**（Settings）— 经 `frontend/src/modules/execution/data/broker-exchange-mapping.ts` **re-export 兼容层**读取
+  - CostView **Configure → Report Exchanges** — 直接 `import { EXCHANGE_LIST } from '@shared/lib/broker-exchange-mapping'`
+- **Report 专有市场**：仅需出现在 Report Exchanges、但**不进入** Market Broker Mapping 授权表的交易所（如 `C1` 沪港通、`HK` 香港），加入 `REPORT_ONLY_EXCHANGES` 常量（挂在 `EXCHANGE_LIST`，不挂 `EXCHANGE_FOR_BROKER`）
+- **禁止**：在 `modules/execution/data/broker-exchange-mapping.ts` 内直接编辑映射（该文件仅作 re-export，改此处不会生效且会造成漂移）
+- **背景**：`frontend_costview` 模块边界禁止 import `@execution/*`，故跨模块只读配置按 `module-boundary.md §7` 上移至 `@shared/lib`；原 execution 路径保留为兼容层（`verify_refactor_step.py` S05 检查仍依赖该文件存在）
+
 ### 后端约定
 
 - 后端使用 Pydantic v2 模型定义 schema；所有 API 响应包在 `ApiResponse` 中。
@@ -278,6 +289,15 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 ## 当前计划
 
 **状态**：✅ 护栏机制已落地（2026-06-25）；S2 跨日维度修复已完成（2026-07-03）；BDIB 覆盖率修复已完成（2026-07-08）；TCA 路由汇总表重构已完成（2026-07-16）；TCA 监控与报告生成已完成（2026-08-06）；TCA 核心指标补全已完成（2026-08-19，已合并 main）；**backend 测试存量失败修复进行中（2026-08-20）**
+
+**计划总览**（004-007 真实状态，2026-08-26 对齐；待办聚合见 `docs/open-todos.md`）：
+
+| 计划 | 名称 | 功能状态 | 遗留 |
+|------|------|---------|------|
+| 004-backend-test-stabilization | backend 测试存量失败修复 | ✅ 26 项全修，本地 195 passed | ⏳ PR 合并回 main |
+| 005-bloomberg-quota-pause | Bloomberg 配额暂停 | ✅ 功能完成（全量回归通过） | ⏳ PR 合并回 main |
+| 006-costview-html-report | TCA HTML 报告导出 | ✅ 完成（含第二批增强） | `monitoring-metrics.ts:42` fill label 待改 |
+| 007-costview-report-filters | 报告筛选 + 总成交金额 | ✅ 完成 | `tca_route_summary.fx_rate` 需 S5.5 回填 |
 
 **特性**：backend 测试存量失败修复（004-backend-test-stabilization）
 **分支**：`004-backend-test-stabilization`
@@ -371,4 +391,27 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - **测试**：`test_monitoring.py` 47 passed（+4 markets 用例）、CostView 262 passed、
   前端 costview 29 passed（+2 标签页用例）、tsc/lint 零错误、boundary 12 passed。
 - **关联**：`docs/handoff-costview-html-report.md`、`specs/006-costview-html-report/plan.md`
+
+### 报告筛选增强 + 总成交金额记录（007，2026-08-21）
+
+- **市场配置**：`DataPipeline/config.py::Config.MARKET_ORDER`（34 个 Exchange → 中文名，
+  顺序即标签页顺序），HTML 报告分市场标签页与前端多选下拉共用。
+- **USD 成交金额**：数据管道无可靠 USD 换算（`fill_bdib.fx_rate` 大量 1.0 兜底）。
+  方案 B：`processed_fills` 加 `fx_rate` 列（幂等 ALTER 迁移），S5.5
+  `_enrich_fills_with_fx_rate` 从 fill_bdib 按 (OrderId,RouteId,mkt_timestamp) 回填并写回；
+  `tca_route_metrics` 按 fill 量加权聚合 route 级 `fx_rate`（`tca_route_summary` 加列）。
+  同时修 `fx_fetcher` 降级：额度暂停/失败回退最近已知汇率（`_RECENT_RATES` 缓存），非 1.0 兜底。
+- **report_aggregator**：KPI 增 `notional`/`notional_usd`/`fx_coverage`；
+  `markets` 增每市场成交金额；新增 `filter_options`（distinct brokers/algos/symbols）；
+  `_build_where` 支持逗号分隔多值 → IN 匹配（前端多选）。
+- **HTML 报告**：KPI 增「总成交金额 (USD)」卡片（fx 覆盖率副标题）；新增「分市场概览」
+  零 JS CSS `:target` 标签页（Config.MARKET_ORDER 顺序 + 每市场成交金额表）。
+- **前端**：新增 `MultiSelectFilter.tsx`（Popover+Checkbox 多选下拉，带选中 Badge）；
+  ReportView 市场/Broker/Algo/Symbol 多选 + 时间范围「指定日期/范围」自定义区间；
+  KPI 卡片增总成交金额 (USD)；`api.ts` 支持数组参数 + 显式日期区间。
+- **测试**：CostView 265 passed（+3）、DataPipeline 186 passed（+4）、backend 全量 207 passed、
+  boundaries 12、quota_pause 10（+1 FX 降级）；前端 costview 32 passed（+3）、全量 110、
+  tsc/lint/build 零错误。
+- **遗留**：`tca_route_summary.fx_rate` 需管道重跑（S5.5）才回填；历史日期需增量回填。
+- **关联**：`specs/007-costview-report-filters/plan.md`
 <!-- SPECKIT END -->

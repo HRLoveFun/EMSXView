@@ -66,6 +66,8 @@ export function loadCostViewConfig(): CostViewConfig {
       ...createDefaultCostViewConfig().exportDefaults,
       ...(parsed.exportDefaults ?? {}),
     },
+    // 向后兼容：旧版本 localStorage 无该字段时回退为「全部市场」
+    reportExchanges: Array.isArray(parsed.reportExchanges) ? parsed.reportExchanges : [],
   };
 }
 

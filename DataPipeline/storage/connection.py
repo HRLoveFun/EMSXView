@@ -35,7 +35,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from DataPipeline.config import Config, DB_RAW_FILLS, DB_PROCESSED_FILLS, DB_RAW_BDIB, DB_PROCESSED_RAW_BDIB, DB_FILL_BDIB, DB_REGIME, DB_FETCH_HISTORY, DB_EXECUTION_HISTORY, DB_TICKER_REGISTRY
+from DataPipeline.config import Config, DB_RAW_FILLS, DB_PROCESSED_FILLS, DB_RAW_BDIB, DB_PROCESSED_RAW_BDIB, DB_FILL_BDIB, DB_REGIME, DB_FETCH_HISTORY, DB_BDIB_FETCH_HISTORY, DB_EXECUTION_HISTORY, DB_TICKER_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +233,7 @@ ALL_DATABASE_NAMES = [
     DB_FILL_BDIB,
     DB_REGIME,
     DB_FETCH_HISTORY,
+    DB_BDIB_FETCH_HISTORY,
     DB_EXECUTION_HISTORY,
     DB_TICKER_REGISTRY,
 ]
@@ -276,6 +277,7 @@ class ConnectionManager:
             DB_FILL_BDIB: self._config.FILL_BDIB_DB,
             DB_REGIME: self._resolve_regime_db_path(),
             DB_FETCH_HISTORY: self._config.FETCH_HISTORY_DB,
+            DB_BDIB_FETCH_HISTORY: self._config.BDIB_FETCH_HISTORY_DB,
             DB_EXECUTION_HISTORY: self._config.EXECUTION_HISTORY_DB,
             DB_TICKER_REGISTRY: self._config.TICKER_REGISTRY_DB,
         }

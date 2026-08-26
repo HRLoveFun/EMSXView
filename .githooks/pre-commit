@@ -1,30 +1,26 @@
 #!/bin/bash
-# Pre-commit hook: 自动同步 CODEBUDDY.md / CLAUDE.md 与 AGENTS.md
-# 规范源为 AGENTS.md；若仅 CODEBUDDY.md 或 CLAUDE.md 被编辑，则反向同步
+# Pre-commit hook: 自动同步 CODEBUDDY.md 与 AGENTS.md
+# 规范源为 AGENTS.md；若仅 CODEBUDDY.md 被编辑，则反向同步
 # 设置方式: git config core.hooksPath .githooks
 
 CB="CODEBUDDY.md"
 AG="AGENTS.md"
-CL="CLAUDE.md"
 
 # 检查是否有任一文件被暂存
 CB_STAGED=$(git diff --cached --name-only -- "$CB")
 AG_STAGED=$(git diff --cached --name-only -- "$AG")
-CL_STAGED=$(git diff --cached --name-only -- "$CL")
 
 # 均未暂存则跳过
-if [ -z "$CB_STAGED" ] && [ -z "$AG_STAGED" ] && [ -z "$CL_STAGED" ]; then
+if [ -z "$CB_STAGED" ] && [ -z "$AG_STAGED" ]; then
     exit 0
 fi
 
-# 确定同步方向：优先 AGENTS.md，其次 CODEBUDDY.md，最后 CLAUDE.md
+# 确定同步方向：优先 AGENTS.md，其次 CODEBUDDY.md
 SRC=""
 if [ -n "$AG_STAGED" ]; then
     SRC="$AG"
 elif [ -n "$CB_STAGED" ]; then
     SRC="$CB"
-elif [ -n "$CL_STAGED" ]; then
-    SRC="$CL"
 fi
 
 sync_files() {
@@ -40,30 +36,25 @@ sync_files() {
     done
 }
 
-# 规范源暂存 → 同步到其余两份
+# 规范源暂存 → 同步到另一份
 case "$SRC" in
-    "$AG") sync_files "$AG" "$CB" "$CL" ;;
-    "$CB") sync_files "$CB" "$AG" "$CL" ;;
-    "$CL") sync_files "$CL" "$AG" "$CB" ;;
+    "$AG") sync_files "$AG" "$CB" ;;
+    "$CB") sync_files "$CB" "$AG" ;;
 esac
 
 # ═══════════════════════════════════════════════════════════════════════
-# 边界审计快路径 (P2, 2026-08-14)
-# 仅当暂存文件含 .py/.ts/.tsx 时执行; 违规即阻断提交。
-# 审计规则从 platform_data/contracts/boundary_registry.py 生成。
+# 质量门禁增量快检 (2026-08-21)
+# 仅当暂存文件含 .py/.ts/.tsx 时执行。
+# - AP-xx 契约违规：立即阻断（与既有边界审计行为一致）
+# - OE-xx 过度工程：基线演进 — 新增阻断 / 存量放行 / 修复正向提示
+# 底层通过 scripts/quality_gate.py --staged 调用，AP 适配层仍执行既有
+# audit_*.py 三个脚本（零重写零回归）；OE 检测器受 25s 预算 fail-open 保护。
 # ═══════════════════════════════════════════════════════════════════════
 CODE_STAGED=$(git diff --cached --name-only | grep -E '\.(py|ts|tsx)$' || true)
 if [ -n "$CODE_STAGED" ] && command -v python >/dev/null 2>&1; then
-    AUDIT_FAILED=0
-    for audit in audit_cross_imports audit_underscore_access audit_db_paths; do
-        if ! python "scripts/$audit.py" >/dev/null 2>&1; then
-            echo "[pre-commit] 边界审计失败: scripts/$audit.py"
-            python "scripts/$audit.py" >&2
-            AUDIT_FAILED=1
-        fi
-    done
-    if [ "$AUDIT_FAILED" -eq 1 ]; then
-        echo "[pre-commit] 请修复上述边界违规后重新提交"
+    if ! printf "%s\n" "$CODE_STAGED" | python scripts/quality_gate.py --staged --quiet; then
+        echo "[pre-commit] 质量门禁阻断：存在 AP 契约违规或新增过度工程信号"
+        echo "[pre-commit] 存量问题未阻断；修复建议见上方输出"
         exit 1
     fi
 fi

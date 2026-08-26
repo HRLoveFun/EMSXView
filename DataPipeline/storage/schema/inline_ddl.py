@@ -24,6 +24,7 @@ from .columns import (
     AGG_1MIN_COLUMNS,
     AGG_COLUMNS,
     COLUMN_TYPE_MAP,
+    FX_RATES_COLUMNS,
     ORDER_HISTORY_COLUMNS,
     PROCESSED_COLUMNS,
     ROUTE_EVENT_HISTORY_COLUMNS,
@@ -488,6 +489,8 @@ def init_fill_bdib_schema(conn: sqlite3.Connection) -> None:
 
     # 同时确保 tca_route_summary 表存在
     init_tca_route_summary_schema(conn)
+    # fx-rate-persistence: 同时确保 fx_rates 汇率表存在（币种 × 交易日唯一真相源）
+    init_fx_rates_schema(conn)
     logger.debug("fill_bdib.db schema ensured (inline DDL)")
 
 
@@ -516,12 +519,51 @@ def init_tca_route_summary_schema(conn: sqlite3.Connection) -> None:
 
     # 003-tca-core-benchmarks: 追加 Phase 0 + Phase 1 新列（幂等表重建迁移）
     _migrate_tca_route_summary_v2(conn)
+    # 007-costview-report-filters: 追加路由级 fx_rate 列（幂等轻量迁移）
+    _migrate_tca_route_summary_add_fx_rate(conn)
 
     logger.debug("tca_route_summary schema ensured (inline DDL)")
 
 
+def init_fx_rates_schema(conn: sqlite3.Connection) -> None:
+    """Create fx_rates table in fill_bdib.db（fx-rate-persistence）。
+
+    币种 × 交易日汇率唯一真相源：
+    - PK (ccy_ticker, order_as_of_date) 同时覆盖精确命中与 ≤日期回退两类查询
+      （前缀命中 + 前缀内按日期序倒扫）
+    - px_last 与 fx_rate 双存（原始逆报价 + 换算值），便于审计与精度追溯
+    - source 区分 'bloomberg'（实时拉取）与 'fill_bdib_seed'（历史反推）
+    """
+    fx_cols = _build_column_defs(FX_RATES_COLUMNS, COLUMN_TYPE_MAP)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {Config.FX_RATES_TABLE} (
+            {fx_cols},
+            PRIMARY KEY (ccy_ticker, order_as_of_date)
+        )
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_fx_rates_date
+        ON {Config.FX_RATES_TABLE} (order_as_of_date)
+    """)
+    conn.commit()
+    logger.debug("fx_rates schema ensured (inline DDL)")
+
+
 # 003-tca-core-benchmarks: Phase 0 + Phase 1 新增列（一次表重建，幂等）
 _TCA_V2_NEW_COLUMNS: list[str] = TCA_CORE_BENCHMARKS_COLUMNS + TCA_RISK_IMPACT_COLUMNS
+
+
+def _migrate_tca_route_summary_add_fx_rate(conn: sqlite3.Connection) -> None:
+    """tca_route_summary 追加路由级 fx_rate 列（007，幂等轻量迁移）。"""
+    table = Config.TCA_ROUTE_SUMMARY_TABLE
+    try:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    except sqlite3.OperationalError:
+        return  # 表不存在，由 CREATE TABLE IF NOT EXISTS 处理
+    if "fx_rate" in existing:
+        return  # 幂等：已迁移完成
+    conn.execute(f'ALTER TABLE {table} ADD COLUMN fx_rate REAL')
+    logger.info("tca_route_summary 表新增 fx_rate 列（007）")
 
 
 def _migrate_tca_route_summary_v2(conn: sqlite3.Connection) -> None:
@@ -579,6 +621,22 @@ def _migrate_tca_route_summary_v2(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_processed_fills_add_fx_rate(conn: sqlite3.Connection) -> None:
+    """processed_fills 追加 fx_rate 列（007-costview-report-filters，幂等）。
+
+    轻量 ALTER TABLE ADD COLUMN（仅新增一列，无重建），已存在则跳过。
+    """
+    table = Config.PROCESSED_FILLS_TABLE
+    try:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    except sqlite3.OperationalError:
+        return  # 表不存在，由 CREATE TABLE IF NOT EXISTS 处理
+    if "fx_rate" in existing:
+        return  # 幂等：已迁移完成
+    conn.execute(f'ALTER TABLE {table} ADD COLUMN fx_rate REAL')
+    logger.info("processed_fills 表新增 fx_rate 列（007）")
+
+
 def init_processed_fills_schema(conn: sqlite3.Connection) -> None:
     """Create processed_fills.db tables and indexes.
 
@@ -606,6 +664,7 @@ def init_processed_fills_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_proc_routeid
         ON {Config.PROCESSED_FILLS_TABLE} (RouteId)
     """)
+    _migrate_processed_fills_add_fx_rate(conn)
 
     # ── route_registry ──
     route_reg_cols = _build_column_defs(ROUTE_REGISTRY_COLUMNS, COLUMN_TYPE_MAP)

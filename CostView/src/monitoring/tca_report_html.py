@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from DataPipeline.config import Config
+
 # ── SVG 画布常量 ──
 _CHART_W = 780
 _CHART_H = 260
@@ -41,6 +43,7 @@ def render_report_html(
     sections = [
         _html_head(f"TCA 可视化报告 {title_range}"),
         _render_header(filters, generated_at),
+        _render_market_tabs(report.get("markets"), report.get("kpi")),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly")),
         _render_charts(report),
@@ -95,6 +98,14 @@ td.l, th.l {{ text-align: left; }}
 .tag-unrecoverable {{ background: #2a2f38; color: #90a4ae; }}
 .footer {{ margin-top: 32px; color: #5f7186; font-size: 11px; text-align: center; }}
 svg text {{ font-family: inherit; }}
+/* 007: 分市场 CSS 标签页（零 JS，radio 驱动，无锚点跳转） */
+.tab-wrap {{ margin-top: 16px; display: flex; flex-wrap: wrap; gap: 6px; }}
+.tab-wrap > input[type="radio"] {{ display: none; }}
+.tab-wrap > label {{ padding: 4px 14px; border-radius: 14px; font-size: 12px; color: #7d8fa3;
+  background: #1a2332; border: 1px solid #2a3648; cursor: pointer; user-select: none; }}
+.tab-wrap > label:hover {{ color: #d7dee8; border-color: #4fc3f7; }}
+.tab-wrap > input[type="radio"]:checked + label {{ background: #4fc3f7; color: #0f1419; font-weight: 600; border-color: #4fc3f7; }}
+.mk-panel {{ display: none; flex-basis: 100%; margin-top: 10px; }}
 </style></head><body><div class="container">"""
 
 
@@ -124,6 +135,83 @@ def _render_footer() -> str:
     )
 
 
+def _render_market_tabs(
+    markets: Optional[list[dict[str, Any]]],
+    kpi: Optional[dict[str, Any]],
+) -> str:
+    """分市场标签页（007）：市场由 Config.MARKET_ORDER 设定顺序。
+
+    零 JS 实现：radio 驱动的纯 CSS 标签页（选中态为 ``:checked + label``，
+    面板用兄弟选择器 ``:checked ~ .mk-panels`` 显示）。默认选中「全部」，
+    切换不产生页面锚点跳转（区别于早期 :target 方案）。每个市场锚点指向
+    市场汇总表（route 数 + 成交金额 USD）。
+    """
+    if not markets:
+        return ""
+    # 按 Config.MARKET_ORDER 排序（未配置的市场排后面，中文名缺失用代码）
+    order = Config.MARKET_ORDER
+    known = [m for m in markets if m["exchange"] in order]
+    unknown = [m for m in markets if m["exchange"] not in order]
+    known.sort(key=lambda m: list(order.keys()).index(m["exchange"]))
+    unknown.sort(key=lambda m: m["exchange"])
+    ordered = known + unknown
+    if len(ordered) < 2:
+        return ""
+
+    radios = [f'<input type="radio" name="mk" id="mk-all" checked>'
+              f'<label for="mk-all">全部</label>']
+    panels = ['<div class="mk-panel">']
+    panels.append(_market_summary_table(ordered, is_all=True))
+    panels.append("</div>")
+    for i, m in enumerate(ordered):
+        code = m["exchange"]
+        display = order.get(code, code)
+        radios.append(f'<input type="radio" name="mk" id="mk-{code}">'
+                      f'<label for="mk-{code}">{_esc(display)}</label>')
+        panels.append(f'<div class="mk-panel">')
+        panels.append(_market_summary_table([m], is_all=False))
+        panels.append("</div>")
+    # 面板跟随选中的 radio 兄弟显示（通用兄弟选择器，无锚点跳转）
+    # radio / label / .mk-panel 均为 .tab-wrap 直接子元素；默认「全部」checked
+    # panel 1 = 全部，市场 i → panel i+2
+    show = "".join(
+        f'input#mk-{_css_id(m["exchange"])}:checked ~ .mk-panel:nth-of-type({i + 2})'
+        f'{{ display:block; }}'
+        for i, m in enumerate(ordered)
+    )
+    return f"""
+<h2>分市场概览</h2>
+<div class="tab-wrap">
+{''.join(radios)}
+<style>{show}
+input#mk-all:checked ~ .mk-panel:nth-of-type(1) {{ display:block; }}
+</style>
+{''.join(panels)}
+</div>"""
+
+
+def _market_summary_table(
+    markets: list[dict[str, Any]], is_all: bool,
+) -> str:
+    """市场汇总表：route 数 + 成交金额（本币 / USD）。"""
+    rows = "".join(
+        f'<tr><td class="l">{_esc(Config.MARKET_ORDER.get(m["exchange"], m["exchange"]))}</td>'
+        f'<td class="l">{_esc(m["exchange"])}</td>'
+        f"<td>{m['route_count']:,}</td>"
+        f"<td>{_fmt_big(m.get('notional'))}</td>"
+        f"<td>{_fmt_big(m.get('notional_usd'))}</td></tr>"
+        for m in markets
+    )
+    title = "全部市场" if is_all else f"{_esc(Config.MARKET_ORDER.get(markets[0]['exchange'], markets[0]['exchange']))} 市场"
+    return f"""
+<div class="panel" style="overflow-x:auto">
+<table><thead><tr><th class="l">市场</th><th class="l">代码</th><th>Route 数</th>
+<th>成交金额（本币）</th><th>成交金额（美元）</th></tr></thead>
+<tbody>{rows}</tbody></table>
+<div class="meta" style="margin-top:8px">市场顺序与白名单由 DataPipeline/config.py::Config.MARKET_ORDER 设定。</div>
+</div>"""
+
+
 def _render_kpi_cards(
     kpi: Optional[dict[str, Any]],
     extra: Optional[dict[str, Any]],
@@ -135,6 +223,8 @@ def _render_kpi_cards(
     cards = [
         ("Route 总数", f"{kpi['route_count']:,}", ""),
         ("总成交股数", _fmt_big(kpi["total_route_shares"]), "RouteShares 合计"),
+        # 007: 总成交金额（USD 换算，标注 fx_rate 覆盖率）
+        ("总成交金额（美元）", _fmt_big(kpi.get("notional_usd")), _fx_coverage_sub(kpi)),
         ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")), "成交额加权 · VWAP 基准"),
         ("平均 par_rate", _fmt_num(kpi.get("avg_par_rate")), "参与率均值"),
         ("平均 RPM", _fmt_num(kpi.get("avg_rpm")), ""),
@@ -544,6 +634,17 @@ def _fmt_big(value: Optional[float]) -> str:
     return f"{value:.0f}"
 
 
+def _fx_coverage_sub(kpi: dict[str, Any]) -> str:
+    """总成交金额卡片的副标题：fx_rate 覆盖率提示。"""
+    coverage = kpi.get("fx_coverage")
+    if coverage is None:
+        return "USD 换算 · 无 fx_rate 数据"
+    pct = coverage * 100.0
+    if pct >= 99.0:
+        return "USD 换算 · fx_rate 全覆盖"
+    return f"USD 换算 · fx_rate 覆盖率 {pct:.0f}%"
+
+
 def _fmt_risk(stddev: Optional[float], cvar: Optional[float]) -> str:
     """风险卡片：stddev / CVaR 合并展示。"""
     if stddev is None and cvar is None:
@@ -574,6 +675,11 @@ def _fmt_duration(seconds: Optional[float]) -> str:
 def _trunc(text: str, max_len: int) -> str:
     """长文本截断。"""
     return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+
+def _css_id(text: Any) -> str:
+    """转义为 CSS 标识符安全的 id（仅保留字母数字与 -_，其余转义）。"""
+    return "".join(c if c.isalnum() or c in "-_" else f"-{ord(c):x}" for c in str(text))
 
 
 def _esc(text: Any) -> str:

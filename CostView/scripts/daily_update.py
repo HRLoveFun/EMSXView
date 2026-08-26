@@ -29,6 +29,7 @@ import io
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Optional
 
 # Windows 默认控制台编码为 cp1252，中文字符输出会触发 UnicodeEncodeError；
 # 强制 stdout/stderr 使用 UTF-8，避免 progress callback 中的中文 detail 报错。
@@ -159,6 +160,30 @@ _KNOWN_DBS = [
     "execution_history.db",
     "ticker_registry.db",
 ]
+
+
+def _run_report_dims_step() -> None:
+    """管线后自动刷新报告筛选维度持久化列表（非阻塞，失败仅 warning）。
+
+    从 tca_route_summary 增量抽取市场 / Broker / Algo / Symbol 维度值写入
+    tca_report_dims，Report 下拉选项据此读取（时间无关），不再每次请求
+    按时间范围对明细表 GROUP BY 去重。
+    """
+    try:
+        from CostView.src.monitoring.report_dims import refresh_dim_values
+
+        print("[STAGE] report_dims 20 Refreshing report dim values...", flush=True)
+        result = refresh_dim_values()
+        processed = result.get("processed") or {}
+        logger.info("报告维度值刷新: %s", result)
+        print(
+            "[STAGE] report_dims 100 Dim values refreshed: "
+            + ", ".join(f"{k}={v}" for k, v in processed.items()),
+            flush=True,
+        )
+    except Exception as e:
+        logger.warning("报告维度值刷新跳过: %s", e)
+        print(f"[STAGE] report_dims 100 Dim refresh skipped ({e})", flush=True)
 
 
 def _run_report_step() -> None:
@@ -341,6 +366,35 @@ def _setup_logging() -> None:
         root.addHandler(fh)
 
 
+def _fetch_failure_detail(fetch_result: Any) -> Optional[str]:
+    """从 Stage A fetch 摘要中提取失败描述；无失败返回 None。
+
+    静默失败修复（2026-08-21）：fill fetch 失败此前不会传导到最终 status，
+    导致前端显示绿色 completed 而实际 fill 数据缺失（fill 失败 + BDIB 成功
+    仍报 success）。失败判定（任一命中即视为失败）：
+    - ``success`` 为 False（存在 error_days —— API 错误 / 空响应 quota 判定）
+    - ``quota_paused`` 为 True（额度暂停短路，跳过了全部日期）
+    """
+    if not isinstance(fetch_result, dict):
+        return None
+    if fetch_result.get("status") == "up-to-date":
+        return None
+    error_days = int(fetch_result.get("days_error", 0) or 0)
+    quota_paused = bool(fetch_result.get("quota_paused"))
+    if error_days == 0 and not quota_paused and fetch_result.get("success", True):
+        return None
+    parts: list[str] = []
+    if error_days:
+        parts.append(f"{error_days} day(s) errored")
+    if quota_paused:
+        parts.append("quota paused — fetch skipped")
+    detail = "; ".join(parts) if parts else "unknown failure"
+    return (
+        f"Fill fetch failed for {fetch_result.get('start_date')}~"
+        f"{fetch_result.get('end_date')} ({detail})"
+    )
+
+
 def run_daily_pipeline(generate_report: bool = True) -> dict:
     """Execute the full daily pipeline: fetch + process + aggregate + labels.
 
@@ -357,6 +411,9 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
         "pipeline": None,
         "status": "unknown",
     }
+    # Stage A 失败描述（None = 无失败）。失败不中断后续阶段（BDIB / 聚合仍
+    # 处理存量数据），但最终 status 会标记 failed 并经 exit code 传导至前端。
+    fetch_failure: Optional[str] = None
 
     # ── Stage marker: Initialization ──
     print("[STAGE] initialization 50")
@@ -396,6 +453,13 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
                 fetch_result = fetcher.fetch_range_aggregated(start, end, progress_callback=_on_fetch_progress)
                 summary["fetch"] = fetch_result
                 print("[STAGE] fill_fetch 100 Fill fetch complete")
+                fetch_failure = _fetch_failure_detail(fetch_result)
+                if fetch_failure:
+                    # 静默失败修复：显式输出 ERROR 行（供 pipeline_jobs 的
+                    # _extract_error_from_output 提取），管线继续跑完存量处理，
+                    # 最终 status 标记 failed 并以 exit code 1 传导前端。
+                    logger.error("%s — 后续阶段继续，本次日更将标记为 failed", fetch_failure)
+                    print(f"ERROR: {fetch_failure}")
         finally:
             fetcher.close()
 
@@ -451,6 +515,10 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
         gc.collect()
         _log_mem("completion_before_checkpoint")
 
+        # ── 报告筛选维度值持久化列表刷新（非阻塞，供 Report 下拉时间无关读取）──
+        print("[STAGE] report_dims 10")
+        _run_report_dims_step()
+
         # ── TCA 可视化报告（非阻塞，--no-report 可关闭）──
         if generate_report:
             print("[STAGE] report 10")
@@ -471,8 +539,15 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
             else:
                 detail = "Pipeline ran with no data changes"
 
-        summary["status"] = "success"
-        print(f"[STAGE] completion 100 {detail}")
+        if fetch_failure:
+            # 静默失败修复：fill fetch 失败 → status=failed → exit 1，
+            # pipeline_jobs 据此把 job 标记 failed，前端显示红色错误详情。
+            summary["status"] = "failed"
+            summary["error"] = fetch_failure
+            print(f"[STAGE] completion 100 FAILED — {fetch_failure}")
+        else:
+            summary["status"] = "success"
+            print(f"[STAGE] completion 100 {detail}")
         logger.info(f"DAILY UPDATE complete: {json.dumps(summary, indent=2, default=str)}")
         gc.collect()
         _log_mem("completion_done")

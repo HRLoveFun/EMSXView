@@ -45,6 +45,8 @@ PROCESSED_COLUMNS: List[str] = [
     "algo", "TraderName", "Exchange", "Amount", "RouteShares",
     "is_closing_auction", "ExecType", "region", "equ_ticker",
     "FillPrice", "FillShares",
+    # 007-costview-report-filters: 成交币种 → USD 汇率（USD per 1 单位本币）
+    "fx_rate",
 ]
 
 ROUTE_REGISTRY_COLUMNS: List[str] = [
@@ -86,6 +88,10 @@ COLUMN_TYPE_MAP: Dict[str, str] = {
     "route_count": "INTEGER", "fill_count": "INTEGER",
     "total_fill_shares": "REAL", "order_amount": "REAL",
     "average_fill_price": "REAL",
+    # 007-costview-report-filters: USD per 1 单位本币（成交金额换算用）
+    "fx_rate": "REAL",
+    # fx-rate-persistence: Bloomberg 原始逆报价（fx_rates 表审计双存）
+    "px_last": "REAL",
     # tca_route_summary 数值列
     "fill": "REAL", "fill_continuous": "REAL", "fill_close": "REAL",
     "par_rate": "REAL", "par_rate_continuous": "REAL", "par_rate_close": "REAL",
@@ -138,6 +144,8 @@ TCA_ROUTE_SUMMARY_COLUMNS: List[str] = [
     "order_duration_sec", "exec_rate_shares_per_min",
     "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
     "perm_impact_bps", "recovery_truncated",
+    # 007-costview-report-filters: 路由级 USD 汇率（成交金额换算）
+    "fx_rate",
 ]
 
 # 003-tca-core-benchmarks: Phase 0 新列（核心基准）
@@ -153,6 +161,15 @@ TCA_RISK_IMPACT_COLUMNS: List[str] = [
     "order_duration_sec", "exec_rate_shares_per_min",
     "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
     "perm_impact_bps", "recovery_truncated",
+]
+
+# fx-rate-persistence: fx_rates 表列（fill_bdib.db，币种 × 交易日汇率唯一真相源）
+# ccy_ticker 规范化大写（如 'USDJPY Curncy'）；fx_rate = USD per 1 单位本币；
+# px_last 为 Bloomberg 原始逆报价（审计/精度双存）；source 区分 'bloomberg' 拉取
+# 与 'fill_bdib_seed' 历史反推。
+FX_RATES_COLUMNS: List[str] = [
+    "ccy_ticker", "order_as_of_date", "fx_rate",
+    "px_last", "source", "fetched_at",
 ]
 
 AGG_1MIN_COLUMNS: List[str] = [

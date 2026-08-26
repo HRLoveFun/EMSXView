@@ -138,6 +138,75 @@ def test_fx_fetch_short_circuits_when_paused(monkeypatch, pause_file):
         clear_quota_pause(pause_file)
 
 
+# ── 测试 4b: FX 额度暂停时回退到最近已知汇率（007） ──────────────────────────
+
+
+def test_fx_fetch_uses_recent_rate_when_paused(monkeypatch, pause_file):
+    """额度暂停时优先使用最近成功汇率（而非 1.0 兜底）。"""
+    _patch_resolve(monkeypatch, pause_file)
+    import DataPipeline.acquisition.fx_fetcher as fx
+    from DataPipeline.acquisition.fx_fetcher import fetch_fx_rate_for_ccy
+
+    # 先模拟一次成功拉取（blp 返回 PX_LAST=100 → fx_rate=0.01）
+    with patch(
+        "DataPipeline.acquisition.fx_fetcher.is_quota_paused", return_value=False
+    ), patch("xbbg.blp.bdh", return_value=pd.DataFrame({"px_last": [100.0]})):
+        first = fetch_fx_rate_for_ccy("USDEUR Curncy", "20260601")
+    assert first == pytest.approx(0.01)
+
+    # 额度暂停：应回退到最近汇率 0.01，而非 1.0
+    set_quota_pause("fill_empty_response", file_path=pause_file)
+    try:
+        with patch(
+            "DataPipeline.acquisition.fx_fetcher.is_quota_paused", return_value=True
+        ):
+            result = fetch_fx_rate_for_ccy("USDEUR Curncy", "20260602")
+        assert result == pytest.approx(0.01)
+    finally:
+        clear_quota_pause(pause_file)
+        fx._RECENT_RATES.clear()
+
+
+# ── 测试 4c: FX 表命中优先于额度暂停（fx-rate-persistence） ──────────────────
+
+
+def test_fx_fetch_table_hit_takes_priority_over_pause(monkeypatch, pause_file):
+    """额度暂停但 fx_rates 表精确命中时，直接返回表值。
+
+    查表无 Bloomberg 配额消耗，应先于暂停短路；命中时不降级、不调
+    Bloomberg、不写表。
+    """
+    _patch_resolve(monkeypatch, pause_file)
+    from DataPipeline.acquisition.fx_fetcher import fetch_fx_rate_for_ccy
+
+    class _FakeRepo:
+        """最小 fake：仅 20260101 的 USDJPY 命中。"""
+
+        def get_rate(self, ccy_ticker, order_as_of_date):
+            if (ccy_ticker, order_as_of_date) == ("USDJPY Curncy", "20260101"):
+                return 0.00697
+            return None
+
+        def get_recent_rate(self, ccy_ticker, on_or_before):
+            return None
+
+        def upsert_rate(self, *args, **kwargs):
+            raise AssertionError("表命中时不应写表")
+
+    set_quota_pause("fill_empty_response", file_path=pause_file)
+    try:
+        with patch(
+            "DataPipeline.acquisition.fx_fetcher.is_quota_paused", return_value=True
+        ), patch("xbbg.blp.bdh") as mock_blp:
+            result = fetch_fx_rate_for_ccy(
+                "USDJPY Curncy", "20260101", fx_repo=_FakeRepo(),
+            )
+        assert result == pytest.approx(0.00697)
+        mock_blp.assert_not_called()
+    finally:
+        clear_quota_pause(pause_file)
+
+
 # ── 测试 5: regime index 入口短路 ──────────────────────────────────────────
 
 

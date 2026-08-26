@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CoverageHeatmap } from '../components/CoverageHeatmap';
 import { MonitoringView } from '../components/MonitoringView';
@@ -77,8 +77,22 @@ const reportSummary: TcaReportSummary = {
     metrics: [],
   },
   markets: [
-    { exchange: 'US', route_count: 10 },
-    { exchange: 'HK', route_count: 5 },
+    { exchange: 'US', route_count: 10, notional: 1500000, notional_usd: 1500000 },
+    { exchange: 'HK', route_count: 5, notional: 800000, notional_usd: 102000 },
+  ],
+  filter_options: {
+    brokers: ['BROKERA', 'BROKERB'],
+    algos: ['VWAP', 'TWAP'],
+    symbols: ['AAPL US Equity'],
+  },
+  market_notional_ranking: [
+    { exchange: 'US', name: '美国', route_count: 10, notional: 1500000, notional_usd: 1500000 },
+    { exchange: 'HK', name: '香港', route_count: 5, notional: 800000, notional_usd: 102000 },
+  ],
+  market_notional_trend: [
+    { date: '20260803', exchange: 'US', name: '美国', notional_usd: 1500000 },
+    { date: '20260804', exchange: 'US', name: '美国', notional_usd: 1200000 },
+    { date: '20260803', exchange: 'HK', name: '香港', notional_usd: 102000 },
   ],
   kpi: {
     route_count: 1232,
@@ -86,6 +100,9 @@ const reportSummary: TcaReportSummary = {
     weighted_pnl_vwap: 1.86,
     avg_par_rate: 0.17,
     avg_rpm: 0.28,
+    notional: 2300000,
+    notional_usd: 1602000,
+    fx_coverage: 0.5,
   },
   daily_series: [
     { date: '20260803', route_count: 1232, weighted_pnl_vwap: 1.86, avg_par_rate: 0.17 },
@@ -191,6 +208,21 @@ describe('ReportView', () => {
     );
   });
 
+  it('渲染总成交金额（美元）KPI 卡片', async () => {
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('总成交金额（美元）')).toBeInTheDocument());
+    // notional_usd = 1602000 → $1.60M（formatMoney 缩写）
+    expect(screen.getByText('$1.60M')).toBeInTheDocument();
+    // fx_coverage = 0.5 → 覆盖率副标题
+    expect(screen.getByText('USD 换算 · fx_rate 覆盖率 50%')).toBeInTheDocument();
+  });
+
+  it('渲染按市场成交金额（美元）排名与每日趋势图', async () => {
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('按市场的成交金额（美元）排名')).toBeInTheDocument());
+    expect(screen.getByText('按市场的成交金额（美元）每日趋势（Top 10）')).toBeInTheDocument();
+  });
+
   it('API 失败显示错误提示', async () => {
     mockFetchReportSummary.mockRejectedValue(new Error('boom'));
     render(<ReportView />);
@@ -244,7 +276,7 @@ describe('ReportView', () => {
     await user.click(usTab);
     await waitFor(() => {
       expect(mockFetchReportSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ last: 'day', exchange: 'US' }),
+        expect.objectContaining({ last: 'day', exchange: ['US'] }),
       );
     });
   });
@@ -259,13 +291,92 @@ describe('ReportView', () => {
     await user.click(screen.getByRole('tab', { name: 'HK' }));
     await waitFor(() => {
       expect(mockFetchReportSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ last: 'day', exchange: 'HK' }),
+        expect.objectContaining({ last: 'day', exchange: ['HK'] }),
       );
     });
 
     await user.click(screen.getByRole('button', { name: '导出 HTML 报告' }));
     await waitFor(() => expect(mockFetchExportHtml).toHaveBeenCalled());
     const call = mockFetchExportHtml.mock.calls[0][0]!;
-    expect(call.exchange).toBe('HK');
+    expect(call.exchange).toEqual(['HK']);
+  });
+
+  it('展示多选筛选下拉（市场/Broker/Algo/Symbol）', async () => {
+    mockFetchReportSummary.mockResolvedValue(reportSummary);
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+    expect(screen.getByText('市场')).toBeInTheDocument();
+    expect(screen.getByText('Broker')).toBeInTheDocument();
+    expect(screen.getByText('Algo')).toBeInTheDocument();
+    expect(screen.getByText('Symbol')).toBeInTheDocument();
+  });
+
+  it('选择多个 Broker 后重新加载报告（多选 → 逗号分隔）', async () => {
+    mockFetchReportSummary.mockResolvedValue(reportSummary);
+    const user = userEvent.setup();
+    render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    // 打开 Broker 下拉并勾选两个选项
+    await user.click(screen.getByRole('button', { name: 'Broker' }));
+    await user.click(screen.getByText('BROKERA'));
+    await user.click(screen.getByText('BROKERB'));
+
+    await user.click(screen.getByRole('button', { name: '生成报告' }));
+    await waitFor(() => {
+      expect(mockFetchReportSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ last: 'day', broker: ['BROKERA', 'BROKERB'] }),
+      );
+    });
+  });
+
+  it('日期框常驻显示预设解析日期，编辑后按自定义区间加载', async () => {
+    mockFetchReportSummary.mockResolvedValue(reportSummary);
+    const user = userEvent.setup();
+    const { container } = render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    // 日期框常驻：初始（最近交易日）预设加载后回填解析出的日期
+    const dateInputs = container.querySelectorAll('input[type="date"]');
+    expect(dateInputs.length).toBe(2);
+    expect((dateInputs[0] as HTMLInputElement).value).toBe('2026-08-03');
+    expect((dateInputs[1] as HTMLInputElement).value).toBe('2026-08-03');
+
+    // 编辑日期 → 自动切换为"指定日期/范围"，生成报告携带显式区间
+    fireEvent.change(dateInputs[0], { target: { value: '2026-08-01' } });
+    fireEvent.change(dateInputs[1], { target: { value: '2026-08-31' } });
+
+    await user.click(screen.getByRole('button', { name: '生成报告' }));
+    await waitFor(() => {
+      expect(mockFetchReportSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ startDate: '20260801', endDate: '20260831' }),
+      );
+    });
+  });
+
+  it('切换时间范围预设后日期框回填解析后的区间', async () => {
+    const weekSummary: TcaReportSummary = {
+      ...reportSummary,
+      filters: { ...reportSummary.filters, start_date: '20260817', end_date: '20260823' },
+    };
+    mockFetchReportSummary.mockResolvedValue(weekSummary);
+    const user = userEvent.setup();
+    const { container } = render(<ReportView />);
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+
+    // 切换到"上周"并生成
+    await user.click(screen.getByRole('combobox'));
+    await user.click(screen.getByText('上周'));
+    await user.click(screen.getByRole('button', { name: '生成报告' }));
+    await waitFor(() => {
+      expect(mockFetchReportSummary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ last: 'week' }),
+      );
+    });
+
+    // 日期框回填上周（周一~周日）区间
+    const dateInputs = container.querySelectorAll('input[type="date"]');
+    expect((dateInputs[0] as HTMLInputElement).value).toBe('2026-08-17');
+    expect((dateInputs[1] as HTMLInputElement).value).toBe('2026-08-23');
   });
 });

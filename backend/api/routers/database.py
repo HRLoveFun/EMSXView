@@ -71,6 +71,8 @@ class OverviewResponse(BaseModel):
 class DateRowCountModel(BaseModel):
     trade_date: str
     row_count: int
+    fetch_date: Optional[str] = None
+    note: Optional[str] = None
 
 
 class TableSummaryModel(BaseModel):
@@ -214,10 +216,15 @@ async def get_database_summary(
     date_limit: int = Query(800, ge=1, le=3650),
     user: dict = Depends(verify_token),
 ) -> SummaryResponse:
-    """Per-table date-coverage statistics (driver of the frontend heatmap)."""
+    """Per-table date-coverage statistics (driver of the frontend coverage table).
+
+    Uses a cached summary table — results are reused while the source DB
+    file is unchanged and the trading-day window has not advanced, avoiding
+    repeated heavy aggregation on every tab switch.
+    """
     if key not in repo.list_database_keys():
         raise HTTPException(status_code=404, detail=f"Unknown database key: {key}")
-    summary = repo.get_summary(key, date_limit=date_limit)
+    summary = repo.get_summary_cached(key, date_limit=date_limit)
     return SummaryResponse(**_redact_path(summary.to_dict()))
 
 

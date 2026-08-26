@@ -121,9 +121,15 @@ def integrate_fills_bdib_for_date(
     else:
         df_merged["fx_rate"] = np.nan
 
-    # USD/USD → fx_rate = 1.0
+    # USD/USD → fx_rate = 1.0。仅规范化后等于 "USD Curncy" 的币种视为 USD；
+    # NULL/未知币种不置 1.0（保持 NULL 交由下游按汇率缺失处理），避免
+    # "USDKRW Curncy" 等复合币种因 str.contains("USD") 误匹配被强制置 1.0，
+    # 导致 KRW 本币金额被当作 USD 造成数量级虚高（KS 市场 16.74B 根因之一）。
     if "ccy_ticker" in df_merged.columns:
-        usd_mask = df_merged["ccy_ticker"].astype(str).str.contains("USD", na=False)
+        usd_mask = (
+            df_merged["ccy_ticker"].astype(str).str.upper().str.strip()
+            == "USD CURNCY"
+        )
         df_merged.loc[usd_mask & df_merged["fx_rate"].isna(), "fx_rate"] = 1.0
 
     # ── C. Add daily equity metrics ───────────────────────────────────────

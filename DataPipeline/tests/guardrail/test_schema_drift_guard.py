@@ -1,6 +1,6 @@
 """Schema drift Guardrail 单元测试。
 
-对照 specs/002-pipeline-guardrail/quickstart.md 场景（schema drift 检测）。
+对照 docs/archive/2026-08-26/002-pipeline-guardrail/quickstart.md 场景（schema drift 检测，已归档）。
 验证 4 类漂移检测（PRIMARY_KEY_TYPE_MISMATCH / COLUMN_MISSING_IN_DDL /
 COLUMN_MISSING_IN_CODE / VALUE_TYPE_MISMATCH）。
 """

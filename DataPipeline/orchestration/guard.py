@@ -104,7 +104,10 @@ class GuardPipeline:
         stage_names = [getattr(s, "name", s.__class__.__name__) for s in stages]
 
         # 4. 记录 RUN_START
-        target_date = getattr(context, "target_dates", [""])[0] if hasattr(context, "target_dates") else ""
+        # target_dates 可能为空列表（无增量日期，如 fill fetch 失败后重跑），
+        # 直接 [0] 会抛 IndexError 导致 GuardPipeline 崩溃回退原生管道
+        target_dates = getattr(context, "target_dates", [])
+        target_date = target_dates[0] if target_dates else ""
         self._run_logger.start_run(
             target_date=target_date,
             stages=stage_names,

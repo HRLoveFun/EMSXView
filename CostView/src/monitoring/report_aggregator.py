@@ -23,6 +23,7 @@ from .anomaly_query import (
     ThresholdRules,
     query_anomaly_routes,
 )
+from .report_dims import get_filter_options as _get_persisted_options
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,9 @@ _RANKING_LIMIT = 20
 #: PWP 档位（数值为百分比）
 _PWP_RATE_LABELS = [("pwp_5", 5), ("pwp_10", 10), ("pwp_15", 15),
                     ("pwp_20", 20), ("pwp_25", 25)]
+#: 小计价单位货币（GBp=便士、ILs=阿高洛、ZAr=分）：成交价以 1/100 本币计价，
+#: USD 成交金额换算时需 ÷100（与 backend order_projections 的 GBP/ZAR ÷100 对齐）。
+_MINOR_UNIT_CCYS: tuple[str, ...] = ("GBp", "ILs", "ZAr")
 
 
 class TcaReportAggregator:
@@ -55,6 +59,7 @@ class TcaReportAggregator:
     ) -> dict[str, Any]:
         """组装报告聚合数据。
 
+        broker/algo/symbol/exchange 支持逗号分隔多值（IN 匹配，前端多选）。
         metrics 控制附加的覆盖率小节统计口径（默认全部 38 个指标）。
         thresholds 控制 S6 异常路由明细的判定阈值（None/空 → 默认阈值）。
         markets 清单忽略 exchange 过滤（供前端分市场标签页展示全部市场）。
@@ -78,6 +83,13 @@ class TcaReportAggregator:
                     start_date, end_date, broker, algo, symbol, exchange, selected,
                 ),
                 "markets": self._query_markets(conn, where_no_exchange, params_no_exchange),
+                "filter_options": self._query_filter_options(conn, where_no_exchange, params_no_exchange),
+                "market_notional_ranking": self._query_market_notional_ranking(
+                    conn, where, params,
+                ),
+                "market_notional_trend": self._query_market_notional_trend(
+                    conn, where, params,
+                ),
                 "kpi": self._query_kpi(conn, where, params),
                 "daily_series": self._query_daily_series(conn, where, params),
                 "rankings": {
@@ -123,17 +135,30 @@ class TcaReportAggregator:
         symbol: Optional[str],
         exchange: Optional[str],
     ) -> tuple[str, list[Any]]:
-        """构建 WHERE 子句与参数列表（全部 ? 绑定）。"""
+        """构建 WHERE 子句与参数列表（全部 ? 绑定）。
+
+        broker/algo/symbol/exchange 支持逗号分隔多值 → IN (...) 匹配；
+        单个值等价于 = 匹配。
+        """
         conditions = ["order_as_of_date BETWEEN ? AND ?"]
         params: list[Any] = [start_date, end_date]
         for column, value in (
             ("Broker", broker), ("algo", algo),
             ("equ_ticker", symbol), ("Exchange", exchange),
         ):
-            if value:
-                conditions.append(f"{column} = ?")
-                params.append(value)
+            values = TcaReportAggregator._split_values(value)
+            if values:
+                placeholders = ", ".join(["?"] * len(values))
+                conditions.append(f"{column} IN ({placeholders})")
+                params.extend(values)
         return "WHERE " + " AND ".join(conditions), params
+
+    @staticmethod
+    def _split_values(raw: Optional[str]) -> list[str]:
+        """逗号分隔多值解析；None/空 → []；单值 → [单值]。"""
+        if not raw:
+            return []
+        return [v.strip() for v in raw.split(",") if v.strip()]
 
     # ── 各小节查询 ───────────────────────────────────────────────────────
 
@@ -143,38 +168,171 @@ class TcaReportAggregator:
         """可选市场清单：Exchange 去重（忽略 exchange 过滤，尊重其余过滤）。
 
         供前端分市场标签页使用：每条含 Exchange 与 route 数，按 route 数降序。
+        007: 增加 notional / notional_usd（每市场成交金额，USD 换算）。
         """
+        has_fx = self._has_column(conn, "fx_rate")
+        fx_sum = self._fx_sum_sql(has_fx)
         sql = f"""
             SELECT COALESCE(Exchange, '(unknown)') AS exchange,
-                   COUNT(*) AS route_count
+                   COUNT(*) AS route_count,
+                   COALESCE(SUM(fill * p_avg), 0) AS notional,
+                   {fx_sum} AS notional_usd
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
             GROUP BY Exchange
             ORDER BY route_count DESC, exchange ASC
         """
         return [
-            {"exchange": str(r[0]), "route_count": int(r[1])}
+            {
+                "exchange": str(r[0]),
+                "route_count": int(r[1]),
+                "notional": float(r[2]),
+                "notional_usd": self._to_float(r[3]),
+            }
             for r in conn.execute(sql, params).fetchall()
         ]
 
+    def _query_market_notional_ranking(
+        self, conn, where: str, params: list[Any],
+    ) -> list[dict[str, Any]]:
+        """按市场的成交金额（美元）排名（008）：notional_usd 降序。
+
+        每条含 Exchange 代码 / 中文显示名 / 本币与 USD 成交金额 / route 数。
+        未配置中文名的 Exchange 用代码回退。
+        """
+        has_fx = self._has_column(conn, "fx_rate")
+        fx_sum = self._fx_sum_sql(has_fx)
+        # 排序用有效成交额：有 fx_rate 列用 USD，否则回退本币（无 fx 时 USD 为 NULL）
+        order_expr = f"COALESCE({fx_sum}, SUM(fill * p_avg))" if has_fx else "SUM(fill * p_avg)"
+        sql = f"""
+            SELECT COALESCE(Exchange, '(unknown)') AS exchange,
+                   COUNT(*) AS route_count,
+                   COALESCE(SUM(fill * p_avg), 0) AS notional,
+                   {fx_sum} AS notional_usd
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where}
+            GROUP BY Exchange
+            ORDER BY {order_expr} DESC, exchange ASC
+        """
+        return [
+            {
+                "exchange": str(r[0]),
+                "name": Config.MARKET_ORDER.get(str(r[0]), str(r[0])),
+                "route_count": int(r[1]),
+                "notional": float(r[2]),
+                "notional_usd": self._to_float(r[3]),
+            }
+            for r in conn.execute(sql, params).fetchall()
+        ]
+
+    def _query_market_notional_trend(
+        self, conn, where: str, params: list[Any],
+    ) -> list[dict[str, Any]]:
+        """按市场的成交金额（美元）每日趋势（008）。
+
+        返回 [{date, exchange, notional_usd}, ...] 按日期升序，供前端按市场拆线。
+        市场仅列排名中存在的（有成交额的市场），未配置中文名用代码回退。
+        """
+        has_fx = self._has_column(conn, "fx_rate")
+        fx_sum = self._fx_sum_sql(has_fx)
+        sql = f"""
+            SELECT order_as_of_date AS date,
+                   COALESCE(Exchange, '(unknown)') AS exchange,
+                   {fx_sum} AS notional_usd
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where}
+            GROUP BY order_as_of_date, Exchange
+            ORDER BY order_as_of_date ASC, exchange ASC
+        """
+        return [
+            {
+                "date": str(r[0]),
+                "exchange": str(r[1]),
+                "name": Config.MARKET_ORDER.get(str(r[1]), str(r[1])),
+                "notional_usd": self._to_float(r[2]),
+            }
+            for r in conn.execute(sql, params).fetchall()
+        ]
+
+    def _query_filter_options(
+        self, conn, where: str, params: list[Any],
+    ) -> dict[str, list[str]]:
+        """筛选选项：优先读持久化维度表（时间无关，daily_update 每日刷新）。
+
+        返回 {brokers, algos, symbols, exchanges}，各按累计次数降序截断
+        （控制 payload 大小）。维度表未初始化（首次部署尚未刷新）时回退
+        原时间范围查询，保证功能可用。
+        """
+        persisted = _get_persisted_options(self._mgr, conn=conn)
+        if persisted is not None:
+            return persisted
+        # 回退：维度表不可用，按原口径对明细表查询（忽略 exchange 过滤）
+        result: dict[str, list[str]] = {}
+        for dim, col, limit in (
+            ("brokers", "Broker", 100),
+            ("algos", "algo", 50),
+            ("symbols", "equ_ticker", 200),
+        ):
+            try:
+                sql = f"""
+                    SELECT COALESCE({col}, '(unknown)') AS v, COUNT(*) AS n
+                    FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                    {where}
+                    GROUP BY {col}
+                    ORDER BY n DESC, v ASC
+                    LIMIT {limit}
+                """
+                result[dim] = [str(r[0]) for r in conn.execute(sql, params).fetchall()]
+            except Exception as exc:
+                logger.debug("filter_options[%s] 查询失败: %s", dim, exc)
+                result[dim] = []
+        # 回退模式下的市场选项来自 markets 清单（与 _query_markets 同口径）
+        result["exchanges"] = [m["exchange"] for m in self._query_markets(conn, where, params)]
+        return result
+
     def _query_kpi(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
-        """KPI：route 数、总股数、加权 pnl_vwap、平均 par_rate / RPM。"""
+        """KPI：route 数、总股数、加权 pnl_vwap、平均 par_rate / RPM。
+
+        007: 增加总成交金额（本币 notional + USD notional + fx_rate 覆盖率）。
+        - notional = SUM(fill × p_avg)（本币）
+        - notional_usd = SUM(fill × p_avg × fx_rate × minor_unit_factor)（USD 换算，
+          仅 USD/未知币种在 fx_rate 缺失时按 1.0 兜底；非 USD 币种缺失汇率时
+          整组返回 NULL，Currency ∈ {GBp, ILs, ZAr} 时 ÷100，008）
+        - fx_coverage = 有非 1.0 fx_rate 的路由数 / 总路由数（None 表示无 fx_rate 列）
+        """
+        has_fx = self._has_column(conn, "fx_rate")
+        fx_sum = self._fx_sum_sql(has_fx)
+        fx_cnt = (
+            "SUM(CASE WHEN fx_rate IS NOT NULL AND fx_rate <> 1.0 THEN 1 ELSE 0 END)"
+            if has_fx else "NULL"
+        )
         sql = f"""
             SELECT COUNT(*) AS route_count,
                    COALESCE(SUM(RouteShares), 0) AS total_shares,
                    {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
                    AVG(par_rate) AS avg_par_rate,
-                   AVG(RPM) AS avg_rpm
+                   AVG(RPM) AS avg_rpm,
+                   COALESCE(SUM(fill * p_avg), 0) AS notional,
+                   {fx_sum} AS notional_usd,
+                   {fx_cnt} AS fx_non_default_count
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
         """
         row = conn.execute(sql, params).fetchone()
+        route_count = int(row[0])
+        fx_non_default = row[7]
+        fx_coverage = None
+        if fx_non_default is not None:
+            fx_coverage = round(fx_non_default / route_count, 4) if route_count else None
         return {
-            "route_count": int(row[0]),
+            "route_count": route_count,
             "total_route_shares": float(row[1]),
             "weighted_pnl_vwap": self._to_float(row[2]),
             "avg_par_rate": self._to_float(row[3]),
             "avg_rpm": self._to_float(row[4]),
+            "notional": float(row[5]),
+            "notional_usd": self._to_float(row[6]),
+            "fx_coverage": fx_coverage,
         }
 
     def _query_daily_series(
@@ -309,6 +467,37 @@ class TcaReportAggregator:
     # ── 工具函数 ─────────────────────────────────────────────────────────
 
     @staticmethod
+    def _fx_sum_sql(has_fx: bool) -> str:
+        """USD 成交金额聚合 SQL（含小计价单位货币 ÷100 修正，008）。
+
+        notional_usd = SUM(fill × p_avg × fx_rate × minor_unit_factor)；
+        Currency ∈ {GBp, ILs, ZAr} 时 minor_unit_factor = 0.01，其余为 1.0。
+        汇率兜底仅限 USD/未知币种（fx_rate 缺失按 1.0）；非 USD 币种 fx_rate
+        缺失时整组 notional_usd 返回 NULL —— SQLite 的 SUM 忽略 NULL 行，
+        故用哨兵计数（非 USD 且缺汇率的路由数 > 0 时置 NULL），避免 KRW 等
+        币种被当作 USD 造成数量级虚高（如 KS 市场 16.74B vs 真实 12M）。
+        无 fx_rate 列时返回 NULL（向前兼容旧 schema）。
+        """
+        if not has_fx:
+            return "NULL"
+        minor_factor = (
+            "CASE WHEN Currency IN ('GBp', 'ILs', 'ZAr') THEN 0.01 ELSE 1.0 END"
+        )
+        fx_expr = (
+            "CASE WHEN fx_rate IS NOT NULL THEN fx_rate * " + minor_factor + " "
+            "WHEN Currency IS NULL OR Currency = 'USD' THEN 1.0 "
+            "ELSE NULL END"
+        )
+        gap_sentinel = (
+            "SUM(CASE WHEN Currency IS NOT NULL AND Currency <> 'USD' "
+            "AND fx_rate IS NULL THEN 1 ELSE 0 END)"
+        )
+        return (
+            f"CASE WHEN {gap_sentinel} > 0 THEN NULL "
+            f"ELSE SUM(fill * p_avg * {fx_expr}) END"
+        )
+
+    @staticmethod
     def _weighted_avg_sql(metric: str) -> str:
         """成交额加权均值 SQL 片段（metric 为内部白名单值，无注入风险）。"""
         cond = f"{metric} IS NOT NULL AND p_avg IS NOT NULL AND RouteShares IS NOT NULL"
@@ -324,6 +513,17 @@ class TcaReportAggregator:
             [Config.TCA_ROUTE_SUMMARY_TABLE],
         )
         return cursor.fetchone() is not None
+
+    @staticmethod
+    def _has_column(conn, column: str) -> bool:
+        """tca_route_summary 是否含指定列（幂等兼容旧 schema）。"""
+        try:
+            rows = conn.execute(
+                f"PRAGMA table_info({Config.TCA_ROUTE_SUMMARY_TABLE})"
+            ).fetchall()
+        except Exception:
+            return False
+        return any(str(r[1]).lower() == column.lower() for r in rows)
 
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
@@ -354,6 +554,9 @@ class TcaReportAggregator:
                 start_date, end_date, broker, algo, symbol, exchange, selected,
             ),
             "markets": [],
+            "filter_options": {"brokers": [], "algos": [], "symbols": [], "exchanges": []},
+            "market_notional_ranking": [],
+            "market_notional_trend": [],
             "kpi": None,
             "daily_series": [],
             "rankings": {"by_broker": [], "by_algo": []},

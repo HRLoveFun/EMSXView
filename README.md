@@ -288,8 +288,7 @@ EMSXView/
 ├── plans/                            # Project plans & policies
 │   ├── architecture-refactor-workflow.yaml
 │   ├── execution-platform-autopilot-policy.yaml
-│   ├── execution-platform-risk-register.yaml
-│   └── execution-platform-status.yaml
+│   └── execution-platform-risk-register.yaml
 │
 ├── data/                             # Shared runtime data
 ├── logs/                             # Service logs (api, backfill, costview, workflow)
