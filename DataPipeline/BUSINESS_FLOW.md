@@ -421,7 +421,7 @@ FinancialPipeline  ──wrap──▶  GuardPipeline.run(context)
 | **过期股票处理** | `processing/fill_processor._fetch_composite_tickers` | EUR 复合代码 `cache-first`（`eur_composite_ticker_cache` 表）+ xbbg `blp.bdp` chunked + 单 chunk 独立线程超时 |
 | **进度报告** | 各 Stage 内 `print(f"[STAGE] {marker_name} {pct} ...", flush=True)` | 防止前端因长任务无输出误判 stalled |
 | **去重** | `FillFetch._preload_known_hashes` + `compute_data_hash` | 内存 hash set + DB hash 双层 |
-| **FX 转换** | `acquisition/fx_fetcher.py` | `USD{ccy} Curncy` 取 PX_LAST 并取倒数，失败/空时降级为 1.0 |
+| **FX 转换** | `acquisition/fx_fetcher.py` + `storage/repositories/fx_rates.py` | `USD{ccy} Curncy` 取 PX_LAST 并取倒数（`fx_rate` = USD per 1 单位本币）。拉取链（fx-rate-persistence）：S5 注入 `fx_repo` 后 **查 `fx_rates` 表优先**（命中零配额消耗，先于额度暂停检查）→ miss 才拉 Bloomberg → 成功即落表（幂等 REPLACE，`px_last` 双存）；失败/暂停降级：表内 ≤目标日期 最近已知 → 内存缓存 → 1.0 兜底（降级值不落表）。表初始化/刷新用 `scripts/ops/backfill_fx_rates.py`（`--seed` 从 fill_bdib 反推 / `--refetch` 按日期范围重拉） |
 | **交易日期防护** | `bdib_fetcher._is_safe_bdib_query_date` | 拒未来日 + 周末/节假日 + 距当前不足 BDIB_LATEST_READY_HOUR_LOCAL |
 | **Exchange 空值/未知防护** | `common/exchange_tz.batch_convert_ny_to_local` + `fill_cleaner.derive_exchange_times` | 空/未知 Exchange 不再回退到 NY 时间，直接抛 `ValueError` 阻止错误日期入库 |
 | **S2 日期一致性校验** | `ingestion/fill_ingestion.process_raw_fills_for_date` | 写入 `processed_fills` 前校验 `order_as_of_date` 与输入日期一致，不一致则标记失败 |

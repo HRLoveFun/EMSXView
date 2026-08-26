@@ -197,6 +197,7 @@ class AggregateFillsStage(BaseStage):
             gc.collect()
             return date_str, len(agg_10s)
 
+        failed_dates: list[str] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_date = {executor.submit(_aggregate_one, d): d for d in target_dates}
             for future in as_completed(future_to_date):
@@ -206,8 +207,26 @@ class AggregateFillsStage(BaseStage):
                     logger.info(f"  Aggregated {date_str}: {count} 10s rows")
                 except Exception as exc:
                     logger.error(f"  Error aggregating date {date_str}: {exc}")
+                    failed_dates.append(date_str)
+                    # 死循环修复：失败日期也标记完成，避免下次 get_unprocessed_dates
+                    # 反复选中同一日期。标记 row_count=0 表示无有效聚合结果。
+                    # 如需强制重试，用 --force 模式（走 fills_reader.get_processed_dates 全量重跑）
+                    with aggregate_write_lock:
+                        try:
+                            local_writer = context.db.fills_write
+                            local_writer.mark_date_processed(
+                                date_str, stage="aggregated", row_count=0,
+                            )
+                        except Exception as mark_err:
+                            logger.warning(
+                                f"  Failed to mark {date_str} as aggregated after error: {mark_err}"
+                            )
 
-        context.summary["aggregation"] = {"completed": True, "dates": len(target_dates)}
+        context.summary["aggregation"] = {
+            "completed": True,
+            "dates": len(target_dates),
+            "failed_dates": len(failed_dates),
+        }
         return True
 
 

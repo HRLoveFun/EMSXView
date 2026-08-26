@@ -7,6 +7,7 @@
     report_aggregator — TCA 可视化报告聚合（KPI/分布/走势/排行/PWP/冲击/异常明细）
     tca_report_html   — 自包含 HTML 报告渲染器（内联 CSS + SVG 图表，零外部依赖）
     anomaly_query     — 异常路由判定查询与阈值参数化（DEFAULT_THRESHOLDS）
+    report_dims       — 报告筛选维度持久化列表（市场/Broker/Algo/Symbol 刷新与读取）
 """
 
 from .time_range import (
@@ -31,6 +32,12 @@ from .anomaly_query import (
     evaluate_route_thresholds,
     query_anomaly_routes,
 )
+from .report_dims import (
+    DIM_COLUMNS,
+    ensure_schema,
+    get_filter_options,
+    refresh_dim_values,
+)
 
 __all__ = [
     "LAST_PRESETS",
@@ -50,4 +57,8 @@ __all__ = [
     "ThresholdRules",
     "evaluate_route_thresholds",
     "query_anomaly_routes",
+    "DIM_COLUMNS",
+    "ensure_schema",
+    "get_filter_options",
+    "refresh_dim_values",
 ]

@@ -116,6 +116,30 @@ def fills_so_far_str(count: int) -> str:
     """Return a human-readable description of partial fetch progress."""
     return f"{count} fill(s) received so far"
 
+# ── 超时降级分窗口拉取（2026-08-24 日更失败修复）──────────────────────────
+# 根因：raw fill 数据量过大时，全天单次 GetFills 请求无法在 event 超时
+# 窗口（3 consecutive timeouts，约 90s 无事件）内完成流式返回，被误判为
+# "bbcomm may be unresponsive"。实测将全天拆为 6 个时间窗口（4h/窗口）
+# 后可成功获取，故将该降级机制固化到获取流程：
+#   全天请求超时 → 拆 SPLIT_WINDOW_HOURS 小时窗口；窗口级仍超时 →
+#   二分降级（4h → 2h → 1h → …），直至 MIN_SPLIT_WINDOW_SECONDS 下限。
+SPLIT_WINDOW_HOURS = 4
+MIN_SPLIT_WINDOW_SECONDS = 1800
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """判断异常是否为超时类错误（可安全降级为分时间窗口拉取）。
+
+    关键词与 BloombergFillFetcher.fetch_fills 内部的超时重连判定保持
+    一致；EMSXQuotaError 消息不含这些关键词，由调用方先于本函数排除。
+    """
+    text = str(exc).lower()
+    return (
+        "timeout" in text
+        or "not responding" in text
+        or "timed out" in text
+    )
+
 # ── Main FillFetch Class ─────────────────────────────────────────────────
 
 class FillFetch:
@@ -336,6 +360,34 @@ class FillFetch:
         end = datetime.combine(target_date, datetime.max.time().replace(microsecond=0))
         return start, end
 
+    def _fetch_fills_with_split_fallback(
+        self,
+        client: "BloombergFillFetcher",
+        from_dt: datetime,
+        to_dt: datetime,
+        order_date: str,
+    ) -> List[Dict[str, Any]]:
+        """拉取 fills 的统一入口：全天请求超时自动降级为分时间窗口拉取。
+
+        数据量过大时，全天 GetFills 请求在 event 超时窗口内无法完成流式
+        返回（3 consecutive timeouts），此时拆分为 4h 窗口分批请求。
+        额度类错误（EMSXQuotaError）不降级，直接上抛由调用方置位暂停。
+        """
+        try:
+            return client.fetch_fills(from_dt, to_dt)
+        except EMSXQuotaError:
+            raise
+        except EMSXRequestError as exc:
+            if not _is_timeout_error(exc):
+                raise
+            logger.warning(
+                "%s 全天请求超时（数据量过大），降级为 %dh 窗口分批拉取",
+                order_date, SPLIT_WINDOW_HOURS,
+            )
+            return self._fetch_fills_split(
+                client, from_dt, to_dt, hours=SPLIT_WINDOW_HOURS
+            )
+
     def _fetch_fills_split(
         self,
         client: "BloombergFillFetcher",
@@ -353,10 +405,43 @@ class FillFetch:
                 window_start.strftime("%Y-%m-%d %H:%M:%S"),
                 window_end.strftime("%Y-%m-%d %H:%M:%S"),
             )
-            window_fills = client.fetch_fills(window_start, window_end)
+            window_fills = self._fetch_window_with_bisect(
+                client, window_start, window_end
+            )
             all_fills.extend(window_fills)
             window_start = window_end
         return all_fills
+
+    def _fetch_window_with_bisect(
+        self,
+        client: "BloombergFillFetcher",
+        window_start: datetime,
+        window_end: datetime,
+    ) -> List[Dict[str, Any]]:
+        """拉取单个时间窗口，超时（数据量极大）时二分降级重试。
+
+        4h → 2h → 1h → … 逐级二分，直至 MIN_SPLIT_WINDOW_SECONDS 下限；
+        降至最小窗口仍超时则抛出原始异常。非超时错误不降级直接上抛。
+        """
+        try:
+            return client.fetch_fills(window_start, window_end)
+        except EMSXQuotaError:
+            raise
+        except EMSXRequestError as exc:
+            if not _is_timeout_error(exc):
+                raise
+            duration = (window_end - window_start).total_seconds()
+            if duration <= MIN_SPLIT_WINDOW_SECONDS:
+                raise
+            mid = window_start + (window_end - window_start) / 2
+            logger.warning(
+                "窗口 %s -> %s 超时，二分降级重试",
+                window_start.strftime("%Y-%m-%d %H:%M:%S"),
+                window_end.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            left = self._fetch_window_with_bisect(client, window_start, mid)
+            right = self._fetch_window_with_bisect(client, mid, window_end)
+            return left + right
 
     def _save_to_excel(self, data: List[Dict[str, Any]], file_path: Path) -> bool:
         try:
@@ -389,7 +474,9 @@ class FillFetch:
             from_dt, to_dt = self._get_date_range(target_date)
             with BloombergFillFetcher() as client:
                 try:
-                    fills = client.fetch_fills(from_dt, to_dt)
+                    fills = self._fetch_fills_with_split_fallback(
+                        client, from_dt, to_dt, order_date
+                    )
                 except EMSXQuotaError as exc:
                     # 005-bloomberg-quota-pause: 额度类错误不重试，直接记录并置位暂停
                     self._record_quota_failure(
@@ -400,17 +487,6 @@ class FillFetch:
                     result['success'] = False
                     result['error'] = f"Bloomberg quota likely exhausted: {exc}"
                     return result
-                except EMSXRequestError as exc:
-                    # 全天请求在后端超时（BACKEND.TIMEOUT）时，拆分为 4 小时窗口重试
-                    if "timeout" in str(exc).lower():
-                        logger.warning(
-                            "%s 全天请求超时，拆分为 4 小时窗口重试", order_date
-                        )
-                        fills = self._fetch_fills_split(
-                            client, from_dt, to_dt, hours=4
-                        )
-                    else:
-                        raise
             if not fills:
                 # 005-bloomberg-quota-pause: 空响应完整性判断。
                 # 额度受限时 Bloomberg 可能返回空 GetFillsResponse，不能被当"无成交日"。
@@ -522,6 +598,9 @@ class FillFetch:
             day_idx = 0
             # 005-bloomberg-quota-pause: 置位暂停时，先用首个工作日做一次真实探测。
             # 成功即清除标记并继续正常拉取；失败则保持置位并短路剩余日期。
+            # quota_shortcircuited: 短路发生时 summary.success 必须为 False —
+            # 否则日更层会把"额度暂停跳过全部日期"误判为拉取成功（静默失败）。
+            quota_shortcircuited = False
             if is_quota_paused():
                 probe_date = current
                 while probe_date.weekday() >= 5:
@@ -529,10 +608,14 @@ class FillFetch:
                 if probe_date > end_date:
                     logger.warning("QUOTA paused — no probe day in range; skipping fetch")
                     current = end_date + timedelta(days=1)
+                    quota_shortcircuited = True
                 else:
                     try:
                         probe_from, probe_to = self._get_date_range(probe_date)
-                        probe_fills = client.fetch_fills(probe_from, probe_to)
+                        probe_fills = self._fetch_fills_with_split_fallback(
+                            client, probe_from, probe_to,
+                            probe_date.strftime("%Y-%m-%d"),
+                        )
                         clear_quota_pause()
                         logger.warning(
                             "QUOTA probe SUCCESS on %s — quota recovered, resuming fetch",
@@ -545,12 +628,14 @@ class FillFetch:
                             probe_date.strftime("%Y%m%d"), exc,
                         )
                         current = end_date + timedelta(days=1)
+                        quota_shortcircuited = True
                     except Exception as exc:
                         logger.warning(
                             "QUOTA probe error on %s (%s) — staying paused, skipping fetch",
                             probe_date.strftime("%Y%m%d"), exc,
                         )
                         current = end_date + timedelta(days=1)
+                        quota_shortcircuited = True
             while current <= end_date:
                 if current.weekday() >= 5:
                     current += timedelta(days=1)
@@ -565,7 +650,9 @@ class FillFetch:
                     progress_callback(day_idx - 1, weekdays_in_range, order_date, 0, "Fetching from EMSX/Bloomberg…")
                 try:
                     from_dt, to_dt = self._get_date_range(current)
-                    fills = client.fetch_fills(from_dt, to_dt)
+                    fills = self._fetch_fills_with_split_fallback(
+                        client, from_dt, to_dt, order_date
+                    )
                     if not fills:
                         # 005-bloomberg-quota-pause: 空响应完整性判断
                         if self._should_treat_empty_as_quota(date_compact):
@@ -681,7 +768,10 @@ class FillFetch:
             'scope': scope_desc, 'total_days': total_days,
             'days_fetched': len([s for s in day_summaries if s['status'] == 'fetched']),
             'days_skipped': skipped_days, 'days_empty': no_fill_days, 'days_error': error_days,
-            'total_rows': len(all_records), 'files': saved_files, 'success': error_days == 0,
+            'total_rows': len(all_records), 'files': saved_files,
+            # quota 短路（probe 失败/无 probe 日）跳过全部日期时必须报失败，
+            # 不能因 error_days == 0 而伪装成功（静默失败修复 2026-08-21）
+            'success': error_days == 0 and not quota_shortcircuited,
             # 005-bloomberg-quota-pause: 摘要标记
             'quota_paused': is_quota_paused(),
         }

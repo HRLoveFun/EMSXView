@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { createDefaultCostViewConfig, getSeverityText, getSeverityTone } from '../lib/thresholds';
 import type { CostViewConfig, ExportDefaults, ThresholdRule } from '../types';
+import { MultiSelectFilter } from './MultiSelectFilter';
+import { EXCHANGE_LIST } from '@shared/lib/broker-exchange-mapping';
 
 interface ConfigureViewProps {
   config: CostViewConfig;
@@ -25,6 +27,8 @@ function downloadJsonFile(value: unknown, fileName: string) {
 export function ConfigureView({ config, onSave }: ConfigureViewProps) {
   const [draft, setDraft] = useState<CostViewConfig>(config);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Report 可选交易所清单：与 ExecutionView Market Broker Mapping 共用同一固定映射
+  const marketOptions = EXCHANGE_LIST;
 
   useEffect(() => {
     setDraft(config);
@@ -54,6 +58,14 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
     }));
   }
 
+  function updateReportExchanges(nextExchanges: string[]) {
+    setDraft((current) => ({
+      ...current,
+      reportExchanges: nextExchanges,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
   async function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -71,6 +83,7 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
           ...createDefaultCostViewConfig().exportDefaults,
           ...(parsed.exportDefaults ?? {}),
         },
+        reportExchanges: Array.isArray(parsed.reportExchanges) ? parsed.reportExchanges : [],
       });
     } catch {
       window.alert('Failed to import CostView configuration.');
@@ -150,6 +163,24 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Report Exchanges</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Choose which exchanges are included in the Report tab by default. Leave empty to include all markets.
+          </p>
+          <MultiSelectFilter
+            label="Exchanges"
+            options={marketOptions}
+            selected={draft.reportExchanges}
+            onChange={updateReportExchanges}
+            columns={3}
+          />
         </CardContent>
       </Card>
 

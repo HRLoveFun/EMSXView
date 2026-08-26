@@ -36,6 +36,7 @@ DB_PROCESSED_RAW_BDIB = "processed_raw_bdib"
 DB_FILL_BDIB = "fill_bdib"
 DB_REGIME = "regime"
 DB_FETCH_HISTORY = "fill_fetch_history"
+DB_BDIB_FETCH_HISTORY = "bdib_fetch_history"
 DB_EXECUTION_HISTORY = "execution_history"
 DB_TICKER_REGISTRY = "ticker_registry"
 
@@ -53,6 +54,7 @@ class Config:
     RAW_EXCEL_DIR: Path = DATA_DIR / "fills"
 
     FETCH_HISTORY_DB: Path = DATA_DIR / "fill_fetch_history.db"
+    BDIB_FETCH_HISTORY_DB: Path = DATA_DIR / "bdib_fetch_history.db"
     RAW_FILLS_DB: Path = DATA_DIR / "raw_fills.db"
     PROCESSED_FILLS_DB: Path = DATA_DIR / "processed_fills.db"
     RAW_BDIB_DB: Path = DATA_DIR / "raw_bdib.db"
@@ -101,6 +103,48 @@ class Config:
         # ── 2026-08-03 调整：新增 C1（Nth SSE-SEHK，沪港通），其行情代码映射为 CH。
         "C1",
     ]
+
+    # ── 报告市场配置（007-costview-report-filters）─────────────────────────
+    # HTML 报告 / 前端分市场标签页的市场顺序与白名单（唯一真相源）。
+    # 键为 Bloomberg Exchange 代码（与 tca_route_summary.Exchange 一致），
+    # 值为显示名。仅列出的市场会出现在报告标签页；未列出的 Exchange 归入"其他"。
+    # 顺序即标签页展示顺序（常用优先）。
+    MARKET_ORDER: dict[str, str] = {
+        "US": "美国",
+        "JP": "日本",
+        "LN": "伦敦",
+        "HK": "香港",
+        "C1": "沪港通",
+        "AU": "澳洲",
+        "GR": "德国",
+        "IN": "印度",
+        "CN": "加拿大",
+        "FP": "法国",
+        "SW": "瑞士",
+        "SS": "瑞典",
+        "KS": "韩国",
+        "NA": "荷兰",
+        "IM": "意大利",
+        "SM": "西班牙",
+        "BZ": "巴西",
+        "DC": "丹麦",
+        "FH": "芬兰",
+        "SP": "新加坡",
+        "BB": "比利时",
+        "SJ": "南非",
+        "NO": "挪威",
+        "IJ": "印尼",
+        "MM": "墨西哥",
+        "MK": "马来西亚",
+        "AV": "奥地利",
+        "PL": "葡萄牙",
+        "PW": "波兰",
+        "ID": "爱尔兰",
+        "IT": "以色列",
+        "GA": "希腊",
+        "NZ": "新西兰",
+        "MUMBAI": "印度孟买",
+    }
 
     MAX_PARALLEL_DATES: int = 1
     MAX_PARALLEL_TICKERS: int = 1
@@ -211,6 +255,12 @@ class Config:
     PROCESSED_RAW_BDIB_TABLE: str = "processed_raw_bdib"
     FILL_BDIB_TABLE: str = "fill_bdib"
     TCA_ROUTE_SUMMARY_TABLE: str = "tca_route_summary"
+    # 报告筛选维度持久化列表（存于 fill_bdib.db）：市场/Broker/Algo/Symbol 全量值，
+    # 由 daily_update 每日增量刷新，report 查询不再按时间范围对明细表 GROUP BY。
+    TCA_REPORT_DIMS_TABLE: str = "tca_report_dims"
+    TCA_REPORT_DIMS_META_TABLE: str = "tca_report_dims_meta"
+    # fx-rate-persistence: 币种 × 交易日汇率唯一真相源（存于 fill_bdib.db）
+    FX_RATES_TABLE: str = "fx_rates"
     AGG_PROCESSED_FILLS_TABLE: str = "agg_processed_fills"
     PROCESSED_FILLS_1MIN_TABLE: str = "processed_fills_1min"
     ORDER_LABEL_TABLE: str = "order_label"
@@ -222,6 +272,7 @@ class Config:
     FETCH_LOG_TABLE: str = "fetch_log"
     INGESTION_LOG_TABLE: str = "ingestion_log"
     FETCH_HISTORY_TABLE: str = "fill_fetch_history"
+    BDIB_FETCH_HISTORY_TABLE: str = "bdib_fetch_history"
 
     @classmethod
     def initialize_directories(cls) -> None:

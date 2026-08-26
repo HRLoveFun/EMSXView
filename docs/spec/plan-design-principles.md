@@ -1,7 +1,7 @@
 # 计划设计原则（Plan Design Principles）
 
 > 跨特性可复用规范 —— 任何计划（数据改造 / 优化 / 重构）执行前必读
-> 关联：`specs/002-pipeline-guardrail/`（管道护栏，管数据流；本文件管计划流）
+> 关联：`docs/archive/2026-08-26/002-pipeline-guardrail/`（管道护栏，已完成 2026-06-25，已归档；本文件管计划流）
 > 配套阅读：`docs/spec/anti-patterns.md`（★ 禁止模式）、`docs/spec/boundary-protection.md`（运行时防护）
 > Last updated: 2026-08-14
 
@@ -11,7 +11,7 @@
 
 本规范适用于**计划 = 涉及数据库结构 / 数据迁移 / 存储 / 性能优化的变更方案**，如：
 
-- `specs/002-pipeline-guardrail/optimization_plan.md`（数据结构与存储效率优化）
+- `docs/archive/2026-08-26/002-pipeline-guardrail/optimization_plan.md`（数据结构与存储效率优化，已归档）
 - 任何 Schema 迁移、索引调整、存储引擎切换、数据回填/清理方案
 
 纯前端样式、纯文档类改动不受本规范强制约束（但 G3 充分且必要原则仍建议适用）。
@@ -132,7 +132,7 @@
 
 | 文档 | 职责 | 与本文档关系 |
 |---|---|---|
-| `specs/002-pipeline-guardrail/` | 管道护栏（校验/熔断/契约/日志） | 管**数据运行时**；本文档管**计划变更流程** |
+| `docs/archive/2026-08-26/002-pipeline-guardrail/` | 管道护栏（校验/熔断/契约/日志，已归档） | 管**数据运行时**；本文档管**计划变更流程** |
 | `docs/spec/boundary-protection.md` | 模块边界防护（四层） | 运行时防护；P1 的反模式参考其 H1/H2 教训 |
 | `docs/spec/anti-patterns.md` | 反模式清单（AP-xx） | 本文档的反模式条目与 AP 清单互相引用 |
 | `AGENTS.md` 文档阅读顺序 | agent 入口 | 本文件为第 10 份必读 |

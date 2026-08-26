@@ -36,7 +36,7 @@ PYTHON_RULES = [
         "改走 platform_data.config_bridge / register_costview_bridge_dependencies()",
         {
             # 豁免：main.py 启动时向 config_bridge 注册 DataPipeline Config（DI 注册，
-            # CLAUDE.md 约定"应从 DataPipeline/config.Config 导入"，是设计内入口）
+            # 项目指南约定"应从 DataPipeline/config.Config 导入"，是设计内入口）
             "backend/api/main.py",
         },
     ),

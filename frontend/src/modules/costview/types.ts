@@ -34,6 +34,8 @@ export interface ExportDefaults {
 export interface CostViewConfig {
   rules: Record<CostViewMetricKey, ThresholdRule>;
   exportDefaults: ExportDefaults;
+  /** Report 页签默认包含的交易所清单；空数组表示包含全部市场 */
+  reportExchanges: string[];
   updatedAt: string;
 }
 
@@ -349,6 +351,10 @@ export interface TcaReportKpi {
   weighted_pnl_vwap: number | null;
   avg_par_rate: number | null;
   avg_rpm: number | null;
+  // 007: 总成交金额（本币 / USD 换算 / fx_rate 覆盖率）
+  notional: number | null;
+  notional_usd: number | null;
+  fx_coverage: number | null;
 }
 
 export interface TcaDailySeriesPoint {
@@ -390,11 +396,42 @@ export interface TcaReportSummaryFilters {
 export interface TcaReportMarket {
   exchange: string;
   route_count: number;
+  notional: number | null;
+  notional_usd: number | null;
+}
+
+/** 008: 按市场成交金额（美元）排名条目 */
+export interface TcaMarketNotionalRankRow {
+  exchange: string;
+  name: string;
+  route_count: number;
+  notional: number | null;
+  notional_usd: number | null;
+}
+
+/** 008: 按市场成交金额（美元）每日趋势点 */
+export interface TcaMarketNotionalTrendPoint {
+  date: string;
+  exchange: string;
+  name: string;
+  notional_usd: number | null;
+}
+
+/** 多选筛选选项（007：distinct 值列表，供多选下拉使用） */
+export interface TcaReportFilterOptions {
+  brokers: string[];
+  algos: string[];
+  symbols: string[];
+  /** 市场（Exchange）选项：持久化全量列表，与时间范围解耦 */
+  exchanges?: string[];
 }
 
 export interface TcaReportSummary {
   filters: TcaReportSummaryFilters;
   markets: TcaReportMarket[];
+  filter_options: TcaReportFilterOptions;
+  market_notional_ranking: TcaMarketNotionalRankRow[];
+  market_notional_trend: TcaMarketNotionalTrendPoint[];
   kpi: TcaReportKpi | null;
   daily_series: TcaDailySeriesPoint[];
   rankings: { by_broker: TcaRankingRow[]; by_algo: TcaRankingRow[] };

@@ -182,8 +182,8 @@ class HealthChecker:
         for db_key in sorted(self._mgr.registry.keys()):
             if not self._mgr.database_exists(db_key):
                 continue
-            if db_key == "fill_fetch_history":
-                continue  # 极小的辅助DB, 跳过
+            if db_key in ("fill_fetch_history", "bdib_fetch_history"):
+                continue  # 极小的辅助DB（拉取历史审计）, 跳过
             checked += 1
             try:
                 conn = self._mgr.get_connection(db_key, AccessTier.READ)
