@@ -312,7 +312,7 @@ Cross-domain access should follow this order of preference:
 
 ### 6.1 Legacy frontend prototype
 
-- `CostView/frontend/` is downgraded to legacy prototype status (archived under `docs/archive/`).
+- `CostView/frontend/` prototype was first archived under `docs/archive/`, then **fully removed from the repository** in the 2026-08-26 dead-weight cleanup (recoverable from git history).
 - It is not the canonical CostView UI.
 - New production UI work should go to `frontend/src/modules/costview/`.
 
@@ -329,7 +329,7 @@ Cross-domain access should follow this order of preference:
 
 ## 7. Current Alignment Gaps
 
-1. `CostView/frontend/` has been archived to `docs/archive/` — legacy prototype removed from active surfaces.
+1. `CostView/frontend/` legacy prototype has been removed from the repository (formerly archived under `docs/archive/`) — removed from active surfaces.
 2. ExecutionView operational data and CostView analytical data now have a shared adapter entry; cross-module deep imports from ExecutionView to CostView have been eliminated.
 3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built. MarketView runs as a standalone service on :8001.
 4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) have been **deleted** — fully migrated to `DataPipeline/storage/` repositories per `docs/spec/data-domain.md`.

@@ -258,14 +258,11 @@ EMSXView/
 │   ├── ops/                          # Operations docs
 │   │   └── service-management.md     # Service operations guide
 │   └── archive/                      # 归档（按日期或主题）
-│       ├── handoff.md · migration-baseline.md ·
-│       │   architecture-analysis-report.md · s1_replay_validation_20260416.md
-│       ├── 2026-04-02/               # task-templates.md（已归档 2026-07-02）
-│       ├── 2026-05-27/               # final-refactoring-plan.md（已归档 2026-07-02）
 │       ├── 2026-06-29/               # eur_ticker_issue_analysis.md · database.md · sequence-diagrams.md
-│       ├── 2026-07-02/               # S1 修复报告 + xlsx 样本
-│       └── legacy-costview-frontend/
+│       └── 2026-08-26/002-pipeline-guardrail/   # 管道护栏设计记录（被 plan-design-principles 引用）
 │
+│   # 注：一次性历史件（handoff/migration-baseline/architecture-analysis-report、
+│   # legacy-costview-frontend 等）已于 2026-08-26 清理，见 git 历史与 ADR-0014
 ├── scripts/                          # Automation & utility scripts
 │   ├── start-all.bat                 # Start all services
 │   ├── stop-all.bat                  # Stop all services
