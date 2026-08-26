@@ -258,7 +258,7 @@ EMSXView/
 │   ├── ops/                          # Operations docs
 │   │   └── service-management.md     # Service operations guide
 │   └── archive/                      # 归档（按日期或主题）
-│       ├── wbs.md · handoff.md · migration-baseline.md ·
+│       ├── handoff.md · migration-baseline.md ·
 │       │   architecture-analysis-report.md · s1_replay_validation_20260416.md
 │       ├── 2026-04-02/               # task-templates.md（已归档 2026-07-02）
 │       ├── 2026-05-27/               # final-refactoring-plan.md（已归档 2026-07-02）
@@ -276,22 +276,15 @@ EMSXView/
 │   │   ├── cleanup-logs.ps1          # Log cleanup utility
 │   │   ├── import_excel_fills.py     # Excel fill import
 │   │   └── sync-metrics.py           # Metrics synchronization
-│   ├── workflow/                     # CI/CD workflow scripts
-│   │   ├── workflow_engine.py
-│   │   ├── auto_runner.py
-│   │   ├── sync_execution_status.py
-│   │   └── validate_phase_gate.py
 │   ├── deploy/                       # Deployment scripts
 │   ├── devtools/                     # Development tools
 │   └── diagnose/                     # Diagnostic scripts
 │
 ├── plans/                            # Project plans & policies
-│   ├── architecture-refactor-workflow.yaml
-│   ├── execution-platform-autopilot-policy.yaml
-│   └── execution-platform-risk-register.yaml
+│   └── b4-remediation-plan.md
 │
 ├── data/                             # Shared runtime data
-├── logs/                             # Service logs (api, backfill, costview, workflow)
+├── logs/                             # Service logs (api, backfill, costview)
 └── .github/                          # GitHub configuration
     └── knowledge/                     # Agent knowledge base
         ├── architecture-decisions.md  # Architecture decision records

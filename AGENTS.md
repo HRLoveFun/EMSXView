@@ -256,7 +256,7 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
   - CostView **Configure → Report Exchanges** — 直接 `import { EXCHANGE_LIST } from '@shared/lib/broker-exchange-mapping'`
 - **Report 专有市场**：仅需出现在 Report Exchanges、但**不进入** Market Broker Mapping 授权表的交易所（如 `C1` 沪港通、`HK` 香港），加入 `REPORT_ONLY_EXCHANGES` 常量（挂在 `EXCHANGE_LIST`，不挂 `EXCHANGE_FOR_BROKER`）
 - **禁止**：在 `modules/execution/data/broker-exchange-mapping.ts` 内直接编辑映射（该文件仅作 re-export，改此处不会生效且会造成漂移）
-- **背景**：`frontend_costview` 模块边界禁止 import `@execution/*`，故跨模块只读配置按 `module-boundary.md §7` 上移至 `@shared/lib`；原 execution 路径保留为兼容层（`verify_refactor_step.py` S05 检查仍依赖该文件存在）
+- **背景**：`frontend_costview` 模块边界禁止 import `@execution/*`，故跨模块只读配置按 `module-boundary.md §7` 上移至 `@shared/lib`；原 execution 路径保留为兼容层（仅为存量 import 向后兼容，P0-P5 workflow 体系的 `verify_refactor_step.py` 已于 2026-08-26 移除）
 
 ### 后端约定
 
