@@ -76,6 +76,9 @@ _tmp-*
 # --- TCA 报告运行时产物（scripts/reports/generate_tca_report.py 输出） ---
 scripts/reports/output/
 
+# --- 质量门禁趋势库（quality_gate.py 全量扫描写入，可再生；基线历史不入库） ---
+scripts/reports/quality_gate/quality_gate.db
+
 # --- 边界测试扫描产物（运行时生成，勿入版本库） ---
 **/.scan_log.jsonl
 
