@@ -111,7 +111,7 @@
 | H2 | Parquet 逐 chunk 覆盖写丢数据 | `write_batch` 读-合并-去重-写 |
 | H3 | 无认证端点 + DB 路径泄漏 | database/orders_handoff/realtime 补认证；path 遮蔽为文件名 |
 | H4 | `_execution_to_cost` 无上限 | 条目上限 500 + 7 天 TTL 惰性清理 |
-| H5 | 保留参数负数/0 无校验 | archiver 与 shrink_raw_bdib 加 `retention >= 1` 校验 |
+| H5 | 保留参数负数/0 无校验 | archiver 加 `retention >= 1` 校验（同期 shrink_raw_bdib 已修复并随 2026-08-26 清理归档） |
 
 ### P1 机制（已实施，2026-08-14）
 

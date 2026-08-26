@@ -1,6 +1,6 @@
 """全量重算 tca_route_summary（L4b，一天一存 + 断点续跑版）。
 
-复用 ComputeRouteMetricsStage（与 recompute_route_metrics.py 相同核心），
+复用 ComputeRouteMetricsStage，
 从 fill_bdib 全部日期循环 force 重算。设计要点：
 - 一天一存：每算完一天即 INSERT OR REPLACE 落库（execute 内部逐日提交），
   中途中断已算日期不丢失，无需从头再来。

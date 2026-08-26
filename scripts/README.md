@@ -13,8 +13,6 @@ scripts/
 │   └── cleanup-logs.ps1        Log rotation / purge
 │
 ├── devtools/               # Developer tooling
-│   ├── fetch_and_inspect.py        Data pipeline ad-hoc fetch tool
-│   ├── run_attribution_notebook.py Attribution notebook runner
 │   └── export-localstorage-cache.js  Browser storage cache export
 │
 ├── deploy/                 # Deployment & environment setup
@@ -38,7 +36,7 @@ scripts/
 |-----------------------------------|----------------------------------------------|
 | Start all services                | `start-all.bat` or `ops\service-manager.ps1` |
 | Import Excel fills                | `python ops/import_excel_fills.py --dry-run`  |
-| Run data diagnostic               | `python devtools/fetch_and_inspect.py`        |
+| Backfill raw_fills OAOD/EET       | `python ops/backfill_raw_fills_oaod_eet.py`   |
 | Clean log files                   | `ops\cleanup-logs.ps1`                       |
 | Create desktop shortcuts          | `deploy\create-desktop-shortcut.ps1`          |
-| Diagnose market data issues       | `python diagnose/diagnose_market_data.py`     |
+| Check startup status              | `diagnose\check-startup-status.ps1`           |
