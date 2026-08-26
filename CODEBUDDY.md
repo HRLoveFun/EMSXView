@@ -258,6 +258,13 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - **禁止**：在 `modules/execution/data/broker-exchange-mapping.ts` 内直接编辑映射（该文件仅作 re-export，改此处不会生效且会造成漂移）
 - **背景**：`frontend_costview` 模块边界禁止 import `@execution/*`，故跨模块只读配置按 `module-boundary.md §7` 上移至 `@shared/lib`；原 execution 路径保留为兼容层（仅为存量 import 向后兼容，P0-P5 workflow 体系的 `verify_refactor_step.py` 已于 2026-08-26 移除）
 
+### 文档对齐门禁（★ 2026-08-26）
+
+- **CI 硬阻断**：`boundary.yml` 运行 `scripts/audit_doc_drift.py`，核心漂移退出码 1 阻断合并——memory.md ADR 索引、module-boundary 边界规则与适配器表、AGENTS.md↔CODEBUDDY.md 同步（行尾归一化比较，规避 autocrlf/hook 写入差异的假阳性）
+- **非核心 WARN 放行**：文档先于代码的「待实现」适配器条目（ADR-0013 认可的合法状态）仅告警，由 PR 审查与周报跟进
+- **每周漂移报告**：`.github/workflows/doc-drift-report.yml` 每周一 UTC 02:00 定时运行同一审计脚本，结果写入 Job Summary 并上传 artifact（支持 workflow_dispatch 手动触发）；报告任务不阻断
+- **规范源不变**：AGENTS.md 为唯一规范源，pre-commit hook 提交时同步 CODEBUDDY.md；本审计是 hook 未配置环境（如 CI 直连 push）下的兜底防线
+
 ### 后端约定
 
 - 后端使用 Pydantic v2 模型定义 schema；所有 API 响应包在 `ApiResponse` 中。
