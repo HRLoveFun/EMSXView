@@ -1,7 +1,8 @@
 # 模块边界防护 CI (P2, 2026-08-14)
 #
 # 自动执行点:
-#   1. 边界审计脚本 (AP-01 跨模块 import / AP-04 DB 路径 / AP-08 下划线访问 / 文档漂移)
+#   1. 边界审计脚本 (AP-01 跨模块 import / AP-04 DB 路径 / AP-08 下划线访问;
+#      核心文档漂移自 2026-08-26 起硬阻断)
 #   2. 后端边界测试 (backend/api/tests/boundaries/)
 #   3. 后端全量测试
 #   4. DataPipeline 回归测试 (P0/P1 边界修复)
@@ -40,8 +41,10 @@ jobs:
           python scripts/audit_cross_imports.py
           python scripts/audit_underscore_access.py
           python scripts/audit_db_paths.py
-          # 文档漂移是文档债 (非边界违规), 不阻断 CI; 由 PR 审查跟踪
-          python scripts/audit_doc_drift.py || echo "[WARN] 文档漂移待跟进 (不影响边界安全)"
+          # 核心文档漂移 (memory.md ADR 索引 / module-boundary 契约 /
+          # AGENTS↔CODEBUDDY 同步) 硬阻断 (2026-08-26 升级);
+          # 非核心漂移 (如 doc 先于代码的待实现适配器) 由脚本降级 WARN 放行
+          python scripts/audit_doc_drift.py
 
   backend-tests:
     name: 后端测试 (FastAPI + boundaries)
