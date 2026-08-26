@@ -84,9 +84,12 @@ scripts/reports/quality_gate/quality_gate.db
 
 # ============================================================
 # Data files (runtime generated - NEVER commit)
+# 注意：目录模式必须锚定（前导 /），否则会误伤源码树内的 data 目录
+# （曾导致 frontend/src/modules/execution/data/ 兼容层未被跟踪）
 # ============================================================
 CostView/data/
-data/
+/data/
+backend/api/data/
 
 # ============================================================
 # AI Assistant Local State (per-user runtime)
