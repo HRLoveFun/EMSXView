@@ -142,7 +142,6 @@ EMSXView/
 │   │   ├── project-structure.md
 │   │   ├── data-domain.md
 │   │   └── memory.md
-│   ├── roadmap/wbs.md
 │   └── archive/
 ├── scripts/
 ├── data/
