@@ -279,7 +279,7 @@ def analyze_logs(log_path: str, pattern: str) -> str:
     """Search application logs for error patterns.
 
     Args:
-        log_path: Relative path to log file from workspace root (e.g., 'logs/emsx_api.log')
+        log_path: Relative path to log file from workspace root (e.g., 'logs/api/emsx_api.log')
         pattern: Regex pattern to search for in the log file
 
     Returns:
