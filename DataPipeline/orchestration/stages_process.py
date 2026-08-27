@@ -281,9 +281,22 @@ class IntegrateBDIBStage(BaseStage):
         bdid_exchange = [str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()]
         ticker_exchange_map_all = fills_reader.get_ticker_exchange_map(exchanges=bdid_exchange)
         if not ticker_exchange_map_all:
+            # M1.1 失败显式化：候选日期 > 0 但依赖输入（ticker→exchange 映射）为空
+            # 属异常短路而非正常无数据，禁止裸 return success。
+            # 历史事故 A3（2026-08-26）：分区迁移空壳表导致映射为空，raw_bdib 停更
+            # 2 天而状态绿色。此处必须携带 short_circuit_reason 供 daily_update
+            # 与前端感知，并记 WARNING 进护栏日志。
+            reason = (
+                "get_ticker_exchange_map 返回空 — ticker_repository 中无匹配 "
+                f"BDIB_EXCHANGE 白名单({len(bdid_exchange)}个交易所)的记录；"
+                "疑似空壳表/迁移残留或白名单漂移，BDIB 拉取与集成全部短路"
+            )
+            logger.warning("  BDIB 阶段短路: %s", reason)
             context.summary["bdib"] = {
-                "completed": True, "dates": len(all_candidate_dates),
+                "completed": True,
+                "dates": len(all_candidate_dates),
                 "raw_bdib_rows": 0, "processed_raw_bdib_rows": 0, "fill_bdib_rows": 0,
+                "short_circuit_reason": reason,
             }
             return True
 

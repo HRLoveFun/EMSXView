@@ -46,6 +46,35 @@ class SqliteFillReadRepository(BaseRepository):
     def __init__(self, connection_manager=None):
         super().__init__(connection_manager, database="processed_fills")
 
+    def _legacy_table_is_live(self, table: str) -> bool:
+        """判断 legacy 表是否仍可作为读取来源（存在且至少有一行）。
+
+        M3.1 空壳防护：分区迁移可能在 processed_fills.db 残留 0 行空壳表
+        （2026-08-26 事故：空壳 ticker_repository 导致 get_ticker_exchange_map
+        返回 {}，S5 BDIB 静默短路）。仅以「表存在」为判据会把读取路由到
+        空壳表；此处要求存在且非空才视为 live。EXISTS 查询命中首行即返回，
+        对大表无额外开销。
+        """
+        try:
+            conn = self._get_read_conn()
+            try:
+                exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone() is not None
+                if not exists:
+                    return False
+                has_rows = conn.execute(
+                    f"SELECT EXISTS(SELECT 1 FROM [{table}])"
+                ).fetchone()[0]
+                return bool(has_rows)
+            finally:
+                conn.close()
+        except Exception as exc:
+            # 检测失败时保守视为 live（维持旧行为，走 legacy 路径）
+            logger.debug("legacy 表状态检测失败 %s: %s", table, exc)
+            return True
+
     def _conn_for(self, table: str):
         """B3: 根据表名路由到正确的DB (PARTITION_READ_NEW 或自动检测已迁移表)."""
         if Config.PARTITION_READ_NEW:
@@ -54,22 +83,11 @@ class SqliteFillReadRepository(BaseRepository):
                 from DataPipeline.storage.connection import AccessTier
                 return self._mgr.get_connection(target_db, AccessTier.READ)
 
-        # B4 后自动检测: 如果原 processed_fills.db 中已无该分区表，回退到分区 DB
+        # B4 后自动检测: legacy 表不存在或为 0 行空壳（M3.1）时回退到分区 DB
         target_db = _partition_db_for(table)
-        if target_db:
-            try:
-                conn = self._get_read_conn()
-                cursor = conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-                    (table,),
-                )
-                exists = cursor.fetchone() is not None
-                conn.close()
-                if not exists:
-                    from DataPipeline.storage.connection import AccessTier
-                    return self._mgr.get_connection(target_db, AccessTier.READ)
-            except Exception:
-                pass
+        if target_db and not self._legacy_table_is_live(table):
+            from DataPipeline.storage.connection import AccessTier
+            return self._mgr.get_connection(target_db, AccessTier.READ)
 
         return self._get_read_conn()
 

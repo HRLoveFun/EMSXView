@@ -27,7 +27,7 @@ import sqlite3
 import subprocess
 import io
 import sys
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -395,12 +395,137 @@ def _fetch_failure_detail(fetch_result: Any) -> Optional[str]:
     )
 
 
-def run_daily_pipeline(generate_report: bool = True) -> dict:
+def _stage_failure_detail(pipeline_result: Any) -> Optional[str]:
+    """从管道阶段 summary 中提取显式短路/失败归因；无则返回 None。
+
+    M1.2/M1.4 失败显式化（docs/spec/pipeline-resilience.md）：历史事故 A3 中 S5
+    BDIB 因 ticker 映射为空静默短路，summary 报 completed=true 而前端显示绿色、
+    raw_bdib 停更 2 天无人感知。约定：**任一阶段** summary 携带
+    ``short_circuit_reason``（含嵌套子字典），日更最终状态必须标记 failed 并
+    传导 exit code。M1.4 将早期仅针对 bdib 的判定推广为对所有阶段通用扫描。
+    """
+    if not isinstance(pipeline_result, dict):
+        return None
+    found = _scan_short_circuit(pipeline_result)
+    if found:
+        stage_key, reason = found
+        return f"{stage_key} stage short-circuited: {reason}"
+    return None
+
+
+def _scan_short_circuit(node: Any, prefix: str = "pipeline") -> Optional[tuple[str, str]]:
+    """递归扫描阶段 summary 中任意 ``short_circuit_reason``；返回 (阶段键, 原因)。"""
+    if isinstance(node, dict):
+        if node.get("short_circuit_reason"):
+            return (prefix, str(node["short_circuit_reason"]))
+        for key, val in node.items():
+            if isinstance(val, dict):
+                hit = _scan_short_circuit(val, key)
+                if hit:
+                    return hit
+    return None
+
+
+# M2.2 新鲜度 SLA 受检核心库：(库键, 日期列)。库文件不存在或表缺失视为尚未填充，跳过。
+_FRESHNESS_CHECK_DBS: tuple[tuple[str, str], ...] = (
+    ("raw_fills", "order_as_of_date"),
+    ("processed_fills", "order_as_of_date"),
+    ("raw_bdib", "order_as_of_date"),
+    ("fill_bdib", "order_as_of_date"),
+)
+
+
+def _safe_max_date(db_key: str, col: str) -> Optional[str]:
+    """读取核心库某列 MAX 值；库/表缺失或异常返回 None。"""
+    try:
+        from DataPipeline.storage.connection import AccessTier, ConnectionManager
+        mgr = ConnectionManager()
+        conn = mgr.get_connection(db_key, AccessTier.READ)
+        try:
+            row = conn.execute(f"SELECT MAX([{col}]) FROM [{db_key}]").fetchone()
+            return row[0] if row and row[0] is not None else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _business_days_between(start: date, end: date) -> int:
+    """[start, end] 区间内工作日（周一~周五）天数，含端点。"""
+    if end < start:
+        return 0
+    return sum(1 for i in range((end - start).days + 1)
+               if (start + timedelta(days=i)).weekday() < 5)
+
+
+def _freshness_failure_detail(max_dates: Optional[dict] = None) -> Optional[str]:
+    """M2.2 新鲜度 SLA：核心库最新交易日与 today 间缺失的「交易日」超阈值即失败。
+
+    历史事故 A1(360 万行静默缺失) / A3(raw_bdib 停更 2 个交易日报绿色) 均无
+    自动新鲜度校验，靠人工对账才发现。此处强制在日更收尾校验各库新鲜度，
+    以「交易日」为单位（规避周末 / 法定节假日误判，周一跑批数据到周五属正常）：
+
+    - 缺失交易日 > FRESHNESS_WARN_BUSINESS_DAYS：记 WARNING 进 summary
+    - 缺失交易日 > FRESHNESS_FAIL_BUSINESS_DAYS：返回失败描述，日更标记 failed
+    - 配额暂停期间（is_quota_paused）跳过失败判定，避免合法跳过被误判
+
+    ``max_dates`` 仅用于测试注入，生产路径为 None 时实时查询各库。
+    """
+    if max_dates is None:
+        try:
+            from DataPipeline.common.quota_pause import is_quota_paused
+            if is_quota_paused():
+                return None
+        except Exception:
+            pass
+        max_dates = {
+            db: _safe_max_date(db, col) for db, col in _FRESHNESS_CHECK_DBS
+        }
+
+    ref = date.today()
+    stale_warn: list[str] = []
+    stale_fail: list[str] = []
+    for db, md in max_dates.items():
+        if not md:
+            continue  # 库缺失/未填充 → 跳过，不误判
+        try:
+            d = datetime.strptime(str(md), "%Y%m%d").date()
+        except ValueError:
+            continue
+        gap = _business_days_between(d, ref) - 1  # 含端点的工作日数 -1 = 缺失交易日
+        if gap >= Config.FRESHNESS_FAIL_BUSINESS_DAYS:
+            stale_fail.append(f"{db}={md}({gap}交易日)")
+        elif gap >= Config.FRESHNESS_WARN_BUSINESS_DAYS:
+            stale_warn.append(f"{db}={md}({gap}交易日)")
+
+    if stale_warn:
+        logger.warning("新鲜度 SLA 告警（缺失>%d交易日）: %s",
+                       Config.FRESHNESS_WARN_BUSINESS_DAYS, ", ".join(stale_warn))
+    if stale_fail:
+        return (
+            f"数据新鲜度校验失败：以下库最新交易日缺失超过 "
+            f"{Config.FRESHNESS_FAIL_BUSINESS_DAYS} 个交易日 — " + ", ".join(stale_fail)
+        )
+    return None
+
+
+def run_daily_pipeline(
+    generate_report: bool = True,
+    freshness_check: Optional[Callable[[], Optional[str]]] = None,
+    exchange_audit: Optional[Callable[[], dict]] = None,
+    conservation_audit: Optional[Callable[[], dict]] = None,
+) -> dict:
     """Execute the full daily pipeline: fetch + process + aggregate + labels.
 
     Args:
         generate_report: 管线成功后是否自动生成 TCA 可视化报告（默认开启，
             ``--no-report`` 关闭）。报告失败不影响管线状态。
+        freshness_check: M2.2 新鲜度校验器（默认 ``_freshness_failure_detail``），
+            返回失败描述或 None。测试可注入以隔离真实 DB 状态。
+        exchange_audit: M3.2 交易所白名单 diff 审计器（默认
+            ``audit_exchange_coverage``），返回 diff 字典，仅告警不阻断。
+        conservation_audit: M2.1 跨库守恒审计器（默认 ``audit_conservation``），
+            返回 {gaps, ok} 字典，仅告警不阻断。
 
     Returns:
         Summary dict with fetch and pipeline results.
@@ -414,6 +539,8 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
     # Stage A 失败描述（None = 无失败）。失败不中断后续阶段（BDIB / 聚合仍
     # 处理存量数据），但最终 status 会标记 failed 并经 exit code 传导至前端。
     fetch_failure: Optional[str] = None
+    # 阶段级短路/失败描述（None = 无），与 fetch_failure 同型传导（M1.2）
+    stage_failure: Optional[str] = None
 
     # ── Stage marker: Initialization ──
     print("[STAGE] initialization 50")
@@ -493,6 +620,12 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
         _log_mem("pipeline_after")
         summary["pipeline"] = pipeline_result
         logger.info("Pipeline result: %s", json.dumps(pipeline_result, default=str))
+        stage_failure = _stage_failure_detail(pipeline_result)
+        if stage_failure:
+            # M1.2：阶段短路归因显式输出（供 pipeline_jobs 提取），管线继续跑完，
+            # 最终 status 标记 failed 并以 exit code 1 传导前端。
+            logger.error("%s — 后续阶段继续，本次日更将标记为 failed", stage_failure)
+            print(f"ERROR: {stage_failure}")
 
         # Stage C: Write downstream manifest and flush databases to disk
         print("[STAGE] completion 20")
@@ -514,6 +647,35 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
         _checkpoint_wal()
         gc.collect()
         _log_mem("completion_before_checkpoint")
+
+        # M2.2 新鲜度 SLA：置于 WAL checkpoint 之后，确保只读连接看到最新落盘数据。
+        # 日更收尾校验各核心库最新交易日，落后超阈值即标记 failed
+        # （配额暂停期间由 _freshness_failure_detail 内部跳过）。
+        freshness_failure = (freshness_check or _freshness_failure_detail)()
+        summary["freshness"] = freshness_failure
+        if freshness_failure:
+            logger.error("%s — 后续步骤继续，本次日更将标记为 failed", freshness_failure)
+            print(f"ERROR: {freshness_failure}")
+
+        # M3.2 交易所白名单 ↔ 实际分布 diff 审计（仅告警不阻断，写 summary）
+        try:
+            from DataPipeline.pipeline_guards.exchange_whitelist_audit import (
+                audit_exchange_coverage,
+            )
+            summary["exchange_diff"] = (exchange_audit or audit_exchange_coverage)()
+        except Exception as e:  # 审计异常绝不影响日更主流程
+            logger.warning("交易所白名单审计跳过: %s", e)
+            summary["exchange_diff"] = {"outside_whitelist": [], "whitelisted_no_data": []}
+
+        # M2.1 跨库行数守恒日检（仅告警不阻断，写 summary）
+        try:
+            from DataPipeline.pipeline_guards.cross_db_conservation import (
+                audit_conservation,
+            )
+            summary["conservation"] = (conservation_audit or audit_conservation)()
+        except Exception as e:  # 审计异常绝不影响日更主流程
+            logger.warning("跨库守恒审计跳过: %s", e)
+            summary["conservation"] = {"gaps": [], "ok": True, "checked_dates": 0}
 
         # ── 报告筛选维度值持久化列表刷新（非阻塞，供 Report 下拉时间无关读取）──
         print("[STAGE] report_dims 10")
@@ -539,12 +701,13 @@ def run_daily_pipeline(generate_report: bool = True) -> dict:
             else:
                 detail = "Pipeline ran with no data changes"
 
-        if fetch_failure:
-            # 静默失败修复：fill fetch 失败 → status=failed → exit 1，
+        terminal_failure = fetch_failure or stage_failure or (freshness_failure or None)
+        if terminal_failure:
+            # 静默失败修复：fetch / 阶段短路任一失败 → status=failed → exit 1，
             # pipeline_jobs 据此把 job 标记 failed，前端显示红色错误详情。
             summary["status"] = "failed"
-            summary["error"] = fetch_failure
-            print(f"[STAGE] completion 100 FAILED — {fetch_failure}")
+            summary["error"] = terminal_failure
+            print(f"[STAGE] completion 100 FAILED — {terminal_failure}")
         else:
             summary["status"] = "success"
             print(f"[STAGE] completion 100 {detail}")
