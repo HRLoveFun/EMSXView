@@ -21,7 +21,7 @@ import os
 import shutil
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -62,10 +62,17 @@ class HealthChecker:
             ("tca_latency", self._check_tca_latency),
             ("file_count", self._check_file_count),
             ("quota_status", self._check_quota_status),
+            ("freshness", self._check_freshness),
+            ("shell_tables", self._check_shell_tables),
+            ("exchange_diff", self._check_exchange_diff),
+            ("volume_growth", self._check_volume_growth),
+            ("conservation", self._check_conservation),
         ]
 
         if self._quick:
-            checks = [c for c in checks if c[0] not in ("tca_latency", "db_integrity")]
+            checks = [c for c in checks if c[0] not in (
+                "tca_latency", "db_integrity", "conservation",
+            )]
 
         for check_name, check_fn in checks:
             try:
@@ -272,6 +279,171 @@ class HealthChecker:
             "db_files": db_count,
             "archive_files": archived,
             "alert": False,
+        }
+
+    # ── M6.1 / M2.2: 新鲜度 SLA（逻辑检查，非体积）──
+
+    @staticmethod
+    def _business_days_between(start: Any, end: Any) -> int:
+        """[start, end] 区间内工作日数，含端点。"""
+        if end < start:
+            return 0
+        return sum(
+            1 for i in range((end - start).days + 1)
+            if (start + timedelta(days=i)).weekday() < 5
+        )
+
+    def _check_freshness(self) -> dict[str, Any]:
+        """校验核心库最新交易日与今日缺失的交易日数（M2.2）。仅告警。"""
+        from datetime import date
+
+        from DataPipeline.config import Config as _Cfg
+        from DataPipeline.storage.connection import AccessTier
+
+        dbs = ("raw_fills", "processed_fills", "raw_bdib", "fill_bdib")
+        ref = date.today()
+        stale_fail: list[str] = []
+        stale_warn: list[str] = []
+        try:
+            for db_key in dbs:
+                if not self._mgr.database_exists(db_key):
+                    continue
+                conn = self._mgr.get_connection(db_key, AccessTier.READ)
+                try:
+                    row = conn.execute(
+                        f"SELECT MAX([order_as_of_date]) FROM [{db_key}]"
+                    ).fetchone()
+                    md = row[0] if row and row[0] is not None else None
+                finally:
+                    conn.close()
+                if not md:
+                    continue
+                try:
+                    d = datetime.strptime(str(md), "%Y%m%d").date()
+                except ValueError:
+                    continue
+                gap = self._business_days_between(d, ref) - 1
+                if gap >= _Cfg.FRESHNESS_FAIL_BUSINESS_DAYS:
+                    stale_fail.append(f"{db_key}={md}({gap})")
+                elif gap >= _Cfg.FRESHNESS_WARN_BUSINESS_DAYS:
+                    stale_warn.append(f"{db_key}={md}({gap})")
+        except Exception as e:
+            return {"alert": False, "detail": f"新鲜度检查跳过: {e}"}
+
+        detail = ""
+        if stale_fail:
+            detail = (
+                f"缺失>{_Cfg.FRESHNESS_FAIL_BUSINESS_DAYS}交易日: "
+                + ", ".join(stale_fail)
+            )
+        elif stale_warn:
+            detail = f"缺失>{_Cfg.FRESHNESS_WARN_BUSINESS_DAYS}交易日: " + ", ".join(stale_warn)
+        return {
+            "alert": bool(stale_fail),
+            "detail": detail,
+            "warn_only": bool(stale_warn) and not stale_fail,
+        }
+
+    # ── M6.1 / M3.1: 空壳表残留探测（分区迁移清理后回归防护）──
+
+    def _check_shell_tables(self) -> dict[str, Any]:
+        """检测 processed_fills.db 中分区迁移残留的 0 行空壳表（M3.1）。"""
+        from DataPipeline.storage.repositories.fills import _PARTITION_DB_MAP
+
+        found: list[str] = []
+        try:
+            if not self._mgr.database_exists("processed_fills"):
+                return {"alert": False, "detail": "processed_fills 不存在, 跳过"}
+            conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
+            try:
+                for legacy in _PARTITION_DB_MAP:
+                    exists = conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (legacy,),
+                    ).fetchone() is not None
+                    if not exists:
+                        continue
+                    rows = conn.execute(f"SELECT COUNT(*) FROM [{legacy}]").fetchone()[0]
+                    if int(rows) == 0:
+                        found.append(legacy)
+            finally:
+                conn.close()
+        except Exception as e:
+            return {"alert": False, "detail": f"空壳表检查跳过: {e}"}
+
+        return {
+            "alert": bool(found),
+            "detail": f"残留空壳表: {found}" if found else "",
+            "shell_tables": found,
+        }
+
+    # ── M6.1 / M3.2: 交易所白名单 diff ──
+
+    def _check_exchange_diff(self) -> dict[str, Any]:
+        try:
+            from DataPipeline.pipeline_guards.exchange_whitelist_audit import (
+                audit_exchange_coverage,
+            )
+            diff = audit_exchange_coverage()
+        except Exception as e:
+            return {"alert": False, "detail": f"交易所 diff 检查跳过: {e}"}
+        outside = diff.get("outside_whitelist", [])
+        return {
+            "alert": bool(outside),
+            "detail": f"白名单遗漏交易所: {outside}" if outside else "",
+            "outside_whitelist": outside,
+            "whitelisted_no_data": diff.get("whitelisted_no_data", []),
+        }
+
+    # ── M6.1 / M2.1: 跨库守恒 ──
+
+    def _check_conservation(self) -> dict[str, Any]:
+        try:
+            from DataPipeline.pipeline_guards.cross_db_conservation import (
+                audit_conservation,
+            )
+            res = audit_conservation()
+        except Exception as e:
+            return {"alert": False, "detail": f"守恒检查跳过: {e}"}
+        gaps = res.get("gaps", [])
+        return {
+            "alert": not res.get("ok", True),
+            "detail": f"整日缺失 {len(gaps)} 处" if gaps else "",
+            "gaps": gaps[:10],
+            "checked_dates": res.get("checked_dates", 0),
+        }
+
+    # ── M5.2: 体积增长告警（对比上次健康快照，超阈值告警）──
+
+    def _check_volume_growth(self) -> dict[str, Any]:
+        try:
+            prev = {}
+            if HEALTH_MANIFEST.exists():
+                prev = json.loads(HEALTH_MANIFEST.read_text(encoding="utf-8")).get(
+                    "checks", {}
+                ).get("db_size", {}).get("databases", {})
+        except Exception:
+            prev = {}
+        growth_gb = float(os.getenv("HEALTH_DB_GROWTH_GB", "5"))
+        alerts: list[str] = []
+        try:
+            for db_key in sorted(self._mgr.registry.keys()):
+                if not self._mgr.database_exists(db_key):
+                    continue
+                size_gb = self._mgr.get_path(db_key).stat().st_size / 1e9
+                before = prev.get(db_key)
+                if before is not None:
+                    delta = size_gb - float(before)
+                    if delta > growth_gb:
+                        alerts.append(
+                            f"{db_key}: +{delta:.1f}GB (>{growth_gb}GB)"
+                        )
+        except Exception as e:
+            return {"alert": False, "detail": f"体积增长检查跳过: {e}"}
+        return {
+            "alert": bool(alerts),
+            "detail": "; ".join(alerts) if alerts else "",
+            "threshold_gb": growth_gb,
         }
 
 
