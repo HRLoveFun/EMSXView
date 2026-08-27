@@ -200,8 +200,13 @@ def test_run_daily_pipeline_success_when_fetch_ok(monkeypatch):
         pipeline_result={"processing": {"rows_processed": 42}},
     )
 
-    summary = mod.run_daily_pipeline(generate_report=False)
+    summary = mod.run_daily_pipeline(
+        generate_report=False,
+        freshness_check=lambda: None,
+        exchange_audit=lambda: {"outside_whitelist": [], "whitelisted_no_data": []},
+    )
     assert summary["status"] == "success"
+    assert summary["exchange_diff"] == {"outside_whitelist": [], "whitelisted_no_data": []}
 
 
 # ── 修复点 3: fetch_range_aggregated quota 短路 success 语义 ───────────────
@@ -260,3 +265,168 @@ def test_quota_probe_success_keeps_summary_success(monkeypatch, tmp_path):
     assert summary["quota_paused"] is False
     assert summary["success"] is True
     clear_quota_pause(pause_file)
+
+
+# ═══════════════ 场景 4: 阶段短路归因传导（M1.2 / 事故 A3, 2026-08-26） ═══════════════
+
+
+def test_stage_failure_detail_extracts_short_circuit_reason():
+    """bdib summary 携带 short_circuit_reason 时必须被提取为失败描述。"""
+    mod = _load_daily_update()
+    detail = mod._stage_failure_detail({
+        "bdib": {
+            "completed": True, "dates": 2,
+            "raw_bdib_rows": 0, "fill_bdib_rows": 0,
+            "short_circuit_reason": "ticker_exchange_map 为空",
+        },
+    })
+    assert detail is not None
+    assert "short-circuited" in detail
+    assert "ticker_exchange_map" in detail
+
+
+def test_stage_failure_detail_none_for_normal_pipeline():
+    """无 short_circuit_reason / 非 dict 输入时返回 None（不误报）。"""
+    mod = _load_daily_update()
+    assert mod._stage_failure_detail({"bdib": {"completed": True, "raw_bdib_rows": 123}}) is None
+    assert mod._stage_failure_detail({"processing": {"rows_processed": 42}}) is None
+    assert mod._stage_failure_detail(None) is None
+
+
+def test_run_daily_pipeline_marks_failed_when_bdib_short_circuits(monkeypatch):
+    """事故 A3 回归锁定：BDIB 短路时日更最终状态必须是 failed 而非绿色 success。"""
+    mod = _load_daily_update()
+    fetcher = MagicMock()
+    fetcher.determine_fetch_range.return_value = (date(2026, 8, 20), date(2026, 8, 20))
+    fetcher.fetch_range_aggregated.return_value = {
+        "start_date": "20260820", "end_date": "20260820",
+        "days_fetched": 1, "days_error": 0, "total_rows": 42,
+        "success": True, "quota_paused": False,
+    }
+
+    _patch_pipeline_stages(
+        monkeypatch, mod, fetcher,
+        pipeline_result={
+            "processing": {"rows_processed": 42},
+            "bdib": {
+                "completed": True, "dates": 2, "raw_bdib_rows": 0,
+                "processed_raw_bdib_rows": 0, "fill_bdib_rows": 0,
+                "short_circuit_reason": (
+                    "get_ticker_exchange_map 返回空 — ticker_repository 中无匹配 "
+                    "BDIB_EXCHANGE 白名单的记录"
+                ),
+            },
+        },
+    )
+
+    summary = mod.run_daily_pipeline(generate_report=False)
+
+    assert summary["status"] == "failed"
+    assert summary["error"] and "short-circuited" in summary["error"]
+
+
+def _prev_bday(d: date) -> date:
+    """回退到前一个工作日（剔除周末）。"""
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:
+        d = d - timedelta(days=1)
+    return d
+
+
+def test_freshness_ok_when_recent():
+    """M2.2：各库最新交易日新鲜时返回 None（不误报）。"""
+    mod = _load_daily_update()
+    today = date.today().strftime("%Y%m%d")
+    assert mod._freshness_failure_detail(max_dates={
+        "raw_fills": today, "processed_fills": today,
+        "raw_bdib": today, "fill_bdib": today,
+    }) is None
+
+
+def test_freshness_fails_when_stale():
+    """M2.2：缺失超过 FAIL 交易日必须失败（事故 A3 类静默停更 2 交易日）。"""
+    mod = _load_daily_update()
+    # 缺失 2 个交易日的库必须触发失败（FRESHNESS_FAIL_BUSINESS_DAYS=2）
+    d0 = date.today()
+    stale = _prev_bday(_prev_bday(d0)).strftime("%Y%m%d")
+    detail = mod._freshness_failure_detail(max_dates={
+        "raw_fills": d0.strftime("%Y%m%d"), "processed_fills": d0.strftime("%Y%m%d"),
+        "raw_bdib": stale, "fill_bdib": stale,
+    })
+    assert detail is not None
+    assert "新鲜度校验失败" in detail
+    assert "raw_bdib=" in detail
+
+
+def test_freshness_warn_only_within_threshold():
+    """M2.2：缺失 1 个交易日（WARN 窗口）仅告警不失败（容忍长周末）。"""
+    mod = _load_daily_update()
+    # 仅缺失 1 个交易日（如周一跑批数据到上周五）属正常，不触发失败
+    d0 = date.today()
+    prev = _prev_bday(d0).strftime("%Y%m%d")
+    assert mod._freshness_failure_detail(max_dates={
+        "raw_fills": d0.strftime("%Y%m%d"), "processed_fills": d0.strftime("%Y%m%d"),
+        "raw_bdib": prev, "fill_bdib": prev,
+    }) is None
+
+
+def test_freshness_business_day_helper():
+    """M2.2：_business_days_between 正确计入工作日、剔除周末。"""
+    mod = _load_daily_update()
+    # 周五(2026-08-21) 到 下周一(2026-08-24) 含端点计 2 个工作日（Fri+Mon）
+    assert mod._business_days_between(date(2026, 8, 21), date(2026, 8, 24)) == 2
+
+
+def test_freshness_missing_db_skipped():
+    """M2.2：库缺失/未填充（None）不误判为失败。"""
+    mod = _load_daily_update()
+    assert mod._freshness_failure_detail(max_dates={
+        "raw_fills": None, "processed_fills": None,
+        "raw_bdib": None, "fill_bdib": None,
+    }) is None
+
+
+def test_stage_failure_generalized_to_any_stage():
+    """M1.4：short_circuit_reason 判定推广至任意阶段（非仅 bdib）。"""
+    mod = _load_daily_update()
+    fake = {"route_metrics": {"short_circuit_reason": "空候选日期"}}
+    detail = mod._stage_failure_detail(fake)
+    assert detail is not None
+    assert "route_metrics stage short-circuited" in detail
+    assert "空候选日期" in detail
+
+
+def test_stage_failure_nested_short_circuit():
+    """M1.4：嵌套子字典中的 short_circuit_reason 也能递归捕获。"""
+    mod = _load_daily_update()
+    fake = {"bdib": {"inner": {"short_circuit_reason": "映射为空"}}}
+    detail = mod._stage_failure_detail(fake)
+    assert detail is not None
+    assert "映射为空" in detail
+
+
+def test_stage_failure_absent_when_clean():
+    """M1.4：无 short_circuit_reason 的阶段 summary 返回 None。"""
+    mod = _load_daily_update()
+    assert mod._stage_failure_detail({"bdib": {"completed": True}, "route_metrics": {"completed": True}}) is None
+
+
+def test_exchange_audit_detects_outside_whitelist():
+    """M3.2：数据有但白名单遗漏的交易所必须被审计出来（B1 类漂移）。"""
+    mod = _load_daily_update()
+    import DataPipeline.pipeline_guards.exchange_whitelist_audit as aud
+    whitelist = set(aud.Config.BDIB_EXCHANGE)
+    actual = whitelist | {"NEWEX"}  # NEWEX 出现于数据但不在白名单
+    diff = aud.audit_exchange_coverage(actual_exchanges=actual)
+    assert "NEWEX" in diff["outside_whitelist"]
+    assert diff["whitelisted_no_data"] == sorted(whitelist - actual)
+
+
+def test_exchange_audit_clean_when_matched():
+    """M3.2：白名单与实际分布一致时无漂移。"""
+    mod = _load_daily_update()
+    import DataPipeline.pipeline_guards.exchange_whitelist_audit as aud
+    whitelist = set(aud.Config.BDIB_EXCHANGE)
+    diff = aud.audit_exchange_coverage(actual_exchanges=set(whitelist))
+    assert diff["outside_whitelist"] == []
+

@@ -165,6 +165,15 @@ class Config:
     # 取最保守值 180 天（6 个月），确保所有市场都在窗口内
     BDIB_API_RETENTION_DAYS: int = 180
 
+    # 新鲜度 SLA（M2.2, docs/spec/pipeline-resilience.md）
+    # 以「交易日（工作日）」为计量单位（规避周末误判）：核心库最新交易日与
+    # today 之间缺失的交易日数超过阈值即视为数据缺失：
+    # - WARN_BUSINESS_DAYS: 仅告警并记录进 summary（用于人工排查，如长周末）
+    # - FAIL_BUSINESS_DAYS: 升级为日更最终状态失败（status=failed + exit 1），
+    #   配额暂停期间（is_quota_paused）跳过，避免合法跳过被误判
+    FRESHNESS_WARN_BUSINESS_DAYS: int = int(os.getenv("FRESHNESS_WARN_BUSINESS_DAYS", "1"))
+    FRESHNESS_FAIL_BUSINESS_DAYS: int = int(os.getenv("FRESHNESS_FAIL_BUSINESS_DAYS", "2"))
+
     # ── 数据管理重构: 分区双写/读 (Phase B) ──
     PARTITION_DUAL_WRITE: bool = os.getenv("PARTITION_DUAL_WRITE", "0") == "1"
     PARTITION_READ_NEW: bool = os.getenv("PARTITION_READ_NEW", "0") == "1"
