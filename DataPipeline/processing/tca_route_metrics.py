@@ -463,11 +463,16 @@ def _weighted_average(df: pd.DataFrame, value_col: str, weight_col: str) -> Opti
 
 
 def _pnl_side_sign(side: str) -> int:
-    """PnL 约定：Buy=+1, Sell=-1。"""
+    """PnL 约定：Buy=-1, Sell=+1（负=差，与 PnL 指标一致）。
+
+    与 _pnl_in_bps 配合：benchmark 在前、execution 在后，
+    (execution / benchmark - 1) * side_sign * 10000 即 PnL 符号
+    （负=跑输基准，正=跑赢基准）。
+    """
     if side.startswith("B"):
-        return 1
-    if side.startswith("S"):
         return -1
+    if side.startswith("S"):
+        return 1
     return 0
 
 
@@ -476,10 +481,14 @@ def _pnl_in_bps(
     execution_price: Optional[float],
     side_sign: int,
 ) -> Optional[float]:
-    """计算 (benchmark / execution_price - 1) * side_sign * 10000 bps。"""
-    if benchmark is None or execution_price is None or execution_price == 0 or side_sign == 0:
+    """计算 (execution_price / benchmark - 1) * side_sign * 10000 bps。
+
+    PnL 约定：负=跑输基准（差），正=跑赢基准（优）。
+    benchmark 为基准价（到达价/收盘价/VWAP/恢复价），execution_price 为成交均价。
+    """
+    if benchmark is None or benchmark == 0 or execution_price is None or side_sign == 0:
         return None
-    return (benchmark / execution_price - 1.0) * side_sign * 10000.0
+    return (execution_price / benchmark - 1.0) * side_sign * 10000.0
 
 
 def _get_first_fill_time(fills: pd.DataFrame, exchange_code: Optional[str]) -> Optional[str]:
@@ -607,7 +616,7 @@ def _compute_pnl_vwap(
     p_avg: Optional[float],
     side_sign: int,
 ) -> Optional[float]:
-    """计算 pnl_vwap = (vwap / p_avg - 1) * side_sign * 10000 bps。"""
+    """计算 pnl_vwap = (p_avg / vwap - 1) * side_sign * 10000 bps（PnL 约定：负=差）。"""
     if bars is None or bars.empty or p_avg is None or p_avg == 0 or side_sign == 0:
         return None
     total_volume = float(bars["volume"].sum())

@@ -17,8 +17,8 @@ export interface ThresholdRule {
   key: CostViewMetricKey;
   label: string;
   mode: ThresholdMode;
-  warningThreshold: number;
-  criticalThreshold: number;
+  /** 单档阈值（Warning/Critical 已合并为一档）：越过即判为异常 */
+  threshold: number;
   enabled: boolean;
   decimals: number;
   unit: 'bps' | 'percent';
@@ -36,6 +36,10 @@ export interface CostViewConfig {
   exportDefaults: ExportDefaults;
   /** Report 页签默认包含的交易所清单；空数组表示包含全部市场 */
   reportExchanges: string[];
+  /** 异常路由填充笔数下限（仅对 algo<>close 生效，默认 10） */
+  minFillCount: number;
+  /** 异常路由成交金额(USD)下限（对全部路由生效，默认 10000） */
+  minNotionalUsd: number;
   updatedAt: string;
 }
 
@@ -148,6 +152,8 @@ export interface TcaRouteSummary {
   temp_impact_30min_bps?: number | null;
   perm_impact_bps?: number | null;
   recovery_truncated?: number | null;
+  // 007-costview-report-filters: USD 成交金额换算（fx_rate 缺失则 USD 不换算）
+  fx_rate?: number | null;
   // 时序数据
   time_series: TcaTimeSeriesPoint[];
 }
@@ -392,12 +398,75 @@ export interface TcaReportSummaryFilters {
   metrics: string[];
 }
 
-/** 可选市场清单（前端分市场标签页使用） */
+/** 可选市场清单（市场概览表使用） */
 export interface TcaReportMarket {
   exchange: string;
   route_count: number;
   notional: number | null;
   notional_usd: number | null;
+}
+
+/** 额外 KPI（006 增补）：决策基准 / 实现短缺 / 风险 / 完成率 */
+export interface TcaReportExtraKpis {
+  arrival_cost_bps: number | null;
+  wagner_is_bps: number | null;
+  cost_stddev: number | null;
+  cost_cvar: number | null;
+  cost_p95: number | null;
+  avg_fill: number | null;
+}
+
+/** 市场冲击分解（B2-2）：暂时冲击 5/10/30min + 永久冲击 + 收盘价成本 */
+export interface TcaImpactBreakdown {
+  temp_impact_5min_bps: number | null;
+  temp_impact_10min_bps: number | null;
+  temp_impact_30min_bps: number | null;
+  perm_impact_bps: number | null;
+  close_cost_bps: number | null;
+}
+
+/** 异常路由命中规则 */
+export interface TcaAnomalyHit {
+  key: string;
+  label: string;
+  value: number;
+  unit: 'bps' | 'percent';
+}
+
+/** 异常路由明细行（S6） */
+export interface TcaAnomalyRow {
+  date: string;
+  order_id: string;
+  route_id: string;
+  ticker: string;
+  exchange: string | null;
+  side: string | null;
+  notional_local: number | null;
+  currency: string | null;
+  notional_usd: number | null;
+  broker: string | null;
+  algo: string | null;
+  completion_rate: number | null;
+  par_rate: number | null;
+  order_par_rate: number | null;
+  fill_count: number | null;
+  route_shares: number | null;
+  fill: number | null;
+  pnl_vwap: number | null;
+  arrival_cost_bps: number | null;
+  wagner_is_bps: number | null;
+  opportunity_cost: number | null;
+  unfilled: number | null;
+  cost_cvar: number | null;
+  order_duration_sec: number | null;
+  recovery_truncated: number | null;
+  hits: TcaAnomalyHit[];
+}
+
+/** 异常路由明细（S6） */
+export interface TcaAnomaly {
+  count: number;
+  rows: TcaAnomalyRow[];
 }
 
 /** 008: 按市场成交金额（美元）排名条目 */
@@ -433,6 +502,9 @@ export interface TcaReportSummary {
   market_notional_ranking: TcaMarketNotionalRankRow[];
   market_notional_trend: TcaMarketNotionalTrendPoint[];
   kpi: TcaReportKpi | null;
+  extra_kpis: TcaReportExtraKpis | null;
+  impact_breakdown: TcaImpactBreakdown | null;
+  anomaly: TcaAnomaly | null;
   daily_series: TcaDailySeriesPoint[];
   rankings: { by_broker: TcaRankingRow[]; by_algo: TcaRankingRow[] };
   pnl_vwap_histogram: TcaHistogramBucket[];

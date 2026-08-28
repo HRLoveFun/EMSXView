@@ -26,12 +26,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
+import { fetchBdibHealth, fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
 import { loadCostViewConfig } from '../lib/storage';
+import {
+  formatMoney,
+  formatNum,
+  formatRisk,
+  formatShares,
+} from '../lib/report-format';
 import { MultiSelectFilter } from './MultiSelectFilter';
 import { SymbolSearchInput } from './SymbolSearchInput';
+import { AnomalyTable } from './report/AnomalyTable';
+import { BdibHealthAppendix } from './report/BdibHealthAppendix';
+import { CoverageTable } from './report/CoverageTable';
+import { ImpactBreakdownTable } from './report/ImpactBreakdownTable';
+import { MarketOverviewTable } from './report/MarketOverviewTable';
 import type {
+  BdibHealthReport,
   LastPreset,
   TcaRankingRow,
   TcaReportSummary,
@@ -73,25 +84,6 @@ function buildInitialReportForm(): ReportFormState {
   return { ...DEFAULT_FORM, markets: config.reportExchanges ?? [] };
 }
 
-const formatNum = (value: number | null, digits = 2): string =>
-  value == null || !Number.isFinite(value) ? '—' : value.toLocaleString('en-US', { maximumFractionDigits: digits });
-
-const formatMoney = (value: number | null): string => {
-  if (value == null || !Number.isFinite(value)) return '—';
-  const abs = Math.abs(value);
-  if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
-  return `$${value.toFixed(0)}`;
-};
-
-const formatShares = (value: number): string => {
-  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-  if (value >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
-  return value.toFixed(0);
-};
-
 /** 报告区间格式化：YYYYMMDD → YYYY-MM-DD */
 const formatReportDate = (value: string): string => {
   const match = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
@@ -106,8 +98,16 @@ const fxCoverageSub = (coverage: number | null): string => {
   return `USD 换算 · fx_rate 覆盖率 ${pct.toFixed(0)}%`;
 };
 
-/** KPI 卡片区 */
-const KpiCards = ({ kpi }: { kpi: TcaReportSummary['kpi'] }) => {
+/** KPI 卡片区（与 HTML 报告一致：基础 6 + 决策基准/风险/完成率 + 异常数） */
+const KpiCards = ({
+  kpi,
+  extra,
+  anomaly,
+}: {
+  kpi: TcaReportSummary['kpi'];
+  extra?: TcaReportSummary['extra_kpis'];
+  anomaly?: TcaReportSummary['anomaly'];
+}) => {
   if (!kpi) return null;
   const cards = [
     { label: 'Route 总数', value: kpi.route_count.toLocaleString(), sub: '' },
@@ -117,6 +117,19 @@ const KpiCards = ({ kpi }: { kpi: TcaReportSummary['kpi'] }) => {
     { label: '平均 par_rate', value: formatNum(kpi.avg_par_rate), sub: '参与率均值' },
     { label: '平均 RPM', value: formatNum(kpi.avg_rpm), sub: '' },
   ];
+  if (extra) {
+    cards.push(
+      { label: '加权 arrival 成本', value: formatNum(extra.arrival_cost_bps), sub: '决策基准 · 成交额加权' },
+      { label: '加权 IS (bps)', value: formatNum(extra.wagner_is_bps), sub: '实现短缺 · 成交额加权' },
+      { label: '成本风险 stddev/CVaR', value: formatRisk(extra.cost_stddev, extra.cost_cvar), sub: '尾部风险' },
+      { label: '平均完成率', value: formatNum(extra.avg_fill), sub: 'fill 均值' },
+    );
+  }
+   if (anomaly != null) {
+     cards.push(
+       { label: '异常路由', value: anomaly.count.toLocaleString(), sub: '见下方明细' },
+     );
+   }
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       {cards.map((card) => (
@@ -334,23 +347,22 @@ export function ReportView() {
   }
   const [form, setForm] = useState<ReportFormState>(initialFormRef.current);
   const [report, setReport] = useState<TcaReportSummary | null>(null);
+  const [health, setHealth] = useState<BdibHealthReport | null>(null);
   const [options, setOptions] = useState<TcaReportSummary['filter_options']>({ brokers: [], algos: [], symbols: [], exchanges: [] });
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  // 分市场标签页：'' 表示全部，其余为 Exchange 代码
-  const [activeMarket, setActiveMarket] = useState<string>('');
-
   // 构建查询参数（多选 → 逗号分隔；custom → 显式日期区间）
-  const buildQuery = useCallback((current: ReportFormState, market: string = '') => {
+  const buildQuery = useCallback((current: ReportFormState) => {
+    const config = loadCostViewConfig();
     const base: Parameters<typeof fetchTcaReportSummary>[0] = {
       broker: current.brokers,
       algo: current.algos,
       symbol: current.symbols,
+      minFillCount: config.minFillCount,
+      minNotionalUsd: config.minNotionalUsd,
     };
-    const marketsFilter = [...current.markets];
-    if (market) marketsFilter.push(market);
-    if (marketsFilter.length) base.exchange = marketsFilter;
+    if (current.markets.length) base.exchange = current.markets;
     if (current.preset === 'custom' && current.startDate && current.endDate) {
       base.startDate = current.startDate.replace(/-/g, '');
       base.endDate = current.endDate.replace(/-/g, '');
@@ -363,7 +375,7 @@ export function ReportView() {
   // 筛选选项：持久化维度列表（时间无关，daily_update 每日刷新）
   const loadMeta = useCallback(async (current: ReportFormState) => {
     try {
-      const query = buildQuery(current, '');
+      const query = buildQuery(current);
       delete (query as { exchange?: string | string[] }).exchange;
       const data = await fetchTcaReportSummary(query);
       const next = data.filter_options ?? { brokers: [], algos: [], symbols: [], exchanges: [] };
@@ -373,11 +385,11 @@ export function ReportView() {
     }
   }, [buildQuery]);
 
-  const loadReport = useCallback(async (current: ReportFormState, market: string = '') => {
+  const loadReport = useCallback(async (current: ReportFormState) => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await fetchTcaReportSummary(buildQuery(current, market));
+      const data = await fetchTcaReportSummary(buildQuery(current));
       setReport(data);
       // 预设模式下回填解析后的实际日期区间（如"上周"→ 周一~周日），
       // 使日期填充框常驻展示；custom 模式下保留用户手输日期不覆盖。
@@ -396,11 +408,24 @@ export function ReportView() {
     }
   }, [buildQuery]);
 
+  // BDIB 缺口附录：与报告同时间范围，失败不阻断主报告
+  const loadHealth = useCallback(async (current: ReportFormState) => {
+    try {
+      const range = buildQuery(current);
+      if (!range.startDate || !range.endDate) return;
+      const data = await fetchBdibHealth({ startDate: range.startDate, endDate: range.endDate });
+      setHealth(data);
+    } catch {
+      setHealth(null);
+    }
+  }, [buildQuery]);
+
   useEffect(() => {
     const initial = initialFormRef.current!;
     void loadReport(initial);
     void loadMeta(initial);
-  }, [loadReport, loadMeta]);
+    void loadHealth(initial);
+  }, [loadReport, loadMeta, loadHealth]);
 
   const updatePreset = (value: string) =>
     setForm((prev) => ({ ...prev, preset: value as ReportFormState['preset'] }));
@@ -409,23 +434,12 @@ export function ReportView() {
   const updateField = (key: 'startDate' | 'endDate') => (event: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, preset: 'custom', [key]: event.target.value }));
 
-  // 生成报告：重新加载筛选选项（随 broker/algo/symbol 变化）与当前市场报告
+  // 生成报告：重新加载筛选选项（随 broker/algo/symbol 变化）与报告
   const handleGenerate = useCallback(() => {
     void loadMeta(form);
-    void loadReport(form, activeMarket);
-  }, [form, activeMarket, loadMeta, loadReport]);
-
-  // 分市场标签页：切换市场 → 按该 Exchange 重新加载报告（市场清单保持不变）
-  const handleMarketChange = useCallback((market: string) => {
-    setActiveMarket(market);
-    void loadReport(form, market);
-  }, [form, loadReport]);
-
-  // 市场标签列表（含全部，选项来自持久化 exchanges 列表，时间无关）
-  const marketTabs = useMemo(() => {
-    const exchanges = options.exchanges ?? [];
-    return [{ exchange: '', label: '全部' }, ...exchanges.map((exchange) => ({ exchange, label: exchange }))];
-  }, [options.exchanges]);
+    void loadReport(form);
+    void loadHealth(form);
+  }, [form, loadMeta, loadReport, loadHealth]);
 
   // 006: 本地阈值规则 → 导出端点 thresholds 参数（与后端 DEFAULT_THRESHOLDS 契约对齐）
   const handleExportHtml = useCallback(async () => {
@@ -437,18 +451,17 @@ export function ReportView() {
       for (const rule of Object.values(config.rules)) {
         thresholds[rule.key] = {
           mode: rule.mode,
-          warning: rule.warningThreshold,
-          critical: rule.criticalThreshold,
+          threshold: rule.threshold,
           enabled: rule.enabled,
         };
       }
-      await fetchExportHtml({ ...buildQuery(form, activeMarket), thresholds });
+      await fetchExportHtml({ ...buildQuery(form), thresholds, minFillCount: config.minFillCount, minNotionalUsd: config.minNotionalUsd });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'HTML 报告导出失败');
     } finally {
       setIsExporting(false);
     }
-  }, [form, activeMarket, buildQuery]);
+  }, [form, buildQuery]);
 
   return (
     <div className="space-y-4">
@@ -515,23 +528,6 @@ export function ReportView() {
         </CardContent>
       </Card>
 
-      {/* 分市场标签页：全部 + 各市场（后端 markets 清单驱动） */}
-      {marketTabs.length > 1 && (
-        <Card>
-          <CardContent className="p-3">
-            <Tabs value={activeMarket} onValueChange={handleMarketChange}>
-              <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/60 p-1">
-                {marketTabs.map((tab) => (
-                  <TabsTrigger key={tab.exchange} value={tab.exchange} className="data-[state=active]:bg-background">
-                    {tab.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </CardContent>
-        </Card>
-      )}
-
       {error && (
         <Alert variant="destructive">
           <AlertTitle>报告加载失败</AlertTitle>
@@ -554,14 +550,16 @@ export function ReportView() {
               报告区间：{formatReportDate(report.filters.start_date)} ~ {formatReportDate(report.filters.end_date)}
             </div>
             <div className="text-xs text-muted-foreground">
-              市场：{activeMarket || '全部'}
+              市场：{form.markets.length > 0 ? form.markets.join(', ') : '全部'}
               {form.brokers.length > 0 && ` · Broker：${form.brokers.join(', ')}`}
               {form.algos.length > 0 && ` · Algo：${form.algos.join(', ')}`}
               {form.symbols.length > 0 && ` · Symbol：${form.symbols.join(', ')}`}
             </div>
           </div>
-          <KpiCards kpi={report.kpi} />
-          {/* 008: 市场成交金额（美元）排名 + 每日趋势（单栏纵向排列，置于最前） */}
+          <KpiCards kpi={report.kpi} extra={report.extra_kpis} anomaly={report.anomaly} />
+          {/* 市场概览表（与 HTML 报告「市场概览」对齐） */}
+          <MarketOverviewTable rows={report.market_notional_ranking} />
+          {/* 008: 市场成交金额（美元）排名 + 每日趋势（单栏纵向排列） */}
           <div className="grid grid-cols-1 gap-4">
             <MarketNotionalRankingChart rows={report.market_notional_ranking} />
             <MarketNotionalTrendChart rows={report.market_notional_trend} />
@@ -573,6 +571,11 @@ export function ReportView() {
             <RankingBarChart title="Algo 排行（加权 pnl_vwap）" rows={report.rankings.by_algo} />
           </div>
           <PwpCurveChart data={report.pwp_curve} />
+          {/* 与 HTML 报告对齐：市场冲击分解 / 异常路由明细 / 指标覆盖率 / BDIB 缺口附录 */}
+          <ImpactBreakdownTable impact={report.impact_breakdown} />
+          <AnomalyTable anomaly={report.anomaly} />
+          <CoverageTable coverage={report.metric_coverage} />
+          <BdibHealthAppendix health={health} />
 
           {/* 独立 HTML 导出提示 */}
           <Card>

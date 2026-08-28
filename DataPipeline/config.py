@@ -226,13 +226,13 @@ class Config:
     )
 
     # ── TCA 核心指标补全 (003-tca-core-benchmarks) ──
-    # Phase 0: 核心基准（到达价/收盘价/机会成本），默认关闭，可即时回退
+    # Phase 0: 核心基准（到达价/收盘价/机会成本），默认开启（可经环境变量即时回退为 0）
     TCA_CORE_BENCHMARKS_ENABLED: bool = (
-        os.getenv("TCA_CORE_BENCHMARKS_ENABLED", "0") == "1"
+        os.getenv("TCA_CORE_BENCHMARKS_ENABLED", "1") == "1"
     )
-    # Phase 1: Wagner IS 分解 + 风险维度 + 冲击分解，默认关闭
+    # Phase 1: Wagner IS 分解 + 风险维度 + 冲击分解，默认开启
     TCA_RISK_IMPACT_ENABLED: bool = (
-        os.getenv("TCA_RISK_IMPACT_ENABLED", "0") == "1"
+        os.getenv("TCA_RISK_IMPACT_ENABLED", "1") == "1"
     )
     # Phase 2: route→order 聚合视图/API，默认关闭
     TCA_ORDER_AGG_ENABLED: bool = (
