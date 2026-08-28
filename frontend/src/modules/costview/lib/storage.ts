@@ -76,6 +76,12 @@ export function saveCostViewConfig(config: CostViewConfig): void {
   localStorage.setItem(COSTVIEW_CONFIG_KEY, JSON.stringify(config));
 }
 
+/** 是否存在已保存的 CostView 配置（用于判断是否首装，以便从后端拉取默认阈值） */
+export function hasSavedCostViewConfig(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(COSTVIEW_CONFIG_KEY) != null;
+}
+
 export function loadCostViewFilters(): CostViewFilterFormState {
   if (typeof window === 'undefined') return DEFAULT_FILTER_FORM_STATE;
   return {

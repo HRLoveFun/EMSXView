@@ -85,11 +85,11 @@ class TestComputeAllPwp:
             prices=[101.0],
         )
 
-        result = _compute_all_pwp(bars, fill_volume=1000.0, p_avg=100.0, side_sign=-1, start_time="09:30:00")
+        result = _compute_all_pwp(bars, fill_volume=1000.0, p_avg=100.0, side_sign=1, start_time="09:30:00")
 
-        # pwp=101, p_avg=100, sell side_sign=-1 => (101/100 - 1) * -1 * 10000 = -100 bps
+        # 新约定 Sell side_sign=+1：pwp=101(基准), p_avg=100(执行) => (100/101 - 1) * 1 * 10000 = -99.01 bps（负=差）
         assert result["pwp_5"] is not None
-        assert result["pwp_5"] == pytest.approx(-100.0)
+        assert result["pwp_5"] == pytest.approx(-99.0099, abs=0.01)
 
     def test_empty_bars_returns_all_none(self) -> None:
         """空 bars 输入不应抛异常，所有 PWP 值为 None。"""
@@ -690,7 +690,7 @@ class TestPhase0CoreBenchmarks:
         assert row["close_cost_bps"] is None
 
     def test_buy_arrival_cost_bps(self) -> None:
-        """买入：到达价偏离 = (P0/p_avg - 1) * side_sign * 10000。"""
+        """买入（新约定 side_sign=-1）：到达价偏离 = (p_avg/P0 - 1) * side_sign * 10000（PnL 约定：负=差）。"""
         raw_fills = _make_raw_fills(side="Buy")
         processed_fills = _make_processed_fills(
             prices=[10.50], shares=[1000.0],
@@ -707,11 +707,11 @@ class TestPhase0CoreBenchmarks:
         result = self._compute_with_flag(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # (10.00/10.50 - 1) * 1 * 10000 = -476.19
-        assert row["arrival_cost_bps"] == pytest.approx(-476.19, abs=0.01)
+        # (10.50/10.00 - 1) * (-1) * 10000 = -500.0
+        assert row["arrival_cost_bps"] == pytest.approx(-500.0, abs=0.01)
 
     def test_sell_arrival_cost_bps(self) -> None:
-        """卖出：到达价偏离符号反转。"""
+        """卖出（新约定 side_sign=+1）：到达价偏离（PnL 约定：负=差）。"""
         raw_fills = _make_raw_fills(side="Sell")
         processed_fills = _make_processed_fills(
             prices=[10.50], shares=[1000.0],
@@ -727,11 +727,11 @@ class TestPhase0CoreBenchmarks:
         result = self._compute_with_flag(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # (11.00/10.50 - 1) * (-1) * 10000 = -476.19
-        assert row["arrival_cost_bps"] == pytest.approx(-476.19, abs=0.01)
+        # (10.50/11.00 - 1) * 1 * 10000 = -454.55
+        assert row["arrival_cost_bps"] == pytest.approx(-454.55, abs=0.01)
 
     def test_close_cost_bps(self) -> None:
-        """收盘价偏离 = (Pn/p_avg - 1) * side_sign * 10000。"""
+        """收盘价偏离 = (p_avg/Pn - 1) * side_sign * 10000（PnL 约定：正=优）。"""
         raw_fills = _make_raw_fills(side="Buy")
         processed_fills = _make_processed_fills(
             prices=[10.50], shares=[1000.0],
@@ -747,8 +747,8 @@ class TestPhase0CoreBenchmarks:
         result = self._compute_with_flag(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # (11.00/10.50 - 1) * 1 * 10000 = 476.19
-        assert row["close_cost_bps"] == pytest.approx(476.19, abs=0.01)
+        # (10.50/11.00 - 1) * (-1) * 10000 = 454.55
+        assert row["close_cost_bps"] == pytest.approx(454.55, abs=0.01)
 
     def test_close_price_fallback_to_last_bar(self) -> None:
         """daily_summary 缺失时，p_close 回退到当日最后一个 bar 的 close。"""
@@ -769,8 +769,8 @@ class TestPhase0CoreBenchmarks:
         row = result.iloc[0]
         # 回退：p_close = 最后 bar close = 11.00
         assert row["p_close"] == pytest.approx(11.00)
-        # (11.00/10.50 - 1) * 1 * 10000 = 476.19
-        assert row["close_cost_bps"] == pytest.approx(476.19, abs=0.01)
+        # (10.50/11.00 - 1) * (-1) * 10000 = 454.55
+        assert row["close_cost_bps"] == pytest.approx(454.55, abs=0.01)
 
     def test_opportunity_cost_complete_execution(self) -> None:
         """完全成交时机会成本 = 0。"""
@@ -808,8 +808,8 @@ class TestPhase0CoreBenchmarks:
 
         result = self._compute_with_flag(raw_fills, processed_fills, raw_bdib, daily_summary)
 
-        # (5000 - 4000) * (11 - 10) * 1 = 1000
-        assert result.iloc[0]["opportunity_cost"] == pytest.approx(1000.0)
+        # 新约定 Buy side_sign=-1：(5000 - 4000) * (11 - 10) * (-1) = -1000
+        assert result.iloc[0]["opportunity_cost"] == pytest.approx(-1000.0)
 
     def test_flag_disabled_leaves_new_columns_none(self) -> None:
         """flag 关闭时，新列保持 None（不写 Phase 0 计算）。"""
@@ -915,14 +915,14 @@ class TestPhase1RiskImpact:
         result = self._compute_with_flags(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # delay = 5000 * (10.00 - 10.00) * 1 = 0
+        # delay = 5000 * (10.00 - 10.00) * (-1) = 0
         assert row["delay_cost"] == pytest.approx(0.0, abs=0.01)
-        # trading = 4000 * (10.50 - 10.00) * 1 = 2000
-        assert row["trading_cost"] == pytest.approx(2000.0, abs=0.01)
-        # opportunity = (5000-4000) * (11.00 - 10.00) * 1 = 1000
-        assert row["opportunity_cost"] == pytest.approx(1000.0, abs=0.01)
-        # wagner_is = 0 + 2000 + 1000 = 3000
-        assert row["wagner_is"] == pytest.approx(3000.0, abs=0.01)
+        # trading = 4000 * (10.50 - 10.00) * (-1) = -2000
+        assert row["trading_cost"] == pytest.approx(-2000.0, abs=0.01)
+        # opportunity = (5000-4000) * (11.00 - 10.00) * (-1) = -1000
+        assert row["opportunity_cost"] == pytest.approx(-1000.0, abs=0.01)
+        # wagner_is = 0 + (-2000) + (-1000) = -3000
+        assert row["wagner_is"] == pytest.approx(-3000.0, abs=0.01)
 
     def test_wagner_is_complete_execution(self) -> None:
         """完全成交时 Wagner IS = delay + trading（opportunity=0）。"""
@@ -943,7 +943,7 @@ class TestPhase1RiskImpact:
 
         row = result.iloc[0]
         assert row["opportunity_cost"] == pytest.approx(0.0)
-        assert row["wagner_is"] == pytest.approx(2500.0, abs=0.01)  # 0 + 5000*(10.5-10)
+        assert row["wagner_is"] == pytest.approx(-2500.0, abs=0.01)  # 0 + 5000*(10.5-10)*(-1)
 
     def test_cost_stddev_p95_cvar(self) -> None:
         """风险维度：成本标准差 / P95 / CVaR 计算。"""
@@ -1009,10 +1009,10 @@ class TestPhase1RiskImpact:
         result = self._compute_with_flags(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # (100.5/100 - 1) * 1 * 10000 = 50 bps
-        assert row["temp_impact_5min_bps"] == pytest.approx(50.0, abs=0.1)
-        # 30min 恢复价 = 14:30:00 close = 100.7
-        assert row["temp_impact_30min_bps"] == pytest.approx(70.0, abs=0.1)
+        # (100/100.5 - 1) * (-1) * 10000 = 49.75 bps
+        assert row["temp_impact_5min_bps"] == pytest.approx(49.75, abs=0.1)
+        # 30min 恢复价 = 14:30:00 close = 100.7 => (100/100.7 - 1) * (-1) * 10000 = 69.50 bps
+        assert row["temp_impact_30min_bps"] == pytest.approx(69.50, abs=0.1)
         assert row["recovery_truncated"] == 0
 
     def test_temp_impact_truncated(self) -> None:
@@ -1034,11 +1034,11 @@ class TestPhase1RiskImpact:
         result = self._compute_with_flags(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # 5min 窗口：16:00:00 在当日范围内 → 当日 close=100.7 → 70 bps
-        assert row["temp_impact_5min_bps"] == pytest.approx(70.0, abs=0.1)
-        # 10min/30min 越界 → 次日收盘 100.9 → (100.9/100 - 1) * 10000 = 90 bps
-        assert row["temp_impact_10min_bps"] == pytest.approx(90.0, abs=0.1)
-        assert row["temp_impact_30min_bps"] == pytest.approx(90.0, abs=0.1)
+        # 5min 窗口：16:00:00 当日内 → 当日 close=100.7 => (100/100.7 - 1) * (-1) * 10000 = 69.51 bps
+        assert row["temp_impact_5min_bps"] == pytest.approx(69.51, abs=0.1)
+        # 10min/30min 越界 → 次日收盘 100.9 => (100/100.9 - 1) * (-1) * 10000 = 89.20 bps
+        assert row["temp_impact_10min_bps"] == pytest.approx(89.20, abs=0.1)
+        assert row["temp_impact_30min_bps"] == pytest.approx(89.20, abs=0.1)
         assert row["recovery_truncated"] == 1
 
     def test_temp_impact_truncated_no_next_close(self) -> None:
@@ -1059,7 +1059,7 @@ class TestPhase1RiskImpact:
         result = self._compute_with_flags(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        assert row["temp_impact_5min_bps"] == pytest.approx(70.0, abs=0.1)
+        assert row["temp_impact_5min_bps"] == pytest.approx(69.51, abs=0.1)
         assert row["temp_impact_10min_bps"] is None
         assert row["temp_impact_30min_bps"] is None
         assert row["recovery_truncated"] == 1
@@ -1082,8 +1082,8 @@ class TestPhase1RiskImpact:
         result = self._compute_with_flags(raw_fills, processed_fills, raw_bdib, daily_summary)
 
         row = result.iloc[0]
-        # (10.80/10.00 - 1) * 1 * 10000 = 800 bps
-        assert row["perm_impact_bps"] == pytest.approx(800.0, abs=0.1)
+        # 新约定 Buy side_sign=-1：(10.80/10.00 - 1) * (-1) * 10000 = -800 bps
+        assert row["perm_impact_bps"] == pytest.approx(-800.0, abs=0.1)
 
     def test_perm_impact_missing_next_day(self) -> None:
         """无次日收盘数据时 perm_impact 保持 None。"""

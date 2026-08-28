@@ -44,6 +44,8 @@ class TcaReportAggregator:
 
     def __init__(self, connection_manager: Optional[ConnectionManager] = None):
         self._mgr = connection_manager or ConnectionManager()
+        #: fill_bdib 汇率回填临时表是否就绪（build_report 内一次性构建，4 个 fx 查询复用）
+        self._fbfx_ready = False
 
     def build_report(
         self,
@@ -56,14 +58,17 @@ class TcaReportAggregator:
         exchange: Optional[str] = None,
         metrics: Optional[list[str]] = None,
         thresholds: Optional[dict[str, Any]] = None,
+        min_fill_count: int = 10,
+        min_notional_usd: float = 10000.0,
     ) -> dict[str, Any]:
         """组装报告聚合数据。
 
         broker/algo/symbol/exchange 支持逗号分隔多值（IN 匹配，前端多选）。
         metrics 控制附加的覆盖率小节统计口径（默认全部 38 个指标）。
         thresholds 控制 S6 异常路由明细的判定阈值（None/空 → 默认阈值）。
-        markets 清单忽略 exchange 过滤（供前端分市场标签页展示全部市场）。
-        表不存在时返回带 data_source_warning 的空报告。
+        markets 清单遵循 exchange 过滤（导出时按交易所整体过滤，市场概览同步收窄；
+        无 exchange 时等价于忽略 exchange）。filter_options.exchanges 仍忽略 exchange
+        过滤（供前端筛选下拉展示全部可选市场）。表不存在时返回带 data_source_warning 的空报告。
         """
         selected = validate_metrics(metrics)
         where, params = self._build_where(
@@ -78,11 +83,15 @@ class TcaReportAggregator:
                 return self._empty_report(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
                 )
+            # 报告期一次性构建 fill_bdib 汇率回填临时表，供下方 4 个 fx 查询复用
+            self._prepare_fx_enrichment(conn, start_date, end_date)
             report = {
                 "filters": self._filters_dict(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
                 ),
-                "markets": self._query_markets(conn, where_no_exchange, params_no_exchange),
+                # 市场概览遵循 exchange 过滤：导出时按交易所整体过滤时，
+                # 该小节也仅展示所选交易所（无 exchange 时与 where_no_exchange 等价）。
+                "markets": self._query_markets(conn, where, params),
                 "filter_options": self._query_filter_options(conn, where_no_exchange, params_no_exchange),
                 "market_notional_ranking": self._query_market_notional_ranking(
                     conn, where, params,
@@ -114,14 +123,12 @@ class TcaReportAggregator:
         anomalies = query_anomaly_routes(
             self._mgr, start_date, end_date, rules,
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
+            min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
         )
         report["anomaly"] = {
             "count": len(anomalies),
             "rows": [a.__dict__ for a in anomalies],
         }
-        report["anomaly"]["critical_count"] = sum(
-            1 for r in anomalies if r.severity == "critical"
-        )
         return report
 
     # ── 过滤条件 ─────────────────────────────────────────────────────────
@@ -160,28 +167,110 @@ class TcaReportAggregator:
             return []
         return [v.strip() for v in raw.split(",") if v.strip()]
 
-    # ── 各小节查询 ───────────────────────────────────────────────────────
+    # ── fx 汇率回填（报告期一次性构建，消除 gap sentinel 导致的整组 NULL）──
+
+    def _prepare_fx_enrichment(self, conn, start_date: str, end_date: str) -> None:
+        """探测 fill_bdib 汇率回填可行性（不再建临时表）。
+
+        背景（CostView-Report 优化）：原 ``_fx_sum_sql`` 的 gap sentinel 在「任一
+        非 USD 路由缺汇率」时把整个市场（乃至整个 KPI）的 notional_usd 置 NULL，
+        导致上季度报告仅 3 个市场能算 USD 金额、总成交金额无法计算。fill_bdib
+        层 fx_rate 为 fill 级权威源（fx_null=0），此处按主键回填 tca_route_summary
+        缺失的 fx_rate，使报告对缺失列具备弹性、无需依赖独立回填脚本。
+
+        注意：本聚合器以 READ 只读事务运行，CREATE TEMP TABLE 被访问层拒绝；
+        故改用 CTE（``WITH _fbfx AS (...)``，归类为 read 允许）在每条 fx 查询内
+        联回填，避免临时表 DDL。此处仅探测可用性并置 ``_fbfx_ready`` 标志。
+        """
+        self._fbfx_ready = False
+        if not self._has_column(conn, "fx_rate"):
+            return
+        try:
+            has_fb = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='fill_bdib' LIMIT 1"
+            ).fetchone() is not None
+        except Exception:
+            has_fb = False
+        self._fbfx_ready = bool(has_fb)
+
+    def _fbfx_cte(self) -> str:
+        """fill_bdib 汇率回填 CTE（替代临时表，READ 事务可用）。
+
+        按 OrderId/RouteId/交易日 fill_volume 加权聚合 fx_rate，与 ``_fx_join``
+        的主键约定一致（列名 OrderId/RouteId/fxf_oad/fb_fx）。
+        """
+        return (
+            "WITH _fbfx AS ("
+            "SELECT OrderId, RouteId, order_as_of_date AS fxf_oad, "
+            "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
+            "FROM fill_bdib WHERE fx_rate IS NOT NULL "
+            "AND order_as_of_date BETWEEN ? AND ? "
+            "GROUP BY OrderId, RouteId, order_as_of_date) "
+        )
+
+    def _apply_fx(self, sql: str, params: list[Any]) -> tuple[str, list[Any]]:
+        """若 fill_bdib 回填可用，将 CTE 前缀注入 SQL 并把日期参数前置。
+
+        params 约定以 [start_date, end_date, *filters] 开头，CTE 的 BETWEEN
+        复用前两个日期参数，主查询沿用全部参数。
+        """
+        if not self._fbfx_ready:
+            return sql, params
+        return self._fbfx_cte() + sql, [params[0], params[1]] + params
+
+    def _fx_join(self) -> str:
+        """fill_bdib 汇率回填 LEFT JOIN 片段（回填可用时生效）。"""
+        if not self._fbfx_ready:
+            return ""
+        return (
+            " LEFT JOIN _fbfx"
+            " ON _fbfx.OrderId = tca_route_summary.OrderId"
+            " AND _fbfx.RouteId = tca_route_summary.RouteId"
+            " AND _fbfx.fxf_oad = tca_route_summary.order_as_of_date"
+        )
+
+    def _fx_usd_expr(self) -> str:
+        """USD 成交金额表达式（含小计价单位货币 ÷100 修正）。
+
+        有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)（回填可用时）；
+        USD/未知币种缺汇率按 1.0 兜底；非 USD 币种仍缺汇率时该 route 贡献 NULL
+        （SUM 忽略，不虚高、亦不再整体置空）。
+        """
+        minor = "CASE WHEN Currency IN ('GBp', 'ILs', 'ZAr') THEN 0.01 ELSE 1.0 END"
+        if self._fbfx_ready:
+            eff = "COALESCE(fx_rate, _fbfx.fb_fx)"
+        else:
+            eff = "fx_rate"
+        return (
+            f"CASE WHEN {eff} IS NOT NULL THEN {eff} * {minor} "
+            f"WHEN Currency IS NULL OR Currency = 'USD' THEN 1.0 "
+            f"ELSE NULL END"
+        )
+
+    # ── 各小节查询 ───────────────────────────────────────────────
 
     def _query_markets(
         self, conn, where: str, params: list[Any],
     ) -> list[dict[str, Any]]:
-        """可选市场清单：Exchange 去重（忽略 exchange 过滤，尊重其余过滤）。
+        """可选市场清单：Exchange 去重，遵循传入 where（含 exchange 过滤时同步收窄）。
 
-        供前端分市场标签页使用：每条含 Exchange 与 route 数，按 route 数降序。
+        每条含 Exchange 与 route 数，按 route 数降序。
         007: 增加 notional / notional_usd（每市场成交金额，USD 换算）。
         """
         has_fx = self._has_column(conn, "fx_rate")
-        fx_sum = self._fx_sum_sql(has_fx)
+        fx_sum = self._fx_usd_expr() if has_fx else "NULL"
+        join = self._fx_join() if has_fx else ""
         sql = f"""
             SELECT COALESCE(Exchange, '(unknown)') AS exchange,
                    COUNT(*) AS route_count,
                    COALESCE(SUM(fill * p_avg), 0) AS notional,
-                   {fx_sum} AS notional_usd
-            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                   SUM(fill * p_avg * ({fx_sum})) AS notional_usd
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
             GROUP BY Exchange
             ORDER BY route_count DESC, exchange ASC
         """
+        sql, params = self._apply_fx(sql, params)
         return [
             {
                 "exchange": str(r[0]),
@@ -201,19 +290,21 @@ class TcaReportAggregator:
         未配置中文名的 Exchange 用代码回退。
         """
         has_fx = self._has_column(conn, "fx_rate")
-        fx_sum = self._fx_sum_sql(has_fx)
+        fx_sum = self._fx_usd_expr() if has_fx else "NULL"
+        join = self._fx_join() if has_fx else ""
         # 排序用有效成交额：有 fx_rate 列用 USD，否则回退本币（无 fx 时 USD 为 NULL）
-        order_expr = f"COALESCE({fx_sum}, SUM(fill * p_avg))" if has_fx else "SUM(fill * p_avg)"
+        order_expr = f"COALESCE(SUM(fill * p_avg * ({fx_sum})), SUM(fill * p_avg))" if has_fx else "SUM(fill * p_avg)"
         sql = f"""
             SELECT COALESCE(Exchange, '(unknown)') AS exchange,
-                   COUNT(*) AS route_count,
-                   COALESCE(SUM(fill * p_avg), 0) AS notional,
-                   {fx_sum} AS notional_usd
-            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                    COUNT(*) AS route_count,
+                    COALESCE(SUM(fill * p_avg), 0) AS notional,
+                    SUM(fill * p_avg * ({fx_sum})) AS notional_usd
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
             GROUP BY Exchange
             ORDER BY {order_expr} DESC, exchange ASC
         """
+        sql, params = self._apply_fx(sql, params)
         return [
             {
                 "exchange": str(r[0]),
@@ -234,16 +325,18 @@ class TcaReportAggregator:
         市场仅列排名中存在的（有成交额的市场），未配置中文名用代码回退。
         """
         has_fx = self._has_column(conn, "fx_rate")
-        fx_sum = self._fx_sum_sql(has_fx)
+        fx_sum = self._fx_usd_expr() if has_fx else "NULL"
+        join = self._fx_join() if has_fx else ""
         sql = f"""
             SELECT order_as_of_date AS date,
                    COALESCE(Exchange, '(unknown)') AS exchange,
-                   {fx_sum} AS notional_usd
-            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                   SUM(fill * p_avg * ({fx_sum})) AS notional_usd
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
             GROUP BY order_as_of_date, Exchange
             ORDER BY order_as_of_date ASC, exchange ASC
         """
+        sql, params = self._apply_fx(sql, params)
         return [
             {
                 "date": str(r[0]),
@@ -301,7 +394,9 @@ class TcaReportAggregator:
         - fx_coverage = 有非 1.0 fx_rate 的路由数 / 总路由数（None 表示无 fx_rate 列）
         """
         has_fx = self._has_column(conn, "fx_rate")
-        fx_sum = self._fx_sum_sql(has_fx)
+        fx_sum = self._fx_usd_expr() if has_fx else "NULL"
+        join = self._fx_join() if has_fx else ""
+        # fx_coverage：拥有真实（非 1.0 兜底）tca.fx_rate 的路由占比，反映 fx 数据质量
         fx_cnt = (
             "SUM(CASE WHEN fx_rate IS NOT NULL AND fx_rate <> 1.0 THEN 1 ELSE 0 END)"
             if has_fx else "NULL"
@@ -309,15 +404,16 @@ class TcaReportAggregator:
         sql = f"""
             SELECT COUNT(*) AS route_count,
                    COALESCE(SUM(RouteShares), 0) AS total_shares,
-                   {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
-                   AVG(par_rate) AS avg_par_rate,
-                   AVG(RPM) AS avg_rpm,
-                   COALESCE(SUM(fill * p_avg), 0) AS notional,
-                   {fx_sum} AS notional_usd,
-                   {fx_cnt} AS fx_non_default_count
-            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                    {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
+                    AVG(par_rate) AS avg_par_rate,
+                    AVG(RPM) AS avg_rpm,
+                    COALESCE(SUM(fill * p_avg), 0) AS notional,
+                    SUM(fill * p_avg * ({fx_sum})) AS notional_usd,
+                    {fx_cnt} AS fx_non_default_count
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
         """
+        sql, params = self._apply_fx(sql, params)
         row = conn.execute(sql, params).fetchone()
         route_count = int(row[0])
         fx_non_default = row[7]
@@ -467,37 +563,6 @@ class TcaReportAggregator:
     # ── 工具函数 ─────────────────────────────────────────────────────────
 
     @staticmethod
-    def _fx_sum_sql(has_fx: bool) -> str:
-        """USD 成交金额聚合 SQL（含小计价单位货币 ÷100 修正，008）。
-
-        notional_usd = SUM(fill × p_avg × fx_rate × minor_unit_factor)；
-        Currency ∈ {GBp, ILs, ZAr} 时 minor_unit_factor = 0.01，其余为 1.0。
-        汇率兜底仅限 USD/未知币种（fx_rate 缺失按 1.0）；非 USD 币种 fx_rate
-        缺失时整组 notional_usd 返回 NULL —— SQLite 的 SUM 忽略 NULL 行，
-        故用哨兵计数（非 USD 且缺汇率的路由数 > 0 时置 NULL），避免 KRW 等
-        币种被当作 USD 造成数量级虚高（如 KS 市场 16.74B vs 真实 12M）。
-        无 fx_rate 列时返回 NULL（向前兼容旧 schema）。
-        """
-        if not has_fx:
-            return "NULL"
-        minor_factor = (
-            "CASE WHEN Currency IN ('GBp', 'ILs', 'ZAr') THEN 0.01 ELSE 1.0 END"
-        )
-        fx_expr = (
-            "CASE WHEN fx_rate IS NOT NULL THEN fx_rate * " + minor_factor + " "
-            "WHEN Currency IS NULL OR Currency = 'USD' THEN 1.0 "
-            "ELSE NULL END"
-        )
-        gap_sentinel = (
-            "SUM(CASE WHEN Currency IS NOT NULL AND Currency <> 'USD' "
-            "AND fx_rate IS NULL THEN 1 ELSE 0 END)"
-        )
-        return (
-            f"CASE WHEN {gap_sentinel} > 0 THEN NULL "
-            f"ELSE SUM(fill * p_avg * {fx_expr}) END"
-        )
-
-    @staticmethod
     def _weighted_avg_sql(metric: str) -> str:
         """成交额加权均值 SQL 片段（metric 为内部白名单值，无注入风险）。"""
         cond = f"{metric} IS NOT NULL AND p_avg IS NOT NULL AND RouteShares IS NOT NULL"
@@ -564,7 +629,7 @@ class TcaReportAggregator:
             "pwp_curve": [],
             "extra_kpis": None,
             "impact_breakdown": None,
-            "anomaly": {"count": 0, "critical_count": 0, "rows": []},
+            "anomaly": {"count": 0, "rows": []},
             "metric_coverage": None,
             "data_source_warning": "tca_route_summary 不存在 — 请先运行管道 S5.5",
         }

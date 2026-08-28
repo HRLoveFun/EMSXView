@@ -3,6 +3,7 @@ import { Activity, BarChart3, FileBarChart, HeartPulse, RefreshCw, Settings2, Tr
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_FILTER_FORM_STATE,
+  hasSavedCostViewConfig,
   loadCostViewConfig,
   loadCostViewExportState,
   loadCostViewFilters,
@@ -12,6 +13,8 @@ import {
   saveCostViewExportState,
   saveCostViewFilters,
 } from './lib/storage';
+import { mergeBackendThresholds } from './lib/thresholds';
+import { fetchAnomalyThresholds } from './services/api';
 import { applyCostViewClientFilters, buildWarningOnlyPage } from './lib/report-state';
 import { analyzeTca, analyzeTcaOrders, fetchAllFilteredOrders, getUpdateStatus, PipelineTriggeredError, type TcaOrderReport } from './services/api';
 import type {
@@ -105,6 +108,22 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   useEffect(() => {
     saveCostViewExportState(exportState);
   }, [exportState]);
+
+  // 008: 首装（localStorage 无已存配置）时从后端拉取异常路由判定默认阈值，
+  // 后端为唯一真相源；已有用户配置则保留，不覆盖。
+  useEffect(() => {
+    if (hasSavedCostViewConfig()) return;
+    let cancelled = false;
+    fetchAnomalyThresholds()
+      .then((remote) => {
+        if (cancelled) return;
+        setConfig((current) => ({ ...current, rules: mergeBackendThresholds(remote.rules) }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!filterForm.warningOnly || !fullResultReport) {
