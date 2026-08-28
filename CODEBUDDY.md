@@ -24,6 +24,10 @@
 > - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 保留月数）以 `DataPipeline/config.py` 的 Config 类为唯一真相源
 > - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 该文件已于 2026-08-12 删除，历史方案见 git 历史提交 `3b00236`
 
+## 回复语言约定
+
+所有 AI 编码代理在与用户对话时，**必须使用中文回复**（代码、标识符、技术术语除外）。无论用户使用何种语言提问，代理面向用户的解释、总结、状态更新等回复内容均应以简体中文呈现。
+
 ## 项目概览
 
 EMSXView（Execution Management System eXtended View，扩展型执行管理系统）是一个集成 Bloomberg EMSX 的交易平台，覆盖盘前分析、订单执行与盘后 TCA（交易成本分析）分析。它是一个 monorepo（单一代码仓库），包含三个业务模块，共享同一个 React 前端外壳与一套 Python 数据管道。
@@ -275,6 +279,30 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - TCA 路由层级指标从 `tca_route_summary` 预计算表读取，禁止在查询时实时聚合。
 - CostView 监控数据通过 `monitoring` 路由器提供，逻辑封装在 `CostView/src/monitoring/` 模块。
 - Backend 禁止直接 deep import `CostView.src.*` / `DataPipeline.*`；须经由 `platform_data` 桥接入口（如 `register_costview_bridge_dependencies()`）完成 DI 注册，避免 backend → CostView.src 的跨模块依赖（模块边界 AP-01）。
+
+### 文件放置规范（★ 必须遵守）
+
+- **禁止在仓库根目录随意创建文件**。创建任何新文件前，必须先确定其按功能归属的既有目录。
+- 根目录仅保留既有约定文件：`AGENTS.md`、`CODEBUDDY.md`、`README.md`、`QUICKSTART.md`、`.emsxview-root`、`.gitignore` 及既有模块目录/配置。
+- 功能 → 目录映射：
+  | 文件类别 | 归属目录 |
+  |---|---|
+  | 后端业务代码 | `backend/api/` 分层子目录（`routers/` `services/` `schemas/`） |
+  | CostView / MarketView | `CostView/api/`、`CostView/src/`、`CostView/tests/`；`MarketView/` |
+  | 数据管道 | `DataPipeline/`（`ingestion/` `processing/` `analysis/`） |
+  | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
+  | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
+  | 前端模块代码 | `frontend/src/modules/<module>/`（`components/` `hooks/` `services/`） |
+  | 前端共享 UI | `frontend/src/components/`、`frontend/src/components/ui/` |
+  | 测试 | 各模块自身 `tests/`（Python）或 `__tests__/`（前端） |
+  | 运维/诊断脚本 | `scripts/`（部署启动器归 `scripts/deploy/`） |
+  | 规范文档 / 其他文档 | `docs/spec/` / `docs/` |
+  | 特性计划与清单 | `specs/<feature-id>/` |
+  | 临时调试代码 | 仓库根 `_tmp/`（`.gitignore` 已忽略） |
+  | 运行产物（日志、导出、生成图片） | `.gitignore` 覆盖的目录或系统临时目录 |
+
+- **判定原则**：优先复用相邻同类既有路径；无明确归属时先查阅 `docs/spec/project-structure.md` 或征询用户，**不得默认落到根目录**；临时与交付物严格分离，任务结束由创建方清理 `_tmp/`。
+- 完整细则见 [`.codebuddy/rules/coding-style.md` → 文件放置规范](.codebuddy/rules/coding-style.md)。
 
 ### 启动器与项目根路径（★ 必须遵守）
 

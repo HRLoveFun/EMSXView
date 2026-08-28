@@ -104,6 +104,25 @@ const reportSummary: TcaReportSummary = {
     notional_usd: 1602000,
     fx_coverage: 0.5,
   },
+  extra_kpis: {
+    arrival_cost_bps: -2.1,
+    wagner_is_bps: 3.4,
+    cost_stddev: 5.6,
+    cost_cvar: 12.3,
+    cost_p95: 18.0,
+    avg_fill: 0.92,
+  },
+  impact_breakdown: {
+    temp_impact_5min_bps: 1.2,
+    temp_impact_10min_bps: 0.8,
+    temp_impact_30min_bps: 0.5,
+    perm_impact_bps: -0.7,
+    close_cost_bps: 0.3,
+  },
+  anomaly: {
+    count: 0,
+    rows: [],
+  },
   daily_series: [
     { date: '20260803', route_count: 1232, weighted_pnl_vwap: 1.86, avg_par_rate: 0.17 },
   ],
@@ -241,11 +260,13 @@ describe('ReportView', () => {
 
     const call = mockFetchExportHtml.mock.calls[0][0]!;
     expect(call.last).toBe('day');
-    // 默认阈值随请求下发（与 DEFAULT_RULES 对齐）
+    // 默认阈值随请求下发（与 DEFAULT_RULES 对齐，单档阈值）
     expect(call.thresholds).toBeDefined();
     expect(call.thresholds!.tracking_error_bps).toMatchObject({
-      mode: 'absolute-above', warning: 10, critical: 25, enabled: true,
+      mode: 'absolute-above', threshold: 10, enabled: true,
     });
+    // 填充笔数下限随请求下发
+    expect(call.minFillCount).toBe(10);
   });
 
   it('导出失败显示错误提示', async () => {
@@ -259,53 +280,11 @@ describe('ReportView', () => {
     await waitFor(() => expect(screen.getByText('export failed')).toBeInTheDocument());
   });
 
-  it('渲染分市场标签页，切换市场时携带 exchange 重新加载', async () => {
-    mockFetchReportSummary.mockResolvedValue(reportSummary);
-    const user = userEvent.setup();
-    render(<ReportView />);
-    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
-
-    // 标签页包含 全部 / US / HK
-    expect(screen.getByRole('tab', { name: '全部' })).toBeInTheDocument();
-    const usTab = screen.getByRole('tab', { name: 'US' });
-    expect(usTab).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'HK' })).toBeInTheDocument();
-
-    // 初始加载两个请求：报告（全部）+ 市场清单
-    mockFetchReportSummary.mockClear();
-    await user.click(usTab);
-    await waitFor(() => {
-      expect(mockFetchReportSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ last: 'day', exchange: ['US'] }),
-      );
-    });
-  });
-
-  it('导出 HTML 时携带当前选中市场', async () => {
-    mockFetchReportSummary.mockResolvedValue(reportSummary);
-    mockFetchExportHtml.mockResolvedValue('tca_report_20260803_20260803.html');
-    const user = userEvent.setup();
-    render(<ReportView />);
-    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
-
-    await user.click(screen.getByRole('tab', { name: 'HK' }));
-    await waitFor(() => {
-      expect(mockFetchReportSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ last: 'day', exchange: ['HK'] }),
-      );
-    });
-
-    await user.click(screen.getByRole('button', { name: '导出 HTML 报告' }));
-    await waitFor(() => expect(mockFetchExportHtml).toHaveBeenCalled());
-    const call = mockFetchExportHtml.mock.calls[0][0]!;
-    expect(call.exchange).toEqual(['HK']);
-  });
-
   it('展示多选筛选下拉（市场/Broker/Algo/Symbol）', async () => {
     mockFetchReportSummary.mockResolvedValue(reportSummary);
     render(<ReportView />);
     await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
-    expect(screen.getByText('市场')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '市场' })).toBeInTheDocument();
     expect(screen.getByText('Broker')).toBeInTheDocument();
     expect(screen.getByText('Algo')).toBeInTheDocument();
     expect(screen.getByText('Symbol')).toBeInTheDocument();

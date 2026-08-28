@@ -43,6 +43,7 @@
 | [ADR-0012](adr/0012-config-isolation-rule.md) | 配置隔离：DataPipeline/config 单一来源 | Accepted |
 | [ADR-0013](adr/0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | Accepted |
 | [ADR-0014](adr/0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | Accepted |
+| [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | Accepted |
 
 ---
 

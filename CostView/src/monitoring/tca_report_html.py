@@ -46,6 +46,7 @@ def render_report_html(
         _render_market_tabs(report.get("markets"), report.get("kpi")),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly")),
+        _render_market_charts(report),
         _render_charts(report),
         _render_impact_breakdown(report.get("impact_breakdown")),
         _render_anomaly_table(report.get("anomaly")),
@@ -84,11 +85,16 @@ h2 {{ font-size: 16px; color: #9fb3c8; margin: 28px 0 12px; border-left: 3px sol
 .card .value {{ font-size: 24px; font-weight: 600; color: #eceff4; margin-top: 6px; }}
 .card .sub {{ font-size: 11px; color: #5f7186; margin-top: 4px; }}
 .panel {{ background: #1a2332; border: 1px solid #2a3648; border-radius: 8px; padding: 16px; margin-top: 12px; }}
+/* 可滚动明细面板：自身作为滚动容器，去掉内边距避免 sticky 表头与内容上沿留缝；
+   表头sticky于面板顶部，未成交记录滚动时沉入表头之下而非穿过。 */
+.scroll-panel {{ background: #1a2332; border: 1px solid #2a3648; border-radius: 8px; padding: 0; margin-top: 12px; max-height: 520px; overflow: auto; }}
+.scroll-panel > table {{ margin: 0; }}
 .grid2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
 @media (max-width: 1100px) {{ .grid2 {{ grid-template-columns: 1fr; }} }}
-table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+table {{ width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }}
 th, td {{ padding: 5px 8px; text-align: right; border-bottom: 1px solid #22304a; white-space: nowrap; }}
-th {{ color: #7d8fa3; font-weight: 500; position: sticky; top: 0; background: #1a2332; }}
+/* 表头吸顶：不透明背景 + 更高层级 + 实底边框，确保滚动时记录沉入表头之下 */
+th {{ color: #7d8fa3; font-weight: 600; position: sticky; top: 0; z-index: 3; background: #202b3d; border-bottom: 2px solid #2a3648; background-clip: padding-box; }}
 td.l, th.l {{ text-align: left; }}
 .warn {{ background: #3a2a1a; border: 1px solid #8a5a2a; border-radius: 8px; padding: 12px 16px; margin-top: 12px; color: #ffb74d; font-size: 13px; }}
 .tag {{ display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; }}
@@ -96,6 +102,7 @@ td.l, th.l {{ text-align: left; }}
 .tag-partial {{ background: #3a3418; color: #ffca28; }}
 .tag-missing {{ background: #3a1f1f; color: #ef5350; }}
 .tag-unrecoverable {{ background: #2a2f38; color: #90a4ae; }}
+.tag-alert {{ background: #3a1f1f; color: #ef5350; }}
 .footer {{ margin-top: 32px; color: #5f7186; font-size: 11px; text-align: center; }}
 svg text {{ font-family: inherit; }}
 /* 007: 分市场 CSS 标签页（零 JS，radio 驱动，无锚点跳转） */
@@ -139,12 +146,10 @@ def _render_market_tabs(
     markets: Optional[list[dict[str, Any]]],
     kpi: Optional[dict[str, Any]],
 ) -> str:
-    """分市场标签页（007）：市场由 Config.MARKET_ORDER 设定顺序。
+    """市场概览（007）：市场由 Config.MARKET_ORDER 设定顺序。
 
-    零 JS 实现：radio 驱动的纯 CSS 标签页（选中态为 ``:checked + label``，
-    面板用兄弟选择器 ``:checked ~ .mk-panels`` 显示）。默认选中「全部」，
-    切换不产生页面锚点跳转（区别于早期 :target 方案）。每个市场锚点指向
-    市场汇总表（route 数 + 成交金额 USD）。
+    始终展示全部市场汇总表（route 数 + 成交金额 USD），不再提供点击市场
+    筛选概览范围的交互（取消点击市场筛选概览范围的功能）。
     """
     if not markets:
         return ""
@@ -155,39 +160,11 @@ def _render_market_tabs(
     known.sort(key=lambda m: list(order.keys()).index(m["exchange"]))
     unknown.sort(key=lambda m: m["exchange"])
     ordered = known + unknown
-    if len(ordered) < 2:
+    if not ordered:
         return ""
-
-    radios = [f'<input type="radio" name="mk" id="mk-all" checked>'
-              f'<label for="mk-all">全部</label>']
-    panels = ['<div class="mk-panel">']
-    panels.append(_market_summary_table(ordered, is_all=True))
-    panels.append("</div>")
-    for i, m in enumerate(ordered):
-        code = m["exchange"]
-        display = order.get(code, code)
-        radios.append(f'<input type="radio" name="mk" id="mk-{code}">'
-                      f'<label for="mk-{code}">{_esc(display)}</label>')
-        panels.append(f'<div class="mk-panel">')
-        panels.append(_market_summary_table([m], is_all=False))
-        panels.append("</div>")
-    # 面板跟随选中的 radio 兄弟显示（通用兄弟选择器，无锚点跳转）
-    # radio / label / .mk-panel 均为 .tab-wrap 直接子元素；默认「全部」checked
-    # panel 1 = 全部，市场 i → panel i+2
-    show = "".join(
-        f'input#mk-{_css_id(m["exchange"])}:checked ~ .mk-panel:nth-of-type({i + 2})'
-        f'{{ display:block; }}'
-        for i, m in enumerate(ordered)
-    )
     return f"""
-<h2>分市场概览</h2>
-<div class="tab-wrap">
-{''.join(radios)}
-<style>{show}
-input#mk-all:checked ~ .mk-panel:nth-of-type(1) {{ display:block; }}
-</style>
-{''.join(panels)}
-</div>"""
+<h2>市场概览</h2>
+{_market_summary_table(ordered, is_all=True)}"""
 
 
 def _market_summary_table(
@@ -238,9 +215,7 @@ def _render_kpi_cards(
         ]
     if anomaly is not None:
         cards.append(
-            ("异常路由", f"{anomaly.get('count', 0):,}", (
-                f"critical {anomaly.get('critical_count', 0)} · 见下方明细"
-            )),
+            ("异常路由", f"{anomaly.get('count', 0):,}", "见下方明细"),
         )
     inner = "".join(
         f'<div class="card"><div class="label">{_esc(label)}</div>'
@@ -278,6 +253,111 @@ def _render_charts(report: dict[str, Any]) -> str:
 <div class="panel">{pwp}</div>"""
 
 
+def _render_market_charts(report: dict[str, Any]) -> str:
+    """分市场成交金额（美元）排名 + 每日趋势（与 Report 页面双向对齐）。
+
+    排名：按 notional_usd 降序竖向柱形；趋势：累计成交额 Top 10 市场多折线。
+    """
+    ranking = _svg_market_ranking(report.get("market_notional_ranking") or [])
+    trend = _svg_market_trend(report.get("market_notional_trend") or [])
+    return f"""
+<h2>分市场成交金额（美元）</h2>
+<div class="grid2">
+  <div class="panel"><h2 style="margin-top:0">按市场的成交金额（美元）排名</h2>{ranking}</div>
+  <div class="panel"><h2 style="margin-top:0">按市场的成交金额（美元）每日趋势（Top {_TOP_TREND_MARKETS}）</h2>{trend}</div>
+</div>"""
+
+
+def _svg_market_ranking(rows: list[dict[str, Any]]) -> str:
+    """按市场成交金额（美元）排名竖向柱形（notional_usd 降序）。"""
+    shown = [r for r in rows if r.get("notional_usd") is not None]
+    if not shown:
+        return _empty_hint("无市场成交金额数据")
+    max_v = max((r["notional_usd"] for r in shown), default=1.0) or 1.0
+    n = len(shown)
+    plot_w = _CHART_W - _PAD_L - _PAD_R
+    plot_h = _CHART_H - _PAD_T - _PAD_B
+    bar_w = plot_w / max(n, 1)
+    parts = [_svg_frame(max_v, "")]
+    for i, r in enumerate(shown):
+        h = r["notional_usd"] / max_v * plot_h
+        x = _PAD_L + i * bar_w
+        label = r.get("name") or r.get("exchange") or ""
+        parts.append(
+            f'<rect x="{x + 1:.1f}" y="{_PAD_T + plot_h - h:.1f}" '
+            f'width="{max(bar_w - 2, 1):.1f}" height="{h:.1f}" fill="{_COLOR_BAR}" rx="1">'
+            f'<title>{_esc(str(label))}: {_fmt_big(r["notional_usd"])}</title></rect>'
+        )
+        parts.append(
+            f'<text x="{x + bar_w / 2:.0f}" y="{_CHART_H - 8}" fill="#7d8fa3" '
+            f'font-size="9" text-anchor="middle">{_esc(_trunc(str(label), 8))}</text>'
+        )
+    return _svg_wrap(parts)
+
+
+#: 市场趋势 Top 市场数
+_TOP_TREND_MARKETS = 10
+
+#: 多折线调色板（与 Report 页面一致）
+_MARKET_TREND_PALETTE = [
+    "#4fc3f7", "#ffb74d", "#26a69a", "#ab47bc", "#ef5350",
+    "#ffca28", "#66bb6a", "#5c6bc0", "#ec407a", "#8d6e63",
+]
+
+
+def _svg_market_trend(points: list[dict[str, Any]]) -> str:
+    """按市场成交金额（美元）每日趋势（Top 10 市场多折线，共享 y 轴）。"""
+    if not points:
+        return _empty_hint("无市场趋势数据")
+    total: dict[str, float] = {}
+    for p in points:
+        total[p["exchange"]] = total.get(p["exchange"], 0.0) + (p.get("notional_usd") or 0.0)
+    top_ex = [e for e, _ in sorted(total.items(), key=lambda kv: kv[1], reverse=True)[:_TOP_TREND_MARKETS]]
+    by_date: dict[str, dict[str, float]] = {}
+    order: list[str] = []
+    for p in points:
+        if p["exchange"] not in top_ex:
+            continue
+        d = p["date"]
+        by_date.setdefault(d, {})[p["exchange"]] = p.get("notional_usd") or 0.0
+        if d not in order:
+            order.append(d)
+    order.sort()
+    if not order:
+        return _empty_hint("无市场趋势数据")
+    all_vals = [by_date[d].get(ex) for ex in top_ex for d in order if by_date[d].get(ex) is not None]
+    if not all_vals:
+        return _empty_hint("无市场趋势数据")
+    lo, hi = min(all_vals), max(all_vals)
+    span = (hi - lo) or 1.0
+    plot_w = _CHART_W - _PAD_L - _PAD_R
+    plot_h = _CHART_H - _PAD_T - _PAD_B
+
+    def _xy(i: int, v: float) -> tuple[float, float]:
+        x = _PAD_L + (i + 0.5) * plot_w / max(len(order), 1)
+        y = _PAD_T + plot_h - (v - lo) / span * plot_h
+        return x, y
+
+    parts = [_svg_frame(1.0, "")]
+    for ei, ex in enumerate(top_ex):
+        coords = []
+        for i, d in enumerate(order):
+            v = by_date[d].get(ex)
+            if v is None:
+                continue
+            x, y = _xy(i, v)
+            coords.append(f"{x:.1f},{y:.1f}")
+        color = _MARKET_TREND_PALETTE[ei % len(_MARKET_TREND_PALETTE)]
+        if coords:
+            parts.append(f'<polyline points="{" ".join(coords)}" fill="none" stroke="{color}" stroke-width="1.8"/>')
+        parts.append(
+            f'<text x="{_PAD_L + 4}" y="{_PAD_T + 12 + ei * 13}" fill="{color}" '
+            f'font-size="10">{_esc(ex)}</text>'
+        )
+    parts.append(_x_axis_labels([d[4:] for d in order]))
+    return _svg_wrap(parts)
+
+
 def _render_impact_breakdown(impact: Optional[dict[str, Any]]) -> str:
     """市场冲击分解表（B2-2）：暂时冲击 5/10/30min + 永久冲击。"""
     if not impact:
@@ -303,8 +383,17 @@ def _render_impact_breakdown(impact: Optional[dict[str, Any]]) -> str:
 </div>"""
 
 
+#: 异常明细表渲染上限（超出的异常路由不展开 HTML，仅保留计数，避免报告体积膨胀拖慢导出）
+_MAX_ANOMALY_ROWS_RENDERED = 1000
+
+
 def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
-    """异常路由明细表（S6）：触发阈值规则的路由逐单清单（无上限）。"""
+    """异常路由明细表（S6）：触发阈值规则的路由逐单清单。
+
+    渲染上限 ``_MAX_ANOMALY_ROWS_RENDERED`` 条；超限部分仅保留计数提示，
+    既保留「异常概览」价值，又防止数千行撑大 HTML（上季度曾达 8500+ 行、
+    报告 5MB+，浏览器渲染与导出显著变慢）。
+    """
     if anomaly is None:
         return ""
     rows = anomaly.get("rows") or []
@@ -314,25 +403,32 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
 <h2>异常路由明细</h2>
 <div class="panel">本期无异常路由（{_esc(str(count))} 条触发阈值）。</div>"""
     body_rows = []
-    for r in rows:
+    truncated = max(0, len(rows) - _MAX_ANOMALY_ROWS_RENDERED)
+    for r in rows[:_MAX_ANOMALY_ROWS_RENDERED]:
         hits = r.get("hits") or []
         tags = "".join(
-            f'<span class="tag tag-{"critical" if h["severity"] == "critical" else "warning"}">{_esc(h["label"])}</span>'
+            f'<span class="tag tag-alert">{_esc(_fmt_hit(h))}</span>'
             for h in hits
         )
         body_rows.append(
             f'<tr>'
-            f'<td><span class="tag tag-{_esc(r.get("severity", "warning"))}">{_esc(r.get("severity", ""))}</span></td>'
+            f'<td class="l" style="white-space:normal">{tags}</td>'
             f'<td class="l">{_esc(r.get("date", ""))}</td>'
             f'<td class="l">{_esc(r.get("order_id", ""))}</td>'
             f'<td class="l">{_esc(r.get("route_id", ""))}</td>'
             f'<td class="l">{_esc(r.get("ticker", ""))}</td>'
             f'<td class="l">{_esc(r.get("exchange") or "")}</td>'
             f'<td class="l">{_esc(r.get("side") or "")}</td>'
+            f'<td class="l">{_fmt_money(r.get("notional_local"), r.get("currency"))}</td>'
+            f'<td class="l">{_fmt_money(r.get("notional_usd"), "USD")}</td>'
             f'<td class="l">{_esc(r.get("broker") or "")}</td>'
             f'<td class="l">{_esc(r.get("algo") or "")}</td>'
             f'<td>{_fmt_pct(r.get("completion_rate"))}</td>'
             f'<td>{_fmt_pct(r.get("par_rate"))}</td>'
+            f'<td>{_fmt_order_par_rate(r.get("order_par_rate"))}</td>'
+            f'<td>{_fmt_int(r.get("fill_count"))}</td>'
+            f'<td>{_fmt_big(r.get("route_shares"))}</td>'
+            f'<td>{_fmt_big(r.get("fill"))}</td>'
             f'<td>{_fmt_num(r.get("pnl_vwap"))}</td>'
             f'<td>{_fmt_num(r.get("arrival_cost_bps"))}</td>'
             f'<td>{_fmt_num(r.get("wagner_is_bps"))}</td>'
@@ -341,18 +437,18 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
             f'<td>{_fmt_num(r.get("cost_cvar"))}</td>'
             f'<td>{_fmt_duration(r.get("order_duration_sec"))}</td>'
             f'<td>{_esc("1" if r.get("recovery_truncated") else "")}</td>'
-            f'<td class="l" style="white-space:normal">{tags}</td>'
             f'</tr>'
         )
     return f"""
 <h2>异常路由明细（{_esc(str(count))} 条）</h2>
-<div class="panel" style="overflow-x:auto;max-height:520px;overflow-y:auto">
+<div class="warn">仅渲染前 {_esc(str(_MAX_ANOMALY_ROWS_RENDERED))} 条异常路由明细（按严重度优先）；其余 {_esc(str(truncated))} 条已计入上方「异常路由」KPI 计数，可缩小时间范围或收紧阈值查看明细。</div>
+<div class="scroll-panel">
 <table><thead><tr>
-<th>严重度</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
-<th class="l">标的</th><th class="l">交易所</th><th class="l">方向</th><th class="l">Broker</th>
-<th class="l">Algo</th><th>完成率</th><th>参与率</th><th>pnl_vwap</th>
+<th class="l">命中规则</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
+<th class="l">标的</th><th class="l">交易所</th><th class="l">方向</th><th class="l">成交金额(本币)</th><th class="l">成交金额(USD)</th>
+<th class="l">Broker</th><th class="l">Algo</th><th>完成率</th><th>路由参与率</th><th>订单参与率</th><th>填充笔数</th><th>路由股数</th><th>成交股数</th><th>pnl_vwap</th>
 <th>arrival</th><th>IS</th><th>机会成本</th><th>未成交</th><th>CVaR</th>
-<th>历时</th><th>跨日</th><th class="l">命中规则</th>
+<th>历时</th><th>跨日</th>
 </tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>"""
 
 
@@ -620,6 +716,15 @@ def _fmt_num(value: Optional[float], digits: int = 2) -> str:
     return f"{value:,.{digits}f}"
 
 
+def _fmt_hit(hit: dict[str, Any]) -> str:
+    """命中规则展示：标签 + 超限具体数值（含单位）。"""
+    value = hit.get("value")
+    unit = hit.get("unit")
+    suffix = " bps" if unit == "bps" else "%"
+    val = _fmt_num(value, 1) if value is not None else "-"
+    return f"{hit.get('label', '')} {val}{suffix}"
+
+
 def _fmt_big(value: Optional[float]) -> str:
     """大数值缩写（K/M/B）。"""
     if value is None:
@@ -632,6 +737,15 @@ def _fmt_big(value: Optional[float]) -> str:
     if abs_v >= 1e3:
         return f"{value / 1e3:.1f}K"
     return f"{value:.0f}"
+
+
+def _fmt_money(value: Optional[float], currency: Optional[str]) -> str:
+    """成交金额格式化（带币种前缀）；None → '-'。"""
+    if value is None:
+        return "-"
+    ccy = (currency or "").upper()
+    prefix = f"{ccy} " if ccy else ""
+    return f"{prefix}{_fmt_big(value)}"
 
 
 def _fx_coverage_sub(kpi: dict[str, Any]) -> str:
@@ -654,11 +768,39 @@ def _fmt_risk(stddev: Optional[float], cvar: Optional[float]) -> str:
     return f"{s} / {c}"
 
 
-def _fmt_pct(value: Optional[float]) -> str:
-    """百分比展示（0-1 小数 → %，None → '-'）。"""
+def _fmt_order_par_rate(value: Optional[float]) -> str:
+    """订单参与率展示：各路由 par_rate 之和，可能 > 100%，故不封顶。"""
     if value is None:
         return "-"
-    return f"{value * 100.0:.1f}%"
+    return f"{value * 100.0:.2f}%"
+
+
+def _fmt_int(value: Optional[float]) -> str:
+    """整数（如填充笔数）格式化，None → '-'；带千分位。"""
+    if value is None:
+        return "-"
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _fmt_pct(value: Optional[float]) -> str:
+    """百分比展示（0-1 小数 → %，None → '-'）。
+
+    未成交 > 0 时 completion_rate 必 < 1.0，但 1 位小数四舍五入会把
+    99.95%+ 的完成率显示成 100.0%，与「未成交」列矛盾。故提升两位精度，
+    并在仍越界时（< 100% 却四舍五入到 100%）封顶到 99.99%，避免假象。
+    """
+    if value is None:
+        return "-"
+    pct = value * 100.0
+    if pct > 100.0:
+        pct = 100.0
+    # 未成交 > 0 时完成率必 < 100%，封顶 99.99% 以防两位小数四舍五入显示成 100.00%
+    if value < 1.0 and pct > 99.99:
+        pct = 99.99
+    return f"{pct:.2f}%"
 
 
 def _fmt_duration(seconds: Optional[float]) -> str:

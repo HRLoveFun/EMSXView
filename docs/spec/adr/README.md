@@ -64,6 +64,7 @@ NNNN-<kebab-case-title>.md
 | [0012](0012-config-isolation-rule.md) | 配置隔离 — DataPipeline/config 单一来源 | data, configuration, refactoring |
 | [0013](0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | refactoring, data, documentation |
 | [0014](0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | refactoring, cleanup, scripts |
+| [0015](0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | costview, analytics, frontend, backend |
 
 ### Proposed
 （暂无）

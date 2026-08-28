@@ -38,6 +38,17 @@ function fmtDurationSec(value: number | null | undefined): string {
   return `${min}m${sec}s`;
 }
 
+function renderNotional(amount: number | null | undefined, currency: string | null | undefined): string {
+  if (amount == null) return '—';
+  const ccy = (currency ?? '').toUpperCase();
+  return ccy ? `${ccy} ${fmtCurrency(amount)}` : fmtCurrency(amount);
+}
+
+function renderNotionalUsd(amount: number | null | undefined, fxRate: number | null | undefined): string {
+  if (amount == null || fxRate == null) return '—';
+  return `USD ${fmtCurrency(amount * fxRate)}`;
+}
+
 function routeKey(route: TcaRouteSummary): string {
   return `${route.order_id}/${route.route_id}/${route.order_as_of_date}`;
 }
@@ -73,13 +84,15 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
               <th className="px-3 py-3 text-right font-medium">Cost SD</th>
               <th className="px-3 py-3 text-right font-medium">Duration</th>
               <th className="px-3 py-3 text-right font-medium">Temp Imp 5m</th>
-              <th className="px-3 py-3 text-right font-medium">Perm Imp</th>
-              <th className="px-3 py-3 text-right font-medium">Par Rate</th>
-              <th className="px-3 py-3 text-right font-medium">Par Rate (Cont)</th>
-              <th className="px-3 py-3 text-right font-medium">RPM</th>
-              <th className="px-3 py-3 text-right font-medium">PWP 10</th>
-              <th className="px-3 py-3 text-right font-medium">PWP 20</th>
-            </tr>
+               <th className="px-3 py-3 text-right font-medium">Perm Imp</th>
+               <th className="px-3 py-3 text-right font-medium">Par Rate</th>
+               <th className="px-3 py-3 text-right font-medium">Par Rate (Cont)</th>
+               <th className="px-3 py-3 text-right font-medium">RPM</th>
+               <th className="px-3 py-3 text-right font-medium">PWP 10</th>
+               <th className="px-3 py-3 text-right font-medium">PWP 20</th>
+               <th className="px-3 py-3 text-right font-medium">成交金额(本币)</th>
+               <th className="px-3 py-3 text-right font-medium">成交金额(USD)</th>
+             </tr>
           </thead>
           <tbody>
             {report.orders.map((route) => {
@@ -123,6 +136,8 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                   <td className="px-3 py-3 text-right">{fmtNum(route.rpm)}</td>
                   <td className="px-3 py-3 text-right">{route.pwp_10 ?? '—'}</td>
                   <td className="px-3 py-3 text-right">{route.pwp_20 ?? '—'}</td>
+                  <td className="px-3 py-3 text-right">{renderNotional(route.amount, route.currency)}</td>
+                  <td className="px-3 py-3 text-right">{renderNotionalUsd(route.amount, route.fx_rate)}</td>
                 </tr>
               );
             })}

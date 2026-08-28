@@ -235,6 +235,8 @@ export interface ReportSummaryQuery extends MonitoringQuery {
   symbol?: string | string[];
   exchange?: string | string[];
   metrics?: string[];
+  minFillCount?: number;
+  minNotionalUsd?: number;
 }
 
 /** 将单值/数组筛选参数序列化为逗号分隔串 */
@@ -255,6 +257,8 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
   if (symbol) extra.symbol = symbol;
   if (exchange) extra.exchange = exchange;
   if (query.metrics?.length) extra.metrics = query.metrics.join(',');
+  if (query.minFillCount != null) extra.min_fill_count = String(query.minFillCount);
+  if (query.minNotionalUsd != null) extra.min_notional_usd = String(query.minNotionalUsd);
   return fetchMonitoringJson<TcaReportSummary>(
     buildMonitoringUrl('/api/tca/monitoring/report-summary', query, extra),
   );
@@ -263,9 +267,21 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
 /** 006: 阈值规则 → 导出端点 thresholds 查询参数（与后端 ThresholdRules 契约对齐） */
 export interface ExportHtmlThresholdPayload {
   mode: 'absolute-above' | 'above' | 'below';
-  warning: number;
-  critical: number;
+  threshold: number;
   enabled: boolean;
+}
+
+/** 异常路由判定默认阈值（后端 anomaly-thresholds 端点返回） */
+export interface AnomalyThresholdsResponse {
+  rules: Record<string, ExportHtmlThresholdPayload>;
+  rule_meta: Record<string, { label: string; metric_field: string; scale: number }>;
+}
+
+/** 008: 拉取后端异常路由判定默认阈值（后端为唯一真相源，前端 Reset/首装从此取） */
+export async function fetchAnomalyThresholds(): Promise<AnomalyThresholdsResponse> {
+  return fetchMonitoringJson<AnomalyThresholdsResponse>(
+    buildMonitoringUrl('/api/tca/monitoring/anomaly-thresholds', {}),
+  );
 }
 
 export interface ExportHtmlQuery extends MonitoringQuery {
@@ -274,6 +290,8 @@ export interface ExportHtmlQuery extends MonitoringQuery {
   symbol?: string | string[];
   exchange?: string | string[];
   thresholds?: Record<string, ExportHtmlThresholdPayload>;
+  minFillCount?: number;
+  minNotionalUsd?: number;
 }
 
 /** 006: 一键导出 HTML 报告（附件下载）。返回下载文件名。 */
@@ -293,6 +311,12 @@ export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
   }
   if (query.thresholds && Object.keys(query.thresholds).length) {
     params.set('thresholds', JSON.stringify(query.thresholds));
+  }
+  if (query.minFillCount != null) {
+    params.set('min_fill_count', String(query.minFillCount));
+  }
+  if (query.minNotionalUsd != null) {
+    params.set('min_notional_usd', String(query.minNotionalUsd));
   }
 
   const response = await fetch(
