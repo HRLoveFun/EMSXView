@@ -18,6 +18,7 @@ export const ORDER_GROUP_BY_OPTIONS = [
   { value: 'trader',    label: 'Trader'      },
   { value: 'exchange',  label: 'Exchange'    },
   { value: 'currency',  label: 'Currency'    },
+  { value: 'basketName', label: 'Basket'     },
 ] as const;
 
 export type OrderGroupByValue = (typeof ORDER_GROUP_BY_OPTIONS)[number]['value'];
@@ -25,6 +26,7 @@ export type OrderGroupByValue = (typeof ORDER_GROUP_BY_OPTIONS)[number]['value']
 export const ORDER_GROUP_BY_LABELS: Record<OrderGroupByValue, string> = {
   none: '', symbol: 'Ticker', side: 'Side', status: 'Status',
   portfolio: 'Portfolio', trader: 'Trader', exchange: 'Exchange', currency: 'Currency',
+  basketName: 'Basket',
 };
 
 // ─── Route GROUP BY ─────────────────────────────────────────────────────────

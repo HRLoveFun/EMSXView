@@ -40,6 +40,7 @@ import {
   equalSplit,
   defaultStrategyFor,
   clientKeyOf,
+  remainingOf,
 } from './utils';
 
 // ── Internal types ──────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ export interface UseBatchRouteStateReturn {
 
   // ── Derived / computed ────────────────────────────────────────────
   routedAmountByOrder: Record<string, number>;
+  routedAmountOf: (o: Order) => number;
   effectiveRemainingOf: (o: Order) => number;
   allBrokers: string[];
   visibleBrokers: string[];
@@ -203,30 +205,46 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     [],
   );
 
-  // ── Routed (placed) quantity per parent order ─────────────────────────
-  //  Sum of each pending route's `amount`, keyed by parent sequence. Only
+  // ── Routed (pending) quantity per parent order ────────────────────────
+  //  Sum of each pending route's `working`, keyed by parent sequence. Only
   //  statuses in PENDING_ROUTE_STATUSES still consume parent capacity —
   //  terminal routes (FILLED/CANCEL/DONE/REJECTED…) release their amount back
-  //  to idle. Mirrors backend batch_route_service.pending_route_statuses so
-  //  user UI and server agree on what counts as "already routed".
+  //  to idle.
+  //
+  //  口径必须与后端 batch_route_service._validate_split_totals 完全一致：
+  //  effective = max(0, order.remainingQuantity − Σ pending route.working)
+  //  这里扣 `working` 而非 `amount`：route.amount = working + 已成交，而父单
+  //  remainingQuantity 已经扣掉了子路由的成交量，若前端再按 amount 扣减就会
+  //  对已成交部分二次扣减，导致可路由额度被低估。
   const routedAmountByOrder = useMemo(() => {
     const map: Record<string, number> = {};
     if (!routes || routes.length === 0) return map;
     for (const r of routes) {
       if (!PENDING_ROUTE_STATUSES.has(r.status)) continue;
       const oid = String(r.sequence);
-      const a = Number(r.amount ?? 0);
-      if (!Number.isFinite(a) || a <= 0) continue;
-      map[oid] = (map[oid] ?? 0) + a;
+      const w = Number(r.working ?? 0);
+      if (!Number.isFinite(w) || w <= 0) continue;
+      map[oid] = (map[oid] ?? 0) + w;
     }
     return map;
   }, [routes]);
+
+  /** 已在途（pending）的路由量，用于 UI 展示 "remain − routed = idle" 的分解。 */
+  const routedAmountOf = useCallback(
+    (o: Order): number => routedAmountByOrder[o.id] ?? 0,
+    [routedAmountByOrder],
+  );
 
   //  Idle shares are locked at dialog-open time: the streaming `routes` feed
   //  keeps updating as batch routing proceeds, but allocation capacity must
   //  stay frozen so already-computed splits don't shift mid-flight.
   const [idleByOrder, setIdleByOrder] = useState<Record<string, number>>({});
 
+  /**
+   * 每单可路由额度（idle）= 父单剩余量 − 在途路由量。
+   * 注意基数取 remaining 而非 quantity，否则部分成交的订单会把已成交量
+   * 当成可路由额度，前端放行、后端 BLOCK。
+   */
   const effectiveRemainingOf = useCallback(
     (o: Order): number => idleByOrder[o.id] ?? 0,
     [idleByOrder],
@@ -329,7 +347,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       for (const o of orders) {
         init[o.id] = { selected: true, allocations: {} };
         const routed = routedAmountByOrder[o.id] ?? 0;
-        idle[o.id] = Math.max(0, o.quantity - routed);
+        idle[o.id] = Math.max(0, remainingOf(o) - routed);
       }
       setIdleByOrder(idle);
       setRows(init);
@@ -881,7 +899,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     // Ratio helpers
     ratioSum, ratioTotalValid, setRatioForBroker, resetRatios,
     // Derived / computed
-    routedAmountByOrder, effectiveRemainingOf, allBrokers, visibleBrokers,
+    routedAmountByOrder, routedAmountOf, effectiveRemainingOf, allBrokers, visibleBrokers,
     strategiesFor, isBrokerAllowedFor, selectedOrders, orderMarkets,
     totalDestinations, canValidate, blockedDetails, failedDetails, warnDetails,
     // Computed helpers

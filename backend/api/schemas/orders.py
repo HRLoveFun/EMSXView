@@ -59,6 +59,8 @@ class Order(BaseModel):
     mktVwap: Optional[float] = None
     isOddLot: Optional[bool] = None
     roundLotSize: Optional[int] = None
+    basketName: str = Field(default="", max_length=128)
+    basketNum: Optional[int] = None
 
 
 class OrderFilters(BaseModel):

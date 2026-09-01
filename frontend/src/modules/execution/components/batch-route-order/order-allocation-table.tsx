@@ -6,7 +6,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { OrderRow } from './order-row';
-import { lotSizeOf } from './utils';
+import { lotSizeOf, remainingOf } from './utils';
 import { QUICK_PCT_PRESETS } from './types';
 import type { OrderAllocationTableProps } from './types';
 
@@ -18,6 +18,7 @@ export function OrderAllocationTable({
   phase,
   ratios,
   effectiveRemainingOf,
+  routedAmountOf,
   isBrokerAllowedFor,
   patchRow,
   patchAlloc,
@@ -44,7 +45,12 @@ export function OrderAllocationTable({
               <th className="text-left px-2 py-1">Side</th>
               <th className="text-left px-2 py-1">Type</th>
               <th className="text-right px-2 py-1">Price</th>
-              <th className="text-right px-2 py-1">Idle</th>
+              <th
+                className="text-right px-2 py-1"
+                title="可路由额度 = 父单剩余量（remainingQuantity）− 在途路由量（pending route.working）"
+              >
+                Idle
+              </th>
               {selectedBrokers.map(b => (
                 <th key={b} className="text-right px-2 py-1 font-mono">
                   <DropdownMenu>
@@ -95,7 +101,9 @@ export function OrderAllocationTable({
               const lot = lotSizeOf(o);
               const total = rowTotalQty(r);
               const effRemain = effectiveRemainingOf(o);
-              const routedAmount = Math.max(0, o.quantity - effRemain);
+              // idle 的分解基准：父单剩余量（不是总量），减去真实在途路由量
+              const orderRemaining = remainingOf(o);
+              const routedAmount = routedAmountOf(o);
               const overAlloc = total > effRemain;
               const anyAlloc = Object.values(r.allocations).some(a => computeAllocQty(a) > 0);
               return (
@@ -106,6 +114,7 @@ export function OrderAllocationTable({
                   lot={lot}
                   total={total}
                   effectiveRemaining={effRemain}
+                  orderRemaining={orderRemaining}
                   routedAmount={routedAmount}
                   overAlloc={overAlloc}
                   anyAlloc={anyAlloc}

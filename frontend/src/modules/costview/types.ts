@@ -339,6 +339,8 @@ export interface MetricCoverageRow {
   total_routes: number;
   coverage: Record<string, number | null>;
   null_counts: Record<string, number>;
+  /** 每项指标为 NULL 的结构性原因（与后端 null_reasons 对齐） */
+  null_reasons?: Record<string, string>;
 }
 
 export interface MetricCoverageReport {
@@ -346,6 +348,8 @@ export interface MetricCoverageReport {
   end_date: string;
   metrics: string[];
   bdib_dependent_metrics: string[];
+  /** 期望内 NULL 指标集合（SLA 豁免） */
+  expected_null_metrics?: string[];
   group_by_exchange: boolean;
   rows: MetricCoverageRow[];
   data_source_warning?: string;
