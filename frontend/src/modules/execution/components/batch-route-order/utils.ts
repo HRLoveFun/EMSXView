@@ -2,6 +2,14 @@
 
 import type { Order } from '@execution/types';
 
+/**
+ * 父单可路由基数 = 剩余量（remainingQuantity），**不是**总量（quantity）。
+ *
+ * 口径的唯一真相源在 `@execution/lib/route-capacity`，此处仅 re-export，
+ * 避免 lib / components 各维护一份造成漂移。
+ */
+export { remainingOf } from '@execution/lib/route-capacity';
+
 /** Lot size for an order (PX_ROUND_LOT_SIZE refdata; fallback 100 for JP, else 1). */
 export function lotSizeOf(o: Order): number {
   if (o.roundLotSize && o.roundLotSize > 0) return o.roundLotSize;

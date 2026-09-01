@@ -51,6 +51,9 @@ ORDER_FIELDS = [
     "EMSX_BROKER",
     "EMSX_DAY_AVG_PRICE",
     "EMSX_ARRIVAL_PRICE",
+    # Basket 归属（level 1 = Order 级字段，走 Order Subscription 即可获取）
+    "EMSX_BASKET_NAME",
+    "EMSX_BASKET_NUM",
 ]
 
 ROUTE_FIELDS = [

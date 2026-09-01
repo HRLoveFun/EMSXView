@@ -1,4 +1,6 @@
-export { getOrderHealth, getRouteHealth, computeIdleShare, isLazyOrder, maxHealth, compareHealth, getHealthColor, getHealthBg, getHealthLabel, HEALTH_LEVELS, HEALTH_RANK, HEALTH_PALETTE, LAZY_EXEMPT_STATUSES, type HealthLevel } from './health-palette';
+export { getOrderHealth, getRouteHealth, computeIdleShare, computeIdleShareByOrder, isLazyOrder, maxHealth, compareHealth, getHealthColor, getHealthBg, getHealthLabel, HEALTH_LEVELS, HEALTH_RANK, HEALTH_PALETTE, LAZY_EXEMPT_STATUSES, type HealthLevel } from './health-palette';
+// 父单可路由额度口径（与后端 batch_route_service 对齐），lib / components 共用
+export { PENDING_ROUTE_STATUSES, remainingOf } from './route-capacity';
 export { loadConditions, saveConditions, matchesAnyCondition, getOrderFlags, DEFAULT_CONDITIONS, CONDITION_DEFS, type MonitorConditions, type ConditionConfig, type BoolConditionConfig, type ConditionId } from './monitor-conditions';
 // P1-B4/C1: table-constants moved from @shared/lib/ (execution-only)
 export { ORDER_GROUP_BY_OPTIONS, ORDER_GROUP_BY_LABELS, ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, STATUS_OPTIONS, ORDER_TYPE_OPTIONS, ROUTE_STATUS_OPTIONS, type OrderGroupByValue, type RouteGroupByValue } from './table-constants';

@@ -9,6 +9,7 @@
 import type { Order, Route, OrderStatus } from '@execution/types'
 import type { MonitorConditions } from './monitor-conditions';
 import { matchesAnyCondition } from './monitor-conditions';
+import { PENDING_ROUTE_STATUSES, remainingOf } from './route-capacity';
 
 export type HealthLevel = 'critical' | 'warning' | 'info' | 'healthy';
 
@@ -66,8 +67,38 @@ export const LAZY_EXEMPT_STATUSES = new Set<OrderStatus>([
 ]);
 
 /**
+ * 批量计算各父单的可路由额度（idle），返回 orderId → idle 映射。
+ *
+ * idle = 父单剩余量（remainingQuantity）− 在途路由量（Σ pending route.working）。
+ * 供 MonitorBoard 等大列表场景复用，避免 O(N*M) 且消除重复实现。
+ */
+export function computeIdleShareByOrder(
+  orders: Order[],
+  routes: Route[],
+): Map<string, number> {
+  // 先按父单聚合在途量：只算 PENDING 状态，且取 working 而非 amount
+  // （amount = working + 已成交，父单 remaining 已扣过成交量，按 amount 扣会二次扣减）。
+  const pendingByOrderId = new Map<string, number>();
+  for (const r of routes) {
+    if (!PENDING_ROUTE_STATUSES.has(r.status)) continue;
+    const w = Number(r.working ?? 0);
+    if (!Number.isFinite(w) || w <= 0) continue;
+    const key = String(r.sequence);
+    pendingByOrderId.set(key, (pendingByOrderId.get(key) ?? 0) + w);
+  }
+
+  const result = new Map<string, number>();
+  for (const o of orders) {
+    const pending = pendingByOrderId.get(o.id) ?? 0;
+    result.set(o.id, Math.max(0, remainingOf(o) - pending));
+  }
+  return result;
+}
+
+/**
  * Compute idle share for an order given its routes. "Idle share" = parent
- * quantity that is neither filled on the parent nor placed on any route.
+ * quantity that is neither filled on the parent nor pending on any route
+ * — i.e. `remainingQuantity − Σ pending route.working`.
  * Safe fallback to 0 when route data is not yet available.
  */
 export function computeIdleShare(order: Order, routes: Route[] | undefined): number {
@@ -76,8 +107,7 @@ export function computeIdleShare(order: Order, routes: Route[] | undefined): num
     // so rule-2 does not falsely flag every order.
     return 0;
   }
-  const placed = routes.reduce((sum, r) => sum + (r.amount ?? 0), 0);
-  return Math.max(0, order.quantity - placed);
+  return computeIdleShareByOrder([order], routes).get(order.id) ?? 0;
 }
 
 export interface LazyContext {
