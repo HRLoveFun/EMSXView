@@ -67,8 +67,8 @@ export function BatchRouteOrderDialog({
           <DialogDescription>
             Pick brokers, set each broker's algo + params, then review qty
             splits per order. Order type and price are inherited from each
-            parent order. Each order's available capacity = idle
-            quantity − quantity already routed.
+            parent order. Each order's available capacity = parent remaining
+            quantity − quantity already routed (pending route working).
             Compliance (USD &lt; 10K / &gt; 49M, JP odd lot) is enforced
             server-side.
           </DialogDescription>
@@ -160,6 +160,7 @@ export function BatchRouteOrderDialog({
           phase={s.phase}
           ratios={s.ratios}
           effectiveRemainingOf={s.effectiveRemainingOf}
+          routedAmountOf={s.routedAmountOf}
           isBrokerAllowedFor={s.isBrokerAllowedFor}
           patchRow={s.patchRow}
           patchAlloc={s.patchAlloc}

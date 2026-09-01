@@ -53,6 +53,45 @@ BDIB_DEPENDENT_METRICS: frozenset[str] = frozenset({
     "perm_impact_bps",
 })
 
+#: 38 项指标为 NULL 时的结构性原因分类。
+#: 含义: "source"=源值层始终非空(无 NULL); "closing_auction"=全收盘竞价成交时 NULL(期望内);
+#: "single_fill"=单笔/同刻成交时 NULL(期望内); "bdib_cutoff"=成交落在 BDIB bar 覆盖窗口外(结构性);
+#: "bdib_missing"=该 ticker/date 完全无 BDIB bars(真缺口); "next_day_close"=缺次日 daily_close;
+#: "fx"=缺 fx_rate 回补。
+METRIC_NULL_REASON: dict[str, str] = {
+    # 原有 18 项
+    "fill_count": "source", "fill": "source", "fill_continuous": "source", "fill_close": "source",
+    "par_rate": "bdib_cutoff", "par_rate_continuous": "closing_auction", "par_rate_close": "bdib_cutoff",
+    "p_avg": "source", "p_avg_continuous": "closing_auction",
+    "pnl_vwap": "bdib_cutoff", "pnl_vwap_continuous": "closing_auction",
+    "RPM": "source", "RPM_continuous": "closing_auction",
+    "pwp_5": "bdib_cutoff", "pwp_10": "bdib_cutoff", "pwp_15": "bdib_cutoff",
+    "pwp_20": "bdib_cutoff", "pwp_25": "bdib_cutoff",
+    # Phase 0
+    "p_arrival": "bdib_missing", "p_close": "bdib_missing",
+    "arrival_cost_bps": "bdib_missing", "close_cost_bps": "bdib_missing",
+    "opportunity_cost": "bdib_missing",
+    # Phase 1
+    "p_decision": "bdib_missing", "delay_cost": "bdib_missing", "trading_cost": "bdib_missing",
+    "wagner_is": "bdib_missing", "wagner_is_bps": "bdib_missing",
+    "cost_stddev": "single_fill", "cost_p95": "single_fill", "cost_cvar": "single_fill",
+    "order_duration_sec": "single_fill", "exec_rate_shares_per_min": "single_fill",
+    "temp_impact_5min_bps": "bdib_cutoff", "temp_impact_10min_bps": "bdib_cutoff",
+    "temp_impact_30min_bps": "bdib_cutoff",
+    "perm_impact_bps": "next_day_close", "recovery_truncated": "source",
+    # 007
+    "fx_rate": "fx",
+}
+#: 期望内 NULL 豁免集合（closing_auction + single_fill 类指标，SLA 中应排除）
+EXPECTED_NULL_METRICS: frozenset[str] = frozenset({
+    m for m, r in METRIC_NULL_REASON.items() if r in ("closing_auction", "single_fill")
+})
+
+def metric_null_reasons(metrics: Optional[list[str]] = None) -> dict[str, str]:
+    """返回所选指标的 NULL 原因分类映射。"""
+    selected = validate_metrics(metrics) if metrics else list(COMPUTED_METRICS)
+    return {m: METRIC_NULL_REASON[m] for m in selected}
+
 
 def validate_metrics(metrics: Optional[list[str]]) -> list[str]:
     """校验并规范化指标子集；None/空列表表示全部 38 个指标。
@@ -115,6 +154,8 @@ class MetricCoverageService:
             "end_date": end_date,
             "metrics": selected,
             "bdib_dependent_metrics": [m for m in selected if m in BDIB_DEPENDENT_METRICS],
+            "null_reasons": metric_null_reasons(selected),
+            "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
             "rows": rows,
         }
@@ -190,6 +231,8 @@ class MetricCoverageService:
             "end_date": end_date,
             "metrics": selected,
             "bdib_dependent_metrics": [m for m in selected if m in BDIB_DEPENDENT_METRICS],
+            "null_reasons": metric_null_reasons(selected),
+            "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
             "rows": [],
             "data_source_warning": warning,
