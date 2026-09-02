@@ -1,0 +1,29 @@
+#!/bin/bash
+# post-checkout hook：
+# 1) git worktree add（old=全零）→ 打印新 worktree 就绪清单（依赖 / 端口 / 规范入口）
+# 2) 分支切换导致依赖清单变更 → 提示重装依赖
+# 非阻断 hook：任何异常均不影响 checkout 完成
+. "$(dirname "$0")/common.sh"
+
+old="$1" new="$2" flag="$3"
+
+# 文件级 checkout（flag=0）不处理
+if [ "$flag" != "1" ]; then
+    exit 0
+fi
+
+# 新 worktree 创建：输出就绪清单
+if is_zero_sha "$old"; then
+    hook_info "新 worktree 已创建，就绪清单："
+    hook_info "  1. 安装依赖: frontend -> npm install；backend -> pip install -r backend/api/requirements.txt"
+    hook_info "  2. 并行运行请错开端口: API_PORT / VITE_API_URL / MARKETVIEW_PORT / COSTVIEW_PORT（见 docs/spec/git-workflow.md §6.2）"
+    hook_info "  3. 完整工作流规范: docs/spec/git-workflow.md"
+    exit 0
+fi
+
+# 分支切换：依赖清单变更提示
+changed=$(deps_changed_between "$old" "$new")
+if [ -n "$changed" ]; then
+    hook_info "依赖清单已变更 ($changed)，请重装对应依赖后运行测试"
+fi
+exit 0
