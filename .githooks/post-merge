@@ -1,0 +1,9 @@
+#!/bin/bash
+# post-merge hook：git pull / merge 完成后，若依赖清单有变更则提示重装（非阻断）
+. "$(dirname "$0")/common.sh"
+
+changed=$(deps_changed_between "ORIG_HEAD" "HEAD")
+if [ -n "$changed" ]; then
+    hook_info "本次合并更新了依赖清单 ($changed)，请重装对应依赖"
+fi
+exit 0
