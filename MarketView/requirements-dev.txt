@@ -1,0 +1,6 @@
+# MarketView 服务测试依赖（开发用，生产无需安装）
+# 安装: pip install -r requirements-dev.txt
+# 版本与 backend/api/requirements.txt 的开发段保持一致
+
+pytest==7.4.4
+httpx==0.26.0
