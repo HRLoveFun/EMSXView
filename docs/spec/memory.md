@@ -19,6 +19,7 @@
 | Agent 编码规则 | `.codebuddy/rules/coding-style.md` |
 | Agent 上下文 | `.codebuddy/rules/project-context.md` |
 | 模块边界 | `.codebuddy/rules/module-boundary.md` |
+| Git 并行工作流 | `docs/spec/git-workflow.md` |
 
 ---
 
@@ -44,6 +45,7 @@
 | [ADR-0013](adr/0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | Accepted |
 | [ADR-0014](adr/0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | Accepted |
 | [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | Accepted |
+| [ADR-0700](adr/0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | Accepted |
 
 ---
 
@@ -59,6 +61,9 @@
 7. **本文件 `memory.md`** — 架构记忆入口
 8. `docs/spec/module-onboarding.md` — 新增模块流程
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
+10. `docs/spec/plan-design-principles.md` — ★ 计划设计原则（G0-G3 门控）
+11. `docs/spec/refactoring-methodology.md` — ★ 系统性安全重构框架
+12. `docs/spec/git-workflow.md` — Git 多任务并行工作流（Worktree SOP）
 
 > **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。本节原"额外阅读"的两份文件已转为历史档案：
 > - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数以 `DataPipeline/config.py` 的 Config 类为唯一真相源

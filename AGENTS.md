@@ -19,6 +19,7 @@
 9. `docs/spec/anti-patterns.md` — ★ 禁止模式
 10. `docs/spec/plan-design-principles.md` — ★ 计划设计原则（G0 数据零受损 / G1 三性齐备 / G2 全程防漂移 / G3 充分且必要）
 11. `docs/spec/refactoring-methodology.md` — ★ 系统性安全重构框架（10 步流程 + 门禁，重构前必读）
+12. `docs/spec/git-workflow.md` — Git 多任务并行工作流（★ Worktree SOP，多任务 / 多 Agent 并行前必读）
 
 > **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。以下两文件仅作历史记录保留，不再作为活跃必读：
 > - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数（`BDIB_PARQUET_ENABLED` / `BDIB_QUERY_ENGINE` / `PARTITION_DUAL_WRITE` / `PARTITION_READ_NEW` / `PROCESSED_RAW_BDIB_ENABLED` / 保留月数）以 `DataPipeline/config.py` 的 Config 类为唯一真相源
@@ -310,6 +311,16 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - 启动器算出项目根后**必须** `Assert-ProjectRootValid` 自检，错路径立即 throw，**禁止**进入 120s 超时黑盒
 - VBS 启动器只做 thin wrapper（隐藏窗口 + 调起 PS1），**禁止**在 VBS 内做路径深度计算或业务逻辑——`WScript.ScriptFullName` 含文件名、`$PSScriptRoot` 已是目录，两者语义不可复用同一套"向上 N 层"
 - 详见 [AP-16 启动器路径硬编码 + 跨宿主语义错位](docs/spec/anti-patterns.md#ap-16-启动器路径硬编码--跨宿主语义错位)
+
+### Git 多任务并行工作流（★ 2026-09-02，[ADR-0700](docs/spec/adr/0700-git-worktree-parallel-workflow.md)）
+
+- **核心方案**：Git Worktree + 独立 Feature 分支 + 每日 rebase origin/main；完整 SOP 见 [`docs/spec/git-workflow.md`](docs/spec/git-workflow.md)
+- **一任务一分支一目录**：每个任务在兄弟目录 `../EMSXView-wt-<task>` 检出独立分支，主工作树保持干净（停在 main）；规格化特性任务分支名必须与 `specs/<feature-id>/` 目录名一致（沿用 004-008 惯例）
+- **辅助脚本**（`scripts/devtools/`，经 `.emsxview-root` marker 自动定位根）：`wt-new.ps1`（建任务）、`wt-list.ps1`（总览）、`wt-sync.ps1`（每日 fetch + rebase）、`wt-finish.ps1`（校验合并后清理）
+- **同步纪律**：每个活跃任务每天至少一次 `git rebase origin/main`；临时保存用 commit，**禁止跨 worktree 使用 stash**（stash 为仓库级共享，极易拿错）
+- **数据零受损**：worktree 内 `CostView/data/` 默认为空（数据不入 git）；数据管道写入类任务同一时间只允许一个 worktree 执行，或各用独立 `EMSXVIEW_DATA_DIR`
+- **Agent 隔离**：一个 Agent 绑定一个 worktree，禁止跨 worktree 读写文件或操作其他任务正在使用的分支；功能代码禁止直接提交 main（PR + Squash merge）
+- 并行任务启动前必须先读 `docs/spec/git-workflow.md` §6（端口偏移 / 数据目录 / 依赖安装）与 §7（AI Agent 专项规则）
 
 ## 重构背景
 
