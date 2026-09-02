@@ -27,7 +27,10 @@ from CostView.src.monitoring import (
     TcaReportAggregator,
     ThresholdRules,
     TimeRange,
+    ANOMALY_RULE_META,
     fetch_latest_tca_date,
+    get_default_thresholds,
+    get_health_safe,
     render_report_html,
     resolve_time_range,
 )
@@ -100,10 +103,14 @@ async def get_bdib_health(
         return MonitoringResponse(success=True, data=cached, message="BDIB 健康（缓存）")
 
     try:
-        data = BdibHealthService().get_health(tr.start_date, tr.end_date)
+        data = get_health_safe(tr.start_date, tr.end_date, health_service=BdibHealthService)
     except Exception as exc:
         logger.error("BDIB 健康扫描失败: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"BDIB 健康扫描错误: {exc}")
+    if data is None:
+        raise HTTPException(
+            status_code=503, detail="BDIB 健康扫描超时，请稍后重试或缩小时间范围",
+        )
 
     await _cache.set(cache_key, data)
     summary = data["summary"]
@@ -121,7 +128,7 @@ async def get_metric_coverage(
     start_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
     end_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
     last: Optional[str] = Query(None, description=f"预设: {', '.join(LAST_PRESETS)}"),
-    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 18 个"),
+    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
     group_by_exchange: bool = Query(False, description="按 Exchange 分层"),
 ):
     """指标覆盖率：按日期（可选 ×Exchange）统计各指标非 NULL 率。"""
@@ -163,14 +170,27 @@ async def get_report_summary(
     algo: Optional[str] = Query(None, max_length=50),
     symbol: Optional[str] = Query(None, max_length=100),
     exchange: Optional[str] = Query(None, max_length=20),
-    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 18 个"),
+    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
+    thresholds: Optional[str] = Query(None, description="JSON 阈值规则覆盖（异常路由明细判定，与 export-html 同契约）"),
+    min_fill_count: int = Query(10, ge=0, description="异常路由填充笔数下限（仅对 algo<>close 生效）"),
+    min_notional_usd: float = Query(10000.0, ge=0, description="异常路由成交金额(USD)下限（对全部路由生效）"),
 ):
     """TCA 报告聚合：KPI、分布直方图、按日走势、broker/algo 排行、PWP 曲线。"""
     tr = _resolve_range(start_date, end_date, last)
     selected = _parse_metrics(metrics)
+
+    # 008: 阈值规则随查询解析（None/空 → 默认阈值），页面异常明细与用户配置对齐
+    try:
+        rules = ThresholdRules.from_payload(_parse_thresholds(thresholds))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
+
     params = {
         "start": tr.start_date, "end": tr.end_date, "broker": broker,
         "algo": algo, "symbol": symbol, "exchange": exchange, "metrics": selected,
+        # 缓存 key 纳入解析后的阈值（sort_keys 归一化；默认阈值与未传等价同 key）
+        "thresholds": rules.rules,
+        "min_fill_count": min_fill_count, "min_notional_usd": min_notional_usd,
     }
     cache_key = TcaCacheManager.make_key("monitoring:report-summary", params)
 
@@ -182,7 +202,8 @@ async def get_report_summary(
         data = TcaReportAggregator().build_report(
             tr.start_date, tr.end_date,
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
-            metrics=selected,
+            metrics=selected, thresholds=rules.rules,
+            min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -198,6 +219,25 @@ async def get_report_summary(
     )
 
 
+@router.get("/api/tca/monitoring/anomaly-thresholds", response_model=MonitoringResponse)
+async def get_anomaly_thresholds():
+    """异常路由判定阈值与规则元数据（后端为唯一真相源）。
+
+    前端 Configure / 首装 seed 从此拉取默认阈值与规则标签、指标字段、缩放系数，
+    避免前后端双份维护漂移。返回结构：
+      data.rules      — 默认阈值（mode/warning/critical/enabled）
+      data.rule_meta  — 规则键 → 中文标签 / 指标字段 / 缩放系数
+    """
+    return MonitoringResponse(
+        success=True,
+        data={
+            "rules": get_default_thresholds(),
+            "rule_meta": ANOMALY_RULE_META,
+        },
+        message="异常路由判定默认阈值",
+    )
+
+
 @router.get("/api/tca/monitoring/export-html")
 async def export_tca_html(
     start_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
@@ -209,6 +249,8 @@ async def export_tca_html(
     exchange: Optional[str] = Query(None, max_length=20),
     metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
     thresholds: Optional[str] = Query(None, description="JSON 阈值规则覆盖（S6 明细判定）"),
+    min_fill_count: int = Query(10, ge=0, description="异常路由填充笔数下限（仅对 algo<>close 生效）"),
+    min_notional_usd: float = Query(10000.0, ge=0, description="异常路由成交金额(USD)下限（对全部路由生效）"),
 ):
     """导出自包含 HTML 报告（附件下载，文件名 tca_report_<start>_<end>.html）。
 
@@ -228,7 +270,7 @@ async def export_tca_html(
         report = TcaReportAggregator().build_report(
             tr.start_date, tr.end_date,
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
-            metrics=selected, thresholds=rules.rules,
+            metrics=selected, thresholds=rules.rules, min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
         )
         health = _load_health_appendix(tr.start_date, tr.end_date)
     except ValueError as exc:
@@ -264,9 +306,6 @@ def _parse_thresholds(raw: Optional[str]) -> Optional[dict]:
 
 
 def _load_health_appendix(start_date: str, end_date: str) -> Optional[dict]:
-    """加载 BDIB 健康数据作附录；失败降级为 None 不阻断报告。"""
-    try:
-        return BdibHealthService().get_health(start_date, end_date)
-    except Exception as exc:
-        logger.warning("BDIB 健康附录加载失败（跳过）: %s", exc)
-        return None
+    """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告），
+    超时/失败降级为 None 不阻断报告。"""
+    return get_health_safe(start_date, end_date, timeout=12.0, health_service=BdibHealthService)

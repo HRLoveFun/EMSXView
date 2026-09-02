@@ -13,8 +13,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'tracking_error_bps',
     label: 'Tracking Error',
     mode: 'absolute-above',
-    warningThreshold: 10,
-    criticalThreshold: 25,
+    threshold: 10,
     enabled: true,
     decimals: 1,
     unit: 'bps',
@@ -24,8 +23,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'fill_pct',
     label: 'Fill %',
     mode: 'below',
-    warningThreshold: 80,
-    criticalThreshold: 50,
+    threshold: 80,
     enabled: true,
     decimals: 1,
     unit: 'percent',
@@ -35,8 +33,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'volume_pct_adv20',
     label: 'Vol % ADV20',
     mode: 'above',
-    warningThreshold: 5,
-    criticalThreshold: 10,
+    threshold: 5,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -46,8 +43,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'volume_pct_interval',
     label: 'Vol % Interval',
     mode: 'above',
-    warningThreshold: 20,
-    criticalThreshold: 35,
+    threshold: 20,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -57,8 +53,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'intraday_volatility',
     label: 'Intraday Volatility',
     mode: 'above',
-    warningThreshold: 2.5,
-    criticalThreshold: 4,
+    threshold: 2.5,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -68,8 +63,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'price_movement_pct',
     label: 'Price Move',
     mode: 'absolute-above',
-    warningThreshold: 1,
-    criticalThreshold: 2.5,
+    threshold: 1,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -91,6 +85,8 @@ export function createDefaultCostViewConfig(): CostViewConfig {
     rules: structuredClone(DEFAULT_RULES),
     exportDefaults: { ...DEFAULT_EXPORTS },
     reportExchanges: [...DEFAULT_REPORT_EXCHANGES],
+    minFillCount: 10,
+    minNotionalUsd: 10000,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -127,14 +123,10 @@ export function evaluateThreshold(
   const value = rule.mode === 'absolute-above' ? Math.abs(rawValue) : rawValue;
 
   if (rule.mode === 'below') {
-    if (value <= rule.criticalThreshold) return 'critical';
-    if (value <= rule.warningThreshold) return 'warning';
-    return 'normal';
+    return value <= rule.threshold ? 'critical' : 'normal';
   }
 
-  if (value >= rule.criticalThreshold) return 'critical';
-  if (value >= rule.warningThreshold) return 'warning';
-  return 'normal';
+  return value >= rule.threshold ? 'critical' : 'normal';
 }
 
 export function getOrderAlertDetails(
@@ -146,7 +138,7 @@ export function getOrderAlertDetails(
   for (const rule of Object.values(config.rules)) {
     const value = getMetricValue(route, rule.key);
     const severity = evaluateThreshold(rule, value);
-    if ((severity === 'warning' || severity === 'critical') && value != null) {
+    if (severity === 'critical' && value != null) {
       entries.push({
         key: rule.key,
         label: rule.label,
@@ -167,7 +159,6 @@ export function getHighestOrderSeverity(
     .map((rule) => evaluateThreshold(rule, getMetricValue(route, rule.key)));
 
   if (severities.includes('critical')) return 'critical';
-  if (severities.includes('warning')) return 'warning';
   if (severities.includes('normal')) return 'normal';
   return 'none';
 }
@@ -201,7 +192,7 @@ export function getSeverityText(severity: AlertSeverity): string {
 export function countAlertOrders(routes: TcaRouteSummary[], config: CostViewConfig): number {
   return routes.filter((route) => {
     const severity = getHighestOrderSeverity(route, config);
-    return severity === 'warning' || severity === 'critical';
+    return severity === 'critical';
   }).length;
 }
 
@@ -241,7 +232,6 @@ export function evaluateCohortSeverity(
     evaluateThreshold(config.rules.price_movement_pct, cohort.avg_price_movement_pct ?? null),
   ];
   if (severities.includes('critical')) return 'critical';
-  if (severities.includes('warning')) return 'warning';
   if (severities.includes('normal')) return 'normal';
   return 'none';
 }
@@ -265,4 +255,23 @@ export function formatAnomalyFlag(flag: string): string {
     default:
       return flag.replaceAll('_', ' ');
   }
+}
+
+/**
+ * 008: 以后端默认阈值合并覆盖本地规则。保留本地规则的中文标签 / 描述 / 小数位 / 单位，
+ * 仅用后端值覆盖 mode / warning / critical / enabled（后端为唯一真相源，双份维护防漂移）。
+ */
+export function mergeBackendThresholds(
+  backendRules: Record<string, { mode: ThresholdRule['mode']; threshold: number; enabled: boolean }>,
+): Record<CostViewMetricKey, ThresholdRule> {
+  const base = createDefaultCostViewConfig().rules;
+  const next = {} as Record<CostViewMetricKey, ThresholdRule>;
+  for (const key of Object.keys(base) as CostViewMetricKey[]) {
+    const backend = backendRules[key];
+    const local = base[key];
+    next[key] = backend
+      ? { ...local, mode: backend.mode, threshold: backend.threshold, enabled: backend.enabled }
+      : local;
+  }
+  return next;
 }

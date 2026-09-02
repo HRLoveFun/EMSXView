@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { BdibHealthStatus, MetricCoverageRow } from '../types';
-import { BDIB_DEPENDENT_METRICS, METRIC_LABELS } from '../lib/monitoring-metrics';
+import { BDIB_DEPENDENT_METRICS, EXPECTED_NULL_METRICS, METRIC_LABELS, METRIC_NULL_REASON } from '../lib/monitoring-metrics';
 
 interface CoverageHeatmapProps {
   /** 覆盖率行（按日期升序） */
@@ -11,8 +11,9 @@ interface CoverageHeatmapProps {
   bdibStatusByDate?: Map<string, BdibHealthStatus>;
 }
 
-/** 覆盖率 → 单元格背景色（Tailwind arbitrary 值，由深红到深绿渐变） */
-const coverageColor = (pct: number | null): string => {
+/** 覆盖率 → 单元格背景色（Tailwind arbitrary 值，由深红到深绿渐变）；期望内指标统一灰色 */
+const coverageColor = (pct: number | null, expected: boolean): string => {
+  if (expected) return 'bg-slate-800/50 text-slate-400';
   if (pct == null) return 'bg-muted/30 text-muted-foreground';
   if (pct >= 99) return 'bg-emerald-900/60 text-emerald-300';
   if (pct >= 90) return 'bg-lime-900/50 text-lime-300';
@@ -28,11 +29,12 @@ const BDIB_STATUS_LABELS: Record<BdibHealthStatus, string> = {
   unrecoverable: 'BDIB 缺失（不可回补）',
 };
 
-/** 单元格 tooltip 文本：覆盖率 + NULL 数 + BDIB 归因 */
+/** 单元格 tooltip 文本：覆盖率 + NULL 数 + 原因归因 */
 const cellTitle = (
   row: MetricCoverageRow,
   metric: string,
   bdibStatus?: BdibHealthStatus,
+  nullReason?: string,
 ): string => {
   const pct = row.coverage[metric];
   const nulls = row.null_counts[metric] ?? 0;
@@ -40,6 +42,7 @@ const cellTitle = (
     `${row.date} · ${metric}${METRIC_LABELS[metric] ? `（${METRIC_LABELS[metric]}）` : ''}`,
     `覆盖率: ${pct == null ? '—' : `${pct.toFixed(1)}%`}（NULL ${nulls}/${row.total_routes}）`,
   ];
+  if (nullReason) lines.push(`归因: ${nullReason}`);
   if (bdibStatus && BDIB_DEPENDENT_METRICS.has(metric)) {
     lines.push(`BDIB 状态: ${BDIB_STATUS_LABELS[bdibStatus]}`);
   }
@@ -69,12 +72,16 @@ export function CoverageHeatmap({ rows, metrics, bdibStatusByDate }: CoverageHea
             <th className="sticky left-0 bg-card px-2 py-1.5 text-left font-medium text-muted-foreground">
               日期
             </th>
-            {metrics.map((metric) => (
+          {metrics.map((metric) => {
+            const expected = EXPECTED_NULL_METRICS.has(metric);
+            return (
               <th key={metric} className="px-1 py-1.5 text-center font-medium text-muted-foreground" title={METRIC_LABELS[metric] ?? metric}>
                 {metric}
-                {BDIB_DEPENDENT_METRICS.has(metric) && <span className="text-sky-400">*</span>}
+                {expected && <span className="text-slate-500" title="期望内 NULL（SLA 豁免）">ⓘ</span>}
+                {BDIB_DEPENDENT_METRICS.has(metric) && !expected && <span className="text-sky-400">*</span>}
               </th>
-            ))}
+            );
+          })}
           </tr>
         </thead>
         <tbody>
@@ -89,13 +96,16 @@ export function CoverageHeatmap({ rows, metrics, bdibStatusByDate }: CoverageHea
                 </td>
                 {metrics.map((metric) => {
                   const pct = row.coverage[metric];
+                  const expected = EXPECTED_NULL_METRICS.has(metric);
+                  const nullReason = row.null_reasons?.[metric];
                   return (
                     <td
                       key={metric}
-                      className={`px-1 py-1 text-center tabular-nums ${coverageColor(pct)}`}
-                      title={cellTitle(row, metric, bdibStatus)}
+                      className={`px-1 py-1 text-center tabular-nums ${coverageColor(pct, expected)}`}
+                      title={cellTitle(row, metric, bdibStatus, expected ? '期望内 NULL' : nullReason)}
                     >
                       {pct == null ? '—' : pct.toFixed(0)}
+                      {expected && <span className="text-slate-500 text-[9px] ml-0.5">ⓘ</span>}
                     </td>
                   );
                 })}
@@ -105,7 +115,7 @@ export function CoverageHeatmap({ rows, metrics, bdibStatusByDate }: CoverageHea
         </tbody>
       </table>
       <p className="mt-2 text-xs text-muted-foreground">
-        单元格数值为覆盖率（%），<span className="text-sky-400">*</span> 表示依赖 BDIB 行情的指标；悬停查看 NULL 计数与 BDIB 归因。
+        单元格数值为覆盖率（%），<span className="text-sky-400">*</span> 表示依赖 BDIB 行情的指标；<span className="text-slate-500">ⓘ</span> 表示期望内 NULL（SLA 豁免）；悬停查看 NULL 计数与归因。
       </p>
     </div>
   );
