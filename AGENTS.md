@@ -216,7 +216,7 @@ connection、debug、mappings
 
 S3 阶段额外预计算 `tca_route_summary` 路由汇总表（`DataPipeline/processing/tca_route_metrics.py`），将路由层级 TCA 指标（VWAP 偏离、实现价差、fill_count 等）从订单层级实时计算改为管道批处理预计算，CostView 查询直接读取汇总表。
 
-所有管道配置集中于 `DataPipeline/config.py`（Config 类，含数据库路径、表名、日期格式）。数据目录可通过 `EMSXVIEW_DATA_DIR` 环境变量配置，默认为 `CostView/data`。
+所有管道配置集中于 `DataPipeline/config.py`（Config 类，含数据库路径、表名、日期格式）。数据目录可通过 `EMSXVIEW_DATA_DIR` 环境变量配置；**默认外置于项目外** `~\EMSXViewData\data`（详见 [ADR-0016](docs/spec/adr/0016-external-data-store-readonly-split.md)）。API/查询/监控进程以 `AccessTier.READ` 物理只读连接消费数据，数据管道与运维脚本是**唯一写入通道**。旧布局 `CostView/data` 仅在显式 `EMSXVIEW_DATA_DIR` 指回时生效，迁移用 `python scripts/ops/migrate_data_dir.py --dry-run` 先预检。
 
 ### platform_data/ — 跨模块适配器
 

@@ -111,8 +111,21 @@ class _ConnectionManagerDailySummaryReader:
         """Return the latest available daily-summary rows as a DataFrame."""
         import pandas as pd
 
-        conn = self._mgr.get_connection("raw_bdib", AccessTier.READ)
+        empty = pd.DataFrame(
+            columns=[
+                "equ_ticker",
+                "trade_date",
+                "total_volume",
+                "daily_close",
+                "daily_volatility",
+                "intraday_volatility",
+                "adv_5d",
+                "adv_20d",
+            ]
+        )
+        conn = None
         try:
+            conn = self._mgr.get_connection("raw_bdib", AccessTier.READ)
             resolved_trade_date = trade_date
             if not resolved_trade_date:
                 cursor = conn.execute(
@@ -121,18 +134,7 @@ class _ConnectionManagerDailySummaryReader:
                 resolved_trade_date = cursor.fetchone()[0]
 
             if not resolved_trade_date:
-                return pd.DataFrame(
-                    columns=[
-                        "equ_ticker",
-                        "trade_date",
-                        "total_volume",
-                        "daily_close",
-                        "daily_volatility",
-                        "intraday_volatility",
-                        "adv_5d",
-                        "adv_20d",
-                    ]
-                )
+                return empty
 
             return pd.read_sql_query(
                 f"SELECT equ_ticker, trade_date, total_volume, daily_close, daily_volatility, "
@@ -144,8 +146,12 @@ class _ConnectionManagerDailySummaryReader:
                 conn.raw_connection,
                 params=[resolved_trade_date, limit],
             )
+        except FileNotFoundError:
+            # 只读模式下 raw_bdib.db 缺失 → 返回空 DataFrame（降级, 009）
+            return empty
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
 
 # ---------------------------------------------------------------------------
