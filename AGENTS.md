@@ -320,7 +320,7 @@ Docker Compose（生产）运行：backend（FastAPI :3000）、postgres（:5432
 - **同步纪律**：每个活跃任务每天至少一次 `git rebase origin/main`；临时保存用 commit，**禁止跨 worktree 使用 stash**（stash 为仓库级共享，极易拿错）
 - **数据零受损**：worktree 内 `CostView/data/` 默认为空（数据不入 git）；数据管道写入类任务同一时间只允许一个 worktree 执行，或各用独立 `EMSXVIEW_DATA_DIR`
 - **Agent 隔离**：一个 Agent 绑定一个 worktree，禁止跨 worktree 读写文件或操作其他任务正在使用的分支；功能代码禁止直接提交 main（PR + Squash merge）
-- **hook 自动化（§10）**：`.githooks/` 下 pre-commit（同步 + 门禁，阻断）/ post-checkout（worktree 就绪清单、依赖变更提示）/ post-merge（依赖变更提示）/ pre-push（main 直推提示，`EMSXVIEW_HOOK_BLOCK_MAIN=true` 时阻断），全部 hook 随 `core.hookspath` 对所有 worktree 自动生效；每日 rebase 可经 `scripts/devtools/wt-install-schedule.ps1` 注册 Windows 计划任务（工作日 09:00，日志 `logs/wt-sync-daily.log`）自动运行 `wt-sync.ps1`，仅快进 rebase、不清理
+- **hook 自动化（§10）**：`.githooks/` 下 pre-commit（同步 + 门禁，阻断）/ post-checkout（worktree 就绪清单、依赖变更提示）/ post-merge（依赖变更提示）/ pre-push（main 直推提示，`EMSXVIEW_HOOK_BLOCK_MAIN=true` 时阻断；推任务分支前检测落后 origin/main，默认仅提示，设 `EMSXVIEW_HOOK_AUTO_REBASE=true` 自动 rebase、冲突自动 abort 并阻断），全部 hook 随 `core.hookspath` 对所有 worktree 自动生效；每日 rebase 可经 `scripts/devtools/wt-install-schedule.ps1` 注册 Windows 计划任务（工作日 09:00，日志 `logs/wt-sync-daily.log`）自动运行 `wt-sync.ps1`，仅快进 rebase、不清理
 - 并行任务启动前必须先读 `docs/spec/git-workflow.md` §6（端口偏移 / 数据目录 / 依赖安装）与 §7（AI Agent 专项规则）
 
 ## 重构背景

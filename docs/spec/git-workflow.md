@@ -238,9 +238,11 @@ VITE_API_URL=http://localhost:3100         # 前端指向对应后端
 
 自动化遵循一条总原则：**事件类用 git hooks，时间类用定时任务，破坏性动作永不自动**。
 
+> rebase 会改写提交历史，默认不纳入自动化；`pre-push` 的自动 rebase 属**显式 opt-in**（`EMSXVIEW_HOOK_AUTO_REBASE=true`），且强制「冲突即 abort、不留中间态」，与 `wt-sync.ps1` 的保护逻辑同构，不视为破坏性自动动作。
+
 | 层 | 载体 | 覆盖场景 | 阻断性 |
 |---|---|---|---|
-| 事件自动化 | `.githooks/`（pre-commit / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、worktree 就绪清单、依赖变更提示、main 直推保护 | 仅 pre-commit 阻断，其余提示 |
+| 事件自动化 | `.githooks/`（pre-commit / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、worktree 就绪清单、依赖变更提示、main 直推保护、推送前落后检测 / 自动 rebase | pre-commit 阻断；pre-push 自动 rebase 成功后中断待重推、遇冲突阻断；其余提示 |
 | 时间自动化 | Windows 计划任务（`wt-install-schedule.ps1` 注册，工作日 09:00）运行 `wt-sync.ps1` | 每日 fetch + rebase（未提交自动跳过、冲突自动 abort），日志 `logs/wt-sync-daily.log` | 仅快进 rebase，不清理 |
 | 显式半自动 | `wt-new` / `wt-finish` | 创建 / 清理任务 | 有确认门禁（未合并拒绝移除） |
 | 永不自动 | — | 删除 worktree / 分支、merge 到 main、数据管道写入、`push -f` | 必须人工确认 |
@@ -251,7 +253,7 @@ VITE_API_URL=http://localhost:3100         # 前端指向对应后端
 - `pre-commit`（已有）：`AGENTS.md`↔`CODEBUDDY.md` 同步 + `quality_gate.py --staged` 增量快检（**阻断**）。
 - `post-checkout`：`git worktree add` 时输出新 worktree 就绪清单（依赖 / 端口 / 规范入口）；分支切换导致依赖清单（`package-lock.json` / 各 `requirements.txt`）变化时提示重装。非阻断。
 - `post-merge`：`git pull` / merge 更新依赖清单时提示重装。非阻断。
-- `pre-push`：直推 main 时提示（默认不阻断；设 `EMSXVIEW_HOOK_BLOCK_MAIN=true` 强制阻断）。
+- `pre-push`：直推 main 时提示（默认不阻断；设 `EMSXVIEW_HOOK_BLOCK_MAIN=true` 强制阻断）。推送任务分支前 fetch 并检测落后 `origin/main` 的提交数：默认仅提示、不阻断（保留 §4.3 WIP push 保存进度的场景）；设 `EMSXVIEW_HOOK_AUTO_REBASE=true` 后自动 rebase——成功则中断本次推送并提示重推（pre-push 无法改写待推 sha），冲突则 abort 恢复原状并阻断；脏工作树 / rebase 中间态 / 离线时静默跳过。与每日定时 `wt-sync.ps1` 互补：时间同步为主、push 前事件兜底。
 - 依赖提示默认仅打印、**不自动安装**（`npm install` / `pip install` 耗时且依赖本机环境，装错环境比漏装更糟）；如需自动安装可在 hook 中自行扩展。
 
 ### 定时同步任务

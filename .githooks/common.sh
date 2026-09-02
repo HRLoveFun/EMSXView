@@ -28,3 +28,15 @@ is_zero_sha() {
         *) return 1 ;;
     esac
 }
+
+# 判断工作树是否有未提交改动（含 staged 与 unstaged）
+is_worktree_dirty() {
+    [ -n "$(git status --porcelain)" ]
+}
+
+# 判断是否处于 rebase / merge 中间态（此时禁止叠加任何自动 rebase）
+is_sequencing_in_progress() {
+    [ -d "$(git rev-parse --git-path rebase-merge)" ] ||
+        [ -d "$(git rev-parse --git-path rebase-apply)" ] ||
+        [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]
+}
