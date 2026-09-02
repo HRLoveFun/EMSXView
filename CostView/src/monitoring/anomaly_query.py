@@ -215,8 +215,9 @@ def query_anomaly_routes(
     按 pnl_vwap 从负到正（成本由优到劣）升序排序，缺失 pnl_vwap 的路由排末尾。
     表不存在时返回空列表。
     """
-    conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+    conn = None
     try:
+        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
         cursor = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ? LIMIT 1",
             [Config.TCA_ROUTE_SUMMARY_TABLE],
@@ -261,8 +262,12 @@ def query_anomaly_routes(
             params = [start_date, end_date] + params
         cursor = conn.execute(sql, params)
         rows = [dict(zip([d[0] for d in cursor.description], r)) for r in cursor.fetchall()]
+    except FileNotFoundError:
+        # 只读模式下 fill_bdib.db 缺失 → 无异常路由（与表缺失同语义, 009）
+        return []
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     # 订单参与率：同一 OrderId 下所有路由 par_rate 之和（0-1 小数，可能 >1）
     order_par_sum: dict[str, float] = {}

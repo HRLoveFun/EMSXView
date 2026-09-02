@@ -237,7 +237,11 @@ def get_filter_options(
     owns_conn = conn is None
     if conn is None:
         mgr = mgr or ConnectionManager()
-        conn = mgr.get_connection(DB_FILL_BDIB, AccessTier.READ)
+        try:
+            conn = mgr.get_connection(DB_FILL_BDIB, AccessTier.READ)
+        except FileNotFoundError:
+            # 只读模式下 fill_bdib.db 缺失 → 维度表不可用，调用方回退（009）
+            return None
     try:
         if not _dims_table_ready(conn):
             return None

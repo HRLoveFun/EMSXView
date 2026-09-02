@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 
 from DataPipeline.common.exchange_tz import batch_convert_ny_to_local
+from DataPipeline.config import Config
 from DataPipeline.processing.fill_aggregator import generate_agg_fills_10s
 from DataPipeline.processing.fill_cleaner import derive_exchange_times
 from DataPipeline.ingestion.fill_ingestion import process_raw_fills_for_date
@@ -261,6 +262,19 @@ class TestStage2CrossDayProcessing:
     order_as_of_date trading days. After the fix, S2 processes by
     order_as_of_date, accepting YYYYMMDD input that maps to the underlying
     ISO date stored in raw_fills."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_without_real_data(self):
+        """009-external-data-store：READ 连接不再隐式建空库。
+
+        本组为真实数据集成测试（断言 raw_fills 至少有一行），在空数据
+        环境（worktree / CI / 未迁移数据目录）下直接跳过而非报错。
+        """
+        if not Config.RAW_FILLS_DB.exists():
+            pytest.skip(
+                "raw_fills.db 不存在（空数据环境）——跳过真实数据集成测试"
+            )
+        yield
 
     def test_distinct_order_as_of_dates_returns_yyyymmdd(self):
         """get_distinct_order_as_of_dates must return YYYYMMDD short form.
