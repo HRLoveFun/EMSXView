@@ -77,8 +77,9 @@ class TcaReportAggregator:
         where_no_exchange, params_no_exchange = self._build_where(
             start_date, end_date, broker, algo, symbol, None,
         )
-        conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+        conn = None
         try:
+            conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
             if not self._table_exists(conn):
                 return self._empty_report(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
@@ -111,8 +112,14 @@ class TcaReportAggregator:
                 "extra_kpis": self._query_extra_kpis(conn, where, params),
                 "impact_breakdown": self._query_impact_breakdown(conn, where, params),
             }
+        except FileNotFoundError:
+            # 只读模式下 fill_bdib.db 缺失 → 空报告（与表缺失同语义, 009）
+            return self._empty_report(
+                start_date, end_date, broker, algo, symbol, exchange, selected,
+            )
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
         # 附加所选指标的覆盖率小节（复用覆盖率服务，口径与监控页一致）
         report["metric_coverage"] = MetricCoverageService(self._mgr).get_coverage(

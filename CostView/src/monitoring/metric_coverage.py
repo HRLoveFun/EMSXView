@@ -156,8 +156,9 @@ class MetricCoverageService:
             表不存在时 rows 为空并附 data_source_warning。
         """
         selected = validate_metrics(metrics)
-        conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+        conn = None
         try:
+            conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
             if not self._table_exists(conn):
                 return self._empty_result(
                     start_date, end_date, selected, group_by_exchange,
@@ -166,8 +167,15 @@ class MetricCoverageService:
             rows = self._query_coverage(
                 conn, start_date, end_date, selected, group_by_exchange,
             )
+        except FileNotFoundError:
+            # 只读模式下 fill_bdib.db 缺失 → 空覆盖率（与表缺失同语义, 009）
+            return self._empty_result(
+                start_date, end_date, selected, group_by_exchange,
+                warning="tca_route_summary 不存在 — 请先运行管道 S5.5",
+            )
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
         return {
             "start_date": start_date,

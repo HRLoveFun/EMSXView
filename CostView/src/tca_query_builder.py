@@ -69,7 +69,11 @@ def get_time_series(
     order_ids = list({k[0] for k in route_keys})
     placeholders = ",".join(["?"] * len(order_ids))
 
-    conn = _fill_bdib_conn(mgr)
+    try:
+        conn = _fill_bdib_conn(mgr)
+    except FileNotFoundError:
+        # 只读模式下 fill_bdib.db 缺失 → 无时序数据（保持空结果降级语义, 009）
+        return {}
     try:
         sql = f"""
             SELECT
@@ -137,8 +141,12 @@ def _get_market_context_duckdb(
     from DataPipeline.storage.market_store import MarketStoreReader
     reader = MarketStoreReader(Config.BDIB_PARQUET_DIR)
 
-    conn = _raw_bdib_conn(mgr)
     ctx: dict[tuple[str, str], dict] = {}
+    try:
+        conn = _raw_bdib_conn(mgr)
+    except FileNotFoundError:
+        # 只读模式下 raw_bdib.db 缺失 → 无市场上下文（降级为空, 009）
+        return ctx
     try:
         for ticker, trade_date in tickers_and_dates:
             row: dict = {}
@@ -247,8 +255,12 @@ def _get_market_context_sqlite(
     if not tickers_and_dates:
         return {}
 
-    conn = _raw_bdib_conn(mgr)
     ctx: dict[tuple[str, str], dict] = {}
+    try:
+        conn = _raw_bdib_conn(mgr)
+    except FileNotFoundError:
+        # 只读模式下 raw_bdib.db 缺失 → 无市场上下文（降级为空, 009）
+        return ctx
     try:
         for ticker, trade_date in tickers_and_dates:
             row: dict = {}
@@ -395,7 +407,11 @@ def get_tca_route_summaries(
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    conn = _fill_bdib_conn(mgr)
+    try:
+        conn = _fill_bdib_conn(mgr)
+    except FileNotFoundError:
+        # 只读模式下 fill_bdib.db 缺失 → tca_route_summary 无数据（降级为空页, 009）
+        return [], 0
     try:
         if not _table_exists(conn, Config.TCA_ROUTE_SUMMARY_TABLE):
             return [], 0
