@@ -8,14 +8,23 @@ Usage::
     date_fmt = Config.DATE_FORMAT
     table = Config.PROCESSED_FILLS_TABLE
 
-Data directory is configurable via the ``EMSXVIEW_DATA_DIR`` environment variable.
-When not set the default ``{PROJECT_ROOT}/CostView/data`` is used (backwards
-compatible with the legacy layout).
+Data directory resolution (009-external-data-store):
+
+1. ``EMSXVIEW_DATA_DIR`` environment variable (explicit override, wins).
+2. Default: project-external ``~/EMSXViewData/data`` — 数据库与代码树解耦，
+   worktree/重新 clone 后数据不再丢失。
+
+Legacy layout ``{PROJECT_ROOT}/CostView/data`` is only used when the caller
+explicitly sets ``EMSXVIEW_DATA_DIR`` to it. If the legacy directory still
+holds ``*.db`` files while the resolved default directory is used, a
+``UserWarning`` is emitted at import time to prompt running
+``scripts/ops/migrate_data_dir.py``.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -44,12 +53,12 @@ DB_TICKER_REGISTRY = "ticker_registry"
 class Config:
     _PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 
-    # Configurable data root; defaults to the legacy CostView/data layout.
-    # Set EMSXVIEW_DATA_DIR to relocate all SQLite files to a shared location
-    # (e.g. ``EMSXView/data/``) without changing any consumer code.
-    DATA_DIR: Path = Path(
-        os.getenv("EMSXVIEW_DATA_DIR", str(_PROJECT_ROOT / "CostView" / "data"))
-    )
+    # ── 数据目录解析（009-external-data-store）────────────────────────────
+    # 优先级：EMSXVIEW_DATA_DIR 环境变量 > 项目外默认值 ~/EMSXViewData/data。
+    # 旧布局 {PROJECT_ROOT}/CostView/data 仅在显式设置环境变量指回时生效。
+    DEFAULT_DATA_DIR: Path = Path.home() / "EMSXViewData" / "data"
+    LEGACY_DATA_DIR: Path = _PROJECT_ROOT / "CostView" / "data"
+    DATA_DIR: Path = Path(os.getenv("EMSXVIEW_DATA_DIR", str(DEFAULT_DATA_DIR)))
     LOGGING_DIR: Path = _PROJECT_ROOT / "logs" / "pipeline"
     RAW_EXCEL_DIR: Path = DATA_DIR / "fills"
 
@@ -325,4 +334,30 @@ def _validate_config() -> None:
         )
 
 
+def _warn_legacy_data_dir() -> None:
+    """旧项目内数据目录仍有数据库文件时提示迁移 (009-external-data-store)。
+
+    仅告警不阻塞 (fail-visible 而非 fail-hard)：
+    - 调用方显式设置 EMSXVIEW_DATA_DIR 指回旧目录 → 尊重选择，不告警；
+    - 旧目录存在但已无 *.db 文件（已迁移/清理）→ 不告警；
+    - 旧目录仍有 *.db 且当前走项目外默认值 → 提示运行迁移脚本。
+    """
+    if Config.DATA_DIR == Config.LEGACY_DATA_DIR:
+        return
+    if not Config.LEGACY_DATA_DIR.is_dir():
+        return
+    legacy_dbs = list(Config.LEGACY_DATA_DIR.glob("*.db"))
+    if not legacy_dbs:
+        return
+    warnings.warn(
+        f"检测到旧数据目录 {Config.LEGACY_DATA_DIR} 仍包含 {len(legacy_dbs)} 个数据库文件"
+        f"（如 {legacy_dbs[0].name}），而当前数据目录为 {Config.DATA_DIR}。"
+        f"若为首次升级，请运行: python scripts/ops/migrate_data_dir.py --dry-run "
+        f"(009-external-data-store, 详见 specs/009-external-data-store/plan.md)",
+        UserWarning,
+        stacklevel=2,
+    )
+
+
 _validate_config()
+_warn_legacy_data_dir()

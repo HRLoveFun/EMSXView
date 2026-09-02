@@ -28,7 +28,7 @@
 - 业务代码**禁止**硬编码 `'*.db'` / 表名字面量
 
 环境变量：
-- `EMSXVIEW_DATA_DIR`：数据根目录（默认 `CostView/data`）
+- `EMSXVIEW_DATA_DIR`：数据根目录。**默认已外置于项目外** `~\EMSXViewData\data`（见 [ADR-0016](0016-external-data-store-readonly-split.md)）；设此变量可显式覆盖（含指回旧布局 `CostView/data`）。
 
 ## 后果 (Conceptions)
 

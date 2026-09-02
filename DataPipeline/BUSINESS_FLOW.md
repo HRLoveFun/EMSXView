@@ -393,7 +393,7 @@ FinancialPipeline  ──wrap──▶  GuardPipeline.run(context)
 | `execution_history` | `execution_history.db` | `route_registry`、`route_history`、`route_event_history`（`order_history` 是 `route_history` 的 VIEW 派生，无独立物理表） | S1（写 `route_history` / `route_event_history`） | CostView |
 | `ticker_registry` | `ticker_registry.db` | `equ_ticker_registry`、`ccy_ticker_registry`、`order_label`、`eur_composite_ticker_cache` | S1/S3 | S4/S5/S6 |
 
-> 数据根目录由 `EMSXVIEW_DATA_DIR` 环境变量覆盖；默认 `CostView/data`（向后兼容）。
+> 数据根目录由 `EMSXVIEW_DATA_DIR` 环境变量覆盖；**默认外置于项目外** `~\EMSXViewData\data`（详见 [ADR-0016](docs/spec/adr/0016-external-data-store-readonly-split.md)）。读取方（API / 查询 / 监控）以 `AccessTier.READ`（`mode=ro`）物理只读消费，数据管道与运维脚本是唯一写入通道。
 
 ### 5.2 连接管理关键约定
 
@@ -502,7 +502,7 @@ order_label (S4) ── ticker_registry.db ─┐                       │
 
 | 类别 | 关键开关 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| 数据根 | `DATA_DIR` | `CostView/data` | 通过 `EMSXVIEW_DATA_DIR` 覆盖 |
+| 数据根 | `DATA_DIR` | `~\EMSXViewData\data`（项目外，见 ADR-0016） | 通过 `EMSXVIEW_DATA_DIR` 覆盖 |
 | 拉取范围 | `FIRST_RUN_LOOKBACK_DAYS` | 60 | 首跑回溯天数 |
 | BDIB | `BDIB_EXCHANGE` | 25 个交易所（含 HK 业务保留，2026-07-16 后从 33 个缩减） | 拉取白名单 |
 | BDIB | `BDIB_LATEST_READY_HOUR_LOCAL` | 8 | 当日 BDIB 安全就绪小时 |
