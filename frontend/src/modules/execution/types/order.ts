@@ -72,6 +72,10 @@ export interface Order {
   scheduleType?: import('./parent-execution').ScheduleType | null;
   scheduleStatus?: import('./parent-execution').ExecutionStatus | null;
   childRouteCount?: number | null;
+  /** 所属篮子名称（EMSX_BASKET_NAME），未挂篮子为空字符串 */
+  basketName?: string;
+  /** 所属篮子编号（EMSX_BASKET_NUM），未挂篮子为 null */
+  basketNum?: number | null;
 }
 
 export interface Route {

@@ -22,14 +22,16 @@ from .metric_coverage import (
     MetricCoverageService,
     validate_metrics,
 )
-from .bdib_health import BdibHealthService, BdibHealthStatus
+from .bdib_health import BdibHealthService, BdibHealthStatus, get_health_safe
 from .report_aggregator import TcaReportAggregator
 from .tca_report_html import render_report_html
 from .anomaly_query import (
+    ANOMALY_RULE_META,
     DEFAULT_THRESHOLDS,
     AnomalyRoute,
     ThresholdRules,
     evaluate_route_thresholds,
+    get_default_thresholds,
     query_anomaly_routes,
 )
 from .report_dims import (
@@ -50,12 +52,15 @@ __all__ = [
     "validate_metrics",
     "BdibHealthService",
     "BdibHealthStatus",
+    "get_health_safe",
     "TcaReportAggregator",
     "render_report_html",
     "DEFAULT_THRESHOLDS",
     "AnomalyRoute",
     "ThresholdRules",
     "evaluate_route_thresholds",
+    "get_default_thresholds",
+    "ANOMALY_RULE_META",
     "query_anomaly_routes",
     "DIM_COLUMNS",
     "ensure_schema",

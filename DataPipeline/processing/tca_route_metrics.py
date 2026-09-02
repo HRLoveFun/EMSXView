@@ -1,7 +1,15 @@
 """TCA 路由级指标计算引擎。
 
-负责从 raw_fills、processed_fills 和 raw_bdib 计算新 schema 的 34 个字段
-（17 个源值 + 17 个计算指标），并组装为 tca_route_summary 表的数据。
+负责从 raw_fills、processed_fills 和 raw_bdib 计算新 schema 的字段
+（17 个源值 + 计算指标），并组装为 tca_route_summary 表的数据。
+
+★ bar 时间戳区间语义（2026-09 覆盖率修复固化）：
+    BDIB bar 的时间戳为区间起点 —— 末 bar 覆盖 [timestamp, 收盘竞价结束)，
+    已包含收盘竞价时段的全部成交量（xbbg bdib day session 不返回独立竞价
+    bar）；fill 时间戳为成交回报时刻，可能晚于竞价结束（回报链路延迟）。
+    因此纯竞价路由（fill 晚于全部 bar）的窗口计算钳制到末 bar，见
+    ``_is_auction_fill`` / ``_last_bar_window``；禁止再按时间点语义将
+    竞价时段成交判定为"窗口越界"。
 """
 
 from __future__ import annotations
@@ -327,6 +335,10 @@ def _compute_route_metrics(
         # 时间戳晚于 bdib 末行导致窗口越界
         full_end_time = _min_time(last_fill_time, last_bdib_time)
         full_window = _slice_bars(all_bars, first_fill_time, full_end_time)
+        # bar 语义对齐：纯竞价路由的 fill 时间戳（含回报延迟）晚于全部 bar，
+        # 时间点切片为空；末 bar 覆盖区间已含竞价成交量，市场分母钳制到末 bar
+        if full_window is None and _is_auction_fill(first_fill_time, last_bdib_time, exchange_code):
+            full_window = _last_bar_window(all_bars)
 
         # par_rate_continuous：保持原有逻辑（首笔 fill → 首笔 closing auction fill，不含）
         continuous_window = _slice_bars(all_bars, first_fill_time, first_close_time, inclusive_end=False)
@@ -463,11 +475,16 @@ def _weighted_average(df: pd.DataFrame, value_col: str, weight_col: str) -> Opti
 
 
 def _pnl_side_sign(side: str) -> int:
-    """PnL 约定：Buy=+1, Sell=-1。"""
+    """PnL 约定：Buy=-1, Sell=+1（负=差，与 PnL 指标一致）。
+
+    与 _pnl_in_bps 配合：benchmark 在前、execution 在后，
+    (execution / benchmark - 1) * side_sign * 10000 即 PnL 符号
+    （负=跑输基准，正=跑赢基准）。
+    """
     if side.startswith("B"):
-        return 1
-    if side.startswith("S"):
         return -1
+    if side.startswith("S"):
+        return 1
     return 0
 
 
@@ -476,10 +493,14 @@ def _pnl_in_bps(
     execution_price: Optional[float],
     side_sign: int,
 ) -> Optional[float]:
-    """计算 (benchmark / execution_price - 1) * side_sign * 10000 bps。"""
-    if benchmark is None or execution_price is None or execution_price == 0 or side_sign == 0:
+    """计算 (execution_price / benchmark - 1) * side_sign * 10000 bps。
+
+    PnL 约定：负=跑输基准（差），正=跑赢基准（优）。
+    benchmark 为基准价（到达价/收盘价/VWAP/恢复价），execution_price 为成交均价。
+    """
+    if benchmark is None or benchmark == 0 or execution_price is None or side_sign == 0:
         return None
-    return (benchmark / execution_price - 1.0) * side_sign * 10000.0
+    return (execution_price / benchmark - 1.0) * side_sign * 10000.0
 
 
 def _get_first_fill_time(fills: pd.DataFrame, exchange_code: Optional[str]) -> Optional[str]:
@@ -529,6 +550,48 @@ def _min_time(a: Optional[str], b: Optional[str]) -> Optional[str]:
     return min(a, b)
 
 
+#: 竞价成交回报延迟容差（分钟）：fill 时间戳可能晚于竞价结束时刻（回报链路延迟），
+#: 容差内仍视为竞价时段成交；超出容差属异常数据，不触发末 bar fallback
+_AUCTION_FILL_TOLERANCE_MINUTES = 5
+
+
+def _last_bar_window(bars: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    """返回按时间排序后的末 bar（单根窗口）。
+
+    bar 时间戳为区间起点语义：末 bar 覆盖 [timestamp, 收盘竞价结束)，已包含
+    收盘竞价时段的全部成交量。纯竞价路由（fill 时间戳晚于全部 bar）的市场
+    分母应取末 bar，而非因时间点比较得出空窗口。
+    """
+    if bars is None or bars.empty:
+        return None
+    return bars.sort_values("mkt_timestamp").tail(1)
+
+
+def _is_auction_fill(
+    first_fill_time: Optional[str],
+    last_bdib_time: Optional[str],
+    exchange_code: Optional[str],
+) -> bool:
+    """判定 fill 是否为收盘竞价时段成交（fill 时间戳晚于全部 BDIB bar）。
+
+    条件：
+    - 必要：first_fill_time 晚于 last_bdib_time（fill 落在全部 bar 之后）
+    - 充分：且未超出收盘竞价结束时刻 + 回报延迟容差（超出属异常数据，不 fallback）
+    - 交易所无竞价定义（closing_auction_times 无映射）时不 fallback，保持 NULL
+    """
+    if first_fill_time is None or last_bdib_time is None or first_fill_time <= last_bdib_time:
+        return False
+    close_time_str = closing_auction_times.get(str(exchange_code or "").strip().upper())
+    if close_time_str is None:
+        return False
+    try:
+        close_dt = pd.to_datetime(close_time_str, format=Config.TIME_FORMAT)
+        fill_dt = pd.to_datetime(first_fill_time, format=Config.TIME_FORMAT)
+    except ValueError:
+        return False
+    return fill_dt <= close_dt + pd.Timedelta(minutes=_AUCTION_FILL_TOLERANCE_MINUTES)
+
+
 def _get_closing_auction_window(
     bars: pd.DataFrame,
     exchange_code: Optional[str],
@@ -556,7 +619,14 @@ def _get_closing_auction_window(
     else:
         start_time = close_time_str
 
-    return _slice_bars(bars, start_time, close_time_str)
+    close_window = _slice_bars(bars, start_time, close_time_str)
+    if close_window is None:
+        # bar 语义对齐：末 bar 覆盖 [timestamp, 竞价结束)，其时间戳早于竞价结束
+        # 时刻时覆盖区间与竞价窗口重叠 —— 竞价撮合量实际落在末 bar，分母取末 bar
+        bars_sorted = bars.sort_values("mkt_timestamp")
+        if str(bars_sorted["mkt_timestamp"].iloc[-1]) < close_time_str:
+            return bars_sorted.tail(1)
+    return close_window
 
 
 def _get_all_day_bars(
@@ -607,7 +677,7 @@ def _compute_pnl_vwap(
     p_avg: Optional[float],
     side_sign: int,
 ) -> Optional[float]:
-    """计算 pnl_vwap = (vwap / p_avg - 1) * side_sign * 10000 bps。"""
+    """计算 pnl_vwap = (p_avg / vwap - 1) * side_sign * 10000 bps（PnL 约定：负=差）。"""
     if bars is None or bars.empty or p_avg is None or p_avg == 0 or side_sign == 0:
         return None
     total_volume = float(bars["volume"].sum())

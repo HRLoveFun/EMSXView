@@ -338,6 +338,8 @@ class EMSXSubscriptionEngine:
                         dayAvgPrice=order.dayAvgPrice if order.dayAvgPrice is not None else cached.dayAvgPrice,
                         arrivalPrice=order.arrivalPrice if order.arrivalPrice is not None else cached.arrivalPrice,
                         lastPrice=order.lastPrice if order.lastPrice is not None else cached.lastPrice,
+                        basketName=order.basketName or cached.basketName,
+                        basketNum=order.basketNum if order.basketNum is not None else cached.basketNum,
                         dollarValueUsd=order.dollarValueUsd if order.dollarValueUsd is not None else cached.dollarValueUsd,
                         adv5d=cached.adv5d,
                         mktVwap=cached.mktVwap,
@@ -544,6 +546,10 @@ class EMSXSubscriptionEngine:
             arrival_price = arrival_price_raw if arrival_price_raw > 0 else None
             last_price_raw = self._msg_safe_float(msg, "EMSX_LAST_PRICE")
             last_price = last_price_raw if last_price_raw > 0 else None
+            # Basket 归属：未挂篮子的订单 EMSX_BASKET_NUM 常回 0，统一归一为 None
+            basket_name = self._msg_safe_str(msg, "EMSX_BASKET_NAME")
+            basket_num_raw = self._msg_safe_int(msg, "EMSX_BASKET_NUM", 0)
+            basket_num = basket_num_raw if basket_num_raw > 0 else None
 
             pct_filled = round((filled / qty) * 100, 1) if qty > 0 else 0.0
             if any([custom_note1, custom_note2, custom_note3, custom_note4, custom_note5,
@@ -608,6 +614,8 @@ class EMSXSubscriptionEngine:
                 dayAvgPrice=day_avg_price,
                 arrivalPrice=arrival_price,
                 lastPrice=last_price,
+                basketName=basket_name,
+                basketNum=basket_num,
             )
         except Exception as e:
             logger.warning(f"Error parsing order message for seq={seq}: {e}")

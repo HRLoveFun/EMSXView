@@ -39,9 +39,9 @@ for p in [_PROJECT_ROOT, _SCRIPT_DIR]:
 
 from CostView.src.monitoring import (  # noqa: E402
     LAST_PRESETS,
-    BdibHealthService,
     TcaReportAggregator,
     fetch_latest_tca_date,
+    get_health_safe,
     render_report_html,
     resolve_time_range,
 )
@@ -97,12 +97,9 @@ def _needs_latest(start: Optional[str], end: Optional[str], last: Optional[str])
 
 
 def _load_gap_health(start_date: str, end_date: str) -> Optional[dict[str, Any]]:
-    """加载 BDIB 健康数据作附录；失败降级为 None 不阻断报告。"""
-    try:
-        return BdibHealthService().get_health(start_date, end_date)
-    except Exception as exc:
-        logger.warning("BDIB 健康附录加载失败（跳过）: %s", exc)
-        return None
+    """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告），
+    超时/失败降级为 None 不阻断报告。"""
+    return get_health_safe(start_date, end_date, timeout=12.0)
 
 
 def _default_output_path(start_date: str, end_date: str, last: Optional[str]) -> Path:

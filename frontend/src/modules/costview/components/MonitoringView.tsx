@@ -18,7 +18,7 @@ import {
   loadCostViewMonitoringState,
   saveCostViewMonitoringState,
 } from '../lib/storage';
-import { ALL_TCA_METRICS, METRIC_LABELS } from '../lib/monitoring-metrics';
+import { ALL_TCA_METRICS, EXPECTED_NULL_METRICS, METRIC_LABELS } from '../lib/monitoring-metrics';
 import { CoverageHeatmap } from './CoverageHeatmap';
 import type {
   BdibHealthDateEntry,
@@ -101,15 +101,16 @@ const MetricTogglePanel = ({ state, onChange }: { state: MonitoringViewState; on
         </CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-3 gap-x-4 gap-y-2 md:grid-cols-6">
-        {ALL_TCA_METRICS.map((metric) => (
-          <label key={metric} className="flex items-center gap-1.5 text-xs" title={METRIC_LABELS[metric]}>
-            <Checkbox
-              checked={state.selectedMetrics.includes(metric)}
-              onCheckedChange={(checked) => toggle(metric, checked === true)}
-            />
-            <span className="truncate">{metric}</span>
-          </label>
-        ))}
+        {ALL_TCA_METRICS.map((metric) => {
+          const expected = EXPECTED_NULL_METRICS.has(metric);
+          return (
+            <label key={metric} className="flex items-center gap-1.5 text-xs" title={METRIC_LABELS[metric]}>
+              <Checkbox checked={state.selectedMetrics.includes(metric)} onCheckedChange={(checked) => toggle(metric, checked === true)} />
+              <span className="truncate">{metric}</span>
+              {expected && <span className="text-[9px] text-slate-500">期望内</span>}
+            </label>
+          );
+        })}
       </CardContent>
     </Card>
   );

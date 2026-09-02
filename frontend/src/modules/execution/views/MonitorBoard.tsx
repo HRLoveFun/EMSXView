@@ -15,6 +15,7 @@ import {
   HEALTH_RANK,
   getOrderHealth,
   isLazyOrder,
+  computeIdleShareByOrder,
   type HealthLevel,
   type LazyContext,
 } from '@execution/lib/health-palette';
@@ -125,22 +126,13 @@ export function MonitorBoard({
   );
 
   // ── Lazy / critical context (shared across health resolution + synthetic groups) ──
-  const idleShareByOrderId = useMemo(() => {
-    const placedByOrderId = new Map<string, number>();
-    for (const r of allRoutes) {
-      // Route is keyed to parent order by `sequence`. We rely on a (sequence→orderId)
-      // lookup via allOrders; fall back to string match on `order.id === sequence`.
-      // Build only what's needed below; avoid O(N*M) by pre-indexing orders by id.
-      const key = String(r.sequence);
-      placedByOrderId.set(key, (placedByOrderId.get(key) ?? 0) + (r.amount ?? 0));
-    }
-    const result = new Map<string, number>();
-    for (const o of allOrders) {
-      const placed = placedByOrderId.get(o.id) ?? 0;
-      result.set(o.id, Math.max(0, o.quantity - placed));
-    }
-    return result;
-  }, [allOrders, allRoutes]);
+  // idle = 父单剩余量 − 在途路由量（Σ pending route.working）。
+  // 曾误用「总量 − route.amount」，会把已成交部分当成 idle，导致部分成交的
+  // 订单被误判为 Lazy。口径统一收敛到 computeIdleShareByOrder。
+  const idleShareByOrderId = useMemo(
+    () => computeIdleShareByOrder(allOrders, allRoutes),
+    [allOrders, allRoutes],
+  );
 
   const lazyCtx = useMemo<LazyContext>(() => ({ idleShareByOrderId }), [idleShareByOrderId]);
 
