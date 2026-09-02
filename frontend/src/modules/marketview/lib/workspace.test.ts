@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildMarketCandidatePayload, countRowsWithSeverity } from './workspace';
+import {
+  buildMarketCandidatePayload,
+  countRowsWithSeverity,
+  fromISODateInput,
+  toISODateInput,
+} from './workspace';
 import type { MarketSnapshotPayload } from '../types';
 
 const snapshot: MarketSnapshotPayload = {
@@ -138,5 +143,29 @@ describe('MarketView workspace helpers', () => {
   it('counts rows whose liquidity or volatility state matches the requested severity', () => {
     expect(countRowsWithSeverity(snapshot.rows, 'warning')).toBe(1);
     expect(countRowsWithSeverity(snapshot.rows, 'critical')).toBe(1);
+  });
+});
+
+describe('MarketView trade date conversion', () => {
+  it('converts backend YYYYMMDD dates to date input values', () => {
+    expect(toISODateInput('20260422')).toBe('2026-04-22');
+  });
+
+  it('returns an empty value for missing or malformed backend dates', () => {
+    expect(toISODateInput(undefined)).toBe('');
+    expect(toISODateInput(null)).toBe('');
+    expect(toISODateInput('')).toBe('');
+    expect(toISODateInput('2026042')).toBe('');
+    expect(toISODateInput('abcd0422')).toBe('');
+  });
+
+  it('converts date input values back to backend YYYYMMDD', () => {
+    expect(fromISODateInput('2026-09-02')).toBe('20260902');
+  });
+
+  it('yields undefined for empty or malformed date input values', () => {
+    expect(fromISODateInput('')).toBeUndefined();
+    expect(fromISODateInput('2026-9-2')).toBeUndefined();
+    expect(fromISODateInput('20260902')).toBeUndefined();
   });
 });
