@@ -43,8 +43,22 @@ from platform_data.adapters.tca_bridge import (
 
 # Backward-compatible re-exports of contract types that legacy code imports from here
 from platform_data.contracts.market_contracts import (
+    MarketAlert,
     MarketCandidatePayload,
     MarketCandidateRow,
+    MarketDailySnapshotRow,
+    MarketSnapshot,
+    MarketSnapshotFilters,
+    MarketSnapshotSort,
+    MarketStockPool,
+)
+from platform_data.contracts.intraday_contracts import (
+    INTRADAY_BUCKET_OPTIONS,
+    INTRADAY_DEFAULT_BUCKET_MINUTES,
+    INTRADAY_MAX_TICKERS,
+    IntradayFeatureBucket,
+    IntradayFeatureSnapshot,
+    IntradayTickerFeatures,
 )
 from platform_data.contracts import (
     ScorecardCohortMetrics,
