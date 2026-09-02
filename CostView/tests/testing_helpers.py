@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from DataPipeline.storage.connection import ConnectionManager
+from data_access.storage.connection import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -109,28 +109,28 @@ def create_temp_db(
 def _bootstrap_schema(db_key: str, db_path: Path, mgr: ConnectionManager) -> None:
     """Delegate schema creation to production schema functions (no DDL duplication)."""
     if db_key == "raw_fills":
-        from DataPipeline.storage.schema.inline_ddl import init_raw_fills_schema
+        from data_access.storage.schema.inline_ddl import init_raw_fills_schema
         with mgr.get_admin_connection("raw_fills") as conn:
             init_raw_fills_schema(conn)
     elif db_key == "processed_fills":
         # Initialize schema via the production schema function.
-        from DataPipeline.storage.repositories._schema import init_processed_fills_schema
-        from DataPipeline.storage.repositories.fills import SqliteFillWriteRepository
+        from data_access.storage.repositories._schema import init_processed_fills_schema
+        from data_access.storage.repositories.fills import SqliteFillWriteRepository
         init_processed_fills_schema(SqliteFillWriteRepository(mgr))
     elif db_key == "raw_bdib":
-        from DataPipeline.storage.schema.inline_ddl import init_raw_bdib_schema
+        from data_access.storage.schema.inline_ddl import init_raw_bdib_schema
         with mgr.get_admin_connection("raw_bdib") as conn:
             init_raw_bdib_schema(conn)
     elif db_key == "processed_raw_bdib":
-        from DataPipeline.storage.schema.inline_ddl import init_processed_raw_bdib_schema
+        from data_access.storage.schema.inline_ddl import init_processed_raw_bdib_schema
         with mgr.get_admin_connection("processed_raw_bdib") as conn:
             init_processed_raw_bdib_schema(conn)
     elif db_key == "fill_bdib":
-        from DataPipeline.storage.schema.inline_ddl import init_fill_bdib_schema
+        from data_access.storage.schema.inline_ddl import init_fill_bdib_schema
         with mgr.get_admin_connection("fill_bdib") as conn:
             init_fill_bdib_schema(conn)
     elif db_key == "regime":
-        from DataPipeline.storage.schema.migrations.apply import apply_pending
+        from data_access.storage.schema.migrations.apply import apply_pending
         apply_pending(db_path)
         # Add tables not managed by regime migrations (attribution, pipeline runs)
         _ensure_regime_extra_tables(mgr)

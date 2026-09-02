@@ -39,7 +39,7 @@ from CostView.src.tca_query_service import TcaQueryService
 from CostView.src.tca_utils import filters_to_dict as _filters_to_dict
 from CostView.src.tca_utils import resolve_date_defaults
 
-from platform_data.pipeline_jobs import get_job, trigger_pipeline
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView TCA"])
@@ -164,38 +164,6 @@ def _default_query_date(f: TcaFilterPayload) -> Optional[str]:
     return resolved.start_date
 
 
-def _auto_trigger_for_missing_date(request: Request, target_date: str) -> JSONResponse:
-    """默认日期无数据时自动触发数据管道，返回 202 + job 信息。
-
-    与 trigger-update 一致限制 localhost 调用方；trigger_pipeline 幂等，
-    已有运行中的 job 时复用其 job_id。
-    """
-    client_host = request.client.host if request.client else "unknown"
-    if client_host not in _LOCALHOST_HOSTS:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"{target_date} 数据尚未生成，且自动跑数仅限本机调用。"
-                "请在服务所在机器触发 POST /api/tca/trigger-update。"
-            ),
-        )
-    result = trigger_pipeline(client_host)
-    logger.info("analyze 自动触发管道: target=%s job=%s", target_date, result["job_id"])
-    return JSONResponse(
-        status_code=202,
-        content=TcaAnalyzeResponse(
-            success=False,
-            data={
-                "pipeline_triggered": True,
-                "job_id": result["job_id"],
-                "target_date": target_date,
-                "status": result["status"],
-            },
-            message=f"{target_date} 数据尚未生成，已自动触发数据管道，完成后将自动刷新",
-        ).model_dump(),
-    )
-
-
 @router.post("/api/tca/analyze", response_model=TcaAnalyzeResponse)
 async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     """Run TCA analysis over the filtered order set.
@@ -204,14 +172,20 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     No Bloomberg or external API calls are made during this endpoint.
 
     Returns a structured report with flat per-route summaries (34 fields each).
-    未显式指定日期且默认日期（上一工作日）数据未生成时，自动触发数据管道
-    并返回 202（data 含 job_id/target_date），由前端轮询完成后重新查询。
+    未显式指定日期且默认日期（上一工作日）数据未生成时返回 503 提示：
+    数据更新维护已迁独立项目 EMSXDataPipeline，请通过其 Runner 触发。
     """
 
     f = request.filters
     default_date = _default_query_date(f)
     if default_date and not _analytics.has_data_for_date(default_date):
-        return _auto_trigger_for_missing_date(raw_request, default_date)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"{default_date} 数据尚未生成。数据更新维护已迁独立项目 "
+                "EMSXDataPipeline；请通过其 Runner（POST /run）触发后再查询。"
+            ),
+        )
     filters = TcaFilters(
         order_ids=f.order_ids,
         algo=f.algo,
@@ -343,46 +317,6 @@ async def analyze_scorecard(request: ScorecardRequest):
         ),
     )
 
-
-
-@router.post("/api/tca/trigger-update", response_model=TriggerUpdateResponse)
-async def trigger_update(request: Request):
-    """[DEPRECATED ALIAS] Trigger the CostView daily update pipeline.
-
-    Kept for backward compatibility with the CostView frontend. New callers
-    should use ``POST /api/db/update`` (DatabaseView router). Both endpoints
-    share the same in-memory job registry, so status polling works across
-    either URL.
-
-    Restricted to localhost to prevent unauthorized pipeline execution.
-    """
-    client_host = request.client.host if request.client else "unknown"
-    if client_host not in ("127.0.0.1", "::1", "localhost"):
-        raise HTTPException(
-            status_code=403,
-            detail="Trigger endpoint is restricted to localhost",
-        )
-    result = trigger_pipeline(client_host)
-    return TriggerUpdateResponse(**result)
-
-
-@router.get("/api/tca/update-status/{job_id}", response_model=UpdateStatusResponse)
-async def get_update_status(job_id: str):
-    """[DEPRECATED ALIAS] Poll a pipeline job. Prefer /api/db/update-status."""
-    job = get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-    stage = job.get("stage")
-    return UpdateStatusResponse(
-        job_id=job_id,
-        status=job["status"],
-        started_at=job.get("started_at"),
-        completed_at=job.get("completed_at"),
-        error=job.get("error"),
-        stage=StageInfo(**stage) if stage else None,
-        overall_progress=job.get("overall_progress", 0),
-        last_activity_at=job.get("last_activity_at"),
-    )
 
 
 # ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
@@ -533,7 +467,7 @@ async def regime_distribution(
         raise HTTPException(status_code=400, detail="dates must be ISO YYYY-MM-DD")
 
     try:
-        from DataPipeline import ConnectionManager
+        from data_access import ConnectionManager
         rows_data = get_regime_distribution(
             start_date=start_date,
             end_date=end_date,

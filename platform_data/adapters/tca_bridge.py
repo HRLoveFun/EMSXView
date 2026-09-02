@@ -68,7 +68,7 @@ def get_tca_query_service(key: str = "default") -> TcaQueryServiceProtocol:
 
 # P2-D3: Import ConnectionManagerProtocol instead of the concrete class.
 # AccessTier is a lightweight enum from DataPipeline's public API surface.
-from DataPipeline import AccessTier
+from data_access import AccessTier
 from platform_data.contracts.protocols import ConnectionManagerProtocol
 from platform_data.contracts import (
     ScorecardCohortMetrics,
@@ -175,7 +175,7 @@ def register_costview_bridge_dependencies() -> None:
 
     register_tca_service_impl(TcaQueryService())
 
-    from DataPipeline.config import Config
+    from data_access.config import Config
     from platform_data.config_bridge import register_config_impl
 
     register_config_impl(Config)

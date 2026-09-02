@@ -13,8 +13,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from DataPipeline.config import Config
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
+from data_access.config import Config
+from data_access.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
 
