@@ -128,7 +128,7 @@ async def get_metric_coverage(
     start_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
     end_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
     last: Optional[str] = Query(None, description=f"预设: {', '.join(LAST_PRESETS)}"),
-    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 18 个"),
+    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
     group_by_exchange: bool = Query(False, description="按 Exchange 分层"),
 ):
     """指标覆盖率：按日期（可选 ×Exchange）统计各指标非 NULL 率。"""
@@ -170,16 +170,26 @@ async def get_report_summary(
     algo: Optional[str] = Query(None, max_length=50),
     symbol: Optional[str] = Query(None, max_length=100),
     exchange: Optional[str] = Query(None, max_length=20),
-    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 18 个"),
+    metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
+    thresholds: Optional[str] = Query(None, description="JSON 阈值规则覆盖（异常路由明细判定，与 export-html 同契约）"),
     min_fill_count: int = Query(10, ge=0, description="异常路由填充笔数下限（仅对 algo<>close 生效）"),
     min_notional_usd: float = Query(10000.0, ge=0, description="异常路由成交金额(USD)下限（对全部路由生效）"),
 ):
     """TCA 报告聚合：KPI、分布直方图、按日走势、broker/algo 排行、PWP 曲线。"""
     tr = _resolve_range(start_date, end_date, last)
     selected = _parse_metrics(metrics)
+
+    # 008: 阈值规则随查询解析（None/空 → 默认阈值），页面异常明细与用户配置对齐
+    try:
+        rules = ThresholdRules.from_payload(_parse_thresholds(thresholds))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
+
     params = {
         "start": tr.start_date, "end": tr.end_date, "broker": broker,
         "algo": algo, "symbol": symbol, "exchange": exchange, "metrics": selected,
+        # 缓存 key 纳入解析后的阈值（sort_keys 归一化；默认阈值与未传等价同 key）
+        "thresholds": rules.rules,
         "min_fill_count": min_fill_count, "min_notional_usd": min_notional_usd,
     }
     cache_key = TcaCacheManager.make_key("monitoring:report-summary", params)
@@ -192,7 +202,8 @@ async def get_report_summary(
         data = TcaReportAggregator().build_report(
             tr.start_date, tr.end_date,
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
-            metrics=selected, min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
+            metrics=selected, thresholds=rules.rules,
+            min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
