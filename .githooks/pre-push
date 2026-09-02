@@ -1,8 +1,15 @@
 #!/bin/bash
-# pre-push hook：main 直推保护
-# 默认仅提示不阻断；设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 后强制阻断并引导走任务分支 + PR
+# pre-push hook：main 直推保护 + 推送前分支落后检测
+# 1) main 直推保护：默认仅提示；设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 后强制阻断并引导走任务分支 + PR
+# 2) 落后检测：推送任务分支前 fetch 并检测落后 origin/main 的提交数（与每日 wt-sync 互补的事件兜底）
+#    - 默认仅提示不阻断（保留 WIP push 保存进度的场景，见 git-workflow.md §4.3）
+#    - 设置 EMSXVIEW_HOOK_AUTO_REBASE=true 后自动 rebase（显式 opt-in；冲突自动 abort 并阻断）
+#    - pre-push 无法改写本次待推的 local_sha，故 rebase 成功后必须中断推送、提示重推
 # 非快进推送 git 自身会拒绝，此处不重复校验
 . "$(dirname "$0")/common.sh"
+
+current_branch="$(git branch --show-current)"
+push_branch=""
 
 while read -r local_ref local_sha remote_ref remote_sha; do
     # 删除远端分支（local_sha 全零）不处理
@@ -17,6 +24,59 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             fi
             hook_info "提示：正在直推 main，规范建议任务分支 + PR（设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 可强制阻断）"
             ;;
+        *)
+            # 仅记录与当前检出分支一致的待推分支：rebase 只能作用于 HEAD 所在分支
+            if [ -n "$current_branch" ] && [ "${local_ref#refs/heads/}" = "$current_branch" ]; then
+                push_branch="$current_branch"
+            fi
+            ;;
     esac
 done
-exit 0
+
+# 未推送当前检出分支（含 detached HEAD / 推送他人分支）则无落后检测需求
+if [ -z "$push_branch" ]; then
+    exit 0
+fi
+
+# fetch 失败（离线）静默跳过检测，不阻断 push；无 origin/main（未配置远程）同样跳过
+if ! git fetch origin --quiet 2>/dev/null; then
+    exit 0
+fi
+if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+    exit 0
+fi
+
+behind="$(git rev-list --count "HEAD..origin/main")"
+if [ "$behind" -eq 0 ]; then
+    exit 0
+fi
+
+# 默认模式：仅提示不阻断
+if [ "$EMSXVIEW_HOOK_AUTO_REBASE" != "true" ]; then
+    hook_info "分支 $push_branch 落后 origin/main $behind 个提交，建议 git pull --rebase 后再推（设置 EMSXVIEW_HOOK_AUTO_REBASE=true 可自动 rebase）"
+    exit 0
+fi
+
+# 自动 rebase 模式：脏工作树无法 rebase，提示后放行（WIP push 合法）
+if is_worktree_dirty; then
+    hook_info "分支落后 origin/main $behind 个提交，但工作树有未提交改动，已跳过自动 rebase；请先 commit 或手动 git pull --rebase"
+    exit 0
+fi
+
+# 防御：rebase / merge 进行中时绝不再叠加自动 rebase
+if is_sequencing_in_progress; then
+    hook_info "检测到 rebase / merge 进行中，跳过自动 rebase，请先完成或中止当前操作"
+    exit 0
+fi
+
+hook_info "自动 rebase $push_branch → origin/main（落后 $behind 个提交）..."
+if git rebase origin/main; then
+    # rebase 已改写提交而本次待推 sha 不变：中断推送让用户重推，避免推送已被替换的旧提交
+    hook_info "自动 rebase 完成，本次推送已中断；请重新执行 git push"
+    exit 1
+fi
+
+# 冲突：立即恢复原状并阻断，绝不留下 rebase 中间态
+git rebase --abort
+hook_info "自动 rebase 遇冲突已中止，分支保持原状；请手动 git pull --rebase 解决冲突后再推"
+exit 1
