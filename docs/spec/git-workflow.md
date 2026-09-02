@@ -194,7 +194,7 @@ VITE_API_URL=http://localhost:3100         # 前端指向对应后端
 ### 6.4 与既有流程的关系
 
 - **specs 计划体系**：worktree 不替代 `specs/<feature-id>/plan.md` 与 G0–G3 门控；规格任务的 worktree 内应包含对应 specs 目录并在其中推进。
-- **质量门禁**：pre-commit 的 `quality_gate.py --staged`、CI 的 `boundary.yml` / `audit_doc_drift.py` 对每个 worktree 的提交同等生效。
+- **质量门禁**：pre-commit 的 `quality_gate.py --staged`、CI 的 `boundary.yml` / `audit_doc_drift.py` 对每个 worktree 的提交同等生效；hook 自动化全景见 §10。
 - **文档同步门禁**：在 worktree 中编辑 `AGENTS.md` / `CODEBUDDY.md` 时，hook 同步机制照常工作；提交前确保两文件一致（规范源为 `AGENTS.md`）。
 
 ---
@@ -231,3 +231,36 @@ VITE_API_URL=http://localhost:3100         # 前端指向对应后端
 | `git push -f` 覆盖远端 | 除非明确是自己的孤立分支且已确认 |
 | 把 worktree 建在仓库目录内部 | 污染工作区与 `.gitignore`；统一用兄弟目录 `../EMSXView-wt-*` |
 | 长期堆积 stale worktree | 完成即清理；每月至少一次 `git worktree prune` |
+
+---
+
+## 10. 自动化分层（hooks + 定时任务）
+
+自动化遵循一条总原则：**事件类用 git hooks，时间类用定时任务，破坏性动作永不自动**。
+
+| 层 | 载体 | 覆盖场景 | 阻断性 |
+|---|---|---|---|
+| 事件自动化 | `.githooks/`（pre-commit / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、worktree 就绪清单、依赖变更提示、main 直推保护 | 仅 pre-commit 阻断，其余提示 |
+| 时间自动化 | Windows 计划任务（`wt-install-schedule.ps1` 注册，工作日 09:00）运行 `wt-sync.ps1` | 每日 fetch + rebase（未提交自动跳过、冲突自动 abort），日志 `logs/wt-sync-daily.log` | 仅快进 rebase，不清理 |
+| 显式半自动 | `wt-new` / `wt-finish` | 创建 / 清理任务 | 有确认门禁（未合并拒绝移除） |
+| 永不自动 | — | 删除 worktree / 分支、merge 到 main、数据管道写入、`push -f` | 必须人工确认 |
+
+### hooks 说明
+
+- `core.hookspath=.githooks` 存于共享的 `.git/config`，**所有 worktree 自动生效**，无需任何配置。
+- `pre-commit`（已有）：`AGENTS.md`↔`CODEBUDDY.md` 同步 + `quality_gate.py --staged` 增量快检（**阻断**）。
+- `post-checkout`：`git worktree add` 时输出新 worktree 就绪清单（依赖 / 端口 / 规范入口）；分支切换导致依赖清单（`package-lock.json` / 各 `requirements.txt`）变化时提示重装。非阻断。
+- `post-merge`：`git pull` / merge 更新依赖清单时提示重装。非阻断。
+- `pre-push`：直推 main 时提示（默认不阻断；设 `EMSXVIEW_HOOK_BLOCK_MAIN=true` 强制阻断）。
+- 依赖提示默认仅打印、**不自动安装**（`npm install` / `pip install` 耗时且依赖本机环境，装错环境比漏装更糟）；如需自动安装可在 hook 中自行扩展。
+
+### 定时同步任务
+
+```powershell
+.\scripts\devtools\wt-install-schedule.ps1             # 注册：工作日 09:00 自动同步
+.\scripts\devtools\wt-install-schedule.ps1 -Uninstall  # 卸载
+```
+
+- 任务名 `EMSXView-DailyWorktreeSync`（当前用户级，无需管理员权限），可在 `taskschd.msc` 查看
+- 直接复用 `wt-sync.ps1` 的全部保护逻辑：只做 rebase 快进，跳过有未提交改动的 worktree，冲突自动 abort；不清理、不 push
+- 输出追加至 `logs/wt-sync-daily.log`，漏跑时下次开机自动补执行（`StartWhenAvailable`）

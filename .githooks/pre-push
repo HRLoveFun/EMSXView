@@ -1,0 +1,22 @@
+#!/bin/bash
+# pre-push hook：main 直推保护
+# 默认仅提示不阻断；设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 后强制阻断并引导走任务分支 + PR
+# 非快进推送 git 自身会拒绝，此处不重复校验
+. "$(dirname "$0")/common.sh"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # 删除远端分支（local_sha 全零）不处理
+    if is_zero_sha "$local_sha"; then
+        continue
+    fi
+    case "$remote_ref" in
+        refs/heads/main)
+            if [ "$EMSXVIEW_HOOK_BLOCK_MAIN" = "true" ]; then
+                hook_info "已阻断直推 main：功能代码请走任务分支 + PR（见 docs/spec/git-workflow.md §4）"
+                exit 1
+            fi
+            hook_info "提示：正在直推 main，规范建议任务分支 + PR（设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 可强制阻断）"
+            ;;
+    esac
+done
+exit 0
