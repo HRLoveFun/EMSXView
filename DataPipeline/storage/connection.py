@@ -4,9 +4,12 @@ Migrated from database_access.py with the addition of ConnectionManager,
 which provides centralized connection lifecycle management for all
 CostView SQLite databases.
 
-Two access tiers:
-    READ  — SELECT only (query/status commands)
-    WRITE — SELECT + INSERT/UPDATE (fetch, pipeline processing)
+Two access tiers (009-external-data-store 起物理分离):
+    READ  — 文件级只读 (SQLite mode=ro)，仅 SELECT；库文件必须已存在，
+            缺失抛 FileNotFoundError，由调用方决定是否降级为空结果。
+            读取方 (API/查询/监控进程) 即使有 bug 也无法写坏数据文件。
+    WRITE — SELECT + INSERT/UPDATE (fetch, pipeline processing)。
+            写入方 = 数据管道与维护脚本，是唯一合法写入通道。
 
 Usage:
     from DataPipeline.storage.connection import ConnectionManager, AccessTier
@@ -34,6 +37,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
+from urllib.request import pathname2url
 
 from DataPipeline.config import Config, DB_RAW_FILLS, DB_PROCESSED_FILLS, DB_RAW_BDIB, DB_PROCESSED_RAW_BDIB, DB_FILL_BDIB, DB_REGIME, DB_FETCH_HISTORY, DB_BDIB_FETCH_HISTORY, DB_EXECUTION_HISTORY, DB_TICKER_REGISTRY
 
@@ -457,7 +461,34 @@ class ConnectionManager:
         tier: AccessTier,
         row_factory: Optional[type] = None,
     ) -> AccessControlledConnection:
-        """Create an AccessControlledConnection with standard pragmas."""
+        """Create an AccessControlledConnection with standard pragmas.
+
+        读写职责物理分离 (009-external-data-store):
+
+        - READ tier 以 SQLite URI 只读模式 (``mode=ro``) 打开 — 文件系统层面
+          拒绝任何写操作，即使调用方经 ``raw_connection`` 绕过 SQL 分类拦截，
+          也无法写坏数据库 (G0 数据零受损)。
+        - READ tier 要求库文件已存在：只读模式不创建新库，缺失即抛
+          FileNotFoundError (fail-fast，防止误建空库掩盖数据缺失问题)。
+          需要优雅降级的查询方 (如 TCA 报告) 自行捕获并回退为空结果。
+        - READ tier 不执行 ``PRAGMA journal_mode=WAL``：只读连接无法切换
+          journal mode；WAL 由写入方设置并持久化在文件头，只读连接直接受益。
+        - WRITE tier 保持可写打开并设置 WAL (管道/维护进程 = 唯一写入方)。
+        """
+        if tier == AccessTier.READ:
+            if not db_path.exists():
+                raise FileNotFoundError(
+                    f"READ 连接要求库文件已存在 (只读模式不创建新库): {db_path}"
+                )
+            # pathname2url 处理 Windows 盘符、空格与中文路径的 URI 转义
+            uri = "file:" + pathname2url(str(db_path)) + "?mode=ro"
+            raw_conn = sqlite3.connect(uri, uri=True)
+            raw_conn.execute("PRAGMA foreign_keys=ON")
+            raw_conn.execute(f"PRAGMA busy_timeout = {Config.SQLITE_BUSY_TIMEOUT_MS}")
+            if row_factory is not None:
+                raw_conn.row_factory = row_factory
+            return AccessControlledConnection(raw_conn, tier)
+
         db_path.parent.mkdir(parents=True, exist_ok=True)
         raw_conn = sqlite3.connect(str(db_path))
         raw_conn.execute("PRAGMA journal_mode=WAL")

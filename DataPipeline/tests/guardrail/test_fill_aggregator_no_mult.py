@@ -33,10 +33,26 @@ def _make_processed_df() -> pd.DataFrame:
     })
 
 
+def _make_route_registry_df() -> pd.DataFrame:
+    """构造内联 route_registry（009：单测解耦真实库，READ 不再隐式建库）。
+
+    聚合前置的 S3 列补全需要 Ticker/Side/Currency/ccy_ticker；
+    _make_processed_df 缺后两列，不传内联 registry 会触发真实库查询。
+    """
+    return pd.DataFrame({
+        "OrderId": ["O1"],
+        "RouteId": ["R1"],
+        "equ_ticker": ["AAPL US"],
+        "Side": ["BUY"],
+        "ccy_ticker": ["USD Curncy"],
+        "Exchange": ["US"],
+    })
+
+
 def test_route_shares_is_sum_not_mult():
     """RouteShares 应为 sum 聚合（350），不是 'Mult' 字符串。"""
     df = _make_processed_df()
-    result = generate_agg_fills_10s(df)
+    result = generate_agg_fills_10s(df, route_registry_df=_make_route_registry_df())
     assert len(result) == 1
     # RouteShares = 1000 + 2000 + 500 = 3500（sum，不是 'Mult'）
     assert result.iloc[0]["RouteShares"] == 3500
@@ -47,7 +63,7 @@ def test_route_shares_is_sum_not_mult():
 def test_fill_shares_is_sum():
     """FillShares 仍为 sum 聚合（350）。"""
     df = _make_processed_df()
-    result = generate_agg_fills_10s(df)
+    result = generate_agg_fills_10s(df, route_registry_df=_make_route_registry_df())
     assert result.iloc[0]["FillShares"] == 350
 
 
@@ -63,7 +79,7 @@ def test_categorical_still_uses_unique_or_mult():
 def test_agg_result_route_shares_is_numeric():
     """聚合后 RouteShares 列类型为数值，可安全 float() 转换。"""
     df = _make_processed_df()
-    result = generate_agg_fills_10s(df)
+    result = generate_agg_fills_10s(df, route_registry_df=_make_route_registry_df())
     val = result.iloc[0]["RouteShares"]
     # 模拟 _upsert_fixed_schema 的 float() 转换，不应抛异常
     assert float(val) == 3500.0

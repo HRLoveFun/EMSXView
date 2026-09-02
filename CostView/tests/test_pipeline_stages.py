@@ -442,10 +442,31 @@ class TestRegimeFillTaggerStage(unittest.TestCase):
         self.assertTrue(result)
 
     def test_import_error_graceful(self):
-        stage = RegimeFillTaggerStage()
-        ctx = FakePipelineContext(target_dates=["20260408"])
-        result = stage.process(ctx)
-        self.assertTrue(result)
+        """Regime tagger 子模块缺失时 stage 优雅降级。
+
+        009-external-data-store：READ 连接不再隐式创建空库，此测试此前
+        依赖真实 tag_fills 在空库上的隐式行为，现按测试本意显式触发
+        ImportError 路径（与 RegimeDailyFeaturesStage 的同型测试一致），
+        不再触碰真实数据目录。
+        """
+        import DataPipeline.analysis.regime as regime_pkg
+
+        saved = regime_pkg.__dict__.pop("fill_regime_tagger", None)
+        try:
+            with patch.dict(
+                "sys.modules",
+                {"DataPipeline.analysis.regime.fill_regime_tagger": None},
+            ):
+                stage = RegimeFillTaggerStage()
+                ctx = FakePipelineContext(target_dates=["20260408"])
+                result = stage.process(ctx)
+                self.assertTrue(result)
+                self.assertTrue(
+                    ctx.summary.get("regime_tagger", {}).get("skipped", False)
+                )
+        finally:
+            if saved is not None:
+                regime_pkg.__dict__["fill_regime_tagger"] = saved
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -554,6 +575,10 @@ class TestLegacyRunners(unittest.TestCase):
         ctx.proc_db.get_processed_fills_for_date.return_value = pd.DataFrame()
         ctx.proc_db.get_processed_dates.return_value = ["20260408"]
         ctx.proc_db.get_all_processed_fills.return_value = pd.DataFrame()
+        # 009-external-data-store：READ 连接不隐式建库——预置 mock facade，
+        # 避免测试触发真实 READ 连接（也避免污染真实数据目录）。
+        ctx._db = MagicMock()
+        ctx._db.fills_read.get_order_labels.return_value = pd.DataFrame()
 
         with patch("DataPipeline.orchestration.core.PipelineContext",
                    return_value=ctx):
