@@ -43,6 +43,7 @@ import { ImpactBreakdownTable } from './report/ImpactBreakdownTable';
 import { MarketOverviewTable } from './report/MarketOverviewTable';
 import type {
   BdibHealthReport,
+  CostViewConfig,
   LastPreset,
   TcaRankingRow,
   TcaReportSummary,
@@ -88,6 +89,17 @@ function buildInitialReportForm(): ReportFormState {
 const formatReportDate = (value: string): string => {
   const match = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : value || '—';
+};
+
+/** 本地阈值规则 → thresholds 请求参数（与后端 ThresholdRules 契约对齐，页面明细与导出 HTML 同源判定） */
+const buildThresholdsPayload = (
+  rules: CostViewConfig['rules'],
+): Record<string, ExportHtmlThresholdPayload> => {
+  const thresholds: Record<string, ExportHtmlThresholdPayload> = {};
+  for (const rule of Object.values(rules)) {
+    thresholds[rule.key] = { mode: rule.mode, threshold: rule.threshold, enabled: rule.enabled };
+  }
+  return thresholds;
 };
 
 /** 总成交金额卡片副标题：fx_rate 覆盖率提示 */
@@ -239,6 +251,9 @@ const MarketNotionalTrendChart = ({ rows = [] }: { rows?: TcaReportSummary['mark
                 );
               }}
               activeDot={{ r: 5.5, stroke: '#0f1419', strokeWidth: 2 }}
+              // 连接线：0.5 透明度虚线（数据点保持同色实心高亮，不受线样式影响）
+              strokeDasharray="4 4"
+              strokeOpacity={0.5}
               strokeWidth={1.8}
               connectNulls
             />
@@ -361,6 +376,8 @@ export function ReportView() {
       symbol: current.symbols,
       minFillCount: config.minFillCount,
       minNotionalUsd: config.minNotionalUsd,
+      // 异常路由判定阈值随查询下发（后端默认阈值仅作兜底）
+      thresholds: buildThresholdsPayload(config.rules),
     };
     if (current.markets.length) base.exchange = current.markets;
     if (current.preset === 'custom' && current.startDate && current.endDate) {
@@ -441,21 +458,12 @@ export function ReportView() {
     void loadHealth(form);
   }, [form, loadMeta, loadReport, loadHealth]);
 
-  // 006: 本地阈值规则 → 导出端点 thresholds 参数（与后端 DEFAULT_THRESHOLDS 契约对齐）
+  // 006: 阈值/填充笔数/金额下限统一由 buildQuery 携带（与页面报告同源判定口径）
   const handleExportHtml = useCallback(async () => {
     setIsExporting(true);
     setError(null);
     try {
-      const config = loadCostViewConfig();
-      const thresholds: Record<string, ExportHtmlThresholdPayload> = {};
-      for (const rule of Object.values(config.rules)) {
-        thresholds[rule.key] = {
-          mode: rule.mode,
-          threshold: rule.threshold,
-          enabled: rule.enabled,
-        };
-      }
-      await fetchExportHtml({ ...buildQuery(form), thresholds, minFillCount: config.minFillCount, minNotionalUsd: config.minNotionalUsd });
+      await fetchExportHtml(buildQuery(form));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'HTML 报告导出失败');
     } finally {

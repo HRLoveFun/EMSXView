@@ -200,6 +200,55 @@ class TestMetricCoverageService:
         assert "pnl_vwap" in result["bdib_dependent_metrics"]
         assert set(result["rows"][0]["coverage"]) == {"pnl_vwap"}
 
+    def test_out_of_scope_exchange_excluded_and_sla_exemption(self, tmp_path: Path):
+        """P3 口径对齐：白名单外交易所剔除分母；SLA 口径豁免结构内 NULL。
+
+        场景（20260803，白名单内 4 条 + 白名单外 CN 1 条）：
+        - O1/O2：多笔非竞价（fill_count>=2，continuous/single_fill 指标有值）
+        - O6：纯竞价路由（fill_close >= fill）→ closing_auction 类结构内 NULL
+        - O7：单笔路由（fill_count=1）→ single_fill 类结构内 NULL
+        - O5(CN)：白名单外 out-of-scope → 从分母剔除
+        """
+        db_path = tmp_path / "fill_bdib_sla.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        _insert_route(conn, "O1", "20260803",
+                      par_rate_continuous=0.2, cost_stddev=0.1)
+        _insert_route(conn, "O2", "20260803", fill_count=2,
+                      par_rate_continuous=0.2, cost_stddev=0.1)
+        _insert_route(conn, "O5", "20260803", Exchange="CN", fill_count=1,
+                      par_rate=None, pnl_vwap=None, par_rate_continuous=None)
+        _insert_route(conn, "O6", "20260803", fill_count=2, fill=500.0, fill_close=500.0,
+                      par_rate_continuous=None)
+        _insert_route(conn, "O7", "20260803", fill_count=1,
+                      cost_stddev=None, order_duration_sec=None)
+        conn.commit()
+        conn.close()
+        sla_mgr = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+
+        result = MetricCoverageService(sla_mgr).get_coverage(
+            "20260803", "20260803",
+            metrics=["par_rate", "par_rate_continuous", "cost_stddev"],
+        )
+        row = result["rows"][0]
+        # 白名单外 CN 路由不计入分母：4 条而非 5 条
+        assert row["total_routes"] == 4
+        # par_rate（bdib_cutoff → total 分母）：全有值 → coverage = sla = 100
+        assert row["coverage"]["par_rate"] == 100.0
+        assert row["sla_coverage"]["par_rate"] == 100.0
+        # par_rate_continuous（closing_auction → 分母剔除纯竞价 O6）
+        # coverage = 2/4 = 50；sla = 2/3 = 66.67
+        assert row["coverage"]["par_rate_continuous"] == 50.0
+        assert row["sla_coverage"]["par_rate_continuous"] == 66.67
+        # cost_stddev（single_fill → 分母 = fill_count>=2 的 O1/O2/O6）
+        # coverage = 2/4 = 50；sla = 2/3 = 66.67
+        assert row["coverage"]["cost_stddev"] == 50.0
+        assert row["sla_coverage"]["cost_stddev"] == 66.67
+
     def test_group_by_exchange(self, mgr: ConnectionManager):
         result = MetricCoverageService(mgr).get_coverage(
             "20260803", "20260803", group_by_exchange=True,
