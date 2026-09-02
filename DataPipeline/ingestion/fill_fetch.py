@@ -35,6 +35,7 @@ from collections import defaultdict
 import pandas as pd
 from dotenv import load_dotenv
 
+from DataPipeline.config import Config
 from DataPipeline.storage.connection import ConnectionManager, AccessTier
 from DataPipeline.storage.schema.columns import EMSX_FILL_COLUMNS
 from DataPipeline.storage.repositories.fetch_history import SqliteFetchHistoryRepository, compute_data_hash
@@ -155,8 +156,11 @@ class FillFetch:
     """
 
     def __init__(self, data_dir: Optional[str] = None, db_path: Optional[str] = None):
-        self.data_dir = Path(data_dir or os.getenv('FILLFETCH_DATA_DIR', './data/fills'))
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        # 默认归档目录与 import_excel_fills 读取路径对齐（CostView/data/archive_excel），
+        # 不再指向仓库根 ./data/fills；目录仅在真正归档 Excel 时惰性创建，避免空建。
+        self.data_dir = Path(
+            data_dir or os.getenv("FILLFETCH_DATA_DIR", str(Config.DATA_DIR / "archive_excel"))
+        )
 
         # Primary DB access via repositories
         self.raw_fill_read = None
@@ -544,6 +548,7 @@ class FillFetch:
                 self.raw_fill_write.upsert_order_fetch_log(fills, source_date=date_compact)
                 self._record_hash_in_memory(date_compact, hash_value)
             if archive_excel:
+                self.data_dir.mkdir(parents=True, exist_ok=True)
                 file_name = f"fills_{date_compact}.xlsx"
                 file_path = self.data_dir / file_name
                 if self._save_to_excel(fills, file_path):
@@ -716,6 +721,7 @@ class FillFetch:
                         self.raw_fill_write.upsert_order_fetch_log(fills, source_date=date_compact)
                         self._record_hash_in_memory(date_compact, hash_value)
                     if archive_excel:
+                        self.data_dir.mkdir(parents=True, exist_ok=True)
                         day_file_name = f"fills_{date_compact}.xlsx"
                         day_file_path = self.data_dir / day_file_name
                         if self._save_to_excel(fills, day_file_path):

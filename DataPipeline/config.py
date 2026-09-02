@@ -51,7 +51,6 @@ class Config:
         os.getenv("EMSXVIEW_DATA_DIR", str(_PROJECT_ROOT / "CostView" / "data"))
     )
     LOGGING_DIR: Path = _PROJECT_ROOT / "logs" / "pipeline"
-    RAW_EXCEL_DIR: Path = DATA_DIR / "fills"
 
     FETCH_HISTORY_DB: Path = DATA_DIR / "fill_fetch_history.db"
     BDIB_FETCH_HISTORY_DB: Path = DATA_DIR / "bdib_fetch_history.db"
