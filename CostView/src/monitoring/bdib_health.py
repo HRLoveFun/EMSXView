@@ -105,8 +105,9 @@ class BdibHealthService:
         此时退化为"全部成交 ticker"（与历史行为一致），避免硬失败。
         """
         whitelist = tuple(str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip())
-        conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
+        conn = None
         try:
+            conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
             has_exchange = self._table_has_column(conn, Config.PROCESSED_FILLS_TABLE, "Exchange")
             if has_exchange and whitelist:
                 placeholders = ", ".join(["?"] * len(whitelist))
@@ -132,7 +133,8 @@ class BdibHealthService:
             logger.warning("读取 processed_fills ticker 集合失败: %s", exc)
             return {}
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     @staticmethod
     def _table_has_column(conn, table: str, column: str) -> bool:
@@ -152,8 +154,9 @@ class BdibHealthService:
         范围级 DISTINCT（175M 行级别扫描会在大区间时 hangs 数十秒乃至更久，
         是报告导出「速度很慢」的根因之一）。
         """
-        conn = self._mgr.get_connection("raw_bdib", AccessTier.READ)
+        conn = None
         try:
+            conn = self._mgr.get_connection("raw_bdib", AccessTier.READ)
             dates = [
                 str(d) for (d,) in conn.execute(
                     f"SELECT DISTINCT order_as_of_date FROM {Config.RAW_BDIB_TABLE} "
@@ -181,7 +184,8 @@ class BdibHealthService:
             logger.warning("raw_bdib SQLite 扫描失败: %s", exc)
             return {}, {}
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def _scan_parquet(
         self, start_date: str, end_date: str,

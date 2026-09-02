@@ -151,14 +151,14 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 
 ### 6.1 数据目录隔离（★ 数据零受损）
 
+> 自 ADR-0016 起，数据目录**默认外置于项目外** `~\EMSXViewData\data`，各 worktree 天然共享同一份数据，无需再手工 `EMSXVIEW_DATA_DIR` 指向主树。
+
 Worktree 的工作文件是独立的，但**数据不属于 git**：
 
-- `CostView/data/`（管道 SQLite 库，体量大）在新 worktree 中**默认为空**——这是预期行为，避免重复占用数十 GB。
-- 仅做 UI / 代码调试时，可将环境变量 `EMSXVIEW_DATA_DIR` 指向主工作树的数据目录做**只读**使用：
-  ```powershell
-  $env:EMSXVIEW_DATA_DIR = "C:\Users\<user>\Documents\EMSXView\CostView\data"
-  ```
-- **禁止**两个 worktree 同时对同一数据目录执行管道写入（摄取 / 处理阶段）；数据管道类任务（S1–S5、回填、清理）同一时间只在**一个** worktree 中运行，或让各 worktree 使用独立 `EMSXVIEW_DATA_DIR`。
+- 数据默认落在 `~\EMSXViewData\data`（项目外），所有 worktree / 部署共用，重新 clone 或新建 worktree 不丢失数据。
+- 旧布局 `CostView/data` 仅在显式 `EMSXVIEW_DATA_DIR` 指回时生效；旧目录仍有 `*.db` 且走外置默认时，import 期会发 `UserWarning` 提示迁移（运行 `python scripts/ops/migrate_data_dir.py --dry-run` 预检）。
+- **读写职责物理分离**：读取方（CostView API / 查询 / 监控）以 `AccessTier.READ`（`sqlite3` URI `mode=ro`）连接，文件系统层面拒绝写；**数据管道与运维脚本是唯一的写入通道**。任何读取进程无法写坏数据文件。
+- **禁止**多个进程同时对同一数据目录执行管道写入（摄取 / 处理阶段）；数据管道类任务（S1–S5、回填、清理）同一时间只在**一个** worktree/进程中运行，或让各 worktree 使用独立 `EMSXVIEW_DATA_DIR`。
 - 后端 `ENABLE_DB_PERSISTENCE`、`EMSXVIEW_MERGE_MODULES` 等运行参数跟随各 worktree 自己的 `.env`，互不影响。
 
 ### 6.2 端口偏移（并行运行多实例）

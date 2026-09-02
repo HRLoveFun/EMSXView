@@ -81,8 +81,9 @@ def fetch_latest_tca_date(mgr: Optional[ConnectionManager] = None) -> Optional[s
     表不存在或为空时返回 None（调用方据此给出友好报错）。
     """
     mgr = mgr or ConnectionManager()
-    conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+    conn = None
     try:
+        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
         cursor = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ? LIMIT 1",
             [Config.TCA_ROUTE_SUMMARY_TABLE],
@@ -97,7 +98,8 @@ def fetch_latest_tca_date(mgr: Optional[ConnectionManager] = None) -> Optional[s
         logger.warning("查询最近 TCA 数据日期失败: %s", exc)
         return None
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def _resolve_explicit(start: Optional[str], end: Optional[str]) -> TimeRange:
