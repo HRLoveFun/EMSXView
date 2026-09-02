@@ -1104,3 +1104,121 @@ class TestPhase1RiskImpact:
         assert result.iloc[0]["perm_impact_bps"] is None
 
 
+class TestAuctionFillBarSemantics:
+    """bar 时间戳区间语义对齐：末 bar 含收盘竞价成交量（纯竞价路由末 bar fallback）。
+
+    背景：BDIB bar 时间戳为区间起点语义 —— 末 bar 覆盖 [timestamp, 收盘竞价结束)，
+    已包含竞价时段全部成交量。纯竞价路由的 fill 时间戳（含回报延迟）晚于全部
+    bar 的时间戳，时间点切片会得出空窗口；市场分母应钳制到末 bar
+    （实测：AU fill 16:10:23 vs 末 bar 15:59:50 vs 竞价结束 16:10:00）。
+    """
+
+    @staticmethod
+    def _raw_fills(exchange: str = "AU", side: str = "Buy") -> pd.DataFrame:
+        fills = _make_raw_fills(side=side)
+        fills["Exchange"] = exchange
+        return fills
+
+    @staticmethod
+    def _closing_fills(
+        shares: list[float], local_times: list[str], ca_flags: list[int],
+    ) -> pd.DataFrame:
+        fills = _make_processed_fills(
+            prices=[100.0] * len(shares), shares=shares, times=local_times,
+        )
+        fills["is_closing_auction"] = ca_flags
+        return fills
+
+    def test_pure_auction_route_par_rate_uses_last_bar(self) -> None:
+        """纯竞价路由：fill 晚于全部 bar，par_rate / par_rate_close / pnl_vwap 分母取末 bar。"""
+        # AU：末 bar 15:59:50 覆盖竞价量；fill 本地 16:10:23（NY 02:10:23-04:00，回报延迟 23s）
+        raw_fills = self._raw_fills(exchange="AU")
+        processed_fills = self._closing_fills(
+            shares=[600.0, 400.0],
+            local_times=["2026-04-21T02:10:23-04:00"] * 2,
+            ca_flags=[1, 1],
+        )
+        raw_bdib = _make_bars(
+            times=["15:59:40", "15:59:50"],
+            volumes=[300.0, 700.0],  # 末 bar = 竞价时段市场量
+            prices=[100.0, 100.0],
+        )
+
+        result = compute_route_metrics_for_date(raw_fills, processed_fills, raw_bdib, "20260421")
+
+        row = result.iloc[0]
+        # 修复前：时间点切片 [16:10:23, 15:59:50] 为空 → 三项指标全 NULL
+        assert row["par_rate"] == pytest.approx(1000.0 / 700.0)
+        assert row["par_rate_close"] == pytest.approx(1000.0 / 700.0)
+        # p_avg = 100 = 末 bar VWAP → Buy side_sign=-1 → (100/100 - 1) * (-1) = 0
+        assert row["pnl_vwap"] == pytest.approx(0.0, abs=0.01)
+
+    def test_auction_fill_within_tolerance_fallback(self) -> None:
+        """fill 晚于竞价结束但在回报延迟容差（5min）内 → 末 bar fallback 生效。"""
+        raw_fills = self._raw_fills(exchange="AU")
+        processed_fills = self._closing_fills(
+            shares=[1000.0],
+            local_times=["2026-04-21T02:14:00-04:00"],  # 本地 16:14:00 = 竞价结束 + 4min
+            ca_flags=[1],
+        )
+        raw_bdib = _make_bars(times=["15:59:50"], volumes=[700.0], prices=[100.0])
+
+        result = compute_route_metrics_for_date(raw_fills, processed_fills, raw_bdib, "20260421")
+
+        assert result.iloc[0]["par_rate"] == pytest.approx(1000.0 / 700.0)
+
+    def test_fill_beyond_tolerance_keeps_null(self) -> None:
+        """fill 晚于竞价结束 + 5min（异常数据）→ 不 fallback，par_rate 保持 None。"""
+        raw_fills = self._raw_fills(exchange="AU")
+        processed_fills = self._closing_fills(
+            shares=[1000.0],
+            local_times=["2026-04-21T02:16:00-04:00"],  # 本地 16:16:00 > 竞价结束 + 5min
+            ca_flags=[1],
+        )
+        raw_bdib = _make_bars(times=["15:59:50"], volumes=[700.0], prices=[100.0])
+
+        result = compute_route_metrics_for_date(raw_fills, processed_fills, raw_bdib, "20260421")
+
+        assert result.iloc[0]["par_rate"] is None
+
+    def test_unknown_exchange_keeps_null(self) -> None:
+        """交易所无收盘竞价定义 → 不 fallback，par_rate 保持 None。"""
+        raw_fills = self._raw_fills(exchange="ZZ")
+        processed_fills = self._closing_fills(
+            shares=[1000.0],
+            local_times=["2026-04-21T15:59:59-04:00"],  # 晚于末 bar 15:59:50
+            ca_flags=[0],
+        )
+        raw_bdib = _make_bars(times=["15:59:50"], volumes=[700.0], prices=[100.0])
+
+        result = compute_route_metrics_for_date(raw_fills, processed_fills, raw_bdib, "20260421")
+
+        assert result.iloc[0]["par_rate"] is None
+
+    def test_mixed_route_par_rate_unchanged_and_close_fallback(self) -> None:
+        """混合路由（首笔盘中 + 末笔竞价）：par_rate 行为与修复前一致，par_rate_close 填补 NULL。"""
+        raw_fills = self._raw_fills(exchange="AU")
+        processed_fills = self._closing_fills(
+            shares=[400.0, 600.0],
+            local_times=["2026-04-21T19:30:05-04:00", "2026-04-21T02:10:23-04:00"],
+            ca_flags=[0, 1],  # 盘中 + 收盘竞价
+        )
+        raw_bdib = _make_bars(
+            times=["09:29:50", "09:30:00", "09:30:10", "15:59:50"],
+            volumes=[100.0, 200.0, 300.0, 700.0],
+            prices=[100.0] * 4,
+        )
+
+        result = compute_route_metrics_for_date(raw_fills, processed_fills, raw_bdib, "20260421")
+
+        row = result.iloc[0]
+        # 首笔 09:30:05 在盘中 → fallback 不触发；分母 = [09:30:05, 15:59:50]
+        # → 09:30:00 bar 起点早于首笔被排除 = 300+700 = 1000
+        assert row["par_rate"] == pytest.approx(1000.0 / 1000.0)
+        # close_window（AU 16:10:00~16:10:00）时间点无交集 → fallback 末 bar：600/700
+        assert row["fill_close"] == pytest.approx(600.0)
+        assert row["par_rate_close"] == pytest.approx(600.0 / 700.0)
+        # continuous 窗口 [09:30:05, 16:10:23) → 含全部 4 根 bar（bar 起点 <= 窗口终点）
+        assert row["fill_continuous"] == pytest.approx(400.0)
+
+

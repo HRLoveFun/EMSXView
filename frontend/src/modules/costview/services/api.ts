@@ -235,6 +235,8 @@ export interface ReportSummaryQuery extends MonitoringQuery {
   symbol?: string | string[];
   exchange?: string | string[];
   metrics?: string[];
+  /** 008: 异常路由判定阈值覆盖（与后端 ThresholdRules 契约对齐，页面明细与导出 HTML 同源） */
+  thresholds?: Record<string, ExportHtmlThresholdPayload>;
   minFillCount?: number;
   minNotionalUsd?: number;
 }
@@ -259,6 +261,10 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
   if (query.metrics?.length) extra.metrics = query.metrics.join(',');
   if (query.minFillCount != null) extra.min_fill_count = String(query.minFillCount);
   if (query.minNotionalUsd != null) extra.min_notional_usd = String(query.minNotionalUsd);
+  // 008: 阈值覆盖随查询下发（JSON 串，与 export-html 端点同契约）
+  if (query.thresholds && Object.keys(query.thresholds).length) {
+    extra.thresholds = JSON.stringify(query.thresholds);
+  }
   return fetchMonitoringJson<TcaReportSummary>(
     buildMonitoringUrl('/api/tca/monitoring/report-summary', query, extra),
   );

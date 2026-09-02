@@ -42,6 +42,53 @@ export const EXPECTED_NULL_METRICS: ReadonlySet<string> = new Set([
   'cost_stddev', 'cost_p95', 'cost_cvar', 'order_duration_sec', 'exec_rate_shares_per_min',
 ]);
 
+/** 指标中文名（tooltip 展示；覆盖 ALL_TCA_METRICS 全部 38 项 + fx_rate，与后端白名单对齐） */
+export const METRIC_LABELS: Record<string, string> = {
+  // 原有 18 项
+  fill_count: '成交笔数',
+  fill: '成交股数',
+  fill_continuous: '连续时段成交股数',
+  fill_close: '收盘竞价成交股数',
+  par_rate: '全日参与率',
+  par_rate_continuous: '连续时段参与率',
+  par_rate_close: '收盘竞价参与率',
+  p_avg: '成交均价',
+  p_avg_continuous: '连续时段成交均价',
+  pnl_vwap: 'VWAP 损益',
+  pnl_vwap_continuous: '连续时段 VWAP 损益',
+  RPM: '优于均价成交占比',
+  RPM_continuous: '连续时段优于均价占比',
+  pwp_5: 'PWP 5% 模拟损益',
+  pwp_10: 'PWP 10% 模拟损益',
+  pwp_15: 'PWP 15% 模拟损益',
+  pwp_20: 'PWP 20% 模拟损益',
+  pwp_25: 'PWP 25% 模拟损益',
+  // Phase 0 核心基准
+  p_arrival: '到达价',
+  p_close: '收盘价',
+  arrival_cost_bps: '到达价成本 (bps)',
+  close_cost_bps: '收盘价成本 (bps)',
+  opportunity_cost: '机会成本',
+  // Phase 1 Wagner IS / 风险 / 冲击
+  p_decision: '决策价',
+  delay_cost: '延迟成本',
+  trading_cost: '交易成本',
+  wagner_is: 'Wagner IS',
+  wagner_is_bps: 'Wagner IS (bps)',
+  cost_stddev: '成本标准差',
+  cost_p95: '成本 P95',
+  cost_cvar: '成本 CVaR',
+  order_duration_sec: '订单历时 (秒)',
+  exec_rate_shares_per_min: '执行速率 (股/分)',
+  temp_impact_5min_bps: '暂时冲击 5min (bps)',
+  temp_impact_10min_bps: '暂时冲击 10min (bps)',
+  temp_impact_30min_bps: '暂时冲击 30min (bps)',
+  perm_impact_bps: '永久冲击 (bps)',
+  recovery_truncated: '恢复窗口截断',
+  // 007: 路由级 USD 汇率
+  fx_rate: 'USD 汇率',
+};
+
 /** 每项指标为 NULL 的结构性原因（与后端 metric_coverage.METRIC_NULL_REASON 对齐） */
 export const METRIC_NULL_REASON: Record<string, string> = {
   fill_count: 'source', fill: 'source', fill_continuous: 'source', fill_close: 'source',
