@@ -4,6 +4,7 @@ import {
   getRouteHealth,
   isLazyOrder,
   computeIdleShare,
+  computeIdleShareByOrder,
   maxHealth,
   compareHealth,
   HEALTH_RANK,
@@ -148,26 +149,74 @@ describe('isLazyOrder', () => {
 });
 
 describe('computeIdleShare', () => {
+  const pendingRoute = (overrides?: Partial<Route>): Route =>
+    createRoute({ status: 'WORKING', ...overrides });
+
   it('returns 0 when routes is undefined or empty', () => {
-    expect(computeIdleShare(createOrder({ quantity: 100 }), undefined)).toBe(0);
-    expect(computeIdleShare(createOrder({ quantity: 100 }), [])).toBe(0);
+    expect(computeIdleShare(createOrder(), undefined)).toBe(0);
+    expect(computeIdleShare(createOrder(), [])).toBe(0);
   });
 
-  it('computes positive idle share', () => {
-    const order = createOrder({ quantity: 100 });
+  it('computes positive idle share (remaining − pending working)', () => {
+    const order = createOrder({ quantity: 100, filledQuantity: 0, remainingQuantity: 100 });
     const routes = [
-      createRoute({ id: 'r1', routeId: 1, sequence: 1, amount: 30 }),
-      createRoute({ id: 'r2', routeId: 2, sequence: 1, amount: 20 }),
+      pendingRoute({ id: 'r1', routeId: 1, sequence: 1, amount: 30, working: 30 }),
+      pendingRoute({ id: 'r2', routeId: 2, sequence: 1, amount: 20, working: 20 }),
     ];
     expect(computeIdleShare(order, routes)).toBe(50);
   });
 
-  it('returns 0 when placed exceeds quantity', () => {
-    const order = createOrder({ quantity: 50 });
+  it('已成交部分不计入可路由额度（基数取剩余量而非总量）', () => {
+    // 总量 1000、已成交 600 → 剩余 400；在途 100 → idle 应为 300
+    const order = createOrder({
+      quantity: 1000, filledQuantity: 600, remainingQuantity: 400,
+    });
+    const routes = [pendingRoute({ sequence: 1, amount: 100, working: 100 })];
+    expect(computeIdleShare(order, routes)).toBe(300);
+  });
+
+  it('终态路由不占用额度，只扣在途量', () => {
+    const order = createOrder({ quantity: 1000, filledQuantity: 0, remainingQuantity: 1000 });
     const routes = [
-      createRoute({ id: 'r1', routeId: 1, sequence: 1, amount: 60 }),
+      createRoute({ id: 'r1', sequence: 1, status: 'FILLED', amount: 200, working: 0 }),
+      pendingRoute({ id: 'r2', sequence: 1, amount: 300, working: 300 }),
     ];
+    expect(computeIdleShare(order, routes)).toBe(700);
+  });
+
+  it('只扣 working 而非 amount（避免对已成交二次扣减）', () => {
+    // 部分成交的路由：amount 500 = working 200 + filled 300
+    const order = createOrder({
+      quantity: 1000, filledQuantity: 300, remainingQuantity: 700,
+    });
+    const routes = [
+      createRoute({ sequence: 1, status: 'PARTFILLED', amount: 500, working: 200 }),
+    ];
+    expect(computeIdleShare(order, routes)).toBe(500);
+  });
+
+  it('returns 0 when pending exceeds remaining', () => {
+    const order = createOrder({ quantity: 50, filledQuantity: 0, remainingQuantity: 50 });
+    const routes = [pendingRoute({ sequence: 1, amount: 60, working: 60 })];
     expect(computeIdleShare(order, routes)).toBe(0);
+  });
+});
+
+describe('computeIdleShareByOrder', () => {
+  it('批量计算并按父单 sequence 归集在途量', () => {
+    const orders = [
+      createOrder({ id: '1', quantity: 1000, filledQuantity: 200, remainingQuantity: 800 }),
+      createOrder({ id: '2', quantity: 500, filledQuantity: 0, remainingQuantity: 500 }),
+    ];
+    const routes = [
+      createRoute({ id: 'r1', sequence: 1, status: 'WORKING', amount: 300, working: 300 }),
+      createRoute({ id: 'r2', sequence: 1, status: 'PARTFILLED', amount: 200, working: 100 }),
+      createRoute({ id: 'r3', sequence: 2, status: 'FILLED', amount: 500, working: 0 }),
+    ];
+    const idle = computeIdleShareByOrder(orders, routes);
+    // 单 1：800 − (300 + 100) = 400；单 2：500 − 0 = 500
+    expect(idle.get('1')).toBe(400);
+    expect(idle.get('2')).toBe(500);
   });
 });
 

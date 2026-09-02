@@ -1,0 +1,35 @@
+2026-08-27 16:42:10 [INFO] numexpr.utils: Note: NumExpr detected 32 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 16.
+2026-08-27 16:42:10 [INFO] numexpr.utils: NumExpr defaulting to 16 threads.
+2026-08-27 16:42:13 [INFO] recompute_all_tca: \u5df2\u5b8c\u6210 172 \u4e2a\u65e5\u671f\uff0c\u5f85\u5904\u7406 5 \u4e2a
+2026-08-27 16:42:13 [INFO] recompute_all_tca: \u5f85\u91cd\u7b97\u65e5\u671f 5 \u4e2a: 20260409~20260826
+2026-08-27 16:42:13 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:42:13 [INFO] DataPipeline.orchestration.base: ==> Starting Stage: 5.5. Compute Route Metrics
+2026-08-27 16:42:13 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:43:00 [INFO] DataPipeline.storage.repositories.integrated: Upserted 516 tca_route_summary rows
+2026-08-27 16:43:00 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20260409: computed 516 routes
+2026-08-27 16:43:00 [WARNING] recompute_all_tca: [1/5] 20260409: \u884c\u6570\u4e0d\u9f50\uff0820260409\uff09\uff0c\u672a\u8bb0 checkpoint\uff0c\u4e0b\u6b21\u7eed\u8dd1\u4f1a\u91cd\u7b97
+2026-08-27 16:43:00 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:43:00 [INFO] DataPipeline.orchestration.base: ==> Starting Stage: 5.5. Compute Route Metrics
+2026-08-27 16:43:00 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:45:35 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1132 tca_route_summary rows
+2026-08-27 16:45:35 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20260416: computed 1132 routes
+2026-08-27 16:45:35 [WARNING] recompute_all_tca: [2/5] 20260416: \u884c\u6570\u4e0d\u9f50\uff0820260416\uff09\uff0c\u672a\u8bb0 checkpoint\uff0c\u4e0b\u6b21\u7eed\u8dd1\u4f1a\u91cd\u7b97
+2026-08-27 16:45:35 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:45:35 [INFO] DataPipeline.orchestration.base: ==> Starting Stage: 5.5. Compute Route Metrics
+2026-08-27 16:45:35 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:47:50 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1092 tca_route_summary rows
+2026-08-27 16:47:50 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20260824: computed 1092 routes
+2026-08-27 16:47:50 [INFO] recompute_all_tca: [3/5] 20260824: ok=True rows=1092 \u5b8c\u6210\uff08\u7d2f\u8ba1 337s\uff09
+2026-08-27 16:47:50 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:47:50 [INFO] DataPipeline.orchestration.base: ==> Starting Stage: 5.5. Compute Route Metrics
+2026-08-27 16:47:50 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:49:33 [INFO] DataPipeline.storage.repositories.integrated: Upserted 910 tca_route_summary rows
+2026-08-27 16:49:33 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20260825: computed 910 routes
+2026-08-27 16:49:33 [INFO] recompute_all_tca: [4/5] 20260825: ok=True rows=910 \u5b8c\u6210\uff08\u7d2f\u8ba1 440s\uff09
+2026-08-27 16:49:33 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:49:33 [INFO] DataPipeline.orchestration.base: ==> Starting Stage: 5.5. Compute Route Metrics
+2026-08-27 16:49:33 [INFO] DataPipeline.orchestration.base: ============================================================
+2026-08-27 16:51:40 [INFO] DataPipeline.storage.repositories.integrated: Upserted 1032 tca_route_summary rows
+2026-08-27 16:51:40 [INFO] DataPipeline.orchestration.stages_process:   RouteMetrics 20260826: computed 1032 routes
+2026-08-27 16:51:40 [INFO] recompute_all_tca: [5/5] 20260826: ok=True rows=1032 \u5b8c\u6210\uff08\u7d2f\u8ba1 567s\uff09
+2026-08-27 16:51:40 [INFO] recompute_all_tca: \u5b8c\u6210: 3/5 \u65e5\u671f, \u5171 3034 \u884c, \u8017\u65f6 567s

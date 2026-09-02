@@ -36,34 +36,41 @@ export const BDIB_DEPENDENT_METRICS: ReadonlySet<string> = new Set([
   'perm_impact_bps',
 ]);
 
-/** 指标中文说明（热力图 tooltip / 勾选列表 label） */
+/** 期望内 NULL 指标（SLA 豁免）：closing_auction + single_fill 类，NULL 属结构性预期，非数据缺口 */
+export const EXPECTED_NULL_METRICS: ReadonlySet<string> = new Set([
+  'p_avg_continuous', 'par_rate_continuous', 'pnl_vwap_continuous', 'RPM_continuous',
+  'cost_stddev', 'cost_p95', 'cost_cvar', 'order_duration_sec', 'exec_rate_shares_per_min',
+]);
+
+/** 指标中文名（tooltip 展示；覆盖 ALL_TCA_METRICS 全部 38 项 + fx_rate，与后端白名单对齐） */
 export const METRIC_LABELS: Record<string, string> = {
+  // 原有 18 项
   fill_count: '成交笔数',
-  fill: '成交率',
-  fill_continuous: '连续时段成交率',
-  fill_close: '收盘成交率',
-  par_rate: '参与率',
+  fill: '成交股数',
+  fill_continuous: '连续时段成交股数',
+  fill_close: '收盘竞价成交股数',
+  par_rate: '全日参与率',
   par_rate_continuous: '连续时段参与率',
-  par_rate_close: '收盘参与率',
+  par_rate_close: '收盘竞价参与率',
   p_avg: '成交均价',
-  p_avg_continuous: '连续时段均价',
-  pnl_vwap: 'VWAP 滑点',
-  pnl_vwap_continuous: '连续时段 VWAP 滑点',
-  RPM: '每分钟成交率',
-  RPM_continuous: '连续时段 RPM',
-  pwp_5: 'PWP@5%',
-  pwp_10: 'PWP@10%',
-  pwp_15: 'PWP@15%',
-  pwp_20: 'PWP@20%',
-  pwp_25: 'PWP@25%',
+  p_avg_continuous: '连续时段成交均价',
+  pnl_vwap: 'VWAP 损益',
+  pnl_vwap_continuous: '连续时段 VWAP 损益',
+  RPM: '优于均价成交占比',
+  RPM_continuous: '连续时段优于均价占比',
+  pwp_5: 'PWP 5% 模拟损益',
+  pwp_10: 'PWP 10% 模拟损益',
+  pwp_15: 'PWP 15% 模拟损益',
+  pwp_20: 'PWP 20% 模拟损益',
+  pwp_25: 'PWP 25% 模拟损益',
   // Phase 0 核心基准
-  p_arrival: '到达价 P₀',
-  p_close: '收盘价 Pn',
-  arrival_cost_bps: '到达价成本',
-  close_cost_bps: '收盘价成本',
+  p_arrival: '到达价',
+  p_close: '收盘价',
+  arrival_cost_bps: '到达价成本 (bps)',
+  close_cost_bps: '收盘价成本 (bps)',
   opportunity_cost: '机会成本',
   // Phase 1 Wagner IS / 风险 / 冲击
-  p_decision: '决策价 Pd',
+  p_decision: '决策价',
   delay_cost: '延迟成本',
   trading_cost: '交易成本',
   wagner_is: 'Wagner IS',
@@ -71,11 +78,33 @@ export const METRIC_LABELS: Record<string, string> = {
   cost_stddev: '成本标准差',
   cost_p95: '成本 P95',
   cost_cvar: '成本 CVaR',
-  order_duration_sec: '订单历时',
-  exec_rate_shares_per_min: '执行速率',
-  temp_impact_5min_bps: '暂时冲击 5m',
-  temp_impact_10min_bps: '暂时冲击 10m',
-  temp_impact_30min_bps: '暂时冲击 30m',
-  perm_impact_bps: '永久冲击',
-  recovery_truncated: '恢复截断',
+  order_duration_sec: '订单历时 (秒)',
+  exec_rate_shares_per_min: '执行速率 (股/分)',
+  temp_impact_5min_bps: '暂时冲击 5min (bps)',
+  temp_impact_10min_bps: '暂时冲击 10min (bps)',
+  temp_impact_30min_bps: '暂时冲击 30min (bps)',
+  perm_impact_bps: '永久冲击 (bps)',
+  recovery_truncated: '恢复窗口截断',
+  // 007: 路由级 USD 汇率
+  fx_rate: 'USD 汇率',
 };
+
+/** 每项指标为 NULL 的结构性原因（与后端 metric_coverage.METRIC_NULL_REASON 对齐） */
+export const METRIC_NULL_REASON: Record<string, string> = {
+  fill_count: 'source', fill: 'source', fill_continuous: 'source', fill_close: 'source',
+  par_rate: 'bdib_cutoff', par_rate_continuous: 'closing_auction', par_rate_close: 'bdib_cutoff',
+  p_avg: 'source', p_avg_continuous: 'closing_auction',
+  pnl_vwap: 'bdib_cutoff', pnl_vwap_continuous: 'closing_auction',
+  RPM: 'source', RPM_continuous: 'closing_auction',
+  pwp_5: 'bdib_cutoff', pwp_10: 'bdib_cutoff', pwp_15: 'bdib_cutoff', pwp_20: 'bdib_cutoff', pwp_25: 'bdib_cutoff',
+  p_arrival: 'bdib_missing', p_close: 'bdib_missing', arrival_cost_bps: 'bdib_missing',
+  close_cost_bps: 'bdib_missing', opportunity_cost: 'bdib_missing',
+  p_decision: 'bdib_missing', delay_cost: 'bdib_missing', trading_cost: 'bdib_missing',
+  wagner_is: 'bdib_missing', wagner_is_bps: 'bdib_missing',
+  cost_stddev: 'single_fill', cost_p95: 'single_fill', cost_cvar: 'single_fill',
+  order_duration_sec: 'single_fill', exec_rate_shares_per_min: 'single_fill',
+  temp_impact_5min_bps: 'bdib_cutoff', temp_impact_10min_bps: 'bdib_cutoff', temp_impact_30min_bps: 'bdib_cutoff',
+  perm_impact_bps: 'next_day_close', recovery_truncated: 'source',
+  fx_rate: 'fx',
+};
+export type MetricNullReason = typeof METRIC_NULL_REASON;

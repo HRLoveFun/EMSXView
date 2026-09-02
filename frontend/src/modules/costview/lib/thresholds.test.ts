@@ -58,7 +58,7 @@ describe('CostView thresholds', () => {
     const trackingRule = config.rules.tracking_error_bps;
 
     expect(evaluateThreshold(trackingRule, 4)).toBe('normal');
-    expect(evaluateThreshold(trackingRule, 12)).toBe('warning');
+    expect(evaluateThreshold(trackingRule, 12)).toBe('critical');
     expect(evaluateThreshold(trackingRule, -30)).toBe('critical');
   });
 
@@ -73,7 +73,7 @@ describe('CostView thresholds', () => {
     expect(getHighestOrderSeverity(route, config)).toBe('critical');
   });
 
-  it('counts only warning and critical routes as alerts', () => {
+  it('counts only breaching routes as alerts (single threshold tier)', () => {
     const config = createDefaultCostViewConfig();
     const routes = [
       createRoute({ order_id: 'ORDER-1', route_id: 'ROUTE-1', pnl_vwap: 4 }),

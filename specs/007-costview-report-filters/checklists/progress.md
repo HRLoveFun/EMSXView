@@ -68,6 +68,5 @@
 
 ## 遗留
 
-- `tca_route_summary.fx_rate` 需管道重跑（S5.5）才回填；当前真实库已加列但 fx_rate 为 NULL，
-  USD 成交金额暂按 1.0 换算（fx_coverage=0）。
-- 历史日期 USD 成交金额需跑 `reprocess` 或增量 S5.5 回填。
+- ~~`tca_route_summary.fx_rate` 需管道重跑（S5.5）才回填~~ ✅ 已解决（2026-09-01 诊断验证全量 0% NULL，
+  经 8/26 全量重算 + `backfill_tca_route_fx.py` 回填覆盖）；USD 成交金额不再按 1.0 兜底。

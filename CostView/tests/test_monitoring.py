@@ -200,6 +200,55 @@ class TestMetricCoverageService:
         assert "pnl_vwap" in result["bdib_dependent_metrics"]
         assert set(result["rows"][0]["coverage"]) == {"pnl_vwap"}
 
+    def test_out_of_scope_exchange_excluded_and_sla_exemption(self, tmp_path: Path):
+        """P3 口径对齐：白名单外交易所剔除分母；SLA 口径豁免结构内 NULL。
+
+        场景（20260803，白名单内 4 条 + 白名单外 CN 1 条）：
+        - O1/O2：多笔非竞价（fill_count>=2，continuous/single_fill 指标有值）
+        - O6：纯竞价路由（fill_close >= fill）→ closing_auction 类结构内 NULL
+        - O7：单笔路由（fill_count=1）→ single_fill 类结构内 NULL
+        - O5(CN)：白名单外 out-of-scope → 从分母剔除
+        """
+        db_path = tmp_path / "fill_bdib_sla.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        _insert_route(conn, "O1", "20260803",
+                      par_rate_continuous=0.2, cost_stddev=0.1)
+        _insert_route(conn, "O2", "20260803", fill_count=2,
+                      par_rate_continuous=0.2, cost_stddev=0.1)
+        _insert_route(conn, "O5", "20260803", Exchange="CN", fill_count=1,
+                      par_rate=None, pnl_vwap=None, par_rate_continuous=None)
+        _insert_route(conn, "O6", "20260803", fill_count=2, fill=500.0, fill_close=500.0,
+                      par_rate_continuous=None)
+        _insert_route(conn, "O7", "20260803", fill_count=1,
+                      cost_stddev=None, order_duration_sec=None)
+        conn.commit()
+        conn.close()
+        sla_mgr = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+
+        result = MetricCoverageService(sla_mgr).get_coverage(
+            "20260803", "20260803",
+            metrics=["par_rate", "par_rate_continuous", "cost_stddev"],
+        )
+        row = result["rows"][0]
+        # 白名单外 CN 路由不计入分母：4 条而非 5 条
+        assert row["total_routes"] == 4
+        # par_rate（bdib_cutoff → total 分母）：全有值 → coverage = sla = 100
+        assert row["coverage"]["par_rate"] == 100.0
+        assert row["sla_coverage"]["par_rate"] == 100.0
+        # par_rate_continuous（closing_auction → 分母剔除纯竞价 O6）
+        # coverage = 2/4 = 50；sla = 2/3 = 66.67
+        assert row["coverage"]["par_rate_continuous"] == 50.0
+        assert row["sla_coverage"]["par_rate_continuous"] == 66.67
+        # cost_stddev（single_fill → 分母 = fill_count>=2 的 O1/O2/O6）
+        # coverage = 2/4 = 50；sla = 2/3 = 66.67
+        assert row["coverage"]["cost_stddev"] == 50.0
+        assert row["sla_coverage"]["cost_stddev"] == 66.67
+
     def test_group_by_exchange(self, mgr: ConnectionManager):
         result = MetricCoverageService(mgr).get_coverage(
             "20260803", "20260803", group_by_exchange=True,
@@ -435,18 +484,19 @@ class TestTcaReportAggregator:
         # 本币 notional 不做 ÷100 修正：1000×100×4 = 400000
         assert kpi["notional"] == pytest.approx(400_000.0)
 
-    def test_kpi_notional_usd_non_usd_missing_fx_returns_none(self, tmp_path: Path):
-        """非 USD 币种 fx_rate 缺失时 notional_usd 返回 NULL（不按 1.0 兜底）。
+    def test_kpi_notional_usd_non_usd_missing_fx_excludes_route(self, tmp_path: Path):
+        """非 USD 币种 fx_rate 缺失时该 route 贡献被排除（不虚高、不整体置空）。
 
         KS 市场根因回归：KRW 本币金额若被当作 USD 会虚高 3 个数量级
-        （16.74B vs 真实 12M）。任意非 USD 行缺汇率 → 整组 notional_usd 为 None，
-        报告侧展示 "-" 并提示 fx_rate 覆盖率，而非给出失真数值。
+        （16.74B vs 真实 12M）。修复前 gap sentinel 把整个 KPI 的 notional_usd
+        置 NULL（导致「总成交金额(美元)无法计算」）；修复后缺汇率的 route 仅其
+        自身贡献为 NULL（SUM 忽略），其余 route 正常计入（此处仅 US 有汇率）。
         """
         db_path = tmp_path / "fill_bdib.db"
         conn = sqlite3.connect(str(db_path))
         conn.execute(_TCA_DDL)
         conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
-        # KS(KRW, fx_rate=NULL) + US(USD, fx_rate=1.0)：KRW 缺汇率 → 整组 NULL
+        # KS(KRW, fx_rate=NULL) + US(USD, fx_rate=1.0)：KRW 缺汇率 → 仅该 route 不计入
         _insert_route(conn, "K1", "20260803", Exchange="KS", Currency="KRW",
                       fill=1000.0, p_avg=1000.0, fx_rate=None)
         _insert_route(conn, "U1", "20260803", Exchange="US", Currency="USD",
@@ -463,8 +513,8 @@ class TestTcaReportAggregator:
         kpi = report["kpi"]
         # 本币 notional 不受影响
         assert kpi["notional"] == pytest.approx(1000 * 1000.0 + 1000 * 100.0)
-        # KRW 缺汇率 → notional_usd 为 None（而非 KRW×1.0 的虚高值）
-        assert kpi["notional_usd"] is None
+        # KRW 缺汇率 → 该 route 不计入，仅 US 部分计入（而非整组 NULL）
+        assert kpi["notional_usd"] == pytest.approx(100_000.0)
         # fx_coverage：仅 1 条非 1.0 缺汇率？KRW fx_rate=NULL 不计入 → 0/2 = 0.0
         assert kpi["fx_coverage"] == pytest.approx(0.0)
 
@@ -523,14 +573,14 @@ class TestTcaReportAggregator:
         # US 有 2 条（O1/O3），HK 1 条（O2），US 在前
         assert report["markets"][0]["exchange"] == "US"
 
-    def test_markets_ignore_exchange_filter(self, mgr: ConnectionManager):
-        """exchange 过滤只影响报告主体，不影响市场标签页清单。"""
+    def test_markets_respect_exchange_filter(self, mgr: ConnectionManager):
+        """exchange 过滤作用于整个报告（含分市场概览市场清单），不再忽略。"""
         report = TcaReportAggregator(mgr).build_report(
             "20260803", "20260804", exchange="HK",
         )
         assert report["kpi"]["route_count"] == 1
         exchanges = {m["exchange"] for m in report["markets"]}
-        assert exchanges == {"US", "HK"}
+        assert exchanges == {"HK"}
 
     def test_markets_respect_other_filters(self, mgr: ConnectionManager):
         """broker 过滤作用于市场清单（仅列该 broker 出现的市场）。"""
@@ -600,23 +650,92 @@ class TestTcaReportAggregator:
         assert "close_cost_bps" in impact
 
     def test_anomaly_routes_detected(self, mgr: ConnectionManager):
-        """默认阈值下 O1(par_rate 15%>10) / O2(pnl_vwap 15 / fill 30%) 触发 critical。"""
-        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        """默认阈值下 O1(par_rate 15%>10) / O2(pnl_vwap 15 / fill 30%) 触发异常。
+
+        阈值测试与填充笔数下限解耦（min_fill_count=0），聚焦阈值判定本身。
+        """
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", min_fill_count=0, min_notional_usd=0,
+        )
         anomaly = report["anomaly"]
         assert anomaly["count"] == 2
-        assert anomaly["critical_count"] == 2
-        severities = {r["severity"] for r in anomaly["rows"]}
-        assert severities == {"critical"}
+        # 单档阈值：命中即异常，无 critical_count 字段
+        assert "critical_count" not in anomaly
+        assert all(h["unit"] for r in anomaly["rows"] for h in r["hits"])
+
+    def test_anomaly_sorted_by_pnl_vwap_and_fill_count(self, mgr: ConnectionManager):
+        """异常路由按 pnl_vwap 从负到正升序；fill_count 字段随行返回。"""
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", min_fill_count=0, min_notional_usd=0,
+        )
+        rows = report["anomaly"]["rows"]
+        pnls = [r["pnl_vwap"] for r in rows if r["pnl_vwap"] is not None]
+        assert pnls == sorted(pnls)  # 升序：负 → 正
+        assert all(r["fill_count"] == 3 for r in rows)
+
+    def test_anomaly_min_fill_count_excludes_low_fill(self, mgr: ConnectionManager):
+        """填充笔数下限默认 10：algo<>close 且 fill_count<10 的路由不计入异常清单。"""
+        # 夹具默认 fill_count=3、algo=VWAP/TWAP → 默认下限即排除全部
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+        assert report["anomaly"]["count"] == 0
+        # 放宽下限后，阈值命中的路由重新计入
+        relaxed = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804", min_fill_count=0, min_notional_usd=0,
+        )
+        assert relaxed["anomaly"]["count"] == 2
+
+    def test_anomaly_min_fill_count_skips_close_algo(self, mgr: ConnectionManager):
+        """algo="close" 不受填充笔数下限限制：低 fill_count 仍计入。"""
+        conn = mgr.get_connection("fill_bdib", AccessTier.WRITE)
+        _insert_route(conn, "CLS", "20260803", algo="close", fill_count=2,
+                      pnl_vwap=-2.5, par_rate=0.15)
+        conn.commit()
+        conn.close()
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260804", min_notional_usd=0)
+        assert any(r["order_id"] == "CLS" for r in report["anomaly"]["rows"])
+
+    def test_anomaly_min_notional_usd_excludes_low_value(self, tmp_path: Path):
+        """成交金额(USD)下限（默认 10000）对全部路由生效：低金额路由不计入。"""
+        import sqlite3
+
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        # BIG / SMALL 均触发 volume_pct_adv20（par_rate 15% >> 5%），填充笔数达标
+        _insert_route(conn, "BIG", "20260803", RouteShares=1000.0, fill=900.0,
+                      Amount=50000.0, fx_rate=1.0, fill_count=20, par_rate=0.15,
+                      pnl_vwap=-2.5)
+        _insert_route(conn, "SMALL", "20260803", RouteShares=1000.0, fill=900.0,
+                      Amount=5000.0, fx_rate=1.0, fill_count=20, par_rate=0.15,
+                      pnl_vwap=-2.5)
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        # 默认下限 10000：仅 BIG（50000 USD）计入
+        default_report = TcaReportAggregator(cm).build_report("20260803", "20260804")
+        ids = {r["order_id"] for r in default_report["anomaly"]["rows"]}
+        assert ids == {"BIG"}
+        # 下限放宽到 0：两条均计入
+        relaxed = TcaReportAggregator(cm).build_report(
+            "20260803", "20260804", min_notional_usd=0,
+        )
+        assert {r["order_id"] for r in relaxed["anomaly"]["rows"]} == {"BIG", "SMALL"}
 
     def test_anomaly_thresholds_overridable(self, mgr: ConnectionManager):
-        """放宽 pnl_vwap / fill / par_rate 阈值后仅 O1 触发（par_rate 无法豁免时仍触发）。"""
+        """放宽 pnl_vwap / fill / par_rate 阈值后无路由触发异常。"""
         thresholds = {
-            "tracking_error_bps": {"mode": "absolute-above", "warning": 50, "critical": 100},
-            "fill_pct": {"mode": "below", "warning": 10, "critical": 5},
-            "volume_pct_adv20": {"mode": "above", "warning": 50, "critical": 100},
+            "tracking_error_bps": {"mode": "absolute-above", "threshold": 50},
+            "fill_pct": {"mode": "below", "threshold": 10},
+            "volume_pct_adv20": {"mode": "above", "threshold": 50},
         }
         report = TcaReportAggregator(mgr).build_report(
-            "20260803", "20260804", thresholds=thresholds,
+            "20260803", "20260804", thresholds=thresholds, min_fill_count=0, min_notional_usd=0,
         )
         assert report["anomaly"]["count"] == 0
 
@@ -627,6 +746,69 @@ class TestTcaReportAggregator:
         report = TcaReportAggregator(empty_mgr).build_report("20260803", "20260804")
         assert report["anomaly"]["count"] == 0
         assert report["anomaly"]["rows"] == []
+
+    def test_anomaly_fill_pct_uses_completion_rate(self, tmp_path: Path):
+        """008: fill_pct 必须用完成率百分比（fill/RouteShares×100）比对阈值，而非原始股数。
+
+        低完成率(30%) + 有本币/USD 成交金额 → 触发 fill_pct 且携带 notional 列。
+        """
+        import sqlite3
+
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        _insert_route(
+            conn, "O1", "20260803",
+            RouteShares=1000.0, fill=900.0, pnl_vwap=-2.5, par_rate=0.15,
+        )
+        _insert_route(
+            conn, "LOW", "20260803", Exchange="US", Currency="USD",
+            RouteShares=1000.0, fill=300.0, Amount=150000.0, fx_rate=1.0,
+            pnl_vwap=1.0, par_rate=0.01,
+        )
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260804", min_fill_count=0, min_notional_usd=0)
+        low = next((r for r in report["anomaly"]["rows"] if r["order_id"] == "LOW"), None)
+        assert low is not None
+        assert any(h["key"] == "fill_pct" for h in low["hits"])
+        assert low["notional_local"] == pytest.approx(150000.0)
+        assert low["notional_usd"] == pytest.approx(150000.0)
+        assert low["currency"] == "USD"
+
+    def test_anomaly_notional_usd_missing_fx(self, tmp_path: Path):
+        """008: fx_rate 缺失时成交金额(美元)为 None（不回退 1.0）。"""
+        import sqlite3
+
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        _insert_route(
+            conn, "NFX", "20260803", Exchange="KS", Currency="KRW",
+            RouteShares=1000.0, fill=900.0, Amount=200000.0, fx_rate=None,
+            pnl_vwap=30.0, par_rate=0.01,
+        )
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260804", min_fill_count=0, min_notional_usd=0)
+        row = next((r for r in report["anomaly"]["rows"] if r["order_id"] == "NFX"), None)
+        assert row is not None
+        assert row["notional_local"] == pytest.approx(200000.0)
+        assert row["notional_usd"] is None
 
 
 # ── report_dims（筛选维度持久化列表）────────────────────────────────────────
@@ -753,6 +935,23 @@ class TestMonitoringRouter:
         assert body["success"] is True
         assert len(body["data"]["rows"]) == 2
 
+    def test_anomaly_thresholds_endpoint(self, client):
+        """008: 异常路由判定默认阈值端点（后端为唯一真相源）。"""
+        resp = client.get("/api/tca/monitoring/anomaly-thresholds")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        rules = body["data"]["rules"]
+        assert set(rules.keys()) == {
+            "tracking_error_bps", "fill_pct", "volume_pct_adv20",
+            "volume_pct_interval", "intraday_volatility", "price_movement_pct",
+        }
+        # fill_pct 默认阈值应为 completion-rate 口径（below / 80，单档阈值）
+        assert rules["fill_pct"] == {"mode": "below", "threshold": 80, "enabled": True}
+        meta = body["data"]["rule_meta"]
+        # fill_pct 指标字段应为 completion_rate（修正：原误用 fill 股数）
+        assert meta["fill_pct"]["metric_field"] == "completion_rate"
+
     def test_conflict_returns_422(self, client):
         resp = client.get("/api/tca/monitoring/bdib-health", params={
             "start_date": "20260101", "end_date": "20260131", "last": "week",
@@ -782,14 +981,14 @@ class TestMonitoringRouter:
         assert resp.json()["data"]["kpi"]["route_count"] == 1
 
     def test_report_summary_markets(self, client):
-        """report-summary 返回 markets 清单（忽略 exchange 过滤）。"""
+        """report-summary 返回 markets 清单（遵循 exchange 过滤，全报告同步收窄）。"""
         resp = client.get("/api/tca/monitoring/report-summary", params={
             "start_date": "20260803", "end_date": "20260804", "exchange": "HK",
         })
         assert resp.status_code == 200
         data = resp.json()["data"]
         exchanges = {m["exchange"] for m in data["markets"]}
-        assert exchanges == {"US", "HK"}
+        assert exchanges == {"HK"}
 
     def test_export_html_ok(self, client):
         resp = client.get("/api/tca/monitoring/export-html", params={
@@ -807,30 +1006,41 @@ class TestMonitoringRouter:
         assert "异常路由明细" in body   # S6
 
     def test_export_html_market_tabs_radio(self, client):
-        """分市场标签页为 radio 驱动（无 :target 锚点跳转），默认展示全部。"""
+        """市场概览始终展示全部市场汇总表，不再提供点击市场筛选概览范围的交互。"""
         resp = client.get("/api/tca/monitoring/export-html", params={
             "start_date": "20260803", "end_date": "20260804",
         })
         body = resp.text
-        # radio 标签页结构（不是 :target 锚点）
-        assert 'id="mk-all" checked' in body
-        assert 'id="mk-US"' in body
-        assert 'id="mk-HK"' in body
-        # 不再使用 :target 锚点方案（避免虚假跳转）
+        # 市场概览标题与全部市场汇总表存在
+        assert "市场概览" in body
+        assert "成交金额（美元）" in body
+        # 不再渲染 radio 标签页（无点击筛选交互）
+        assert 'id="mk-all"' not in body
+        assert ':checked ~ .mk-panel' not in body
         assert 'href="#mk-' not in body
-        assert 'tab-panel:target' not in body
-        # 面板显示规则存在（radio 选中驱动）
-        assert ':checked ~ .mk-panel' in body
 
     def test_export_html_usd_amount(self, client):
         """HTML 报告落实「总成交金额（美元）」字段（KPI 卡片 + 市场表列头）。"""
         resp = client.get("/api/tca/monitoring/export-html", params={
-            "start_date": "20260803", "end_date": "20260804",
+            "start_date": "20260803", "end_date": "20260804", "min_fill_count": 0, "min_notional_usd": 0,
         })
         body = resp.text
         assert "总成交金额（美元）" in body          # KPI 卡片
         assert "成交金额（美元）" in body            # 市场汇总表列头
         assert "成交金额（本币）" in body
+        # 008: 异常路由明细（S6）新增成交金额列
+        assert "成交金额(本币)" in body
+        assert "成交金额(USD)" in body
+
+    def test_export_html_anomaly_fill_count_column(self, client):
+        """异常路由明细表含『填充笔数』列（位于路由股数前）。"""
+        resp = client.get("/api/tca/monitoring/export-html", params={
+            "start_date": "20260803", "end_date": "20260804", "min_fill_count": 0, "min_notional_usd": 0,
+        })
+        body = resp.text
+        assert "填充笔数" in body
+        # 列顺序：订单参与率 → 填充笔数 → 路由股数
+        assert "订单参与率</th><th>填充笔数</th><th>路由股数" in body
 
     def test_export_html_conflict_422(self, client):
         resp = client.get("/api/tca/monitoring/export-html", params={

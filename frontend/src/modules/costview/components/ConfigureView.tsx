@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, RotateCcw, Save, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { createDefaultCostViewConfig, getSeverityText, getSeverityTone } from '../lib/thresholds';
+import { createDefaultCostViewConfig, getSeverityTone, mergeBackendThresholds } from '../lib/thresholds';
 import type { CostViewConfig, ExportDefaults, ThresholdRule } from '../types';
+import { fetchAnomalyThresholds } from '../services/api';
 import { MultiSelectFilter } from './MultiSelectFilter';
 import { EXCHANGE_LIST } from '@shared/lib/broker-exchange-mapping';
 
@@ -66,6 +67,36 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
     }));
   }
 
+  function updateMinFillCount(nextValue: number) {
+    setDraft((current) => ({
+      ...current,
+      minFillCount: Number.isFinite(nextValue) ? nextValue : 0,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  function updateMinNotionalUsd(nextValue: number) {
+    setDraft((current) => ({
+      ...current,
+      minNotionalUsd: Number.isFinite(nextValue) ? nextValue : 0,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  async function handleResetDefaults() {
+    const fallback = createDefaultCostViewConfig();
+    try {
+      const remote = await fetchAnomalyThresholds();
+      setDraft({
+        ...fallback,
+        rules: mergeBackendThresholds(remote.rules),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      setDraft(fallback);
+    }
+  }
+
   async function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -103,7 +134,7 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
           <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImport} />
           <Button variant="outline" onClick={() => downloadJsonFile(draft, `costview-config-${new Date().toISOString().slice(0, 10)}.json`)}><Download className="mr-2 h-4 w-4" />Export Config</Button>
           <Button variant="outline" onClick={() => fileInputRef.current?.click()}><Upload className="mr-2 h-4 w-4" />Import Config</Button>
-          <Button variant="outline" onClick={() => setDraft(createDefaultCostViewConfig())}><RotateCcw className="mr-2 h-4 w-4" />Reset Defaults</Button>
+          <Button variant="outline" onClick={handleResetDefaults}><RotateCcw className="mr-2 h-4 w-4" />Reset Defaults</Button>
           <Button onClick={() => onSave({ ...draft, updatedAt: new Date().toISOString() })} disabled={!isDirty}><Save className="mr-2 h-4 w-4" />Save</Button>
         </div>
       </div>
@@ -119,8 +150,7 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
                 <tr>
                   <th className="py-3 pr-3 text-left font-medium">Metric</th>
                   <th className="py-3 pr-3 text-left font-medium">Mode</th>
-                  <th className="py-3 pr-3 text-right font-medium">Warning</th>
-                  <th className="py-3 pr-3 text-right font-medium">Critical</th>
+                  <th className="py-3 pr-3 text-right font-medium">Threshold</th>
                   <th className="py-3 pr-3 text-left font-medium">Enabled</th>
                   <th className="py-3 text-left font-medium">Preview</th>
                 </tr>
@@ -140,10 +170,7 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
                       </select>
                     </td>
                     <td className="py-3 pr-3 align-top text-right">
-                      <input type="number" step="0.1" className="w-28 rounded-md border border-input bg-background px-3 py-2 text-right text-sm" value={rule.warningThreshold} onChange={(event) => updateRule(rule.key, { ...rule, warningThreshold: Number(event.target.value) })} />
-                    </td>
-                    <td className="py-3 pr-3 align-top text-right">
-                      <input type="number" step="0.1" className="w-28 rounded-md border border-input bg-background px-3 py-2 text-right text-sm" value={rule.criticalThreshold} onChange={(event) => updateRule(rule.key, { ...rule, criticalThreshold: Number(event.target.value) })} />
+                      <input type="number" step="0.1" className="w-28 rounded-md border border-input bg-background px-3 py-2 text-right text-sm" value={rule.threshold} onChange={(event) => updateRule(rule.key, { ...rule, threshold: Number(event.target.value) })} />
                     </td>
                     <td className="py-3 pr-3 align-top">
                       <label className="inline-flex items-center gap-2 text-sm">
@@ -152,17 +179,53 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
                       </label>
                     </td>
                     <td className="py-3 align-top">
-                      <div className="flex flex-wrap gap-2">
-                        <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('normal')}`}>{getSeverityText('normal')}</span>
-                        <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('warning')}`}>{getSeverityText('warning')}</span>
-                        <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>{getSeverityText('critical')}</span>
-                      </div>
+              <div className="flex flex-wrap gap-2">
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('normal')}`}>Tracking Error 6.0 bps</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>Fill % 72.0%</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>Vol % ADV20 12.5%</span>
+              </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Anomaly Route Filters</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Minimum fill count threshold for anomaly routes (default 10). Applies only to routes whose algo is not &quot;close&quot;: routes below this fill count are treated as sample noise and excluded from the anomaly list; algo=&quot;close&quot; is exempt.
+          </p>
+          <label className="flex w-48 items-center gap-3 text-sm">
+            <span className="text-muted-foreground">Min Fill Count</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              className="w-24 rounded-md border border-input bg-background px-3 py-2 text-right text-sm"
+              value={draft.minFillCount}
+              onChange={(event) => updateMinFillCount(Number(event.target.value))}
+            />
+          </label>
+          <label className="flex w-64 items-center gap-3 text-sm">
+            <span className="text-muted-foreground">Min Notional (USD)</span>
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              className="w-28 rounded-md border border-input bg-background px-3 py-2 text-right text-sm"
+              value={draft.minNotionalUsd}
+              onChange={(event) => updateMinNotionalUsd(Number(event.target.value))}
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Min Notional (USD) applies to all routes: routes that cannot be converted to USD (missing FX rate) or fall below the threshold are excluded from the anomaly list.
+          </p>
         </CardContent>
       </Card>
 

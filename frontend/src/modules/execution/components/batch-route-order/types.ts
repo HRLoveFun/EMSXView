@@ -40,7 +40,11 @@ export interface OrderRowProps {
   row: RowState;
   lot: number;
   total: number;
+  /** 该单可路由额度（idle）= 父单剩余量 − 在途路由量 */
   effectiveRemaining: number;
+  /** 父单剩余量（remainingQuantity），idle 的被减数基准 */
+  orderRemaining: number;
+  /** 已在途（pending）的路由量 */
   routedAmount: number;
   overAlloc: boolean;
   anyAlloc: boolean;
@@ -76,12 +80,12 @@ export interface BrokerStrategyParamsEditorProps {
   ) => void;
 }
 
-/** Route statuses that still consume parent order capacity. */
-export const PENDING_ROUTE_STATUSES = new Set([
-  'SENT', 'WORKING', 'PARTFILLED', 'QUEUED', 'HOLD',
-  'CXLREQ', 'CXLREJ', 'CXLREP', 'CXLRPRQ', 'CXLRPRJ',
-  'REPPEN', 'A-SENT', 'OA-SENT',
-]);
+/**
+ * Route statuses that still consume parent order capacity.
+ * 唯一真相源在 `@execution/lib/route-capacity`（后端 pending_route_statuses 同步），
+ * 此处仅 re-export 以保持既有 import 路径不变。
+ */
+export { PENDING_ROUTE_STATUSES } from '@execution/lib/route-capacity';
 
 // ── Sub-component prop interfaces ─────────────────────────────────────────
 
@@ -153,6 +157,7 @@ export interface OrderAllocationTableProps {
   phase: Phase;
   ratios: Record<string, number>;
   effectiveRemainingOf: (o: Order) => number;
+  routedAmountOf: (o: Order) => number;
   isBrokerAllowedFor: (broker: string, o: Order) => boolean;
   patchRow: (oid: string, patch: Partial<RowState>) => void;
   patchAlloc: (oid: string, broker: string, patch: Partial<AllocState>) => void;

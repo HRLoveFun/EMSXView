@@ -78,27 +78,56 @@ def _fx_ready_ratio(date_str: str) -> float:
 def _date_is_complete(date_str: str) -> bool:
     """该日是否已完整重算。
 
-    判据：tca_route_summary 该日行数 == fill_bdib 该日 DISTINCT 路由数。
-    行数一致说明该日已完整落库（INSERT OR REPLACE 全量写入后逐日提交），
-    比 fx_rate 非空率更可靠 —— 某天算到一半崩溃时行数必然不齐，不会误判完成。
+    判据（双保险）：
+    ① tca_route_summary 该日行数 >= processed_fills 该日 DISTINCT 路由数（行数
+       一致说明该日已完整落库，某天算到一半崩溃时行数必然不齐，不会误判完成）；
+       —— 分母用 processed_fills 而非 fill_bdib：ComputeRouteMetricsStage 只针对
+       有 processed_fills 的路由计算指标，fill_bdib 可能含无成交的孤立行情路由，
+       以其为分母会误报"行数不齐"（如 20260409/20260416 的 15 个路由仅有 BDIB
+       行情、无 raw/processed fills）。2026-08-28 修正。
+    ② 当 Phase 0/1 核心基准开关开启时，还需校验 p_arrival 已实际落库 —— 否则
+       仅按行数判定的旧口径会让"早于 003-tca-core-benchmarks 计算的旧数据"被
+       误判为完成，导致 p_arrival/p_close/wagner_is 等 19 项指标长期停留在 NULL，
+       拉低指标覆盖率（本函数修复点：2026-08-27）。
+
+    返回 False 会触发该日重新全量重算（INSERT OR REPLACE）。
     """
     conn = sqlite3.connect(str(Config.FILL_BDIB_DB))
+    conn_pf = sqlite3.connect(str(Config.PROCESSED_FILLS_DB))
     try:
         try:
             tca = conn.execute(
                 f"SELECT COUNT(*) FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE order_as_of_date = ?",
                 (date_str,),
             ).fetchone()[0]
-            src = conn.execute(
-                f"SELECT COUNT(DISTINCT OrderId || '|' || RouteId) FROM {Config.FILL_BDIB_TABLE} "
+            src = conn_pf.execute(
+                f"SELECT COUNT(DISTINCT OrderId || '|' || RouteId) FROM {Config.PROCESSED_FILLS_TABLE} "
                 "WHERE order_as_of_date = ?",
                 (date_str,),
             ).fetchone()[0]
         except sqlite3.OperationalError:
             return False
-        return src > 0 and tca >= src
+        if not (src > 0 and tca >= src):
+            return False
+        # ② Phase 0/1 完整性校验：开关开启时，该日必须至少存在若干 p_arrival 非 NULL
+        # 行（有 BDIB 行情的路由），否则视为未完成并重算。
+        if Config.TCA_CORE_BENCHMARKS_ENABLED:
+            try:
+                nn = conn.execute(
+                    f"SELECT SUM(CASE WHEN p_arrival IS NOT NULL THEN 1 ELSE 0 END) "
+                    f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE order_as_of_date = ?",
+                    (date_str,),
+                ).fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                return False
+            # p_arrival 全 NULL → 旧数据，需重算；有任意非空即视为已覆盖（BDIB
+            # 缺失的路由本就应为 NULL，不强制 100%）。
+            if nn == 0:
+                return False
+        return True
     finally:
         conn.close()
+        conn_pf.close()
 
 
 def _load_done_set() -> set[str]:
@@ -128,7 +157,7 @@ def main() -> int:
         dates = [d for d in args.dates if d]
     else:
         dates = _all_dates()
-    # 断点续跑：跳过已完成日期（checkpoint 记录 或 行数与源一致）
+    # 断点续跑：跳过已完成日期（checkpoint 记录 或 行数与 processed_fills 源一致）
     if not args.all and not args.dates:
         done = _load_done_set()
         pending = [

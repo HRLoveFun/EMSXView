@@ -7,8 +7,8 @@ import type { Violation } from '@execution/types';
 import type { AllocStatus, OrderRowProps } from './types';
 
 export function OrderRow(p: OrderRowProps) {
-  const { order: o, row: r, lot, total, effectiveRemaining, routedAmount,
-    overAlloc, anyAlloc, selectedBrokers, isBrokerAllowedFor,
+  const { order: o, row: r, lot, total, effectiveRemaining, orderRemaining,
+    routedAmount, overAlloc, anyAlloc, selectedBrokers, isBrokerAllowedFor,
     onPatchRow, onPatchAlloc, editable, phase, ratios } = p;
 
   const aggregateStatus: AllocStatus | undefined = useMemo(() => {
@@ -56,8 +56,8 @@ export function OrderRow(p: OrderRowProps) {
         {effectiveRemaining.toLocaleString()}
         <div className="text-[10px] text-muted-foreground/70">
           {routedAmount > 0
-            ? `\u2212${routedAmount.toLocaleString()} routed \u00b7 idle ${effectiveRemaining.toLocaleString()}`
-            : `idle ${effectiveRemaining.toLocaleString()}`}
+            ? `remain ${orderRemaining.toLocaleString()} \u2212 ${routedAmount.toLocaleString()} routed`
+            : `remain ${orderRemaining.toLocaleString()}`}
         </div>
       </td>
       {selectedBrokers.map(b => {
