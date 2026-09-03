@@ -15,6 +15,49 @@ import type {
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
 
+// 010-extract-pipeline: 数据更新维护已迁独立项目 EMSXDataPipeline Runner。
+// 触发/状态查询改调 Runner（/run /status）；诊断端点亦由 Runner 提供。
+const RUNNER_BASE_URL =
+  (import.meta.env.VITE_RUNNER_URL as string | undefined) ?? 'http://127.0.0.1:8100';
+
+interface RunnerStatus {
+  id: string;
+  state: 'idle' | 'running' | 'success' | 'failed';
+  started_at: number | null;
+  finished_at: number | null;
+  duration_sec: number | null;
+  returncode: number | null;
+  log_tail: string[];
+}
+
+function isoOrNull(epoch: number | null): string | null {
+  return epoch === null ? null : new Date(epoch * 1000).toISOString();
+}
+
+function mapRunnerStatus(s: RunnerStatus): UpdateStatusResponse {
+  const status: UpdateStatusResponse['status'] =
+    s.state === 'running'
+      ? 'running'
+      : s.state === 'success'
+        ? 'completed'
+        : s.state === 'failed'
+          ? 'failed'
+          : 'completed';
+  return {
+    job_id: s.id,
+    status,
+    started_at: isoOrNull(s.started_at),
+    completed_at: isoOrNull(s.finished_at),
+    error:
+      s.state === 'failed'
+        ? `pipeline exited with code ${s.returncode ?? 'unknown'}`
+        : null,
+    stage: null,
+    overall_progress: s.state === 'success' ? 1 : 0,
+    last_activity_at: isoOrNull(s.finished_at ?? s.started_at),
+  };
+}
+
 function getAuthHeaders(): HeadersInit {
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem(TOKEN_KEY);
@@ -69,16 +112,23 @@ export async function analyzeTca(request: TcaAnalyzeRequest): Promise<TcaReport>
 }
 
 export async function triggerUpdate(): Promise<TriggerUpdateResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/tca/trigger-update`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-  });
-
+  // 010-extract-pipeline: 改调独立 Runner（POST /run），幂等（运行中触发 409 视为已受理）
+  const response = await fetch(`${RUNNER_BASE_URL}/run`, { method: 'POST' });
+  if (response.status === 409) {
+    const current = (await (
+      await fetch(`${RUNNER_BASE_URL}/status`)
+    ).json()) as RunnerStatus;
+    return {
+      job_id: current.id,
+      status: 'running',
+      message: 'pipeline already running',
+    };
+  }
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-
-  return response.json() as Promise<TriggerUpdateResponse>;
+  const s = (await response.json()) as RunnerStatus;
+  return { job_id: s.id, status: 'started', message: 'pipeline triggered' };
 }
 
 /** 003-tca-core-benchmarks: Order 级 TCA 聚合查询 */
@@ -107,15 +157,12 @@ export async function analyzeTcaOrders(request: TcaAnalyzeRequest): Promise<TcaO
 }
 
 export async function getUpdateStatus(jobId: string): Promise<UpdateStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/tca/update-status/${encodeURIComponent(jobId)}`, {
-    headers: getAuthHeaders(),
-  });
-
+  // Runner 为单任务模型，jobId 仅作前端一致性占位
+  const response = await fetch(`${RUNNER_BASE_URL}/status`);
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-
-  return response.json() as Promise<UpdateStatusResponse>;
+  return mapRunnerStatus((await response.json()) as RunnerStatus);
 }
 
 export async function fetchAllFilteredOrders(
