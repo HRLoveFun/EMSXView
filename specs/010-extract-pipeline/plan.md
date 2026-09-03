@@ -121,3 +121,14 @@ D:\db\  9 个 sqlite + market/parquet + *.json      （数据资产 3.3）
 - 依赖：ADR-0016（009，mode=ro）、ADR-0012（配置单一来源——独立后两仓各自 Config 需新 ADR 描述共享契约）、ADR-0700（worktree §6.1 数据目录隔离段落更新为 D:\db + 双仓拓扑）。
 - 新增 ADR：独立管道仓库与只读访问层契约（库名/表名/路径单一来源与契约测试）。
 - specs/009-external-data-store/plan.md：P4 落地后其迁移脚本与 WARNING 文案改指 D:\db。
+
+## 9. 待办事项（清理与收尾）
+
+| # | 事项 | 触发条件 | 说明 |
+|---|------|---------|------|
+| TODO-1 | **清理留证目录** `EMSXView\CostView\data.migrated.202609022339`（约 145 GB） | 确认 `D:\db` 运行稳定后（建议观察 1–2 个日更周期） | P4 数据迁移的源目录留证；删除即释放 145GB，删除前确认双仓读取均指向 `D:\db` |
+| TODO-2 | 配置 `PIPELINE_REPORT_CMD`（每日/每周 TCA 报告钩子） | Runner 常驻部署时 | 报告生成属 EMSXView 读侧（依赖 CostView 读侧聚合），未配置时管道跳过报告步骤并打印提示 |
+| TODO-3 | 独立仓库 Runner 常驻化部署 | 运维接入 | `emsx-runner`（:8100）；可配合 Windows 计划任务做每日兜底 |
+| TODO-4 | 独立仓库 CI（管道回归测试） | 独立仓库推送后 | 原 EMSXView `pipeline-tests` job 已移除，管道回归需在 EMSXDataPipeline 重建 |
+| TODO-5 | `.codebuddy/rules/module-boundary.md` 双仓边界更新 | 双仓稳定后 | 补 data_access 只读层与“禁 import DataPipeline”契约条目 |
+| TODO-6 | 主树/其他分支设 `EMSXVIEW_DATA_DIR=D:\db` | PR #5 合并前 | 010 合并后默认值即为 `D:\db`；合并前其他分支需显式设置 |
