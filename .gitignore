@@ -90,6 +90,8 @@ scripts/reports/quality_gate/quality_gate.db
 CostView/data/
 /data/
 backend/api/data/
+# --- 迁移数据目录（带时间戳 data.migrated.<ts>，运行产物，勿入版本库；数据应外置 D:\db） ---
+CostView/data.migrated.*/
 
 # ============================================================
 # AI Assistant Local State (per-user runtime)
