@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from DataPipeline.config import Config
+from data_access.config import Config
 
 # ── SVG 画布常量 ──
 _CHART_W = 780

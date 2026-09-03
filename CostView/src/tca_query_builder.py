@@ -15,8 +15,8 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-from DataPipeline.config import Config
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
+from data_access.config import Config
+from data_access.storage.connection import AccessTier, ConnectionManager
 from platform_data.contracts import TcaFilters
 
 from .tca_utils import (
@@ -138,7 +138,7 @@ def _get_market_context_duckdb(
     if not tickers_and_dates:
         return {}
 
-    from DataPipeline.storage.market_store import MarketStoreReader
+    from data_access.storage.market_store import MarketStoreReader
     reader = MarketStoreReader(Config.BDIB_PARQUET_DIR)
 
     ctx: dict[tuple[str, str], dict] = {}

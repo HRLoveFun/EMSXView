@@ -21,9 +21,9 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from DataPipeline.config import Config
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
-from DataPipeline.storage.market_store import MarketStoreReader
+from data_access.config import Config
+from data_access.storage.connection import AccessTier, ConnectionManager
+from data_access.storage.market_store import MarketStoreReader
 
 logger = logging.getLogger(__name__)
 

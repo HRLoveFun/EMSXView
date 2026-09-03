@@ -157,7 +157,7 @@ init_services(bloomberg_service, broker_storage, repo_provider)
 # Phase 4: Register DataPipeline Config so platform_data consumers can
 # resolve table names etc. without importing DataPipeline directly.
 try:
-    from DataPipeline.config import Config
+    from data_access.config import Config
     from platform_data.config_bridge import register_config_impl
     register_config_impl(Config)
     logger.info("Registered DataPipeline Config in platform_data bridge")
@@ -274,10 +274,11 @@ app.include_router(route_plans_router)
 # PR-2: execution_history 孤儿 API 已退役（前端 0 个消费者，被 baseline_violations.json
 # 记录为 AP-05 违规）。保留注释以追踪删除原因。
 _KNOWN_OPTIONAL_MODULES: dict[str, str] = {
-    "database": "DatabaseView",
     # costview 为桥接 router（backend/api/routers/costview.py），将 CostView
     # 服务的 /api/tca/* 与 /api/tca/monitoring/* 合并进 core 进程，
     # 使前端经 :3000 单入口即可访问 TCA 与监控端点。
+    # 010-extract-pipeline: DatabaseView 已迁独立项目 EMSXDataPipeline Runner，
+    # 其 /api/db/* 诊断与触发端点不再由本仓库提供。
     "costview": "CostView",
 }
 
