@@ -15,8 +15,8 @@ from typing import Any, Optional
 
 import numpy as np
 
-from DataPipeline.config import Config
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
+from data_access.config import Config
+from data_access.storage.connection import AccessTier, ConnectionManager
 
 from .metric_coverage import MetricCoverageService, validate_metrics
 from .anomaly_query import (

@@ -5,8 +5,11 @@
 #      核心文档漂移自 2026-08-26 起硬阻断)
 #   2. 后端边界测试 (backend/api/tests/boundaries/)
 #   3. 后端全量测试
-#   4. DataPipeline 回归测试 (P0/P1 边界修复)
-#   5. 前端 tsc + vitest
+#   4. 前端 tsc + vitest
+#
+# 010-extract-pipeline: DataPipeline 回归测试已随数据管道迁独立仓库
+# EMSXDataPipeline（唯一写入方），管道侧回归由该仓库 CI 负责；
+# 本仓库仅保留读取消费侧测试。
 #
 # 审计规则从 platform_data/contracts/boundary_registry.py 生成,
 # 新增模块契约自动纳入检测。
@@ -61,12 +64,13 @@ jobs:
           grep -v '^blpapi' requirements.txt > requirements.ci.txt
           pip install -r requirements.ci.txt
           # 内部包 --no-deps + 显式依赖 (避免 blpapi 解析失败; platform_data 需要 pydantic/dateutil)
-          pip install -e ../../DataPipeline --no-deps
+          # 010-extract-pipeline: DataPipeline 已迁独立仓库，不再安装；
+          # 读取侧配置常量由仓库根 data_access/ 提供（PYTHONPATH 覆盖）
           pip install -e ../../platform_data --no-deps
           pip install -e ../../CostView --no-deps
           pip install numpy pandas duckdb pyarrow python-dateutil pydantic psutil
           pip install pytest-asyncio
-          # 依赖内部包: 仓库根(platform_data/CostView/DataPipeline) + blpapi stub
+          # 依赖内部包: 仓库根(platform_data/CostView/data_access) + blpapi stub
           echo "PYTHONPATH=$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
       - name: "边界测试 (硬阻断: 真正的边界违规)"
         run: |
@@ -76,32 +80,6 @@ jobs:
         run: |
           cd backend/api
           python -m pytest tests/ -q --ignore=tests/boundaries
-
-  pipeline-tests:
-    name: DataPipeline 回归测试
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: 安装依赖 (--no-deps 避免 blpapi 解析; 按需装测试依赖)
-        run: |
-          # blpapi stub (与 backend-tests 一致)
-          echo "PYTHONPATH=$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
-          pip install -e DataPipeline --no-deps
-          pip install pytest numpy pandas duckdb pyarrow python-dotenv pydantic pytest-asyncio
-      - name: 存储层边界回归 (P0/P1)
-        run: |
-          python -m pytest DataPipeline/tests/storage/test_archiver_boundary.py \
-            DataPipeline/tests/storage/test_market_store_merge_write.py \
-            -c backend/api/pytest.ini -q -o testpaths=
-      - name: 护栏机制回归
-        run: |
-          python -m pytest DataPipeline/tests/guardrail/test_circuit_breaker.py \
-            DataPipeline/tests/guardrail/test_validation.py \
-            DataPipeline/tests/guardrail/test_schema_drift_guard.py \
-            -c backend/api/pytest.ini -q -o testpaths=
 
   frontend-tests:
     name: 前端测试 (tsc + vitest)

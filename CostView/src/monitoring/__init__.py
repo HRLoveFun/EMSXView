@@ -35,10 +35,7 @@ from .anomaly_query import (
     query_anomaly_routes,
 )
 from .report_dims import (
-    DIM_COLUMNS,
-    ensure_schema,
     get_filter_options,
-    refresh_dim_values,
 )
 
 __all__ = [

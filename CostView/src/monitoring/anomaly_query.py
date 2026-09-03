@@ -15,8 +15,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from DataPipeline.config import Config
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
+from data_access.config import Config
+from data_access.storage.connection import AccessTier, ConnectionManager
 
 # ── 阈值规则定义（与前端 thresholds.ts 同步）────────────────────────────────
 

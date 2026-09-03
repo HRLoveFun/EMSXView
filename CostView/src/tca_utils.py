@@ -18,8 +18,8 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from DataPipeline.common.exchange_tz import convert_ny_to_local
-from DataPipeline.config import Config
+from data_access.common.exchange_tz import convert_ny_to_local
+from data_access.config import Config
 from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,

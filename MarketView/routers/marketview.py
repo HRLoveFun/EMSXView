@@ -35,7 +35,8 @@ def _get_market() -> MarketReferenceDataAdapter:
     """Lazily create MarketReferenceDataAdapter with ConnectionManager injected."""
     global _market
     if _market is None:
-        from DataPipeline import ConnectionManager
+        # 010-extract-pipeline: 读取侧只读连接改由 data_access 提供
+        from data_access import ConnectionManager
         _market = MarketReferenceDataAdapter(connection_manager=ConnectionManager())
     return _market
 

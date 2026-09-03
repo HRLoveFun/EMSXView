@@ -53,10 +53,10 @@
 
 - 后端使用 Pydantic v2 模型定义 schema；所有 API 响应包在 `ApiResponse` 中。
 - 数据库读写由 `RepositoryProvider` 统一控制，gate 为 `ENABLE_DB_PERSISTENCE` 标志。
-- 管道配置为唯一数据源——禁止硬编码数据库路径、表名及运行时参数；一律从 `DataPipeline/config.Config` 导入。
+- 管道配置为唯一数据源——禁止硬编码数据库路径、表名及运行时参数；EMSXView 一律从 `data_access/config.Config` 导入（010-extract-pipeline：数据管道已迁独立仓库 EMSXDataPipeline，本仓库为只读消费者）。
 - 后端可选路由器绝不可破坏核心 ExecutionView——使用 `main.py` 中的 `_register_optional` 模式。
 - TCA 路由层级指标从 `tca_route_summary` 预计算表读取，禁止在查询时实时聚合。
-- Backend 禁止直接 deep import `CostView.src.*` / `DataPipeline.*`；须经由 `platform_data` 桥接入口（如 `register_costview_bridge_dependencies()`）完成 DI 注册（模块边界 AP-01）。
+- Backend 禁止直接 deep import `CostView.src.*`；**禁止 import `DataPipeline.*`**（数据管道已迁独立仓库 EMSXDataPipeline，010-extract-pipeline）；须经由 `platform_data` 桥接入口（如 `register_costview_bridge_dependencies()`）完成 DI 注册（模块边界 AP-01）。
 - `platform_data` 中 `CostViewAnalyticsAdapter`、`CostViewDatabaseAdapter`、`ExecutionHistoryAdapter`、`DataPlatformIngestionAdapter`、`build_platform_data_access()` / `PlatformDataAccess` 为**规划中、尚未实现**——禁止按符号 import 使用（见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）。
 
 ### 文件放置规范（★ 必须遵守）
@@ -69,7 +69,8 @@
   |---|---|
   | 后端业务代码 | `backend/api/` 分层子目录（`routers/` `services/` `schemas/`） |
   | CostView / MarketView | `CostView/api/`、`CostView/src/`、`CostView/tests/`；`MarketView/` |
-  | 数据管道 | `DataPipeline/`（`ingestion/` `processing/` `analysis/`） |
+  | 数据管道（已迁独立仓库） | EMSXDataPipeline 仓库（`DataPipeline/` 含 ingestion/processing/analysis；唯一写入方，数据根 `D:\db`） |
+  | 只读数据访问层 | `data_access/`（EMSXView 内，裁剪自 DataPipeline 只读路径：mode=ro 连接 + 库/表常量，与独立仓库契约一致） |
   | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
   | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
   | 前端模块代码 | `frontend/src/modules/<module>/`（`components/` `hooks/` `services/`） |
@@ -96,6 +97,6 @@
 - **核心方案**：Git Worktree + 独立 Feature 分支 + 每日 rebase origin/main；完整 SOP 见 [`docs/spec/git-workflow.md`](docs/spec/git-workflow.md)
 - **一任务一分支一目录**：每个任务在兄弟目录 `../EMSXView-wt-<task>` 检出独立分支，主工作树保持干净（停在 main）；规格化特性任务分支名必须与 `specs/<feature-id>/` 目录名一致
 - **同步纪律**：每个活跃任务每天至少一次 `git rebase origin/main`；临时保存用 commit，**禁止跨 worktree 使用 stash**（stash 为仓库级共享，极易拿错）
-- **数据零受损**：worktree 内 `CostView/data/` 默认为空（数据不入 git）；数据管道写入类任务同一时间只允许一个 worktree 执行，或各用独立 `EMSXVIEW_DATA_DIR`
+- **数据零受损**：数据落外置 `D:\db`（010-extract-pipeline，与代码树解耦）；EMSXView 为只读消费者（sqlite mode=ro），数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline。`EMSXVIEW_DATA_DIR` 可覆盖数据根。
 - **Agent 隔离**：一个 Agent 绑定一个 worktree，禁止跨 worktree 读写文件或操作其他任务正在使用的分支；功能代码禁止直接提交 main（PR + Squash merge）
 - 并行任务启动前必须先读 `docs/spec/git-workflow.md` §6（端口偏移 / 数据目录 / 依赖安装）与 §7（AI Agent 专项规则）

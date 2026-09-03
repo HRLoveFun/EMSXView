@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
-from DataPipeline.config import Config
-from DataPipeline.storage.connection import AccessTier, ConnectionManager
+from data_access.config import Config
+from data_access.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
 
