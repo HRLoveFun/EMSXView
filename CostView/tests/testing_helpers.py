@@ -148,10 +148,12 @@ def _bootstrap_ticker_registry(db_path: Path) -> None:
     """
     import sqlite3
 
-    import DataPipeline
+    # 010-extract-pipeline: DataPipeline 已迁独立仓库；测试用的 DDL 片段
+    # 随只读契约副本落在 data_access/storage/schema/db_partition.sql
+    import data_access
 
     sql_file = (
-        Path(DataPipeline.__file__).resolve().parent
+        Path(data_access.__file__).resolve().parent
         / "storage" / "schema" / "db_partition.sql"
     )
     content = sql_file.read_text(encoding="utf-8")
