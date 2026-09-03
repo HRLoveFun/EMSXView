@@ -251,7 +251,7 @@ function Write-StartupErrorPage {
         New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
     }
 
-    # 取最新日志（前端失败时优先取 vite-startup.log 全文）
+    # Get the latest log (prefer full vite-startup.log on frontend failure)
     $logHint = ''
     if ($ServiceName -eq 'Frontend') {
         $viteLog = Join-Path $logRoot 'vite-startup.log'
@@ -259,7 +259,7 @@ function Write-StartupErrorPage {
             $lines = Get-Content -LiteralPath $viteLog -Encoding UTF8 -ErrorAction SilentlyContinue
             if ($lines) {
                 $escaped = ($lines | ForEach-Object { [System.Net.WebUtility]::HtmlEncode($_) }) -join "`n"
-                $logHint = "<p>前端启动日志: <code>vite-startup.log</code></p><details open><summary>查看全部 $($lines.Count) 行日志</summary><pre>$escaped</pre></details>"
+                $logHint = "<p>Frontend startup log: <code>vite-startup.log</code></p><details open><summary>View all $($lines.Count) log lines</summary><pre>$escaped</pre></details>"
             }
         }
     }
@@ -272,28 +272,28 @@ function Write-StartupErrorPage {
                 $tailStart = $lines.Count - $tailCount
                 $tail = $lines | Select-Object -Skip $tailStart
                 $escaped = ($tail | ForEach-Object { [System.Net.WebUtility]::HtmlEncode($_) }) -join "`n"
-                $logHint = "<p>最新日志文件: <code>$($latest.Name)</code> ($($latest.LastWriteTime))</p><details><summary>查看最近 $tailCount 行日志</summary><pre>$escaped</pre></details>"
+                $logHint = "<p>Latest log file: <code>$($latest.Name)</code> ($($latest.LastWriteTime))</p><details><summary>View last $tailCount log lines</summary><pre>$escaped</pre></details>"
             }
         }
     }
 
     $portInfo = Get-PortOccupancyInfo -Port $Port
     $portBlock = if ($portInfo) {
-        "<div class='warning'>⚠ 端口 $Port 当前被占用:<pre>$([System.Net.WebUtility]::HtmlEncode($portInfo))</pre></div>"
+        "<div class='warning'>⚠ Port $Port is currently occupied:<pre>$([System.Net.WebUtility]::HtmlEncode($portInfo))</pre></div>"
     } else { '' }
 
     $frontendHint = if ($FrontendOpened) {
-        "<div class='warning'>ℹ 前端已打开：<code>http://localhost:$($Script:Config.FrontendPort)</code>。可先在页面内等待 backend 就绪，同时参考此诊断页继续排查。</div>"
+        "<div class='warning'>ℹ Frontend already opened: <code>http://localhost:$($Script:Config.FrontendPort)</code>. You may wait for the backend to become ready on the page, and refer to this diagnostic page for further troubleshooting.</div>"
     } else { '' }
 
     $causesHtml = ($PossibleCauses | ForEach-Object { "    <li>$_</li>" }) -join "`n"
 
     $html = @"
 <!DOCTYPE html>
-<html lang='zh-CN'>
+<html lang='en'>
 <head>
 <meta charset='UTF-8'>
-<title>EMSXView - $ServiceName 启动失败</title>
+<title>EMSXView - $ServiceName startup failed</title>
 <style>
 body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 32px; }
 .card { max-width: 720px; margin: 0 auto; background: #1e293b; padding: 32px; border-radius: 16px; box-shadow: 0 25px 50px rgba(0,0,0,.4); }
@@ -316,24 +316,24 @@ summary { cursor: pointer; color: #7dd3fc; font-size: 14px; }
 </head>
 <body>
 <div class='card'>
-  <h1>EMSXView $ServiceName 启动失败</h1>
-  <p class='subtitle'>服务在 $TimeoutSec 秒内未能就绪 (localhost:$Port)</p>
+  <h1>EMSXView $ServiceName startup failed</h1>
+  <p class='subtitle'>Service failed to become ready within $TimeoutSec seconds (localhost:$Port)</p>
   $frontendHint
   $portBlock
-  <h2>可能的原因</h2>
+  <h2>Possible Causes</h2>
   <ul>
 $causesHtml
   </ul>
-  <h2>日志信息</h2>
+  <h2>Log Information</h2>
   $logHint
-  <h2>快速修复</h2>
+  <h2>Quick Fix</h2>
   <ul>
-    <li>打开 PowerShell，运行 <code>cd $ProjectRoot\scripts</code> 然后 <code>.\stop-all.bat</code> 停止残留进程</li>
-    <li>用 <code>scripts\restart-all.bat</code> 可见窗口模式启动，查看具体报错</li>
+    <li>Open PowerShell, run <code>cd $ProjectRoot\scripts</code> then <code>.\stop-all.bat</code> to stop lingering processes</li>
+    <li>Run <code>scripts\restart-all.bat</code> in visible-window mode to see the actual error</li>
   </ul>
   <div class='actions'>
-    <a class='btn btn-primary' href='file:///$($errorPath -replace '\\','/')' onclick='location.reload()'>刷新重试</a>
-    <a class='btn btn-secondary' href='http://localhost:$Port'>重新连接</a>
+    <a class='btn btn-primary' href='file:///$($errorPath -replace '\\','/')' onclick='location.reload()'>Retry</a>
+    <a class='btn btn-secondary' href='http://localhost:$Port'>Reconnect</a>
   </div>
   <div class='footer'>EMSXView Trading Platform · $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</div>
 </div>
@@ -352,37 +352,37 @@ if ($MyInvocation.InvocationName -eq '.') { return }
 
 $ErrorActionPreference = 'Stop'
 
-Write-Host '[launch] 定位项目根...' -ForegroundColor Cyan
+Write-Host '[launch] Locating project root...' -ForegroundColor Cyan
 $ProjectRoot = Find-EmsxviewRoot
 Assert-ProjectRootValid -Root $ProjectRoot
-Write-Host "[launch] 项目根: $ProjectRoot" -ForegroundColor Green
+Write-Host "[launch] Project root: $ProjectRoot" -ForegroundColor Green
 
 # 后端预检：如果 3000 已被健康后端占用，直接复用，避免重复启动导致端口冲突
-Write-Host '[launch] 检查后端端口占用情况...' -ForegroundColor Cyan
+Write-Host '[launch] Checking backend port occupancy...' -ForegroundColor Cyan
 $backendAlreadyRunning = $false
 if (Test-PortListening -Port $Script:Config.BackendPort) {
     if (Test-BackendAlreadyHealthy -Port $Script:Config.BackendPort) {
-        Write-Host "[launch] 检测到后端已在端口 $($Script:Config.BackendPort) 运行且响应健康检查，直接复用" -ForegroundColor Green
+        Write-Host "[launch] Detected running backend on port $($Script:Config.BackendPort) responding to health check; reusing it" -ForegroundColor Green
         $backendAlreadyRunning = $true
     }
     else {
-        Write-Host "[launch] 端口 $($Script:Config.BackendPort) 被占用但健康检查未通过，尝试结束残留进程..." -ForegroundColor Yellow
+        Write-Host "[launch] Port $($Script:Config.BackendPort) is occupied but health check failed; terminating stale process..." -ForegroundColor Yellow
         $staleProc = Get-ProcessUsingPort -Port $Script:Config.BackendPort
         if ($staleProc) {
             try {
                 Stop-Process -Id $staleProc.Id -Force -ErrorAction Stop
-                Write-Host "[launch] 已结束残留进程 $($staleProc.ProcessName) (PID $($staleProc.Id))" -ForegroundColor Green
+                Write-Host "[launch] Terminated stale process $($staleProc.ProcessName) (PID $($staleProc.Id))" -ForegroundColor Green
                 Start-Sleep -Seconds 2
             }
             catch {
-                Write-Host "[launch] 无法结束残留进程: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "[launch] Failed to terminate stale process: $($_.Exception.Message)" -ForegroundColor Red
             }
         }
     }
 }
 
 # 并行启动后端、前端（隐藏窗口）
-Write-Host '[launch] 并行启动后端 / 前端（隐藏窗口）...' -ForegroundColor Cyan
+Write-Host '[launch] Starting backend / frontend in parallel (hidden window)...' -ForegroundColor Cyan
 if (-not $backendAlreadyRunning) {
     Start-HiddenScript -ScriptPath (Join-Path $ProjectRoot 'scripts\deploy\start-backend.ps1')
 }
@@ -396,10 +396,10 @@ $frontendReady = Wait-PortReady `
 
 if (-not $frontendReady) {
     $causes = @(
-        'node_modules 未安装（在 frontend/ 下运行 npm install）',
-        '端口 5173 被其他程序占用（上次运行未正确关闭）',
-        'Node.js / npm 未安装或不在 PATH 中',
-        'npm SSL 证书问题（运行 npm config set strict-ssl false）'
+        'node_modules not installed (run npm install under frontend/)',
+        'Port 5173 occupied by another process (previous run not closed properly)',
+        'Node.js / npm not installed or not in PATH',
+        'npm SSL certificate issue (run npm config set strict-ssl false)'
     )
     Write-StartupErrorPage `
         -ProjectRoot $ProjectRoot `
@@ -408,16 +408,16 @@ if (-not $frontendReady) {
         -TimeoutSec $Script:Config.FrontendTimeoutSec `
         -PossibleCauses $causes `
         -FrontendOpened $false
-    Write-Host '[launch] 前端启动失败，已生成诊断页' -ForegroundColor Red
+    Write-Host '[launch] Frontend failed to start; diagnostic page generated' -ForegroundColor Red
     exit 1
 }
 
-Write-Host '[launch] 前端就绪，打开浏览器...' -ForegroundColor Green
+Write-Host '[launch] Frontend ready; opening browser...' -ForegroundColor Green
 Start-Process "http://localhost:$($Script:Config.FrontendPort)"
 
 # 若已复用健康后端，无需再等待新实例启动
 if ($backendAlreadyRunning) {
-    Write-Host '[launch] 复用已运行的后端，启动完成' -ForegroundColor Green
+    Write-Host '[launch] Reusing running backend; startup complete' -ForegroundColor Green
     exit 0
 }
 
@@ -429,10 +429,10 @@ $backendReady = Wait-PortReady `
 
 if (-not $backendReady) {
     $causes = @(
-        'Python 环境未找到（检查 PATH 中的 python.exe）',
-        '端口 3000 被其他程序占用（上次运行未正确关闭）',
-        '依赖包缺失（在 backend/ 下运行 pip install）',
-        'Bloomberg BPIPE 连接失败（检查 Terminal 是否在线）'
+        'Python environment not found (check python.exe in PATH)',
+        'Port 3000 occupied by another process (previous run not closed properly)',
+        'Missing dependencies (run pip install under backend/)',
+        'Bloomberg BPIPE connection failed (check if Terminal is online)'
     )
     Write-StartupErrorPage `
         -ProjectRoot $ProjectRoot `
@@ -441,9 +441,9 @@ if (-not $backendReady) {
         -TimeoutSec $Script:Config.BackendTimeoutSec `
         -PossibleCauses $causes `
         -FrontendOpened $true
-    Write-Host '[launch] 后端启动失败，已生成诊断页' -ForegroundColor Red
+    Write-Host '[launch] Backend failed to start; diagnostic page generated' -ForegroundColor Red
     exit 1
 }
 
-Write-Host '[launch] 后端就绪。启动完成。' -ForegroundColor Green
+Write-Host '[launch] Backend ready. Startup complete.' -ForegroundColor Green
 exit 0
