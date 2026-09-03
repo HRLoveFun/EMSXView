@@ -1,7 +1,9 @@
-# 在桌面创建 EMSXView 快捷图标
+﻿# 在桌面创建 EMSXView 快捷图标
 # 只需运行一次：powershell -File create-desktop-shortcut.ps1
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+# 桌面路径唯一信息源：用户 Shell 已知文件夹，避免依赖当前工作目录
+$desktopPath = [Environment]::GetFolderPath('Desktop')
 $shortcutPath = Join-Path $desktopPath "EMSXView Trading.lnk"
 
 $WshShell   = New-Object -ComObject WScript.Shell
@@ -14,12 +16,12 @@ $shortcut.WorkingDirectory = $ProjectRoot
 $shortcut.Description    = "启动 EMSXView Trading Platform"
 $shortcut.WindowStyle    = 7   # 最小化启动
 
-# 使用 Bloomberg 可执行文件的图标（如果存在），否则使用浏览器图标
-$bbTerminal = "C:\blp\bbcomm\bbterm.exe"
-$chromePath = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice" -ErrorAction SilentlyContinue).ProgId
-if (Test-Path $bbTerminal) {
-    $shortcut.IconLocation = "$bbTerminal,0"
+# 使用 EMSXView 专属品牌图标（scripts/deploy/emsxview.ico，多尺寸）
+$brandIcon = Join-Path $ProjectRoot "scripts\deploy\emsxview.ico"
+if (Test-Path $brandIcon) {
+    $shortcut.IconLocation = $brandIcon
 } else {
+    # 兜底：品牌图标缺失时使用系统网络图标
     $shortcut.IconLocation = "C:\Windows\System32\shell32.dll,14"  # 地球/网络图标
 }
 
