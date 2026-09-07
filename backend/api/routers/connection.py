@@ -19,7 +19,7 @@ _last_reconnect_ts: float = 0.0
 
 
 @router.get("/", response_model=ApiResponse, tags=["Health"])
-async def root(bloomberg=Depends(get_bloomberg_service)):
+async def root(bloomberg=Depends(get_bloomberg_service)) -> ApiResponse:
     """API root — service info."""
     return ApiResponse(
         success=True,
@@ -34,7 +34,7 @@ async def root(bloomberg=Depends(get_bloomberg_service)):
 
 
 @router.get("/api/health", response_model=ApiResponse, tags=["Health"])
-async def health_check(bloomberg=Depends(get_bloomberg_service)):
+async def health_check(bloomberg=Depends(get_bloomberg_service)) -> ApiResponse:
     """Health check endpoint."""
     bb_status = bloomberg.get_status()
     if settings.ENABLE_DB_PERSISTENCE:
@@ -59,7 +59,7 @@ async def health_check(bloomberg=Depends(get_bloomberg_service)):
 async def get_connection_status(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get Bloomberg connection status."""
     bb_status = bloomberg.get_status()
     return ApiResponse(success=True, data={"status": bb_status.status}, message=f"Bloomberg is {bb_status.status}")
@@ -69,7 +69,7 @@ async def get_connection_status(
 async def get_startup_status(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get layered startup status for backend, Bloomberg, and EMSX subscriptions.
     Fires a background reconnect if Bloomberg is disconnected (rate-limited to
     once per 30s) so the system self-heals without waiting for a user action."""
@@ -87,7 +87,7 @@ async def get_startup_status(
 async def reconnect_bloomberg(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Force reconnection to Bloomberg."""
     from fastapi import HTTPException
     bloomberg.disconnect()

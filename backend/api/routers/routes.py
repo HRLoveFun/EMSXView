@@ -23,7 +23,7 @@ router = APIRouter(tags=["Routes"])
 async def get_routes(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get routes from EMSX subscription cache."""
     routes = await bloomberg.get_routes()
     return ApiResponse(success=True, data=routes, message=f"Retrieved {len(routes)} routes")
@@ -34,7 +34,7 @@ async def cancel_route(
     request: CancelRouteRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Cancel a route via CancelRouteEx."""
     audit_log("CANCEL_ROUTE", user.get("sub"), {
         "sequence": request.sequence, "routeId": request.routeId,
@@ -48,7 +48,7 @@ async def modify_route(
     request: ModifyRouteRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Modify a route via ModifyRouteEx."""
     audit_log("MODIFY_ROUTE", user.get("sub"), {
         "sequence": request.sequence, "routeId": request.routeId,
@@ -90,7 +90,7 @@ async def batch_modify_routes(
     request: BatchModifyRouteRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Batch-modify N existing routes.
 
     - ``dryRun=true``  -> sync JSON ``BatchOperationResult``.
@@ -118,7 +118,7 @@ async def batch_modify_routes(
 async def diagnose_strategy_rate(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Diagnose routes where strategy Rate information appears to be missing.
 
     Scans the live route cache and groups routes by (broker, strategyType),
@@ -204,7 +204,7 @@ async def diagnose_strategy_rate(
 
 
 @router.get("/api/routes/reference-enums", response_model=ApiResponse)
-async def get_route_enums(user: dict = Depends(verify_token)):
+async def get_route_enums(user: dict = Depends(verify_token)) -> ApiResponse:
     """Return reference enums used by the Modify Route dialog.
 
     The frontend must not hard-code Bloomberg EMSX order-type / TIF codes;

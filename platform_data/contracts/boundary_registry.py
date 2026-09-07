@@ -153,12 +153,8 @@ def _register_default_contracts() -> None:
             can_write=("market_snapshot",),
             forbidden_imports=("@execution", "@costview", "@databaseview"),
         ),
-        ModuleBoundaryContract(
-            module_id="frontend_databaseview",
-            can_read=(),
-            can_write=(),
-            forbidden_imports=("@execution", "@costview", "@marketview"),
-        ),
+        # 010-extract-pipeline: frontend_databaseview 契约已移除（模块迁独立项目
+        # EMSXDataPipeline Runner；若回迁需按 module-onboarding.md 重新注册）
         # ── 后端模块 ──
         ModuleBoundaryContract(
             module_id="backend_api",

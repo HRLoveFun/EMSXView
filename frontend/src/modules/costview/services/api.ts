@@ -16,9 +16,8 @@ const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
 
 // 010-extract-pipeline: 数据更新维护已迁独立项目 EMSXDataPipeline Runner。
-// 触发/状态查询改调 Runner（/run /status）；诊断端点亦由 Runner 提供。
-const RUNNER_BASE_URL =
-  (import.meta.env.VITE_RUNNER_URL as string | undefined) ?? 'http://127.0.0.1:8100';
+// P2-4 整改：触发/状态查询不再直连 Runner（:8100），统一走 :3000 鉴权代理
+// /api/tca/runner/*（后端 backend/api/routers/costview.py 转发）。
 
 interface RunnerStatus {
   id: string;
@@ -112,23 +111,21 @@ export async function analyzeTca(request: TcaAnalyzeRequest): Promise<TcaReport>
 }
 
 export async function triggerUpdate(): Promise<TriggerUpdateResponse> {
-  // 010-extract-pipeline: 改调独立 Runner（POST /run），幂等（运行中触发 409 视为已受理）
-  const response = await fetch(`${RUNNER_BASE_URL}/run`, { method: 'POST' });
-  if (response.status === 409) {
-    const current = (await (
-      await fetch(`${RUNNER_BASE_URL}/status`)
-    ).json()) as RunnerStatus;
-    return {
-      job_id: current.id,
-      status: 'running',
-      message: 'pipeline already running',
-    };
-  }
+  // 经 :3000 鉴权代理触发；运行中重复触发（409）由后端归一为"已受理"并回带当前状态
+  const response = await fetch(`${API_BASE_URL}/api/tca/runner/run`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  const s = (await response.json()) as RunnerStatus;
-  return { job_id: s.id, status: 'started', message: 'pipeline triggered' };
+  const json = await response.json();
+  const s = json.data as RunnerStatus;
+  return {
+    job_id: s.id,
+    status: s.state === 'running' ? 'running' : 'started',
+    message: json.message ?? 'pipeline triggered',
+  };
 }
 
 /** 003-tca-core-benchmarks: Order 级 TCA 聚合查询 */
@@ -156,13 +153,17 @@ export async function analyzeTcaOrders(request: TcaAnalyzeRequest): Promise<TcaO
   return json.data as TcaOrderReport;
 }
 
-export async function getUpdateStatus(jobId: string): Promise<UpdateStatusResponse> {
-  // Runner 为单任务模型，jobId 仅作前端一致性占位
-  const response = await fetch(`${RUNNER_BASE_URL}/status`);
+export async function getUpdateStatus(_jobId: string): Promise<UpdateStatusResponse> {
+  // Runner 为单任务模型，jobId 仅作前端一致性占位（下划线前缀表示有意不使用）；
+  // 状态查询经 :3000 鉴权代理（后端解包 ApiResponse.data 后按原映射转换）
+  const response = await fetch(`${API_BASE_URL}/api/tca/runner/status`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  return mapRunnerStatus((await response.json()) as RunnerStatus);
+  const json = await response.json();
+  return mapRunnerStatus(json.data as RunnerStatus);
 }
 
 export async function fetchAllFilteredOrders(

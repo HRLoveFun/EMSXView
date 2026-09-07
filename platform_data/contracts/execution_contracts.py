@@ -1,7 +1,7 @@
 """Execution-history data contracts — pure dataclasses with no business logic.
 
 Ownership: CostView execution-history pipeline publishes these contracts.
-Consumers: ExecutionView, DatabaseView (history queries).
+Consumers: ExecutionView (history queries)。
 """
 
 from __future__ import annotations

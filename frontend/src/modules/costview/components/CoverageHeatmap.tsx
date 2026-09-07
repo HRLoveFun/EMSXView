@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { BdibHealthStatus, MetricCoverageRow } from '../types';
-import { BDIB_DEPENDENT_METRICS, EXPECTED_NULL_METRICS, METRIC_LABELS, METRIC_NULL_REASON } from '../lib/monitoring-metrics';
+import { BDIB_DEPENDENT_METRICS, EXPECTED_NULL_METRICS, METRIC_LABELS } from '../lib/monitoring-metrics';
 
 interface CoverageHeatmapProps {
   /** 覆盖率行（按日期升序） */

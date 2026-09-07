@@ -504,9 +504,8 @@ async def regime_distribution(
 
 # ── Pipeline runner ────────────────────────────────────────────────────────────
 #
-# The pipeline job registry and subprocess runner live in
-# platform_data/pipeline_jobs.py so that both /api/tca/trigger-update (this router,
-# deprecated alias) and /api/db/update (DatabaseView router) share state.
+# 010-extract-pipeline: 数据更新触发已迁独立项目 EMSXDataPipeline Runner，
+# /api/db/update（DatabaseView）与 /api/tca/trigger-update 触发端点均已移除。
 
 
 # ── Serialization helpers ─────────────────────────────────────────────────────

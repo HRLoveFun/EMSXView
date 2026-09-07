@@ -374,7 +374,7 @@ EMSXView/
 | **Backend** | Python 3.11, FastAPI, Pydantic v2 |
 | **Bloomberg API** | blpapi 3.19+, xbbg 0.7+ |
 | **ORM** | SQLAlchemy 2.x |
-| **Authentication** | JWT (python-jose, passlib) |
+| **Authentication** | JWT (PyJWT, passlib) |
 | **Real-time** | WebSocket (FastAPI + browser native) |
 | **Data Processing** | pandas, numpy |
 | **Operational DB** | PostgreSQL (optional, for order/route persistence) |

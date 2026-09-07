@@ -100,7 +100,7 @@ class _MockParentChildRepo:
 async def create_parent_execution(
     request: CreateParentExecutionRequest,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Launch a new algorithmic parent execution."""
     audit_log("CREATE_PARENT_EXEC", user.get("sub"), {
         "orderId": request.orderId,
@@ -176,7 +176,7 @@ async def control_parent_execution(
     parent_id: int,
     request: ParentExecutionCommand,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Control a running parent execution (PAUSE/RESUME/CANCEL)."""
     audit_log("EXEC_COMMAND", user.get("sub"), {
         "parentId": parent_id,
@@ -209,7 +209,7 @@ async def control_parent_execution(
 async def get_parent_execution(
     parent_id: int,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Get the current state of a parent execution."""
     parent = _parent_store.get(parent_id)
     if parent is None:
@@ -226,7 +226,7 @@ async def get_parent_execution(
 
 
 @router.get("/api/executions", response_model=ApiResponse)
-async def list_parent_executions(user: dict = Depends(verify_token)):
+async def list_parent_executions(user: dict = Depends(verify_token)) -> ApiResponse:
     """List all tracked parent executions."""
     active_ids = list_active_parent_ids()
     result = []

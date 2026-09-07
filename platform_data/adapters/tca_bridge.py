@@ -67,7 +67,7 @@ def get_tca_query_service(key: str = "default") -> TcaQueryServiceProtocol:
 # ---------------------------------------------------------------------------
 
 # P2-D3: Import ConnectionManagerProtocol instead of the concrete class.
-# AccessTier is a lightweight enum from DataPipeline's public API surface.
+# AccessTier 来自本仓库只读访问层 data_access（010-extract-pipeline 后的唯一数据入口）。
 from data_access import AccessTier
 from platform_data.contracts.protocols import ConnectionManagerProtocol
 from platform_data.contracts import (

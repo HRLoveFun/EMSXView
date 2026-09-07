@@ -23,7 +23,7 @@ router = APIRouter(tags=["Broker"])
 async def get_trader_info(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get the terminal's trader identity."""
     name = bloomberg.get_terminal_trader_name()
     return ApiResponse(success=True, data={"traderName": name}, message=f"Terminal trader: {name}")
@@ -34,7 +34,7 @@ async def get_asset_class(
     ticker: str,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Resolve EMSX asset class for a ticker.
 
     Current usage is still overwhelmingly EQTY, but this keeps the broker/
@@ -54,7 +54,7 @@ async def get_broker_strategies(
     assetClass: str = "EQTY",
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get available strategies for a broker."""
     strategies = await bloomberg.get_broker_strategies(broker, assetClass)
     return ApiResponse(
@@ -71,7 +71,7 @@ async def get_broker_strategy_info(
     assetClass: str = "EQTY",
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get strategy parameter details."""
     fields = await bloomberg.get_broker_strategy_info(broker, strategy, assetClass)
     return ApiResponse(
@@ -86,7 +86,7 @@ async def get_brokers(
     assetClass: str = "EQTY",
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get available brokers for an asset class."""
     brokers = await bloomberg.get_brokers(assetClass)
     return ApiResponse(
@@ -100,7 +100,7 @@ async def get_brokers(
 async def get_stored_broker_algorithms(
     user: dict = Depends(verify_token),
     storage=Depends(get_broker_storage_service),
-):
+) -> ApiResponse:
     """Get stored broker algorithm configuration."""
     configs = await storage.get_configs()
     last_updated = await storage.get_last_updated()
@@ -122,7 +122,7 @@ async def refresh_broker_algorithms(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
     storage=Depends(get_broker_storage_service),
-):
+) -> ApiResponse:
     """Refresh broker algorithm configuration from Bloomberg API."""
     audit_log("REFRESH_BROKER_ALGORITHMS", user.get("sub"), {})
 
@@ -189,7 +189,7 @@ async def refresh_broker_algorithms(
 async def get_broker_algorithms_status(
     user: dict = Depends(verify_token),
     storage=Depends(get_broker_storage_service),
-):
+) -> ApiResponse:
     """Get status of broker algorithm configuration storage."""
     last_updated = await storage.get_last_updated()
     needs_refresh = await storage.needs_refresh()
@@ -213,7 +213,7 @@ async def get_broker_recommendations(
     broker: str | None = None,
     limit: int = 20,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Read pinned CostView broker/strategy recommendations.
 
     WBS-08 contract 3: CostView → ExecutionView. CostView publishes cohort

@@ -11,7 +11,7 @@ router = APIRouter(tags=["Auth"])
 
 
 @router.post("/api/auth/login", response_model=ApiResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest) -> ApiResponse:
     """Authenticate user and return JWT access token."""
     user = AuthManager.authenticate_user(request.username, request.password)
     if not user:

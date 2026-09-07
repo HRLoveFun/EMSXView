@@ -24,10 +24,16 @@ def get_regime_distribution(
 
     Raises FileNotFoundError if regime.db does not exist.
     """
+    # 防御深度：regime_dim 拼入 SQL 前必须过白名单（P2-3 整改，
+    # 不再依赖调用方在 CostView/api/routers/costview.py 的前置校验）
+    allowed_dims = {"vol_regime", "liq_regime", "trend_regime"}
+    if regime_dim not in allowed_dims:
+        raise ValueError(f"unsupported regime_dim: {regime_dim} (allowed: {sorted(allowed_dims)})")
+
     if connection_manager is None:
         raise ValueError(
             "ConnectionManager must be provided to get_regime_distribution(). "
-            "Import from DataPipeline: from DataPipeline import ConnectionManager"
+            "Inject via data_access.ConnectionManager (data_access 为唯一只读数据入口)"
         )
     mgr = connection_manager
 

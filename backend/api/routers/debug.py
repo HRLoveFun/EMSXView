@@ -20,7 +20,7 @@ router = APIRouter(tags=["Debug"])
 async def get_round_lot_sizes(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get cached round lot sizes for debugging odd lot detection."""
     bb = bloomberg
     round_lot_sizes = dict(bb._round_lot_sizes)
@@ -67,7 +67,7 @@ async def query_round_lot(
     ticker: str,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Manually query PX_ROUND_LOT_SIZE for a specific ticker."""
     try:
         import blpapi

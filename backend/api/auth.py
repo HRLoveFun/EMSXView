@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from jose import jwt, JWTError
+import jwt  # PyJWT（P2-6 整改：python-jose 已停维，迁移至 PyJWT）
 from passlib.context import CryptContext
 from fastapi import HTTPException
 
@@ -119,5 +119,6 @@ class AuthManager:
             
             return payload
 
-        except JWTError as e:
+        except jwt.PyJWTError as e:
+            # PyJWT 所有校验异常（过期/签名不符/格式错误）均派生自 PyJWTError
             raise HTTPException(401, f"Invalid or expired token: {str(e)}")

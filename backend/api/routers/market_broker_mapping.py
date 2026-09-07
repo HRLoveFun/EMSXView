@@ -103,7 +103,7 @@ class UnlockPayload(BaseModel):
 
 
 @router.get("/api/market-broker-mapping", response_model=ApiResponse)
-async def get_mapping(user: dict = Depends(verify_token)):
+async def get_mapping(user: dict = Depends(verify_token)) -> ApiResponse:
     """Return the full mapping state (rosters + selection)."""
     async with _LOCK:
         state = _load()
@@ -118,7 +118,7 @@ async def get_mapping(user: dict = Depends(verify_token)):
 async def update_selection(
     payload: SelectionPayload,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Update the Broker-allowed checkboxes. No password required.
 
     The selection map may reference any (market, broker) — even pairs not in
@@ -142,7 +142,7 @@ async def update_selection(
 async def verify_unlock_password(
     payload: UnlockPayload,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Verify admin password. Used to unlock row-editing in the UI."""
     if payload.password != _admin_password():
         audit_log(
@@ -164,7 +164,7 @@ async def verify_unlock_password(
 async def update_roster(
     payload: RosterPayload,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Replace the available-broker list for one market. Password-gated."""
     if payload.password != _admin_password():
         audit_log(
