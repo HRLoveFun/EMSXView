@@ -48,8 +48,8 @@ cp -r /path/to/emsx-frontend/dist/* frontend/dist/
 ### 步骤 5: 验证
 
 打开浏览器访问：
-- **前端界面**: http://localhost
-- **API 健康检查**: http://localhost:3000/api/health
+- **前端界面**: `http://<host>`（默认 http://localhost，`FRONTEND_PORT`）
+- **API 健康检查**: `<API_BASE_URL>/api/health`（默认 http://localhost:3000/api/health，`API_PORT`）
 
 ## 🔧 常用命令
 

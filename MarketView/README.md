@@ -60,7 +60,7 @@ bdib_daily_summary (SQLite)
 
 ```nginx
 location /api/marketview/ {
-    proxy_pass http://localhost:8001/api/marketview/;
+    proxy_pass <MARKETVIEW_BASE_URL>/api/marketview/;   # 默认 http://localhost:8001，环境变量 MARKETVIEW_HOST / MARKETVIEW_PORT
 }
 ```
 

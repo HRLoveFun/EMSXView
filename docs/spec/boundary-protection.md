@@ -44,7 +44,7 @@
 |------|---------|
 | Pydantic 约束补全 | `schemas/orders.py` 的 `symbol/notes/customNote*` 加 `max_length` + pattern；`Route.status/orderType/tif` 改 `Literal` 枚举；`database.date_limit` 加 `ge/le` 约束 |
 | 前端 zod 运行时校验 | 新增 `shared/lib/api-schema.ts`：zod 定义 handoff 合约与 API 响应 schema，替换 `handoff-api.ts` 中全部 `as` 断言 |
-| Config 参数校验器 | `DataPipeline/config.py` 新增 `_validate_config()`：引擎/后端枚举白名单、保留月数 `ge=0`、日期格式正则，非法值启动即抛异常 |
+| Config 参数校验器 | `Config`（本仓库 `data_access/config.py`）新增 `_validate_config()`：引擎/后端枚举白名单、保留月数 `ge=0`、日期格式正则，非法值启动即抛异常 |
 | 管道日期归一化 | `target_dates`/cutoff 统一归一化为 `YYYYMMDD` 后再比较（H1 根因） |
 
 ### L2 边界检查层（Guard）
@@ -122,7 +122,7 @@
 | M3 | handoff 契约 `dict[str, Any]` 无 schema | `PostTradeHandoffRequest` 字段边界 + strategy_params 64KB 上限（API 层）；适配器 `_bounded_strategy_params()`（双保险） |
 | M4 | 订单核心 schema 无边界 | orders/routes/handoff schema 加 max_length/pattern/Literal/ge-le；date_limit Query 约束 |
 | M5 | HTTPException detail 泄漏内部异常 | 新增 `backend/api/errors.py`（ErrorCode + error_detail 遮蔽）；全局 5xx handler 遮蔽；broker/debug/route_plans 3 处泄漏点修复；config.py 加 DEBUG 开关 |
-| M6 | HANDOFF_BACKEND 无白名单 | `platform_data/config.py` 白名单校验（非法值启动抛错）；`DataPipeline/config.py` 加 `_validate_config()`（引擎/保留月数/策略白名单） |
+| M6 | HANDOFF_BACKEND 无白名单 | `platform_data/config.py` 白名单校验（非法值启动抛错）；`Config`（`data_access/config.py`，写入侧同名配置归独立仓库）加 `_validate_config()`（引擎/保留月数/策略白名单） |
 | M7 | MarketStoreReader 吞异常 | `last_query_error` 标记 + error 日志，区分"真无数据"与"查询失败" |
 | M8 | 熔断器 Error 阈值不可达 | `CircuitBreakerRegistry` 失败计数跨 run 持久；OPEN 在 run 结束时转 HALF_OPEN（下个 run 探测） |
 | M9 | raw_connection 越权通道 | `ConnectionManager.execute_ddl()` 显式越权通道（ALTER/CREATE 白名单 + 审计日志）；fills.py 改走 execute_ddl；raw_connection 加受限 docstring |
@@ -133,7 +133,7 @@
 - **BoundaryContractRegistry**：`platform_data/contracts/boundary_registry.py` — 声明式契约注册（can_read/can_write/forbidden_imports/api_auth_required），7 个内置模块契约，审计脚本从注册表生成检测规则
 - **审计脚本补全**：`scripts/audit_cross_imports.py`（AP-01，规则从注册表生成）、`scripts/audit_db_paths.py`（AP-04）、`scripts/audit_underscore_access.py`（AP-08），配合既有 `audit_doc_drift.py` 四项审计全部通过
 - **pre-commit 边界审计**：`.githooks/pre-commit` 追加快路径审计（暂存含 .py/.ts/.tsx 时执行，违规阻断提交）
-- **CI 接入**：`.github/workflows/boundary.yml` — 审计脚本 + 后端边界/全量测试 + DataPipeline 回归 + 前端 tsc/vitest
+- **CI 接入**：`.github/workflows/boundary.yml` — 审计脚本 + 后端边界/全量测试 + 数据访问层契约测试（原 DataPipeline 回归已随 010 迁独立仓库）+ 前端 tsc/vitest
 - **前端模块生命周期防护**：`navigateTo` 目标校验（未注册 id 拒绝切换）、realtimeWsPath 冲突检测、重复注册生产环境 error 日志、每模块独立 ErrorBoundary
 
 ## 6. 成本评估

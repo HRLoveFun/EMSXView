@@ -273,7 +273,7 @@
 | `regime_contracts.py` | regime 类型 |
 | `data_platform_contracts.py` | `IngestionConfig`, `PipelineState`, `IngestionResult` |
 | `evaluation_contracts.py` | （planned）算法模型元数据 |
-| `protocols.py` | `ConnectionManagerProtocol`, `ConfigProtocol`（DataPipeline 集成协议） |
+| `protocols.py` | `ConnectionManagerProtocol`, `ConfigProtocol`（数据访问层集成协议，实现见 `data_access/`） |
 
 **规则**：跨模块数据类型**只**从 `platform_data.contracts` 导入。
 

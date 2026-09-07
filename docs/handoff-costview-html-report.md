@@ -118,7 +118,7 @@ cd frontend && npx vitest run src/modules/costview/
 # CLI 真实生成
 python scripts/reports/generate_tca_report.py --last day
 # 端点直测
-curl "http://localhost:3000/api/tca/monitoring/export-html?last=day" -o report.html
+curl "<API_BASE_URL>/api/tca/monitoring/export-html?last=day" -o report.html   # 默认 http://localhost:3000
 # 边界
 python -m pytest backend/api/tests/boundaries/ -q
 ```

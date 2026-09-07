@@ -1,10 +1,12 @@
 ﻿# EMSXView Trading Tool - Quick Start
 
+> **占位符约定**：`<repo-root>` 为仓库根（由仓库根的 `.emsxview-root` marker 定位，请替换为你的实际克隆路径）；`<host>` 默认 `localhost`；`<API_PORT>` / `<FRONTEND_PORT>` 默认 3000 / 5173，可由环境变量覆盖。完整约定见 [`docs/index.md` §7](./docs/index.md#7-占位符与可配置参数约定)。
+
 ## One-Command Start
 
 ```batch
-# Navigate to project root
-cd c:\Users\hrchen\Documents\EMSXView
+# Navigate to project root（替换为你的实际克隆路径）
+cd <repo-root>
 
 # Launch interactive service manager
 scripts\restart-all.bat
@@ -21,11 +23,11 @@ scripts\restart-all.bat
 
 ## Service URLs
 
-| Service | URL | Port |
-|---------|-----|------|
-| Frontend | http://localhost:5173 | 5173 |
-| Backend API | http://localhost:3000 | 3000 |
-| Health Check | http://localhost:3000/api/health | - |
+| Service | URL | Default | Port env var |
+|---------|-----|---------|--------------|
+| Frontend | `http://<host>:<FRONTEND_PORT>` | http://localhost:5173 | `npx vite --port` |
+| Backend API | `<API_BASE_URL>` | http://localhost:3000 | `API_PORT` |
+| Health Check | `<API_BASE_URL>/api/health` | http://localhost:3000/api/health | `API_PORT` |
 
 ## Troubleshooting
 

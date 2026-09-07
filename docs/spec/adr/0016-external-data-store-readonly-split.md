@@ -1,9 +1,11 @@
 # ADR-0016: 数据目录外置项目外 + 读写职责物理分离
 
-> 状态: Accepted
+> 状态: Accepted（**默认值已随 010-extract-pipeline 变更**）
 > 日期: 2026-09-02
 > 标签: data, storage, sqlite, configuration, refactoring
 > 特性: specs/009-external-data-store（分支 `009-external-data-store`）
+>
+> **修订说明（010-extract-pipeline）**：本文中的 `DataPipeline/*` 路径现已迁至独立仓库 EMSXDataPipeline；本仓库对应物为 `data_access/*`（`data_access/config.py`、`data_access/storage/connection.py`）。数据根默认值由 `~/EMSXViewData/data` 改为 `Config.DEFAULT_DATA_DIR`（见 `data_access/config.py`），`EMSXVIEW_DATA_DIR` 仍可显式覆盖。文档引用一律使用仓库相对路径，不写具体磁盘路径。
 
 ## 背景 (Context)
 
@@ -20,12 +22,12 @@
 
 ## 决策 (Decision)
 
-1. **数据目录外置**（`DataPipeline/config.py`）：
-   - 解析优先级：`EMSXVIEW_DATA_DIR` 环境变量（显式覆盖）> **默认值 `~/EMSXViewData/data`**（项目外，`Path.home()` 派生）；
+1. **数据目录外置**（本仓库：`data_access/config.py`）：
+   - 解析优先级：`EMSXVIEW_DATA_DIR` 环境变量（显式覆盖）> **默认值 `Config.DEFAULT_DATA_DIR`**（外置于任何代码树；009 当时取 `~/EMSXViewData/data`，010 起见 `Config.DEFAULT_DATA_DIR`）；
    - 旧布局 `CostView/data` 仅在显式设置环境变量指回时生效；
    - 旧目录仍有 `*.db` 且走外置默认时，import 期发 `UserWarning` 提示迁移（fail-visible 不 fail-hard）；
    - 迁移**显式执行**：`scripts/ops/migrate_data_dir.py`（三道安全闸：预检 → 复制 + `PRAGMA quick_check` 校验 → 原目录改名 `data.migrated.<ts>` 留证；幂等可重入）。
-2. **READ tier 文件级只读**（`DataPipeline/storage/connection.py`）：
+2. **READ tier 文件级只读**（本仓库：`data_access/storage/connection.py`；写入侧同名逻辑归独立仓库）：
    - READ 连接以 SQLite URI `mode=ro` 打开——文件系统层面拒绝写操作，
      即使经 `raw_connection` 绕过 SQL 拦截也无法写坏数据；
    - READ 连接**不创建**不存在的库（缺失抛 `FileNotFoundError`，fail-fast 防误建空库）；
@@ -33,7 +35,7 @@
    - READ 连接不执行 `PRAGMA journal_mode=WAL`（由写入方设置并持久化在文件头）；
    - 写入方维持 WRITE tier（WAL）与 admin 连接（DDL/迁移）——**数据管道与维护脚本 = 唯一写入通道**，
      API/查询/监控进程 = 只读消费者。
-3. **消除双真相源**：`CostView/api/config.py` 的 `DATA_DIR` 改为从 `DataPipeline.config.Config` 派生。
+3. **消除双真相源**：`CostView/api/config.py` 的 `DATA_DIR` 改为从 `Config`（现 `data_access/config.py`）派生。
 4. **运维脚本豁免**：`scripts/ops/*` 回填与运维工具直接 `sqlite3.connect` 属合法维护（写方）通道，本次不收口。
 
 ## 后果 (Consequences)
@@ -66,5 +68,5 @@
 ## 实施注意事项
 
 - 配套迁移: `python scripts/ops/migrate_data_dir.py --dry-run` 预检 → 去掉 `--dry-run` 执行；
-- 配套测试: `DataPipeline/tests/storage/test_connection_readonly.py`、`DataPipeline/tests/test_config_data_dir.py`；
+- 配套测试: `DataPipeline/tests/storage/test_connection_readonly.py`、`DataPipeline/tests/test_config_data_dir.py`（随写入方迁独立仓库 EMSXDataPipeline）；本仓库契约测试锁定两侧常量一致；
 - worktree 说明更新见 `docs/spec/git-workflow.md` §6.1。
