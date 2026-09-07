@@ -100,7 +100,11 @@ def _validate_settings(s: Settings) -> None:
             "JWT_SECRET environment variable must be set. "
             "Generate a secure key with: openssl rand -hex 32"
         )
-    weak_secrets = ["your-secret-key", "change-in-production", "secret", "password"]
+    weak_secrets = [
+        "your-secret-key", "change-in-production", "secret", "password",
+        # 曾硬编码在 start-backend.ps1 中的历史回退密钥（P1-1 整改）
+        "bbgemsxprogramatictrading",
+    ]
     if s.JWT_SECRET and any(weak in s.JWT_SECRET.lower() for weak in weak_secrets):
         logger.warning("JWT_SECRET appears to be using a weak/default value.")
     logger.info(f"Settings validated: BYPASS_AUTH={s.BYPASS_AUTH}, JWT_SECRET set={bool(s.JWT_SECRET)}")
