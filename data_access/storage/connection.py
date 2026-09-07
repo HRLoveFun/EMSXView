@@ -4,12 +4,12 @@ Migrated from database_access.py with the addition of ConnectionManager,
 which provides centralized connection lifecycle management for all
 CostView SQLite databases.
 
-Two access tiers (009-external-data-store 起物理分离):
+只读访问层（009-external-data-store 起物理分离，010-extract-pipeline 起只读化）:
     READ  — 文件级只读 (SQLite mode=ro)，仅 SELECT；库文件必须已存在，
             缺失抛 FileNotFoundError，由调用方决定是否降级为空结果。
             读取方 (API/查询/监控进程) 即使有 bug 也无法写坏数据文件。
-    WRITE — SELECT + INSERT/UPDATE (fetch, pipeline processing)。
-            写入方 = 数据管道与维护脚本，是唯一合法写入通道。
+    WRITE — 一律拒绝：数据库更新维护的唯一写入方是独立仓库
+            EMSXDataPipeline，本模块不再提供任何写连接通道。
 
 Usage:
     from data_access.storage.connection import ConnectionManager, AccessTier
@@ -20,9 +20,8 @@ Usage:
     conn.close()
 
     # Or as context manager:
-    with mgr.connection("processed_fills", AccessTier.WRITE) as conn:
-        conn.execute("INSERT ...")
-        conn.commit()
+    with mgr.connection("processed_fills") as conn:
+        conn.execute("SELECT ...")
 """
 
 from __future__ import annotations
@@ -73,14 +72,11 @@ _CREATE_PATTERN = re.compile(
 )
 
 # Allowed PRAGMAs at all tiers (they configure the connection, not data)
+# 注意：不含 journal_mode —— 只读连接无权切换 journal mode（由写入方
+# 设置并持久化在文件头，只读连接直接受益），白名单不应放行该意图。
 _PRAGMA_SAFE = re.compile(
-    r"^\s*PRAGMA\s+(journal_mode|foreign_keys|table_info|index_list)\b",
+    r"^\s*PRAGMA\s+(foreign_keys|table_info|index_list)\b",
     re.IGNORECASE,
-)
-
-# execute_ddl 允许的 DDL 语句白名单 (M9): 仅 ALTER TABLE 与 CREATE TABLE/INDEX
-_DDL_ALLOWED_PATTERN = re.compile(
-    r"^\s*(ALTER\s+TABLE|CREATE\s+(TABLE|INDEX|VIEW))\b", re.IGNORECASE
 )
 
 
@@ -104,22 +100,19 @@ def _classify_sql(sql: str) -> str:
 
 
 def _check_permission(tier: AccessTier, sql_category: str, sql: str) -> None:
-    """Raise PermissionError if the operation is not allowed for the given tier."""
+    """Raise PermissionError if the operation is not allowed for the given tier.
+
+    本模块只可能创建 READ tier 连接（get_connection 对非 READ 一律拒绝），
+    故除 pragma_safe 外一切非读操作均拒绝。
+    """
     if sql_category == "pragma_safe":
         return  # always allowed (connection config)
 
-    if tier == AccessTier.READ:
-        if sql_category != "read":
-            raise PermissionError(
-                f"READ-only access: '{sql_category}' operation denied. "
-                f"SQL: {sql[:120]}..."
-            )
-    elif tier == AccessTier.WRITE:
-        if sql_category == "destructive":
-            raise PermissionError(
-                f"WRITE access: destructive '{sql_category}' operation denied. "
-                f"SQL: {sql[:120]}..."
-            )
+    if sql_category != "read":
+        raise PermissionError(
+            f"READ-only access: '{sql_category}' operation denied. "
+            f"SQL: {sql[:120]}..."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -146,8 +139,9 @@ class AccessControlledConnection:
         """Access the underlying sqlite3.Connection (for pd.read_sql_query etc.).
 
         警告 (M9): 此属性绕过 execute() 的权限检查 — 仅限只读用途
-        (pandas 读取、PRAGMA table_info 元数据查询)。任何 DDL/DML 写入
-        必须走 ConnectionManager.execute_ddl() 或正规写连接。
+        (pandas 读取、PRAGMA table_info 元数据查询)。即使经此通道注入
+        写 SQL，mode=ro 文件级护栏仍会拒绝；任何 DDL/DML 写入属于
+        独立仓库 EMSXDataPipeline 的职责。
         """
         return self._conn
 
@@ -262,9 +256,8 @@ class ConnectionManager:
             conn.close()
 
         # Context-manager shorthand:
-        with mgr.connection("processed_fills", AccessTier.WRITE) as conn:
-            conn.execute("INSERT ...")
-            conn.commit()
+        with mgr.connection("processed_fills") as conn:
+            conn.execute("SELECT ...")
     """
 
     def __init__(
@@ -335,11 +328,10 @@ class ConnectionManager:
         on every call.  The cache key is ``(database, row_factory)`` so
         calls with different row factories get separate cached connections.
 
-        For WRITE tier, always creates a fresh connection.
-
         Args:
             database: One of the DB_* constants or a name in the registry.
-            tier: Access tier. Defaults to resolve_access_tier() (WRITE).
+            tier: Access tier. Defaults to resolve_access_tier() (READ)。
+                非 READ tier 一律拒绝 —— EMSXView 是纯读取消费者。
             row_factory: Optional row_factory to set on the underlying
                 sqlite3.Connection (e.g. sqlite3.Row for dict-like rows).
 
@@ -348,6 +340,7 @@ class ConnectionManager:
 
         Raises:
             KeyError: If database name is not registered.
+            PermissionError: If tier resolves to anything other than READ.
         """
         db_path = self.get_path(database)
         effective_tier = resolve_access_tier(tier)
@@ -415,39 +408,6 @@ class ConnectionManager:
             "use the EMSXDataPipeline repository for DDL/maintenance."
         )
 
-    def execute_ddl(
-        self,
-        database: str,
-        sql: str,
-        params: tuple = (),
-    ) -> None:
-        """执行 DDL 语句 (ALTER TABLE 等) — 唯一的越权通道 (M9)。
-
-        访问控制层将 ALTER/DROP 等归类为 destructive, 业务写入连接无法执行。
-        此前代码通过 ``conn.raw_connection`` 绕过权限检查自行执行 DDL,
-        形成隐式越权通道。本方法收敛该通道:
-        - 显式命名 (execute_ddl), 调用意图自文档化
-        - 仅允许 DDL 类别语句 (ALTER/CREATE), 拒绝 DML/DROP
-        - 全程审计日志
-
-        Args:
-            database: 数据库名 (DB_* 常量)
-            sql: DDL 语句
-            params: 绑定参数
-
-        Raises:
-            ValueError: 语句不属于允许的 DDL 类别
-        """
-        if not _DDL_ALLOWED_PATTERN.match(sql or ""):
-            raise ValueError(
-                f"execute_ddl 仅允许 ALTER TABLE/CREATE 语句: {sql[:120]}"
-            )
-        raise PermissionError(
-            "execute_ddl is not available in EMSXView "
-            "(read-only consumer, 010-extract-pipeline); "
-            "schema changes belong to the EMSXDataPipeline repository."
-        )
-
     def connection(
         self,
         database: str,
@@ -469,37 +429,28 @@ class ConnectionManager:
         tier: AccessTier,
         row_factory: Optional[type] = None,
     ) -> AccessControlledConnection:
-        """Create an AccessControlledConnection with standard pragmas.
+        """Create an access-controlled READ connection with standard pragmas.
 
-        读写职责物理分离 (009-external-data-store):
+        只读语义 (009-external-data-store / 010-extract-pipeline):
 
-        - READ tier 以 SQLite URI 只读模式 (``mode=ro``) 打开 — 文件系统层面
+        - 以 SQLite URI 只读模式 (``mode=ro``) 打开 — 文件系统层面
           拒绝任何写操作，即使调用方经 ``raw_connection`` 绕过 SQL 分类拦截，
           也无法写坏数据库 (G0 数据零受损)。
-        - READ tier 要求库文件已存在：只读模式不创建新库，缺失即抛
+        - 要求库文件已存在：只读模式不创建新库，缺失即抛
           FileNotFoundError (fail-fast，防止误建空库掩盖数据缺失问题)。
           需要优雅降级的查询方 (如 TCA 报告) 自行捕获并回退为空结果。
-        - READ tier 不执行 ``PRAGMA journal_mode=WAL``：只读连接无法切换
+        - 不执行 ``PRAGMA journal_mode=WAL``：只读连接无法切换
           journal mode；WAL 由写入方设置并持久化在文件头，只读连接直接受益。
-        - WRITE tier 保持可写打开并设置 WAL (管道/维护进程 = 唯一写入方)。
-        """
-        if tier == AccessTier.READ:
-            if not db_path.exists():
-                raise FileNotFoundError(
-                    f"READ 连接要求库文件已存在 (只读模式不创建新库): {db_path}"
-                )
-            # pathname2url 处理 Windows 盘符、空格与中文路径的 URI 转义
-            uri = "file:" + pathname2url(str(db_path)) + "?mode=ro"
-            raw_conn = sqlite3.connect(uri, uri=True)
-            raw_conn.execute("PRAGMA foreign_keys=ON")
-            raw_conn.execute(f"PRAGMA busy_timeout = {Config.SQLITE_BUSY_TIMEOUT_MS}")
-            if row_factory is not None:
-                raw_conn.row_factory = row_factory
-            return AccessControlledConnection(raw_conn, tier)
 
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_conn = sqlite3.connect(str(db_path))
-        raw_conn.execute("PRAGMA journal_mode=WAL")
+        写连接通道已删除：数据库写入属于独立仓库 EMSXDataPipeline。
+        """
+        if not db_path.exists():
+            raise FileNotFoundError(
+                f"READ 连接要求库文件已存在 (只读模式不创建新库): {db_path}"
+            )
+        # pathname2url 处理 Windows 盘符、空格与中文路径的 URI 转义
+        uri = "file:" + pathname2url(str(db_path)) + "?mode=ro"
+        raw_conn = sqlite3.connect(uri, uri=True)
         raw_conn.execute("PRAGMA foreign_keys=ON")
         raw_conn.execute(f"PRAGMA busy_timeout = {Config.SQLITE_BUSY_TIMEOUT_MS}")
         if row_factory is not None:

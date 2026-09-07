@@ -25,6 +25,19 @@
 - **已落地改动**：<经确认写入的文件与摘要；未确认的标注"待确认">
 ```
 
+### 2026-09-07 EMSXView 外部数据只读性定点评审
+- **输入**：模式=<定点（主题式：外部数据只读性）>；范围=<data_access, platform_data, CostView, MarketView, backend/api, scripts>；语言=<Python>；框架=<FastAPI + sqlite3 + DuckDB（推断）>；变更类型=<合规性审查>
+- **发现统计**：P0 0 / P1 0 / P2 2 / P3 3；疑点 2
+- **问题类型分布**：防御深度/护栏绕过路径 ×2（调试脚本裸 connect；只读仓库内残留写代码）；一致性/文档漂移 ×1；数据缺失掩盖/死代码 mkdir ×1；规则白名单过宽 ×1
+- **误报**：无
+- **遗漏**：无
+- **分级偏差**：WriteRepository 残留初判 P1，降为 P2——运行时被 get_connection tier 硬拒绝结构性封死，且仅测试夹具使用，属防御深度而非可达写路径
+- **改进建议**：
+  - [模式] 新增「只读契约单点守卫」模式：审查只读约束时必查（a）护栏是否单点、（b）仓库内是否残留可达性为零的写代码、（c）_tmp/调试脚本是否裸 connect 绕过护栏——写入 security-checklist
+  - [规则] 定点合规性评审应先从 config 常量（数据根/表清单）反推全部触点，再逐触点取证，而非按目录遍历
+  - [分级] 「运行时不可达但绕过主护栏的代码」默认 P2；若存在 env/配置开关可激活则升 P1
+- **已落地改动**：仅追加本记录；清单修改待用户确认
+
 ### 2026-09-07 EMSXView 全库回顾
 - **输入**：模式=<全库>；范围=<backend/api, frontend/src, CostView, platform_data, data_access, scripts, MarketView>；语言=<TypeScript + Python（推断）>；框架=<React 19 + Vite + shadcn/ui；FastAPI + Pydantic v2（推断）>；变更类型=<全库健康度>
 - **覆盖度**（全库模式）：深审=backend/api（部分精读）、frontend costview、platform_data/data_access、CostView monitoring；抽样=execution store、MarketView router、scripts；跨切面 grep 扫描 100% 文件

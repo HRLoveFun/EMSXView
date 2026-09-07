@@ -278,12 +278,6 @@ class Config:
     FETCH_HISTORY_TABLE: str = "fill_fetch_history"
     BDIB_FETCH_HISTORY_TABLE: str = "bdib_fetch_history"
 
-    @classmethod
-    def initialize_directories(cls) -> None:
-        directories = [cls.DATA_DIR, cls.LOGGING_DIR]
-        for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
-
 
 def _validate_config() -> None:
     """校验关键配置参数边界 (M6)。
