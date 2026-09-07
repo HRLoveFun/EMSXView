@@ -1,17 +1,15 @@
-"""BDIB行情 Parquet/DuckDB 存储层。
+"""BDIB行情 Parquet/DuckDB 只读存储层。
 
 提供:
-    MarketStoreWriter  — 将BDIB DataFrame写入Parquet (按年-月分区)
     MarketStoreReader  — 通过DuckDB从Parquet读取BDIB数据
 
-写入路径: {BDIB_PARQUET_DIR}/year=YYYY/month=MM/data.parquet
+写入路径（MarketStoreWriter）已随 010-extract-pipeline 迁往独立仓库
+EMSXDataPipeline（唯一写入方）。
+分区布局: {BDIB_PARQUET_DIR}/year=YYYY/month=MM/data.parquet
 DuckDB使用hive_partitioning自动解析year/month分区列。
 
 Usage:
-    from data_access.storage.market_store import MarketStoreWriter, MarketStoreReader
-
-    writer = MarketStoreWriter(Config.BDIB_PARQUET_DIR)
-    writer.write_batch(bdib_df)
+    from data_access.storage.market_store import MarketStoreReader
 
     reader = MarketStoreReader(Config.BDIB_PARQUET_DIR)
     df = reader.query("SELECT * FROM bdib_bars WHERE equ_ticker = ?", [ticker])
@@ -27,131 +25,8 @@ import pandas as pd
 
 from data_access.config import Config, DB_RAW_BDIB
 from data_access.storage.connection import AccessTier, ConnectionManager
-from data_access.storage.repositories._base import RAW_BDIB_COLUMNS
 
 logger = logging.getLogger(__name__)
-
-
-class MarketStoreWriter:
-    """将BDIB数据写入Parquet文件, 按年-月Hive分区。"""
-
-    def __init__(self, root_dir: Optional[Path] = None):
-        self._root = root_dir or Config.BDIB_PARQUET_DIR
-        self._root.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def parquet_dir(self) -> Path:
-        return self._root
-
-    def write_batch(self, df: pd.DataFrame) -> int:
-        """将DataFrame写入Parquet, 按order_as_of_date分区。
-
-        同日期文件已存在时执行合并写 (读旧+concat+去重+写回),
-        避免调用方按 ticker 分块循环写入时后写覆盖前写导致静默丢数据。
-
-        返回写入行数。
-        """
-        if df is None or df.empty:
-            return 0
-
-        work = df.copy()
-        if "order_as_of_date" not in work.columns:
-            logger.warning("DataFrame缺少order_as_of_date列, 无法分区写入")
-            return 0
-
-        work = work.reset_index(drop=True)
-
-        total_rows = 0
-        for date_val, group in work.groupby("order_as_of_date", sort=False):
-            if not date_val or len(str(date_val)) < 6:
-                continue
-            date_str = str(date_val)
-            year = date_str[:4]
-            month = date_str[4:6]
-            partition_dir = self._root / f"year={year}" / f"month={month}"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-
-            out_path = partition_dir / f"data_{date_str}.parquet"
-
-            cols = [c for c in RAW_BDIB_COLUMNS if c in group.columns]
-            write_df = group[cols].copy()
-            write_df["order_as_of_date"] = write_df["order_as_of_date"].astype(str)
-
-            # 防护: 合并已有文件, 防止分块循环写同一日期时覆盖丢数据
-            write_df = self._merge_with_existing(out_path, write_df)
-
-            try:
-                write_df.to_parquet(
-                    out_path,
-                    engine="pyarrow",
-                    compression="snappy",
-                    index=False,
-                )
-                n = len(write_df)
-                total_rows += n
-                logger.debug("写入Parquet: %s (%d行)", out_path.name, n)
-            except Exception as e:
-                logger.error("Parquet写入失败 %s: %s", out_path, e)
-
-        return total_rows
-
-    @staticmethod
-    def _merge_with_existing(out_path: Path, write_df: pd.DataFrame) -> pd.DataFrame:
-        """读取已有Parquet文件并与新增数据合并去重。
-
-        去重键: (equ_ticker, order_as_of_date, mkt_timestamp), keep="last"
-        保证同一根K线重复写入时以最新数据为准。
-        读取失败时回退覆盖写并记录告警。
-        """
-        if not out_path.exists():
-            return write_df
-        try:
-            existing = pd.read_parquet(out_path)
-        except Exception as e:
-            logger.warning("读取已有Parquet失败 %s, 回退覆盖写: %s", out_path, e)
-            return write_df
-        if existing.empty:
-            return write_df
-
-        merged = pd.concat([existing, write_df], ignore_index=True)
-        if "order_as_of_date" in merged.columns:
-            merged["order_as_of_date"] = merged["order_as_of_date"].astype(str)
-        key_cols = ["equ_ticker", "order_as_of_date", "mkt_timestamp"]
-        if all(c in merged.columns for c in key_cols):
-            before = len(merged)
-            merged = merged.drop_duplicates(subset=key_cols, keep="last")
-            dropped = before - len(merged)
-            if dropped:
-                logger.debug("Parquet合并去重: 丢弃 %d 行重复数据", dropped)
-        return merged
-
-    def get_partition_months(self) -> list[str]:
-        """返回所有已存在的year=YYYY/month=MM分区."""
-        if not self._root.exists():
-            return []
-        months: list[str] = []
-        for year_dir in sorted(self._root.iterdir()):
-            if not year_dir.is_dir() or not year_dir.name.startswith("year="):
-                continue
-            year = year_dir.name.split("=", 1)[1]
-            for month_dir in sorted(year_dir.iterdir()):
-                if not month_dir.is_dir() or not month_dir.name.startswith("month="):
-                    continue
-                month = month_dir.name.split("=", 1)[1]
-                months.append(f"{year}{month}")
-        return months
-
-    def get_row_count(self) -> int:
-        """返回Parquet中总行数."""
-        total = 0
-        for parquet_file in self._root.rglob("*.parquet"):
-            try:
-                import pyarrow.parquet as pq
-                meta = pq.read_metadata(str(parquet_file))
-                total += meta.num_rows
-            except Exception:
-                pass
-        return total
 
 
 class MarketStoreReader:

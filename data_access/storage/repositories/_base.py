@@ -2,34 +2,21 @@
 
 Provides shared connection management via ConnectionManager,
 standardizing pragmas and access tier enforcement.
+
+EMSXView 为只读消费者（010-extract-pipeline）：本基类仅提供 READ 连接；
+写连接/管理连接通道已随写仓库迁往独立仓库 EMSXDataPipeline。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 from data_access.storage.connection import (
     AccessControlledConnection,
     AccessTier,
     ConnectionManager,
 )
-
-# ── Bloomberg-native BDIB columns (no derived fields) ──
-# Moved here from raw_bdib_db.py (deprecated) so market_data_write.py
-# and other repos that need this constant do not depend on the legacy module.
-RAW_BDIB_COLUMNS = [
-    "equ_ticker",
-    "order_as_of_date",
-    "mkt_timestamp",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "num_trds",
-    "value",
-]
 
 logger = logging.getLogger(__name__)
 
@@ -66,23 +53,6 @@ class BaseRepository:
     def _get_read_conn(self) -> AccessControlledConnection:
         """Create a READ connection."""
         return self._mgr.get_connection(self._database, AccessTier.READ)
-
-    def _get_write_conn(self) -> AccessControlledConnection:
-        """Create a WRITE connection."""
-        return self._mgr.get_connection(self._database, AccessTier.WRITE)
-
-    def _get_admin_conn(self):
-        """Create a raw admin connection for DDL operations."""
-        return self._mgr.get_admin_connection(self._database)
-
-    @staticmethod
-    def _build_column_defs(columns: List[str], type_map: Dict[str, str]) -> str:
-        """Build SQL column definition string from column list."""
-        parts = []
-        for col in columns:
-            col_type = type_map.get(col, "TEXT")
-            parts.append(f"[{col}] {col_type}")
-        return ",\n                    ".join(parts)
 
     @property
     def database(self) -> str:
