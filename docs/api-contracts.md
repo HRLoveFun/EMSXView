@@ -163,8 +163,8 @@ export function getAuthHeaders(): HeadersInit {
 | 路由模块 | 前缀 | 说明 |
 |----------|------|------|
 | CostView | `/api/tca`, `/api/costview` | TCA 分析、评分卡、制度分布 |
-| DatabaseView | `/api/db` | 数据库概览、表管理、数据完整性 |
-| Execution History | `/api/history` | 历史执行记录查询 |
+
+> 010-extract-pipeline：DatabaseView（`/api/db`）与 Execution History（`/api/history`）端点已迁独立项目 EMSXDataPipeline Runner，本仓库不再提供。
 
 ---
 

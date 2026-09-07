@@ -75,7 +75,6 @@ FRONTEND_ALIASES: dict[str, str] = {
     "@execution": "modules/execution",
     "@costview": "modules/costview",
     "@marketview": "modules/marketview",
-    "@databaseview": "modules/databaseview",
 }
 
 # ── 门禁模式 ──────────────────────────────────────────────────────

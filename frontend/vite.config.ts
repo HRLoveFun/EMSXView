@@ -20,7 +20,6 @@ export default defineConfig(({ mode }) => {
         "@execution": path.resolve(__dirname, "./src/modules/execution"),
         "@costview": path.resolve(__dirname, "./src/modules/costview"),
         "@marketview": path.resolve(__dirname, "./src/modules/marketview"),
-        "@databaseview": path.resolve(__dirname, "./src/modules/databaseview"),
       },
     },
     test: {
@@ -52,9 +51,7 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             // ── App module chunks (keep lazy-loaded modules in dedicated bundles) ──
-            if (id.includes('/src/modules/databaseview/')) {
-              return 'module-databaseview';
-            }
+            // 010-extract-pipeline: databaseview 模块已迁独立项目，chunk 规则同步移除
             if (id.includes('/src/modules/costview/')) {
               return 'module-costview';
             }
