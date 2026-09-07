@@ -214,17 +214,11 @@
 
 ---
 
-## DatabaseView API（Optional / 仅合并模式）
+## DatabaseView API（已迁出）
 
-| 端点 | 方法 | 描述 |
-|---|---|---|
-| `/api/database/tables` | GET | 表清单 |
-| `/api/database/tables/{name}/stats` | GET | 表统计 |
-| `/api/database/tables/{name}/rows` | GET | 表行查询 |
-| `/api/database/dates` | GET | 数据库日期覆盖 |
-| `/api/database/health` | GET | 数据库健康检查 |
-
-详见 `docs/archive/2026-06-29/database.md`（已归档，内容部分过时；当前真相源以 `backend/api/routers/database.py` 为准）。
+> 010-extract-pipeline：DatabaseView 已迁独立项目 EMSXDataPipeline Runner，
+> 本仓库不再提供 `/api/database/*` 端点；数据库维护走 Runner（`POST /run`、`GET /status`）。
+> 历史契约见 `docs/archive/2026-06-29/database.md`（已归档）。
 
 ---
 

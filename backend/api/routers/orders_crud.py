@@ -27,7 +27,7 @@ router = APIRouter(tags=["Orders"])
 async def get_orders_status(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get order subscription status."""
     svc = bloomberg
     data = {
@@ -53,7 +53,7 @@ async def get_orders(
     oddLot: Optional[bool] = None,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Get orders from EMSX with optional filtering."""
     filters = OrderFilters(
         symbol=symbol, side=side, status=status, orderType=orderType,
@@ -70,7 +70,7 @@ async def modify_order(
     request: ModifyOrderRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Modify a single order via ModifyOrderEx."""
     audit_log("MODIFY_ORDER", user.get("sub"), {
         "orderId": request.orderId,
@@ -104,7 +104,7 @@ async def route_order(
     request: RouteOrderRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Route an order to a broker via RouteEx."""
     audit_log("ROUTE_ORDER", user.get("sub"), {
         "orderId": request.orderId, "broker": request.broker,
@@ -139,7 +139,7 @@ async def batch_update(
     request: BatchUpdateRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Batch update multiple orders."""
     audit_log("BATCH_UPDATE", user.get("sub"), {
         "orderIds": request.orderIds, "field": request.field, "value": str(request.value),
@@ -153,7 +153,7 @@ async def batch_route(
     request: BatchRouteOrderRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Batch-route N parent orders."""
     audit_log("BATCH_ROUTE", user.get("sub"), {
         "itemCount": len(request.items),
@@ -185,7 +185,7 @@ async def batch_route(
 async def refresh_orders(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Force-refresh order list from Bloomberg by re-subscribing EMSX."""
     orders = await bloomberg.refresh_subscription()
     audit_log("REFRESH_ORDERS", user.get("sub"), {})
@@ -197,7 +197,7 @@ async def cancel_order(
     order_id: str,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Cancel a single order."""
     audit_log("CANCEL_ORDER", user.get("sub"), {"orderId": order_id})
     await bloomberg.cancel_order(order_id)

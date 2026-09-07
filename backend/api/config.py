@@ -81,15 +81,21 @@ class Settings:
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"
 
+    # 数据管道 Runner（EMSXDataPipeline 独立进程，默认 :8100）——
+    # P2-4 整改：前端不再直连 Runner，统一经 :3000 鉴权代理转发
+    RUNNER_URL: str = os.getenv("EMSXVIEW_RUNNER_URL", "http://127.0.0.1:8100")
+
     # Optional module routers — comma-separated "module:label" pairs.
     # Set to empty string to disable all optional modules.
     # Set to "*" or "all" to load all known optional modules.
-    # Default loads DatabaseView + CostView (bridged TCA/monitoring routers,
+    # Default loads CostView (bridged TCA/monitoring routers,
     # so the frontend reaches /api/tca/* via :3000 without a separate :8002).
-    # Example: EMSXVIEW_OPTIONAL_MODULES=costview:CostView,database:DB
+    # 010-extract-pipeline: DatabaseView 已迁独立项目 EMSXDataPipeline Runner，
+    # 其 /api/db/* 端点不再由本仓库提供（P2-2 整改：清除默认值残留）。
+    # Example: EMSXVIEW_OPTIONAL_MODULES=costview:CostView
     OPTIONAL_MODULES: str = os.getenv(
         "EMSXVIEW_OPTIONAL_MODULES",
-        "database:DatabaseView,costview:CostView",
+        "costview:CostView",
     )
 
 
@@ -100,7 +106,11 @@ def _validate_settings(s: Settings) -> None:
             "JWT_SECRET environment variable must be set. "
             "Generate a secure key with: openssl rand -hex 32"
         )
-    weak_secrets = ["your-secret-key", "change-in-production", "secret", "password"]
+    weak_secrets = [
+        "your-secret-key", "change-in-production", "secret", "password",
+        # 曾硬编码在 start-backend.ps1 中的历史回退密钥（P1-1 整改）
+        "bbgemsxprogramatictrading",
+    ]
     if s.JWT_SECRET and any(weak in s.JWT_SECRET.lower() for weak in weak_secrets):
         logger.warning("JWT_SECRET appears to be using a weak/default value.")
     logger.info(f"Settings validated: BYPASS_AUTH={s.BYPASS_AUTH}, JWT_SECRET set={bool(s.JWT_SECRET)}")

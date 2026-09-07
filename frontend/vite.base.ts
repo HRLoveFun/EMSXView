@@ -27,7 +27,6 @@ export function createModuleConfig(opts: ModuleBuildOptions): UserConfig {
         '@execution': path.resolve(__dirname, './src/modules/execution'),
         '@costview': path.resolve(__dirname, './src/modules/costview'),
         '@marketview': path.resolve(__dirname, './src/modules/marketview'),
-        '@databaseview': path.resolve(__dirname, './src/modules/databaseview'),
       },
     },
     server: {
