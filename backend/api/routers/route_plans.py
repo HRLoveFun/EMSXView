@@ -153,7 +153,7 @@ def _proposal_to_response(p: dict) -> dict:
 async def list_route_plans(
     enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """List all route plans, optionally filtered."""
     plans = list(_plans.values())
     if enabled:
@@ -168,7 +168,7 @@ async def list_route_plans(
 async def create_route_plan(
     request: RoutePlanCreate,
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Create a new route plan."""
     audit_log("CREATE_ROUTE_PLAN", user.get("sub"), {
         "name": request.name, "splitType": request.splitType, "activationMode": request.activationMode,
@@ -219,7 +219,7 @@ async def create_route_plan(
 
 
 @router.get("/api/route-plans/{plan_id}", response_model=ApiResponse)
-async def get_route_plan(plan_id: int, user: dict = Depends(verify_token)):
+async def get_route_plan(plan_id: int, user: dict = Depends(verify_token)) -> ApiResponse:
     """Get a single route plan by ID."""
     plan = _plans.get(plan_id)
     if plan is None:
@@ -230,7 +230,7 @@ async def get_route_plan(plan_id: int, user: dict = Depends(verify_token)):
 @router.put("/api/route-plans/{plan_id}", response_model=ApiResponse)
 async def update_route_plan(
     plan_id: int, request: RoutePlanUpdate, user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Update an existing route plan (partial update)."""
     audit_log("UPDATE_ROUTE_PLAN", user.get("sub"), {"planId": plan_id})
 
@@ -259,7 +259,7 @@ async def update_route_plan(
 
 
 @router.delete("/api/route-plans/{plan_id}", response_model=ApiResponse)
-async def delete_route_plan(plan_id: int, user: dict = Depends(verify_token)):
+async def delete_route_plan(plan_id: int, user: dict = Depends(verify_token)) -> ApiResponse:
     """Delete a route plan and its allocations."""
     audit_log("DELETE_ROUTE_PLAN", user.get("sub"), {"planId": plan_id})
     if plan_id not in _plans:
@@ -305,7 +305,7 @@ async def test_match_route_plan(
     plan_id: int,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Test a route plan against current orders — returns matching order IDs."""
     plan = _plans.get(plan_id)
     if plan is None:
@@ -337,7 +337,7 @@ async def apply_route_engine(
     plan_id: Optional[int] = Query(None, description="Specific plan ID (MANUAL mode); omit for AUTO matching"),
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Apply RouteEngine to a specific order."""
     audit_log("APPLY_ROUTE_ENGINE", user.get("sub"), {"orderId": order_id, "planId": plan_id})
     parent_order = None
@@ -371,7 +371,7 @@ async def list_sub_order_proposals(
     status: Optional[str] = Query(None),
     trader: Optional[str] = Query(None),
     user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """List sub-order proposals, defaulting to PENDING_CONFIRM."""
     proposals = [_proposal_to_response(p) for p in _proposals.values()
                  if (not status or p.get("status") == status)
@@ -386,7 +386,7 @@ async def confirm_proposal(
     proposal_id: int,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Confirm and submit a single sub-order proposal via RouteEx."""
     audit_log("CONFIRM_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
 
@@ -423,7 +423,7 @@ async def batch_confirm_proposals(
     request: BatchConfirmRequest,
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
-):
+) -> ApiResponse:
     """Batch confirm and submit multiple proposals.
 
     - ``dryRun=true`` -> sync JSON BatchOperationResult (validation only).
@@ -501,7 +501,7 @@ async def batch_confirm_proposals(
 
 
 @router.post("/api/sub-order-proposals/{proposal_id}/reject", response_model=ApiResponse)
-async def reject_proposal(proposal_id: int, user: dict = Depends(verify_token)):
+async def reject_proposal(proposal_id: int, user: dict = Depends(verify_token)) -> ApiResponse:
     """Reject a sub-order proposal."""
     audit_log("REJECT_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
 

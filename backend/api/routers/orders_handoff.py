@@ -11,15 +11,14 @@ from fastapi import APIRouter, Depends
 
 from deps import verify_token
 
+from schemas import ApiResponse
 from schemas.handoff import (
     HandoffMetadataResponse,
     MarketCandidatePayloadResponse,
     MarketCandidateRowResponse,
-    MarketToExecutionHandoffEnvelope,
     MarketToExecutionHandoffPayload,
     PostTradeHandoffRequest,
     PostTradeHandoffPayload,
-    PostTradeHandoffResponse,
 )
 # Phase 5: Use canonical import path (not compatibility re-export)
 from platform_data.adapters.handoff import get_shared_handoff_exchange
@@ -43,13 +42,13 @@ def _serialize_metadata(metadata) -> HandoffMetadataResponse:
 
 @router.get(
     "/api/executions/handoff/candidates",
-    response_model=MarketToExecutionHandoffEnvelope,
+    response_model=ApiResponse,
 )
-async def get_active_candidate_handoff(user: dict = Depends(verify_token)):
+async def get_active_candidate_handoff(user: dict = Depends(verify_token)) -> ApiResponse:
     """Peek the latest MarketView → ExecutionView candidate handoff."""
     handoff = get_shared_handoff_exchange().get_market_to_execution()
     if handoff is None:
-        return MarketToExecutionHandoffEnvelope(
+        return ApiResponse(
             success=True, data=None, message="No active MarketView → ExecutionView handoff"
         )
     payload = handoff.candidate_payload
@@ -82,7 +81,7 @@ async def get_active_candidate_handoff(user: dict = Depends(verify_token)):
         ),
         execution_hint=dict(handoff.execution_hint),
     )
-    return MarketToExecutionHandoffEnvelope(
+    return ApiResponse(
         success=True,
         data=data,
         message=f"Handoff trace_id={handoff.metadata.trace_id}",
@@ -93,11 +92,11 @@ async def get_active_candidate_handoff(user: dict = Depends(verify_token)):
 
 @router.post(
     "/api/executions/handoff/post-trade",
-    response_model=PostTradeHandoffResponse,
+    response_model=ApiResponse,
 )
 async def publish_post_trade_handoff(
     request: PostTradeHandoffRequest, user: dict = Depends(verify_token),
-):
+) -> ApiResponse:
     """Publish an ExecutionView → CostView post-trade context handoff."""
     handoff = get_shared_handoff_exchange().publish_execution_to_cost(
         order_id=request.order_id,
@@ -110,7 +109,7 @@ async def publish_post_trade_handoff(
         strategy_params=request.strategy_params,
         candidate_trace_id=request.candidate_trace_id,
     )
-    return PostTradeHandoffResponse(
+    return ApiResponse(
         success=True,
         data=PostTradeHandoffPayload(
             metadata=_serialize_metadata(handoff.metadata),

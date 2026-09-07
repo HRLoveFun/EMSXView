@@ -81,6 +81,10 @@ class Settings:
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"
 
+    # 数据管道 Runner（EMSXDataPipeline 独立进程，默认 :8100）——
+    # P2-4 整改：前端不再直连 Runner，统一经 :3000 鉴权代理转发
+    RUNNER_URL: str = os.getenv("EMSXVIEW_RUNNER_URL", "http://127.0.0.1:8100")
+
     # Optional module routers — comma-separated "module:label" pairs.
     # Set to empty string to disable all optional modules.
     # Set to "*" or "all" to load all known optional modules.
