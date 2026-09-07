@@ -29,10 +29,11 @@ npm run dev
 
 常用检查：
 
-- 健康检查：http://localhost:3000/api/health
-- 市场快照基线：http://localhost:3000/api/marketview/snapshot?limit=3
-- 前端开发服务：http://localhost:5173
+- 健康检查：`<API_BASE_URL>/api/health`（默认 `http://localhost:3000/api/health`）
+- 市场快照基线：`<API_BASE_URL>/api/marketview/snapshot?limit=3`
+- 前端开发服务：`http://<host>:<FRONTEND_PORT>`（默认 `http://localhost:5173`）
 - 完整启动/模块清单见 [CODEBUDDY.md Build & Run Commands](../CODEBUDDY.md#build--run-commands)
+- 占位符含义见 [docs/index.md §7](index.md#7-占位符与可配置参数约定)
 
 ## 2. 当前工程事实
 
@@ -71,7 +72,7 @@ npm run dev
 
 - 更新 `docs/index.md` 中的文档分层或入口说明
 - 如改变架构表述，同时检查 `docs/spec/project-structure.md`、`docs/spec/data-domain.md`、`docs/spec/memory.md`
-- 如改变数据/存储/管道相关语义，同步检查 `DataPipeline/config.py` 的 Config 类（运行时参数唯一真相源）
+- 如改变数据/存储相关语义，同步检查 [`data_access/config.py`](../data_access/config.py) 的 `Config` 类（本仓库运行时参数唯一真相源；写入侧参数归独立仓库 EMSXDataPipeline）
 - 如改变跨域类型契约，同步检查 `docs/schema-contract.md`
 
 ## 4. 常见任务入口
@@ -102,7 +103,7 @@ npm run dev
 
 - `logs/emsx_api.log` 及其轮转文件
 - `.github/knowledge/error-patterns.md`
-- `DataPipeline/config.py` 的 Config 类（当前运行时开关）
+- [`data_access/config.py`](../data_access/config.py) 的 `Config` 类（当前运行时开关）
 
 ## 5. 当前文档地图
 

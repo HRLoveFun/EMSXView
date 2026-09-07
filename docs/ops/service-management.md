@@ -1,6 +1,8 @@
 # EMSXView Trading Tool - Service Management Guide
 
-> Last updated: 2026-07-02 | 与 `CODEBUDDY.md` Build & Run Commands 章节对齐
+> Last updated: 2026-09-07 | 与 `CODEBUDDY.md` Build & Run Commands 章节对齐
+>
+> **占位符约定**（详见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）：`<repo-root>` = 仓库根（由 `.emsxview-root` marker 定位）；`<host>` 默认 `localhost`；`<API_PORT>`=3000（`/api/health` 等端点基址记作 `<API_BASE_URL>`）、`<FRONTEND_PORT>`=5173（dev）/ 80（prod）。
 
 ## Quick Start
 
@@ -10,16 +12,16 @@
 ## Service Architecture
 
 ### Backend Service
-- **Port**: 3000
+- **Port**: `<API_PORT>`（默认 3000，覆盖变量 `API_PORT`）
 - **Process**: Python (uvicorn)
-- **Entry Point**: `backend/api/main.py`（或 `uvicorn main:app --port 3000`）
-- **Health Check**: http://localhost:3000/api/health
+- **Entry Point**: `<repo-root>/backend/api/main.py`（或 `uvicorn main:app --port <API_PORT>`）
+- **Health Check**: `<API_BASE_URL>/api/health`
 - **Startup Time**: 通常几秒，但 Bloomberg 初始化和首轮订阅可能更久（30-120s）
 
 ### Frontend Service
-- **Port**: 5173 (dev) / 80 (prod)
+- **Port**: `<FRONTEND_PORT>`（dev 默认 5173 / prod 默认 80）
 - **Process**: Node.js (Vite)
-- **Entry Point**: `frontend/` (npm run dev)
+- **Entry Point**: `<repo-root>/frontend/` (npm run dev)
 - **Startup Time**: ~5 seconds
 
 ## Synchronized Startup Process
@@ -30,8 +32,8 @@
 └─────────────────────────────────────────────────────────────┘
 
 1. Check port availability
-   ├── Port 3000 (backend) - must be free
-   └── Port 5173 (frontend) - must be free
+   ├── Port <API_PORT> (backend, default 3000) - must be free
+   └── Port <FRONTEND_PORT> (frontend, default 5173) - must be free
 
 2. Start Backend
    ├── Launch Python process
@@ -44,8 +46,8 @@
    └── Verify port is listening
 
 4. Startup Complete
-   ├── Backend: http://localhost:3000
-   └── Frontend: http://localhost:5173
+   ├── Backend: <API_BASE_URL>
+   └── Frontend: http://<host>:<FRONTEND_PORT>
 ```
 
 ## Synchronized Shutdown Process
@@ -130,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 ### Backend Health Endpoint
 ```bash
 # Check backend health
-curl http://localhost:3000/api/health
+curl <API_BASE_URL>/api/health
 
 # Expected response:
 {
@@ -155,7 +157,7 @@ curl http://localhost:3000/api/health
 ### Frontend Health
 ```bash
 # Check frontend is serving
-curl http://localhost:5173
+curl http://<host>:<FRONTEND_PORT>
 
 # Should return HTML content
 ```
@@ -219,12 +221,12 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 **Solutions**:
 1. Verify backend is running:
    ```bash
-   curl http://localhost:3000/api/health
+   curl <API_BASE_URL>/api/health
    ```
 
 2. Check CORS configuration in backend `.env`:
    ```
-   ALLOWED_ORIGINS=http://localhost:5173,http://localhost:80
+   ALLOWED_ORIGINS=http://<host>:<FRONTEND_PORT>,http://<host>:80
    ```
 
 3. Restart both services:
@@ -248,7 +250,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 
 3. Run backend manually to see errors:
    ```bash
-   cd backend/api
+   cd <repo-root>/backend/api
    python main.py
    ```
 
@@ -298,11 +300,11 @@ To run as Windows Service (auto-start on boot):
 1. Install NSSM (Non-Sucking Service Manager)
 2. Create service:
    ```batch
-   nssm install EMSXViewBackend "python" "C:\path\to\EMSXView\backend\api\main.py"
-   nssm install EMSXViewFrontend "node" "C:\path\to\EMSXView\frontend\node_modules\vite\bin\vite.js"
+   nssm install EMSXViewBackend "python" "<repo-root>\backend\api\main.py"
+   nssm install EMSXViewFrontend "node" "<repo-root>\frontend\node_modules\vite\bin\vite.js"
    ```
 
-> 路径中的 `C:\path\to\EMSXView\` 需替换为实际仓库根。`ExecutionView\` 子目录已不再存在（2026 年 5 月重构后并入 `backend/api/`）；本节命令的 entry point 须使用 `main.py` 而非历史版本中的 `start_server.py`。
+> `<repo-root>` 需替换为实际仓库根（即包含 `.emsxview-root` marker 的目录，由 `Find-EmsxviewRoot` 解析得到），禁止写死具体磁盘路径。`ExecutionView\` 子目录已不再存在（2026 年 5 月重构后并入 `backend/api/`）；本节命令的 entry point 须使用 `main.py` 而非历史版本中的 `start_server.py`。
 
 ## Script Reference
 

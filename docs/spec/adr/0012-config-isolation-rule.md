@@ -1,8 +1,10 @@
-# ADR-0012: 配置隔离 — DataPipeline/config 单一来源
+# ADR-0012: 配置隔离 — 配置单一来源
 
-> 状态: Accepted
+> 状态: Accepted（**已随 010-extract-pipeline 修订**）
 > 日期: 2026-06-03
 > 标签: data, configuration, refactoring
+>
+> **修订说明（010-extract-pipeline）**：数据管道已迁独立仓库 EMSXDataPipeline。本仓库的**配置真相源改为 `data_access/config.py` 的 `Config` 类**；独立仓库侧保留同名 `DataPipeline/config.py` 作为写入方常量，两侧由契约测试锁定一致。下文历史表述中的 `DataPipeline/config.py` 均指"当前对应的 `Config` 真相源"。
 
 ## 背景 (Context)
 
@@ -18,17 +20,16 @@
 
 ## 决策 (Decision)
 
-**所有 DB 路径、表名、列定义统一从 `DataPipeline/config.py` 的 `Config` 类读取**：
+**所有 DB 路径、表名、列定义统一从 `Config` 类读取**（本仓库为 `data_access/config.py`）：
 
-- `Config.DB_PATHS['raw_fills']` / `Config.DB_PATHS['raw_bdib']` / ...
-- `Config.TABLE_NAMES['fills']` / `Config.TABLE_NAMES['bdib_10s']` / ...
-- `Config.COLUMNS[...]` 统一列定义
-- `DataPipeline/config.py` 是**唯一**配置入口
+- `Config.RAW_FILLS_DB` / `Config.PROCESSED_FILLS_DB` / ... （库路径）
+- `Config.RAW_FILLS_TABLE` / `Config.PROCESSED_FILLS_TABLE` / ... （表名）
+- `Config` 是**唯一**配置入口
 - `platform_data/config_bridge.py` 仅做配置桥接（从 `Config` 派生 platform_data 所需视图）
-- 业务代码**禁止**硬编码 `'*.db'` / 表名字面量
+- 业务代码**禁止**硬编码 `'*.db'` / 表名字面量 / 数据根目录字面量
 
 环境变量：
-- `EMSXVIEW_DATA_DIR`：数据根目录。**默认已外置于项目外** `~\EMSXViewData\data`（见 [ADR-0016](0016-external-data-store-readonly-split.md)）；设此变量可显式覆盖（含指回旧布局 `CostView/data`）。
+- `EMSXVIEW_DATA_DIR`：数据根目录 `${EMSXVIEW_DATA_DIR}`。设置即生效；未设置时取 `Config.DEFAULT_DATA_DIR`（外置于任何代码树，见 [ADR-0016](0016-external-data-store-readonly-split.md)）。
 
 ## 后果 (Conceptions)
 
@@ -38,8 +39,8 @@
 - 避免数据迁移时漏改
 
 ### 负面 / 取舍
-- 新增表需要先在 `Config` 注册
-- 业务代码 import `DataPipeline.config` 跨域
+- 新增表需要先在 `Config` 注册（并同步独立仓库侧常量 + 契约测试）
+- 业务代码 import `data_access.config` 跨域（应优先经 `platform_data/config_bridge.py` 桥接）
 
 ## 备选方案 (Considered Alternatives)
 

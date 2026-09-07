@@ -151,20 +151,23 @@ rg "from CostView\.src" platform_data/
 
 ---
 
-### 2.2 backend/api ↔ DataPipeline
+### 2.2 backend/api ↔ 数据访问层
+
+> **010-extract-pipeline**：`DataPipeline` 包已迁出本仓库（独立仓库 EMSXDataPipeline，唯一写入方）。本节约束同步升级为：本仓库**只读**访问 `data_access/`，且**禁止** import 任何 `DataPipeline.*`。
 
 **CAN**:
-- 通过 `platform_data.data_platform.*` 触发 ingestion、查询 pipeline 状态
-- 通过 `DataPipeline.config.Config` 读取 DB 路径（仅配置层）
+- 通过 `data_access.config.Config` 读取 DB 路径与库/表常量（唯一配置来源）
+- 通过 `data_access.ConnectionManager`（READ tier）与读 repository 查询数据
 
 **CANNOT**:
-- 直接 `from DataPipeline.src.* import ...`（任何内部子模块）
-- 绕过 `Config` 硬编码 `.db` 路径
+- `from DataPipeline.* import ...`（该包不在本仓库，任何子模块皆禁止）
+- 直接 `from data_access.storage.* import ...` 绕过 `ConnectionManager` 的 deep import
+- 绕过 `Config` 硬编码 `.db` 路径或数据根目录
 
 **DETECT**:
 ```bash
-rg "from DataPipeline\.src" backend/api/
-rg "\.db['\"]" backend/api/ | rg -v "config\.py"
+rg "from DataPipeline" backend/ CostView/ platform_data/ data_access/
+rg "\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 ```
 
 **TEST**: `tests/boundaries/test_db_path_from_config.py`
@@ -278,7 +281,7 @@ rg "\.db['\"]" backend/api/ | rg -v "config\.py"
 ## 5. 配置与环境变量
 
 **CAN**:
-- 通过 `DataPipeline.config.Config` 读取所有 DB 路径
+- 通过 `data_access.config.Config` 读取所有 DB 路径与库/表常量（数据根由 `${EMSXVIEW_DATA_DIR}` 覆盖）
 - 通过 `backend/api/config.py` 读取应用级配置
 - 通过 `os.getenv('EMSXVIEW_*')` 读取环境变量门控
 
@@ -286,10 +289,11 @@ rg "\.db['\"]" backend/api/ | rg -v "config\.py"
 - 业务代码硬编码 `*.db` 路径字符串
 - 业务代码硬编码表名字面量
 - 业务代码绕过 `Config` 直接 `os.path.join(BASE_DIR, 'data', 'raw_fills.db')`
+- 业务代码硬编码数据根目录字面量（应取 `Config.DATA_DIR`）
 
 **DETECT**:
 ```bash
-rg "['\"][^'\"]*\.db['\"]" backend/ DataPipeline/ | rg -v "config\.py"
+rg "['\"][^'\"]*\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 ```
 
 **TEST**: `tests/boundaries/test_db_path_from_config.py`

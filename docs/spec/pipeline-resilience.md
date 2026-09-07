@@ -5,6 +5,8 @@
 > 证据源：AGENTS.md 计划记录、`docs/archive/` 诊断报告、git 提交历史、生产日志
 > （`logs/pipeline/fillfetch.log`、`logs/pipeline/guardrail/*.jsonl`）。
 > Created: 2026-08-26 · 维护规则：每次管道事故复盘后更新对应故障模式条目
+>
+> **010-extract-pipeline 后的路径对应**：文中 `DataPipeline/*`、`CostView/scripts/daily_update.py` 等**写入侧**代码已迁独立仓库 EMSXDataPipeline（其 Runner 负责 /run /status）；本仓库读侧对应物为 `data_access/*`，配置真相源为 `data_access/config.py` 的 `Config`。文中路径保留历史原貌。
 
 ---
 

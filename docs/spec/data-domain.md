@@ -66,12 +66,23 @@ Examples:
 
 Primary code surfaces (current):
 
-- `DataPipeline/acquisition/` — BDIB market bar acquisition
-- `DataPipeline/ingestion/` — fill and market data ingestion
-- `DataPipeline/processing/` — cleaning, enrichment, aggregation, metrics
-- `DataPipeline/storage/` — connection management, repositories, legacy DB facades
-- `DataPipeline/orchestration/` — pipeline and migration management
-- `DataPipeline/common/` — shared configuration (ProcessingConfig, schema, exchange_tz, mapping)
+> **010-extract-pipeline 后**：下列写入侧包（`acquisition/`、`ingestion/`、`orchestration/` 等）已随数据管道迁往独立仓库 EMSXDataPipeline；本仓库只保留**只读消费面** `data_access/`，禁止 `import DataPipeline.*`。以下路径仅作历史沿革说明，仓库内无对应文件；需要引用时请用本仓库路径：
+>
+> | 独立仓库（`EMSXDataPipeline`） | 本仓库只读对应物 |
+> |---|---|
+> | `DataPipeline/config.py` | [`data_access/config.py`](../../data_access/config.py) |
+> | `DataPipeline/storage/connection.py` | [`data_access/storage/connection.py`](../../data_access/storage/connection.py) |
+> | `DataPipeline/storage/repositories/` | [`data_access/storage/repositories/`](../../data_access/storage/repositories/) |
+> | `DataPipeline/storage/schema/` | [`data_access/storage/schema/`](../../data_access/storage/schema/) |
+> | `DataPipeline/common/exchange_tz.py` | [`data_access/common/exchange_tz.py`](../../data_access/common/exchange_tz.py) |
+> | `DataPipeline/processing/fill_cleaner.py` | [`data_access/processing/fill_cleaner.py`](../../data_access/processing/fill_cleaner.py) |
+
+- `DataPipeline/acquisition/` — BDIB market bar acquisition（仓库外）
+- `DataPipeline/ingestion/` — fill and market data ingestion（仓库外）
+- `DataPipeline/processing/` — cleaning, enrichment, aggregation, metrics（仓库外；读侧裁剪见 `data_access/processing/`）
+- `DataPipeline/storage/` — connection management, repositories, legacy DB facades（仓库外；只读裁剪见 `data_access/storage/`）
+- `DataPipeline/orchestration/` — pipeline and migration management（仓库外）
+- `DataPipeline/common/` — shared configuration (ProcessingConfig, schema, exchange_tz, mapping)（仓库外；读侧裁剪见 `data_access/common/`）
 
 Legacy surfaces (all migrated — original files deleted from `CostView/src/`):
 
@@ -106,7 +117,7 @@ Legacy surfaces (all migrated — original files deleted from `CostView/src/`):
 
 Cross-module entry:
 
-- 管道摄取/状态经 `platform_data.pipeline_jobs`（`trigger_pipeline`, `get_job`）与 `platform_data.config_bridge`（`register_config_impl` / `get_config`）暴露
+- 配置桥接经 `platform_data.config_bridge`（`register_config_impl` / `get_config`）暴露；原 `platform_data.pipeline_jobs`（`trigger_pipeline` / `get_job`）已随 010-extract-pipeline 移除，管道触发改由独立仓库 Runner（`POST /run`、`GET /status`）提供
 - `DataPlatformIngestionAdapter` 与 `build_platform_data_access()` 尚未实现（规划中，见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)）
 
 ### 3. CostView — algorithm evaluation and analytics (refocused)

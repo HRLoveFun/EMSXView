@@ -75,7 +75,7 @@ Key runtime truth:
 EMSXView/
 ├── README.md
 ├── QUICKSTART.md
-├── 重启服务.bat
+├── relaunch_service.bat
 ├── frontend/                         # Canonical React frontend shell
 │   ├── package.json
 │   └── src/
@@ -86,12 +86,16 @@ EMSXView/
 │       ├── modules/
 │       │   ├── execution/            # Execution domain module
 │       │   ├── marketview/           # MarketView module anchor
-│       │   ├── costview/             # CostView module
-│       │   └── databaseview/         # DatabaseView module
+│       │   └── costview/             # CostView module
 │       └── shared/                   # Cross-module shared layer
+├── data_access/                      # 只读数据访问层（010-extract-pipeline 后本仓库唯一数据入口）
+│   ├── config.py                     # Config：数据根 + 库/表常量（唯一真相源）
+│   ├── storage/                      # connection(mode=ro) / market_store / repositories / schema
+│   ├── processing/                   # 读侧处理工具
+│   └── common/                       # exchange_tz 等读侧公共工具
 ├── backend/
 │   └── api/
-│       ├── main.py                   # FastAPI application entry (:3000)
+│       ├── main.py                   # FastAPI application entry (<API_PORT>, default 3000)
 │       ├── config.py
 │       ├── deps.py
 │       ├── db.py
@@ -128,7 +132,6 @@ EMSXView/
 │   │   ├── redis_handoff.py           # RedisHandoffExchangeAdapter
 │   │   ├── market.py                  # MarketReferenceDataAdapter
 │   │   └── tca_bridge.py              # TCA service DI + daily summary reader
-│   ├── repositories.py                 # DatabaseView diagnostic queries
 │   └── contracts/                      # Cross-module data contracts
 │       ├── __init__.py
 │       ├── fill_contracts.py           # SCORECARD_COHORTS + fill types
@@ -171,7 +174,8 @@ Current module split inside the shell:
 - `modules/marketview/` — pre-trade shell anchor
 - `modules/execution/` — Execution workspace
 - `modules/costview/` — active post-trade UI
-- `modules/databaseview/` — database admin UI
+
+> `modules/databaseview/` 已随 010-extract-pipeline 移除（数据库维护归独立仓库 EMSXDataPipeline 的 Runner）。
 
 ### 4.2 Backend assembly layer
 
@@ -200,24 +204,24 @@ Active backend layering:
 Canonical entries:
 
 - `CostView/src/tca_query_service.py`
-- `DataPipeline/storage/facade.py` (DatabaseFacade — unified DB entry point)
+- [`data_access/storage/`](../../data_access/storage/) — read-only DB entry (`ConnectionManager` READ tier)
 
 Responsibilities:
 
-- fill ingestion and cleaning
-- market data ingestion and transformation
 - cross-database TCA queries
 - analytical metric assembly and reporting
 
-Database subsystem (`DataPipeline/storage/`):
+Read-only data access layer ([`data_access/`](../../data_access/)):
 
-- `connection.py` — ConnectionManager with AccessTier enforcement across 6 SQLite DBs
-- `facade.py` — DatabaseFacade facade holding all repositories
-- `dto.py` — Data transfer objects for cross-layer communication
-- `repositories/` — concrete repository implementations (fills, raw_fills, market_data, integrated, regime, fetch_history)
-- `schema/` — Unified column definitions + MigrationManager
+- `config.py` — `Config`：数据根（环境变量 `EMSXVIEW_DATA_DIR` > 默认值）+ 库/表常量，唯一真相源
+- `storage/connection.py` — `ConnectionManager`，仅提供 READ tier（sqlite3 `mode=ro`），WRITE/admin 一律拒绝
+- `storage/market_store.py` — `MarketStoreReader`
+- `storage/repositories/` — `SqliteFillReadRepository`、`SqliteRawFillReadRepository`
+- `storage/schema/` — 列常量
+- `processing/` / `common/` — 读侧处理与时区工具
 
-Legacy DB classes (`raw_fills_db.py` etc.) have been **deleted** — migrated to `DataPipeline/storage/` repositories.
+写入侧（ETL 与数据维护）已迁独立仓库 EMSXDataPipeline；本仓库为只读消费者，禁止 `import DataPipeline.*`。
+Legacy DB classes (`raw_fills_db.py` etc.) have been **deleted** — migrated to `DataPipeline/storage/` repositories in the pipeline repository.
 
 ### 4.4 Shared logical data-domain entry
 
@@ -225,7 +229,7 @@ Canonical entries:
 
 - `platform_data/adapters/`
 - `platform_data/contracts/`
-- `platform_data/repositories.py`
+- `platform_data/config_bridge.py`（配置桥接；原 `platform_data/repositories.py` 已随 DatabaseView 移除）
 
 Responsibilities:
 
@@ -235,7 +239,7 @@ Responsibilities:
 - `contracts/` defines the only legal cross-module data types (e.g. `SCORECARD_COHORTS`)
 - `adapters/tca_bridge.py` 的 `get_tca_query_service()` 提供 TCA / scorecard 查询（读取 `tca_route_summary` 汇总表）
 - 执行历史读取由 `CostView/src/tca_query_builder.py` 直接 SQL 提供（原平行实现 `execution_history_service.py` 已于 2026-08-26 移除，见 ADR-0014）
-- `repositories.py` provides DatabaseView diagnostic query access
+- DatabaseView 诊断查询入口（`platform_data/repositories.py`）已随 010-extract-pipeline 移除
 - `CostViewDatabaseAdapter` / `CostViewAnalyticsAdapter` 尚未实现（规划中，见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）
 
 ---
@@ -331,8 +335,8 @@ Cross-domain access should follow this order of preference:
 
 1. `CostView/frontend/` legacy prototype has been removed from the repository (formerly archived under `docs/archive/`) — removed from active surfaces.
 2. ExecutionView operational data and CostView analytical data now have a shared adapter entry; cross-module deep imports from ExecutionView to CostView have been eliminated.
-3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built. MarketView runs as a standalone service on :8001.
-4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) have been **deleted** — fully migrated to `DataPipeline/storage/` repositories per `docs/spec/data-domain.md`.
+3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built. MarketView runs as a standalone service on `<MARKETVIEW_PORT>` (default 8001).
+4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) have been **deleted** — fully migrated to the pipeline repository's `DataPipeline/storage/` repositories per `docs/spec/data-domain.md`; EMSXView 侧对应物是本仓库的 `data_access/storage/`。
 5. `platform_data/adapters.py` has been split into `platform_data/adapters/` subpackage (with backward-compat re-exports in `__init__.py`).
 
 ---

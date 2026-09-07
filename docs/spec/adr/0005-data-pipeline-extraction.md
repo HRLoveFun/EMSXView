@@ -1,6 +1,6 @@
 # ADR-0005: Data Platform 子域从 CostView 抽取
 
-> 状态: Accepted
+> 状态: Accepted（**后续演进见 [ADR-0016](0016-external-data-store-readonly-split.md) 与 010-extract-pipeline**：写入侧已进一步迁往独立仓库 EMSXDataPipeline，本仓库只保留只读访问层 `data_access/`）
 > 日期: 2026-05-07
 > 标签: refactoring, data, architecture
 
