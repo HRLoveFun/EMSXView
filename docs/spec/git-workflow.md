@@ -151,13 +151,13 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 
 ### 6.1 数据目录隔离（★ 数据零受损）
 
-> 自 ADR-0016 起，数据目录**默认外置于项目外** `~\EMSXViewData\data`，各 worktree 天然共享同一份数据，无需再手工 `EMSXVIEW_DATA_DIR` 指向主树。
+> 数据根由 `${EMSXVIEW_DATA_DIR}` 决定：显式设置该环境变量即生效，未设置时取 `data_access/config.py` 中 `Config.DEFAULT_DATA_DIR`（外置于任何代码树）。各 worktree 共享同一份数据，无需再手工指向主树。
 
 Worktree 的工作文件是独立的，但**数据不属于 git**：
 
-- 数据默认落在 `~\EMSXViewData\data`（项目外），所有 worktree / 部署共用，重新 clone 或新建 worktree 不丢失数据。
-- 旧布局 `CostView/data` 仅在显式 `EMSXVIEW_DATA_DIR` 指回时生效；旧目录仍有 `*.db` 且走外置默认时，import 期会发 `UserWarning` 提示迁移（运行 `python scripts/ops/migrate_data_dir.py --dry-run` 预检）。
-- **读写职责物理分离**：读取方（CostView API / 查询 / 监控）以 `AccessTier.READ`（`sqlite3` URI `mode=ro`）连接，文件系统层面拒绝写；**数据管道与运维脚本是唯一的写入通道**。任何读取进程无法写坏数据文件。
+- 数据默认落在 `Config.DEFAULT_DATA_DIR`（项目外），所有 worktree / 部署共用，重新 clone 或新建 worktree 不丢失数据；临时切换可用 `EMSXVIEW_DATA_DIR=<data-dir>`。
+- 历史布局（项目内 `CostView/data`、ADR-0016 的 `~\EMSXViewData\data`）已废弃，仅在显式 `EMSXVIEW_DATA_DIR` 指回时生效。
+- **读写职责物理分离**：读取方（CostView API / 查询 / 监控）经 `data_access.ConnectionManager` 的 `AccessTier.READ`（`sqlite3` URI `mode=ro`）连接，文件系统层面拒绝写；**数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline**。任何本仓库进程无法写坏数据文件。
 - **禁止**多个进程同时对同一数据目录执行管道写入（摄取 / 处理阶段）；数据管道类任务（S1–S5、回填、清理）同一时间只在**一个** worktree/进程中运行，或让各 worktree 使用独立 `EMSXVIEW_DATA_DIR`。
 - 后端 `ENABLE_DB_PERSISTENCE`、`EMSXVIEW_MERGE_MODULES` 等运行参数跟随各 worktree 自己的 `.env`，互不影响。
 
@@ -165,21 +165,23 @@ Worktree 的工作文件是独立的，但**数据不属于 git**：
 
 默认端口被占用时，给不同 worktree 分配偏移端口（后端 `API_PORT`、前端 `VITE_API_URL` 均支持环境变量 / `.env` 覆盖）：
 
-| 服务 | 主工作树 | 第 1 个并行 worktree | 第 2 个 |
-|---|---|---|---|
-| backend/api | :3000 | :3100 | :3200 |
-| frontend (vite) | :5173 | :5273 | :5373 |
-| MarketView | :8001 | :8101 | :8201 |
-| CostView | :8002 | :8102 | :8202 |
+| 服务 | 占位符 | 主工作树（默认） | 第 1 个并行 worktree | 第 2 个 |
+|---|---|---|---|---|
+| backend/api | `<API_PORT>` | 3000 | 3100 | 3200 |
+| frontend (vite) | `<FRONTEND_PORT>` | 5173 | 5273 | 5373 |
+| MarketView | `<MARKETVIEW_PORT>` | 8001 | 8101 | 8201 |
+| CostView | `<COSTVIEW_PORT>` | 8002 | 8102 | 8202 |
+
+> 表中为主工作树默认值与推荐偏移，实际取值一律由环境变量 / `.env` 覆盖（见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）。
 
 worktree 内示例（写入该 worktree 的 `.env` 或会话环境变量）：
 
 ```bash
-API_PORT=3100                              # 后端
-VITE_API_URL=http://localhost:3100         # 前端指向对应后端
+API_PORT=3100                                   # 后端
+VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 ```
 
-前端启动：`npx vite --port 5273`（或写入 `.env` 的 `VITE_PORT`，按 vite 配置为准）。后端：`API_PORT=3100 python main.py`。
+前端启动：`npx vite --port 5273`（或写入 `.env` 的前端端口变量，按 vite 配置为准）。后端：`API_PORT=3100 python main.py`。
 
 ### 6.3 依赖与忽略文件
 

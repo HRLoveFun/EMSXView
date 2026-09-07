@@ -157,7 +157,7 @@ emsx_cache_strategy_info_BMTB_TWAP
 
 1. 按 **F12** 打开DevTools
 2. 切换到 **Application** 标签（Chrome）或 **Storage** 标签（Firefox）
-3. 在左侧选择 **Local Storage** → **http://localhost:5173**
+3. 在左侧选择 **Local Storage** → 前端开发服务地址（默认 `http://localhost:5173`，端口可经 `vite --port` 调整）
 4. 查看以 `emsx_cache_` 开头的键
 
 ### 如何清除缓存？

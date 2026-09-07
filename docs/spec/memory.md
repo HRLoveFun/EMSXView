@@ -12,8 +12,8 @@
 |---|---|
 | 前端壳 | `frontend/src/app/AppShell.tsx` |
 | 后端装配 | `backend/api/main.py` |
-| 数据入口 | `platform_data/adapters/` |
-| 流水线配置 | `DataPipeline/config.py` |
+| 数据入口（只读） | `data_access/`（本仓库）+ `platform_data/adapters/` |
+| 流水线配置 | `data_access/config.py`（写入侧参数归独立仓库 EMSXDataPipeline） |
 | 平台契约 | `platform_data/contracts/` |
 | 共享规范 | `AGENTS.md`（仓库根） |
 | Agent 编码规则 | `.codebuddy/rules/coding-style.md` |
@@ -41,7 +41,7 @@
 | [ADR-0009](adr/0009-blend-of-microservice-and-monolith.md) | 单进程/微服务双模部署 | Accepted |
 | [ADR-0010](adr/0010-bloomberg-session-model.md) | Bloomberg 会话模型 | Accepted |
 | [ADR-0011](adr/0011-fx-rate-handling-rules.md) | FX 汇率处理规则 | Accepted |
-| [ADR-0012](adr/0012-config-isolation-rule.md) | 配置隔离：DataPipeline/config 单一来源 | Accepted |
+| [ADR-0012](adr/0012-config-isolation-rule.md) | 配置隔离：`Config` 单一来源（本仓库 `data_access/config.py`） | Accepted |
 | [ADR-0013](adr/0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | Accepted |
 | [ADR-0014](adr/0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | Accepted |
 | [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | Accepted |
@@ -67,7 +67,7 @@
 12. `docs/spec/git-workflow.md` — Git 多任务并行工作流（Worktree SOP）
 
 > **📦 已归档（2026-07-02）** — 数据管理重构 Phase A-D（15/15 任务）已全部完成，.BAK 安全网已清理（释放 57.58 GB）。本节原"额外阅读"的两份文件已转为历史档案：
-> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数以 `DataPipeline/config.py` 的 Config 类为唯一真相源
+> - ~~`data_management_refactoring_control.md` — 重构进度~~ → 运行时参数以 `data_access/config.py` 的 `Config` 类为唯一真相源（写入侧同名配置归独立仓库 EMSXDataPipeline）
 > - ~~`data_management_refactoring_plan.md` — 重构实施~~ → 已删除（2026-08-12），历史方案见 git 历史提交 `3b00236`
 
 ---

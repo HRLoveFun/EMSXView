@@ -26,14 +26,14 @@
 ## AP-01 跨域 deep import
 
 **严重度**: critical
-**描述**: 前端 import `@costview/*` 或后端 import `CostView.src.*` / `DataPipeline.src.*`
+**描述**: 前端 import `@costview/*` 或后端 import `CostView.src.*` / `DataPipeline.*`（后者已随 010 迁独立仓库，任何 import 皆属越界）
 **为什么坏**: 跨域 import 把业务模块的内部细节泄漏到调用方，导致打包膨胀、循环依赖、单元测试无法独立运行
 **检测**:
 ```bash
 rg "from ['\"]@costview" frontend/src/modules/execution/
 rg "from ['\"]@marketview" frontend/src/modules/costview/
 rg "from CostView\.src" backend/api/ platform_data/
-rg "from DataPipeline\.src" backend/api/
+rg "from DataPipeline" backend/ CostView/ platform_data/ data_access/
 ```
 **修复**:
 - 前端跨模块 → 改走 `navigateTo` + `useHandoffContracts`
@@ -81,9 +81,9 @@ rg "(fetch\(|axios\.)" frontend/src/modules/*/components/
 **为什么坏**: 改路径需全局 grep；测试/生产环境切换困难；与 `Config` 单一来源原则冲突
 **检测**:
 ```bash
-rg "['\"][^'\"]*\.db['\"]" backend/ DataPipeline/ | rg -v "config\.py"
+rg "['\"][^'\"]*\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 ```
-**修复**: 通过 `DataPipeline.config.Config.DB_PATHS[...]` 读取
+**修复**: 通过 `data_access.config.Config` 的库路径常量（如 `Config.RAW_FILLS_DB`）读取
 **测试**: `tests/boundaries/test_db_path_from_config.py`
 **参考**: [ADR-0012](../adr/0012-config-isolation-rule.md)
 
@@ -111,7 +111,7 @@ rg "@router\.(get|post|put|delete|patch)" backend/api/routers/ -A 5 | rg "return
 **为什么坏**: 团队中文环境下阅读障碍
 **检测**:
 ```bash
-rg "^#\s+[A-Z][a-z]+" backend/ DataPipeline/ platform_data/ --type py
+rg "^#\s+[A-Z][a-z]+" backend/ data_access/ platform_data/ --type py
 ```
 **修复**: 翻译为中文
 **例外**: docstring 中的英文术语、第三方 API 引用注释
@@ -125,7 +125,7 @@ rg "^#\s+[A-Z][a-z]+" backend/ DataPipeline/ platform_data/ --type py
 **为什么坏**: 跨模块状态耦合；破坏模块独立性；独立部署时丢失状态
 **检测**:
 ```bash
-rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/ frontend/src/modules/marketview/ frontend/src/modules/databaseview/
+rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/ frontend/src/modules/marketview/
 ```
 **修复**: 改走 handoff 契约（`useHandoffContracts`）或 ShellContext
 **参考**: [ADR-0007](../adr/0007-handoff-exchange-pattern.md)
@@ -171,7 +171,7 @@ rg "include_router|app\.include" backend/api/main.py | rg -v "_register_optional
 # 前端
 npx tsc --noEmit
 # 后端
-pyright backend/ CostView/src/ DataPipeline/ platform_data/
+pyright backend/ CostView/src/ data_access/ platform_data/
 ```
 **修复**: 添加完整类型注解
 **参考**: `.codebuddy/rules/coding-style.md` §类型定义
@@ -221,7 +221,7 @@ rg "@router\.(get|post|put|delete|patch)" backend/api/routers/ -A 10 | rg -v "tr
 ## AP-14 硬编码端口/URL
 
 **严重度**: medium
-**描述**: 业务代码中出现 `:3000` / `:8001` / `:8002` 字面量
+**描述**: 业务代码与文档中出现 `:3000` / `:8001` / `:8002` 等端口字面量（文档统一用占位符 `<API_PORT>` / `<MARKETVIEW_PORT>` / `<COSTVIEW_PORT>`，默认值见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）
 **为什么坏**: 部署模式切换时需改多处
 **检测**:
 ```bash

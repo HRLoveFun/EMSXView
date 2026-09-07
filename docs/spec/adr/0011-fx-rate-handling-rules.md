@@ -26,7 +26,7 @@ FX 汇率处理规则（按优先级）：
 3. **只有缩放归一化后仍显著偏离**（> 阈值）的 direct/inverse 差异才保留 WARNING
 4. 缩放归一化后正常范围内的差异 → INFO 或静默
 
-实现位置：FX 处理集中在 `DataPipeline/src/processing/fx_normalizer.py`（或对应模块）。
+实现位置：FX 处理集中在 FX 归一化模块（原 `DataPipeline/src/processing/fx_normalizer.py`，已随写入方迁独立仓库 EMSXDataPipeline）；本仓库读侧为 `data_access/` 与 `CostView/src/` 的 `fx_rates` 查表。
 
 ## 后果 (Consequences)
 

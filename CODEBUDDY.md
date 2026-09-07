@@ -23,6 +23,22 @@
 
 所有 AI 编码代理在与用户对话时，**必须使用中文回复**（代码、标识符、技术术语除外）。
 
+## 文档占位符与可配置参数约定（★ 写文档前必读）
+
+文档中出现的具体路径、主机、端口一律用**占位符**表达，禁止写入与本机绑定的硬编码值：
+
+| 占位符 | 含义 | 默认值 / 真相源 |
+|---|---|---|
+| `<repo-root>` | 仓库根（由 `.emsxview-root` marker 定位） | 各机器克隆路径不同 |
+| `${EMSXVIEW_DATA_DIR}` | 数据根 | 默认 `Config.DEFAULT_DATA_DIR`（见 `data_access/config.py`） |
+| `<host>` | 服务主机名 | `localhost` |
+| `<API_PORT>` / `<API_BASE_URL>` | 后端端口 / 基址 | `3000` / `http://<host>:3000`（`API_HOST`、`API_PORT`） |
+| `<MARKETVIEW_PORT>` / `<MARKETVIEW_BASE_URL>` | MarketView | `8001`（`MARKETVIEW_HOST`、`MARKETVIEW_PORT`） |
+| `<COSTVIEW_PORT>` / `<COSTVIEW_BASE_URL>` | CostView | `8002`（`COSTVIEW_HOST`、`COSTVIEW_PORT`） |
+| `<FRONTEND_PORT>` | 前端开发服务端口 | `5173`（`vite --port`、`VITE_API_URL`） |
+
+引用规则：**仓库内文件一律用仓库相对路径**（如 `data_access/config.py`）；仓库外资源（如已迁出的 EMSXDataPipeline）只说明归属，不写具体磁盘路径。完整约定见 [`docs/index.md` §7](docs/index.md#7-占位符与可配置参数约定)。
+
 ## 关键约定
 
 ### TypeScript / React 编码规范
@@ -69,8 +85,8 @@
   |---|---|
   | 后端业务代码 | `backend/api/` 分层子目录（`routers/` `services/` `schemas/`） |
   | CostView / MarketView | `CostView/api/`、`CostView/src/`、`CostView/tests/`；`MarketView/` |
-  | 数据管道（已迁独立仓库） | EMSXDataPipeline 仓库（`DataPipeline/` 含 ingestion/processing/analysis；唯一写入方，数据根 `D:\db`） |
-  | 只读数据访问层 | `data_access/`（EMSXView 内，裁剪自 DataPipeline 只读路径：mode=ro 连接 + 库/表常量，与独立仓库契约一致） |
+  | 只读数据访问层（本仓库） | `data_access/`（mode=ro 连接 + 库/表常量 + 读 repository；配置唯一来源 `data_access/config.py` 的 `Config`） |
+  | 数据管道写入方（仓库外） | 独立仓库 EMSXDataPipeline（唯一写入方）——本仓库**禁止 import**，文档中**不写其磁盘路径**，需引用时用本仓库 `data_access/*` 路径 |
   | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
   | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
   | 前端模块代码 | `frontend/src/modules/<module>/`（`components/` `hooks/` `services/`） |
@@ -97,6 +113,6 @@
 - **核心方案**：Git Worktree + 独立 Feature 分支 + 每日 rebase origin/main；完整 SOP 见 [`docs/spec/git-workflow.md`](docs/spec/git-workflow.md)
 - **一任务一分支一目录**：每个任务在兄弟目录 `../EMSXView-wt-<task>` 检出独立分支，主工作树保持干净（停在 main）；规格化特性任务分支名必须与 `specs/<feature-id>/` 目录名一致
 - **同步纪律**：每个活跃任务每天至少一次 `git rebase origin/main`；临时保存用 commit，**禁止跨 worktree 使用 stash**（stash 为仓库级共享，极易拿错）
-- **数据零受损**：数据落外置 `D:\db`（010-extract-pipeline，与代码树解耦）；EMSXView 为只读消费者（sqlite mode=ro），数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline。`EMSXVIEW_DATA_DIR` 可覆盖数据根。
+- **数据零受损**：数据落外置数据根 `${EMSXVIEW_DATA_DIR}`（`EMSXVIEW_DATA_DIR` 环境变量覆盖，默认值见 `data_access/config.py` 的 `Config.DEFAULT_DATA_DIR`；010-extract-pipeline，与代码树解耦）；EMSXView 为只读消费者（sqlite mode=ro），数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline。
 - **Agent 隔离**：一个 Agent 绑定一个 worktree，禁止跨 worktree 读写文件或操作其他任务正在使用的分支；功能代码禁止直接提交 main（PR + Squash merge）
 - 并行任务启动前必须先读 `docs/spec/git-workflow.md` §6（端口偏移 / 数据目录 / 依赖安装）与 §7（AI Agent 专项规则）

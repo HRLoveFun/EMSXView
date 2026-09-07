@@ -21,7 +21,7 @@
 3. **每日同步纪律**：每个活跃任务每天至少一次 `git rebase origin/main`，用 commit 替代 stash。
 4. **辅助脚本**：`scripts/devtools/wt-new|list|sync|finish.ps1` 四个 PowerShell 脚本封装高频操作（通过 `.emsxview-root` marker 定位根，遵循 AP-16）。
 5. **AI Agent 隔离规则**：一个 Agent 绑定一个 worktree，禁止跨 worktree 操作文件与 refs；Agent 可在自己的分支自主 commit/push。
-6. **数据零受损适配**：worktree 内 `CostView/data/` 默认为空（数据不入 git）；数据管道写入任务同一时间只允许一个 worktree 执行，或各用独立 `EMSXVIEW_DATA_DIR`。
+6. **数据零受损适配**：数据不入 git，数据根由 `${EMSXVIEW_DATA_DIR}` 决定（默认 `Config.DEFAULT_DATA_DIR`，外置于任何代码树）；写入侧任务（独立仓库 EMSXDataPipeline）同一时间只允许一个 worktree 触发，或各用独立 `EMSXVIEW_DATA_DIR`。
 
 ## 后果 (Consequences)
 
@@ -36,7 +36,7 @@
 - 磁盘占用：历史共享很省，但依赖安装重复；大数据调试须依赖 `EMSXVIEW_DATA_DIR` 指向主工作树（只读）。
 
 ### 对其他 ADR 的影响
-- 引用: [ADR-0012](0012-config-isolation-rule.md)（worktree 内运行参数仍以 `DataPipeline/config.py` / `.env` 为真相源）
+- 引用: [ADR-0012](0012-config-isolation-rule.md)（worktree 内运行参数仍以 `data_access/config.py` 的 `Config` / `.env` 为真相源）
 - 引用: [ADR-0014](0014-dead-code-cleanup.md)（遵循其确立的文件放置规范：脚本归 `scripts/devtools/`，规范文档归 `docs/spec/`）
 - 被引用: 未来若引入 CI 级分支保护或 PR 模板，需与本工作流的分支命名规范对齐
 

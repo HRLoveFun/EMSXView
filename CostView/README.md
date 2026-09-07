@@ -15,7 +15,7 @@ and broker recommendation services. It now runs as an independent FastAPI servic
 CostView/                          # CostView domain
 ├── pyproject.toml                 # Pip package (emsxview-costview)
 ├── api/                           # Independent microservice
-│   ├── main.py                    # FastAPI app entry (:8002)
+│   ├── main.py                    # FastAPI app entry (<COSTVIEW_PORT>, default 8002)
 │   ├── config.py                  # Service configuration
 │   ├── requirements.txt           # Python dependencies
 │   └── routers/
@@ -29,7 +29,7 @@ CostView/                          # CostView domain
 │   ├── query_cli.py               # CLI query tool
 │   ├── secure_config.py           # encrypted config
 │   └── monitoring/                # BDIB health, metric coverage, report aggregation
-├── data/                           # SQLite databases (paths via DataPipeline.config)
+├── data/                           # 历史布局；现数据根为 ${EMSXVIEW_DATA_DIR}（唯一来源 data_access/config.Config）
 │   ├── raw_fills.db                # raw fills
 │   ├── processed_fills.db          # cleaned/processed fills
 │   ├── raw_bdib.db                 # raw BDIB bars
@@ -42,9 +42,7 @@ CostView/                          # CostView domain
 └── scripts/                        # Maintenance scripts
 ```
 
-> Pipeline job registry (`trigger_pipeline` / `get_job`) 位于
-> `platform_data/pipeline_jobs.py`，被 CostView `/api/tca/trigger-update` 与
-> DatabaseView `/api/db/update` 共享。
+> **数据更新触发**（010-extract-pipeline）：`platform_data/pipeline_jobs.py`（`trigger_pipeline` / `get_job`）与 `/api/tca/trigger-update`、`/api/db/update` 端点已移除；数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline，通过其 Runner（`POST /run`、`GET /status`）触发。
 
 ## Deployment
 
@@ -70,8 +68,6 @@ python main.py                      # All modules in one process
 |----------|-------------|
 | `POST /api/tca/analyze` | Run TCA analysis with optional filters |
 | `POST /api/tca/scorecard` | Broker/strategy cohort scorecard |
-| `POST /api/tca/trigger-update` | Manually start daily update pipeline |
-| `GET /api/tca/update-status/{job_id}` | Poll a triggered pipeline job |
 | `POST /api/tca/recommendations/pin` | Pin a broker recommendation handoff |
 | `GET /api/tca/handoff/post-trade/{order_id}` | Peek ExecutionView → CostView handoff |
 | `GET /api/costview/regime-distribution` | Per-day regime label counts |
@@ -94,7 +90,7 @@ python main.py                      # All modules in one process
 
 ```nginx
 location /api/tca/ {
-    proxy_pass http://localhost:8002/api/tca/;
+    proxy_pass <COSTVIEW_BASE_URL>/api/tca/;   # 默认 http://localhost:8002，环境变量 COSTVIEW_HOST / COSTVIEW_PORT
 }
 ```
 

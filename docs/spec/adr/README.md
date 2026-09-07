@@ -61,7 +61,7 @@ NNNN-<kebab-case-title>.md
 | [0009](0009-blend-of-microservice-and-monolith.md) | 单进程/微服务双模部署 | deployment, architecture |
 | [0010](0010-bloomberg-session-model.md) | Bloomberg 会话模型 | external-integration, backend |
 | [0011](0011-fx-rate-handling-rules.md) | FX 汇率处理规则 | data-processing, frontend |
-| [0012](0012-config-isolation-rule.md) | 配置隔离 — DataPipeline/config 单一来源 | data, configuration, refactoring |
+| [0012](0012-config-isolation-rule.md) | 配置隔离 — `Config` 单一来源（本仓库现为 `data_access/config.py`） | data, configuration, refactoring |
 | [0013](0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | refactoring, data, documentation |
 | [0014](0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | refactoring, cleanup, scripts |
 | [0015](0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | costview, analytics, frontend, backend |

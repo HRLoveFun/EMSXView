@@ -6,7 +6,7 @@
 
 ## 背景 (Context)
 
-ADR-0005 把数据基础设施从 CostView 抽取到 `DataPipeline/`，但 `DataPipeline` 现在是否仍"归 CostView 拥有"是模糊的：
+ADR-0005 把数据基础设施从 CostView 抽取到 `DataPipeline/`（**010 后已再迁独立仓库 EMSXDataPipeline，本仓库只读对应物为 `data_access/`**），但 `DataPipeline` 当时是否仍"归 CostView 拥有"是模糊的：
 - 一方面 DataPipeline 物理上是独立 Python 包（`pip install -e .`）
 - 另一方面业务上仍由 CostView 团队维护
 - 其他模块（ExecutionView、MarketView）也在消费 DataPipeline 的数据

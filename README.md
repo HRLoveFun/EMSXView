@@ -4,6 +4,10 @@
 
 ---
 
+> **占位符约定**：`<host>` 默认 `localhost`；`<API_BASE_URL>` / `<MARKETVIEW_BASE_URL>` / `<COSTVIEW_BASE_URL>` 为可配置基址，默认 `http://localhost:3000` / `:8001` / `:8002`；`<repo-root>` 指仓库根（由 `.emsxview-root` marker 定位）；`${EMSXVIEW_DATA_DIR}` 指数据根。完整约定见 [docs/index.md §7](./docs/index.md#7-占位符与可配置参数约定)。
+
+---
+
 ## Architecture Overview
 
 EMSXView is a monorepo trading platform converging on **one canonical React frontend shell**, **three business modules**, and **one logical data domain** covering the full trade lifecycle:
@@ -16,18 +20,20 @@ EMSXView is a monorepo trading platform converging on **one canonical React fron
 │  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐            │
 │  │   MarketView    │──▶│  ExecutionView  │──▶│    CostView     │            │
 │  │  (Pre-Trade)    │   │  (Order Exec)   │   │  (Post-Trade)   │            │
-│  │    :8001        │   │    :3000        │   │    :8002        │            │
+│  │ :<MARKETVIEW_PORT> │   │ :<API_PORT>     │   │ :<COSTVIEW_PORT> │           │
 │  └────────┬────────┘   └───────┬─────────┘   └───────┬─────────┘            │
 │           │                    │                     │                      │
 │           ▼                    ▼                     ▼                      │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
 │  │                      Shared Infrastructure                           │   │
 │  │  frontend/ (React shell)  ·  platform_data/ (adapters & contracts)   │   │
-│  │  DataPipeline/ (ETL)     ·  PostgreSQL + SQLite  ·  Redis + Nginx    │   │
+│  │  data_access/ (read-only data layer) · PostgreSQL · Redis · Nginx    │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> 端口占位含义与默认值：`<API_PORT>` = 3000，`<MARKETVIEW_PORT>` = 8001，`<COSTVIEW_PORT>` = 8002，`<FRONTEND_PORT>` = 5173（开发态）。多任务并行时按 worktree 端口偏移覆盖，见 [docs/spec/git-workflow.md §6](./docs/spec/git-workflow.md)。
 
 ### Module Flow (Trade Lifecycle)
 
@@ -44,8 +50,10 @@ MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostV
 
 | Mode | Env Var (`EMSXVIEW_MERGE_MODULES`) | Architecture |
 |------|-----------------------------------|--------------|
-| **Microservice** (production) | `false` (default) | Core :3000, MarketView :8001, CostView :8002 |
-| **Single-process** (dev/demo) | `true` | All modules in one process on :3000 |
+| **Microservice** (production) | `false` (default) | Core `<API_PORT>`, MarketView `<MARKETVIEW_PORT>`, CostView `<COSTVIEW_PORT>` |
+| **Single-process** (dev/demo) | `true` | All modules in one process on `<API_PORT>` |
+
+Default ports: `<API_PORT>` = 3000, `<MARKETVIEW_PORT>` = 8001, `<COSTVIEW_PORT>` = 8002 — all overridable via env vars (see [§Ports & Hosts](#ports--hosts)).
 
 Cross-module handoff configurable via `EMSXVIEW_HANDOFF_BACKEND`:
 - `memory` (default): In-process dict + threading.Lock
@@ -60,11 +68,11 @@ EMSXView/
 ├── README.md                         # This file
 ├── QUICKSTART.md                     # One-command quick start guide
 ├── CODEBUDDY.md                      # Agent guidance for code assistants
-├── 重启服务.bat                       # One-click restart
+├── relaunch_service.bat              # One-click restart
 │
 ├── frontend/                         # ★ Canonical React frontend shell
 │   ├── package.json                  # npm: emsxview-trading-tool
-│   ├── vite.config.ts                # Main Vite config (dev server :5173)
+│   ├── vite.config.ts                # Main Vite config (dev server <FRONTEND_PORT>, default 5173)
 │   ├── tailwind.config.js            # Tailwind CSS + shadcn/ui theme
 │   ├── tsconfig.app.json             # Strict TypeScript config
 │   ├── index.html                    # HTML entry point
@@ -89,12 +97,10 @@ EMSXView/
 │       │   │   ├── components/       # Overview, Scorecard, Analysis, FilterWorkbench, Charts, Export
 │       │   │   ├── services/         # TCA API client
 │       │   │   └── types.ts
-│       │   ├── marketview/           # Pre-trade shell anchor
-│       │   │   ├── MarketViewModule.tsx
-│       │   │   ├── intraday-feature-panel.tsx
-│       │   │   └── services/
-│       │   └── databaseview/         # Database admin UI
-│       │       └── DatabaseViewModule.tsx
+│       │   └── marketview/           # Pre-trade shell anchor
+│       │       ├── MarketViewModule.tsx
+│       │       ├── intraday-feature-panel.tsx
+│       │       └── services/
 │       ├── shared/                   # Cross-module shared layer
 │       │   ├── lib/                  # ModuleRegistry, ShellContext, utils
 │       │   ├── services/             # http-client, realtime WS, handoff-api, startup-api, token-service
@@ -108,7 +114,7 @@ EMSXView/
 │   ├── docker-compose.host.yml       # Host-network mode for local Bloomberg
 │   ├── config/                       # Grafana dashboards, Nginx conf, Prometheus config
 │   └── api/
-│       ├── main.py                   # FastAPI application entry (:3000)
+│       ├── main.py                   # FastAPI application entry (<API_PORT>, default 3000)
 │       ├── config.py                 # Settings (env → config)
 │       ├── deps.py                   # Depends() dependency injection wiring
 │       ├── auth.py                   # JWT auth manager
@@ -123,9 +129,8 @@ EMSXView/
 │       │   ├── realtime.py           # WebSocket realtime push
 │       │   ├── route_plans.py        # Route plan management
 │       │   ├── market_broker_mapping.py  # Market-to-broker mapping
-│       │   ├── debug.py              # Debug endpoints
-│       │   ├── database.py           # DatabaseView API (optional)
-│       │   └── execution_history.py  # Execution history API (optional)
+│       │   ├── costview.py           # CostView bridge API (optional)
+│       │   └── debug.py              # Debug endpoints
 │       ├── services/                 # Business logic layer
 │       │   ├── bloomberg/            # Bloomberg EMSX service (split package)
 │       │   │   ├── adapter.py        # Canonical facade
@@ -150,13 +155,13 @@ EMSXView/
 │       ├── schemas/                  # Pydantic v2 request/response schemas
 │       └── migrations/               # DB migration scripts
 │
-├── MarketView/                       # Pre-trade microservice (:8001)
+├── MarketView/                       # Pre-trade microservice (<MARKETVIEW_PORT>, default 8001)
 │   ├── main.py                       # FastAPI entry (no Bloomberg dependency)
 │   ├── config.py
 │   └── routers/
 │       └── marketview.py             # Market snapshot & intraday features API
 │
-├── CostView/                         # Post-trade TCA microservice (:8002)
+├── CostView/                         # Post-trade TCA microservice (<COSTVIEW_PORT>, default 8002)
 │   ├── pyproject.toml                # pip package: emsxview-costview
 │   ├── api/                          # Standalone FastAPI service
 │   │   ├── main.py                   # FastAPI entry (no Bloomberg dependency)
@@ -174,49 +179,18 @@ EMSXView/
 │   ├── data/                         # Analytical data stores (SQLite)
 │   └── frontend/                     # Legacy prototype UI (non-canonical)
 │
-├── DataPipeline/                     # Data platform subsystem (ETL + Analysis)
-│   ├── __main__.py                   # CLI: python -m DataPipeline --once
-│   ├── config.py                     # ★ Single source of truth for pipeline config
-│   │                                 #    DB paths, table names, date formats, SQLite settings
-│   ├── pyproject.toml                # pip package: emsxview-datapipeline
-│   ├── orchestration/                # Multi-stage pipeline orchestrator
-│   │   ├── core.py                   # run_full_pipeline() entry point
-│   │   ├── context.py                # Pipeline execution context
-│   │   ├── stages_ingest.py          # Ingest: fetch fills from Bloomberg EMSX
-│   │   ├── stages_process.py         # Process: clean, aggregate, integrate with BDIB
-│   │   └── stages_analysis.py        # Analyze: TCA, regime detection, attribution
-│   ├── ingestion/                    # Data acquisition
-│   │   ├── fill_fetch.py             # EMSX fill retrieval with SHA-256 dedup
-│   │   ├── fill_ingestion.py         # Raw fill ingestion pipeline
-│   │   ├── bdib_fetcher.py           # BDIB market bar fetcher
-│   │   └── emsx_client.py            # EMSX API client
-│   ├── processing/                   # Data processing
-│   │   ├── fill_cleaner.py           # Fill data cleaning
-│   │   ├── fill_processor.py         # Fill processing pipeline
-│   │   ├── fill_aggregator.py        # Time-based aggregation (10s, 1min)
-│   │   ├── fill_bdib_integrated.py   # Fill + BDIB bar integration
-│   │   ├── daily_metrics_calculator.py  # Daily summary metrics
-│   │   ├── order_label.py            # Order labeling/linking
-│   │   └── validate_raw_fills.py     # Raw fill validation
-│   ├── analysis/                     # Analytics engine
-│   │   ├── attribution/              # Cost attribution analysis
-│   │   │   ├── aggregator.py         # Cost aggregation
-│   │   │   ├── benchmarks.py         # Benchmark calculations
-│   │   │   ├── metrics.py            # Performance metrics
-│   │   │   ├── recommender.py        # Broker recommendation engine
-│   │   │   └── writer.py             # Analysis output writer
-│   │   └── regime/                   # Market regime classification (13 files)
-│   │       ├── fill_regime_tagger.py      # Tag fills with regime labels
-│   │       ├── liquidity_regime.py        # Liquidity regime detection
-│   │       ├── trend_regime.py            # Trend regime detection
-│   │       ├── vol_regime.py              # Volatility regime detection
-│   │       └── market_index_loader.py     # Market index data loading
-│   ├── storage/                      # Data persistence layer
-│   │   ├── connection.py             # ConnectionManager (6 SQLite databases)
-│   │   ├── facade.py                 # DatabaseFacade (unified query interface)
-│   │   ├── repositories/             # Typed repository layer (fills, market_data, regime, etc.)
-│   │   └── schema/                   # Database schema definitions
-│   └── common/                       # Shared pipeline utilities
+├── data_access/                      # ★ Read-only data access layer (010-extract-pipeline)
+│   ├── config.py                     # Config: ${EMSXVIEW_DATA_DIR} + DB/table constants
+│   ├── storage/
+│   │   ├── connection.py             # ConnectionManager (READ tier, sqlite mode=ro)
+│   │   ├── market_store.py           # MarketStoreReader (bar data read)
+│   │   ├── repositories/             # Read repositories (fills, raw_fills)
+│   │   └── schema/                   # Column constants
+│   ├── processing/                   # Read-side processing helpers (fill_cleaner)
+│   └── common/                       # exchange_tz and other read-side utilities
+│
+│   # 注：ETL 写入方（原 DataPipeline/）已迁独立仓库 EMSXDataPipeline；
+│   #     本仓库为只读消费者，禁止 import DataPipeline.*，见 AGENTS.md
 │
 ├── platform_data/                    # Cross-module shared adapters & contracts
 │   ├── __init__.py                   # Public API surface
@@ -236,9 +210,7 @@ EMSXView/
 │   │   ├── protocols.py              # Interface protocols (ConnectionManager, Config)
 │   │   └── db_constants.py           # Database constant definitions
 │   ├── config_bridge.py              # Cross-module config bridge
-│   ├── pipeline_jobs.py              # Pipeline job management
-│   ├── regime_query.py               # Market regime query interface
-│   └── database_diagnostics.py       # Database diagnostics utility
+│   └── regime_query.py               # Market regime query interface
 │
 │
 ├── docs/                             # Project documentation
@@ -300,9 +272,8 @@ EMSXView/
   - **execution/** (default, order: 0) — Order & Route management workspace with real-time WebSocket monitoring, batch operations, broker algorithm configuration, and compliance checks. Production-ready.
   - **marketview/** (order: 10) — Pre-trade market analysis shell anchor with intraday feature panels.
   - **costview/** (order: 20) — Post-trade TCA analysis UI with filtering, charts, scorecards, and export.
-  - **databaseview/** (order: 30) — Database admin and diagnostics UI.
 - **Shared Layer** (`src/shared/`) — ModuleRegistry, ShellContext, HTTP client, WebSocket client, auth token service, handoff API, and cross-module hooks.
-- **Standalone Builds** — Each module can be built as an independent SPA via `npm run build:execution`, `build:costview`, `build:marketview`, `build:databaseview`.
+- **Standalone Builds** — Each module can be built as an independent SPA via `npm run build:execution`, `build:costview`, `build:marketview`.
 
 ---
 
@@ -311,7 +282,7 @@ EMSXView/
 **Role:** Central API service for order/route management with Bloomberg EMSX integration.
 
 - **Technology:** Python 3.11, FastAPI, Pydantic v2, SQLAlchemy, blpapi 3.23
-- **Service Port:** :3000 (core, always running)
+- **Service Port:** `<API_PORT>` (core, always running; default 3000, override via `API_PORT`)
 - **Key Capabilities:**
   - Order CRUD operations with parent/child execution scheduling
   - Route management with batch operations and broker strategy configuration
@@ -321,9 +292,10 @@ EMSXView/
   - Pre-trade compliance checks (USD notional bounds, odd lots)
   - Route plan management and algorithm scheduling
   - Market-to-broker strategy mapping
-  - Optional modules: DatabaseView API, Execution History API
 - **Core Routers** (always loaded): connection, auth, orders, routes, broker, realtime, debug, route_plans, market_broker_mapping
-- **Optional Routers**: database (DatabaseView)
+- **Optional Routers**: costview (CostView bridge; registered via `_register_optional`)
+
+> DatabaseView API 与 Execution History API 已随 010-extract-pipeline 移除（数据库维护迁独立仓库 EMSXDataPipeline）。
 - **Bloomberg Service** (`services/bloomberg/`) — Split package with connection lifecycle management, order/route subscriptions with cache, market data enrichment (FX, round lot, permfail detection), and CRUD request handling.
 - **RepositoryProvider** — DB vs. in-memory fallback gated behind `ENABLE_DB_PERSISTENCE` flag.
 
@@ -334,7 +306,7 @@ EMSXView/
 **Role:** Market data analysis and pre-trade decision support microservice.
 
 - **Technology:** Python 3.11, FastAPI
-- **Service Port:** :8001 (standalone or merged)
+- **Service Port:** `<MARKETVIEW_PORT>` (standalone or merged; default 8001, override via `MARKETVIEW_PORT`)
 - **No Bloomberg dependency** — operates on previously ingested market data
 - **Key Capabilities:**
   - Market snapshot API (daily close, volatility, volume, ADV)
@@ -349,8 +321,8 @@ EMSXView/
 **Role:** Transaction cost analysis, execution quality measurement, and performance reporting.
 
 - **Technology:** Python 3.11, FastAPI
-- **Service Port:** :8002 (standalone or merged)
-- **No Bloomberg dependency** — analytical queries against pipeline data stores
+- **Service Port:** `<COSTVIEW_PORT>` (standalone or merged; default 8002, override via `COSTVIEW_PORT`)
+- **No Bloomberg dependency** — read-only analytical queries against the data stores exposed by `data_access/`
 - **Key Capabilities:**
   - TCA analysis queries (Implementation Shortfall, VWAP, TWAP benchmarks)
   - Trigger pipeline data updates on demand
@@ -362,19 +334,16 @@ EMSXView/
 
 ---
 
-### 5. DataPipeline/ — Data Platform Subsystem
+### 5. data_access/ — Read-Only Data Access Layer
 
-**Role:** Multi-stage ETL pipeline for trade data acquisition, processing, and analytics.
+**Role:** Read-side access to the analytical data stores (SQLite). EMSXView is a **pure read consumer**: the ETL write side lives in the separate EMSXDataPipeline repository.
 
-- **Technology:** Python 3.11, pandas, numpy, blpapi, xbbg
-- **Entry Point:** `python -m DataPipeline --once` or programmatic `run_full_pipeline()`
-- **Pipeline Stages:**
-  1. **Ingestion** — Fetch fills from Bloomberg EMSX with SHA-256 deduplication; also fetches BDIB intraday bars, FX rates
-  2. **Processing** — Clean fills, aggregate (10s/1min buckets), integrate fills with BDIB bars, compute daily metrics
-  3. **Analysis** — TCA cost attribution, market regime classification (liquidity/trend/volatility), broker recommendations
-- **Storage Layer** — `ConnectionManager` manages 6 SQLite databases: `raw_fills.db`, `processed_fills.db`, `fill_bdib.db`, `market_data.db`, `regime.db`, `fetch_history.db`
-- **Configuration** — All DB paths, table names, date formats, and SQLite settings centralized in `DataPipeline/config.py`
-- **Market Regime Engine** — Classifies each trade window by liquidity regime, volatility regime, and trend regime using market index data and macro event calendars.
+- **Technology:** Python 3.11, sqlite3 (`mode=ro` URI), numpy
+- **Entry Point:** `data_access.config.Config` + `data_access.ConnectionManager` (READ tier only; WRITE/admin requests are rejected)
+- **Configuration** — Data root resolves in this order: `${EMSXVIEW_DATA_DIR}` env var > default `D:\db` (`Config.DEFAULT_DATA_DIR`). All DB paths, table names and SQLite settings come from `data_access/config.py`; hardcoding them elsewhere is prohibited.
+- **Data Stores** (under `${EMSXVIEW_DATA_DIR}`) — `raw_fills.db`, `processed_fills.db`, `raw_bdib.db`, `processed_raw_bdib.db`, `fill_bdib.db`, `fill_fetch_history.db`, `bdib_fetch_history.db`, `execution_history.db`, `ticker_registry.db`
+- **Read Surface** — `ConnectionManager` (READ tier), `MarketStoreReader`, `SqliteFillReadRepository`, `SqliteRawFillReadRepository`
+- **Write Side** — Data refresh/maintenance is performed by the EMSXDataPipeline repository runner (`POST /run`, `GET /status`); this repository never writes.
 
 ---
 
@@ -420,10 +389,11 @@ EMSXView/
 ### Python Package Dependencies
 
 ```
-emsxview-datapipeline    ← blpapi, pandas, numpy, xbbg
-emsxview-platform-data   ← pydantic, python-dateutil, emsxview-datapipeline
-emsxview-costview        ← pydantic, emsxview-platform-data, emsxview-datapipeline
+emsxview-platform-data   ← pydantic, python-dateutil
+emsxview-costview        ← pydantic, emsxview-platform-data
 ```
+
+> `data_access/` 是仓库内模块（非独立 pip 包），零第三方配置依赖；原 `emsxview-datapipeline` 包已随 010-extract-pipeline 迁出至独立仓库。
 
 ---
 
@@ -439,15 +409,17 @@ scripts\start-all.bat
 scripts\check-status.bat
 ```
 
-Service URLs:
-| Service | URL |
-|---------|-----|
-| Frontend (dev) | http://localhost:5173 |
-| Core Backend | http://localhost:3000 |
-| API Docs (Swagger) | http://localhost:3000/docs |
-| MarketView | http://localhost:8001/docs |
-| CostView | http://localhost:8002/docs |
-| Health Check | http://localhost:3000/api/health |
+### Ports & Hosts
+
+Service URLs (`<host>` defaults to `localhost`):
+| Service | URL | Default | Override env var |
+|---------|-----|---------|------------------|
+| Frontend (dev) | `http://<host>:<FRONTEND_PORT>` | `http://localhost:5173` | `npx vite --port <FRONTEND_PORT>` |
+| Core Backend | `<API_BASE_URL>` | `http://localhost:3000` | `API_PORT` |
+| API Docs (Swagger) | `<API_BASE_URL>/docs` | `http://localhost:3000/docs` | `API_PORT` |
+| MarketView | `<MARKETVIEW_BASE_URL>/docs` | `http://localhost:8001/docs` | `MARKETVIEW_PORT` |
+| CostView | `<COSTVIEW_BASE_URL>/docs` | `http://localhost:8002/docs` | `COSTVIEW_PORT` |
+| Health Check | `<API_BASE_URL>/api/health` | `http://localhost:3000/api/health` | `API_PORT` |
 
 ### Prerequisites
 
@@ -459,9 +431,9 @@ Service URLs:
 ### Frontend Development
 
 ```bash
-cd frontend
+cd <repo-root>/frontend
 npm install
-npm run dev                     # Dev server on http://localhost:5173
+npm run dev                     # Dev server on http://<host>:<FRONTEND_PORT> (default 5173)
                                 # Mock mode if VITE_API_URL is empty
 
 npm run build                   # Production build → dist/
@@ -472,25 +444,25 @@ npm run test:watch              # vitest watch mode
 # Standalone module builds
 npm run build:execution         # Build execution module SPA → dist/execution/
 npm run build:costview          # Build costview module SPA → dist/costview/
-npm run build:all-modules       # Build all four modules at once
+npm run build:all-modules       # Build all module SPAs at once
 ```
 
 Environment variables (`frontend/.env`):
-- `VITE_API_URL=` — Backend URL (empty = mock/no backend)
+- `VITE_API_URL=` — Backend URL (empty = mock/no backend), e.g. `http://<host>:<API_PORT>`
 - `VITE_USE_MOCK=true` — Enable mock Bloomberg data
 
 ### Backend Development (Core)
 
 ```bash
-cd backend/api
+cd <repo-root>/backend/api
 pip install -r requirements.txt          # Includes -e ../../platform_data
 
 # Single-process mode (all modules, recommended for dev)
 set EMSXVIEW_MERGE_MODULES=true
-python main.py                           # Starts on :3000
+python main.py                           # Starts on <API_PORT> (default 3000)
 
 # Or use uvicorn directly
-uvicorn main:app --port 3000 --reload
+uvicorn main:app --port <API_PORT> --reload
 
 # Run tests
 pytest
@@ -507,26 +479,32 @@ Environment variables (`backend/.env`):
 ### Microservice Backends
 
 ```bash
-# MarketView standalone (:8001, no Bloomberg)
-cd MarketView
+# MarketView standalone (<MARKETVIEW_PORT>, no Bloomberg)
+cd <repo-root>/MarketView
 pip install -r requirements.txt
 python main.py
 
-# CostView standalone (:8002, no Bloomberg)
+# CostView standalone (<COSTVIEW_PORT>, no Bloomberg)
+cd <repo-root>
 pip install -e CostView
 cd CostView/api
 pip install -r requirements.txt
 python main.py
 ```
 
-### Data Pipeline
+### Data Access (read-only)
+
+EMSXView consumes the analytical SQLite stores through `data_access/`; it never writes.
 
 ```bash
-pip install -e DataPipeline
-pip install -e CostView
+# 数据根解析优先级：${EMSXVIEW_DATA_DIR} > data_access.config.Config.DEFAULT_DATA_DIR
+# Windows
+set EMSXVIEW_DATA_DIR=<data-dir>        # 例：D:\db
+# Linux / macOS
+export EMSXVIEW_DATA_DIR=<data-dir>
 
-# Run full pipeline once
-python -m DataPipeline --once
+# 只读连接自检（READ tier；任何写请求会被拒绝）
+python -c "from data_access import ConnectionManager, Config; print(Config.DATA_DIR)"
 
 # Run CostView TCA for a specific date
 python -m CostView.src --date 2024-01-15
@@ -534,14 +512,16 @@ python -m CostView.src --date 2024-01-15
 # Initial config setup
 python -m CostView.src --setup-config
 
-# Run pipeline tests
+# Run CostView tests
 python -m pytest CostView/tests/
 ```
+
+> 数据更新维护（ETL 写入方）已迁独立仓库 EMSXDataPipeline，通过其 Runner（`POST /run`、`GET /status`）触发；本仓库无 `python -m DataPipeline` 入口。
 
 ### Docker (Production)
 
 ```bash
-cd backend
+cd <repo-root>/backend
 
 # Full stack: backend + postgres + frontend (Nginx) + redis
 docker compose up -d
@@ -553,17 +533,17 @@ docker compose -f docker-compose.host.yml up -d
 docker compose --profile monitoring up -d
 ```
 
-Docker Compose services:
-| Service | Port | Purpose |
-|---------|------|---------|
-| backend | :3000 | FastAPI core |
-| postgres | :5432 | Operational DB |
-| frontend (Nginx) | :80 | SPA + reverse proxy |
-| redis | :6379 | Cache + pub/sub |
-| prometheus (opt) | :9090 | Metrics collection |
-| grafana (opt) | :3001 | Dashboards |
+Docker Compose services (compose 内端口可通过 `.env` 覆盖宿主映射；容器内端口由对应服务配置决定):
+| Service | Container port | Host mapping | Purpose | Override env var |
+|---------|----------------|--------------|---------|------------------|
+| backend | `<API_PORT>` (3000) | 未默认映射（经 Nginx 反代） | FastAPI core | `API_PORT` |
+| postgres | 5432 | `${POSTGRES_PORT:-5432}:5432` | Operational DB | `POSTGRES_PORT` |
+| frontend (Nginx) | 80 | `${FRONTEND_PORT:-80}:80` | SPA + reverse proxy | `FRONTEND_PORT` |
+| redis | 6379 | 未映射宿主端口（仅 compose 网络内） | Cache + pub/sub | — |
+| prometheus (opt) | 9090 | `${PROMETHEUS_PORT:-9090}:9090` | Metrics collection | `PROMETHEUS_PORT` |
+| grafana (opt) | 3000 | `${GRAFANA_PORT:-3001}:3000` | Dashboards | `GRAFANA_PORT` |
 
-Nginx routes: `/api/*` → backend :3000, `/ws/*` → backend :3000, `/*` → frontend static files.
+Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>`, `/*` → frontend static files.
 
 ---
 
@@ -590,8 +570,7 @@ All frontend modules self-register via `moduleRegistry.register()` in `module.re
 ModuleRegistry (singleton)
 ├── execution   (order: 0, default, WS: /ws/orders, handoffBadge)
 ├── marketview  (order: 10)
-├── costview    (order: 20)
-└── database    (order: 30)
+└── costview    (order: 20)
 ```
 
 ---
@@ -616,4 +595,4 @@ ModuleRegistry (singleton)
 
 ---
 
-*Last updated: May 29, 2026*
+*Last updated: September 7, 2026*

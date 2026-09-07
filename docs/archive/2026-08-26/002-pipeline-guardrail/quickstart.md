@@ -3,6 +3,8 @@
 **Feature**: 002-pipeline-guardrail
 **Date**: 2026-06-16
 
+> **归档说明（010-extract-pipeline 后）**：本指南针对的历史仓库布局已变更——`DataPipeline/`（含其 `tests/`）已迁独立仓库 EMSXDataPipeline，本仓库只保留只读访问层 `data_access/`。文中 `DataPipeline/...` 路径请到独立仓库执行；`<repo-root>` 指仓库根（由 `.emsxview-root` marker 定位）。
+
 本文档提供管道护栏机制的可运行验证场景，覆盖核心数据流转路径。
 
 ---
@@ -20,11 +22,11 @@
 ```powershell
 # Windows 开发环境
 $env:EMSXVIEW_MERGE_MODULES = "true"
-$env:EMSXVIEW_DATA_DIR = "C:\path\to\EMSXView\CostView\data"
+$env:EMSXVIEW_DATA_DIR = "<data-dir>"
 
 # Linux / macOS
 export EMSXVIEW_MERGE_MODULES=true
-export EMSXVIEW_DATA_DIR=/path/to/EMSXView/CostView/data
+export EMSXVIEW_DATA_DIR=<data-dir>
 ```
 
 ### 测试数据准备

@@ -36,12 +36,14 @@
 
 ### 开发环境
 
+> 占位符约定见 [index.md §7](index.md#7-占位符与可配置参数约定)：`<host>` 默认 `localhost`，`<API_PORT>` 默认 3000（`API_PORT`），`<FRONTEND_PORT>` 默认 5173。
+
 | 配置项 | 前端口址 | 后端地址 |
 |--------|----------|----------|
-| Dev Server | `http://localhost:5173` | `http://localhost:3000` |
-| WebSocket | `ws://localhost:5173/ws/orders` (Vite proxy) | `ws://localhost:3000/ws/orders` |
+| Dev Server | `http://<host>:<FRONTEND_PORT>` | `<API_BASE_URL>` |
+| WebSocket | `ws://<host>:<FRONTEND_PORT>/ws/orders` (Vite proxy) | `ws://<host>:<API_PORT>/ws/orders` |
 
-- Vite 开发服务器将 `/api/*` 和 `/ws/*` 代理到后端 `http://localhost:3000`
+- Vite 开发服务器将 `/api/*` 和 `/ws/*` 代理到后端 `<API_BASE_URL>`
 - 前端通过 `VITE_API_URL` 环境变量控制 API 基础路径
 
 ### 生产环境 (Docker + Nginx)
@@ -280,7 +282,7 @@ export function getAuthHeaders(): HeadersInit {
 ### 连接
 
 ```
-ws://localhost:3000/ws/orders
+ws://<host>:<API_PORT>/ws/orders        # 默认 ws://localhost:3000/ws/orders
 ```
 
 ### 协议
@@ -313,7 +315,8 @@ ws://localhost:3000/ws/orders
 // frontend/src/shared/services/realtime.ts
 import { createRealtimeClient } from '@shared/services/realtime';
 
-const client = createRealtimeClient({ url: 'ws://localhost:3000/ws/orders' });
+// url 由 VITE_API_URL 派生（如 http://localhost:3000 → ws://localhost:3000/ws/orders），端口经 API_PORT 配置
+const client = createRealtimeClient({ url: `${import.meta.env.VITE_API_URL.replace(/^http/, 'ws')}/ws/orders` });
 
 client.on('order', (event) => { /* 处理订单更新 */ });
 client.on('route', (event) => { /* 处理路由更新 */ });
@@ -447,7 +450,7 @@ EMSXView/
 │   │   │   ├── services/           # 共享服务（realtime, token-service）
 │   │   │   └── types/              # ApiResponse 等共享类型
 │   │   └── modules/               # 业务模块（各自调用 /api/* 端点）
-│   ├── vite.config.ts             # /api/*, /ws/* → localhost:3000 代理
+│   ├── vite.config.ts             # /api/*, /ws/* → <API_PORT>(默认3000) 代理
 │   └── package.json
 │
 ├── backend/                        # 独立后端项目

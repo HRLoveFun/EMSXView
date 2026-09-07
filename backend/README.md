@@ -2,6 +2,8 @@
 
 开箱即用的彭博EMSX交易API后端服务，用于生产环境部署。
 
+> **占位符约定**：`<host>` 默认 `localhost`；`<API_PORT>` 默认 3000（环境变量 `API_HOST` / `API_PORT`，见 `backend/api/config.py`）。占位符完整清单见 [`docs/index.md` §7](../docs/index.md#7-占位符与可配置参数约定)。
+
 ## 📋 系统要求
 
 ### 必需组件
@@ -81,7 +83,7 @@ cp -r /path/to/frontend/dist/* frontend/dist/
 ./scripts/deploy.sh logs
 
 # 测试API
-curl http://localhost:3000/api/health
+curl <API_BASE_URL>/api/health
 ```
 
 ## 📁 项目结构
@@ -177,12 +179,12 @@ docker-compose exec backend sh
 
 ```bash
 # 获取 Token (示例)
-curl -X POST http://localhost:3000/api/auth/login \
+curl -X POST <API_BASE_URL>/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"trader1","password":"password"}'
 
 # 使用 Token
-curl http://localhost:3000/api/orders \
+curl <API_BASE_URL>/api/orders \
   -H "Authorization: Bearer <your-token>"
 ```
 
@@ -194,17 +196,17 @@ curl http://localhost:3000/api/orders \
 docker-compose --profile monitoring up -d
 ```
 
-访问地址：
-- **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3001 (admin/admin)
+访问地址（宿主端口由 `backend/.env` 覆盖，见 `PROMETHEUS_PORT` / `GRAFANA_PORT`）：
+- **Prometheus**: `http://<host>:<PROMETHEUS_PORT>`（默认 9090）
+- **Grafana**: `http://<host>:<GRAFANA_PORT>`（默认 3001，admin/admin）
 
 ## 🐛 故障排除
 
 ### Bloomberg 连接失败
 
 ```bash
-# 测试 Bloomberg 端口连通性
-telnet localhost 8194
+# 测试 Bloomberg 端口连通性（默认 <host>=localhost、<port>=8194，由 BLOOMBERG_HOST / BLOOMBERG_PORT 配置）
+telnet <BLOOMBERG_HOST> <BLOOMBERG_PORT>
 
 # 检查 Bloomberg 终端状态
 # 确保终端已登录且 API 已启用

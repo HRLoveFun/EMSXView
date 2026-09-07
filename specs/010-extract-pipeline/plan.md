@@ -1,8 +1,10 @@
-# 010-extract-pipeline — 数据库迁移 D:\db + 更新维护拆独立 git 仓库
+# 010-extract-pipeline — 数据库迁移外置数据根 + 更新维护拆独立 git 仓库
 
 > 状态：P0 实施中。009-external-data-store 已合入 main（`437601d`，含主树工作区改动落盘 `f5e8d1c`：AGENTS 精简 + fill_fetch 归档目录对齐）。
 > 用户补充指示：独立仓库远端稍后接入（先本地 `git init`）；独立项目前端 UI 基于当前项目 databaseview 模块重构（见 D13）。
 > 用户拍板的关键决策见 §2（D1/D2/D3/D4/D5/D13）。
+>
+> **占位符约定**：`<repo-root>` = 本仓库根；`<pipeline-repo>` = 独立仓库 EMSXDataPipeline 的本地检出路径（各机器不同，不写具体磁盘路径）；`D:\db` 为 `${EMSXVIEW_DATA_DIR}` 未设置时的默认数据根（`data_access/config.py` 的 `Config.DEFAULT_DATA_DIR`，可随时用环境变量覆盖）。详见 [`docs/index.md` §7](../../docs/index.md#7-占位符与可配置参数约定)。
 
 ## 1. 背景与目标
 
@@ -25,7 +27,7 @@
 
 | # | 决策 | 理由 / 备注 |
 |---|------|------|
-| D1 | **独立 git 仓库**承载管道与维护（用户拍板）。建议本地路径 `C:\Users\hrchen\Documents\EMSXDataPipeline`，远端待用户在 GitHub 创建后接入 | 隔离最彻底、独立 CI/发布 |
+| D1 | **独立 git 仓库**承载管道与维护（用户拍板）。本地检出路径记作 `<pipeline-repo>`（兄弟目录，如 `<repo-root>` 的同级目录），远端待用户在 GitHub 创建后接入 | 隔离最彻底、独立 CI/发布 |
 | D2 | 数据根默认 **`D:\db`**（管道独立仓库 `Config.DATA_DIR` 与当前项目只读层共享此常量来源）；`EMSXVIEW_DATA_DIR` 仍可覆盖（测试/临时用） | 显式、跨盘、固定；G2 防漂移 |
 | D3 | **当前项目自建轻量只读访问层**（用户授权我判断）：从现有只读路径裁剪「sqlite3 `mode=ro` 连接 + `D:\db` 路径 + 库名/表名/关键查询常量」为当前仓库小模块（建议 `data_access/`）；配**契约测试**锁与管道侧 schema/路径一致 | 零第三方依赖、见效快；双份常量的漂移风险用契约测试兜底；若未来常变再升级为共享包（计划中预留） |
 | D4 | **常驻 Runner 服务**承载管道运行（用户拍板）：独立项目内自含 HTTP 服务（FastAPI/uvicorn 或等价），提供 `POST /run`、`GET /status`（对齐现有 trigger/update-status 语义与幂等、并发保护、进度）；可由前端/外部调用并轮询 | 替代现有 subprocess 触发体验，读缺数据→提示并跳转 runner |
@@ -71,18 +73,18 @@
 ## 4. 目标架构
 
 ```
-C:\Users\hrchen\Documents\EMSXDataPipeline\      ← 独立 git 仓库（D1）
+<pipeline-repo>\                                  ← 独立 git 仓库（D1）
   DataPipeline/  (pip: emsxview-datapipeline, console scripts D7)
   runner/        HTTP Runner：POST /run, GET /status（D4）
   scripts/       daily_update 兼容壳/回填/ops 迁移（随迁）
   pyproject.toml / venv / README / tests
-  数据默认 D:\db（D2）
+  数据默认 ${EMSXVIEW_DATA_DIR}（D2）
         ▲ mode=ro 只读 + HTTP /run /status
-C:\Users\hrchen\Documents\EMSXView\             ← 当前仓库（纯读取）
+<repo-root>\                                      ← 当前仓库（纯读取）
   CostView/src|api（读）  backend/api（读+自身 PG）
   platform_data 读适配器   frontend（只读展示）
-  data_access/  轻量只读层（sqlite mode=ro + D:\db 路径/常量）D3
-D:\db\  9 个 sqlite + market/parquet + *.json      （数据资产 3.3）
+  data_access/  轻量只读层（sqlite mode=ro + 数据根/常量）D3
+${EMSXVIEW_DATA_DIR}\  9 个 sqlite + market/parquet + *.json   （数据资产 3.3）
 ```
 
 ## 5. 实施阶段
