@@ -38,8 +38,7 @@ MODULE_SCAN_ROOTS: dict[str, list[tuple[Path, str]]] = {
                            (REPO_ROOT / "frontend" / "src" / "modules" / "costview", "*.ts")],
     "frontend_marketview": [(REPO_ROOT / "frontend" / "src" / "modules" / "marketview", "*.tsx"),
                              (REPO_ROOT / "frontend" / "src" / "modules" / "marketview", "*.ts")],
-    "frontend_databaseview": [(REPO_ROOT / "frontend" / "src" / "modules" / "databaseview", "*.tsx"),
-                               (REPO_ROOT / "frontend" / "src" / "modules" / "databaseview", "*.ts")],
+    # 010-extract-pipeline: frontend_databaseview 扫描根已移除（模块迁独立项目）
     "backend_api": [(REPO_ROOT / "backend" / "api", "*.py")],
     "costview_src": [(REPO_ROOT / "CostView" / "src", "*.py")],
     "datapipeline": [(REPO_ROOT / "DataPipeline", "*.py")],
@@ -55,7 +54,6 @@ EXEMPTIONS: dict[str, set[str]] = {
     "frontend_execution": set(),
     "frontend_costview": set(),
     "frontend_marketview": set(),
-    "frontend_databaseview": set(),
 }
 
 

@@ -68,10 +68,8 @@ class MarketToExecutionHandoffPayload(BaseModel):
     execution_hint: dict = Field(default_factory=dict)
 
 
-class MarketToExecutionHandoffEnvelope(BaseModel):
-    success: bool
-    data: Optional[MarketToExecutionHandoffPayload] = None
-    message: str = ""
+# 010-AP-05 整改：原 MarketToExecutionHandoffEnvelope 已删除，
+# 端点统一返回 schemas.common.ApiResponse（data 承载 MarketToExecutionHandoffPayload）。
 
 
 class MarketToExecutionPublishRequest(BaseModel):
@@ -131,7 +129,5 @@ class PostTradeHandoffPayload(BaseModel):
     candidate_trace_id: Optional[str] = None
 
 
-class PostTradeHandoffResponse(BaseModel):
-    success: bool
-    data: Optional[PostTradeHandoffPayload] = None
-    message: str = ""
+# 010-AP-05 整改：原 PostTradeHandoffResponse 已删除，
+# 端点统一返回 schemas.common.ApiResponse（data 承载 PostTradeHandoffPayload）。

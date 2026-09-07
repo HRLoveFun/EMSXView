@@ -3,7 +3,7 @@
 > AI agent 改 import 前必读
 > 配套检测：`tests/boundaries/test_cross_module_imports.py`
 > 配套规范：[ADR-0002](../docs/spec/adr/0002-platform-data-adapter-pattern.md)、[ADR-0003](../docs/spec/adr/0003-executionview-owns-operational-state.md)、[ADR-0005](../docs/spec/adr/0005-data-pipeline-extraction.md)
-> Last updated: 2026-06-03
+> Last updated: 2026-09-07
 
 ---
 
@@ -47,18 +47,18 @@ rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/
 
 ---
 
-### 1.2 costview ↔ marketview / databaseview
+### 1.2 costview ↔ marketview
 
 **CAN**:
 - 同上，通过 `navigateTo` / `useHandoffContracts` 交互
 - 共享 `@shared/types` 类型
 
 **CANNOT**:
-- 任何 `import @marketview/*` / `import @databaseview/*`
+- 任何 `import @marketview/*`
 
 **DETECT**:
 ```bash
-rg "from ['\"]@(marketview|databaseview)" frontend/src/modules/costview/
+rg "from ['\"]@marketview" frontend/src/modules/costview/
 ```
 
 **TEST**: `tests/boundaries/test_cross_module_imports.py::test_cross_module_no_direct_imports`
@@ -83,35 +83,14 @@ rg "from ['\"]@marketview" frontend/src/modules/execution/
 
 ---
 
-### 1.4 execution ↔ database (id='database', 目录名 databaseview)
+### 1.4 execution ↔ database / 1.5 costview ↔ database（已迁出）
 
-**CAN**:
-- 通过 `navigateTo('database')` 触发导航
-
-**CANNOT**:
-- 直接 `import @databaseview/*`
-- 在 execution 模块中调用 DatabaseView 的内部方法
-
-**DETECT**:
-```bash
-rg "from ['\"]@databaseview" frontend/src/modules/execution/
-```
-
----
-
-### 1.5 costview ↔ database
-
-**CAN**:
-- 通过 `navigateTo('database')` 触发导航
-- 通过 `platform_data.database.*` 读取 CostView SQLite 库诊断（database 视图暴露后端只读 API）
-
-**CANNOT**:
-- 直接 `import @databaseview/*`
-
-**DETECT**:
-```bash
-rg "from ['\"]@databaseview" frontend/src/modules/costview/
-```
+> **010-extract-pipeline**：DatabaseView（module id `database`，目录 `frontend/src/modules/databaseview/`）已迁独立项目
+> EMSXDataPipeline Runner，本仓库已无该前端模块与 `@databaseview` 路径别名，相关边界条款随之移除。
+> 数据库维护走 Runner（`POST /run`、`GET /status`），前端经 core :3000 代理访问（见 §3.1）。
+> 若模块回迁：按 [module-onboarding.md](../docs/spec/module-onboarding.md) 重新注册边界契约
+> （`platform_data/contracts/boundary_registry.py`）；既有各前端模块的 `forbidden_imports`
+> 中保留的 `"@databaseview"` 作为防回迁护栏，届时一并评估。
 
 ---
 
@@ -130,9 +109,9 @@ rg "from ['\"]@databaseview" frontend/src/modules/costview/
 ### 2.1 backend/api (Core :3000) ↔ CostView/src (Analytics :8002)
 
 **CAN**:
-- 通过 `platform_data.analytics.*` 读取 TCA 报告
-- 通过 `platform_data.execution_history.*` 读取成交历史
-- 通过 `platform_data.database.*` 读取 regime 分布
+- 通过 `platform_data.adapters.get_tca_query_service()` 读取 TCA 报告
+- 经 CostView 桥接端点 `/api/costview/regime-distribution` 读取 regime 分布
+  （backend/api/routers/costview.py → `platform_data.regime_query`）
 
 **CANNOT**:
 - 直接 `from CostView.src.* import ...`（任何子模块）
@@ -218,16 +197,17 @@ rg "platform_data\..*\._" backend/ frontend/src/
 - 前端通过 `/api/*` REST + `/ws/*` WebSocket
 - 通过 Vite 代理（同源开发，`/api` → `http://localhost:3000`）
 - 通过 `import.meta.env.VITE_API_URL` 配置后端地址
+- 数据更新触发/状态查询走 core :3000 鉴权代理 `/api/tca/runner/*`（Runner 由后端转发，P2-4 整改）
 
 **CANNOT**:
 - 前端代码 `import` `backend/api/*` Python 模块
 - 后端代码 `import` `frontend/src/*` TypeScript 模块
-- 前端直接连接 `:8001` / `:8002`（必须走 Nginx 或 Vite 代理）
+- 前端直接连接 `:8001` / `:8002` / Runner `:8100`（必须走 Nginx、Vite 代理或 :3000 代理端点）
 - 前端 `fetch('http://localhost:8001/...')`（绕过 Vite 代理）
 
 **DETECT**:
 ```bash
-rg "fetch\(['\"]http://localhost:(8001|8002)" frontend/src/
+rg "fetch\(['\"]http://(localhost|127\.0\.0\.1):(8001|8002|8100)" frontend/src/
 rg "from ['\"].*backend/api" frontend/src/
 ```
 
@@ -337,7 +317,7 @@ rg "new WebSocket\(" frontend/src/modules/
 
 **DETECT**:
 ```bash
-rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/ frontend/src/modules/marketview/ frontend/src/modules/databaseview/
+rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/ frontend/src/modules/marketview/
 ```
 
 **RATIONALE**: 跨模块 store 访问会破坏模块独立性。

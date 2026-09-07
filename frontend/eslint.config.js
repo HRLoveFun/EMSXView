@@ -21,6 +21,8 @@ export default defineConfig([
     },
     rules: {
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // 允许以 _ 前缀显式标记"有意不使用"的参数（如占位参数）
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
   {
