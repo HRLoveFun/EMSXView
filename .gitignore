@@ -103,6 +103,10 @@ CostView/data.migrated.*/
 # module-boundary.md 是模块契约唯一真相源，CI 边界审计
 # (scripts/audit_doc_drift.py) 依赖它 —— 必须纳入版本控制
 !.codebuddy/rules/module-boundary.md
+# code-review skill 随仓库分发，团队成员克隆后即可使用
+!.codebuddy/skills/
+.codebuddy/skills/*
+!.codebuddy/skills/code-review/
 
 # --- Notebooks (with outputs) ---
 *.ipynb
