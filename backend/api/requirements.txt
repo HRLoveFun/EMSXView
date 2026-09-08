@@ -15,7 +15,12 @@ uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 
 # Bloomberg API
-blpapi==3.23.0
+# 注意：blpapi 不在公共 PyPI，直接安装会报 "No matching distribution found"，
+# 必须附加 Bloomberg 私有源：
+#   pip install -r requirements.txt --extra-index-url=https://blpapi.bloomberg.com/repository/releases/python/simple/
+# 版本需与 Bloomberg Terminal 的 C++ 运行时匹配；wheel 自带 blpapi3_64.dll，
+# 升级 pip 包即同步升级 C++ 运行时，无需单独安装 C++ SDK。
+blpapi==3.26.7.1
 
 # Authentication & Security
 # P2-6 整改：python-jose 已停止维护且存在已知 CVE（CVE-2024-33663/33664），迁移到 PyJWT
