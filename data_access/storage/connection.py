@@ -32,7 +32,6 @@ import os
 import re
 import shutil
 import sqlite3
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -283,14 +282,12 @@ class ConnectionManager:
                 if key in self._registry:
                     self._registry[key] = Path(path)
 
-        # Thread-local connection cache (Iteration 6.3 optimization).
-        # For read-only / short-query workloads (e.g. regime tagger,
-        # pipeline guards), the first get_connection(READ) call per
-        # thread creates a connection and caches it; subsequent calls
-        # within the same thread reuse it. This avoids the ~50µs per
-        # call overhead of creating new sqlite3.Connection objects.
-        # The cache is cleared on close() or when the thread dies.
-        self._thread_local = threading.local()
+        # P2-8 整改：移除 Iteration 6.3 引入的线程本地连接缓存。
+        # 原因：(1) 全部调用方遵循 get→try→finally close 约定，缓存中的
+        # 连接被 close 后靠 liveness 探测重建，缓存对热路径形同虚设；
+        # (2) 缓存使 get_connection 返回值别名共享（如 repository 返回
+        # 连接所有权时），一处 close() 会波及其他持有者。现契约：
+        # 每次 get_connection 返回全新连接，生命周期完全归调用方。
 
     def _resolve_regime_db_path(self) -> Path:
         """Resolve regime.db path.
@@ -354,46 +351,21 @@ class ConnectionManager:
                 "independent EMSXDataPipeline repository."
             )
 
-        # READ connections: reuse thread-local cache if available.
+        # READ 连接：每次创建全新连接（P2-8：不再线程本地缓存）
         if effective_tier == AccessTier.READ:
-            cache_key = (database, row_factory)
-            cache = getattr(self._thread_local, 'read_conns', None)
-            if cache is not None and cache_key in cache:
-                cached = cache[cache_key]
-                try:
-                    cached.raw_connection.execute("SELECT 1")
-                    return cached
-                except Exception:
-                    # Connection stale — discard and create new.
-                    cache.pop(cache_key, None)
-
-            conn = self._create_connection(db_path, effective_tier, row_factory=row_factory)
-            if cache is None:
-                self._thread_local.read_conns = {cache_key: conn}
-            else:
-                cache[cache_key] = conn
-            return conn
+            return self._create_connection(db_path, effective_tier, row_factory=row_factory)
 
         raise PermissionError(  # pragma: no cover - defensive
             "unreachable: non-READ tiers rejected above"
         )
 
     def close_thread_cached_connections(self) -> None:
-        """Close all cached READ connections for the current thread.
+        """Deprecated no-op（P2-8：线程缓存已移除，保留以兼容旧调用点）。
 
-        After calling this, the next get_connection(READ) call in this
-        thread will create fresh connections.  Useful when databases
-        have been rebuilt or migrated and cached read handles are stale.
+        历史上用于在数据库重建/迁移后丢弃线程缓存的 READ 连接；
+        现在 get_connection 每次返回全新连接，此方法无需任何操作。
         """
-        cache = getattr(self._thread_local, 'read_conns', None)
-        if cache is None:
-            return
-        for key, conn in list(cache.items()):
-            try:
-                conn.close()
-            except Exception:
-                pass
-        self._thread_local.read_conns = {}
+        return None
 
     def get_admin_connection(self, database: str) -> sqlite3.Connection:
         """Create a raw admin connection for schema init/migration.

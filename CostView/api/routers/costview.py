@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -89,6 +90,12 @@ class TcaAnalyzeRequest(BaseModel):
     )
     limit: int = Field(default=50, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
+    # P2-3 余项：表格场景可不拉取每订单全日时序（响应体积显著下降）；
+    # 默认 True 保持向后兼容（前端图表依赖 time_series）
+    include_time_series: bool = Field(
+        default=True,
+        description="是否附带你订单的全日时序数据（图表场景开启，表格场景可关闭）",
+    )
 
 
 class TcaAnalyzeResponse(BaseModel):
@@ -199,7 +206,9 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     )
 
     try:
-        report = _analytics.build_tca_report(filters)
+        report = _analytics.build_tca_report(
+            filters, include_time_series=request.include_time_series,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
@@ -229,6 +238,10 @@ async def analyze_tca_orders(request: TcaAnalyzeRequest):
     aggregation strategy (SUM for currency costs, turnover-weighted for
     bps, first-route for price benchmarks, etc.). Gated by
     TCA_ORDER_AGG_ENABLED — when disabled returns empty orders.
+
+    P1-1 整改：聚合在全部匹配 route 上完成后，limit/offset 才作用于
+    聚合后的订单切片；total_orders 为真实聚合订单总数（此前分页发生在
+    route 层，跨页订单会产生半截聚合指标）。
     """
     f = request.filters
     filters = TcaFilters(
@@ -254,17 +267,21 @@ async def analyze_tca_orders(request: TcaAnalyzeRequest):
         logger.error(f"TCA order aggregation failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"TCA order aggregation error: {exc}")
 
+    # 分页作用于聚合结果（切片），total_orders 为真实聚合订单总数
+    total_orders = len(aggregates)
+    page = aggregates[request.offset:request.offset + request.limit]
+
     return TcaAnalyzeResponse(
         success=True,
         data={
             "filters": _filters_to_dict(filters),
-            "total_orders": len(aggregates),
+            "total_orders": total_orders,
             "offset": request.offset,
             "limit": request.limit,
             "generated_at": datetime.now().isoformat(),
-            "orders": [_serialize_order_aggregate(a) for a in aggregates],
+            "orders": [_serialize_order_aggregate(a) for a in page],
         },
-        message=f"TCA order report: {len(aggregates)} orders matched",
+        message=f"TCA order report: {len(page)} of {total_orders} orders matched",
     )
 
 
@@ -463,7 +480,9 @@ async def regime_distribution(
     """
     if regime_dim not in {"vol_regime", "liq_regime", "trend_regime"}:
         raise HTTPException(status_code=400, detail=f"unsupported regime_dim: {regime_dim}")
-    if not (len(start_date) == 10 and len(end_date) == 10):
+    # P3-5：长度校验升级为格式校验（此前任意 10 字符串可通过）
+    iso_date_pattern = r"^\d{4}-\d{2}-\d{2}$"
+    if not (re.match(iso_date_pattern, start_date) and re.match(iso_date_pattern, end_date)):
         raise HTTPException(status_code=400, detail="dates must be ISO YYYY-MM-DD")
 
     try:

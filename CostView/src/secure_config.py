@@ -9,6 +9,7 @@ import os
 import json
 import logging
 import getpass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass
@@ -109,7 +110,7 @@ class SecureConfigManager:
             if mode != 0o600:
                 logger.warning(
                     f"Credentials file has permissions {oct(mode)}, expected 0o600. "
-                    "Run: chmod 600 {self._credentials_file}"
+                    f"Run: chmod 600 {self._credentials_file}"
                 )
             
             with open(self._credentials_file, 'r', encoding='utf-8') as f:
@@ -231,7 +232,7 @@ class SecureConfigManager:
         data = {
             "uuid": uuid,
             "name": name or "default",
-            "saved_at": str(Path().home())  # Don't use datetime, avoid extra imports
+            "saved_at": datetime.now().isoformat()  # P3-1：此前误存 home 目录路径
         }
         
         with open(self._credentials_file, 'w', encoding='utf-8') as f:

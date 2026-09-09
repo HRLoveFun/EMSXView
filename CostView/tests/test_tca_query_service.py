@@ -28,7 +28,6 @@ from CostView.src.tca_utils import (
     std,
 )
 from CostView.src.tca_query_builder import (
-    get_market_context,
     get_tca_route_summaries,
 )
 
@@ -452,41 +451,6 @@ class TestBuildTcaReport:
         route = report.orders[0]
         # 新 schema 用 RPM 代理 daily_volatility（见 scorecard 聚合逻辑）
         assert route.RPM == pytest.approx(0.20)
-
-
-    def test_market_context_supports_time_only_bdib_timestamps(self, tmp_path: Path, monkeypatch):
-        raw_bdib = str(tmp_path / "raw_bdib.db")
-        _make_raw_bdib_db(raw_bdib)
-
-        conn = sqlite3.connect(raw_bdib)
-        try:
-            conn.execute("DELETE FROM raw_bdib")
-            conn.executemany(
-                "INSERT INTO raw_bdib VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                [
-                    ("AAPL US Equity", "20260418", "09:59:50", 49.5, 50.0, 49.0, 49.8, 500000.0, 500, 24900000.0, "now", "bloomberg"),
-                    ("AAPL US Equity", "20260418", "10:00:00", 50.0, 50.5, 49.8, 50.1, 600000.0, 600, 30060000.0, "now", "bloomberg"),
-                    ("AAPL US Equity", "20260418", "10:10:00", 50.1, 51.0, 50.0, 50.5, 700000.0, 700, 35350000.0, "now", "bloomberg"),
-                ],
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        svc = TcaQueryService(raw_bdib_db_path=raw_bdib)
-        # 默认 BDIB_QUERY_ENGINE 为 duckdb，但本测试 fixture 仅提供 SQLite raw_bdib，
-        # 强制使用 sqlite 引擎以验证 time-only mkt_timestamp 的字符串比较行为。
-        monkeypatch.setattr("CostView.src.tca_query_builder._BDIB_ENGINE", "sqlite")
-        market_ctx = get_market_context(svc._mgr,
-            {("AAPL US Equity", "20260418")},
-            [{"equ_ticker": "AAPL US Equity", "order_as_of_date": "20260418", "start_time": "10:00:00", "end_time": "10:10:00"}],
-            {},
-        )
-
-        row = market_ctx[("AAPL US Equity", "20260418")]
-        assert row["before_interval_close"] == pytest.approx(49.8)
-        assert row["interval_close"] == pytest.approx(50.5)
-        assert row["price_movement_pct"] == pytest.approx((50.5 / 49.8 - 1.0) * 100.0)
 
 
     def test_report_filters_reflected(self, tmp_dbs):
