@@ -18,6 +18,8 @@ from scripts.quality_gate.ast_utils import (
     make_fingerprint,
     nesting_depth,
     param_count,
+    parse_module,
+    read_text_safe,
 )
 from scripts.quality_gate.context import ScanContext
 from scripts.quality_gate.detectors import complexity, dead_modules, duplication
@@ -38,6 +40,13 @@ class TestAstUtils:
         """无分支函数 CC=1。"""
         func = self._func("def f():\n    return 1\n")
         assert cyclomatic_complexity(func) == 1
+
+    def test_read_text_safe_strips_utf8_bom(self, tmp_path):
+        """带 UTF-8 BOM 的源文件必须可解析（BOM 不得破坏 import 图）。"""
+        src = tmp_path / "bom_module.py"
+        src.write_bytes(b"\xef\xbb\xbf" + b"import os\n\nVALUE = 1\n")
+        assert (read_text_safe(src) or "").startswith("import os")
+        assert parse_module(src) is not None
 
     def test_cyclomatic_complexity_branches(self):
         """if/for/while/and 各 +1。"""
