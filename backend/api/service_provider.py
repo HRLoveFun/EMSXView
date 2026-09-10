@@ -177,7 +177,6 @@ class RepositoryProvider:
             return []
         try:
             async with get_db_session() as session:
-                repo = OrderProjectionRepository(session)
                 # Fetch all statuses — caller decides how to merge
                 from sqlalchemy import select
                 from models.execution_state import OrderProjection
@@ -198,7 +197,6 @@ class RepositoryProvider:
             return []
         try:
             async with get_db_session() as session:
-                repo = RouteProjectionRepository(session)
                 from sqlalchemy import select
                 from models.execution_state import RouteProjection
                 stmt = (

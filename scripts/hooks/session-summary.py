@@ -27,11 +27,11 @@ def append_session_boundary():
 
 
 def main():
-    # Read stdin (may contain session context)
+    # 消费 stdin（Stop hook 协议要求读取；内容当前未被使用，故只读不绑定变量）
     try:
-        input_data = json.load(sys.stdin)
+        json.load(sys.stdin)
     except (json.JSONDecodeError, EOFError):
-        input_data = {}
+        pass
 
     append_session_boundary()
 

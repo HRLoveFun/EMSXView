@@ -164,12 +164,10 @@ def _render_market_tabs(
         return ""
     return f"""
 <h2>市场概览</h2>
-{_market_summary_table(ordered, is_all=True)}"""
+{_market_summary_table(ordered)}"""
 
 
-def _market_summary_table(
-    markets: list[dict[str, Any]], is_all: bool,
-) -> str:
+def _market_summary_table(markets: list[dict[str, Any]]) -> str:
     """市场汇总表：route 数 + 成交金额（本币 / USD）。"""
     rows = "".join(
         f'<tr><td class="l">{_esc(Config.MARKET_ORDER.get(m["exchange"], m["exchange"]))}</td>'
@@ -179,7 +177,6 @@ def _market_summary_table(
         f"<td>{_fmt_big(m.get('notional_usd'))}</td></tr>"
         for m in markets
     )
-    title = "全部市场" if is_all else f"{_esc(Config.MARKET_ORDER.get(markets[0]['exchange'], markets[0]['exchange']))} 市场"
     return f"""
 <div class="panel" style="overflow-x:auto">
 <table><thead><tr><th class="l">市场</th><th class="l">代码</th><th>Route 数</th>
@@ -471,7 +468,6 @@ def _svg_histogram(buckets: list[dict[str, Any]]) -> str:
             f'width="{max(bar_w - 2, 1):.1f}" height="{h:.1f}" fill="{_COLOR_BAR}" rx="1">'
             f"<title>[{b['lower']:.2f}, {b['upper']:.2f}): {b['count']}</title></rect>"
         )
-    mid = buckets[n // 2]
     parts.append(
         f'<text x="{_PAD_L + plot_w / 2:.0f}" y="{_CHART_H - 8}" fill="#7d8fa3" '
         f'font-size="10" text-anchor="middle">pnl_vwap ∈ [{buckets[0]["lower"]:.2f}, '
