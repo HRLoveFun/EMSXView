@@ -79,6 +79,9 @@ scripts/reports/output/
 # --- 质量门禁趋势库（quality_gate.py 全量扫描写入，可再生；基线历史不入库） ---
 scripts/reports/quality_gate/quality_gate.db
 
+# --- 清理门禁运行时产物（cleanup.py 写入，可再生；基线历史不入库） ---
+scripts/reports/cleanup/
+
 # --- 边界测试扫描产物（运行时生成，勿入版本库） ---
 **/.scan_log.jsonl
 
@@ -103,10 +106,11 @@ CostView/data.migrated.*/
 # module-boundary.md 是模块契约唯一真相源，CI 边界审计
 # (scripts/audit_doc_drift.py) 依赖它 —— 必须纳入版本控制
 !.codebuddy/rules/module-boundary.md
-# code-review skill 随仓库分发，团队成员克隆后即可使用
+# code-review / code-cleanup skill 随仓库分发，团队成员克隆后即可使用
 !.codebuddy/skills/
 .codebuddy/skills/*
 !.codebuddy/skills/code-review/
+!.codebuddy/skills/code-cleanup/
 
 # --- Notebooks (with outputs) ---
 *.ipynb

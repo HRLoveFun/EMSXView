@@ -46,6 +46,7 @@
 | [ADR-0014](adr/0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | Accepted |
 | [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | Accepted |
 | [ADR-0016](adr/0016-external-data-store-readonly-split.md) | 数据目录外置项目外 + 读写职责物理分离（READ 文件级只读） | Accepted |
+| [ADR-0017](adr/0017-cleanup-and-perf-hotspot-mechanism.md) | 代码清理与性能热点机制（CL-xx 清理 + PF-xx 性能，复用 quality_gate 基础设施） | Accepted |
 | [ADR-0700](adr/0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | Accepted |
 
 ---

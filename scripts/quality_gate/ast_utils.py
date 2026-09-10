@@ -23,9 +23,15 @@ def find_project_root(start: Path) -> Path:
 
 
 def read_text_safe(path: Path) -> str | None:
-    """读取文件文本，IO/编码失败返回 None（容错，不中断扫描）。"""
+    """读取文件文本，IO/编码失败返回 None（容错，不中断扫描）。
+
+    统一按 ``utf-8-sig`` 解码：带 UTF-8 BOM 的源文件会被正确读出（BOM 剥离）。
+    否则首字符 ``\\ufeff`` 会让 ``ast.parse`` 抛 SyntaxError，使该文件的 import 边
+    全部丢失、被误判为不可达 —— 实测仓库内 `backend/api/main.py` 即带 BOM，
+    曾导致入口模块的下游（如仅被 main.py 导入的服务）被误报为死代码。
+    """
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError):
         return None
 
