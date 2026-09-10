@@ -63,10 +63,10 @@ python scripts/quality_gate.py --suppress <fingerprint> --note "理由"
 
 ## 基线演进
 
-| 阶段 | 模式 | 行为 |
+| 阶段 | 门禁语义 | 行为 |
 |------|------|------|
-| Phase 1 record | OE_ENFORCEMENT=guard | 新增阻断、存量放行、修复正向提示 |
-| Phase 2 block | OE_ENFORCEMENT=block | 存量清零后可切换为全量阻断（预留） |
+| Phase 1 record（当前） | AP=block / OE=guard（硬编码于 `scoring.gate_verdict`） | 新增阻断、存量放行、修复正向提示 |
+| Phase 2 block（规划） | OE 亦为全量阻断 | 存量清零后启用；需新增配置开关并在 `scoring.gate_verdict` 中读取（当前无语义开关） |
 
 - full 扫描后自动标记本轮未见的 open 项为 fixed
 - 误报治理：`--suppress <fingerprint> --note "理由"` 或文件级豁免清单
