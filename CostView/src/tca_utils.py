@@ -282,7 +282,12 @@ def aggregate_cohorts(
         avg_pnl_continuous = mean_numeric(
             [abs(r.pnl_vwap_continuous) for r in group if r.pnl_vwap_continuous is not None]
         )
-        dq_ratio = 0.0
+        # P3-3：dq_ratio 接线为真实代理——cohort 内 BDIB 依赖指标（pnl_vwap）
+        # 缺失路由的占比（pnl_vwap/par_rate 双缺失的路由已在入桶前剔除，
+        # 故该占比反映的是"有数据但 BDIB 依赖指标计算缺失"的数据质量缺口，
+        # 与 metric_coverage 的 bdib_cutoff 原因分类口径一致）。
+        bdib_gap_count = sum(1 for r in group if r.pnl_vwap is None)
+        dq_ratio = bdib_gap_count / sample if sample else 0.0
         sample_warn = sample < min_sample_size
 
         flags: list[str] = []
