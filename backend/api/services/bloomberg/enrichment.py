@@ -114,7 +114,6 @@ class MarketDataEnrichmentService:
         logger.info("Started mktdata subscription thread")
 
     def stop(self):
-        stop_event = self._subscription_engine.stop_event
         if self._mktdata_thread and self._mktdata_thread.is_alive():
             self._mktdata_thread.join(timeout=5)
             if self._mktdata_thread.is_alive():
@@ -524,7 +523,6 @@ class MarketDataEnrichmentService:
                     new_rate = direct_rates[ccy]
                 else:
                     continue
-                old_rate = self._fx_rates.get(ccy)
                 self._fx_rates[ccy] = new_rate
                 updated += 1
                 if ccy in direct_rates and ccy in inverse_rates:
@@ -577,7 +575,6 @@ class MarketDataEnrichmentService:
                     if fd.hasElement("CRNCY"):
                         crncy = fd.getElementAsString("CRNCY").strip().upper()
                         if crncy and len(crncy) == 3:
-                            old = self._ticker_currencies.get(sec)
                             self._ticker_currencies[sec] = crncy
                             for o in self._subscription_engine.orders.values():
                                 if o.symbol == sec and o.currency != crncy:
@@ -681,7 +678,6 @@ class MarketDataEnrichmentService:
                     self._round_lot_sizes[sec] = -1
                     logger.info(f"[ROUND_LOT_BDP] {sec}: No field data, marked as unknown")
             if updated:
-                sample = dict(list(sorted(self._round_lot_sizes.items()))[:10])
                 logger.info(
                     f"PX_ROUND_LOT_SIZE updated: {updated} tickers "
                     f"(total cached: {len(self._round_lot_sizes)})"
