@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Optional, Dict, Set, Any
 
@@ -66,6 +67,15 @@ class MarketDataEnrichmentService:
         self._round_lot_pending_tickers: set = set()
         self._round_lot_refdata_cid = blpapi.CorrelationId("__round_lot_refdata__")
         self._round_lot_refdata_pending = False
+
+        # 行情附属维护（订阅同步/FX/CRNCY/整手/永久失败重试）的节流周期。
+        # 原先这些维护在 while 循环内**每轮**执行，而循环唯一节奏来自
+        # sess.nextEvent(2000) —— 事件积压时可退化为满速自旋（实测空闲态占用
+        # 14.4% of one core，见 code-cleanup skill 复盘日志）。
+        self._housekeeping_interval_s = 1.0
+        # 订单快照：每周期重建一次，供三个维护函数共享（原先各自 O(#orders) 遍历）。
+        self._orders_symbols: Set[str] = set()
+        self._orders_symbol_exchange: list[tuple[str, str]] = []
 
         self._permfail_last_prices: Dict[str, float] = {}
 
@@ -151,31 +161,14 @@ class MarketDataEnrichmentService:
         stop_event = self._subscription_engine.stop_event
         stop_event.wait(3)
 
+        next_housekeeping = 0.0
         while not stop_event.is_set():
-            try:
-                self._update_mktdata_subscriptions(sess)
-            except Exception as e:
-                logger.warning(f"Error updating mktdata subscriptions: {e}")
-
-            try:
-                self._maybe_refresh_fx_rates(sess)
-            except Exception as e:
-                logger.warning(f"Error refreshing FX rates: {e}")
-
-            try:
-                self._maybe_query_ticker_currencies(sess)
-            except Exception as e:
-                logger.warning(f"Error querying ticker currencies: {e}")
-
-            try:
-                self._maybe_query_round_lot_sizes(sess)
-            except Exception as e:
-                logger.warning(f"Error querying round lot sizes: {e}")
-
-            try:
-                self._maybe_refresh_permanently_failed_tickers(sess)
-            except Exception as e:
-                logger.warning(f"Error refreshing permanently-failed tickers: {e}")
+            # 附属维护按固定周期执行（而非每轮）：事件泵本身保持不变，
+            # 因此行情推送的实时性不受影响。
+            now_monotonic = time.monotonic()
+            if now_monotonic >= next_housekeeping:
+                next_housekeeping = now_monotonic + self._housekeeping_interval_s
+                self._run_housekeeping(sess)
 
             try:
                 event = sess.nextEvent(2000)
@@ -302,10 +295,79 @@ class MarketDataEnrichmentService:
 
     # ── Subscription management ────────────────────────────────────────
 
+    def _run_housekeeping(self, sess) -> None:
+        """按固定周期执行一次行情附属维护（原为 while 每轮执行）。
+
+        独立成方法的原因：这五项都是 O(#orders) 遍历或带 IO 的维护动作，
+        不应随事件泵的节奏执行（事件积压时事件泵可退化为满速自旋）。
+        """
+        try:
+            self._refresh_orders_snapshot()
+        except Exception as e:
+            logger.warning(f"Error refreshing orders snapshot: {e}")
+
+        try:
+            self._update_mktdata_subscriptions(sess)
+        except Exception as e:
+            logger.warning(f"Error updating mktdata subscriptions: {e}")
+
+        try:
+            self._maybe_refresh_fx_rates(sess)
+        except Exception as e:
+            logger.warning(f"Error refreshing FX rates: {e}")
+
+        try:
+            self._maybe_query_ticker_currencies(sess)
+        except Exception as e:
+            logger.warning(f"Error querying ticker currencies: {e}")
+
+        try:
+            self._maybe_query_round_lot_sizes(sess)
+        except Exception as e:
+            logger.warning(f"Error querying round lot sizes: {e}")
+
+        try:
+            self._maybe_refresh_permanently_failed_tickers(sess)
+        except Exception as e:
+            logger.warning(f"Error refreshing permanently-failed tickers: {e}")
+
+    def _refresh_orders_snapshot(self) -> None:
+        """重建订单快照（每个 housekeeping 周期一次）。
+
+        原先三个维护函数各自遍历 ``self._subscription_engine.orders`` 构造符号集合，
+        实测在空闲态占该线程活跃 CPU 的约 70%（见 skill 复盘日志的 py-spy 采样）。
+        """
+        symbols: Set[str] = set()
+        pairs: list[tuple[str, str]] = []
+        for order in self._subscription_engine.orders.values():
+            if not order.symbol:
+                continue
+            symbols.add(order.symbol)
+            pairs.append((order.symbol, order.exchange or ""))
+        self._orders_symbols = symbols
+        self._orders_symbol_exchange = pairs
+
+    def _send_refdata_request(self, sess, request, correlation_id, label: str) -> bool:
+        """发送 refdata 请求；correlationId 仍在途时视为「已发出」而非错误。
+
+        背景：blpapi 对尚未完成响应的同一 correlationId 再次 sendRequest 会抛
+        ``DuplicateCorrelationIdException``。早期实现把该异常记为 WARNING 并在下一轮
+        重试，配合无节流自旋造成重复发送风暴（实测日志中 577 次 Duplicate）。
+        返回 True 表示请求已在途（本次发出 **或** 上次仍在途）——调用方应保持 pending；
+        返回 False 表示真正发送失败（未发出），调用方可不置 pending 以便下轮重试。
+        """
+        try:
+            sess.sendRequest(request, correlationId=correlation_id)
+            return True
+        except blpapi.DuplicateCorrelationIdException:
+            logger.debug("refdata 请求已在途，跳过重复发送: %s", label)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to send {label} refdata request: {e}")
+            return False
+
     def _update_mktdata_subscriptions(self, sess):
-        current_tickers = {
-            o.symbol for o in self._subscription_engine.orders.values() if o.symbol
-        }
+        current_tickers = self._orders_symbols
 
         for check_ticker in ["UU/ LN Equity", "SVT LN Equity", "GLEN LN Equity"]:
             if check_ticker in current_tickers:
@@ -422,10 +484,10 @@ class MarketDataEnrichmentService:
                 securities.appendValue(f"USD{ccy} Curncy")
             fields = req.getElement("fields")
             fields.appendValue("PX_LAST")
-            sess.sendRequest(req, correlationId=self._fx_refdata_cid)
-            self._fx_refdata_pending = True
+            if self._send_refdata_request(sess, req, self._fx_refdata_cid, "FX"):
+                self._fx_refdata_pending = True
+                logger.info(f"Sent FX refdata request for {len(currencies)} currencies: {sorted(currencies)}")
             self._fx_last_refresh = now
-            logger.info(f"Sent FX refdata request for {len(currencies)} currencies: {sorted(currencies)}")
         except Exception as e:
             logger.warning(f"Failed to send FX refdata request: {e}")
 
@@ -541,9 +603,7 @@ class MarketDataEnrichmentService:
     def _maybe_query_ticker_currencies(self, sess):
         if not self._connection.refdata_service_available or self._crncy_refdata_pending:
             return
-        new_tickers = {
-            o.symbol for o in self._subscription_engine.orders.values() if o.symbol
-        } - self._crncy_queried_tickers
+        new_tickers = self._orders_symbols - self._crncy_queried_tickers
         if not new_tickers:
             return
         try:
@@ -554,10 +614,10 @@ class MarketDataEnrichmentService:
                 securities.appendValue(t)
             fields = req.getElement("fields")
             fields.appendValue("CRNCY")
-            sess.sendRequest(req, correlationId=self._crncy_refdata_cid)
-            self._crncy_refdata_pending = True
+            if self._send_refdata_request(sess, req, self._crncy_refdata_cid, "CRNCY"):
+                self._crncy_refdata_pending = True
+                logger.info(f"Sent CRNCY refdata request for {len(new_tickers)} tickers")
             self._crncy_queried_tickers |= new_tickers
-            logger.info(f"Sent CRNCY refdata request for {len(new_tickers)} tickers")
         except Exception as e:
             logger.warning(f"Failed to send CRNCY refdata request: {e}")
 
@@ -603,10 +663,10 @@ class MarketDataEnrichmentService:
 
         target_tickers = set()
         odd_lot_markets = set(self._settings.ODD_LOT_MARKETS)
-        for o in self._subscription_engine.orders.values():
-            if o.symbol and o.exchange and o.exchange.upper() in odd_lot_markets:
-                if o.symbol not in self._round_lot_queried_tickers:
-                    target_tickers.add(o.symbol)
+        for symbol, exchange in self._orders_symbol_exchange:
+            if exchange and exchange.upper() in odd_lot_markets \
+                    and symbol not in self._round_lot_queried_tickers:
+                target_tickers.add(symbol)
 
         if target_tickers:
             logger.info(
@@ -618,9 +678,9 @@ class MarketDataEnrichmentService:
             sample = sorted(list(target_tickers))[:5]
             logger.info(f"[ROUND_LOT] Sample tickers to query: {sample}")
         elif len(self._subscription_engine.orders) > 0 and len(self._round_lot_queried_tickers) == 0:
-            exchanges = {}
-            for o in self._subscription_engine.orders.values():
-                exch = o.exchange or "None"
+            exchanges: dict[str, int] = {}
+            for _, exchange in self._orders_symbol_exchange:
+                exch = exchange or "None"
                 exchanges[exch] = exchanges.get(exch, 0) + 1
             logger.info(
                 f"[ROUND_LOT] No target tickers for markets {sorted(odd_lot_markets)}. "
@@ -641,19 +701,22 @@ class MarketDataEnrichmentService:
                 securities.appendValue(t)
             fields = req.getElement("fields")
             fields.appendValue("PX_ROUND_LOT_SIZE")
-            sess.sendRequest(req, correlationId=self._round_lot_refdata_cid)
-            self._round_lot_refdata_pending = True
+            if self._send_refdata_request(sess, req, self._round_lot_refdata_cid, "round lot"):
+                self._round_lot_refdata_pending = True
+                logger.info(
+                    f"Sent PX_ROUND_LOT_SIZE refdata request for "
+                    f"{len(tickers_to_query)} tickers: {tickers_to_query[:5]}..."
+                )
             self._round_lot_queried_tickers.update(tickers_to_query)
-            logger.info(
-                f"Sent PX_ROUND_LOT_SIZE refdata request for "
-                f"{len(tickers_to_query)} tickers: {tickers_to_query[:5]}..."
-            )
         except Exception as e:
             logger.warning(f"Failed to send round lot refdata request: {e}")
 
     def _process_round_lot_refdata_response(self, msg):
         try:
-            self._round_lot_refdata_pending = False
+            # pending 由 _mark_refdata_response_complete 在 Event.RESPONSE 时清除。
+            # 此处**不得**提前清除：PARTIAL_RESPONSE 也会进入本函数，提前清除会让
+            # 下一轮立即重发同一请求 → blpapi 抛 DuplicateCorrelationIdException
+            # （实测日志中 141 次 round lot Duplicate 的根因）。
             if not msg.hasElement("securityData"):
                 return
             sd = msg.getElement("securityData")
@@ -710,7 +773,8 @@ class MarketDataEnrichmentService:
                 securities.appendValue(t)
             fields = req.getElement("fields")
             fields.appendValue("PX_LAST")
-            sess.sendRequest(req, correlationId=blpapi.CorrelationId("__permfail_refdata__"))
+            self._send_refdata_request(
+                sess, req, blpapi.CorrelationId("__permfail_refdata__"), "permfail")
             logger.warning(
                 "[MKTDATA PERMFAIL REFDATA] Sent PX_LAST request for %d "
                 "permanently-failed tickers: %s",

@@ -252,19 +252,6 @@ class EMSXSubscriptionEngine:
 
             seq_key = str(seq)
 
-            # ── 诊断日志：追踪目标订单序列号的消息 ──────────────
-            _TRACE_SEQS = {4926854, 5190560}
-            if seq in _TRACE_SEQS:
-                ticker = self._msg_safe_str(msg, "EMSX_TICKER")
-                status = self._msg_safe_str(msg, "EMSX_STATUS") or self._msg_safe_int(msg, "EMSX_STATUS")
-                amount = self._msg_safe_int(msg, "EMSX_AMOUNT")
-                logger.warning(
-                    "TRACE_ORDER: seq=%d seq_key='%s' event_status=%d ticker='%s' status=%s amount=%d init_paint_done=%s cached=%s",
-                    seq, seq_key, event_status, ticker, status, amount,
-                    self._init_paint_done, seq_key in self._orders,
-                )
-            # ───────────────────────────────────────────────────
-
             if event_status == 8:
                 deleted_order = None
                 with self._data_lock:
