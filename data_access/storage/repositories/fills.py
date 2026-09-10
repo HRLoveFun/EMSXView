@@ -99,16 +99,6 @@ class SqliteFillReadRepository(BaseRepository):
         finally:
             conn.close()
 
-    def get_all_processed_fills(self) -> pd.DataFrame:
-        """Return all processed fills."""
-        conn = self._get_read_conn()
-        try:
-            return pd.read_sql_query(
-                "SELECT * FROM processed_fills", conn.raw_connection,
-            )
-        finally:
-            conn.close()
-
     def get_distinct_dates_in_range(
         self, start_yyyymmdd: str, end_yyyymmdd: str,
     ) -> List[str]:
