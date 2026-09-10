@@ -78,10 +78,10 @@ FRONTEND_ALIASES: dict[str, str] = {
 }
 
 # ── 门禁模式 ──────────────────────────────────────────────────────
-# AP: block — 任何 AP 违规立即阻断（与既有 pre-commit 行为一致）
-# OE: guard — 基线演进：新增阻断 / 存量放行 / 修复正向提示
-AP_ENFORCEMENT: str = "block"
-OE_ENFORCEMENT: str = "guard"
+# 语义：AP = block（任何 AP 违规立即阻断，与既有 pre-commit 行为一致）；
+#       OE = guard（基线演进：新增阻断 / 存量放行 / 修复正向提示）。
+# 当前硬编码在 scoring.gate_verdict；如需配置化开关，在此新增常量并在该函数中读取。
+
 
 # ── 性能预算 ──────────────────────────────────────────────────────
 STAGED_TIME_BUDGET_S: float = 25.0  # 增量模式检测器共享预算（秒），超出 fail-open
