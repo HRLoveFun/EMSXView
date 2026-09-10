@@ -185,8 +185,8 @@ EMSXView/
 │   │   ├── connection.py             # ConnectionManager (READ tier, sqlite mode=ro)
 │   │   ├── market_store.py           # MarketStoreReader (bar data read)
 │   │   ├── repositories/             # Read repositories (fills, raw_fills)
-│   │   └── schema/                   # Column constants
-│   ├── processing/                   # Read-side processing helpers (fill_cleaner)
+│   │   └── schema/                   # Schema package (column constants owned by pipeline repo)
+│   ├── processing/                   # Read-side processing helpers (placeholder)
 │   └── common/                       # exchange_tz and other read-side utilities
 │
 │   # 注：ETL 写入方（原 DataPipeline/）已迁独立仓库 EMSXDataPipeline；

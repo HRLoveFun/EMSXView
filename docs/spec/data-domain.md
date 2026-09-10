@@ -75,11 +75,10 @@ Primary code surfaces (current):
 > | `DataPipeline/storage/repositories/` | [`data_access/storage/repositories/`](../../data_access/storage/repositories/) |
 > | `DataPipeline/storage/schema/` | [`data_access/storage/schema/`](../../data_access/storage/schema/) |
 > | `DataPipeline/common/exchange_tz.py` | [`data_access/common/exchange_tz.py`](../../data_access/common/exchange_tz.py) |
-> | `DataPipeline/processing/fill_cleaner.py` | [`data_access/processing/fill_cleaner.py`](../../data_access/processing/fill_cleaner.py) |
 
 - `DataPipeline/acquisition/` — BDIB market bar acquisition（仓库外）
 - `DataPipeline/ingestion/` — fill and market data ingestion（仓库外）
-- `DataPipeline/processing/` — cleaning, enrichment, aggregation, metrics（仓库外；读侧裁剪见 `data_access/processing/`）
+- `DataPipeline/processing/` — cleaning, enrichment, aggregation, metrics（仓库外；本仓库不再保留读侧裁剪副本，清洗/派生全部由该仓库负责）
 - `DataPipeline/storage/` — connection management, repositories, legacy DB facades（仓库外；只读裁剪见 `data_access/storage/`）
 - `DataPipeline/orchestration/` — pipeline and migration management（仓库外）
 - `DataPipeline/common/` — shared configuration (ProcessingConfig, schema, exchange_tz, mapping)（仓库外；读侧裁剪见 `data_access/common/`）
