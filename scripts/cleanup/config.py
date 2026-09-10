@@ -48,6 +48,7 @@ RULE_TITLES: dict[str, str] = {
     "PF-06": "热点候选（需 profiler 实测）",
     "PF-07": "高耗时：前端渲染热点",
     "PF-08": "高耗时：Context Provider 未 memo 化",
+    "PF-09": "高耗时：WHERE 列被函数包裹导致索引失效",
 }
 
 # ── CL-01 冗余文件（包装 OE-01 算法，扫描范围更宽）────────────────
@@ -142,6 +143,17 @@ FULL_READ_CALL_NAMES: set[str] = {"readlines", "fetchall"}
 # SQL 全量读取特征（供 PF-03 判定）
 RE_SELECT_STAR = re.compile(r"select\s+\*\s+from", re.IGNORECASE)
 RE_HAS_LIMIT = re.compile(r"\blimit\b", re.IGNORECASE)
+RE_HAS_WHERE = re.compile(r"\bwhere\b", re.IGNORECASE)
+RE_SELECT_FROM = re.compile(r"\bfrom\s+([A-Za-z_]\w*)", re.IGNORECASE)
+# 注册表/标签类表：行数由业务主体数量（而非数据量）决定，全读可接受
+RE_BOUNDED_TABLE_NAME = re.compile(r"registry|_label$|_mapping$|catalog", re.IGNORECASE)
+# 惰性 DDL：`CREATE [OR REPLACE] [TEMP] VIEW ... AS SELECT` 只是视图定义，不加载数据
+RE_LAZY_DDL = re.compile(r"create\s+(?:or\s+replace\s+)?(?:temp\s+)?view", re.IGNORECASE)
+# 不可 sargable 的 WHERE：对列使用函数会令索引失效（实测 raw_fills 因此 SCAN 1433 万行）
+RE_NON_SARGABLE_WHERE = re.compile(
+    r"where\b[^;]*?\b(substr|lower|upper|strftime|date|datetime|cast|length|trim|printf|replace)\s*\(",
+    re.IGNORECASE,
+)
 
 # ── PF-04 累积容器 ────────────────────────────────────────────────
 CONTAINER_INIT_NAMES: set[str] = {"dict", "list", "set", "defaultdict", "OrderedDict", "deque"}
