@@ -298,6 +298,57 @@ class TestBackendPerf:
         ctx = _ctx(tmp_path, {"m.py": 'QUERY = "SELECT * FROM fills LIMIT 100"\n'})
         assert "PF-03" not in _rules(perf.detect(ctx))
 
+    def test_ignores_select_star_in_docstring(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": '''
+            """示例：SELECT * FROM read_parquet(\'x/*.parquet\')。"""
+
+            VALUE = 1
+        '''})
+        assert "PF-03" not in _rules(perf.detect(ctx))
+
+    def test_ignores_lazy_view_definition(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": '''
+            DDL = """
+                CREATE OR REPLACE VIEW bars AS
+                SELECT * FROM read_parquet('x/*.parquet')
+            """
+        '''})
+        assert "PF-03" not in _rules(perf.detect(ctx))
+
+    def test_fstring_limited_query_is_not_medium(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": '''
+            def load(where):
+                return f"""SELECT * FROM fills
+                    {where}
+                    LIMIT ? OFFSET ?"""
+        '''})
+        rules = _rules(perf.detect(ctx))
+        assert all(f.severity.value == "low" for f in rules.get("PF-03", []))
+
+    def test_select_star_with_where_is_low(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": 'QUERY = "SELECT * FROM fills WHERE source_date = ?"\n'})
+        rules = _rules(perf.detect(ctx))
+        assert rules["PF-03"][0].severity.value == "low"
+
+    def test_registry_table_full_read_is_low(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": 'QUERY = "SELECT * FROM equ_ticker_registry"\n'})
+        rules = _rules(perf.detect(ctx))
+        assert rules["PF-03"][0].severity.value == "low"
+
+    def test_reports_non_sargable_where(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": (
+            'QUERY = "SELECT * FROM raw_fills WHERE substr(order_as_of_date, 1, 10) = ?"\n'
+        )})
+        rules = _rules(perf.detect(ctx))
+        assert rules["PF-09"][0].symbol == "raw_fills"
+
+    def test_ignores_sargable_range_condition(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": (
+            'QUERY = "SELECT * FROM raw_fills WHERE order_as_of_date >= ?'
+            ' AND order_as_of_date < ?"\n'
+        )})
+        assert "PF-09" not in _rules(perf.detect(ctx))
+
     def test_reports_unbounded_container(self, tmp_path):
         ctx = _ctx(tmp_path, {"m.py": """
             CACHE = {}

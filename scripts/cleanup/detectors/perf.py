@@ -40,6 +40,7 @@ def detect(ctx: ScanContext) -> list[Finding]:
         findings.extend(_loop_io(tree, rel))
         findings.extend(_nested_loops(tree, rel))
         findings.extend(_full_reads(tree, rel))
+        findings.extend(_non_sargable(tree, rel))
         findings.extend(_unbounded_containers(tree, text, rel))
         findings.extend(_loop_str_concat(tree, rel))
         hotspots.extend(_hotspots(tree, text, rel))
@@ -138,20 +139,135 @@ def _linear_scan_in(loop: ast.AST) -> str | None:
 # ── PF-03 全量加载 / 无界读取 ─────────────────────────────────────
 
 def _full_reads(tree: ast.Module, rel: str) -> list[Finding]:
-    """无 LIMIT 的 `SELECT *`、无上限的全量读取、无 nrows/chunksize 的批量读。"""
+    """`SELECT *` 无 WHERE/LIMIT 的真无界查询、受约束的未裁剪列、无上限读取调用。
+
+    判定输入是**整条 SQL 文本**：f-string 按拼装后的全文评估（早期版本按单个
+    Constant 片段评估，会把 `... LIMIT ? OFFSET ?` 写在另一片段的分页查询误判为无界）。
+    """
     findings: list[Finding] = []
+    docstrings = _docstring_ids(tree)
+    for lineno, sql, assembled in _sql_texts(tree, docstrings):
+        finding = _judge_select(lineno, sql, assembled, rel)
+        if finding is not None:
+            findings.append(finding)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
-                and config.RE_SELECT_STAR.search(node.value) \
-                and not config.RE_HAS_LIMIT.search(node.value):
-            findings.append(_mk(
-                "PF-03", rel, node.lineno, "<sql>", f"select-star@{node.lineno}",
-                "全量加载：SQL `SELECT *` 无 `LIMIT`，结果集大小不可控",
-                "只 SELECT 需要的列；显式 `LIMIT` 或分页（keyset 分页优先），"
-                "并用 `EXPLAIN QUERY PLAN` 确认走索引（大表全扫是主要耗时来源）",
-                Severity.MEDIUM, 1.0))
         if isinstance(node, ast.Call):
             findings.extend(_judge_full_call(node, rel))
+    return findings
+
+
+def _docstring_ids(tree: ast.Module) -> set[int]:
+    """模块/类/函数 docstring 的常量节点 id（文档示例不是可执行查询）。"""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        first = node.body[0] if node.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            ids.add(id(first.value))
+    return ids
+
+
+def _sql_texts(tree: ast.Module, docstrings: set[int]) -> list[tuple[int, str, bool]]:
+    """提取 (行号, SQL 全文, 是否由拼装得出)。
+
+    纯字面量字符串直接取用；f-string 由各字面量片段拼接、表达式占位为 `?`；
+    参与 `+` 拼接的字面量片段标记为拼装（`LIMIT` 可能在另一操作数里）。
+    """
+    joined_parts = _joined_part_ids(tree)
+    concat_parts = _concat_part_ids(tree)
+    out: list[tuple[int, str, bool]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) in docstrings or id(node) in joined_parts:
+                continue
+            out.append((node.lineno, node.value, id(node) in concat_parts))
+        elif isinstance(node, ast.JoinedStr):
+            out.append((node.lineno, _joined_text(node), True))
+    return out
+
+
+def _joined_text(node: ast.JoinedStr) -> str:
+    """f-string 拼接后的文本（表达式以 `?` 占位）。"""
+    parts: list[str] = []
+    for value in node.values:
+        parts.append(value.value if isinstance(value, ast.Constant)
+                     and isinstance(value.value, str) else "?")
+    return "".join(parts)
+
+
+def _joined_part_ids(tree: ast.Module) -> set[int]:
+    """f-string 内部字面量片段的节点 id（由外层 JoinedStr 整体评估，避免片段误判）。"""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            ids |= {id(value) for value in node.values if isinstance(value, ast.Constant)}
+    return ids
+
+
+def _concat_part_ids(tree: ast.Module) -> set[int]:
+    """参与 ``+`` 拼接的字符串常量 id（LIMIT/WHERE 可能位于另一操作数）。"""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)):
+            continue
+        for operand in (node.left, node.right):
+            if isinstance(operand, ast.Constant) and isinstance(operand.value, str):
+                ids.add(id(operand))
+    return ids
+
+
+def _judge_select(lineno: int, sql: str, assembled: bool, rel: str) -> Finding | None:
+    """单条 SQL 的分级判定（无 WHERE/LIMIT 为 medium，其余为 low；惰性视图不判）。"""
+    if not config.RE_SELECT_STAR.search(sql) or config.RE_HAS_LIMIT.search(sql) \
+            or config.RE_LAZY_DDL.search(sql):
+        return None
+    table = _first_table(sql)
+    unbounded = not config.RE_HAS_WHERE.search(sql)
+    bounded = bool(table) and bool(config.RE_BOUNDED_TABLE_NAME.search(table))
+    if unbounded and not bounded and not assembled:
+        return _mk("PF-03", rel, lineno, table or "<sql>", f"select-star@{lineno}",
+                   f"全量加载：`SELECT *` 无 WHERE / LIMIT 约束（表 `{table or '?'}`），结果集大小不可控",
+                   "只 SELECT 需要的列并显式 `LIMIT` / 分页（keyset 分页优先）；"
+                   "用 `EXPLAIN QUERY PLAN` 确认索引命中（大表全扫是主要耗时来源）",
+                   Severity.MEDIUM, 1.0)
+    reason = "SQL 由 f-string 拼装，LIMIT/WHERE 可能由调用方补足，需人工确认" if assembled \
+        else ("注册表/标签类小表，行数有界" if bounded else "结果集受 WHERE 约束")
+    return _mk("PF-03", rel, lineno, table or "<sql>", f"select-star@{lineno}",
+               f"列未裁剪：`SELECT *`（表 `{table or '?'}`；{reason}）",
+               "显式列出真正需要的列，让覆盖索引可生效；确认列确实可裁剪后豁免",
+               Severity.LOW, 0.5)
+
+
+def _first_table(sql: str) -> str:
+    """SQL 中第一个 FROM 后的表名（小写）。"""
+    match = config.RE_SELECT_FROM.search(sql)
+    return match.group(1).lower() if match else ""
+
+
+def _non_sargable(tree: ast.Module, rel: str) -> list[Finding]:
+    """WHERE 中对列使用函数 → 索引失效（实测可致千万行全表扫描）。
+
+    证据来源：`raw_fills` 的 `WHERE substr(order_as_of_date, 1, 10) = ?`
+    经 `EXPLAIN QUERY PLAN` 确认为 `SCAN raw_fills`（1433 万行），
+    而同表的 `WHERE source_date = ?` 为 `SEARCH ... USING INDEX`。
+    """
+    findings: list[Finding] = []
+    docstrings = _docstring_ids(tree)
+    for lineno, sql, _ in _sql_texts(tree, docstrings):
+        match = config.RE_NON_SARGABLE_WHERE.search(sql)
+        if match is None or config.RE_LAZY_DDL.search(sql):
+            continue
+        table = _first_table(sql)
+        findings.append(_mk(
+            "PF-09", rel, lineno, table or "<sql>", f"non-sargable@{lineno}",
+            f"索引失效：WHERE 中对列使用函数 `{match.group(1)}()`（表 `{table or '?'}`），"
+            "该条件无法走列索引",
+            "改写为可利用索引的形式：`substr(col, 1, 10) = ?` → `col >= ? AND col < ?`；"
+            "`lower(col) = ?` → 建表达式索引或改存规范化列。"
+            "用 `EXPLAIN QUERY PLAN` 确认由 SCAN 转为 SEARCH；"
+            "若已存在表达式索引则维持原状并豁免",
+            Severity.MEDIUM, 1.0))
     return findings
 
 

@@ -21,6 +21,7 @@
 | PF-06 | 热点候选（需 profiler 实测） | — | 热度分 = 行数 × (1 + 嵌套/2 + CC/10 + 循环数)；超长文件另计 | low（非缺陷） |
 | PF-07 | 前端渲染热点 | 耗时 | `key={index}`；`.map` 中内联对象/函数字面量 | low |
 | PF-08 | Context Provider 未 memo 化 | 耗时 | `<X.Provider value={{ ... }}>`（父组件每次渲染触发全树重渲染） | medium |
+| PF-09 | WHERE 列被函数包裹导致索引失效 | 耗时 | SQL 中 `WHERE <func>(col) = ?`（substr / lower / upper / cast / date / length / trim …） | medium |
 
 ---
 
@@ -150,6 +151,32 @@
 （见 `CODEBUDDY.md`「前端状态管理」）。
 
 ---
+
+## PF-09 WHERE 列被函数包裹导致索引失效（sargability）
+
+**实测证据**（2026-09-10，只读 `EXPLAIN QUERY PLAN`，数据根 `D:\db`）：
+
+| 表 | 规模（max(rowid)） | WHERE 形态 | 执行计划 |
+|---|---|---|---|
+| `raw_fills` | **14,338,234** | `substr(order_as_of_date, 1, 10) = ?` | **`SCAN raw_fills`（索引失效）** |
+| `raw_fills` | 同 | `source_date = ?` | `SEARCH ... USING INDEX idx_raw_source_date` |
+| `processed_fills` | **74,713,724** | `SELECT *`（无 WHERE） | `SCAN processed_fills` |
+| `processed_fills` | 同 | `order_as_of_date = ?` | `SEARCH ... USING INDEX idx_proc_date` |
+
+**为什么坏**：SQLite 只能对「未被函数包裹的列」使用列索引 → 前者退化为全表扫描。
+在千万行级表上，这直接决定查询是毫秒级还是分钟级。
+
+**修复手段**：
+
+- `substr(col, 1, 10) = ?` → `col >= ? AND col < ?`（日期前缀比较等价改写）；
+- `lower(col) = ?` → 建表达式索引 `CREATE INDEX ... ON t(lower(col))`，或改存规范化列；
+- `date(col) = ?` → 存独立日期列，或改范围条件。
+
+**验证**：`EXPLAIN QUERY PLAN` 必须由 `SCAN` 转为 `SEARCH`；若已存在表达式索引则豁免并注明。
+
+**同源发现（系统级）**：全部业务库**均无 `sqlite_stat1`**（从未执行 `ANALYZE`）→
+查询计划器缺少统计信息，在七千万行级表上可能选错计划。建议在数据维护侧（独立仓库
+EMSXDataPipeline）的例行流程中加入 `ANALYZE`，本仓库作为只读消费者不执行该语句。
 
 ## 性能优化的四步闭环（强制）
 

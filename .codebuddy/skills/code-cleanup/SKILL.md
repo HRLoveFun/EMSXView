@@ -70,7 +70,7 @@ python scripts/cleanup.py --ruleset pf --report
 | `detectors/dead_files.py` | CL-01 冗余文件（包装 OE-01 import 图）、CL-07 临时遗留、CL-08 空壳模块 |
 | `detectors/dead_symbols.py` | CL-02 过时函数/类/常量（全库词元零引用） |
 | `detectors/dead_logic.py` | CL-03 不可达、CL-04 恒定条件/等价分支、CL-05 空存根、CL-06 未使用局部变量、CL-09 注释代码块 |
-| `detectors/perf.py` | PF-01 循环内 IO、PF-02 嵌套循环/线性扫描、PF-03 全量加载、PF-04 无界累积、PF-05 循环内字符串拼接、PF-06 热点候选 |
+| `detectors/perf.py` | PF-01 循环内 IO、PF-02 嵌套循环/线性扫描、PF-03 全量加载、PF-04 无界累积、PF-05 循环内字符串拼接、PF-06 热点候选、PF-09 WHERE 列函数包裹致索引失效 |
 | `detectors/frontend.py` | CL-10 前端不可达文件、PF-07 渲染热点、PF-08 Context 未 memo |
 
 可选增强工具见 `references/tool-matrix.md`（knip / vulture / ts-prune / radon / py-spy …）。
