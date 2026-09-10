@@ -40,6 +40,11 @@
 | PF-04 | 实现注册表（`_x_registry[key] = impl`，条目数由实现数量决定，天然有界） | 名称含 `registry`/`impl(s)`/`factor(y\|ies)`/`singleton` 豁免；常量键写入不计增长 |
 | PF-01 | `dict.get()` 被误判为 HTTP 调用 | HTTP 类调用需接收者名命中 `client/session/requests/httpx/http/api/url/resp/endpoint` |
 | PF-08 | `X.Provider` 点号组件名 / 跨行 props 不匹配 | 正则改为 `<((?:\w+\.)*\w*Provider)\b[^>]*?value=\{\{`，并对全文 `finditer` 后回算行号 |
+| PF-03 | f-string 被按「单个 Constant 片段」判定，`LIMIT ? OFFSET ?` 写在另一片段的分页查询被判无界 | 改为对**整条 SQL** 评估：f-string 由各片段拼接、表达式占位为 `?`；参与 `+` 拼接的字面量片段同样标记为拼装并降级 |
+| PF-03 | 模块/函数 docstring 中的示例 SQL 被当作可执行查询 | 预收集 docstring 常量节点 id 并跳过 |
+| PF-03 | `CREATE OR REPLACE VIEW ... AS SELECT *` 被当作数据加载（DuckDB/Parquet 视图是惰性的） | `RE_LAZY_DDL` 命中即不判 |
+| PF-03 | 注册表/标签类小表（`order_label`、`*_registry`、2 千余行）全读被判「结果集不可控」 | 表名命中 `RE_BOUNDED_TABLE_NAME` 降级为 low |
+| PF-03 | 有 WHERE 约束的 `SELECT *` 与真无界混为一谈 | 分级：无 WHERE/LIMIT 且非小表 → medium；其余（列未裁剪 / 受约束 / 拼装待确认）→ low |
 
 ---
 
@@ -139,3 +144,49 @@
   `connection.py::backup_database` / `ALL_DATABASE_NAMES`、`query_cli.py::format_output` 等）、
   B5（CL-06 9 处未使用赋值）、PF 实测（PF-03 的 `market_store.py`/`raw_fills.py` 与 PF-06 Top3 优先）。
   跨仓库确认已完成，`data_access/` 侧 B4 项不再需要二次确认。
+
+### 2026-09-10 · 剩余待办执行（B4 / B5 / PF 实测）
+
+- **B4（CL-02 余 13 项，已提交 `eb3d012`，−287 行）**：删除 `side_sign` /
+  `derive_local_exchange_time` / `floor_time_to_10s` / `time_key` / `to_optional_float` /
+  `format_output`（51 行）/ `_MINOR_UNIT_CCYS` / `_css_id` / `get_local_time_str` /
+  `get_local_date_str` / `batch_convert_ny_to_local`（117 行）/ `backup_database` / `ALL_DATABASE_NAMES`；
+  级联清除 `derive_local_exchange_datetime` 与随之失效的 3 个导入；
+  移除已无消费者的 `tabulate` 依赖。`backup_database` 属写/管理能力，删除同时强化 ADR-0016 只读边界。
+- **B5（CL-06 9 处，已提交 `4cdadc4`）**：`service_provider` 2 处 `repo = …`、
+  `enrichment` 4 处（`stop_event`/`old_rate`/`old`/`sample`）、`tca_report_html` 2 处
+  （`title`/`mid`，`title` 失效连带移除仅服务于它的 `is_all` 形参与调用点实参）、
+  `session-summary.py` 的 `input_data`（保留读 stdin 的协议副作用，改为裸调用 + 注释）。
+- **⚠️ 本轮一次真实失误（由测试捕获，须记入教训）**：在 `tca_utils.py` 清理导入时，
+  用 `git grep` 判断 `math` / `defaultdict` 是否被使用，**输出被 `Select-Object -First 30` 截断**，
+  我据此误删了两个仍在使用的 import；CostView 测试立即以 7 个 `NameError` 失败暴露。
+  **教训与固化做法**：判断「符号是否仍被使用」**禁止依赖可能被截断的文本 grep**，
+  改用 AST 判定（`Names`/`Attributes` 全量收集后比对导入名）。本批随后用临时脚本
+  `_tmp/_tmp_unused_imports.py` 对 9 个被改文件做了逐文件 AST 校验，仅发现 1 处我引入的
+  `datetime`（已修）与 3 处既有未使用导入（`service_provider.py` 的 `asyncio`/`Optional`、
+  `enrichment.py` 的 `Set`，不在本批范围，留待「无用 import」规则覆盖）。
+- **PF 实测（1）：PF-03 规则自身缺陷修正** —— medium 候选 **21 → 1**。
+  对 21 条候选提取真实 SQL 后发现：12 条含 WHERE 约束、1 条在 docstring 里、1 条是惰性视图定义、
+  6 条是 f-string 片段误判、3 条是注册表小表；**唯一真阳性**是
+  `data_access/storage/repositories/fills.py:107 SELECT * FROM processed_fills`（无 WHERE/LIMIT）。
+  另 21→1 的降幅说明：**「静态候选」经实测后大部分不是缺陷 —— 这正是要求实测的原因**。
+- **PF 实测（2）：只读 `EXPLAIN QUERY PLAN` 取证**（数据根 `D:\db`，只读连接）：
+
+  | 表 | 规模（max(rowid)） | 查询 | 计划 |
+  |---|---|---|---|
+  | `processed_fills` | **74,713,724** | `SELECT *`（无 WHERE） | `SCAN` |
+  | `processed_fills` | 同 | `order_as_of_date = ?` | `SEARCH USING INDEX idx_proc_date` |
+  | `processed_fills` | 同 | 日期范围 + ORDER BY | `SEARCH ... + USE TEMP B-TREE FOR RIGHT PART OF ORDER BY` |
+  | `raw_fills` | **14,338,234** | `source_date = ?` | `SEARCH USING INDEX idx_raw_source_date` |
+  | `raw_fills` | 同 | `substr(order_as_of_date,1,10) = ?` | **`SCAN`（索引失效）** |
+  | `equ_ticker_registry` | 2,423 | `SELECT * ... ORDER BY` | index scan（小表，合理） |
+
+- **PF 实测（3）：新增规则 PF-09**「WHERE 列被函数包裹导致索引失效（sargability）」——
+  由上述第 5 行实测证据驱动；真实仓库命中 **1 条、零误报**（即该行本身）。
+  这是静态规则做不到、只有「实测 → 反哺规则」闭环才能产出的一类问题。
+- **PF 实测（4）：系统级发现** —— 全部业务库**无 `sqlite_stat1`**（从未 `ANALYZE`），
+  计划器缺统计信息；建议在数据维护侧（独立仓库 EMSXDataPipeline）例行流程加入 `ANALYZE`。
+- **未执行（需授权与场景）**：`fills.py:107` 的语义化改写、`raw_fills.py:60` 的等价改写
+  （须 before/after 实测对比）、`PF-06` 热点函数的真实 profiler 采样（需可复现业务场景与日期区间）。
+- **验证**：`pytest` backend 192 / CostView 103 / 门禁单测 63 全绿；四个 `audit_*.py` 全绿；
+  `compileall` exit 0；cleanup 复扫 **清理项 0**。
