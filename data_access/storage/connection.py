@@ -30,9 +30,7 @@ import enum
 import logging
 import os
 import re
-import shutil
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 from urllib.request import pathname2url
@@ -199,42 +197,8 @@ def resolve_access_tier(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Database backup utility
-# ═══════════════════════════════════════════════════════════════════════════
-
-def backup_database(db_path: Path) -> Path:
-    """Create a timestamped backup of a database file before destructive ops.
-
-    Returns the path to the backup file.
-    """
-    if not db_path.exists():
-        raise FileNotFoundError(f"Database not found: {db_path}")
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = db_path.with_suffix(f".{timestamp}.bak")
-    shutil.copy2(str(db_path), str(backup_path))
-    logger.info(f"Database backup created: {backup_path}")
-    return backup_path
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # ConnectionManager — centralized connection lifecycle
 # ═══════════════════════════════════════════════════════════════════════════
-
-# Database name constants (sourced from data_access.config)
-ALL_DATABASE_NAMES = [
-    DB_RAW_FILLS,
-    DB_PROCESSED_FILLS,
-    DB_RAW_BDIB,
-    DB_PROCESSED_RAW_BDIB,
-    DB_FILL_BDIB,
-    DB_REGIME,
-    DB_FETCH_HISTORY,
-    DB_BDIB_FETCH_HISTORY,
-    DB_EXECUTION_HISTORY,
-    DB_TICKER_REGISTRY,
-]
-
 
 class ConnectionManager:
     """Unified database connection manager for all CostView databases.
