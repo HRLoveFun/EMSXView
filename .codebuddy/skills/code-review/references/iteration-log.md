@@ -25,6 +25,20 @@
 - **已落地改动**：<经确认写入的文件与摘要；未确认的标注"待确认">
 ```
 
+### 2026-09-09 EMSXView CostView 模块定点评审
+- **输入**：模式=<定点>；范围=<CostView/（src + api + monitoring，tests 仅引用核对）>；语言=<Python>；框架=<FastAPI + SQLite(mode=ro)/DuckDB + Redis（推断）>；变更类型=<模块健康度>
+- **发现统计**：P0 0 / P1 3 / P2 10 / P3 5；疑点 3
+- **问题类型分布**：逻辑/聚合叠加分页截断 ×1（P1）；效率/复用路径上的无谓重查询（scorecard→time_series）×1（P1）；安全/无鉴权+0.0.0.0+写端点 ×1（P1）；效率/循环内重建 set O(n·k) ×1；效率/无界查询+全量行入 Python ×2；安全/CORS 通配+credentials ×1；资源/超时线程不可回收 ×1；逻辑/输入校验缺失（mode 白名单）×1；效率/Redis KEYS ×1；一致性/线程缓存与 close 习惯冲突 + docstring 漂移 ×1；文档漂移/指向已删端点 ×1；死代码 ×2
+- **误报**：`_apply_fx`/`_ANOMALY_FX_CTE` 参数复制初看疑似错位 → 核对占位符计数后排除（CTE 2 + 主查询 N = params 2 + N），未列入清单
+- **遗漏**：无
+- **分级偏差**：Redis invalidate KEYS 初判 P1 → 降 P2（低频管理操作且实例为单用途 db1）；order 聚合分页缺陷确认 P1（货币成本 SUM 截断属数据正确性）
+- **改进建议**：
+  - [模式] 新增「复用入口隐式携带重组件」模式：一个服务方法被另一路径复用时，检查其无条件执行的重负载（如 time_series 拉取）是否对复用方无意义——写入 performance-checklist
+  - [模式] 新增「聚合粒度 × 分页粒度错配」模式：对 rows 做分组聚合的端点，若分页发生在聚合前的明细层，必判指标截断——写入 python-checklist 或通用清单
+  - [规则] 效率清单增补：循环体内出现集合/字典字面量推导（`x in {…}`）应检查是否可外提
+  - [分级] 管理类低频操作的效率问题默认不超过 P2
+- **已落地改动**：仅追加本记录；清单修改待用户确认
+
 ### 2026-09-07 EMSXView 外部数据只读性定点评审
 - **输入**：模式=<定点（主题式：外部数据只读性）>；范围=<data_access, platform_data, CostView, MarketView, backend/api, scripts>；语言=<Python>；框架=<FastAPI + sqlite3 + DuckDB（推断）>；变更类型=<合规性审查>
 - **发现统计**：P0 0 / P1 0 / P2 2 / P3 3；疑点 2

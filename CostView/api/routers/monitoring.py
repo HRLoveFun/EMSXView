@@ -84,6 +84,49 @@ def _parse_metrics(metrics: Optional[str]) -> Optional[list[str]]:
     return [m.strip() for m in metrics.split(",") if m.strip()]
 
 
+def _report_cache_params(
+    tr: TimeRange,
+    broker: Optional[str],
+    algo: Optional[str],
+    symbol: Optional[str],
+    exchange: Optional[str],
+    selected: Optional[list[str]],
+    rules: ThresholdRules,
+    min_fill_count: int,
+    min_notional_usd: float,
+) -> dict:
+    """report-summary 与 export-html 共用的缓存参数（P3-5：同 key 同口径）。"""
+    return {
+        "start": tr.start_date, "end": tr.end_date, "broker": broker,
+        "algo": algo, "symbol": symbol, "exchange": exchange, "metrics": selected,
+        # 缓存 key 纳入解析后的阈值（sort_keys 归一化；默认阈值与未传等价同 key）
+        "thresholds": rules.rules,
+        "min_fill_count": min_fill_count, "min_notional_usd": min_notional_usd,
+    }
+
+
+async def _build_report_cached(params: dict) -> tuple[dict, bool]:
+    """带缓存的报告聚合构建（P3-5）。
+
+    export-html 与 report-summary 复用同一缓存 key：导出内容与页面视图
+    口径一致，重复导出不再重复全量计算。返回 (data, from_cache)。
+    """
+    cache_key = TcaCacheManager.make_key("monitoring:report-summary", params)
+    cached = await _cache.get(cache_key)
+    if cached is not None:
+        return cached, True
+    data = TcaReportAggregator().build_report(
+        params["start"], params["end"],
+        broker=params["broker"], algo=params["algo"], symbol=params["symbol"],
+        exchange=params["exchange"], metrics=params["metrics"],
+        thresholds=params["thresholds"],
+        min_fill_count=params["min_fill_count"],
+        min_notional_usd=params["min_notional_usd"],
+    )
+    await _cache.set(cache_key, data)
+    return data, False
+
+
 # ── 端点 ──────────────────────────────────────────────────────────────────
 
 
@@ -185,38 +228,24 @@ async def get_report_summary(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
 
-    params = {
-        "start": tr.start_date, "end": tr.end_date, "broker": broker,
-        "algo": algo, "symbol": symbol, "exchange": exchange, "metrics": selected,
-        # 缓存 key 纳入解析后的阈值（sort_keys 归一化；默认阈值与未传等价同 key）
-        "thresholds": rules.rules,
-        "min_fill_count": min_fill_count, "min_notional_usd": min_notional_usd,
-    }
-    cache_key = TcaCacheManager.make_key("monitoring:report-summary", params)
-
-    cached = await _cache.get(cache_key)
-    if cached is not None:
-        return MonitoringResponse(success=True, data=cached, message="报告聚合（缓存）")
-
+    params = _report_cache_params(
+        tr, broker, algo, symbol, exchange, selected, rules,
+        min_fill_count, min_notional_usd,
+    )
     try:
-        data = TcaReportAggregator().build_report(
-            tr.start_date, tr.end_date,
-            broker=broker, algo=algo, symbol=symbol, exchange=exchange,
-            metrics=selected, thresholds=rules.rules,
-            min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
-        )
+        data, from_cache = await _build_report_cached(params)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         logger.error("报告聚合失败: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"报告聚合错误: {exc}")
 
-    await _cache.set(cache_key, data)
     kpi = data.get("kpi") or {}
-    return MonitoringResponse(
-        success=True, data=data,
-        message=f"报告聚合完成：{kpi.get('route_count', 0)} 条路由",
+    message = (
+        "报告聚合（缓存）" if from_cache
+        else f"报告聚合完成：{kpi.get('route_count', 0)} 条路由"
     )
+    return MonitoringResponse(success=True, data=data, message=message)
 
 
 @router.get("/api/tca/monitoring/anomaly-thresholds", response_model=MonitoringResponse)
@@ -267,10 +296,12 @@ async def export_tca_html(
         raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
 
     try:
-        report = TcaReportAggregator().build_report(
-            tr.start_date, tr.end_date,
-            broker=broker, algo=algo, symbol=symbol, exchange=exchange,
-            metrics=selected, thresholds=rules.rules, min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
+        # P3-5：与 report-summary 共用缓存构建（同 key 同口径），重复导出免重算
+        report, _ = await _build_report_cached(
+            _report_cache_params(
+                tr, broker, algo, symbol, exchange, selected, rules,
+                min_fill_count, min_notional_usd,
+            )
         )
         health = _load_health_appendix(tr.start_date, tr.end_date)
     except ValueError as exc:

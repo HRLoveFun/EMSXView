@@ -23,6 +23,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -40,6 +41,14 @@ try:
     HAS_REDIS = True
 except ImportError:
     HAS_REDIS = False
+
+# P3-2 余项：市场时段按美东时区判定（原实现用服务器本地时间，非 ET 部署时
+# TTL 策略失准）。Windows 上 zoneinfo 依赖 tzdata 包，缺失时回退本地时间。
+try:
+    from zoneinfo import ZoneInfo
+    _MARKET_TZ = ZoneInfo("America/New_York")
+except Exception:
+    _MARKET_TZ = None
 
 
 @dataclass
@@ -101,18 +110,24 @@ class TcaCacheManager:
         self._config = config or CacheConfig()
         self._lru = LRUCache(self._config.lru_max_size) if self._config.enable_lru else None
         self._redis: Optional[Any] = None
+        # P3-2：client 创建锁，避免并发协程竞态创建多个 client（其一泄漏）
+        self._redis_lock = asyncio.Lock()
 
     async def _get_redis(self) -> Optional[Any]:
         if not HAS_REDIS or not self._config.enable_redis:
             return None
         if self._redis is None:
-            try:
-                self._redis = aioredis.from_url(
-                    self._config.redis_url, decode_responses=True
-                )
-            except Exception:
-                logger.warning("Redis connection failed, disabling L2 cache", exc_info=True)
-                return None
+            async with self._redis_lock:
+                if self._redis is None:
+                    try:
+                        # 注意：from_url 为惰性连接，此处捕获不到真实连接失败；
+                        # 连接错误由 get/set 处的 try/except 降级。
+                        self._redis = aioredis.from_url(
+                            self._config.redis_url, decode_responses=True
+                        )
+                    except Exception:
+                        logger.warning("Redis connection failed, disabling L2 cache", exc_info=True)
+                        return None
         return self._redis
 
     @staticmethod
@@ -122,11 +137,12 @@ class TcaCacheManager:
         return f"{prefix}:{digest}"
 
     def _get_ttl(self) -> int:
-        now = datetime.now()
+        """按美股常规时段（周一~周五 9:30-16:00 ET）取短 TTL，其余取长 TTL。"""
+        now = datetime.now(_MARKET_TZ) if _MARKET_TZ else datetime.now()
         is_market_hours = (
             now.weekday() < 5
-            and datetime(now.year, now.month, now.day, 8, 30) <= now
-            and now <= datetime(now.year, now.month, now.day, 16, 30)
+            and datetime(now.year, now.month, now.day, 9, 30, tzinfo=now.tzinfo) <= now
+            and now <= datetime(now.year, now.month, now.day, 16, 0, tzinfo=now.tzinfo)
         )
         return self._config.market_hours_ttl if is_market_hours else self._config.ttl_seconds
 
@@ -161,15 +177,21 @@ class TcaCacheManager:
                 logger.debug("Redis set failed for key %s", key, exc_info=True)
 
     async def invalidate(self, prefix: Optional[str] = None) -> int:
+        """失效缓存。
+
+        prefix 给定时同时清 L1 与 Redis（P2-7：SCAN 增量迭代替代 KEYS，
+        避免阻塞整个 Redis 键空间）；prefix 为 None 时仅清 L1
+        （不 flushdb——Redis 实例可能承载 handoff 等其他数据）。
+        """
         count = 0
         if self._lru:
             count += self._lru.invalidate(prefix)
         redis = await self._get_redis()
         if redis and prefix:
             try:
-                keys = await redis.keys(f"{prefix}*")
-                if keys:
-                    count += await redis.delete(*keys)
+                keys = [key async for key in redis.scan_iter(match=f"{prefix}*")]
+                for i in range(0, len(keys), 500):
+                    count += await redis.delete(*keys[i:i + 500])
             except Exception:
                 logger.debug("Redis invalidate failed", exc_info=True)
         return count

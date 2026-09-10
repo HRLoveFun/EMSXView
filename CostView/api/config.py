@@ -7,7 +7,10 @@ import os
 os.environ.setdefault("EMSXVIEW_HANDOFF_BACKEND", "redis")
 os.environ.setdefault("EMSXVIEW_REDIS_URL", "redis://localhost:6379/0")
 
-HOST: str = os.getenv("COSTVIEW_HOST", "0.0.0.0")
+# P1-3 整改：默认仅绑定回环地址——服务无鉴权且含写端点（recommendations/pin），
+# 暴露面收敛为 nginx 同机反代（README 拓扑）。需跨机直连时显式设置
+# COSTVIEW_HOST=0.0.0.0 并自行承担网络边界控制（防火墙/反代鉴权）。
+HOST: str = os.getenv("COSTVIEW_HOST", "127.0.0.1")
 PORT: int = int(os.getenv("COSTVIEW_PORT", "8002"))
 
 # 数据目录统一从 DataPipeline.config 派生（ADR-0012 单一来源 + 009-external-data-store
