@@ -70,6 +70,28 @@ EXPLAIN QUERY PLAN SELECT ... ;   -- 确认是否走索引、是否出现 SCAN T
 **本项目现状**：`vite.config.ts` 已按 `manualChunks` 切分 vendor（react / radix / icons / charts / ui），
 体积问题的第一嫌疑通常是**未按需引入**（整库 import、未懒加载的模块 chunk）。
 
+### 3.4 无 React DevTools 插件时的替代路径
+
+DevTools Profiler 不可用（无插件 / 无法录制）时，按下列顺序降级 —— **不要因为拿不到火焰图就跳过后端与前端的实测**：
+
+| 方案 | 能力 | 代价 | 局限 |
+|---|---|---|---|
+| **A. Vitest + `<React.Profiler>`** | commit 次数、`actualDuration`（组件级分解）；可做 A/B 对比（内联 props vs `useMemo`）；**可回归、可进 CI** | 零浏览器、零插件 | jsdom 无 layout/paint，测的是 React 渲染时间而非浏览器总耗时 |
+| **B. `why-did-you-render`** | 控制台逐条输出「为何重渲染」（引用变化、props 相等但身份不同） | 仅 dev 依赖 + 一行 init | 仍需打开页面；输出为文本，无火焰图 |
+| **C. 无头浏览器 + `MutationObserver` / `PerformanceObserver`** | 真实浏览器下的 **DOM 变更量**（重渲染的代理指标）与 **长任务（Long Task API）**；真实 layout/paint | 需 Playwright/agent-browser 等驱动 | 无法直接给出 React 组件级归属 |
+| **D. `npx vite-bundle-visualizer`** | 打包体积归因（treemap/JSON） | 零交互 | 只覆盖体积，不覆盖运行时渲染 |
+
+**判定标准（三条问题各自对应的最低要求）**：
+
+- `PF-07` 下标 key → 看**列表重排时是否整段重建**：A 的 commit 次数或 C 的 DOM 变更量即可判定；
+- `PF-07` 内联 props 破坏 memo →  **A 的 A/B 对比最直接**（同一组件，`useMemo` 前后 commit 次数对比）；
+- `PF-08` Context value 未 memo → A 统计消费者组件在父组件重渲染时的 commit 次数即可；
+- 「首屏/交互是否真的慢」→ 只有 **C**（真实浏览器 + Long Task）能回答；**D** 负责体积维度。
+
+**推荐组合**：**A（主）+ D（补充）**，需要真实浏览器指标时再加 C。
+A 的测试文件置于模块 `__tests__/`（`.codebuddy/rules/coding-style.md` 文件放置规范），
+并断言「commit 次数不超过 N」以便回归拦截。
+
 ---
 
 ## 四、自动化守门（可选集成）
