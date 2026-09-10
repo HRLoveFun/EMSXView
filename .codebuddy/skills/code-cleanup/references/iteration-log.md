@@ -250,6 +250,25 @@
 - **未执行（下轮）**：PF-06 profiler 实测（路径 A 在线 py-spy 采样 / 路径 B 离线 cProfile 基准，
   需服务运行或日期区间）、前端渲染热点录制（PF-07/PF-08，需 React DevTools Profiler）。
 
+### 2026-09-10 · 前端实测（方案 A / C / D）
+
+- **A（Vitest + React.Profiler）**：新增 `settings-nav.test.tsx`（3 用例）——commit 计数、
+  导航回调正确性、渲染耗时冒烟预算（<50ms）。**先决更正**：检索发现前端**已有** 17 个测试文件 /
+  136 个测试全绿（此前误判「无前端测试」，根因是检索 glob 未按预期递归）。
+- **C（无头浏览器 + MutationObserver / PerformanceObserver，Playwright 驱动 dev server 5173）**：
+  切换 Execution / Cost View / Market View / Settings 视图，累计 **317 次 DOM mutation / 75 个
+  节点变更 / 0 个长任务（>50ms）** → `PF-07`/`PF-08` 命中在当前数据规模（5 订单 / 11 行表格）
+  下**不构成实测性能问题**，属规模增长后才显现的潜在项。
+- **D（体积归因）**：`npm run build` 9.68s（2643 modules），分块表（raw / gzip）：
+  vendor-charts 265/60.5KB、ExecutionModule 259/65.9KB、vendor-misc 190/65.4KB、
+  vendor-react 189/59.2KB、module-costview 150/36.2KB、vendor-radix 106/29.8KB、
+  vendor-ui 92/26.1KB、module-marketview 34/9.2KB、index 28/9.4KB、css 61/11.4KB、
+  vendor-icons 16/5.5KB（总计约 1.39MB / gzip 378KB）。
+  **构建警告**：`Circular chunk: vendor-misc -> vendor-react -> vendor-misc` ——
+  `manualChunks` 造成的循环 chunk，是体积/初始化顺序维度的**真实问题**（待单独处理）。
+- **教训**：「存在性」结论（有没有测试/文件/引用）**必须用第二种方式复核**——
+  本次 `search_content` 的 glob 未递归，导致误判「前端无测试」并写进了测试文件注释（已更正）。
+
 ### 2026-09-10 · PF-06 实测（路径 B 离线基准 + 路径 A 在线 py-spy 采样）
 
 **环境事实（先探活再动手，避免重复起服务）**：后端 (3000, PID 59972) 与 Vite dev server
