@@ -9,6 +9,12 @@
 > 过度抽象/不必要设计模式/重复代码块/复杂度超标）由 `scripts/quality_gate/`
 > 框架检测，规则与量化模型详见 [`docs/spec/quality-gate.md`](quality-gate.md)。
 > AP-xx 与 OE-xx 共用同一套 CLI / 基线 / 报告 / pre-commit 集成。
+>
+> **清理与性能热点（CL-xx / PF-xx）**：冗余文件、过时符号、无用逻辑，以及
+> 高耗时/高内存热点，由 `scripts/cleanup/` 检测（`.codebuddy/skills/code-cleanup/`
+> 提供工作流、规则集与删除安全协议），规则见
+> [`skill 规则集`](../../.codebuddy/skills/code-cleanup/references/ruleset-cl.md)，
+> 决策记录见 [ADR-0017](adr/0017-cleanup-and-perf-hotspot-mechanism.md)。
 
 ---
 
