@@ -264,19 +264,7 @@ class BloombergEMSXService:
         with self._sub.data_lock:
             orders = list(self._sub.orders.values())
         orders = [o for o in orders if o.symbol]
-        # ── 诊断日志：检查目标订单是否在缓存中 ──
-        _TRACE_IDS = {"4926854", "5190560"}
-        cached_ids = set(self._sub.orders.keys())
-        trace_hits = cached_ids & _TRACE_IDS
-        if trace_hits:
-            logger.warning("TRACE_GET_ORDERS: 目标订单 %s 在缓存中，symbol=%s",
-                trace_hits, [(i, self._sub.orders[i].symbol) for i in trace_hits])
-        trace_miss = _TRACE_IDS - cached_ids
-        if trace_miss:
-            logger.warning("TRACE_GET_ORDERS: 目标订单 %s 不在缓存中，缓存共 %d 个订单",
-                trace_miss, len(cached_ids))
         logger.info("Returning %d orders from subscription cache", len(orders))
-        # ───────────────────────────────────────────────
 
         # Build order -> lastPrice map from route data
         order_last_prices: Dict[str, float] = {}
@@ -303,26 +291,11 @@ class BloombergEMSXService:
 
         # Save enriched data back to cache + inject permfail last-prices
         with self._sub.data_lock:
-            enriched_ids_before = set(self._sub.orders.keys())
             for order in enriched:
                 permfail_px = self._enrich.permfail_last_prices.get(order.symbol)
                 if permfail_px is not None and permfail_px > 0:
                     order.lastPrice = permfail_px
                 self._sub.orders[order.id] = order
-            # ── 诊断日志：写回后检查目标订单是否仍在缓存中 ──
-            _TRACE_IDS = {"4926854", "5190560"}
-            enriched_ids = {o.id for o in enriched}
-            trace_in_cache = _TRACE_IDS & set(self._sub.orders.keys())
-            trace_in_enriched = _TRACE_IDS & enriched_ids
-            if trace_in_cache:
-                logger.warning("TRACE_WRITEBACK: 目标订单 %s 写回后仍在缓存中", trace_in_cache)
-            if trace_in_enriched and not trace_in_cache:
-                logger.error("TRACE_WRITEBACK: 目标订单 %s 在 enriched 列表中存在但写回后丢失！enriched 共 %d 条，缓存前后: %d → %d",
-                    trace_in_enriched, len(enriched), len(enriched_ids_before), len(self._sub.orders))
-            if not trace_in_enriched and not trace_in_cache:
-                logger.warning("TRACE_WRITEBACK: 目标订单 %s 既不在 enriched 列表也不在缓存中（%d条enriched, %d条缓存）",
-                    _TRACE_IDS, len(enriched), len(self._sub.orders))
-            # ──────────────────────────────────────────────────
         orders = enriched
 
         if filters:
