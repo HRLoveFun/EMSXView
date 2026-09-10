@@ -2,7 +2,7 @@
 Query CLI Engine — prebuilt queries for convenient CostView data retrieval.
 
 Provides a QueryEngine class with common query patterns against both
-raw_fills.db and processed_fills.db, with output formatting support.
+raw_fills.db and processed_fills.db.
 
 Usage (via __main__.py):
     python -m src --query fills --date 20260408
@@ -16,9 +16,6 @@ Usage (via __main__.py):
 
 from __future__ import annotations
 
-import csv
-import io
-import json
 import logging
 import sqlite3
 from typing import Any, Dict, List, Optional
@@ -203,56 +200,3 @@ class QueryEngine:
             conn.close()
 
         return summary
-
-
-def format_output(data, fmt: str = "table") -> str:
-    """Format query results for display.
-
-    Args:
-        data: DataFrame, list of dicts, or dict.
-        fmt: Output format — 'table', 'csv', or 'json'.
-    """
-    if isinstance(data, pd.DataFrame):
-        if data.empty:
-            return "(no results)"
-        if fmt == "json":
-            return data.to_json(orient="records", indent=2, default_handler=str)
-        elif fmt == "csv":
-            return data.to_csv(index=False)
-        else:
-            try:
-                from tabulate import tabulate
-                return tabulate(data, headers="keys", tablefmt="simple", showindex=False)
-            except ImportError:
-                return data.to_string(index=False)
-
-    elif isinstance(data, list):
-        if not data:
-            return "(no results)"
-        if fmt == "json":
-            return json.dumps(data, indent=2, default=str)
-        elif fmt == "csv":
-            if isinstance(data[0], dict):
-                output = io.StringIO()
-                writer = csv.DictWriter(output, fieldnames=data[0].keys())
-                writer.writeheader()
-                writer.writerows(data)
-                return output.getvalue()
-            return str(data)
-        else:
-            try:
-                from tabulate import tabulate
-                return tabulate(data, headers="keys", tablefmt="simple")
-            except ImportError:
-                return "\n".join(str(row) for row in data)
-
-    elif isinstance(data, dict):
-        if fmt == "json":
-            return json.dumps(data, indent=2, default=str)
-        else:
-            lines = []
-            for k, v in data.items():
-                lines.append(f"  {k}: {v}")
-            return "\n".join(lines)
-
-    return str(data)
