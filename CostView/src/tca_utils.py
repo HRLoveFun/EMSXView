@@ -13,13 +13,10 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import datetime
 from typing import Any, Optional
 
 import pandas as pd
 
-from data_access.common.exchange_tz import convert_ny_to_local
-from data_access.config import Config
 from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -80,72 +77,9 @@ def scorecard_filters_to_dict(filters: ScorecardFilters) -> dict:
     }
 
 
-def derive_local_exchange_datetime(
-    datetime_value: Any, exchange_code: Any,
-) -> Optional[datetime]:
-    """Convert a UTC datetime to local exchange time."""
-    if datetime_value is None or exchange_code is None:
-        return None
-    if pd.isna(datetime_value) or pd.isna(exchange_code):
-        return None
-    parsed = pd.to_datetime(datetime_value, errors="coerce")
-    if pd.isna(parsed):
-        return None
-    local_dt = convert_ny_to_local(parsed.to_pydatetime(), str(exchange_code))
-    if local_dt is None:
-        return None
-    return local_dt.replace(tzinfo=None)
-
-
-def derive_local_exchange_time(
-    datetime_value: Any, exchange_code: Any,
-) -> Optional[str]:
-    """Convert UTC datetime → local exchange time string."""
-    local_dt = derive_local_exchange_datetime(datetime_value, exchange_code)
-    if local_dt is None:
-        return None
-    return local_dt.strftime(Config.TIME_FORMAT)
-
-
-def floor_time_to_10s(value: datetime) -> str:
-    """Floor a datetime to the nearest 10-second bucket."""
-    floored_seconds = (value.second // 10) * 10
-    floored = value.replace(second=floored_seconds, microsecond=0)
-    return floored.strftime(Config.TIME_FORMAT)
-
-
-def time_key(value: Any) -> Optional[str]:
-    """Extract HH:MM:SS from a datetime-like value."""
-    if value is None or pd.isna(value):
-        return None
-    text = str(value).strip()
-    if len(text) >= 8:
-        return text[-8:]
-    return None
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Numeric helpers
 # ═══════════════════════════════════════════════════════════════════════════
-
-def side_sign(side: Any) -> int:
-    """Map side string → numeric sign: Buy=-1, Sell=+1."""
-    if side is None or pd.isna(side):
-        return 0
-    side_upper = str(side).strip().upper()
-    if side_upper in {"B", "BUY"}:
-        return -1
-    if side_upper in {"S", "SELL"}:
-        return 1
-    return 0
-
-
-def to_optional_float(value: Any) -> Optional[float]:
-    """Safely convert a value to float or None."""
-    if value is None or pd.isna(value):
-        return None
-    return float(value)
-
 
 def mean_numeric(
     values: list[Optional[float]] | tuple[Optional[float], ...] | Any,

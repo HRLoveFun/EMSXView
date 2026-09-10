@@ -819,11 +819,6 @@ def _trunc(text: str, max_len: int) -> str:
     return text if len(text) <= max_len else text[: max_len - 1] + "…"
 
 
-def _css_id(text: Any) -> str:
-    """转义为 CSS 标识符安全的 id（仅保留字母数字与 -_，其余转义）。"""
-    return "".join(c if c.isalnum() or c in "-_" else f"-{ord(c):x}" for c in str(text))
-
-
 def _esc(text: Any) -> str:
     """HTML 转义。"""
     return (

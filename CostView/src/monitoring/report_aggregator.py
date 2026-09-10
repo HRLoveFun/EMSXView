@@ -32,9 +32,6 @@ _RANKING_LIMIT = 20
 #: PWP 档位（数值为百分比）
 _PWP_RATE_LABELS = [("pwp_5", 5), ("pwp_10", 10), ("pwp_15", 15),
                     ("pwp_20", 20), ("pwp_25", 25)]
-#: 小计价单位货币（GBp=便士、ILs=阿高洛、ZAr=分）：成交价以 1/100 本币计价，
-#: USD 成交金额换算时需 ÷100（与 backend order_projections 的 GBP/ZAR ÷100 对齐）。
-_MINOR_UNIT_CCYS: tuple[str, ...] = ("GBp", "ILs", "ZAr")
 
 
 class TcaReportAggregator:
