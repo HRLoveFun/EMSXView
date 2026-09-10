@@ -69,16 +69,6 @@ def iter_classes(tree: ast.Module) -> Iterator[ast.ClassDef]:
             yield node
 
 
-def iter_imports(tree: ast.Module) -> Iterator[tuple[str | None, int]]:
-    """提取 (模块名, level) — 涵盖 ``import X.Y`` 与 ``from .x import y``。"""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                yield alias.name, 0
-        elif isinstance(node, ast.ImportFrom):
-            yield node.module, node.level or 0
-
-
 def base_names(cls: ast.ClassDef) -> list[str]:
     """类基类的简单名称列表（Name.id / Attribute.attr）。"""
     names: list[str] = []
@@ -127,9 +117,6 @@ def cyclomatic_complexity(func: ast.AST) -> int:
         elif isinstance(node, ast.match_case):
             cc += 1
     return cc
-
-
-_NESTABLE = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.With, ast.AsyncWith)
 
 
 def nesting_depth(body: list[ast.stmt]) -> int:

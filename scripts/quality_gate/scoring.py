@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .models import Finding, RuleSet, SEVERITY_WEIGHT, Severity
+from .models import Finding, RuleSet, SEVERITY_WEIGHT
 
 
 def oew_score(findings: list[Finding], python_loc: int) -> float:
@@ -16,14 +16,6 @@ def oew_score(findings: list[Finding], python_loc: int) -> float:
     weight_sum = sum(SEVERITY_WEIGHT[f.severity] for f in findings
                      if f.ruleset is RuleSet.OE)
     return round(weight_sum / kloc, 2)
-
-
-def severity_breakdown(findings: list[Finding]) -> dict[str, int]:
-    """按 severity 统计计数。"""
-    out: dict[str, int] = {s.value: 0 for s in Severity}
-    for f in findings:
-        out[f.severity.value] += 1
-    return out
 
 
 def rule_breakdown(findings: list[Finding]) -> dict[str, int]:
