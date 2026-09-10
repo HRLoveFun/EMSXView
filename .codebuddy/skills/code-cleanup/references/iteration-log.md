@@ -249,3 +249,66 @@
   「测试」与「结构校验」捕获 —— 印证 skill 的两条纪律（**批间必测**、**改动后必验**）不是形式主义。
 - **未执行（下轮）**：PF-06 profiler 实测（路径 A 在线 py-spy 采样 / 路径 B 离线 cProfile 基准，
   需服务运行或日期区间）、前端渲染热点录制（PF-07/PF-08，需 React DevTools Profiler）。
+
+### 2026-09-10 · PF-06 实测（路径 B 离线基准 + 路径 A 在线 py-spy 采样）
+
+**环境事实（先探活再动手，避免重复起服务）**：后端 (3000, PID 59972) 与 Vite dev server
+(5173, PID 54784) **已在运行**；8001/8002/Redis 未起；`redis` 包缺失。
+`py-spy 0.4.2` 安装于 `D:\anaconda3\Scripts\py-spy.exe`。
+
+**路径 B —— 离线 cProfile（TCA 服务路径，日期区间 20260830-20260831；仅 20260831 有数据）**
+
+| 工作负载 | wall | 时间去向 |
+|---|---|---|
+| `build_tca_report(include_time_series=True)` | 0.175s | sqlite `fetchall` 0.065 / `execute` 0.062 / `get_time_series` 0.100 |
+| `build_tca_report(include_time_series=False)` | 0.034s | 仅 `tca_route_summary` 查询 |
+| `build_order_report(limit=200)` | 0.000s | 该日期无 order 聚合数据 |
+| `build_scorecard(broker_strategy)` | 0.203s | `execute` ×20 = 0.105 / `_row_to_route_summary` ×2000 = 0.034 |
+
+→ **结论：TCA 请求路径无 CPU 热点**，耗时全部是 SQLite IO 且总量 < 0.25s。
+`PF-06` 中 `tca_utils.aggregate_cohorts`(720)、`anomaly_query.query_anomaly_routes`(1260)
+在此负载下不构成瓶颈。**这正说明「热度分只用于排序，必须实测」**。
+
+**路径 A —— 在线 py-spy 采样（针对运行中后端）**
+
+- `py-spy dump`：**唯一持有 GIL 的活跃线程是 `mktdata-subscription`**，栈落在
+  `_maybe_query_round_lot_sizes (enrichment.py:610)`；MainThread 处于 asyncio 空转（无请求）。
+- 空闲态 20s 采样（377 样本，叶帧自耗时）：
+
+  | 占比 | 函数 | 位置 |
+  |---|---|---|
+  | 28.4% | `_update_mktdata_subscriptions` | `enrichment.py:308` |
+  | 26.3% | `_maybe_query_round_lot_sizes` | `:610` |
+  | 11.7% + 6.9% | `_maybe_query_ticker_currencies` | `:547` / `:548` |
+  | 5.8% | `_update_mktdata_subscriptions` | `:320` |
+  | 2.7% / 1.1% | `_maybe_query_round_lot_sizes` | `:609` / `:611` |
+
+**根因（代码确证）**：`_mktdata_subscription_loop`（`enrichment.py:154`）的 `while` 循环
+**没有任何 sleep / 节流**，唯一节奏来自 `sess.nextEvent(2000)` —— 当会话有事件积压时可退化为满速自旋；
+且每轮**重复构造 3 个 O(#orders) 集合**（`:306`、`:544`、`:606`），并在热循环内保留调试日志
+（`:310-317` 的硬编码 `[MKTDATA CHECK]`、`:612-628` 的 `[ROUND_LOT]` INFO）。
+
+**日志侧交叉佐证（独立证据链）**
+
+| 日志 | 规模 | 主要消息 |
+|---|---|---|
+| `logs/api/emsx_api.log` | 3.2 MB | `WARNING TRACE_GET_ORDERS` **5,380**；`WARNING TRACE_WRITEBACK` **5,380**；`[MKTDATA PERMFAIL REFDATA]` **~5,958**；`Failed to send ... Duplicate` **577** |
+| `logs/service/backend-20260901-175225.log` | **2000 MB（2 GB / 2 天）** | 尾部主体为反复的 **Python traceback 帧** → 历史错误循环 |
+| `logs/service/backend-20260907-214050.log` | 2.1 MB（当前运行） | `GET /api/startup-status` 2,394；`/api/exchanges/handoff/candidates` 1,272；`/api/broker-recommendations` 1,272（前端轮询） |
+
+**由实测产出、待授权修复的问题清单**
+
+1. 后台循环**无节流**（空闲即吃 CPU）→ 加 `stop_event.wait(0.2~0.5s)` 或改事件驱动；
+2. 每轮重建 O(#orders) 集合 → 增量缓存（orders 变更时才重建）；
+3. `refdata` 请求**重复发送被拒**（`Duplicate` 577 次）→ `_*_pending` / `_*_queried_tickers`
+   守卫存在竞态或覆盖不全（与热点函数完全对应）；
+4. **调试日志遗留**：`TRACE_*` 前缀以 `WARNING` 级别刷 1 万余次；热循环内 `[MKTDATA CHECK]` / `[ROUND_LOT]` INFO；
+5. 历史 2 GB traceback 日志所示错误循环是否已消除，需查当前日志的异常频率。
+
+> 「复现一段使用」在本例中**不需要人工操作**：服务自身的前端轮询
+> （`startup-status` / `handoff/candidates` / `broker-recommendations`）已构成真实负载，
+> 而 `py-spy dump` + 日志频率足以定位根因 —— **先做零负载采样，再决定是否造负载**。
+
+**能力缺口（新增）**：CL 规则**不检查日志语句**，故「级别错用 / TRACE 遗留 / 热循环内 INFO」
+这类问题只能靠人工或外部工具发现 —— 建议新增 `CL-11 调试日志遗留`（热循环内 INFO/WARNING、
+`TRACE_`/`DEBUG_` 前缀但非 DEBUG 级别、硬编码 ticker 的 check 分支）。
