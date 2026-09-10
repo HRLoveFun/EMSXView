@@ -190,3 +190,28 @@
   （须 before/after 实测对比）、`PF-06` 热点函数的真实 profiler 采样（需可复现业务场景与日期区间）。
 - **验证**：`pytest` backend 192 / CostView 103 / 门禁单测 63 全绿；四个 `audit_*.py` 全绿；
   `compileall` exit 0；cleanup 复扫 **清理项 0**。
+
+#### 补充取证（并入 main 后，为两项待办做决策准备）
+
+- **`raw_fills.order_as_of_date` 的格式契约（权威来源：管道仓库）**：
+  `DataPipeline/processing/fill_cleaner.py:113` 记为 **YYYYMMDD**（管道分区键）；
+  `DataPipeline/processing/tca_route_metrics.py:200` 明确「两表格式不一致：raw_fills 为 YYYY-MM-DD、
+  processed_fills 为 YYYYMMDD」；`analysis/regime/fill_regime_tagger.py:14` 称 processed_fills 为
+  **legacy 'YYYYMMDD'**。本仓库只读抽样（LIMIT 3）得到 8 位 `'20260305'`。
+  → 结论：**`raw_fills.order_as_of_date` 历史上格式混杂**，这解释了 `get_fills_for_date()`
+  为何采用三级 fallback（等值 → substr → source_date）；**L2 不是死分支，而是针对历史
+  ISO 格式数据的兼容分支，不可删除**。
+- **`raw_fills` 索引清单与改写可行性（只读实测）**：
+  `idx_raw_source_date(source_date)` / `idx_raw_order_date(order_as_of_date)` / `idx_raw_ticker(Ticker)` 均存在。
+  | 写法 | 计划 |
+  |---|---|
+  | `order_as_of_date = '2025-09-15'`（L1） | `SEARCH USING INDEX idx_raw_order_date` |
+  | `substr(order_as_of_date, 1, 10) = '2025-09-15'`（L2 现状） | **`SCAN`** |
+  | `order_as_of_date >= '2025-09-15' AND < '2025-09-16'`（L2 改写） | `SEARCH USING INDEX idx_raw_order_date` |
+  → L2 可**等价改写**为范围条件（对 8 位、ISO 日期、ISO 日期时间、NULL 与短值逐一推演均等价），
+  预期由 1433 万行 `SCAN` 降为索引 `SEARCH`；**待授权后实施并做 before/after 计时对比**。
+- **`fills.py:102 get_all_processed_fills()` 的真实性质（静态确证）**：
+  docstring 明写 "Return all processed fills"（全表读取为**有意设计**），且**全仓零调用方**
+  → 它是**死方法**而非「性能缺陷」；正确处置是**删除**（或明确保留为导出接口并豁免），
+  而**不是**加 `LIMIT`/`WHERE`（那会违背其文档化契约）。
+  该案例同时暴露能力边界：`CL-02` 不判类方法，故此类「类方法死代码」只能靠 vulture 或人工发现。
