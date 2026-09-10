@@ -122,8 +122,9 @@ class MarketStoreReader:
         """获取市场上下文 (DuckDB/Parquet 路径)。
 
         从 Parquet 查询 before_interval_close / interval_close / bar completeness。
-        ADV/volatility 需由调用者从 bdib_daily_summary 补充
-        (完整实现见 tca_query_builder._get_market_context_duckdb)。
+        ADV/volatility 需由调用者从 bdib_daily_summary 补充。
+        （CostView.tca_query_builder 中的 SQLite+ADV 补全实现已随 010 迁移
+        预计算删除——报告期市场上下文现由 tca_route_summary 预算列承载。）
 
         Args:
             tickers_and_dates: (equ_ticker, order_as_of_date) 集合

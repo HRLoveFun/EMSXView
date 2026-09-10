@@ -9,9 +9,14 @@
 """
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
+
 import pytest
 
-from platform_data.contracts import TcaOrderAggregate
+from data_access.config import Config
+from platform_data.contracts import TcaOrderAggregate, TcaFilters
+from CostView.src import tca_query_service as tca_query_service_module
 from CostView.src.tca_query_service import TcaQueryService
 
 
@@ -121,3 +126,61 @@ class TestOrderAggregation:
 
         assert agg.trading_cost is None
         assert agg.wagner_is == pytest.approx(100.0)  # 其他字段不受影响
+
+
+# ── P1-1 回归：order 聚合不受 route 级分页影响 ────────────────────────────────
+
+def _make_cross_page_fill_bdib(path: Path) -> None:
+    """构造跨页场景库：订单 O1 有 3 条 route（页大小 2 时第 3 条落入第二页）。"""
+    conn = sqlite3.connect(str(path))
+    conn.execute("""
+        CREATE TABLE tca_route_summary (
+            OrderId TEXT, RouteId TEXT, order_as_of_date TEXT,
+            Exchange TEXT, Account TEXT, equ_ticker TEXT, Currency TEXT,
+            Side TEXT, Amount REAL, RouteShares REAL, Type TEXT,
+            LimitPrice REAL, StopPrice REAL, Broker TEXT, StrategyType TEXT,
+            algo TEXT, TraderName TEXT,
+            fill_count INTEGER, fill REAL, fill_continuous REAL, fill_close REAL,
+            par_rate REAL, par_rate_continuous REAL, par_rate_close REAL,
+            p_avg REAL, p_avg_continuous REAL,
+            pnl_vwap REAL, pnl_vwap_continuous REAL,
+            RPM REAL, RPM_continuous REAL,
+            pwp_5 REAL, pwp_10 REAL, pwp_15 REAL, pwp_20 REAL, pwp_25 REAL,
+            PRIMARY KEY (OrderId, RouteId, order_as_of_date)
+        )
+    """)
+    # 每条 route：fill=100, RouteShares=1000, p_avg=10（Σfill=300, Σshares=3000）
+    conn.executemany(
+        """INSERT INTO tca_route_summary
+           (OrderId, RouteId, order_as_of_date, Exchange, equ_ticker, Currency,
+            Side, Amount, RouteShares, Broker, StrategyType, algo, TraderName,
+            fill_count, fill, fill_continuous, fill_close, p_avg) VALUES
+           (?, ?, '20260421', 'US', 'AAPL US Equity', 'USD', 'Buy',
+            3000.0, 1000.0, 'BrokerA', 'VWAP', 'VWAP', 'Trader1',
+            1, ?, 100.0, 0.0, 10.0)""",
+        [("O1", f"R{i}", 100.0) for i in (1, 2, 3)],
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestBuildOrderReportPagination:
+    """P1-1 回归：跨页订单的聚合必须完整（货币成本 SUM / 完成率不被页边界截断）。"""
+
+    def test_cross_page_order_fully_aggregated(self, tmp_path: Path, monkeypatch) -> None:
+        """页大小 2 时 O1 的 R3 落在第二页，聚合仍应覆盖全部 3 条 route。"""
+        bdib = tmp_path / "fill_bdib.db"
+        _make_cross_page_fill_bdib(bdib)
+        # 压小页大小迫使分页跨越订单边界；开启聚合开关（默认 env 门控关闭）
+        monkeypatch.setattr(tca_query_service_module, "_ROUTE_PAGE_SIZE", 2)
+        monkeypatch.setattr(Config, "TCA_ORDER_AGG_ENABLED", True)
+
+        svc = TcaQueryService(fill_bdib_db_path=str(bdib))
+        filters = TcaFilters(start_date="20260421", end_date="20260421")
+        aggregates = svc.build_order_report(filters)
+
+        assert len(aggregates) == 1
+        agg = aggregates[0]
+        assert agg.route_count == 3
+        assert agg.fill == pytest.approx(300.0)
+        assert agg.par_rate == pytest.approx(300.0 / 3000.0)

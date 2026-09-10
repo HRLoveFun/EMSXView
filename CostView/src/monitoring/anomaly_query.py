@@ -72,6 +72,10 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     "price_movement_pct": {"mode": "absolute-above", "threshold": 1, "enabled": True},
 }
 
+#: 合法的比较模式白名单（P2-6：payload 内 mode 缺失或非法时 fail-fast，
+#: 此前任意字符串会被静默按 above 处理，阈值语义被无声改变）
+_VALID_MODES: tuple[str, ...] = ("absolute-above", "above", "below")
+
 
 def get_default_thresholds() -> dict[str, dict[str, Any]]:
     """返回异常路由判定默认阈值（后端为唯一真相源，前端从此拉取）。
@@ -100,18 +104,35 @@ class ThresholdRules:
 
     @classmethod
     def from_payload(cls, payload: Optional[dict[str, Any]]) -> "ThresholdRules":
-        """从请求 payload 构造；None/空 → 默认阈值。校验字段类型与白名单。"""
+        """从请求 payload 构造；None/空 → 默认阈值。校验字段类型与白名单。
+
+        P2-6 整改：
+        - mode 必须属于 _VALID_MODES，否则抛 ValueError（调用方转 422），
+          不再静默回退为 above；
+        - enabled 必须为 JSON 布尔值，不再用 bool() 强转（字符串 "false"
+          此前会被强转为 True）。
+        """
         merged: dict[str, dict[str, Any]] = {}
         for key in _RULE_KEYS:
             base = dict(DEFAULT_THRESHOLDS[key])
             if payload and key in payload and isinstance(payload[key], dict):
                 src = payload[key]
                 if "mode" in src:
+                    if src["mode"] not in _VALID_MODES:
+                        raise ValueError(
+                            f"规则 {key} 的 mode 非法: {src['mode']!r}，"
+                            f"可选: {', '.join(_VALID_MODES)}"
+                        )
                     base["mode"] = src["mode"]
                 if "threshold" in src:
                     base["threshold"] = float(src["threshold"])
                 if "enabled" in src:
-                    base["enabled"] = bool(src["enabled"])
+                    if not isinstance(src["enabled"], bool):
+                        raise ValueError(
+                            f"规则 {key} 的 enabled 必须为布尔值，"
+                            f"得到: {src['enabled']!r}"
+                        )
+                    base["enabled"] = src["enabled"]
             merged[key] = base
         return cls(rules=merged)
 
@@ -393,12 +414,16 @@ def _prepare_anomaly_fx(conn) -> bool:
 
 
 def _anomaly_fx_join() -> str:
-    """fill_bdib 汇率回填 LEFT JOIN 片段（回填可用时生效）。"""
+    """fill_bdib 汇率回填 LEFT JOIN 片段（回填可用时生效）。
+
+    P3-4：表名改从 Config 常量取，避免硬编码与配置漂移断裂。
+    """
+    tca = Config.TCA_ROUTE_SUMMARY_TABLE
     return (
         " LEFT JOIN _fbfx"
-        " ON _fbfx.fxf_oid = tca_route_summary.OrderId"
-        " AND _fbfx.fxf_rid = tca_route_summary.RouteId"
-        " AND _fbfx.fxf_oad = tca_route_summary.order_as_of_date"
+        f" ON _fbfx.fxf_oid = {tca}.OrderId"
+        f" AND _fbfx.fxf_rid = {tca}.RouteId"
+        f" AND _fbfx.fxf_oad = {tca}.order_as_of_date"
     )
 
 
@@ -412,7 +437,10 @@ def _anomaly_notional_usd_expr(fbfx_ready: bool, has_fx: bool) -> str:
     if not has_fx:
         return "NULL"
     minor = "CASE WHEN Currency IN ('GBp', 'ILs', 'ZAr') THEN 0.01 ELSE 1.0 END"
-    eff = "COALESCE(tca_route_summary.fx_rate, _fbfx.fb_fx)" if fbfx_ready else "tca_route_summary.fx_rate"
+    tca = Config.TCA_ROUTE_SUMMARY_TABLE
+    eff = (
+        f"COALESCE({tca}.fx_rate, _fbfx.fb_fx)" if fbfx_ready else f"{tca}.fx_rate"
+    )
     return (
         f"CASE WHEN {eff} IS NOT NULL THEN Amount * {eff} * {minor} "
         f"WHEN Currency IS NULL OR Currency = 'USD' THEN Amount * 1.0 "

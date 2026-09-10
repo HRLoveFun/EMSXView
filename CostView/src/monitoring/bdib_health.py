@@ -7,7 +7,9 @@
     missing       — 当日完全无 BDIB 数据，且仍在保留窗口内（可回补）
     unrecoverable — 存在缺口且日期已超出保留窗口（BDIB_API_RETENTION_DAYS，无法回补）
 
-查询全部使用聚合 SQL（GROUP BY 一次完成），避免按日循环的 N+1。
+Parquet 侧使用聚合 SQL（GROUP BY 一次完成）；SQLite 侧按交易日逐日查询
+（复用 idx_raw_bdib_date 索引）——范围级 DISTINCT 在 175M 行级别会 hang
+数十秒，逐日是有意取舍（见 _scan_sqlite docstring）。
 """
 
 from __future__ import annotations
@@ -29,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 #: 缺口明细中 missing_tickers 列表的最大返回长度（防止单日数百 ticker 撑爆响应）
 MAX_MISSING_TICKERS_DETAIL = 50
+
+#: get_health_safe 并发扫描闸（P2-5 整改）：超时被放弃的 daemon 线程仍会继续
+#: 占用 IO/CPU 扫描，无上限并发导出会堆积线程；限流为同时 2 个扫描。
+_HEALTH_SCAN_SEMAPHORE = threading.Semaphore(2)
 
 
 class BdibHealthStatus(str, enum.Enum):
@@ -332,9 +338,11 @@ def get_health_safe(
 
     def _run() -> None:
         try:
-            holder["result"] = health_service().get_health(
-                start_date, end_date, **kwargs
-            )
+            # P2-5：并发闸限流，避免超时线程无限堆积（超时线程仍会跑完当前扫描）
+            with _HEALTH_SCAN_SEMAPHORE:
+                holder["result"] = health_service().get_health(
+                    start_date, end_date, **kwargs
+                )
         except Exception as exc:  # 异常同样降级
             logger.warning("BDIB 健康查询失败（跳过附录）: %s", exc)
             holder["result"] = None

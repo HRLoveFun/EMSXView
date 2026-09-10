@@ -13,8 +13,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-import numpy as np
-
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
@@ -488,19 +486,43 @@ class TcaReportAggregator:
     def _query_pnl_histogram(
         self, conn, where: str, params: list[Any],
     ) -> list[dict[str, Any]]:
-        """pnl_vwap 分布直方图（numpy 等宽分桶）。"""
-        sql = f"""
-            SELECT pnl_vwap FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
-            {where} AND pnl_vwap IS NOT NULL
+        """pnl_vwap 分布直方图（SQL 侧等宽分桶，P2-4 整改）。
+
+        此前将区间内全部 pnl_vwap 行拉入 Python/numpy（年区间百万行级内存
+        峰值）；改为 MIN/MAX + GROUP BY bucket，空间 O(bins)。
         """
-        values = [float(r[0]) for r in conn.execute(sql, params).fetchall()]
-        if not values:
+        base = (
+            f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} {where} "
+            "AND pnl_vwap IS NOT NULL"
+        )
+        row = conn.execute(
+            f"SELECT MIN(pnl_vwap), MAX(pnl_vwap) {base}", params,
+        ).fetchone()
+        if row is None or row[0] is None:
             return []
-        counts, edges = np.histogram(np.array(values), bins=_HISTOGRAM_BINS)
+        lo, hi = float(row[0]), float(row[1])
+        if lo == hi:
+            count = int(conn.execute(
+                f"SELECT COUNT(*) {base}", params,
+            ).fetchone()[0])
+            return [{"lower": round(lo, 4), "upper": round(hi, 4), "count": count}]
+
+        width = (hi - lo) / _HISTOGRAM_BINS
+        # (v - lo) >= 0 恒成立；v == hi 时 bucket == bins，用 MIN(x, bins-1) 收拢末桶
+        sql = f"""
+            SELECT MIN(CAST((pnl_vwap - ?) / ? AS INTEGER), {_HISTOGRAM_BINS - 1}) AS bucket,
+                   COUNT(*) AS n
+            {base}
+            GROUP BY bucket ORDER BY bucket
+        """
+        buckets = conn.execute(sql, [lo, width] + params).fetchall()
         return [
-            {"lower": round(float(edges[i]), 4), "upper": round(float(edges[i + 1]), 4),
-             "count": int(counts[i])}
-            for i in range(len(counts))
+            {
+                "lower": round(lo + b * width, 4),
+                "upper": round(lo + (b + 1) * width, 4),
+                "count": int(n),
+            }
+            for b, n in buckets
         ]
 
     def _query_pwp_curve(

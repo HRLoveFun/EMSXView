@@ -45,10 +45,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# P2-1 整改：关闭 allow_credentials —— 通配符 origin + credentials 组合违反
+# CORS 规范（Starlette 会回显任意 Origin），等于放开全站带凭证跨域。
+# 本服务经 Authorization 头携带 token（由 JS 显式设置，不受 credentials 语义影响），
+# 关闭后前端不受影响；恶意网页也无法再借凭证语义跨域调用。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )

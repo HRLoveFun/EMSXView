@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from platform_data.contracts import (
     SCORECARD_COHORTS,
@@ -43,6 +43,12 @@ from .tca_query_builder import (
 )
 
 logger = logging.getLogger(__name__)
+
+# order 聚合的 route 分页拉取页大小（P1-1：流式分组，避免整表载入内存）
+_ROUTE_PAGE_SIZE = 500
+# order 聚合的订单数防御上限（与 scorecard max_orders 默认值同量级）；
+# 达到上限时在订单边界截断，绝不产生半截订单指标
+_ORDER_AGG_MAX_ORDERS = 10_000
 
 
 class TcaQueryService:
@@ -103,11 +109,17 @@ class TcaQueryService:
             if conn is not None:
                 conn.close()
 
-    def build_tca_report(self, filters: TcaFilters) -> TcaReport:
+    def build_tca_report(
+        self, filters: TcaFilters, *, include_time_series: bool = True,
+    ) -> TcaReport:
         """Assemble a complete TcaReport for the given filters.
 
         主路径：从 tca_route_summary 表直读 34 字段 per-route 数据。
         如果该表不存在或为空，返回 data_source_warning 提示运行 pipeline S5.5。
+
+        P1-2 整改：include_time_series=False 时跳过 fill_bdib 全量时序拉取
+        （每订单数千行的重负载），供不消费时序数据的调用方（如 scorecard
+        分页）使用，避免数百万行查询后丢弃。
         """
         filters = _resolve_date_defaults(filters)
 
@@ -119,13 +131,16 @@ class TcaQueryService:
                 orders=[],
                 data_source_warning=(
                     "tca_route_summary is empty — pipeline stage 5.5 has not yet run. "
-                    "Trigger an update via POST /api/tca/trigger-update."
+                    "Data updates are maintained by the independent EMSXDataPipeline "
+                    "repository; trigger via its Runner (POST /run)."
                 ),
             )
 
-        # 为图表保留 fallback 时序数据
-        route_keys = [(r["OrderId"], r["RouteId"], r["order_as_of_date"]) for r in rows]
-        time_series_map = _get_time_series(self._mgr, route_keys)
+        # 为图表保留 fallback 时序数据（include_time_series=False 时置空跳过）
+        time_series_map: dict[tuple[str, str, str], list[dict]] = {}
+        if include_time_series:
+            route_keys = [(r["OrderId"], r["RouteId"], r["order_as_of_date"]) for r in rows]
+            time_series_map = _get_time_series(self._mgr, route_keys)
 
         orders = self._assemble_report(rows, time_series_map)
 
@@ -158,7 +173,8 @@ class TcaQueryService:
                 broker=filters.broker, symbol=filters.symbol,
                 aggregation="per_order", limit=page_size, offset=offset,
             )
-            page = self.build_tca_report(base_filters)
+            # P1-2：scorecard 只消费聚合字段，跳过全量时序拉取
+            page = self.build_tca_report(base_filters, include_time_series=False)
             if page.data_source_warning and not collected:
                 warning = page.data_source_warning
             collected.extend(page.orders)
@@ -200,26 +216,63 @@ class TcaQueryService:
         - 风险: order 取 max（保守）
         - 时点: min(route 历时) / 最大成交额 route 的历时
 
+        P1-1 整改：聚合在全部匹配 route 上完成（流式分页收集），不再叠加
+        route 级 limit/offset —— 跨页订单不会再出现半截聚合；分页语义由
+        调用方对聚合结果切片实现。达到 _ORDER_AGG_MAX_ORDERS 上限时在
+        订单边界截断（结果只含完整订单）。
+
         仅当 TCA_ORDER_AGG_ENABLED 开启时聚合（否则返回空列表）。
         """
         if not Config.TCA_ORDER_AGG_ENABLED:
             return []
 
         filters = _resolve_date_defaults(filters)
-        rows, _ = _get_tca_route_summaries(self._mgr, filters)
-        if not rows:
-            return []
-
-        # 按 (OrderId, order_as_of_date) 分组
-        groups: dict[tuple[str, str], list[dict]] = {}
-        for r in rows:
-            key = (r["OrderId"], r["order_as_of_date"])
-            groups.setdefault(key, []).append(r)
-
         aggregates: list[TcaOrderAggregate] = []
-        for (order_id, oad), routes in groups.items():
+        for (order_id, oad), routes in self._iter_route_groups(filters):
             aggregates.append(self._aggregate_order(order_id, oad, routes))
+            if len(aggregates) >= _ORDER_AGG_MAX_ORDERS:
+                logger.warning(
+                    "order 聚合达到上限 %d，结果在订单边界截断",
+                    _ORDER_AGG_MAX_ORDERS,
+                )
+                break
         return aggregates
+
+    def _iter_route_groups(
+        self, filters: TcaFilters,
+    ) -> Iterator[tuple[tuple[str, str], list[dict]]]:
+        """按页拉取匹配 route 并按 (OrderId, order_as_of_date) 逐组 yield。
+
+        依赖 _get_tca_route_summaries 的稳定排序
+        （order_as_of_date DESC, OrderId, RouteId）：同一订单的全部 route
+        连续出现，遇到新 key 即前一组完整、可安全聚合——既保证跨页订单
+        聚合正确（P1-1），又无需把全表行载入内存。
+        """
+        offset = 0
+        group: list[dict] = []
+        group_key: Optional[tuple[str, str]] = None
+        while True:
+            page_filters = TcaFilters(
+                order_ids=filters.order_ids, algo=filters.algo,
+                start_date=filters.start_date, end_date=filters.end_date,
+                broker=filters.broker, symbol=filters.symbol,
+                aggregation="aggregated", limit=_ROUTE_PAGE_SIZE, offset=offset,
+            )
+            rows, total = _get_tca_route_summaries(self._mgr, page_filters)
+            if not rows:
+                break
+            for r in rows:
+                key = (r["OrderId"], r["order_as_of_date"])
+                if group_key is not None and key != group_key:
+                    yield group_key, group
+                    group = []
+                group_key = key
+                group.append(r)
+            offset += _ROUTE_PAGE_SIZE
+            if len(rows) < _ROUTE_PAGE_SIZE or offset >= total:
+                break
+        if group and group_key is not None:
+            yield group_key, group
 
     @staticmethod
     def _aggregate_order(order_id: str, oad: str, routes: list[dict]) -> TcaOrderAggregate:
