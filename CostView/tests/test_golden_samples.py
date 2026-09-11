@@ -1,11 +1,16 @@
 """黄金样本回归 — 锁定 TCA 关键指标，防止 SQL/口径改动导致数值漂移。
 
-运行前提（二选一，缺一则整组 skip，不影响常规 CI）：
+运行前提（默认自包含，无需环境变量）：
 1. 存在 tests/golden/*.json 基线（由 CostView/scripts/gen_golden.py 生成）；
-2. 环境变量 EMSXVIEW_GOLDEN_DATA_DIR 指向与基线同源的**冻结数据快照目录**
-   （含 fill_bdib.db，只读）。
+2. **仓库内置冻结快照** ``tests/golden/snapshot/fill_bdib.db``（默认使用，随基线
+   一并入库 → CI 自包含）；或用 ``EMSXVIEW_GOLDEN_DATA_DIR`` 指向其他快照目录
+   （需含 fill_bdib.db，只读）。
 
-警示：不要把该 env 指向生产数据目录——生产数据每日更新，会使基线失效。
+快照与基线同源：二者必须在同一次裁剪中产出，否则 total_routes / 指标会对不上。
+更新基线时请按 ``tests/golden/README.md`` 的 SOP 同时重建快照与 JSON。
+
+警示：不要把 ``EMSXVIEW_GOLDEN_DATA_DIR`` 指向生产数据目录——生产数据每日
+更新，会使基线失效。
 """
 
 from __future__ import annotations
@@ -17,7 +22,14 @@ from pathlib import Path
 import pytest
 
 _GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
-_GOLDEN_DATA_DIR = os.getenv("EMSXVIEW_GOLDEN_DATA_DIR", "")
+#: 仓库内置冻结快照目录（与基线同源入库；CI 无需外部数据即可执行本组回归）
+_BUNDLED_SNAPSHOT_DIR = _GOLDEN_DIR / "snapshot"
+#: 环境变量优先（供本地指向其他快照）；缺省回退内置快照
+_GOLDEN_DATA_DIR = os.getenv("EMSXVIEW_GOLDEN_DATA_DIR", "") or (
+    str(_BUNDLED_SNAPSHOT_DIR)
+    if (_BUNDLED_SNAPSHOT_DIR / "fill_bdib.db").is_file()
+    else ""
+)
 
 pytestmark = pytest.mark.skipif(
     not _GOLDEN_DIR.is_dir() or not any(_GOLDEN_DIR.glob("*.json")),
@@ -27,7 +39,10 @@ pytestmark = pytest.mark.skipif(
 _case_files = sorted(_GOLDEN_DIR.glob("*.json")) if _GOLDEN_DIR.is_dir() else []
 
 
-@pytest.mark.skipif(not _GOLDEN_DATA_DIR, reason="未设置 EMSXVIEW_GOLDEN_DATA_DIR")
+@pytest.mark.skipif(
+    not _GOLDEN_DATA_DIR,
+    reason="未找到冻结快照（内置 tests/golden/snapshot/ 缺失且未设置 EMSXVIEW_GOLDEN_DATA_DIR）",
+)
 @pytest.mark.parametrize("case_file", _case_files)
 def test_golden_case(case_file: Path, tmp_path: Path):
     """重算 golden case 并以相对容差逐指标比对。"""
