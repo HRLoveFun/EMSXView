@@ -31,12 +31,15 @@ from .anomaly_query import (
     AnomalyRoute,
     ThresholdRules,
     evaluate_route_thresholds,
+    export_anomaly_rows_csv,
     get_default_thresholds,
     query_anomaly_routes,
+    query_anomaly_routes_page,
 )
 from .report_dims import (
     get_filter_options,
 )
+from .report_spec import REPORT_SPEC, SPEC_VERSION, footer_text
 
 __all__ = [
     "LAST_PRESETS",
@@ -59,8 +62,13 @@ __all__ = [
     "get_default_thresholds",
     "ANOMALY_RULE_META",
     "query_anomaly_routes",
+    "query_anomaly_routes_page",
+    "export_anomaly_rows_csv",
     "DIM_COLUMNS",
     "ensure_schema",
     "get_filter_options",
     "refresh_dim_values",
+    "REPORT_SPEC",
+    "SPEC_VERSION",
+    "footer_text",
 ]

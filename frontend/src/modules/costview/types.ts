@@ -6,19 +6,22 @@ export type ThresholdMode = 'absolute-above' | 'above' | 'below';
 export type AlertSeverity = 'none' | 'normal' | 'warning' | 'critical';
 
 export type CostViewMetricKey =
-  | 'tracking_error_bps'
+  | 'pnl_vwap_bps'
   | 'fill_pct'
   | 'volume_pct_adv20'
   | 'volume_pct_interval'
   | 'intraday_volatility'
-  | 'price_movement_pct';
+  | 'price_movement_pct'
+  | 'overfill_pct';
 
 export interface ThresholdRule {
   key: CostViewMetricKey;
   label: string;
   mode: ThresholdMode;
-  /** 单档阈值（Warning/Critical 已合并为一档）：越过即判为异常 */
-  threshold: number;
+  /** Warning 档：越过即进入异常清单（入清单覆盖范围与单档时期一致） */
+  warning: number;
+  /** Critical 档：仅用于分级标注；below 模式下更严格（数值更小） */
+  critical: number;
   enabled: boolean;
   decimals: number;
   unit: 'bps' | 'percent';
@@ -307,6 +310,9 @@ export interface BdibHealthDateEntry {
   coverage_pct: number;
   missing_ticker_count: number;
   missing_tickers: string[];
+  /** 缺口影响面：受影响 route 数 / 缺口成交金额（优先 USD，缺汇率时为本币） */
+  missing_route_count?: number;
+  missing_notional?: number;
   sqlite_rows: number;
   parquet_rows: number;
   status: BdibHealthStatus;
@@ -321,12 +327,17 @@ export interface BdibHealthSummary {
   unrecoverable_dates: number;
   recoverable_gap_dates: number;
   total_missing_tickers: number;
+  total_missing_routes?: number;
+  total_missing_notional?: number;
   latest_gap_date: string | null;
 }
 
 export interface BdibHealthReport {
   start_date: string;
   end_date: string;
+  /** ok = 已扫描；skipped = 超时/异常降级（与「无缺口」显式区分） */
+  status?: 'ok' | 'skipped';
+  reason?: 'timeout' | 'error';
   retention_days: number;
   dates: BdibHealthDateEntry[];
   summary: BdibHealthSummary;
@@ -338,6 +349,8 @@ export interface MetricCoverageRow {
   exchange: string | null;
   total_routes: number;
   coverage: Record<string, number | null>;
+  /** SLA 口径覆盖率（剔除结构内必然 NULL），与后端 sla_coverage 对齐 */
+  sla_coverage?: Record<string, number | null>;
   null_counts: Record<string, number>;
   /** 每项指标为 NULL 的结构性原因（与后端 null_reasons 对齐） */
   null_reasons?: Record<string, string>;
@@ -350,6 +363,8 @@ export interface MetricCoverageReport {
   bdib_dependent_metrics: string[];
   /** 期望内 NULL 指标集合（SLA 豁免） */
   expected_null_metrics?: string[];
+  /** 全区间整体覆盖率（原始 / SLA） */
+  overall?: { coverage: number | null; sla_coverage: number | null };
   group_by_exchange: boolean;
   rows: MetricCoverageRow[];
   data_source_warning?: string;
@@ -364,7 +379,10 @@ export interface TcaReportKpi {
   // 007: 总成交金额（本币 / USD 换算 / fx_rate 覆盖率）
   notional: number | null;
   notional_usd: number | null;
+  /** USD 换算成功率（含 USD 路由与 fill_bdib 回填汇率） */
   fx_coverage: number | null;
+  /** 无法换算 USD 而被排除的成交金额（本币口径） */
+  notional_usd_excluded?: number | null;
 }
 
 export interface TcaDailySeriesPoint {
@@ -377,6 +395,8 @@ export interface TcaDailySeriesPoint {
 export interface TcaRankingRow {
   name: string;
   route_count: number;
+  /** 纳入加权统计的路由数（pnl_vwap 非 NULL 且有成交额权重） */
+  n_used?: number;
   weighted_pnl_vwap: number | null;
   avg_par_rate: number | null;
 }
@@ -385,6 +405,13 @@ export interface TcaHistogramBucket {
   lower: number;
   upper: number;
   count: number;
+}
+
+/** pnl_vwap 分布（附样本量披露：分布仅覆盖 pnl_vwap 非 NULL 的路由） */
+export interface TcaPnlHistogram {
+  buckets: TcaHistogramBucket[];
+  n_used: number;
+  n_total: number;
 }
 
 export interface TcaPwpPoint {
@@ -417,7 +444,10 @@ export interface TcaReportExtraKpis {
   cost_stddev: number | null;
   cost_cvar: number | null;
   cost_p95: number | null;
+  /** 组合级完成率 Σfill / ΣRouteShares（对大额未成交敏感） */
   avg_fill: number | null;
+  /** 未成交金额缺口（USD 口径；无 fx_rate 列时为 null） */
+  unfilled_notional_usd?: number | null;
 }
 
 /** 市场冲击分解（B2-2）：暂时冲击 5/10/30min + 永久冲击 + 收盘价成本 */
@@ -427,6 +457,9 @@ export interface TcaImpactBreakdown {
   temp_impact_30min_bps: number | null;
   perm_impact_bps: number | null;
   close_cost_bps: number | null;
+  /** 因恢复窗口越界使用次日收盘价的路由数与占比 */
+  recovery_truncated_count?: number | null;
+  recovery_truncated_share?: number | null;
 }
 
 /** 异常路由命中规则 */
@@ -435,6 +468,8 @@ export interface TcaAnomalyHit {
   label: string;
   value: number;
   unit: 'bps' | 'percent';
+  /** 命中档位：warning 入清单 / critical 需分级处置 */
+  severity: 'warning' | 'critical';
 }
 
 /** 异常路由明细行（S6） */
@@ -465,12 +500,21 @@ export interface TcaAnomalyRow {
   order_duration_sec: number | null;
   recovery_truncated: number | null;
   hits: TcaAnomalyHit[];
+  /** 路由级最严重档（critical 优先） */
+  severity: 'warning' | 'critical';
+  /** 数据质量标记：成交超过委托 / 订单参与率求和 >100% */
+  overfill: boolean;
+  order_par_gt100: boolean;
 }
 
 /** 异常路由明细（S6） */
 export interface TcaAnomaly {
   count: number;
   rows: TcaAnomalyRow[];
+  /** 因超出渲染上限被截断的条数（count 为全量命中数） */
+  rows_truncated?: number;
+  /** 全量明细 CSV 相对路径（HTML 报告导出时提供） */
+  export_ref?: string | null;
 }
 
 /** 008: 按市场成交金额（美元）排名条目 */
@@ -511,7 +555,7 @@ export interface TcaReportSummary {
   anomaly: TcaAnomaly | null;
   daily_series: TcaDailySeriesPoint[];
   rankings: { by_broker: TcaRankingRow[]; by_algo: TcaRankingRow[] };
-  pnl_vwap_histogram: TcaHistogramBucket[];
+  pnl_vwap_histogram: TcaPnlHistogram;
   pwp_curve: TcaPwpPoint[];
   metric_coverage: MetricCoverageReport | null;
   data_source_warning?: string;

@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatMoney } from '../../lib/report-format';
 import type { BdibHealthReport, BdibHealthStatus } from '../../types';
 
 const statusLabel: Record<BdibHealthStatus, string> = {
@@ -15,9 +16,31 @@ const statusClass: Record<BdibHealthStatus, string> = {
   unrecoverable: 'bg-slate-700/40 text-slate-300',
 };
 
+/** BDIB 缺口附录三态：未扫描（超时/异常） / 无缺口 / 有缺口 */
+const skippedReasonText = (reason?: string): string => {
+  if (reason === 'timeout') return '扫描超时';
+  if (reason === 'error') return '扫描失败';
+  return reason ?? '未知原因';
+};
+
 /** BDIB 缺口附录（仅列出非 ok 日期，与 HTML 报告一致） */
 export function BdibHealthAppendix({ health }: { health?: BdibHealthReport | null }) {
-  if (!health || !health.dates.length) return null;
+  if (!health) return null;
+  if (health.status === 'skipped') {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">BDIB 缺口附录</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex h-20 items-center justify-center text-sm text-amber-400">
+            本次未完成 BDIB 缺口扫描（{skippedReasonText(health.reason)}），缺口状态未知
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (!health.dates.length) return null;
   const gapDates = health.dates.filter((d) => d.status !== 'ok');
   if (gapDates.length === 0) {
     return (
@@ -47,6 +70,8 @@ export function BdibHealthAppendix({ health }: { health?: BdibHealthReport | nul
                 <th className="py-1 pr-2 text-left">状态</th>
                 <th className="py-1 pr-2 text-right">覆盖率</th>
                 <th className="py-1 pr-2 text-right">缺口 ticker</th>
+                <th className="py-1 pr-2 text-right">受影响 route 数</th>
+                <th className="py-1 pr-2 text-right">缺口成交金额</th>
                 <th className="py-1 pr-2 text-right">保留窗口剩余(天)</th>
                 <th className="py-1 text-left">缺失 ticker 样例</th>
               </tr>
@@ -62,6 +87,8 @@ export function BdibHealthAppendix({ health }: { health?: BdibHealthReport | nul
                   </td>
                   <td className="py-0.5 pr-2 text-right">{d.coverage_pct.toFixed(1)}%</td>
                   <td className="py-0.5 pr-2 text-right">{d.missing_ticker_count}</td>
+                  <td className="py-0.5 pr-2 text-right">{(d.missing_route_count ?? 0).toLocaleString()}</td>
+                  <td className="py-0.5 pr-2 text-right">{formatMoney(d.missing_notional)}</td>
                   <td className="py-0.5 pr-2 text-right">{d.retention_days_left}</td>
                   <td className="py-0.5 text-left text-muted-foreground">
                     {d.missing_tickers.slice(0, 8).join(', ')}

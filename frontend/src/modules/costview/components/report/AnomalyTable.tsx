@@ -20,6 +20,13 @@ function formatHitValue(value: number | undefined, unit: 'bps' | 'percent' | str
   return `${value.toFixed(1)}${suffix}`;
 }
 
+/** 严重度配色：critical 红 / warning 橙（ADR-0018 两档） */
+function severityClass(severity: 'warning' | 'critical'): string {
+  return severity === 'critical'
+    ? 'bg-destructive/20 text-destructive'
+    : 'bg-amber-500/20 text-amber-400';
+}
+
 function AnomalyRowView({ r }: { r: TcaAnomalyRow }) {
   return (
     <tr className="border-t border-muted">
@@ -27,7 +34,7 @@ function AnomalyRowView({ r }: { r: TcaAnomalyRow }) {
         {r.hits.map((h) => (
           <span
             key={h.key}
-            className="mr-1 inline-block rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] text-destructive"
+            className={`mr-1 inline-block rounded px-1.5 py-0.5 text-[10px] ${severityClass(h.severity)}`}
           >
             {`${h.label} ${formatHitValue(h.value, h.unit)}`}
           </span>
@@ -79,17 +86,27 @@ export function AnomalyTable({ anomaly }: { anomaly?: TcaAnomaly | null }) {
       </Card>
     );
   }
-  const truncated = Math.max(0, rows.length - MAX_ANOMALY_ROWS_RENDERED);
+  // 优先使用后端给出的截断计数（count 为全量命中数，rows 可能已被 limit 截断）
+  const truncated = anomaly.rows_truncated
+    ?? Math.max(0, count - Math.min(rows.length, MAX_ANOMALY_ROWS_RENDERED));
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">异常路由明细（{count} 条）</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="mb-2 rounded border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
-          仅渲染前 {MAX_ANOMALY_ROWS_RENDERED} 条异常路由明细（按成本由优到劣）；其余 {truncated} 条已计入上方「异常路由」KPI 计数，
-          可缩小时间范围或收紧阈值查看明细
-        </div>
+        {truncated > 0 ? (
+          <div className="mb-2 rounded border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
+            已按严重度降序（critical 优先）渲染最严重的前 {MAX_ANOMALY_ROWS_RENDERED} 条；其余 {truncated} 条已计入上方「异常路由」KPI 计数，
+            可缩小时间范围或收紧阈值查看明细
+            {anomaly.export_ref ? (
+              <>
+                　
+                <a className="underline" href={anomaly.export_ref} download>下载全量明细 CSV</a>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-card">

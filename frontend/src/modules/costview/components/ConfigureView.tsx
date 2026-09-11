@@ -145,12 +145,13 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-sm">
+            <table className="w-full min-w-[1040px] text-sm">
               <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="py-3 pr-3 text-left font-medium">Metric</th>
                   <th className="py-3 pr-3 text-left font-medium">Mode</th>
-                  <th className="py-3 pr-3 text-right font-medium">Threshold</th>
+                  <th className="py-3 pr-3 text-right font-medium">Warning</th>
+                  <th className="py-3 pr-3 text-right font-medium">Critical</th>
                   <th className="py-3 pr-3 text-left font-medium">Enabled</th>
                   <th className="py-3 text-left font-medium">Preview</th>
                 </tr>
@@ -170,7 +171,10 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
                       </select>
                     </td>
                     <td className="py-3 pr-3 align-top text-right">
-                      <input type="number" step="0.1" className="w-28 rounded-md border border-input bg-background px-3 py-2 text-right text-sm" value={rule.threshold} onChange={(event) => updateRule(rule.key, { ...rule, threshold: Number(event.target.value) })} />
+                      <input type="number" step="0.1" className="w-24 rounded-md border border-input bg-background px-3 py-2 text-right text-sm" value={rule.warning} onChange={(event) => updateRule(rule.key, { ...rule, warning: Number(event.target.value) })} />
+                    </td>
+                    <td className="py-3 pr-3 align-top text-right">
+                      <input type="number" step="0.1" className="w-24 rounded-md border border-input bg-background px-3 py-2 text-right text-sm" value={rule.critical} onChange={(event) => updateRule(rule.key, { ...rule, critical: Number(event.target.value) })} />
                     </td>
                     <td className="py-3 pr-3 align-top">
                       <label className="inline-flex items-center gap-2 text-sm">
@@ -180,9 +184,9 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
                     </td>
                     <td className="py-3 align-top">
               <div className="flex flex-wrap gap-2">
-                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('normal')}`}>Tracking Error 6.0 bps</span>
-                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>Fill % 72.0%</span>
-                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>Vol % ADV20 12.5%</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('normal')}`}>Normal</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('warning')}`}>Warning</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>Critical</span>
               </div>
                     </td>
                   </tr>

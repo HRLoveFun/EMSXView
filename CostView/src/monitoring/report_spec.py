@@ -1,0 +1,53 @@
+"""TCA 报告口径声明（唯一真相源）。
+
+报告脚注、测试断言与聚合器常量全部由此处派生，消除「文档-实现漂移」：
+调整口径（加权方式、严重度档位、明细上限、fx 兜底顺序……）只需改本文件，
+脚注与一致性校验自动跟随。
+
+纯常量模块，无运行时依赖；不 import 其他 monitoring 模块（避免循环依赖）。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+#: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
+SPEC_VERSION = "2026.09"
+
+#: 报告口径声明
+REPORT_SPEC: dict[str, Any] = {
+    "spec_version": SPEC_VERSION,
+    #: 唯一加权口径：成交额加权（fill × p_avg），与总成交金额同源
+    "weight_mode": "traded",
+    "weight_expression": "fill * p_avg",
+    #: 异常严重度档位（warning 决定是否入清单，critical 用于分级标注）
+    "anomaly_severity_levels": ("warning", "critical"),
+    #: HTML 明细渲染上限（全量经导出 CSV 获取）
+    "anomaly_row_limit": 1000,
+    #: fx 兜底顺序：fill_bdib 回填 → tca.fx_rate → USD 按 1.0
+    "fx_fallback": ("fill_bdib_backfill", "tca.fx_rate", "1.0-usd"),
+    #: 机会成本公式（下游消费者据此解读 opportunity_cost 列）
+    "opportunity_cost_formula": "(Pn - P0) * unfilled * side",
+    #: 明确排除的成本/口径项
+    "excluded": (
+        "explicit_fees", "rebates", "taxes", "L2_liquidity", "pre_trade_forecast",
+    ),
+    #: 已知限制清单文档（脚注引用，便于归档追溯）
+    "known_limitations_doc": "docs/report-tca-known-limitations.md",
+}
+
+#: 排除项的中文展示文案（与 REPORT_SPEC["excluded"] 语义一一对应）
+EXCLUDED_TEXT = "不含显性费用/返佣/税费；无 L2 订单簿流动性；不含事前预测"
+
+
+def footer_text() -> str:
+    """由口径常量生成报告脚注（含版本号与已知限制文档引用）。"""
+    return (
+        f"口径 v{REPORT_SPEC['spec_version']}：价格偏离（{EXCLUDED_TEXT}）；"
+        f"opportunity_cost 按 {REPORT_SPEC['opportunity_cost_formula']} 计；"
+        f"加权口径为 {REPORT_SPEC['weight_expression']}（与总成交金额同源）；"
+        f"异常严重度分 "
+        f"{len(REPORT_SPEC['anomaly_severity_levels'])} 档，明细上限 "
+        f"{REPORT_SPEC['anomaly_row_limit']} 条（全量见随附导出 CSV）；"
+        f"已知限制见 {REPORT_SPEC['known_limitations_doc']}。"
+    )

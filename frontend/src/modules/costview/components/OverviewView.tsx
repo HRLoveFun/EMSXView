@@ -36,7 +36,7 @@ function formatRelativeTime(value: string | null): string | null {
 }
 
 export function OverviewView({ config, error, exportState, isLoading, report, onGoToAnalysis, onOpenExport, onRefresh, onNavigateToDatabase }: OverviewViewProps) {
-  const avgPnlVwap = report ? averageMetric(report.orders, 'tracking_error_bps') : null;
+  const avgPnlVwap = report ? averageMetric(report.orders, 'pnl_vwap_bps') : null;
   const avgFill = report ? averageMetric(report.orders, 'fill_pct') : null;
   const avgParRate = report ? averageMetric(report.orders, 'volume_pct_adv20') : null;
   const avgPnlVwapContinuous = report ? averageMetric(report.orders, 'intraday_volatility') : null;

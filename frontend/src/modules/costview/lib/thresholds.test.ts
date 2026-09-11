@@ -6,6 +6,7 @@ import {
   evaluateThreshold,
   formatAnomalyFlag,
   getHighestOrderSeverity,
+  mergeBackendThresholds,
 } from './thresholds';
 import type { ScorecardCohortMetrics, TcaRouteSummary } from '../types';
 
@@ -55,11 +56,47 @@ function createRoute(overrides: Partial<TcaRouteSummary> = {}): TcaRouteSummary 
 describe('CostView thresholds', () => {
   it('evaluates absolute-above thresholds correctly', () => {
     const config = createDefaultCostViewConfig();
-    const trackingRule = config.rules.tracking_error_bps;
+    const trackingRule = config.rules.pnl_vwap_bps;
 
+    // 双档（ADR-0018）：10 为 warning 边界，25 为 critical 边界
     expect(evaluateThreshold(trackingRule, 4)).toBe('normal');
-    expect(evaluateThreshold(trackingRule, 12)).toBe('critical');
+    expect(evaluateThreshold(trackingRule, 12)).toBe('warning');
     expect(evaluateThreshold(trackingRule, -30)).toBe('critical');
+  });
+
+  it('treats below-mode critical as the stricter (smaller) bound', () => {
+    const config = createDefaultCostViewConfig();
+    const fillRule = config.rules.fill_pct;
+
+    // fill_pct：warning 80 / critical 50（越小越严重）
+    expect(evaluateThreshold(fillRule, 90)).toBe('normal');
+    expect(evaluateThreshold(fillRule, 70)).toBe('warning');
+    expect(evaluateThreshold(fillRule, 40)).toBe('critical');
+  });
+
+  it('flags overfill above 100% as a data-quality anomaly', () => {
+    const config = createDefaultCostViewConfig();
+    // 105% → 越过 overfill_pct warning(100)，未达 critical(110)
+    const route = createRoute({ fill: 1050, route_shares: 1000 });
+
+    expect(getHighestOrderSeverity(route, config)).toBe('warning');
+  });
+
+  it('accepts legacy single-tier backend payload (threshold → both tiers)', () => {
+    const merged = mergeBackendThresholds({
+      fill_pct: { mode: 'below', threshold: 70, enabled: true },
+    });
+    // ADR-0015 单档 payload：两档同值，不产生分级
+    expect(merged.fill_pct.warning).toBe(70);
+    expect(merged.fill_pct.critical).toBe(70);
+  });
+
+  it('ignores unknown backend keys such as legacy rule key', () => {
+    const merged = mergeBackendThresholds({
+      // 旧规则键（已重命名为 pnl_vwap_bps）不应写回本地规则集合
+      tracking_error_bps: { mode: 'absolute-above', threshold: 3, enabled: true },
+    } as never);
+    expect(merged.pnl_vwap_bps.warning).toBe(10);
   });
 
   it('uses the highest breached rule as the route severity', () => {
@@ -73,7 +110,7 @@ describe('CostView thresholds', () => {
     expect(getHighestOrderSeverity(route, config)).toBe('critical');
   });
 
-  it('counts only breaching routes as alerts (single threshold tier)', () => {
+  it('counts breaching routes as alerts (warning and above)', () => {
     const config = createDefaultCostViewConfig();
     const routes = [
       createRoute({ order_id: 'ORDER-1', route_id: 'ROUTE-1', pnl_vwap: 4 }),

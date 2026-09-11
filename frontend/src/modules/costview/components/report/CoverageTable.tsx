@@ -14,12 +14,18 @@ function coverageBg(pct: number | null): string {
 export function CoverageTable({ coverage }: { coverage?: MetricCoverageReport | null }) {
   if (!coverage || !coverage.rows.length) return null;
   const dependent = new Set(coverage.bdib_dependent_metrics ?? []);
+  const overall = coverage.overall;
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">
           指标覆盖率（%）
-          <span className="ml-2 text-[10px] text-muted-foreground">* = 依赖 BDIB 行情</span>
+          <span className="ml-2 text-[10px] text-muted-foreground">
+            * = 依赖 BDIB 行情；单元格＝原始 / SLA（悬停查看 NULL 原因）
+            {overall?.coverage != null
+              ? `；整体 原始 ${overall.coverage.toFixed(2)}% / SLA ${overall.sla_coverage?.toFixed(2) ?? '—'}%`
+              : ''}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -41,9 +47,20 @@ export function CoverageTable({ coverage }: { coverage?: MetricCoverageReport | 
                   <td className="py-0.5 pr-2 text-right">{row.total_routes}</td>
                   {coverage.metrics.map((m) => {
                     const v = row.coverage[m];
+                    const sla = row.sla_coverage?.[m];
+                    const reason = row.null_reasons?.[m];
+                    const text = v == null
+                      ? '—'
+                      : sla == null || Math.abs(sla - v) < 0.05
+                        ? v.toFixed(1)
+                        : `${v.toFixed(1)} / ${sla.toFixed(1)}`;
                     return (
-                      <td key={m} className={`py-0.5 pr-2 text-right ${coverageBg(v)}`}>
-                        {v == null ? '—' : v.toFixed(1)}
+                      <td
+                        key={m}
+                        className={`py-0.5 pr-2 text-right ${coverageBg(v)}`}
+                        title={reason ? `NULL 原因：${reason}` : undefined}
+                      >
+                        {text}
                       </td>
                     );
                   })}

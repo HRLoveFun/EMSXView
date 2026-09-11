@@ -37,10 +37,12 @@ const cellTitle = (
   nullReason?: string,
 ): string => {
   const pct = row.coverage[metric];
+  const sla = row.sla_coverage?.[metric];
   const nulls = row.null_counts[metric] ?? 0;
   const lines = [
     `${row.date} · ${metric}${METRIC_LABELS[metric] ? `（${METRIC_LABELS[metric]}）` : ''}`,
     `覆盖率: ${pct == null ? '—' : `${pct.toFixed(1)}%`}（NULL ${nulls}/${row.total_routes}）`,
+    `SLA 覆盖率: ${sla == null ? '—' : `${sla.toFixed(1)}%`}（剔除结构内必然 NULL）`,
   ];
   if (nullReason) lines.push(`归因: ${nullReason}`);
   if (bdibStatus && BDIB_DEPENDENT_METRICS.has(metric)) {

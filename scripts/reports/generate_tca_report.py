@@ -24,9 +24,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -40,6 +41,7 @@ for p in [_PROJECT_ROOT, _SCRIPT_DIR]:
 from CostView.src.monitoring import (  # noqa: E402
     LAST_PRESETS,
     TcaReportAggregator,
+    export_anomaly_rows_csv,
     fetch_latest_tca_date,
     get_health_safe,
     render_report_html,
@@ -75,18 +77,45 @@ def generate_report(
     report = TcaReportAggregator().build_report(
         tr.start_date, tr.end_date,
         broker=broker, algo=algo, symbol=symbol, exchange=exchange,
-        metrics=metrics,
+        metrics=metrics, as_of_date=tr.as_of_date, preset=tr.preset,
     )
-    health = _load_gap_health(tr.start_date, tr.end_date)
+    # 健康扫描以同一「数据截至日」为基准，避免保留窗口与报告期口径错位
+    health = _load_gap_health(
+        tr.start_date, tr.end_date, today=_parse_as_of(tr.as_of_date),
+    )
 
     out_path = output or _default_output_path(tr.start_date, tr.end_date, last)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # 全量异常明细落盘为 CSV（HTML 仅渲染前 1000 条），并在报告内回填相对链接
+    _export_anomaly_csv(report, out_path)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     out_path.write_text(
         render_report_html(report, health, generated_at), encoding="utf-8",
     )
     logger.info("报告已生成: %s (%s ~ %s)", out_path, tr.start_date, tr.end_date)
     return out_path
+
+
+def _export_anomaly_csv(report: dict[str, Any], out_path: Path) -> None:
+    """把全量异常明细落盘为 CSV，并在报告内回填相对链接。
+
+    文件名以「路由主键序列」哈希命名，避免同名覆盖并便于归档比对；
+    无异常明细时不生成文件（export_ref 保持 None）。
+    """
+    anomaly = report.get("anomaly")
+    if not anomaly:
+        return
+    rows = anomaly.get("rows") or []
+    if not rows:
+        return
+    raw = "|".join(
+        f"{r.get('order_id')}:{r.get('route_id')}:{r.get('date')}" for r in rows
+    )
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    csv_path = out_path.with_name(f"anomaly_{digest}.csv")
+    export_anomaly_rows_csv(rows, csv_path)
+    anomaly["export_ref"] = csv_path.name
+    logger.info("异常明细已导出: %s (%d 行)", csv_path, len(rows))
 
 
 def _needs_latest(start: Optional[str], end: Optional[str], last: Optional[str]) -> bool:
@@ -96,10 +125,27 @@ def _needs_latest(start: Optional[str], end: Optional[str], last: Optional[str])
     return last in (None, "", "day")
 
 
-def _load_gap_health(start_date: str, end_date: str) -> Optional[dict[str, Any]]:
-    """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告），
-    超时/失败降级为 None 不阻断报告。"""
-    return get_health_safe(start_date, end_date, timeout=12.0)
+def _parse_as_of(value: Optional[str]) -> Optional[date]:
+    """as_of_date（YYYYMMDD 字符串）→ date，供健康扫描对齐「今天」。"""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _load_gap_health(
+    start_date: str, end_date: str, today: Optional[date] = None,
+) -> dict[str, Any]:
+    """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告）。
+
+    today 与报告期（as_of_date）对齐，使保留窗口剩余天数判定基于数据截至日
+    而非自然日；超时/失败时返回 {"status": "skipped", "reason": ...} 而非 None，
+    使报告能显式区分「未扫描」与「无缺口」。
+    """
+    kwargs: dict[str, Any] = {"today": today} if today else {}
+    return get_health_safe(start_date, end_date, timeout=12.0, **kwargs)
 
 
 def _default_output_path(start_date: str, end_date: str, last: Optional[str]) -> Path:

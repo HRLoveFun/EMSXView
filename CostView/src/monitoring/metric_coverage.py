@@ -18,7 +18,9 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 
 logger = logging.getLogger(__name__)
 
-#: 38 项计算指标白名单（与 tca_route_metrics._OUTPUT_COLUMNS[17:] 保持一致；
+#: 38 项计算指标白名单（与上游数据契约 platform_data/contracts/tca_contracts.py::
+#: TcaRouteSummary 的计算列保持一致；实际列计算在唯一写入方独立仓库 EMSXDataPipeline
+#: 的 tca_route_metrics.py，本仓库只读消费、不 import；
 #: 003-tca-core-benchmarks 由 18 项扩展至 38 项，新增 Phase 0/1 的 20 项指标）
 COMPUTED_METRICS: tuple[str, ...] = (
     # 原有 18 项
@@ -57,10 +59,13 @@ BDIB_DEPENDENT_METRICS: frozenset[str] = frozenset({
 #: 含义: "source"=源值层始终非空(无 NULL); "closing_auction"=全收盘竞价成交时 NULL(期望内);
 #: "single_fill"=单笔/同刻成交时 NULL(期望内); "bdib_cutoff"=盘中窗口边缘未命中(残余, 纯竞价
 #: 路由已由末 bar 语义对齐修复); "bdib_missing"=该 ticker/date 完全无 BDIB bars(真缺口);
-#: "next_day_close"=缺次日 daily_close; "fx"=缺 fx_rate 回补。
+#: "next_day_close"=缺次日 daily_close; "conditional"=条件性写入列(非"始终非空")。
 #: 注: BDIB bar 时间戳为区间起点语义，末 bar 覆盖 [timestamp, 收盘竞价结束) 并包含
 #: 竞价时段成交量 —— 纯竞价路由的 par_rate/pnl_vwap/par_rate_close 分母取末 bar
-#: （tca_route_metrics._is_auction_fill / _last_bar_window），不再因时间点错位成 NULL。
+#: （写入方 tca_route_metrics._is_auction_fill / _last_bar_window），不再因时间点错位成 NULL。
+#: 键集合必须与 COMPUTED_METRICS 完全一致（由 test_report_metrics 断言）。
+#: 注: fx_rate 不在 COMPUTED_METRICS 内，故亦不在此表 —— fx 数据质量由 KPI 卡片
+#: 的 fx_coverage（换算成功率）单独承载，避免两处口径分离。
 METRIC_NULL_REASON: dict[str, str] = {
     # 原有 18 项
     "fill_count": "source", "fill": "source", "fill_continuous": "source", "fill_close": "source",
@@ -81,9 +86,9 @@ METRIC_NULL_REASON: dict[str, str] = {
     "order_duration_sec": "single_fill", "exec_rate_shares_per_min": "single_fill",
     "temp_impact_5min_bps": "bdib_cutoff", "temp_impact_10min_bps": "bdib_cutoff",
     "temp_impact_30min_bps": "bdib_cutoff",
-    "perm_impact_bps": "next_day_close", "recovery_truncated": "source",
-    # 007
-    "fx_rate": "fx",
+    "perm_impact_bps": "next_day_close",
+    # 跨日恢复标记：由写入方条件性置 1（默认 0），非"始终非空"语义，单列一类
+    "recovery_truncated": "conditional",
 }
 #: 期望内 NULL 豁免集合（closing_auction + single_fill 类指标，SLA 中应排除）
 EXPECTED_NULL_METRICS: frozenset[str] = frozenset({
@@ -98,17 +103,17 @@ SLA_DENOMINATOR_BY_REASON: dict[str, str] = {
     "closing_auction": "non_pure_auction",
     "single_fill": "multi_fill",
     "source": "total",
+    "conditional": "total",
     "bdib_cutoff": "total",
     "bdib_missing": "total",
     "next_day_close": "total",
-    "fx": "total",
 }
 
 
 def metric_null_reasons(metrics: Optional[list[str]] = None) -> dict[str, str]:
-    """返回所选指标的 NULL 原因分类映射。"""
+    """返回所选指标的 NULL 原因分类映射（未登记指标按 'source' 兜底）。"""
     selected = validate_metrics(metrics) if metrics else list(COMPUTED_METRICS)
-    return {m: METRIC_NULL_REASON[m] for m in selected}
+    return {m: METRIC_NULL_REASON.get(m, "source") for m in selected}
 
 
 def validate_metrics(metrics: Optional[list[str]]) -> list[str]:
@@ -126,6 +131,13 @@ def validate_metrics(metrics: Optional[list[str]]) -> list[str]:
         )
     # 保持白名单顺序输出，便于前端列序稳定
     return [m for m in COMPUTED_METRICS if m in set(metrics)]
+
+
+def _consistency_pct(total: int, bad: int) -> Optional[float]:
+    """一致性百分比 = (1 - 异常数 / 总数) × 100（无样本时 None）。"""
+    if total <= 0:
+        return None
+    return round((1.0 - bad / total) * 100.0, 2)
 
 
 class MetricCoverageService:
@@ -157,6 +169,7 @@ class MetricCoverageService:
         """
         selected = validate_metrics(metrics)
         conn = None
+        consistency: Optional[dict[str, Any]] = None
         try:
             conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
             if not self._table_exists(conn):
@@ -167,6 +180,7 @@ class MetricCoverageService:
             rows = self._query_coverage(
                 conn, start_date, end_date, selected, group_by_exchange,
             )
+            consistency = self._query_consistency(conn, start_date, end_date)
         except FileNotFoundError:
             # 只读模式下 fill_bdib.db 缺失 → 空覆盖率（与表缺失同语义, 009）
             return self._empty_result(
@@ -177,6 +191,9 @@ class MetricCoverageService:
             if conn is not None:
                 conn.close()
 
+        overall = MetricCoverageService._overall_coverage(rows)
+        for row in rows:
+            row.pop("_sla_raw", None)
         return {
             "start_date": start_date,
             "end_date": end_date,
@@ -185,6 +202,8 @@ class MetricCoverageService:
             "null_reasons": metric_null_reasons(selected),
             "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
+            "overall": overall,
+            "consistency": consistency,
             "rows": rows,
         }
 
@@ -207,15 +226,7 @@ class MetricCoverageService:
             for m in selected
         )
         group_cols = "order_as_of_date, Exchange" if group_by_exchange else "order_as_of_date"
-        whitelist = tuple(
-            str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()
-        )
-        where = "order_as_of_date BETWEEN ? AND ?"
-        params: list[Any] = [start_date, end_date]
-        if whitelist:
-            placeholders = ", ".join(["?"] * len(whitelist))
-            where += f" AND UPPER(Exchange) IN ({placeholders})"
-            params.extend(whitelist)
+        where, params = self._scope_where(start_date, end_date)
         sql = f"""
             SELECT {group_cols}, COUNT(*) AS total_routes,
                 SUM(CASE WHEN fill > 0 AND fill_close >= fill THEN 1 ELSE 0 END) AS pure_auction,
@@ -234,6 +245,72 @@ class MetricCoverageService:
         ]
 
     @staticmethod
+    def _scope_where(start_date: str, end_date: str) -> tuple[str, list[Any]]:
+        """覆盖率 / 一致性共享的过滤范围：日期区间 + BDIB 交易所白名单。
+
+        白名单外交易所本就不拉 BDIB、指标必然 NULL，计入分母会虚降覆盖率观感。
+        """
+        whitelist = tuple(
+            str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()
+        )
+        where = "order_as_of_date BETWEEN ? AND ?"
+        params: list[Any] = [start_date, end_date]
+        if whitelist:
+            placeholders = ", ".join(["?"] * len(whitelist))
+            where += f" AND UPPER(Exchange) IN ({placeholders})"
+            params.extend(whitelist)
+        return where, params
+
+    @staticmethod
+    def _query_consistency(
+        conn, start_date: str, end_date: str,
+    ) -> dict[str, Any]:
+        """数据一致性探针（013）：overfill 与订单参与率 >100% 的整体占比。
+
+        与异常判定（overfill_pct / order_par_gt100 规则）同源，但此处给出整体
+        比例，不受异常清单截断影响，供报告头「数据质量提示」区展示。
+        订单参与率按 (OrderId, order_as_of_date, Exchange) 分组求和，避免跨市场
+        相加使参与率失去物理意义。分母口径与覆盖率一致（BDIB 白名单内交易所）。
+        """
+        where, params = MetricCoverageService._scope_where(start_date, end_date)
+        route_row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS total_routes,
+                   SUM(CASE WHEN fill IS NOT NULL AND RouteShares IS NOT NULL
+                            AND RouteShares > 0 AND fill > RouteShares
+                            THEN 1 ELSE 0 END) AS overfill_routes
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            WHERE {where}
+            """,
+            params,
+        ).fetchone()
+        order_row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS total_orders,
+                   SUM(CASE WHEN par_sum > 1.0 THEN 1 ELSE 0 END) AS gt100_orders
+            FROM (
+                SELECT SUM(par_rate) AS par_sum
+                FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                WHERE {where}
+                GROUP BY OrderId, order_as_of_date, Exchange
+            )
+            """,
+            params,
+        ).fetchone()
+        total_routes = int(route_row[0] or 0)
+        overfill_routes = int(route_row[1] or 0)
+        total_orders = int(order_row[0] or 0)
+        gt100_orders = int(order_row[1] or 0)
+        return {
+            "total_routes": total_routes,
+            "overfill_routes": overfill_routes,
+            "completion_consistency_pct": _consistency_pct(total_routes, overfill_routes),
+            "total_orders": total_orders,
+            "order_par_gt100_orders": gt100_orders,
+            "order_par_consistency_pct": _consistency_pct(total_orders, gt100_orders),
+        }
+
+    @staticmethod
     def _row_to_coverage(
         row: dict[str, Any],
         selected: list[str],
@@ -246,6 +323,8 @@ class MetricCoverageService:
         coverage: dict[str, Optional[float]] = {}
         sla_coverage: dict[str, Optional[float]] = {}
         null_counts: dict[str, int] = {}
+        # 内部字段：各指标的 (非 NULL 数, SLA 分母)，供整体覆盖率汇总后剔除
+        sla_raw: dict[str, tuple[int, int]] = {}
         for m in selected:
             nn = int(row[f"nn_{m}"] or 0)
             null_counts[m] = total - nn
@@ -255,6 +334,7 @@ class MetricCoverageService:
             denom = {"total": total, "non_pure_auction": total - pure_auction,
                      "multi_fill": multi_fill}[denom_key]
             sla_coverage[m] = round(nn / denom * 100.0, 2) if denom > 0 else None
+            sla_raw[m] = (nn, denom)
         return {
             "date": row["order_as_of_date"],
             "exchange": row.get("Exchange") if group_by_exchange else None,
@@ -262,6 +342,35 @@ class MetricCoverageService:
             "coverage": coverage,
             "sla_coverage": sla_coverage,
             "null_counts": null_counts,
+            "_sla_raw": sla_raw,
+        }
+
+    @staticmethod
+    def _overall_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """全区间整体覆盖率（全部 日期×指标 单元格汇总后的一次性比率）。
+
+        原始口径：Σ非NULL / Σ总路由数；SLA 口径：Σ非NULL / ΣSLA 分母
+        （已剔除结构性必然 NULL）。供报告头 KPI 展示，避免只看单日跳动。
+        """
+        nn_total = denom_total = 0
+        sla_nn_total = sla_denom_total = 0
+        for row in rows:
+            total = int(row["total_routes"])
+            sla_raw = row.get("_sla_raw") or {}
+            for m, null_count in (row.get("null_counts") or {}).items():
+                nn_total += total - int(null_count)
+                denom_total += total
+                nn, denom = sla_raw.get(m, (0, 0))
+                sla_nn_total += nn
+                sla_denom_total += denom
+        return {
+            "coverage": (
+                round(nn_total / denom_total * 100.0, 2) if denom_total else None
+            ),
+            "sla_coverage": (
+                round(sla_nn_total / sla_denom_total * 100.0, 2)
+                if sla_denom_total else None
+            ),
         }
 
     @staticmethod
@@ -288,6 +397,8 @@ class MetricCoverageService:
             "null_reasons": metric_null_reasons(selected),
             "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
+            "overall": None,
+            "consistency": None,
             "rows": [],
             "data_source_warning": warning,
         }

@@ -79,17 +79,21 @@ class BdibHealthService:
 
         sql_rows, sql_tickers = self._scan_sqlite(start_date, end_date)
         pq_rows, pq_tickers = self._scan_parquet(start_date, end_date)
+        ticker_weight = self._load_ticker_weight(start_date, end_date)
 
-        dates = [
-            self._build_date_entry(
+        dates = []
+        for d in sorted(fill_map):
+            bdib_set = sql_tickers.get(d, set()) | pq_tickers.get(d, set())
+            missing = fill_map[d] - bdib_set
+            dates.append(self._build_date_entry(
                 d, fill_map[d], sql_rows.get(d, 0), pq_rows.get(d, 0),
-                sql_tickers.get(d, set()) | pq_tickers.get(d, set()), today,
-            )
-            for d in sorted(fill_map)
-        ]
+                bdib_set, today,
+                missing_weight=self._sum_missing_weight(d, missing, ticker_weight),
+            ))
         return {
             "start_date": start_date,
             "end_date": end_date,
+            "status": "ok",
             "retention_days": self._retention_days,
             "dates": dates,
             "summary": self._build_summary(dates),
@@ -229,33 +233,51 @@ class BdibHealthService:
         parquet_rows: int,
         bdib_tickers: set[str],
         today: date,
+        missing_weight: tuple[int, float] = (0, 0),
     ) -> dict[str, Any]:
-        """单日健康记录：覆盖率 + 分级 + 保留窗口信息。"""
+        """单日健康记录：覆盖率 + 分级 + 保留窗口 + 缺口影响面。
+
+        missing_weight 为 (受影响 route 数, 缺口成交金额)。ticker 数只反映
+        「多少个标的缺失」，无法回答"影响多少成交量"；金额/路由权重使缺口严重度
+        可度量（例如缺 3 个 ticker 却覆盖 80% 成交额的情形得以暴露）。
+        """
         missing = sorted(fill_tickers - bdib_tickers)
-        coverage = (len(fill_tickers) - len(missing)) / len(fill_tickers) * 100.0
+        fill_count = len(fill_tickers)
+        coverage = (fill_count - len(missing)) / fill_count * 100.0 if fill_count else 100.0
         days_old = (today - datetime.strptime(date_str, Config.DATE_FORMAT).date()).days
         retention_left = self._retention_days - days_old
+        missing_routes, missing_notional = missing_weight
         return {
             "date": date_str,
-            "fill_tickers": len(fill_tickers),
-            "bdib_tickers": len(fill_tickers) - len(missing),
+            "fill_tickers": fill_count,
+            "bdib_tickers": fill_count - len(missing),
             "coverage_pct": round(coverage, 2),
             "missing_ticker_count": len(missing),
             "missing_tickers": missing[:MAX_MISSING_TICKERS_DETAIL],
+            "missing_route_count": missing_routes,
+            "missing_notional": missing_notional,
             "sqlite_rows": sqlite_rows,
             "parquet_rows": parquet_rows,
-            "status": self._classify(coverage, retention_left).value,
+            "status": self._classify(
+                len(missing), fill_count, retention_left,
+            ).value,
             "retention_days_left": retention_left,
         }
 
     @staticmethod
-    def _classify(coverage_pct: float, retention_left: int) -> BdibHealthStatus:
-        """四级分级：ok / partial / missing / unrecoverable。"""
-        if coverage_pct >= 100.0:
+    def _classify(
+        missing_count: int, fill_count: int, retention_left: int,
+    ) -> BdibHealthStatus:
+        """四级分级：ok / partial / missing / unrecoverable。
+
+        以「缺口 ticker 数」精确判定 ok，不再依赖 round(coverage, 2) 后的百分比
+        （99.995% 会被 round 成 100.0 而误判为 ok）。
+        """
+        if missing_count <= 0:
             return BdibHealthStatus.OK
         if retention_left < 0:
             return BdibHealthStatus.UNRECOVERABLE
-        if coverage_pct <= 0.0:
+        if fill_count > 0 and missing_count >= fill_count:
             return BdibHealthStatus.MISSING
         return BdibHealthStatus.PARTIAL
 
@@ -275,6 +297,8 @@ class BdibHealthService:
             "recoverable_gap_dates": counts[BdibHealthStatus.PARTIAL.value]
             + counts[BdibHealthStatus.MISSING.value],
             "total_missing_tickers": sum(d["missing_ticker_count"] for d in dates),
+            "total_missing_routes": sum(d.get("missing_route_count", 0) for d in dates),
+            "total_missing_notional": sum(d.get("missing_notional", 0.0) for d in dates),
             "latest_gap_date": max(gap_dates) if gap_dates else None,
         }
 
@@ -305,10 +329,64 @@ class BdibHealthService:
             tickers.setdefault(str(oad), set()).add(str(ticker))
         return tickers
 
+    def _load_ticker_weight(
+        self, start_date: str, end_date: str,
+    ) -> dict[tuple[str, str], tuple[int, float]]:
+        """tca_route_summary 按 (日期, ticker) 汇总的 (route 数, 成交金额)。
+
+        金额优先用 USD（COALESCE(tca.fx_rate, fill_bdib 回填) 口径与
+        report_aggregator 同源），无 fx_rate 列时回退本币；用于量化缺口的
+        成交影响面。表缺失 / 查询失败时返回空字典（不阻断健康分级主体逻辑）。
+        """
+        conn = None
+        try:
+            conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+            has_fx = self._table_has_column(
+                conn, Config.TCA_ROUTE_SUMMARY_TABLE, "fx_rate",
+            )
+            amount = (
+                "COALESCE(SUM(fill * p_avg * fx_rate), SUM(fill * p_avg))"
+                if has_fx else "SUM(fill * p_avg)"
+            )
+            cursor = conn.execute(
+                f"SELECT order_as_of_date, equ_ticker, COUNT(*), {amount} "
+                f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} "
+                "WHERE order_as_of_date BETWEEN ? AND ? AND equ_ticker IS NOT NULL "
+                "GROUP BY order_as_of_date, equ_ticker",
+                [start_date, end_date],
+            )
+            return {
+                (str(d), str(t)): (int(n), float(a or 0.0))
+                for d, t, n, a in cursor.fetchall()
+            }
+        except Exception as exc:
+            logger.debug("读取 ticker 成交金额失败（缺口影响面降级）: %s", exc)
+            return {}
+        finally:
+            if conn is not None:
+                conn.close()
+
+    @staticmethod
+    def _sum_missing_weight(
+        date_str: str,
+        missing: set[str],
+        ticker_weight: dict[tuple[str, str], tuple[int, float]],
+    ) -> tuple[int, float]:
+        """汇总某日缺口 ticker 的 (受影响 route 数, 成交金额)。"""
+        routes = 0
+        notional = 0.0
+        for ticker in missing:
+            entry = ticker_weight.get((date_str, ticker))
+            if entry:
+                routes += entry[0]
+                notional += entry[1]
+        return routes, notional
+
     def _empty_result(self, start_date: str, end_date: str) -> dict[str, Any]:
         return {
             "start_date": start_date,
             "end_date": end_date,
+            "status": "ok",
             "retention_days": self._retention_days,
             "dates": [],
             "summary": self._build_summary([]),
@@ -322,12 +400,18 @@ def get_health_safe(
     timeout: float = 25.0,
     health_service: Optional[Any] = None,
     **kwargs: Any,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any]:
     """带超时护栏的 BDIB 健康查询（供报告导出复用）。
 
     报告导出场景下，raw_bdib 全量扫描在历史大区间可能耗时极长甚至阻塞
-    服务；此处在守护线程中运行，超时即降级为 None（报告仍正常生成，仅缺
-    BDIB 缺口附录），绝不因附录拖垮导出响应。
+    服务；此处在守护线程中运行，超时即降级（报告仍正常生成，仅缺 BDIB 缺口
+    附录），绝不因附录拖垮导出响应。
+
+    返回结构显式区分三态，不再用 None 表示降级（避免与「无缺口」在渲染上
+    不可区分）：
+      - 正常：health dict（含 ``status: "ok"``）
+      - 超时：``{"status": "skipped", "reason": "timeout"}``
+      - 异常：``{"status": "skipped", "reason": "error"}``
 
     ``health_service`` 可注入（测试用）；默认 ``BdibHealthService``。
     """
@@ -355,5 +439,8 @@ def get_health_safe(
             "BDIB 健康查询超时（%.0fs），导出附录降级跳过: %s~%s",
             timeout, start_date, end_date,
         )
-        return None
-    return holder.get("result")
+        return {"status": "skipped", "reason": "timeout"}
+    result = holder.get("result")
+    if result is None:
+        return {"status": "skipped", "reason": "error"}
+    return result

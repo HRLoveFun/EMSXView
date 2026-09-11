@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -28,6 +28,7 @@ from CostView.src.monitoring import (
     ThresholdRules,
     TimeRange,
     ANOMALY_RULE_META,
+    REPORT_SPEC,
     fetch_latest_tca_date,
     get_default_thresholds,
     get_health_safe,
@@ -102,6 +103,12 @@ def _report_cache_params(
         # 缓存 key 纳入解析后的阈值（sort_keys 归一化；默认阈值与未传等价同 key）
         "thresholds": rules.rules,
         "min_fill_count": min_fill_count, "min_notional_usd": min_notional_usd,
+        # 014: 异常明细响应体上限（按严重度排序后截断，count 仍为全量）；
+        # 与 REPORT_SPEC 同源，避免与渲染层上限分叉
+        "anomaly_limit": int(REPORT_SPEC["anomaly_row_limit"]),
+        # 报告期语义：数据截至日与预设，供报告头自证（014）
+        "as_of_date": tr.as_of_date,
+        "preset": tr.preset,
     }
 
 
@@ -122,6 +129,9 @@ async def _build_report_cached(params: dict) -> tuple[dict, bool]:
         thresholds=params["thresholds"],
         min_fill_count=params["min_fill_count"],
         min_notional_usd=params["min_notional_usd"],
+        anomaly_limit=params.get("anomaly_limit"),
+        as_of_date=params.get("as_of_date"),
+        preset=params.get("preset"),
     )
     await _cache.set(cache_key, data)
     return data, False
@@ -303,7 +313,9 @@ async def export_tca_html(
                 min_fill_count, min_notional_usd,
             )
         )
-        health = _load_health_appendix(tr.start_date, tr.end_date)
+        health = _load_health_appendix(
+            tr.start_date, tr.end_date, today=_parse_as_of(tr.as_of_date),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -336,7 +348,27 @@ def _parse_thresholds(raw: Optional[str]) -> Optional[dict]:
     return parsed
 
 
-def _load_health_appendix(start_date: str, end_date: str) -> Optional[dict]:
-    """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告），
-    超时/失败降级为 None 不阻断报告。"""
-    return get_health_safe(start_date, end_date, timeout=12.0, health_service=BdibHealthService)
+def _parse_as_of(value: Optional[str]) -> Optional[date]:
+    """as_of_date（YYYYMMDD 字符串）→ date，供健康扫描对齐「今天」。"""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _load_health_appendix(
+    start_date: str, end_date: str, today: Optional[date] = None,
+) -> dict:
+    """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告）。
+
+    today 与报告期（as_of_date）对齐，使保留窗口剩余天数判定基于数据截至日；
+    超时/失败时返回 {"status": "skipped", "reason": ...} 而非 None，
+    使报告能显式区分「未扫描」与「无缺口」。
+    """
+    kwargs: dict = {"today": today} if today else {}
+    return get_health_safe(
+        start_date, end_date, timeout=12.0,
+        health_service=BdibHealthService, **kwargs,
+    )

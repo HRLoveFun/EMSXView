@@ -2,10 +2,12 @@ import type {
   CostViewConfig,
   CostViewExportState,
   CostViewFilterFormState,
+  CostViewMetricKey,
   CostViewModuleTab,
   CostViewViewState,
   MonitoringViewState,
   ScorecardFormState,
+  ThresholdRule,
 } from '../types';
 import { ALL_TCA_METRICS } from './monitoring-metrics';
 import { createDefaultCostViewConfig } from './thresholds';
@@ -47,6 +49,21 @@ function safeParse<T>(value: string | null, fallback: T): T {
   }
 }
 
+/** 014: 规则键重命名迁移（tracking_error_bps → pnl_vwap_bps）。
+ *  旧 localStorage 配置读取时映射，避免用户自定义阈值被静默丢弃。 */
+function migrateRuleKeys(
+  rules: Partial<Record<string, ThresholdRule>>,
+): Partial<Record<CostViewMetricKey, ThresholdRule>> {
+  const migrated: Record<string, ThresholdRule> = { ...rules };
+  const legacy = migrated.tracking_error_bps;
+  if (legacy && !migrated.pnl_vwap_bps) {
+    migrated.pnl_vwap_bps = { ...legacy, key: 'pnl_vwap_bps' };
+  }
+  delete migrated.tracking_error_bps;
+  return migrated as Partial<Record<CostViewMetricKey, ThresholdRule>>;
+}
+
+
 export function loadCostViewConfig(): CostViewConfig {
   if (typeof window === 'undefined') return createDefaultCostViewConfig();
 
@@ -60,7 +77,7 @@ export function loadCostViewConfig(): CostViewConfig {
     ...parsed,
     rules: {
       ...createDefaultCostViewConfig().rules,
-      ...(parsed.rules ?? {}),
+      ...migrateRuleKeys(parsed.rules ?? {}),
     },
     exportDefaults: {
       ...createDefaultCostViewConfig().exportDefaults,

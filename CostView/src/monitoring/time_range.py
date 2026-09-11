@@ -29,12 +29,19 @@ _DATE_RE = re.compile(r"^\d{8}$")
 
 @dataclass(frozen=True)
 class TimeRange:
-    """解析后的时间范围（YYYYMMDD 闭区间）。"""
+    """解析后的时间范围（YYYYMMDD 闭区间）。
+
+    as_of_date 为「数据截至日」：``last=day`` 时为最近数据日期，其余预设为
+    参考日（today），显式区间时为 end。全链路（报告装配 / 健康扫描 / 覆盖率）
+    以此为准，避免各模块各自解释「今天」导致保留窗口与报告期口径错位。
+    """
 
     start_date: str
     end_date: str
     #: 使用的 last 预设；显式区间时为 None
     preset: Optional[str] = None
+    #: 数据截至日 YYYYMMDD
+    as_of_date: Optional[str] = None
 
 
 def resolve_time_range(
@@ -110,7 +117,8 @@ def _resolve_explicit(start: Optional[str], end: Optional[str]) -> TimeRange:
         raise ValueError("日期格式必须为 YYYYMMDD")
     if start > end:
         raise ValueError(f"起始日期晚于截止日期: {start} > {end}")
-    return TimeRange(start_date=start, end_date=end)
+    # 显式区间的「数据截至日」取用户指定的截止日
+    return TimeRange(start_date=start, end_date=end, as_of_date=end)
 
 
 def _resolve_preset(
@@ -129,23 +137,24 @@ def _resolve_preset(
                 "last day 需要 tca_route_summary 已有数据（表为空或无记录）"
             )
         return TimeRange(start_date=latest_data_date, end_date=latest_data_date,
-                         preset="day")
+                         preset="day", as_of_date=latest_data_date)
     if preset == "week":
         # 上周一 ~ 上周日
         this_monday = today - timedelta(days=today.weekday())
         last_monday = this_monday - timedelta(days=7)
         return TimeRange(_fmt(last_monday), _fmt(last_monday + timedelta(days=6)),
-                         preset="week")
+                         preset="week", as_of_date=_fmt(today))
     if preset == "month":
         first_this_month = today.replace(day=1)
         last_month_end = first_this_month - timedelta(days=1)
         return TimeRange(_fmt(last_month_end.replace(day=1)), _fmt(last_month_end),
-                         preset="month")
+                         preset="month", as_of_date=_fmt(today))
     if preset == "quarter":
         start, end = _last_quarter(today)
-        return TimeRange(_fmt(start), _fmt(end), preset="quarter")
+        return TimeRange(_fmt(start), _fmt(end), preset="quarter", as_of_date=_fmt(today))
     # year
-    return TimeRange(f"{today.year - 1}0101", f"{today.year - 1}1231", preset="year")
+    return TimeRange(f"{today.year - 1}0101", f"{today.year - 1}1231",
+                     preset="year", as_of_date=_fmt(today))
 
 
 def _last_quarter(today: date) -> tuple[date, date]:

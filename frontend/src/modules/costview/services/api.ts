@@ -328,10 +328,12 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
   );
 }
 
-/** 006: 阈值规则 → 导出端点 thresholds 查询参数（与后端 ThresholdRules 契约对齐） */
+/** 006/014: 阈值规则 → 导出端点 thresholds 查询参数（与后端 ThresholdRules 契约对齐）。
+ *  双档（ADR-0018）：warning 决定是否入清单，critical 仅用于分级标注。 */
 export interface ExportHtmlThresholdPayload {
   mode: 'absolute-above' | 'above' | 'below';
-  threshold: number;
+  warning: number;
+  critical: number;
   enabled: boolean;
 }
 
