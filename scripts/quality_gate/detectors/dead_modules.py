@@ -31,11 +31,12 @@ _DYNAMIC_IMPORT_FSTRING = re.compile(
 )
 
 # import 名解析的视角根（各包的 sys.path 挂载点；多视角宁可多命中）
+# 010-extract-pipeline：DataPipeline 已迁独立仓库，视角根随之移除（仓库根 "" 已覆盖 data_access）。
 _RESOLVE_ROOTS: tuple[str, ...] = (
-    "",                      # 仓库根：DataPipeline.x / CostView.src.x / platform_data.x
+    "",                      # 仓库根：CostView.src.x / platform_data.x / data_access.x
     "backend/api",           # from routers import ... / from services import ...
     "backend",
-    "DataPipeline",
+    "data_access",
     "CostView/src",
     "CostView/api",
     "CostView",

@@ -141,87 +141,128 @@ class MarketStoreReader:
 
         ctx: dict[tuple[str, str], dict] = {}
         for ticker, trade_date in tickers_and_dates:
-            row: dict = {
-                "adv_5d": None, "adv_20d": None,
-                "daily_volatility": None, "intraday_volatility": None,
-                "total_volume": None, "daily_close": None,
-                "before_interval_close": None, "interval_close": None,
-                "price_movement_pct": None, "data_quality_warning": False,
-            }
+            row = self._empty_context_row()
+            interval_start, interval_end = self._route_interval_bounds(
+                route_rows, ticker, trade_date)
 
-            if route_rows:
-                # 从 route_rows 确定 interval_start / interval_end
-                start_times = [
-                    r["start_time"]
-                    for r in route_rows
-                    if r.get("equ_ticker") == ticker
-                    and r["order_as_of_date"] == trade_date
-                    and r.get("start_time")
-                ]
-                interval_start = min(start_times) if start_times else None
+            # 区间前收盘 / 区间收盘 / price_movement_pct
+            if interval_start or interval_end:
+                self._fill_close_prices(
+                    row, ticker, trade_date, interval_start, interval_end)
 
-                end_times = [
-                    r["end_time"]
-                    for r in route_rows
-                    if r.get("equ_ticker") == ticker
-                    and r["order_as_of_date"] == trade_date
-                    and r.get("end_time")
-                ]
-                interval_end = max(end_times) if end_times else None
-
-                # 查询 before_interval_close
-                if interval_start:
-                    before_df = self.query(
-                        f"SELECT close FROM {self._table_name} "
-                        "WHERE equ_ticker = ? AND order_as_of_date = ? "
-                        "AND mkt_timestamp < ? "
-                        "ORDER BY mkt_timestamp DESC LIMIT 1",
-                        [ticker, trade_date, interval_start],
-                    )
-                    row["before_interval_close"] = (
-                        float(before_df["close"].iloc[0]) if not before_df.empty else None
-                    )
-
-                # 查询 interval_close
-                if interval_end:
-                    close_df = self.query(
-                        f"SELECT close FROM {self._table_name} "
-                        "WHERE equ_ticker = ? AND order_as_of_date = ? "
-                        "AND mkt_timestamp <= ? "
-                        "ORDER BY mkt_timestamp DESC LIMIT 1",
-                        [ticker, trade_date, interval_end],
-                    )
-                    row["interval_close"] = (
-                        float(close_df["close"].iloc[0]) if not close_df.empty else None
-                    )
-
-                # 计算 price_movement_pct
-                if row.get("interval_close") and row.get("before_interval_close"):
-                    row["price_movement_pct"] = (
-                        row["interval_close"] / row["before_interval_close"] - 1.0
-                    ) * 100.0
-
-                # 查询 bar completeness
-                if interval_start and interval_end:
-                    count_df = self.query(
-                        f"SELECT COUNT(*) AS cnt FROM {self._table_name} "
-                        "WHERE equ_ticker = ? AND order_as_of_date = ? "
-                        "AND mkt_timestamp >= ? AND mkt_timestamp <= ?",
-                        [ticker, trade_date, interval_start, interval_end],
-                    )
-                    actual_bars = int(count_df["cnt"].iloc[0]) if not count_df.empty else 0
-                    try:
-                        from datetime import datetime as _dt
-                        t_start = _dt.strptime(interval_start, "%H:%M:%S")
-                        t_end = _dt.strptime(interval_end, "%H:%M:%S")
-                        expected_bars = max(1, int((t_end - t_start).total_seconds() / 10))
-                    except ValueError:
-                        expected_bars = 1
-                    row["data_quality_warning"] = actual_bars < 0.8 * expected_bars
+            # bar completeness（实际 K 线数 vs 10 秒粒度预期）
+            if interval_start and interval_end:
+                self._fill_bar_completeness(
+                    row, ticker, trade_date, interval_start, interval_end)
 
             ctx[(ticker, trade_date)] = row
 
         return ctx
+
+    @staticmethod
+    def _empty_context_row() -> dict:
+        """市场上下文的空模板（ADV/volatility 由调用方从 bdib_daily_summary 补充）。"""
+        return {
+            "adv_5d": None, "adv_20d": None,
+            "daily_volatility": None, "intraday_volatility": None,
+            "total_volume": None, "daily_close": None,
+            "before_interval_close": None, "interval_close": None,
+            "price_movement_pct": None, "data_quality_warning": False,
+        }
+
+    @staticmethod
+    def _route_interval_bounds(
+        route_rows: list[dict] | None, ticker: str, trade_date: str,
+    ) -> tuple[str | None, str | None]:
+        """从 route 行确定 (interval_start, interval_end)。"""
+        if not route_rows:
+            return None, None
+        start_times = [
+            r["start_time"]
+            for r in route_rows
+            if r.get("equ_ticker") == ticker
+            and r["order_as_of_date"] == trade_date
+            and r.get("start_time")
+        ]
+        end_times = [
+            r["end_time"]
+            for r in route_rows
+            if r.get("equ_ticker") == ticker
+            and r["order_as_of_date"] == trade_date
+            and r.get("end_time")
+        ]
+        return (
+            min(start_times) if start_times else None,
+            max(end_times) if end_times else None,
+        )
+
+    def _fill_close_prices(
+        self,
+        row: dict,
+        ticker: str,
+        trade_date: str,
+        interval_start: str | None,
+        interval_end: str | None,
+    ) -> None:
+        """查询区间前收盘 / 区间收盘，并计算 price_movement_pct。"""
+        if interval_start:
+            before_df = self.query(
+                f"SELECT close FROM {self._table_name} "
+                "WHERE equ_ticker = ? AND order_as_of_date = ? "
+                "AND mkt_timestamp < ? "
+                "ORDER BY mkt_timestamp DESC LIMIT 1",
+                [ticker, trade_date, interval_start],
+            )
+            row["before_interval_close"] = (
+                float(before_df["close"].iloc[0]) if not before_df.empty else None
+            )
+
+        if interval_end:
+            close_df = self.query(
+                f"SELECT close FROM {self._table_name} "
+                "WHERE equ_ticker = ? AND order_as_of_date = ? "
+                "AND mkt_timestamp <= ? "
+                "ORDER BY mkt_timestamp DESC LIMIT 1",
+                [ticker, trade_date, interval_end],
+            )
+            row["interval_close"] = (
+                float(close_df["close"].iloc[0]) if not close_df.empty else None
+            )
+
+        if row.get("interval_close") and row.get("before_interval_close"):
+            row["price_movement_pct"] = (
+                row["interval_close"] / row["before_interval_close"] - 1.0
+            ) * 100.0
+
+    def _fill_bar_completeness(
+        self,
+        row: dict,
+        ticker: str,
+        trade_date: str,
+        interval_start: str,
+        interval_end: str,
+    ) -> None:
+        """查询区间内实际 K 线数，不足 10 秒粒度预期的 80% 时标记 data_quality_warning。"""
+        count_df = self.query(
+            f"SELECT COUNT(*) AS cnt FROM {self._table_name} "
+            "WHERE equ_ticker = ? AND order_as_of_date = ? "
+            "AND mkt_timestamp >= ? AND mkt_timestamp <= ?",
+            [ticker, trade_date, interval_start, interval_end],
+        )
+        actual_bars = int(count_df["cnt"].iloc[0]) if not count_df.empty else 0
+        row["data_quality_warning"] = actual_bars < 0.8 * self._expected_bars(
+            interval_start, interval_end)
+
+    @staticmethod
+    def _expected_bars(interval_start: str, interval_end: str) -> int:
+        """按 10 秒粒度估算区间内的预期 K 线数。"""
+        try:
+            from datetime import datetime as _dt
+            t_start = _dt.strptime(interval_start, "%H:%M:%S")
+            t_end = _dt.strptime(interval_end, "%H:%M:%S")
+            return max(1, int((t_end - t_start).total_seconds() / 10))
+        except ValueError:
+            return 1
 
     def get_distinct_dates(self) -> list[str]:
         """返回所有不同的交易日."""

@@ -269,6 +269,47 @@
 - **教训**：「存在性」结论（有没有测试/文件/引用）**必须用第二种方式复核**——
   本次 `search_content` 的 glob 未递归，导致误判「前端无测试」并写进了测试文件注释（已更正）。
 
+### 2026-09-11 · quality_gate 扫描根漂移评估与修复
+
+**评估方法**：不改配置，用 quality_gate 自身检测器在三种扫描根组合下**模拟实测**
+（每组合 2.5–3.4s），再按增量决定是否落地。
+
+**漂移实况**：`PYTHON_SCAN_ROOTS` 含不存在的 `DataPipeline`（010 迁出）且缺 `data_access`
+（13 文件 / 1,848 行，本仓库唯一数据入口）；`dead_modules._RESOLVE_ROOTS` 同源残留。
+
+**影响实测（关键更正）**：此前估计「会新增约 66 项基线」**是错的** —— 那是
+`scripts/cleanup`（CL+PF）的发现数，与 quality_gate 的 **OE** 规则集不同（OE=过度工程/
+复杂度/死模块）。实测：
+
+| 场景 | 判定对象 | OE 合计 | 增量 |
+|---|---|---|---|
+| 现状（含不存在的 DataPipeline） | 125 文件 | 80 | — |
+| +data_access | 138 文件 | 82 | **+2** |
+| +data_access +scripts | 182 文件 | 95 | +15（scripts 自指 13） |
+
+**增量的 2 项均为真实问题，处置不同**：
+
+| 项 | 处置 | 理由 |
+|---|---|---|
+| OE-02 `connection.py:400 database_exists`（1:1 传递） | **suppressed 并注明** | 它同时是 `ConnectionManagerProtocol`（`platform_data/contracts/protocols.py:55`）声明的 **API 边界方法**，唯一调用方 `platform_data/regime_query.py:40` —— 内联会破坏契约；按检测器自身指引走豁免 |
+| OE-05 `market_store.py:117 get_market_context`（CC 24） | **拆分修复** | 无契约约束；拆为 `get_market_context`(CC 7) + `_empty_context_row` / `_route_interval_bounds`(12) / `_fill_close_prices`(7) / `_fill_bar_completeness`(2) / `_expected_bars`(2)，行为保持 |
+
+**实施**：
+1. `quality_gate/config.py::PYTHON_SCAN_ROOTS`：删 `DataPipeline`、补 `data_access`
+2. `dead_modules._RESOLVE_ROOTS`：移除 `DataPipeline`、补 `data_access`（同源残留）
+3. `market_store.get_market_context` 拆分（CC 24 → 7，子函数 ≤12）
+4. `database_exists` suppressed（指纹 `cc43346eaaa8…`，注明理由）
+5. **未纳入 `scripts`**：+13 项全是 quality_gate/cleanup 自身的自指发现（scripts 清理视角由
+   `scripts/cleanup` 承担）—— 自指扫描只会制造噪声并推高基线
+
+**验证**：`pytest backend/CostView/quality_gate/cleanup` **358 passed / 1 skipped**；
+quality_gate 自测 21 passed；复扫 **OE 新增 0 / 存量 254**（OE-05 清偿 1、OE-02 豁免 1）；
+cleanup 复扫清理项 0。**
+
+**教训（第二次同类失误）**：「新增 N 项」的估计**必须实测而非口算** —— 我把两套规则集
+（cleanup 的 CL+PF 与 quality_gate 的 OE）的发现数混为一谈，高估了 33 倍。
+跨规则集的影响评估必须先跑模拟再下结论。
+
 ### 2026-09-10 · PF-06 实测（路径 B 离线基准 + 路径 A 在线 py-spy 采样）
 
 **环境事实（先探活再动手，避免重复起服务）**：后端 (3000, PID 59972) 与 Vite dev server
