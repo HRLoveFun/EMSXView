@@ -14,6 +14,8 @@ from typing import Any, Iterable
 
 from platform_data.config import HANDOFF_BACKEND, REDIS_URL
 from platform_data.contracts.handoff_contracts import (
+    HANDOFF_MAX_STRATEGY_PARAMS_BYTES,
+    SOURCE_MODULE_MATURITY,
     BrokerStrategyRecommendation,
     ExecutionCandidateHandoff,
     ExecutionPostTradeHandoff,
@@ -30,20 +32,27 @@ _MAX_EXECUTION_TO_COST = 500        # Execution→Cost 映射条目上限
 _MAX_COST_TO_EXECUTION = 200        # Cost→Execution 列表上限 (与既有实现对齐)
 _HANDOFF_TTL = timedelta(days=7)    # 条目过期时间, 读取/写入时惰性清理
 
-# 防护 (M3): 跨模块策略参数载荷大小上限 64KB (API 层 schema 校验的适配器侧双保险)
-_MAX_STRATEGY_PARAMS_BYTES = 64 * 1024
+# 防护 (M3): 跨模块策略参数载荷大小上限 — 数值真相源在契约
+# HANDOFF_MAX_STRATEGY_PARAMS_BYTES (64KB)，此处仅为别名（API schema 校验
+# 为主拦截层，adapter 为双保险）。
+_MAX_STRATEGY_PARAMS_BYTES = HANDOFF_MAX_STRATEGY_PARAMS_BYTES
 
 
 def _bounded_strategy_params(strategy_params: dict[str, Any] | None) -> dict[str, Any]:
-    """校验并复制策略参数, 超限抛 ValueError。"""
+    """校验并复制策略参数, 超限抛 ValueError。
+
+    字节口径与 API schema 校验一致（UTF-8 序列化字节，非字符数），
+    错误信息携带 actual/max 供 422 结构化错误码使用。
+    """
     params = dict(strategy_params or {})
     try:
-        size = len(json.dumps(params, default=str))
+        size = len(json.dumps(params, default=str, ensure_ascii=False).encode("utf-8"))
     except (TypeError, ValueError):
         raise ValueError("strategy_params 无法序列化") from None
     if size > _MAX_STRATEGY_PARAMS_BYTES:
         raise ValueError(
-            f"strategy_params 大小超限 (max {_MAX_STRATEGY_PARAMS_BYTES // 1024}KB)"
+            f"strategy_params 大小超限: actual_bytes={size} "
+            f"max_bytes={_MAX_STRATEGY_PARAMS_BYTES}"
         )
     return params
 
@@ -117,6 +126,7 @@ class HandoffExchangeAdapter:
             generated_at=_now_iso(),
             trace_id=_new_trace_id("mv-ev"),
             origin_trace_id=origin_trace_id,
+            source_maturity=SOURCE_MODULE_MATURITY.get("MarketView"),
         )
         handoff = ExecutionCandidateHandoff(
             metadata=metadata,
@@ -127,6 +137,19 @@ class HandoffExchangeAdapter:
             execution_hint=dict(execution_hint or {}),
         )
         with self._lock:
+            # newest-wins 守卫（P3 整改）：blind last-write-wins 会因乱序发布
+            # 用旧快照覆盖新快照；仅当旧条目更新时保留旧条目并告警。
+            current = self._market_to_execution
+            if (
+                current is not None
+                and current.metadata.generated_at > handoff.metadata.generated_at
+            ):
+                _log.warning(
+                    "handoff: 乱序发布检测 — 保留较新的 Market→Execution 条目 "
+                    "(existing=%s incoming=%s)",
+                    current.metadata.generated_at, handoff.metadata.generated_at,
+                )
+                return current
             self._market_to_execution = handoff
         return handoff
 
@@ -161,6 +184,7 @@ class HandoffExchangeAdapter:
             generated_at=_now_iso(),
             trace_id=_new_trace_id("ev-cv"),
             origin_trace_id=origin_trace_id,
+            source_maturity=SOURCE_MODULE_MATURITY.get("ExecutionView"),
         )
         handoff = ExecutionPostTradeHandoff(
             metadata=metadata,
@@ -176,6 +200,19 @@ class HandoffExchangeAdapter:
         )
         with self._lock:
             self._prune_execution_to_cost()
+            # newest-wins 守卫：同一订单的乱序发布保留较新条目
+            existing = self._execution_to_cost.get(str(order_id))
+            if (
+                existing is not None
+                and existing.metadata.generated_at > handoff.metadata.generated_at
+            ):
+                _log.warning(
+                    "handoff: 乱序发布检测 — 保留 order %s 较新的 Execution→Cost "
+                    "条目 (existing=%s incoming=%s)",
+                    order_id,
+                    existing.metadata.generated_at, handoff.metadata.generated_at,
+                )
+                return existing
             if len(self._execution_to_cost) >= _MAX_EXECUTION_TO_COST:
                 # 容量上限: 按 generated_at 淘汰最旧条目, 防止无界增长
                 oldest = min(
@@ -227,6 +264,7 @@ class HandoffExchangeAdapter:
             generated_at=_now_iso(),
             trace_id=_new_trace_id("cv-ev"),
             origin_trace_id=origin_trace_id,
+            source_maturity=SOURCE_MODULE_MATURITY.get("CostView"),
         )
         rec = BrokerStrategyRecommendation(
             metadata=metadata,
