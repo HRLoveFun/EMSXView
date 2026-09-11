@@ -22,7 +22,7 @@ interface Commit {
  * 在 React.Profiler 内渲染并记录每次 commit。
  * `actualDuration` 是本次 commit 的渲染耗时（React 自己的计时，不含 layout/paint）。
  */
-function measure(
+export function measure(
   ui: ReactElement,
   onRender: ProfilerOnRenderCallback,
 ): { rerender: (next: ReactElement) => void } {

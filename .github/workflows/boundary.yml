@@ -104,10 +104,10 @@ jobs:
         run: |
           cd frontend
           npm ci
-      - name: 类型检查 (仅检查本次防护相关文件无新错误)
+      - name: "类型检查 (硬阻断)"
         run: |
           cd frontend
-          npx tsc -b --noEmit || true  # 历史遗留错误不阻断, 由 PR 审查跟踪
+          npx tsc -b --noEmit
       - name: 单元测试
         run: |
           cd frontend
