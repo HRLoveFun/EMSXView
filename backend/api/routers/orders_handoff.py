@@ -8,6 +8,7 @@ import paths per the plan's import path specification.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 
 from deps import verify_token
 
@@ -98,17 +99,31 @@ async def publish_post_trade_handoff(
     request: PostTradeHandoffRequest, user: dict = Depends(verify_token),
 ) -> ApiResponse:
     """Publish an ExecutionView → CostView post-trade context handoff."""
-    handoff = get_shared_handoff_exchange().publish_execution_to_cost(
-        order_id=request.order_id,
-        parent_execution_id=request.parent_execution_id,
-        broker=request.broker,
-        strategy=request.strategy,
-        asset_class=request.asset_class,
-        urgency=request.urgency,
-        route_ids=request.route_ids,
-        strategy_params=request.strategy_params,
-        candidate_trace_id=request.candidate_trace_id,
-    )
+    try:
+        handoff = get_shared_handoff_exchange().publish_execution_to_cost(
+            order_id=request.order_id,
+            parent_execution_id=request.parent_execution_id,
+            broker=request.broker,
+            strategy=request.strategy,
+            asset_class=request.asset_class,
+            urgency=request.urgency,
+            route_ids=request.route_ids,
+            strategy_params=request.strategy_params,
+            candidate_trace_id=request.candidate_trace_id,
+        )
+    except ValueError as exc:
+        # P3 整改（A1/A2）：超限不再是 500 裸异常串 — 结构化 422，
+        # 错误码 handoff_params_too_large，文案含 actual/max bytes。
+        # 语义为整单拒绝（A5）：不做静默裁剪降级。
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "error": "handoff_params_too_large",
+                "data": None,
+                "message": str(exc),
+            },
+        )
     return ApiResponse(
         success=True,
         data=PostTradeHandoffPayload(
