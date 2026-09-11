@@ -45,7 +45,10 @@ export function ImpactBreakdownTable({ impact }: { impact?: TcaImpactBreakdown |
           </table>
         </div>
         <div className="mt-2 text-[10px] text-muted-foreground">
-          成交额加权（RouteShares × p_avg）；恢复窗口越界时使用次日收盘价作跨日恢复价格
+          成交额加权（fill × p_avg，与总成交金额同源）；恢复窗口越界时使用次日收盘价作跨日恢复价格
+          {impact.recovery_truncated_count
+            ? `。其中 ${impact.recovery_truncated_count.toLocaleString()} 条（${((impact.recovery_truncated_share ?? 0) * 100).toFixed(1)}%）为跨日兜底口径`
+            : ''}
         </div>
       </CardContent>
     </Card>

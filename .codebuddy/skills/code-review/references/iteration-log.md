@@ -25,6 +25,19 @@
 - **已落地改动**：<经确认写入的文件与摘要；未确认的标注"待确认">
 ```
 
+### 2026-09-11 EMSXView CostView TCA 报告指标口径修复（14 项缺陷）
+- **输入**：模式=<变更集>；范围=<工作区 24 修改 + 3 新增：CostView/src/monitoring、CostView/api/routers、frontend costview、scripts/reports、docs、ADR>；语言=<Python + TypeScript>；框架=<FastAPI + SQLite(mode=ro)；React 19 + Vite + shadcn/ui>；变更类型=<缺陷修复 + 破坏性口径变更>
+- **发现统计**：P0 0 / P1 0 / P2 4 / P3 3；疑点 2
+- **问题类型分布**：一致性/API 明细上限硬编码与 REPORT_SPEC 分叉（已修）×1；效率/新增一致性探针的订单级 GROUP BY 缺覆盖索引 ×1；一致性/前端规则列表缺 order_par_gt100（已补注释）×1；可维护性/前端渲染上限硬编码 ×1；效率/直方图 1 次查询增至 3 次轻量 COUNT ×1；测试/白盒导入下划线函数 ×1；文档/ADR 索引未同步（已修）×1
+- **误报**：`_apply_fx` 参数前置在新增 unfilled_notional 查询上的复用 → 核对 CTE 2 + 主查询 N 占位符计数后排除；前端 types 破坏性改动初看疑似影响多消费方 → 引用搜索确认仅 ReportView 使用
+- **遗漏**：无
+- **分级偏差**：`_query_consistency` 效率问题初判 P1 → 降 P2（离线批处理路径 + 日期/交易所白名单过滤，无请求级放大）
+- **改进建议**：
+  - [模式] 新增「口径常量分叉」模式：声明为唯一真相源的常量（如 REPORT_SPEC）落地时须 grep 全仓核对其同义硬编码值是否同源——写入 maintainability-checklist
+  - [规则] 破坏性口径变更必查四项：旧口径对比值是否残留、前端类型是否同步、ADR 是否修订/新增、golden snapshot 是否需人工标注预期变更
+  - [分级] 离线批处理路径（非请求级）的效率问题默认不超过 P2
+- **已落地改动**：仅追加本记录；清单修改待用户确认
+
 ### 2026-09-09 EMSXView CostView 模块定点评审
 - **输入**：模式=<定点>；范围=<CostView/（src + api + monitoring，tests 仅引用核对）>；语言=<Python>；框架=<FastAPI + SQLite(mode=ro)/DuckDB + Redis（推断）>；变更类型=<模块健康度>
 - **发现统计**：P0 0 / P1 3 / P2 10 / P3 5；疑点 3
