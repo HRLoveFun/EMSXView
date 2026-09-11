@@ -3,7 +3,7 @@
 > 跨域 API 真相源
 > 配套规范：`.codebuddy/rules/module-boundary.md`、`.codebuddy/rules/coding-style.md` §API 约定
 > 配套反模式：[anti-patterns.md §AP-05](../anti-patterns.md)
-> Last updated: 2026-07-16
+> Last updated: 2026-09-11（端点表与 `api/routers/` 源码逐行核对：移除已不存在的 `/api/execution-history/*`、`/api/regime/*`，补 CostView monitoring 端点与 analyze-orders，修正 MarketView 端点路径，刷新契约文件清单）
 
 ---
 
@@ -90,12 +90,35 @@
 
 ## CostView API（Optional / :8002）
 
+> 端点源码定位与验证方式见主 [README.md §4.2](../../README.md#42-costviewcostview--beta) 与 [CostView/README.md](../../CostView/README.md)。
+
 ### TCA 分析
 
 | 端点 | 方法 | 描述 |
 |---|---|---|
-| `/api/tca/analyze` | POST | TCA 交易成本分析 |
+| `/api/tca/analyze` | POST | TCA 交易成本分析（route 级，读 `tca_route_summary` 预计算表） |
+| `/api/tca/analyze-orders` | POST | TCA 订单聚合查询（`TCA_ORDER_AGG_ENABLED` 默认关闭） |
 | `/api/tca/scorecard` | POST | 评分卡查询 |
+| `/api/tca/recommendations/pin` | POST | 券商推荐 pin（写入 handoff，ExecutionView 经 `GET /api/broker-recommendations` 读取） |
+| `/api/tca/handoff/post-trade/{order_id}` | GET | 查看 ExecutionView → CostView post-trade handoff |
+| `/api/costview/regime-distribution` | GET | Regime 分布查询（`regime_dim` ∈ {vol_regime, liq_regime, trend_regime}；regime.db 未就绪返回 503） |
+
+### 监控与报告
+
+| 端点 | 方法 | 描述 |
+|---|---|---|
+| `/api/tca/monitoring/bdib-health` | GET | BDIB 数据健康扫描 |
+| `/api/tca/monitoring/metric-coverage` | GET | 计算指标非 NULL 覆盖率 |
+| `/api/tca/monitoring/report-summary` | GET | TCA 报告聚合（KPI/图表/排名） |
+| `/api/tca/monitoring/anomaly-thresholds` | GET | 异常路由过滤阈值 |
+| `/api/tca/monitoring/export-html` | GET | 自包含 HTML 报告一键导出 |
+
+### 数据管道触发（backend 鉴权代理，非 CostView 服务端点）
+
+| 端点 | 方法 | 描述 |
+|---|---|---|
+| `/api/tca/runner/run` | POST | 代理独立仓库 EMSXDataPipeline Runner（本机 `:8100`，单任务模型；已在运行返回 409 幂等受理） |
+| `/api/tca/runner/status` | GET | 查询当前管道任务状态 |
 
 #### `POST /api/tca/analyze` 响应结构
 
@@ -197,20 +220,16 @@
 > 34 个字段严格对应数据库 `tca_route_summary` 表列。`TcaOrderSummary` 与
 > `TcaRouteDetail` 已标记为 deprecated，仅用于兼容旧归档代码。
 
-### 执行历史
+### 执行历史（已移除）
 
-| 端点 | 方法 | 描述 |
-|---|---|---|
-| `/api/execution-history/fills` | GET | 历史 fill 查询 |
-| `/api/execution-history/orders` | GET | 历史 order 查询 |
-| `/api/execution-history/routes` | GET | 历史 route 查询 |
+> 010-extract-pipeline：`/api/execution-history/*` 端点已移除（数据库维护迁独立仓库
+> EMSXDataPipeline）。执行历史读取现由 `CostView/src/tca_query_builder.py` 直接 SQL JOIN
+> `route_registry` 提供（原 `execution_history_service.py` 已于 2026-08-26 移除，见 ADR-0014）。
 
 ### Regimes
 
-| 端点 | 方法 | 描述 |
-|---|---|---|
-| `/api/regime/distribution` | GET | Regime 分布查询 |
-| `/api/regime/classify` | POST | Regime 分类 |
+> 原 `/api/regime/distribution`、`/api/regime/classify` 端点不存在（2026-09-11 核实）。
+> 实际端点为 CostView 服务的 `GET /api/costview/regime-distribution`，见上文 TCA 分析表。
 
 ---
 
@@ -226,10 +245,11 @@
 
 | 端点 | 方法 | 描述 |
 |---|---|---|
-| `/api/marketview/snapshot` | GET | 市场快照 |
-| `/api/marketview/intraday` | GET | 日内特征 |
+| `/api/marketview/snapshot` | GET | 市场快照（`MarketView/routers/marketview.py:146`） |
+| `/api/marketview/intraday-features` | GET | 日内特征（`marketview.py:341`；注意路径是 `intraday-features` 而非 `intraday`） |
+| `/api/marketview/handoff/execution` | POST | 发布 Market → Execution handoff（`marketview.py:457`） |
 
-> MarketView 当前是只读基线，新端点需走 ADR 决策。
+> MarketView 当前是只读基线（Scaffold），新端点需走 ADR 决策。
 
 ---
 
@@ -258,16 +278,22 @@
 
 ## 跨域数据契约（`platform_data/contracts/`）
 
+实际文件清单（2026-09-11 逐文件核实）：
+
 | 文件 | 内容 |
 |---|---|
-| `fill_contracts.py` | `SCORECARD_COHORTS` 等 fill 类型 |
+| `tca_contracts.py` | `SCORECARD_COHORTS` 等 TCA 类型（原 `fill_contracts.py` 内容并入此处，该文件已不存在） |
 | `market_contracts.py` | `MarketCandidatePayload`, `MarketCandidateRow` |
 | `execution_contracts.py` | `ExecutionHistoryFillRow`, `ExecutionHistoryOrderSummaryRow`, `ExecutionHistoryRouteSummaryRow` 等 |
 | `handoff_contracts.py` | `HandoffMetadata`, `ExecutionCandidateHandoff`, `ExecutionPostTradeHandoff`, `BrokerStrategyRecommendation` |
-| `regime_contracts.py` | regime 类型 |
-| `data_platform_contracts.py` | `IngestionConfig`, `PipelineState`, `IngestionResult` |
-| `evaluation_contracts.py` | （planned）算法模型元数据 |
+| `intraday_contracts.py` | 日内特征契约（bucket 选项/上限等常量） |
+| `db_constants.py` | 库常量定义 |
+| `data_access.py` | 数据访问契约 |
 | `protocols.py` | `ConnectionManagerProtocol`, `ConfigProtocol`（数据访问层集成协议，实现见 `data_access/`） |
+| `tca_service_protocol.py` | TCA 查询服务协议 |
+| `boundary_registry.py` | 模块边界注册 |
+
+> 历史说明：v2026-07-16 前列出的 `regime_contracts.py`、`data_platform_contracts.py`（`IngestionConfig`/`PipelineState`/`IngestionResult`）、`evaluation_contracts.py` 均已不存在（详见 [data-domain.md v3.4](data-domain.md) Contract layer 一节）。
 
 **规则**：跨模块数据类型**只**从 `platform_data.contracts` 导入。
 

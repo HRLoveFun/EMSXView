@@ -1,7 +1,7 @@
 ﻿# EMSX Logical Data Domain
 
 > Boundary definition for shared platform data
-> Last updated: 2026-06-03 (v3.3 — 修正适配器清单与实际代码对齐)
+> Last updated: 2026-09-11 (v3.4 — 移除 `tca_fallback.py`/不存在契约文件/`repositories.py` 等过时引用，与实际代码对齐)
 >
 > **重要**: 本文档与实际代码的偏差见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)。
 
@@ -137,11 +137,13 @@ Examples:
 Primary code surfaces (actual, 2026-08):
 
 - `CostView/src/tca_query_service.py` — TCA and scorecard query（读取 `tca_route_summary` 汇总表）
-- `CostView/src/tca_query_builder.py` — TCA 查询构建器
-- `CostView/src/tca_cache.py` / `tca_fallback.py` / `tca_utils.py` — 查询缓存 / 降级 / 工具
-- `CostView/src/monitoring/` — BDIB 健康度、指标覆盖率、报告聚合（`bdib_health.py`, `metric_coverage.py`, `report_aggregator.py`, `time_range.py`）
-- `CostView/src/query_cli.py` / `secure_config.py` — CLI / 加密配置
-- `backend/api/routers/costview.py` — API surface
+- `CostView/src/tca_query_builder.py` — TCA 查询构建器（库/表缺失 → 降级空结果，009）
+- `CostView/src/tca_cache.py` / `tca_utils.py` — 查询缓存（Redis，连接失败降级直查）/ 工具
+  （注：原 `tca_fallback.py` 已删除，降级逻辑内置于各查询层，见主 README §8）
+- `CostView/src/monitoring/` — BDIB 健康度、指标覆盖率、报告聚合（`bdib_health.py`, `metric_coverage.py`, `report_aggregator.py`, `report_dims.py`, `anomaly_query.py`, `tca_report_html.py`, `time_range.py`）
+- `CostView/src/query_cli.py` / `secure_config.py` — QueryEngine 编程接口（⚠ `__main__.py` 缺失，`python -m CostView.src` 命令行入口失效）/ 加密配置
+- `CostView/api/routers/costview.py` + `monitoring.py` — 独立服务 API surface（6 + 5 端点）
+- `backend/api/routers/costview.py` — 数据管道 Runner 鉴权代理（`/api/tca/runner/run` / `status`）
 
 > 注：`evaluation/`、`models/`、`attribution/`、`regime/`、`db/repositories/regime.py` 为历史规划路径，当前不存在；原规划中的 `execution_history_service.py` 从未接线，已于 2026-08-26 移除——执行历史读取由 `CostView/src/tca_query_builder.py` 直接 SQL JOIN `route_registry` 提供。
 
@@ -164,13 +166,16 @@ Cross-module adapters (actual):
 
 Cross-module data contracts are defined in `platform_data/contracts/`. This is the **only legal source** for data types and constants that cross module boundaries (ExecutionView ↔ CostView ↔ MarketView).
 
-Current contracts:
+Current contracts (actual files, verified 2026-09-11):
 
-- `platform_data/contracts/fill_contracts.py` — `SCORECARD_COHORTS` tuple
-- `platform_data/contracts/market_data_contracts.py` — (placeholder for future market data types)
-- `platform_data/contracts/regime_contracts.py` — (placeholder for future regime types)
-- `platform_data/contracts/data_platform_contracts.py` — `IngestionConfig`, `PipelineState`, `IngestionResult`
-- `platform_data/contracts/evaluation_contracts.py` — (planned — algorithm model metadata, evaluation specs, output format)
+- `platform_data/contracts/handoff_contracts.py` — handoff 元数据与载荷 schema
+- `platform_data/contracts/execution_contracts.py` — ExecutionView 数据契约（`ExecutionHistoryFillRow` 等）
+- `platform_data/contracts/tca_contracts.py` — TCA 契约（`SCORECARD_COHORTS` tuple）
+- `platform_data/contracts/market_contracts.py` — market snapshot 契约
+- `platform_data/contracts/intraday_contracts.py` — intraday feature 契约（bucket 选项/上限）
+- `platform_data/contracts/data_access.py` / `db_constants.py` / `protocols.py` / `tca_service_protocol.py` / `boundary_registry.py` — 数据访问、库常量、接口协议、边界注册
+
+> 历史说明：v3.3 及之前列出的 `fill_contracts.py`（内容并入 `tca_contracts.py`）、`market_data_contracts.py`、`regime_contracts.py`、`data_platform_contracts.py`（`IngestionConfig`/`PipelineState`/`IngestionResult` 已随 010-extract-pipeline 移除）、`evaluation_contracts.py` 均已不存在。
 
 Rule: Consumers import from `platform_data.contracts`, not from `CostView.src.*` directly.
 
@@ -191,7 +196,9 @@ The shared code entry is:
   - `redis_handoff.py` — `RedisHandoffExchangeAdapter`
   - `tca_bridge.py` — `get_tca_query_service()`, `register_tca_service_impl()`
 - `platform_data/contracts/`
-- `platform_data/repositories.py`
+- `platform_data/config_bridge.py` / `config.py` / `regime_query.py`
+
+> 注：v3.3 列出的 `platform_data/repositories.py` 已不存在（2026-09-11 核实）。
 
 #### 实际存在的适配器（2026-06-03）
 
@@ -273,6 +280,7 @@ ends at clean, well-structured data delivery.
    - Common: `processing_config.py`, `exchange_tz.py`, `mapping.py`, `outdated_tickers.py`, `schema.py` → `DataPipeline/common/`
 2. ✅ **Added platform_data contract files:** `data_platform_contracts.py` (IngestionConfig, PipelineState, IngestionResult, PipelineStatus). `evaluation_contracts.py` deferred (YAGNI).
 3. ✅ **Introduced new adapters:** `DataPlatformIngestionAdapter` in `platform_data/adapters.py`, integrated into `PlatformDataAccess.data_platform`.
+   > 注（2026-09-11）：该适配器与 `PlatformDataAccess` 集成现已移除，当前状态见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)。
 4. ⬜ **Build CostView evaluation layer** — deferred (out of scope for this extraction).
 5. ✅ **Redirect internal imports.** All DataPipeline modules import from within DataPipeline. `CostView/src/db/` is a thin re-export layer.
 6. ✅ **Deleted legacy classes.** `raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`, `processed_fills_db/` removed from `CostView/src/`. Copied to `DataPipeline/storage/`.
@@ -289,7 +297,7 @@ ends at clean, well-structured data delivery.
 
 - No immediate rewrite into a single monorepo Python package layout.
 - No immediate migration of SQLite analytical stores into PostgreSQL.
-- The Data Platform has been extracted from CostView. Analysis modules (regime/attribution) and execution history service now live in DataPipeline and platform_data respectively.
+- The Data Platform has been extracted from CostView (010-extract-pipeline 后进一步迁往独立仓库 EMSXDataPipeline，本仓库保留只读消费面 `data_access/`；执行历史读取由 `CostView/src/tca_query_builder.py` 直接 SQL JOIN `route_registry` 提供——原 `execution_history_service.py` 已于 2026-08-26 移除)。
 
 ---
 

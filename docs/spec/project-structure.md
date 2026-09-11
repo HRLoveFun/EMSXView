@@ -1,7 +1,7 @@
 ﻿# EMSXView Project Structure
 
 > Current architecture reference for the EMSXView Trading Platform
-> Last updated: 2026-07-02 | Version: 3.3（版本号对齐 [data-domain.md](data-domain.md) v3.3；本版本仅刷新头部版本号/日期，结构章节保持稳定）
+> Last updated: 2026-09-11 | Version: 3.4（对齐 [data-domain.md](data-domain.md) v3.4：刷新 CostView/src 实际文件、contracts 实际契约、成熟度定级引用；移除已迁移/已删除路径）
 
 ---
 
@@ -31,9 +31,9 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 
 | Module | Role | Current implementation state |
 |---|---|---|
-| MarketView | Pre-trade analysis, market context, execution preparation | Shell anchor exists, domain capabilities still to be built |
-| ExecutionView | Real-time order and route management via Bloomberg EMSX | Production-ready core |
-| CostView | Post-trade analytics, TCA, data pipeline, reporting | Active data/analytics module with shell-integrated UI |
+| MarketView | Pre-trade analysis, market context, execution preparation | Shell anchor exists, domain capabilities still to be built（定级 Scaffold） |
+| ExecutionView | Real-time order and route management via Bloomberg EMSX | GA（判据与证据见主 [README.md §0](../../README.md#0-模块成熟度分级契约定义)：真实交易数据持续入库 + 约 180 个后端测试函数 + 运维手册；无正式 SLA 文档） |
+| CostView | Post-trade analytics, TCA, broker recommendations, reporting | Beta（只读消费者；数据管道已迁独立仓库 EMSXDataPipeline） |
 
 ---
 
@@ -53,18 +53,18 @@ backend/api (FastAPI assembly layer)
   |- routers/
   |- services/
   |- repositories/
-  |- schemas.py
+  |- schemas/
   `- db.py / service_provider.py
   |
   +--> Bloomberg EMSX API (operational execution data)
-  `--> CostView/src (analytical queries + pipeline data)
+  `--> CostView/src (analytical queries, read-only via data_access/)
 ```
 
 Key runtime truth:
 
 - `frontend/src/App.tsx` is the canonical UI entry point.
 - `backend/api/main.py` is the application assembly entry point, not the sole location of business logic.
-- `CostView/src/` is the active analytics and pipeline implementation.
+- `CostView/src/` is the active analytics implementation（只读；管道实现已迁独立仓库 EMSXDataPipeline）.
 - `platform_data/` is the shared adapter entry for the logical data domain.
 
 ---
@@ -104,53 +104,73 @@ EMSXView/
 │       ├── services/
 │       ├── repositories/
 │       ├── models/
-│       ├── schemas/
-│       └── tests/
+│       ├── schemas/                  # Pydantic v2 请求/响应 schema（目录，非单文件）
+│       └── tests/                    # 20 个测试文件，约 180 个测试函数（含 boundaries/ 契约测试）
 ├── MarketView/
+│   ├── main.py                       # FastAPI entry（无 Bloomberg 依赖）
+│   ├── config.py
+│   ├── routers/marketview.py         # snapshot / intraday-features / handoff 端点
 │   └── README.md
 ├── CostView/
 │   ├── README.md
+│   ├── pyproject.toml                # pip package: emsxview-costview
 │   ├── requirements.txt
+│   ├── api/
+│   │   ├── main.py                   # FastAPI entry (<COSTVIEW_PORT>, default 8002)
+│   │   └── routers/
+│   │       ├── costview.py           # analyze / analyze-orders / scorecard / recommendations pin / handoff peek / regime
+│   │       └── monitoring.py         # bdib-health / metric-coverage / report-summary / anomaly-thresholds / export-html
 │   ├── src/
-│   │   ├── pipeline.py
 │   │   ├── tca_query_service.py
-│   │   ├── fill_fetch.py
-│   │   ├── bdib_fetcher.py
-│   │   ├── daily_metrics_calculator.py
-│   │   └── (legacy raw_*_db.py / fill_bdib_db.py / processed_raw_bdib_db.py — DELETED)
+│   │   ├── tca_query_builder.py
+│   │   ├── tca_cache.py
+│   │   ├── tca_utils.py
+│   │   ├── query_cli.py              # QueryEngine（⚠ __main__.py 缺失，CLI 命令行入口失效）
+│   │   ├── secure_config.py
+│   │   └── monitoring/               # bdib_health · metric_coverage · report_aggregator · report_dims ·
+│   │                                 #   anomaly_query · tca_report_html · time_range
 │   ├── scripts/
-│   ├── tests/
-│   ├── data/
-│   └── frontend/
-│       ├── README.md
-│       └── src/
+│   ├── tests/                        # 4 个测试文件，103 个测试函数
+│   └── data.migrated.202609022339/   # 历史数据归档（2026-09-02 迁出；现行数据根 ${EMSXVIEW_DATA_DIR}）
+│   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 删除（ADR-0014，见 §6.1）
 ├── platform_data/
 │   ├── __init__.py
 │   ├── adapters/                      # Cross-module adapters (subpackage)
 │   │   ├── __init__.py                # Backward-compat re-export entry point
-│   │   ├── handoff.py                 # HandoffExchangeAdapter
+│   │   ├── handoff.py                 # HandoffExchangeAdapter（内存交换器：TTL 7 天 + 容量上限）
 │   │   ├── redis_handoff.py           # RedisHandoffExchangeAdapter
 │   │   ├── market.py                  # MarketReferenceDataAdapter
 │   │   └── tca_bridge.py              # TCA service DI + daily summary reader
-│   └── contracts/                      # Cross-module data contracts
+│   └── contracts/                      # Cross-module data contracts（实际文件，2026-09-11 核实）
 │       ├── __init__.py
-│       ├── fill_contracts.py           # SCORECARD_COHORTS + fill types
-│       ├── market_data_contracts.py
-│       └── regime_contracts.py
+│       ├── handoff_contracts.py
+│       ├── execution_contracts.py
+│       ├── tca_contracts.py            # SCORECARD_COHORTS + TCA 类型（原 fill_contracts.py 内容并入此处）
+│       ├── market_contracts.py
+│       ├── intraday_contracts.py
+│       ├── data_access.py
+│       ├── db_constants.py
+│       ├── protocols.py
+│       ├── tca_service_protocol.py
+│       └── boundary_registry.py
 ├── docs/
 │   ├── index.md
+│   ├── api-contracts.md
+│   ├── schema-contract.md
 │   ├── dev-guide.md
-│   ├── handoff.md
+│   ├── handoff-costview-html-report.md
+│   ├── report-tca-known-limitations.md
+│   ├── open-todos.md
 │   ├── spec/
 │   │   ├── project-structure.md
 │   │   ├── data-domain.md
+│   │   ├── module-api-contracts.md
 │   │   └── memory.md
+│   ├── ops/
 │   └── archive/
 ├── scripts/
 ├── data/
-├── logs/
-├── app/               # empty legacy placeholder
-└── config/            # empty legacy placeholder
+└── logs/
 ```
 
 ---
@@ -196,7 +216,7 @@ Active backend layering:
 - `routers/` — HTTP and WebSocket surfaces by domain
 - `services/` — business workflows and Bloomberg adapter logic
 - `repositories/` — operational persistence access
-- `models/` / `schemas.py` — persistence and API contracts
+- `models/` / `schemas/` — persistence and API contracts
 - `db.py` / `service_provider.py` — operational data access boundary
 
 ### 4.3 CostView analytical layer
