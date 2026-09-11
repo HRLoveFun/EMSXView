@@ -235,6 +235,7 @@ async def get_broker_recommendations(
                 "generated_at": r.metadata.generated_at,
                 "trace_id": r.metadata.trace_id,
                 "origin_trace_id": r.metadata.origin_trace_id,
+                "source_maturity": r.metadata.source_maturity,
             },
             "cohort": r.cohort,
             "asset_class": r.asset_class,

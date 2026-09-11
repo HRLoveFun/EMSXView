@@ -14,6 +14,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from platform_data.contracts import HANDOFF_MAX_STRATEGY_PARAMS_BYTES
+
 
 # ── Shared metadata model (contracts 1-3) ───────────────────────────────────
 
@@ -94,6 +96,23 @@ class PostTradeHandoffRequest(BaseModel):
     route_ids: list[str] = Field(default_factory=list, max_length=1000)
     strategy_params: dict = Field(default_factory=dict)
     candidate_trace_id: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("strategy_params")
+    @classmethod
+    def validate_params_size(cls, v: Optional[dict]) -> Optional[dict]:
+        """载荷大小主拦截层（P3 整改 A1/A3）：超限 → 422，早于 adapter 双保险。
+
+        字节口径与 adapter `_bounded_strategy_params` 一致（UTF-8 序列化字节），
+        数值真相源为契约常量 HANDOFF_MAX_STRATEGY_PARAMS_BYTES。
+        """
+        if v:
+            size = len(json.dumps(v, default=str, ensure_ascii=False).encode("utf-8"))
+            if size > HANDOFF_MAX_STRATEGY_PARAMS_BYTES:
+                raise ValueError(
+                    f"strategy_params 大小超限: actual_bytes={size} "
+                    f"max_bytes={HANDOFF_MAX_STRATEGY_PARAMS_BYTES}"
+                )
+        return v
 
     @field_validator("route_ids")
     @classmethod
