@@ -159,7 +159,7 @@ Worktree 的工作文件是独立的，但**数据不属于 git**：
 - 历史布局（项目内 `CostView/data`、ADR-0016 的 `~\EMSXViewData\data`）已废弃，仅在显式 `EMSXVIEW_DATA_DIR` 指回时生效。
 - **读写职责物理分离**：读取方（CostView API / 查询 / 监控）经 `data_access.ConnectionManager` 的 `AccessTier.READ`（`sqlite3` URI `mode=ro`）连接，文件系统层面拒绝写；**数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline**。任何本仓库进程无法写坏数据文件。
 - **禁止**多个进程同时对同一数据目录执行管道写入（摄取 / 处理阶段）；数据管道类任务（S1–S5、回填、清理）同一时间只在**一个** worktree/进程中运行，或让各 worktree 使用独立 `EMSXVIEW_DATA_DIR`。
-- 后端 `ENABLE_DB_PERSISTENCE`、`EMSXVIEW_MERGE_MODULES` 等运行参数跟随各 worktree 自己的 `.env`，互不影响。
+- 后端 `ENABLE_DB_PERSISTENCE`、`EMSXVIEW_OPTIONAL_MODULES` 等运行参数跟随各 worktree 自己的 `.env`，互不影响（原 `EMSXVIEW_MERGE_MODULES` 已失效，backend 无消费点，2026-09-11 核实）。
 
 ### 6.2 端口偏移（并行运行多实例）
 

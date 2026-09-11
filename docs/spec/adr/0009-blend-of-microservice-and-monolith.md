@@ -1,6 +1,6 @@
 # ADR-0009: 单进程/微服务双模部署
 
-> 状态: Accepted
+> 状态: Accepted（部分演进：2026-09-11 核实，`EMSXVIEW_MERGE_MODULES` 变量已失效、backend 无消费点；当前实际机制为 `EMSXVIEW_OPTIONAL_MODULES`（`backend/api/config.py`，默认 `costview:CostView`）——仅 CostView 路由可桥接进 core :3000，MarketView 无合并路径，仅独立运行。本 ADR 正文保留历史决策原貌。）
 > 日期: 2026-06-03
 > 标签: deployment, architecture
 
