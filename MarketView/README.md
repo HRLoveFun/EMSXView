@@ -1,6 +1,8 @@
 # MarketView Module
 
-> **Pre-Trade Analysis Module** · 🟢 Independent Microservice (port 8001)
+> **Pre-Trade Analysis Module** · 🟡 **Scaffold** · Independent Microservice (port 8001)
+
+> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 Scaffold 的证据：仅 3 个端点、无自身测试目录；未实现清单：策略分析、选券支持、独立测试、SLA/运维文档。
 
 ---
 
@@ -51,8 +53,8 @@ python main.py                    # Starts on :8001
 
 ```
 bdib_daily_summary (SQLite)
-  → platform_data/adapters.py (MarketReferenceDataAdapter)
-    → MarketView/router/marketview.py (FastAPI endpoint)
+  → platform_data/adapters/market.py (MarketReferenceDataAdapter)
+    → MarketView/routers/marketview.py (FastAPI endpoint)
       → frontend/src/modules/marketview/MarketViewModule.tsx (UI)
 ```
 
@@ -67,3 +69,4 @@ location /api/marketview/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
+*Last verified: 2026-09-11（端点清单提取自 `routers/marketview.py` 源码行号；"merge-mode 已移除"经 `backend/api` 全量 grep 核实属实——backend 无 marketview router 与 merge 消费点；未做运行时验证）*

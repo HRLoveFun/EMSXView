@@ -18,8 +18,8 @@ Set-Location backend/api
 python main.py
 # 或：uvicorn main:app --port 3000
 
-# 单进程模式（dev/demo，含 MarketView + CostView 路由）
-$env:EMSXVIEW_MERGE_MODULES = "true"
+# 可选：将 CostView 的 /api/tca/* 路由桥接进 core 进程（默认即启用）
+$env:EMSXVIEW_OPTIONAL_MODULES = "costview:CostView"
 python main.py
 
 # 前端

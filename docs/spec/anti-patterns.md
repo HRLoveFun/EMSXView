@@ -162,7 +162,7 @@ rg "\._[a-z_]+\(" frontend/src/ | rg -v "node_modules"
 ```bash
 rg "include_router|app\.include" backend/api/main.py | rg -v "_register_optional"
 ```
-**修复**: 改用 `_register_optional(router, ...)` 模式，由 `EMSXVIEW_MERGE_MODULES` 控制
+**修复**: 改用 `_register_optional(router, ...)` 模式，由 `EMSXVIEW_OPTIONAL_MODULES` 控制（原 `EMSXVIEW_MERGE_MODULES` 已失效，backend 无消费点，2026-09-11 核实）
 **参考**: [ADR-0009](../adr/0009-blend-of-microservice-and-monolith.md)
 
 ---

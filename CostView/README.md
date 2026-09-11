@@ -54,11 +54,12 @@ pip install -r requirements.txt
 python main.py                      # Starts on :8002
 ```
 
-### Single-process (merge mode)
+### 路由桥接（backend 单进程内访问 TCA）
 ```bash
+# backend/api/main.py 经 EMSXVIEW_OPTIONAL_MODULES（默认 costview:CostView）挂载
+# /api/tca/* 到 core :3000，前端单入口访问，无需单独启动 :8002
 cd backend/api
-set EMSXVIEW_MERGE_MODULES=true
-python main.py                      # All modules in one process
+python main.py
 ```
 
 ## Endpoints

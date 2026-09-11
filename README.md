@@ -565,6 +565,7 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 | 2026-08-26 | 清理一次性历史件与 legacy 前端（handoff/migration-baseline/architecture-analysis-report、`CostView/frontend/` legacy-costview-frontend 等） | CostView（前端入口收敛至 `frontend/src/modules/costview/`，见 §6）、docs | [ADR-0014](./docs/spec/adr/0014-dead-code-cleanup.md) |
 | 2026-09-02 | `CostView/data/` 历史数据迁移至 `${EMSXVIEW_DATA_DIR}`（目录归档为 `CostView/data.migrated.202609022339/`） | CostView、data_access | 数据根唯一来源 `data_access/config.py` |
 | 2026-09-11 | 本 README 全面审计重写：成熟度分级、能力"已实现/规划中"二分、数据流时序语义、数据规模实测、降级路径、CLI 失效标注；删除 `tca_fallback.py` 引用（文件已不存在）、删除 "production-ready"/"enterprise-grade"/"canonical" 无判据标注 | 全部模块 | 静态代码审计 + 数据目录实测（验证方式见页脚） |
+| 2026-09-11 | 修正 Deployment Modes：`EMSXVIEW_MERGE_MODULES` 已失效（backend 无消费点），实际机制为 `EMSXVIEW_OPTIONAL_MODULES`（默认仅桥接 costview）；MarketView 无单进程合并路径 | backend、CostView、README 相关章节 | `backend/api/main.py:276` + `config.py:96` + 全仓 grep |
 
 ---
 
