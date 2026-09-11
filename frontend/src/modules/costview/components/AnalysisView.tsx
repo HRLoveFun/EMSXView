@@ -64,7 +64,7 @@ function createSummaryCards(report: TcaReport | null, config: CostViewConfig) {
     ] satisfies SummaryCard[];
   }
 
-  const avgPnlVwap = averageMetric(report.orders, 'tracking_error_bps');
+  const avgPnlVwap = averageMetric(report.orders, 'pnl_vwap_bps');
   const avgFill = averageMetric(report.orders, 'fill_pct');
   const avgParRateContinuous = averageMetric(report.orders, 'volume_pct_interval');
   const alertCount = countAlertOrders(report.orders, config);
@@ -78,7 +78,7 @@ function createSummaryCards(report: TcaReport | null, config: CostViewConfig) {
     {
       label: 'Avg Pnl VWAP',
       value: avgPnlVwap != null ? `${avgPnlVwap.toFixed(1)} bps` : '—',
-      severity: evaluateThreshold(config.rules.tracking_error_bps, avgPnlVwap),
+      severity: evaluateThreshold(config.rules.pnl_vwap_bps, avgPnlVwap),
     },
     {
       label: 'Alert Routes',
@@ -207,7 +207,7 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, ord
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {[
                     { label: 'Fill %', value: selectedRoute.fill != null && selectedRoute.route_shares ? `${((selectedRoute.fill / selectedRoute.route_shares) * 100).toFixed(1)}%` : '—', severity: evaluateThreshold(config.rules.fill_pct, selectedRoute.fill != null && selectedRoute.route_shares ? (selectedRoute.fill / selectedRoute.route_shares) * 100 : null) },
-                    { label: 'Pnl VWAP', value: selectedRoute.pnl_vwap != null ? `${selectedRoute.pnl_vwap.toFixed(1)} bps` : '—', severity: evaluateThreshold(config.rules.tracking_error_bps, selectedRoute.pnl_vwap) },
+                    { label: 'Pnl VWAP', value: selectedRoute.pnl_vwap != null ? `${selectedRoute.pnl_vwap.toFixed(1)} bps` : '—', severity: evaluateThreshold(config.rules.pnl_vwap_bps, selectedRoute.pnl_vwap) },
                     { label: 'Par Rate', value: selectedRoute.par_rate != null ? `${(selectedRoute.par_rate * 100).toFixed(2)}%` : '—', severity: evaluateThreshold(config.rules.volume_pct_adv20, selectedRoute.par_rate != null ? selectedRoute.par_rate * 100 : null) },
                     { label: 'Par Rate (Cont)', value: selectedRoute.par_rate_continuous != null ? `${(selectedRoute.par_rate_continuous * 100).toFixed(2)}%` : '—', severity: evaluateThreshold(config.rules.volume_pct_interval, selectedRoute.par_rate_continuous != null ? selectedRoute.par_rate_continuous * 100 : null) },
                   ].map((metric) => (

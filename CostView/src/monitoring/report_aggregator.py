@@ -4,7 +4,9 @@
     KPI（route 数 / 总股数 / 成交额加权 pnl_vwap / 平均 par_rate / 平均 RPM）、
     pnl_vwap 分布直方图、按日加权走势、broker/algo 排行、PWP 五档均值曲线。
 
-加权口径：成交额权重 = RouteShares * p_avg（仅三者均非 NULL 时计入）。
+加权口径：成交额权重 = fill * p_avg（仅二者均非 NULL 时计入），与 KPI 的
+notional = SUM(fill × p_avg) 同源 —— 保证「加权成本」可由「总成交金额」反推校验，
+且未成交路由不再以「意图规模」放大权重。
 所有过滤条件参数化（? 占位符），指标名仅来自内部白名单常量。
 """
 
@@ -19,7 +21,7 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 from .metric_coverage import MetricCoverageService, validate_metrics
 from .anomaly_query import (
     ThresholdRules,
-    query_anomaly_routes,
+    query_anomaly_routes_page,
 )
 from .report_dims import get_filter_options as _get_persisted_options
 
@@ -55,12 +57,19 @@ class TcaReportAggregator:
         thresholds: Optional[dict[str, Any]] = None,
         min_fill_count: int = 10,
         min_notional_usd: float = 10000.0,
+        anomaly_limit: Optional[int] = None,
+        as_of_date: Optional[str] = None,
+        preset: Optional[str] = None,
     ) -> dict[str, Any]:
         """组装报告聚合数据。
 
         broker/algo/symbol/exchange 支持逗号分隔多值（IN 匹配，前端多选）。
         metrics 控制附加的覆盖率小节统计口径（默认全部 38 个指标）。
         thresholds 控制 S6 异常路由明细的判定阈值（None/空 → 默认阈值）。
+        anomaly_limit 控制异常明细返回条数（None = 全量；截断发生在按严重度排序后，
+        故截断样本必为最严重的 N 条，且 count 始终为全量命中数）。
+        as_of_date / preset 由调用方（装配脚本 / API）透传，仅写入 filters 供报告头
+        展示「口径 last=… ，数据截至 …」，使归档报告可自证报告期。
         markets 清单遵循 exchange 过滤（导出时按交易所整体过滤，市场概览同步收窄；
         无 exchange 时等价于忽略 exchange）。filter_options.exchanges 仍忽略 exchange
         过滤（供前端筛选下拉展示全部可选市场）。表不存在时返回带 data_source_warning 的空报告。
@@ -78,12 +87,15 @@ class TcaReportAggregator:
             if not self._table_exists(conn):
                 return self._empty_report(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
+                    as_of_date=as_of_date, preset=preset,
                 )
             # 报告期一次性构建 fill_bdib 汇率回填临时表，供下方 4 个 fx 查询复用
             self._prepare_fx_enrichment(conn, start_date, end_date)
+            daily_series = self._query_daily_series(conn, where, params)
             report = {
                 "filters": self._filters_dict(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
+                    as_of_date=as_of_date, preset=preset,
                 ),
                 # 市场概览遵循 exchange 过滤：导出时按交易所整体过滤时，
                 # 该小节也仅展示所选交易所（无 exchange 时与 where_no_exchange 等价）。
@@ -96,7 +108,10 @@ class TcaReportAggregator:
                     conn, where, params,
                 ),
                 "kpi": self._query_kpi(conn, where, params),
-                "daily_series": self._query_daily_series(conn, where, params),
+                "daily_series": daily_series,
+                # 014: 走势覆盖度披露。不补零 —— 0 表示「成本为零」，把「无数据」
+                # 补成 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录。
+                "daily_series_meta": {"covered_days": len(daily_series)},
                 "rankings": {
                     "by_broker": self._query_rankings(conn, where, params, "Broker"),
                     "by_algo": self._query_rankings(conn, where, params, "algo"),
@@ -111,6 +126,7 @@ class TcaReportAggregator:
             # 只读模式下 fill_bdib.db 缺失 → 空报告（与表缺失同语义, 009）
             return self._empty_report(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
+                as_of_date=as_of_date, preset=preset,
             )
         finally:
             if conn is not None:
@@ -122,14 +138,28 @@ class TcaReportAggregator:
         )
         # S6 异常路由明细（阈值可参数化，默认同前端）
         rules = ThresholdRules.from_payload(thresholds)
-        anomalies = query_anomaly_routes(
+        anomalies, anomaly_total = query_anomaly_routes_page(
             self._mgr, start_date, end_date, rules,
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
             min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
+            limit=anomaly_limit,
         )
+        anomaly_rows = [a.__dict__ for a in anomalies]
         report["anomaly"] = {
-            "count": len(anomalies),
-            "rows": [a.__dict__ for a in anomalies],
+            # count 为全量命中数（与 rows 截断解耦）
+            "count": anomaly_total,
+            "rows": anomaly_rows,
+            "rows_truncated": max(0, anomaly_total - len(anomaly_rows)),
+            # 全量 CSV 导出相对路径；由装配脚本落盘后回填，未导出时为 None
+            "export_ref": None,
+            # 数据质量提示（013）：命中 overfill / 订单参与率 >100% 的条数，
+            # 供报告头「数据质量提示」区展示（与异常明细截断解耦）
+            "data_quality": {
+                "overfill_count": sum(1 for r in anomaly_rows if r.get("overfill")),
+                "order_par_gt100_count": sum(
+                    1 for r in anomaly_rows if r.get("order_par_gt100")
+                ),
+            },
         }
         return report
 
@@ -386,42 +416,46 @@ class TcaReportAggregator:
         return result
 
     def _query_kpi(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
-        """KPI：route 数、总股数、加权 pnl_vwap、平均 par_rate / RPM。
+        """KPI：route 数、总股数、加权 pnl_vwap、加权 par_rate / RPM。
+
+        均值类指标统一采用成交额加权（与 weighted_pnl_vwap 同源），避免小单
+        主导参与率 / RPM 均值；卡片区各指标口径一致、可互相校验。
 
         007: 增加总成交金额（本币 notional + USD notional + fx_rate 覆盖率）。
         - notional = SUM(fill × p_avg)（本币）
         - notional_usd = SUM(fill × p_avg × fx_rate × minor_unit_factor)（USD 换算，
           仅 USD/未知币种在 fx_rate 缺失时按 1.0 兜底；非 USD 币种缺失汇率时
           整组返回 NULL，Currency ∈ {GBp, ILs, ZAr} 时 ÷100，008）
-        - fx_coverage = 有非 1.0 fx_rate 的路由数 / 总路由数（None 表示无 fx_rate 列）
+        - fx_coverage = **USD 换算成功率**（有有效汇率或本身为 USD 的路由占比），
+          有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填)，与 notional_usd 同源；
+          None 表示无 fx_rate 列。USD 路由不再被误算为"缺汇率"而拉低覆盖率。
+        - notional_usd_excluded = 无法换算 USD 的路由成交金额（本币），
+          使"总成交金额被低估多少"可见（此前静默消失）
         """
         has_fx = self._has_column(conn, "fx_rate")
         fx_sum = self._fx_usd_expr() if has_fx else "NULL"
         join = self._fx_join() if has_fx else ""
-        # fx_coverage：拥有真实（非 1.0 兜底）tca.fx_rate 的路由占比，反映 fx 数据质量
-        fx_cnt = (
-            "SUM(CASE WHEN fx_rate IS NOT NULL AND fx_rate <> 1.0 THEN 1 ELSE 0 END)"
-            if has_fx else "NULL"
-        )
+        fx_cnt, fx_excluded = self._fx_quality_exprs(has_fx)
         sql = f"""
             SELECT COUNT(*) AS route_count,
                    COALESCE(SUM(RouteShares), 0) AS total_shares,
                     {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
-                    AVG(par_rate) AS avg_par_rate,
-                    AVG(RPM) AS avg_rpm,
+                    {self._weighted_avg_sql("par_rate")} AS avg_par_rate,
+                    {self._weighted_avg_sql("RPM")} AS avg_rpm,
                     COALESCE(SUM(fill * p_avg), 0) AS notional,
                     SUM(fill * p_avg * ({fx_sum})) AS notional_usd,
-                    {fx_cnt} AS fx_non_default_count
+                    {fx_cnt} AS fx_convertible_count,
+                    {fx_excluded} AS notional_usd_excluded
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
         """
         sql, params = self._apply_fx(sql, params)
         row = conn.execute(sql, params).fetchone()
         route_count = int(row[0])
-        fx_non_default = row[7]
+        fx_convertible = row[7]
         fx_coverage = None
-        if fx_non_default is not None:
-            fx_coverage = round(fx_non_default / route_count, 4) if route_count else None
+        if fx_convertible is not None:
+            fx_coverage = round(fx_convertible / route_count, 4) if route_count else None
         return {
             "route_count": route_count,
             "total_route_shares": float(row[1]),
@@ -431,16 +465,37 @@ class TcaReportAggregator:
             "notional": float(row[5]),
             "notional_usd": self._to_float(row[6]),
             "fx_coverage": fx_coverage,
+            "notional_usd_excluded": self._to_float(row[8]),
         }
+
+    def _fx_quality_exprs(self, has_fx: bool) -> tuple[str, str]:
+        """fx 数据质量表达式：(可换算路由数, 无法换算的成交金额)。
+
+        可换算 = 有效汇率非空，或币种本身为 USD/未知（按 1.0 兜底）；
+        被排除金额 = 非 USD 币种且无有效汇率的 fill × p_avg（本币口径）。
+        无 fx_rate 列时两者均为 NULL（语义为"不可得"，与 0 区分）。
+        """
+        if not has_fx:
+            return "NULL", "NULL"
+        eff = "COALESCE(fx_rate, _fbfx.fb_fx)" if self._fbfx_ready else "fx_rate"
+        convertible = (
+            f"SUM(CASE WHEN {eff} IS NOT NULL OR Currency IS NULL "
+            f"OR Currency = 'USD' THEN 1 ELSE 0 END)"
+        )
+        excluded = (
+            f"SUM(CASE WHEN {eff} IS NULL AND Currency IS NOT NULL "
+            f"AND Currency <> 'USD' THEN fill * p_avg END)"
+        )
+        return convertible, excluded
 
     def _query_daily_series(
         self, conn, where: str, params: list[Any],
     ) -> list[dict[str, Any]]:
-        """按日加权 pnl_vwap / 平均 par_rate 走势。"""
+        """按日加权 pnl_vwap / 加权 par_rate 走势。"""
         sql = f"""
             SELECT order_as_of_date, COUNT(*) AS route_count,
                    {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
-                   AVG(par_rate) AS avg_par_rate
+                   {self._weighted_avg_sql("par_rate")} AS avg_par_rate
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
             GROUP BY order_as_of_date ORDER BY order_as_of_date
@@ -458,12 +513,19 @@ class TcaReportAggregator:
     def _query_rankings(
         self, conn, where: str, params: list[Any], dimension: str,
     ) -> list[dict[str, Any]]:
-        """broker / algo 排行（按成交额加权 pnl_vwap 升序，成本从优到劣）。"""
+        """broker / algo 排行（按成交额加权 pnl_vwap 升序，成本从优到劣）。
+
+        同时返回 n_used / n_total：加权值仅由 pnl_vwap 非 NULL（且有成交额权重）
+        的路由决定，route_count 却含全部路由 —— 披露样本量避免「route 数大但成本
+        好」实为「多数路由无数据」的误读。
+        """
+        used_cond = "pnl_vwap IS NOT NULL AND fill IS NOT NULL AND p_avg IS NOT NULL"
         sql = f"""
             SELECT COALESCE({dimension}, '(unknown)') AS name,
                    COUNT(*) AS route_count,
+                   SUM(CASE WHEN {used_cond} THEN 1 ELSE 0 END) AS n_used,
                    {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
-                   AVG(par_rate) AS avg_par_rate
+                   {self._weighted_avg_sql("par_rate")} AS avg_par_rate
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
             GROUP BY {dimension}
@@ -474,16 +536,21 @@ class TcaReportAggregator:
             {
                 "name": str(r[0]),
                 "route_count": int(r[1]),
-                "weighted_pnl_vwap": self._to_float(r[2]),
-                "avg_par_rate": self._to_float(r[3]),
+                "n_used": int(r[2] or 0),
+                "weighted_pnl_vwap": self._to_float(r[3]),
+                "avg_par_rate": self._to_float(r[4]),
             }
             for r in conn.execute(sql, params).fetchall()
         ]
 
     def _query_pnl_histogram(
         self, conn, where: str, params: list[Any],
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """pnl_vwap 分布直方图（SQL 侧等宽分桶，P2-4 整改）。
+
+        返回 ``{"buckets", "n_used", "n_total"}``：分布仅覆盖 pnl_vwap 非 NULL
+        的路由（BDIB 覆盖子集），披露样本量以免读者误以为分布覆盖全部路由
+        （低估尾部风险）。
 
         此前将区间内全部 pnl_vwap 行拉入 Python/numpy（年区间百万行级内存
         峰值）；改为 MIN/MAX + GROUP BY bucket，空间 O(bins)。
@@ -492,17 +559,21 @@ class TcaReportAggregator:
             f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} {where} "
             "AND pnl_vwap IS NOT NULL"
         )
+        n_used = int(conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0])
+        n_total = int(conn.execute(
+            f"SELECT COUNT(*) FROM {Config.TCA_ROUTE_SUMMARY_TABLE} {where}", params,
+        ).fetchone()[0])
+        if n_used == 0:
+            return {"buckets": [], "n_used": 0, "n_total": n_total}
         row = conn.execute(
             f"SELECT MIN(pnl_vwap), MAX(pnl_vwap) {base}", params,
         ).fetchone()
-        if row is None or row[0] is None:
-            return []
         lo, hi = float(row[0]), float(row[1])
         if lo == hi:
-            count = int(conn.execute(
-                f"SELECT COUNT(*) {base}", params,
-            ).fetchone()[0])
-            return [{"lower": round(lo, 4), "upper": round(hi, 4), "count": count}]
+            return {
+                "buckets": [{"lower": round(lo, 4), "upper": round(hi, 4), "count": n_used}],
+                "n_used": n_used, "n_total": n_total,
+            }
 
         width = (hi - lo) / _HISTOGRAM_BINS
         # (v - lo) >= 0 恒成立；v == hi 时 bucket == bins，用 MIN(x, bins-1) 收拢末桶
@@ -513,14 +584,18 @@ class TcaReportAggregator:
             GROUP BY bucket ORDER BY bucket
         """
         buckets = conn.execute(sql, [lo, width] + params).fetchall()
-        return [
-            {
-                "lower": round(lo + b * width, 4),
-                "upper": round(lo + (b + 1) * width, 4),
-                "count": int(n),
-            }
-            for b, n in buckets
-        ]
+        return {
+            "buckets": [
+                {
+                    "lower": round(lo + b * width, 4),
+                    "upper": round(lo + (b + 1) * width, 4),
+                    "count": int(n),
+                }
+                for b, n in buckets
+            ],
+            "n_used": n_used,
+            "n_total": n_total,
+        }
 
     def _query_pwp_curve(
         self, conn, where: str, params: list[Any],
@@ -540,8 +615,14 @@ class TcaReportAggregator:
         对齐文献 D1（决策基准 + 市场时间基准并存）与 B2-3（风险维度）：
         - arrival_cost_bps / wagner_is_bps：成交额加权
         - cost_stddev / cost_cvar / cost_p95：成交额加权
-        - avg_fill：平均完成率
+        - avg_fill：组合级完成率 SUM(fill) / SUM(RouteShares)，对大额未成交敏感
+          （逐单简单平均会被大量小额成交掩盖真实执行缺口）
+        - unfilled_notional_usd：未成交金额缺口 SUM((RouteShares - fill) × p_avg × fx)，
+          仅正缺口计入；无法换算 USD 的路由贡献 NULL（不虚高），与 KPI fx 口径同源
         """
+        has_fx = self._has_column(conn, "fx_rate")
+        fx_sum = self._fx_usd_expr() if has_fx else "NULL"
+        join = self._fx_join() if has_fx else ""
         weighted = lambda m: self._weighted_avg_sql(m)  # noqa: E731
         sql = f"""
             SELECT
@@ -550,10 +631,14 @@ class TcaReportAggregator:
                 {weighted("cost_stddev")} AS cost_stddev,
                 {weighted("cost_cvar")} AS cost_cvar,
                 {weighted("cost_p95")} AS cost_p95,
-                AVG(fill / NULLIF(RouteShares, 0)) AS avg_fill
-            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+                SUM(fill) * 1.0 / NULLIF(SUM(RouteShares), 0) AS avg_fill,
+                SUM(CASE WHEN RouteShares > fill
+                         THEN (RouteShares - fill) * p_avg * ({fx_sum})
+                         ELSE 0 END) AS unfilled_notional_usd
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
         """
+        sql, params = self._apply_fx(sql, params)
         row = conn.execute(sql, params).fetchone()
         return {
             "arrival_cost_bps": self._to_float(row[0]),
@@ -562,39 +647,64 @@ class TcaReportAggregator:
             "cost_cvar": self._to_float(row[3]),
             "cost_p95": self._to_float(row[4]),
             "avg_fill": self._to_float(row[5]),
+            # 无 fx_rate 列时与 notional_usd 同语义返回 None（不误报为 0）
+            "unfilled_notional_usd": self._to_float(row[6]) if has_fx else None,
         }
 
     def _query_impact_breakdown(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
-        """市场冲击分解（B2-2）：暂时冲击 5/10/30min + 永久冲击 聚合。"""
+        """市场冲击分解（B2-2）：暂时冲击 5/10/30min + 永久冲击 聚合。
+
+        同时披露跨日恢复占比：恢复窗口越界时冲击值改用次日收盘价兜底，
+        混合口径会稀释指标含义，故显式给出被截断路由条数与占比
+        （recovery_truncated 列缺失时降级为 None）。
+        """
         weighted = lambda m: self._weighted_avg_sql(m)  # noqa: E731
+        has_truncated = self._has_column(conn, "recovery_truncated")
+        truncated_expr = (
+            "SUM(COALESCE(recovery_truncated, 0))" if has_truncated else "NULL"
+        )
         sql = f"""
             SELECT
                 {weighted("temp_impact_5min_bps")} AS t5,
                 {weighted("temp_impact_10min_bps")} AS t10,
                 {weighted("temp_impact_30min_bps")} AS t30,
                 {weighted("perm_impact_bps")} AS perm,
-                {weighted("close_cost_bps")} AS close_cost
+                {weighted("close_cost_bps")} AS close_cost,
+                {truncated_expr} AS truncated_count,
+                COUNT(*) AS total_count
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
         """
         row = conn.execute(sql, params).fetchone()
+        truncated = self._to_float(row[5])
+        total_count = int(row[6] or 0)
         return {
             "temp_impact_5min_bps": self._to_float(row[0]),
             "temp_impact_10min_bps": self._to_float(row[1]),
             "temp_impact_30min_bps": self._to_float(row[2]),
             "perm_impact_bps": self._to_float(row[3]),
             "close_cost_bps": self._to_float(row[4]),
+            "recovery_truncated_count": int(truncated) if truncated is not None else None,
+            "recovery_truncated_share": (
+                round(truncated / total_count, 4)
+                if truncated is not None and total_count > 0 else None
+            ),
         }
 
     # ── 工具函数 ─────────────────────────────────────────────────────────
 
     @staticmethod
     def _weighted_avg_sql(metric: str) -> str:
-        """成交额加权均值 SQL 片段（metric 为内部白名单值，无注入风险）。"""
-        cond = f"{metric} IS NOT NULL AND p_avg IS NOT NULL AND RouteShares IS NOT NULL"
+        """成交额加权均值 SQL 片段（metric 为内部白名单值，无注入风险）。
+
+        权重为实际成交额 fill × p_avg（traded 口径），与 KPI notional 同源；
+        该函数被 KPI / daily_series / rankings / extra_kpis / impact_breakdown
+        五处复用，改动即全局一致，避免各小节口径分叉。
+        """
+        cond = f"{metric} IS NOT NULL AND fill IS NOT NULL AND p_avg IS NOT NULL"
         return (
-            f"SUM(CASE WHEN {cond} THEN {metric} * RouteShares * p_avg END) / "
-            f"NULLIF(SUM(CASE WHEN {cond} THEN RouteShares * p_avg END), 0)"
+            f"SUM(CASE WHEN {cond} THEN {metric} * fill * p_avg END) / "
+            f"NULLIF(SUM(CASE WHEN {cond} THEN fill * p_avg END), 0)"
         )
 
     @staticmethod
@@ -628,21 +738,25 @@ class TcaReportAggregator:
     def _filters_dict(
         start_date: str, end_date: str, broker: Optional[str], algo: Optional[str],
         symbol: Optional[str], exchange: Optional[str], metrics: list[str],
+        as_of_date: Optional[str] = None, preset: Optional[str] = None,
     ) -> dict[str, Any]:
         return {
             "start_date": start_date, "end_date": end_date,
             "broker": broker, "algo": algo, "symbol": symbol, "exchange": exchange,
             "metrics": metrics,
+            "as_of_date": as_of_date, "preset": preset,
         }
 
     def _empty_report(
         self, start_date: str, end_date: str, broker: Optional[str],
         algo: Optional[str], symbol: Optional[str], exchange: Optional[str],
-        selected: list[str],
+        selected: list[str], as_of_date: Optional[str] = None,
+        preset: Optional[str] = None,
     ) -> dict[str, Any]:
         return {
             "filters": self._filters_dict(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
+                as_of_date=as_of_date, preset=preset,
             ),
             "markets": [],
             "filter_options": {"brokers": [], "algos": [], "symbols": [], "exchanges": []},
@@ -650,12 +764,16 @@ class TcaReportAggregator:
             "market_notional_trend": [],
             "kpi": None,
             "daily_series": [],
+            "daily_series_meta": {"covered_days": 0},
             "rankings": {"by_broker": [], "by_algo": []},
-            "pnl_vwap_histogram": [],
+            "pnl_vwap_histogram": {"buckets": [], "n_used": 0, "n_total": 0},
             "pwp_curve": [],
             "extra_kpis": None,
             "impact_breakdown": None,
-            "anomaly": {"count": 0, "rows": []},
+            "anomaly": {
+                "count": 0, "rows": [], "rows_truncated": 0, "export_ref": None,
+                "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
+            },
             "metric_coverage": None,
             "data_source_warning": "tca_route_summary 不存在 — 请先运行管道 S5.5",
         }
