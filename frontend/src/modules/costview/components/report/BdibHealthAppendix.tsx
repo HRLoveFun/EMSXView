@@ -88,7 +88,7 @@ export function BdibHealthAppendix({ health }: { health?: BdibHealthReport | nul
                   <td className="py-0.5 pr-2 text-right">{d.coverage_pct.toFixed(1)}%</td>
                   <td className="py-0.5 pr-2 text-right">{d.missing_ticker_count}</td>
                   <td className="py-0.5 pr-2 text-right">{(d.missing_route_count ?? 0).toLocaleString()}</td>
-                  <td className="py-0.5 pr-2 text-right">{formatMoney(d.missing_notional)}</td>
+                  <td className="py-0.5 pr-2 text-right">{formatMoney(d.missing_notional ?? null)}</td>
                   <td className="py-0.5 pr-2 text-right">{d.retention_days_left}</td>
                   <td className="py-0.5 text-left text-muted-foreground">
                     {d.missing_tickers.slice(0, 8).join(', ')}

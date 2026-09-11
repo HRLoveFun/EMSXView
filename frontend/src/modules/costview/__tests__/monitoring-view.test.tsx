@@ -130,7 +130,11 @@ const reportSummary: TcaReportSummary = {
     by_broker: [{ name: 'BROKERA', route_count: 10, weighted_pnl_vwap: -1.2, avg_par_rate: 0.1 }],
     by_algo: [{ name: 'VWAP', route_count: 8, weighted_pnl_vwap: 0.5, avg_par_rate: 0.2 }],
   },
-  pnl_vwap_histogram: [{ lower: -2, upper: 0, count: 5 }],
+  pnl_vwap_histogram: {
+    buckets: [{ lower: -2, upper: 0, count: 5 }],
+    n_used: 5,
+    n_total: 5,
+  },
   pwp_curve: [{ rate: 5, avg_pwp: -12.9 }],
   metric_coverage: null,
 };
