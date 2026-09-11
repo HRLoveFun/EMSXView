@@ -22,6 +22,27 @@ def _new_trace_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
+# ── 来源模块成熟度等级（P3 整改 6c）───────────────────────────────────────────
+# 消费方（ExecutionView）应按来源成熟度决定信任度：Scaffold 来源的数据
+# 必须在 UI 上显式标注"仅供参考"，不得作为决策依据静默消费。
+MATURITY_GA = "GA"
+MATURITY_BETA = "Beta"
+MATURITY_SCAFFOLD = "Scaffold"
+
+# 发布方模块 → 当前成熟度。模块晋级时只需改此映射（唯一真相源）。
+SOURCE_MODULE_MATURITY: dict[str, str] = {
+    "MarketView": MATURITY_SCAFFOLD,
+    "ExecutionView": MATURITY_GA,
+    "CostView": MATURITY_GA,
+}
+
+# ── handoff 载荷大小契约（P3 整改 A4）────────────────────────────────────────
+# strategy_params 序列化后的 UTF-8 字节上限。跨模块契约常量：前端预检、
+# API schema 校验、adapter 双保险三层共用同一数值，由契约测试锁定，
+# 禁止做成环境变量（可配会让前后端口径漂移）。
+HANDOFF_MAX_STRATEGY_PARAMS_BYTES: int = 64 * 1024
+
+
 @dataclass(frozen=True)
 class HandoffMetadata:
     contract_version: str
@@ -30,6 +51,9 @@ class HandoffMetadata:
     generated_at: str
     trace_id: str
     origin_trace_id: str | None = None
+    # 发布方模块成熟度（GA/Beta/Scaffold）；旧序列化数据缺省为 None，
+    # 消费方对 None 应按"未知来源"处理而非默认信任。
+    source_maturity: str | None = None
 
 
 @dataclass(frozen=True)
