@@ -250,6 +250,36 @@
 - **未执行（下轮）**：PF-06 profiler 实测（路径 A 在线 py-spy 采样 / 路径 B 离线 cProfile 基准，
   需服务运行或日期区间）、前端渲染热点录制（PF-07/PF-08，需 React DevTools Profiler）。
 
+### 2026-09-11 · mktdata 修复生效验证（重启后）
+
+**重启方式**：项目受支持流程 `service-manager.ps1 restart -Environment dev`（后端 + 前端同时重启，
+后端新 PID 38352，Bloomberg connected、INIT_PAINT 32 订单加载正常）。
+
+| 指标 | 重启前（修复前，旧 PID 59972） | 重启后（新 PID 38352） |
+|---|---|---|
+| py-spy 20s 采样 | 380 样本，100% 落在 mktdata 线程 3 个 helper | **2 样本，全部在 blpapi `nextEvent`（C 层事件等待）** |
+| 10s CPU（GetProcessTimes） | 1.44s = **14.4%** of one core | 0.02s = **0.2%**（**−98.6%**） |
+| 线程状态 | mktdata 线程 `active+gil`，栈在 `_maybe_query_round_lot_sizes` | 全部 **idle**，mktdata 线程在 `nextEvent` 等待 |
+| 热循环日志 | `[MKTDATA CHECK]`/`[ROUND_LOT]` INFO 每轮输出 | 已删除（本批） |
+| `TRACE_*` / `Duplicate` | 5,380+5,380 / 577 | 重启后日志 **0 条** |
+| 后端日志体积 | 前次运行 2.1 MB / 2 天 | 1.4 KB（含启动输出），稳态近零 |
+| 功能 | Bloomberg connected | Bloomberg connected、INIT_PAINT 32 订单加载正常 |
+
+**结论**：四项修复全部生效 —— 空闲态 CPU **14.4% → 0.2%（−98.6%）**，日志噪声归零，
+行情订阅与推送功能正常。
+
+**可复现验证命令**（`_tmp/` 下的脚本因 Safe-Delete 钩子被拦截未能保留，需时可重建）：
+
+```
+py-spy dump --pid <backend_pid>
+py-spy record --pid <backend_pid> -d 20 --format speedscope -o _tmp/after.json --nonblocking
+python _tmp/_tmp_parse_profile.py _tmp/after.json
+python _tmp/_tmp_cpu_delta.py <backend_pid>
+```
+
+**方法论**：验证必须用与「发现时」完全相同的口径（同工具、同窗口、同指标），
+否则 14.4% → 0.2% 这种结论无法成立；绝对 CPU%（GetProcessTimes 差分）比采样占比更有说服力。
+
 ### 2026-09-10 · 前端实测（方案 A / C / D）
 
 - **A（Vitest + React.Profiler）**：新增 `settings-nav.test.tsx`（3 用例）——commit 计数、
