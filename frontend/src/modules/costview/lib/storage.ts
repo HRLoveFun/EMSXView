@@ -54,7 +54,7 @@ function safeParse<T>(value: string | null, fallback: T): T {
 function migrateRuleKeys(
   rules: Partial<Record<string, ThresholdRule>>,
 ): Partial<Record<CostViewMetricKey, ThresholdRule>> {
-  const migrated: Record<string, ThresholdRule> = { ...rules };
+  const migrated: Record<string, ThresholdRule | undefined> = { ...rules };
   const legacy = migrated.tracking_error_bps;
   if (legacy && !migrated.pnl_vwap_bps) {
     migrated.pnl_vwap_bps = { ...legacy, key: 'pnl_vwap_bps' };

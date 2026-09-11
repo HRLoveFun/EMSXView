@@ -109,7 +109,7 @@ const buildThresholdsPayload = (
 };
 
 /** 总成交金额卡片副标题：USD 换算成功率与被排除金额（与后端换算成功率口径一致） */
-const fxCoverageSub = (kpi: TcaReportSummary['kpi']): string => {
+const fxCoverageSub = (kpi: NonNullable<TcaReportSummary['kpi']>): string => {
   const coverage = kpi.fx_coverage;
   if (coverage == null) return 'USD 换算 · 无 fx_rate 列';
   const pct = coverage * 100;
@@ -143,7 +143,7 @@ const KpiCards = ({
       { label: '加权 IS (bps)', value: formatNum(extra.wagner_is_bps), sub: '实现短缺 · 成交额加权' },
       { label: '成本风险 stddev/CVaR', value: formatRisk(extra.cost_stddev, extra.cost_cvar), sub: '尾部风险' },
       { label: '组合完成率', value: formatPct(extra.avg_fill), sub: 'Σfill / ΣRouteShares' },
-      { label: '未成交金额缺口', value: formatMoney(extra.unfilled_notional_usd), sub: 'Σ(未成交×均价×汇率)' },
+      { label: '未成交金额缺口', value: formatMoney(extra.unfilled_notional_usd ?? null), sub: 'Σ(未成交×均价×汇率)' },
     );
   }
    if (anomaly != null) {
