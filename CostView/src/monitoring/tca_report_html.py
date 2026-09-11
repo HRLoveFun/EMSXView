@@ -4,13 +4,11 @@
 浏览器直接打开即可查看，可邮件分发、离线归档。
 
 报告结构：
-    报告头（标题/生成时间/过滤条件/口径脚注） → KPI 卡片 →
+    报告头（标题/生成时间/过滤条件/口径脚注） → KPI 卡片 → 数据质量提示 →
     pnl_vwap 直方图 + 按日走势 → broker/algo 排行 + PWP 曲线 →
     市场冲击分解表 → 异常路由明细表 → 指标覆盖率表 → BDIB 缺口附录 → 页脚
 
-口径脚注：报告为价格偏离口径，不含显性费用/返佣/税费；无 L2 订单簿流动性；
-不含事前预测；机会成本按 (Pn−P0)×未成交×方向计。
-（对应 docs/report-tca-known-limitations.md 清单）
+口径脚注由 ``report_spec.REPORT_SPEC`` 生成（单一真相源，避免文档-实现漂移）。
 """
 
 from __future__ import annotations
@@ -18,6 +16,8 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from data_access.config import Config
+
+from .report_spec import REPORT_SPEC, footer_text
 
 # ── SVG 画布常量 ──
 _CHART_W = 780
@@ -46,11 +46,12 @@ def render_report_html(
         _render_market_tabs(report.get("markets"), report.get("kpi")),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly")),
+        _render_data_quality(report),
         _render_market_charts(report),
         _render_charts(report),
         _render_impact_breakdown(report.get("impact_breakdown")),
         _render_anomaly_table(report.get("anomaly")),
-        _render_coverage_table(report.get("metric_coverage")),
+        _render_coverage_table(report.get("metric_coverage"), _gap_dates(health)),
         _render_health_appendix(health),
         _render_footer(),
         "</body></html>",
@@ -103,6 +104,9 @@ td.l, th.l {{ text-align: left; }}
 .tag-missing {{ background: #3a1f1f; color: #ef5350; }}
 .tag-unrecoverable {{ background: #2a2f38; color: #90a4ae; }}
 .tag-alert {{ background: #3a1f1f; color: #ef5350; }}
+.tag-sev-critical {{ background: #3a1f1f; color: #ef5350; }}
+.tag-sev-warning {{ background: #3a3418; color: #ffca28; }}
+.tag-overfill {{ background: #4a1f1f; color: #ff8a80; margin-left: 4px; }}
 .footer {{ margin-top: 32px; color: #5f7186; font-size: 11px; text-align: center; }}
 svg text {{ font-family: inherit; }}
 /* 007: 分市场 CSS 标签页（零 JS，radio 驱动，无锚点跳转） */
@@ -117,8 +121,12 @@ svg text {{ font-family: inherit; }}
 
 
 def _render_header(filters: dict[str, Any], generated_at: str) -> str:
-    """报告头：标题 + 过滤条件摘要 + 口径脚注。"""
+    """报告头：标题 + 过滤条件摘要（含 preset / 数据截至日）+ 口径脚注。"""
     cond = [f"日期 {filters.get('start_date')} ~ {filters.get('end_date')}"]
+    if filters.get("preset"):
+        cond.append(f"口径 last={filters['preset']}")
+    if filters.get("as_of_date"):
+        cond.append(f"数据截至 {filters['as_of_date']}")
     for key, label in (("broker", "Broker"), ("algo", "Algo"),
                        ("symbol", "Symbol"), ("exchange", "市场")):
         if filters.get(key):
@@ -129,15 +137,15 @@ def _render_header(filters: dict[str, Any], generated_at: str) -> str:
     return f"""
 <h1>TCA 可视化报告 <span style="font-size:14px;color:#7d8fa3">tca_route_summary</span></h1>
 <div class="meta"><span>生成时间 {_esc(generated_at)}</span>{cond_html}</div>
-<div class="disclaimer">口径：价格偏离（不含显性费用/返佣/税费）；无 L2 订单簿流动性；不含事前预测；机会成本按 (Pn−P0)×未成交×方向计。</div>"""
+<div class="disclaimer">{_esc(footer_text())}</div>"""
 
 
 def _render_footer() -> str:
-    """页脚：口径脚注重复 + 数据源。"""
+    """页脚：口径脚注（与报告头同源，由 REPORT_SPEC 生成）+ 数据源。"""
     return (
         '<div class="footer">'
         "EMSXView CostView · 数据源 tca_route_summary / fill_bdib / raw_bdib · "
-        "口径：价格偏离，不含显性费用/返佣/税费；无 L2 订单簿流动性；不含事前预测"
+        f"{_esc(footer_text())}"
         "</div>"
     )
 
@@ -200,15 +208,17 @@ def _render_kpi_cards(
         # 007: 总成交金额（USD 换算，标注 fx_rate 覆盖率）
         ("总成交金额（美元）", _fmt_big(kpi.get("notional_usd")), _fx_coverage_sub(kpi)),
         ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")), "成交额加权 · VWAP 基准"),
-        ("平均 par_rate", _fmt_num(kpi.get("avg_par_rate")), "参与率均值"),
-        ("平均 RPM", _fmt_num(kpi.get("avg_rpm")), ""),
+        ("平均 par_rate", _fmt_num(kpi.get("avg_par_rate")), "成交额加权"),
+        ("平均 RPM", _fmt_num(kpi.get("avg_rpm")), "成交额加权"),
     ]
     if extra:
         cards += [
             ("加权 arrival 成本", _fmt_num(extra.get("arrival_cost_bps")), "决策基准 · 成交额加权"),
             ("加权 IS (bps)", _fmt_num(extra.get("wagner_is_bps")), "实现短缺 · 成交额加权"),
             ("成本风险 stddev/CVaR", _fmt_risk(extra.get("cost_stddev"), extra.get("cost_cvar")), "尾部风险"),
-            ("平均完成率", _fmt_pct(extra.get("avg_fill")), "fill 均值"),
+            ("组合完成率", _fmt_pct(extra.get("avg_fill")), "Σfill / ΣRouteShares"),
+            ("未成交金额缺口(USD)", _fmt_big(extra.get("unfilled_notional_usd")),
+             "Σ(未成交×均价×汇率)"),
         ]
     if anomaly is not None:
         cards.append(
@@ -223,6 +233,25 @@ def _render_kpi_cards(
     return f'<div class="cards">{inner}</div>'
 
 
+def _render_data_quality(report: dict[str, Any]) -> str:
+    """数据质量提示区：overfill 与订单参与率 >100% 的规模（全量口径）。
+
+    数据取自覆盖率服务的一致性探针（覆盖全部路由，不受异常明细截断影响）；
+    无异常信号时不渲染该区。
+    """
+    consistency = (report.get("metric_coverage") or {}).get("consistency") or {}
+    overfill = consistency.get("overfill_routes") or 0
+    gt100 = consistency.get("order_par_gt100_orders") or 0
+    if not overfill and not gt100:
+        return ""
+    completion_pct = _fmt_pct_raw(consistency.get("completion_consistency_pct"))
+    order_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
+    return f"""
+<h2>数据质量提示</h2>
+<div class="warn">成交超过委托（fill &gt; RouteShares）的路由 {overfill} 条（完成率一致性 {completion_pct}）；
+订单参与率求和 &gt;100% 的订单 {gt100} 个（一致性 {order_pct}）。上述为数据矛盾信号，建议核对上游成交/委托数据。</div>"""
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 图表区
 # ═══════════════════════════════════════════════════════════════════════════
@@ -230,7 +259,7 @@ def _render_kpi_cards(
 
 def _render_charts(report: dict[str, Any]) -> str:
     """四个图表面板：直方图 / 按日走势 / 排行 / PWP 曲线。"""
-    histogram = _svg_histogram(report.get("pnl_vwap_histogram") or [])
+    histogram = _svg_histogram(report.get("pnl_vwap_histogram"))
     daily = _svg_daily_series(report.get("daily_series") or [])
     broker = _svg_hbar(report.get("rankings", {}).get("by_broker") or [], "Broker 排行（加权 pnl_vwap）")
     algo = _svg_hbar(report.get("rankings", {}).get("by_algo") or [], "Algo 排行（加权 pnl_vwap）")
@@ -371,25 +400,35 @@ def _render_impact_breakdown(impact: Optional[dict[str, Any]]) -> str:
         f'<td class="l" style="white-space:normal">{_esc(desc)}</td></tr>'
         for label, value, desc in rows
     )
+    truncated_count = impact.get("recovery_truncated_count")
+    share = impact.get("recovery_truncated_share")
+    truncated_note = ""
+    if truncated_count:
+        pct = f"{share * 100:.1f}%" if share is not None else "-"
+        truncated_note = (
+            f"其中 {truncated_count:,} 条（{pct}）因恢复窗口越界使用次日收盘价，"
+            "冲击值为跨日兜底口径。"
+        )
     return f"""
 <h2>市场冲击分解</h2>
 <div class="panel" style="overflow-x:auto">
 <table><thead><tr><th class="l">冲击维度</th><th>加权值</th><th class="l">说明</th></tr></thead>
 <tbody>{body}</tbody></table>
-<div class="meta" style="margin-top:8px">成交额加权（RouteShares × p_avg）；恢复窗口越界时使用次日收盘价作跨日恢复价格。</div>
+<div class="meta" style="margin-top:8px">成交额加权（fill × p_avg，与总成交金额同源）；恢复窗口越界时使用次日收盘价作跨日恢复价格。{_esc(truncated_note)}</div>
 </div>"""
 
 
-#: 异常明细表渲染上限（超出的异常路由不展开 HTML，仅保留计数，避免报告体积膨胀拖慢导出）
-_MAX_ANOMALY_ROWS_RENDERED = 1000
+#: 异常明细表渲染上限（与 REPORT_SPEC 同源；超出的路由不展开 HTML，仅保留计数）
+_MAX_ANOMALY_ROWS_RENDERED = int(REPORT_SPEC["anomaly_row_limit"])
 
 
 def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
-    """异常路由明细表（S6）：触发阈值规则的路由逐单清单。
+    """异常路由明细表（S6）：命中阈值规则的路由逐单清单。
 
-    渲染上限 ``_MAX_ANOMALY_ROWS_RENDERED`` 条；超限部分仅保留计数提示，
-    既保留「异常概览」价值，又防止数千行撑大 HTML（上季度曾达 8500+ 行、
-    报告 5MB+，浏览器渲染与导出显著变慢）。
+    HTML 渲染上限 ``_MAX_ANOMALY_ROWS_RENDERED`` 条；明细由后端按「严重度优先」
+    排序后返回，故渲染的即为最严重的 N 条（截断样本无偏）。其余条数仅计数提示，
+    全量明细经 ``export_ref`` 指向的 CSV 获取，避免数千行撑大 HTML（上季度曾达
+    8500+ 行、报告 5MB+，浏览器渲染与导出显著变慢）。
     """
     if anomaly is None:
         return ""
@@ -399,12 +438,15 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
         return f"""
 <h2>异常路由明细</h2>
 <div class="panel">本期无异常路由（{_esc(str(count))} 条触发阈值）。</div>"""
+    rendered = rows[:_MAX_ANOMALY_ROWS_RENDERED]
+    # count 为全量命中数；rows 可能已被后端 limit 截断，故截断量以 count 为基准
+    truncated = max(0, count - len(rendered))
     body_rows = []
-    truncated = max(0, len(rows) - _MAX_ANOMALY_ROWS_RENDERED)
-    for r in rows[:_MAX_ANOMALY_ROWS_RENDERED]:
+    for r in rendered:
         hits = r.get("hits") or []
         tags = "".join(
-            f'<span class="tag tag-alert">{_esc(_fmt_hit(h))}</span>'
+            f'<span class="tag {_severity_tag_class(h.get("severity"))}">'
+            f"{_esc(_fmt_hit(h))}</span>"
             for h in hits
         )
         body_rows.append(
@@ -420,9 +462,9 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
             f'<td class="l">{_fmt_money(r.get("notional_usd"), "USD")}</td>'
             f'<td class="l">{_esc(r.get("broker") or "")}</td>'
             f'<td class="l">{_esc(r.get("algo") or "")}</td>'
-            f'<td>{_fmt_pct(r.get("completion_rate"))}</td>'
+            f'<td>{_fmt_overfill_cell(r.get("completion_rate"), bool(r.get("overfill")))}</td>'
             f'<td>{_fmt_pct(r.get("par_rate"))}</td>'
-            f'<td>{_fmt_order_par_rate(r.get("order_par_rate"))}</td>'
+            f'<td>{_fmt_order_par_rate(r.get("order_par_rate"), bool(r.get("order_par_gt100")))}</td>'
             f'<td>{_fmt_int(r.get("fill_count"))}</td>'
             f'<td>{_fmt_big(r.get("route_shares"))}</td>'
             f'<td>{_fmt_big(r.get("fill"))}</td>'
@@ -438,7 +480,7 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
         )
     return f"""
 <h2>异常路由明细（{_esc(str(count))} 条）</h2>
-<div class="warn">仅渲染前 {_esc(str(_MAX_ANOMALY_ROWS_RENDERED))} 条异常路由明细（按严重度优先）；其余 {_esc(str(truncated))} 条已计入上方「异常路由」KPI 计数，可缩小时间范围或收紧阈值查看明细。</div>
+{_anomaly_notes(len(rendered), truncated, anomaly.get("export_ref"))}
 <div class="scroll-panel">
 <table><thead><tr>
 <th class="l">命中规则</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
@@ -449,8 +491,59 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
 </tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>"""
 
 
-def _svg_histogram(buckets: list[dict[str, Any]]) -> str:
-    """pnl_vwap 直方图（纵向柱形）。"""
+def _severity_tag_class(severity: Optional[str]) -> str:
+    """命中规则标签的严重度配色：critical 红 / warning 橙。"""
+    return "tag-sev-critical" if severity == "critical" else "tag-sev-warning"
+
+
+def _anomaly_notes(rendered: int, truncated: int, export_ref: Optional[str]) -> str:
+    """异常明细的截断说明与全量导出链接。"""
+    parts: list[str] = []
+    if truncated > 0:
+        parts.append(
+            f'<div class="warn">已按严重度降序（critical 优先）渲染最严重的前 '
+            f"{rendered} 条异常路由；其余 {truncated} 条未在 HTML 中展开，"
+            f"已计入上方「异常路由」KPI 计数，可缩小时间范围或收紧阈值查看。</div>"
+        )
+    if export_ref:
+        parts.append(
+            f'<div class="meta">全量明细导出：<a href="{_esc(export_ref)}" '
+            f'download>{_esc(export_ref)}</a></div>'
+        )
+    return "".join(parts)
+
+
+#: 样本覆盖率低于该阈值时提示「样本不足，结论仅供参考」
+_SAMPLE_COVERAGE_MIN_PCT = 90.0
+
+
+def _sample_note(n_used: Optional[int], n_total: Optional[int]) -> str:
+    """样本量提示：``样本 N/M（xx%）``，覆盖率不足时附警示。"""
+    if not n_used or not n_total:
+        return ""
+    pct = n_used / n_total * 100.0
+    note = f"样本 {n_used:,}/{n_total:,}（{pct:.0f}%）"
+    if pct < _SAMPLE_COVERAGE_MIN_PCT:
+        note += "　样本不足，结论仅供参考"
+    return note
+
+
+def _ranking_sample(row: dict[str, Any]) -> str:
+    """排行条目的样本量后缀：``　n=used/total``（无数据时不显示）。"""
+    n_used, n_total = row.get("n_used"), row.get("route_count")
+    if n_used is None or not n_total:
+        return ""
+    return f"　n={n_used}/{n_total}"
+
+
+def _svg_histogram(histogram: Optional[dict[str, Any]]) -> str:
+    """pnl_vwap 直方图（纵向柱形）+ 样本量披露。
+
+    分布仅覆盖 pnl_vwap 非 NULL 的路由（BDIB 覆盖子集），图下标注
+    「样本 N/M」以免读者误以为分布覆盖全部路由而低估尾部风险。
+    """
+    histogram = histogram or {}
+    buckets = histogram.get("buckets") or []
     if not buckets:
         return _empty_hint("无 pnl_vwap 数据")
     counts = [b["count"] for b in buckets]
@@ -473,7 +566,9 @@ def _svg_histogram(buckets: list[dict[str, Any]]) -> str:
         f'font-size="10" text-anchor="middle">pnl_vwap ∈ [{buckets[0]["lower"]:.2f}, '
         f'{buckets[-1]["upper"]:.2f}]</text>'
     )
-    return _svg_wrap(parts)
+    note = _sample_note(histogram.get("n_used"), histogram.get("n_total"))
+    suffix = f'<div class="meta">{_esc(note)}</div>' if note else ""
+    return _svg_wrap(parts) + suffix
 
 
 def _svg_daily_series(series: list[dict[str, Any]]) -> str:
@@ -526,7 +621,8 @@ def _svg_hbar(rows: list[dict[str, Any]], title: str) -> str:
     for i, r in enumerate(shown):
         y = _PAD_T + i * (bar_h + gap)
         v = r["weighted_pnl_vwap"]
-        w = (abs(v) / max_v * scale_w) if v is not None else 0
+        # max_v 为 0（全部排名值均为 0）时不做缩放，避免除零
+        w = (abs(v) / max_v * scale_w) if (v is not None and max_v > 0) else 0
         color = _COLOR_POS if (v or 0) >= 0 else _COLOR_NEG
         x = zero_x if (v or 0) >= 0 else zero_x - w
         label_x, anchor = (x + w + 5, "start") if (v or 0) >= 0 else (x - 5, "end")
@@ -534,7 +630,7 @@ def _svg_hbar(rows: list[dict[str, Any]], title: str) -> str:
             f'<text x="{label_w - 8}" y="{y + 13}" fill="#9fb3c8" font-size="11" text-anchor="end">'
             f'{_esc(_trunc(r["name"], 16))}</text>'
             f'<rect x="{x:.1f}" y="{y}" width="{max(w, 0.5):.1f}" height="{bar_h}" fill="{color}" rx="2" opacity="0.85"/>'
-            f'<text x="{label_x:.1f}" y="{y + 13}" fill="#7d8fa3" font-size="11" text-anchor="{anchor}">{_fmt_num(v)}</text>'
+            f'<text x="{label_x:.1f}" y="{y + 13}" fill="#7d8fa3" font-size="11" text-anchor="{anchor}">{_fmt_num(v)}{_esc(_ranking_sample(r))}</text>'
         )
     parts.append("</svg>")
     return "".join(parts)
@@ -569,32 +665,82 @@ def _svg_pwp_curve(points: list[dict[str, Any]]) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _render_coverage_table(coverage: Optional[dict[str, Any]]) -> str:
-    """日期 × 指标覆盖率表（单元格按覆盖率着色，BDIB 依赖指标带 * 标记）。"""
+def _gap_dates(health: Optional[dict[str, Any]]) -> set[str]:
+    """BDIB 缺口日期集合（供覆盖率表交叉高亮）；未扫描/无数据时为空。"""
+    if not health or health.get("status") == "skipped":
+        return set()
+    return {
+        d["date"] for d in health.get("dates") or [] if d.get("status") != "ok"
+    }
+
+
+def _render_coverage_table(
+    coverage: Optional[dict[str, Any]],
+    gap_dates: Optional[set[str]] = None,
+) -> str:
+    """日期 × 指标覆盖率表（原始 / SLA 双口径 + NULL 原因提示）。
+
+    单元格为「原始 / SLA」组合值：SLA 口径剔除结构内必然 NULL（收盘竞价 /
+    单笔成交），避免把结构性 NULL 误判成"数据质量差"；tooltip 给出 NULL 原因。
+    ``gap_dates``（BDIB 缺口日）整行加暗红底色，便于与缺口附录交叉定位。
+    """
     if not coverage or not coverage.get("rows"):
         return ""
     metrics = coverage["metrics"]
     dependent = set(coverage.get("bdib_dependent_metrics") or [])
+    reasons = coverage.get("null_reasons") or {}
+    expected_null = set(coverage.get("expected_null_metrics") or [])
+    gap_dates = gap_dates or set()
     header = "".join(
         f"<th>{m}{'*' if m in dependent else ''}</th>" for m in metrics
     )
     body_rows = []
     for row in coverage["rows"]:
-        cells = "".join(_coverage_cell(row["coverage"].get(m)) for m in metrics)
+        sla = row.get("sla_coverage") or {}
+        row_style = ' style="background:#2a1f1f"' if row["date"] in gap_dates else ""
+        cells = "".join(
+            _coverage_cell(
+                row["coverage"].get(m), sla.get(m),
+                reasons.get(m), m in expected_null,
+            )
+            for m in metrics
+        )
         body_rows.append(
-            f'<tr><td class="l">{_esc(row["date"])}</td>'
+            f'<tr{row_style}><td class="l">{_esc(row["date"])}</td>'
             f"<td>{row['total_routes']}</td>{cells}</tr>"
         )
+    overall = coverage.get("overall") or {}
+    overall_note = ""
+    if overall.get("coverage") is not None:
+        overall_note = (
+            f"　整体：原始 {_fmt_pct_raw(overall.get('coverage'))} / "
+            f"SLA {_fmt_pct_raw(overall.get('sla_coverage'))}"
+        )
     return f"""
-<h2>指标覆盖率（%）<span style="font-size:11px;color:#5f7186">　* = 依赖 BDIB 行情</span></h2>
+<h2>指标覆盖率（%）<span style="font-size:11px;color:#5f7186">　* = 依赖 BDIB 行情；单元格＝原始 / SLA；虚线框＝结构性必然 NULL；暗红行＝BDIB 缺口日</span></h2>
 <div class="panel" style="overflow-x:auto;max-height:420px;overflow-y:auto">
+<div class="meta">原始覆盖率分母为全部路由；SLA 覆盖率剔除结构内必然 NULL（收盘竞价 / 单笔成交）。{_esc(overall_note)}</div>
 <table><thead><tr><th class="l">日期</th><th>routes</th>{header}</tr></thead>
 <tbody>{''.join(body_rows)}</tbody></table></div>"""
 
 
 def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
-    """BDIB 缺口附录：仅列出非 ok 日期。"""
-    if not health or not health.get("dates"):
+    """BDIB 缺口附录：三态（未扫描 / 无缺口 / 有缺口）+ 缺口影响面。
+
+    未扫描（超时/异常）与"无缺口"在渲染上显式区分，避免读者误判为数据健康。
+    """
+    if not health:
+        return ""
+    if health.get("status") == "skipped":
+        reason = {"timeout": "扫描超时", "error": "扫描失败"}.get(
+            health.get("reason") or "", health.get("reason") or "未知原因",
+        )
+        return (
+            '<h2>BDIB 缺口附录</h2><div class="warn">'
+            f"本次未完成 BDIB 缺口扫描（{_esc(reason)}），缺口状态未知 —— "
+            "如需确认请缩小时间范围后重试。</div>"
+        )
+    if not health.get("dates"):
         return ""
     gap_dates = [d for d in health["dates"] if d["status"] != "ok"]
     if not gap_dates:
@@ -603,18 +749,22 @@ def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
         f'<tr><td class="l">{d["date"]}</td>'
         f'<td><span class="tag tag-{d["status"]}">{d["status"]}</span></td>'
         f"<td>{d['coverage_pct']:.1f}%</td><td>{d['missing_ticker_count']}</td>"
+        f"<td>{d.get('missing_route_count', 0):,}</td>"
+        f"<td>{_fmt_big(d.get('missing_notional'))}</td>"
         f"<td>{d['retention_days_left']}</td>"
         f'<td class="l" style="white-space:normal">{_esc(", ".join(d["missing_tickers"][:8]))}'
         f'{"…" if d["missing_ticker_count"] > 8 else ""}</td></tr>'
         for d in gap_dates
     )
+    summary = health.get("summary") or {}
     return f"""
 <h2>BDIB 缺口附录（{len(gap_dates)} 天）</h2>
 <div class="panel" style="overflow-x:auto">
 <table><thead><tr><th class="l">日期</th><th>状态</th><th>覆盖率</th>
-<th>缺口 ticker</th><th>保留窗口剩余(天)</th><th class="l">缺失 ticker 样例</th></tr></thead>
+<th>缺口 ticker</th><th>受影响 route 数</th><th>缺口成交金额</th>
+<th>保留窗口剩余(天)</th><th class="l">缺失 ticker 样例</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<div class="meta" style="margin-top:8px">保留窗口内（partial/missing）可用 scripts/ops/backfill_bdib_by_market.py 回补；unrecoverable 已超出 Bloomberg BDIB 保留期限，无法回补。</div>
+<div class="meta" style="margin-top:8px">缺口影响面：合计受影响 route {summary.get('total_missing_routes', 0):,} 条、成交金额 {_fmt_big(summary.get('total_missing_notional'))}（金额优先 USD，缺汇率时为本币）。保留窗口内（partial/missing）可用 scripts/ops/backfill_bdib_by_market.py 回补；unrecoverable 已超出 Bloomberg BDIB 保留期限，无法回补。</div>
 </div>"""
 
 
@@ -681,19 +831,46 @@ def _svg_wrap(parts: list[str]) -> str:
     return f'<svg width="100%" height="{_CHART_H}" viewBox="0 0 {_CHART_W} {_CHART_H}" preserveAspectRatio="xMidYMid meet">{"".join(parts)}</svg>'
 
 
-def _coverage_cell(pct: Optional[float]) -> str:
-    """覆盖率单元格：按数值渐变着色。"""
+def _coverage_bg(pct: Optional[float]) -> str:
+    """覆盖率数值 → 单元格背景色（渐变）。"""
     if pct is None:
-        return '<td style="color:#5f7186">-</td>'
+        return "#1a2332"
     if pct >= 99.0:
-        bg = "#1b3a2f"
-    elif pct >= 90.0:
-        bg = "#2c3a1c"
-    elif pct >= 50.0:
-        bg = "#3a3418"
-    else:
-        bg = "#3a1f1f"
-    return f'<td style="background:{bg}">{pct:.1f}</td>'
+        return "#1b3a2f"
+    if pct >= 90.0:
+        return "#2c3a1c"
+    if pct >= 50.0:
+        return "#3a3418"
+    return "#3a1f1f"
+
+
+def _coverage_text(pct: Optional[float], sla_pct: Optional[float]) -> str:
+    """覆盖率文本：双口径一致时只显示一个值，避免列宽膨胀。"""
+    if pct is None:
+        return "-" if sla_pct is None else f"{sla_pct:.1f}"
+    if sla_pct is None or abs(sla_pct - pct) < 0.05:
+        return f"{pct:.1f}"
+    return f"{pct:.1f} / {sla_pct:.1f}"
+
+
+def _coverage_cell(
+    pct: Optional[float],
+    sla_pct: Optional[float] = None,
+    reason: Optional[str] = None,
+    expected_null: bool = False,
+) -> str:
+    """覆盖率单元格：「原始 / SLA」双口径 + NULL 原因 tooltip。
+
+    expected_null（结构性必然 NULL，如纯竞价路由的 continuous 指标）以灰底
+    虚线边框区分，避免被误判为数据缺陷。
+    """
+    if pct is None and sla_pct is None:
+        return '<td style="color:#5f7186">-</td>'
+    style = f"background:{_coverage_bg(pct if pct is not None else sla_pct)}"
+    if expected_null:
+        style += ";border:1px dashed #5f7186"
+    title = f' title="NULL 原因：{_esc(reason)}"' if reason else ""
+    return f'<td style="{style}"{title}>{_esc(_coverage_text(pct, sla_pct))}</td>'
 
 
 def _empty_hint(text: str) -> str:
@@ -745,14 +922,19 @@ def _fmt_money(value: Optional[float], currency: Optional[str]) -> str:
 
 
 def _fx_coverage_sub(kpi: dict[str, Any]) -> str:
-    """总成交金额卡片的副标题：fx_rate 覆盖率提示。"""
+    """总成交金额卡片的副标题：USD 换算成功率与被排除金额。
+
+    三态明确区分：无 fx_rate 列 / 无数据 / 覆盖率（含本币被排除金额）。
+    """
     coverage = kpi.get("fx_coverage")
+    excluded = kpi.get("notional_usd_excluded")
     if coverage is None:
-        return "USD 换算 · 无 fx_rate 数据"
+        return "USD 换算 · 无 fx_rate 列"
     pct = coverage * 100.0
-    if pct >= 99.0:
-        return "USD 换算 · fx_rate 全覆盖"
-    return f"USD 换算 · fx_rate 覆盖率 {pct:.0f}%"
+    text = "USD 换算 · 全覆盖" if pct >= 99.0 else f"USD 换算 · 覆盖率 {pct:.0f}%"
+    if excluded:
+        text += f"（本币排除 {_fmt_big(excluded)}）"
+    return text
 
 
 def _fmt_risk(stddev: Optional[float], cvar: Optional[float]) -> str:
@@ -764,11 +946,18 @@ def _fmt_risk(stddev: Optional[float], cvar: Optional[float]) -> str:
     return f"{s} / {c}"
 
 
-def _fmt_order_par_rate(value: Optional[float]) -> str:
-    """订单参与率展示：各路由 par_rate 之和，可能 > 100%，故不封顶。"""
+def _fmt_order_par_rate(value: Optional[float], flagged: bool = False) -> str:
+    """订单参与率展示：同一订单（同交易日同交易所）各路由 par_rate 之和。
+
+    可能 > 100%（语义上即「订单参与率超过市场成交量」的数据异常信号），
+    故不封顶；命中 order_par_gt100 规则时追加标记。
+    """
     if value is None:
         return "-"
-    return f"{value * 100.0:.2f}%"
+    text = f"{value * 100.0:.2f}%"
+    if not flagged:
+        return text
+    return f'{text} <span class="tag tag-overfill">&gt;100%</span>'
 
 
 def _fmt_int(value: Optional[float]) -> str:
@@ -784,19 +973,27 @@ def _fmt_int(value: Optional[float]) -> str:
 def _fmt_pct(value: Optional[float]) -> str:
     """百分比展示（0-1 小数 → %，None → '-'）。
 
-    未成交 > 0 时 completion_rate 必 < 1.0，但 1 位小数四舍五入会把
-    99.95%+ 的完成率显示成 100.0%，与「未成交」列矛盾。故提升两位精度，
-    并在仍越界时（< 100% 却四舍五入到 100%）封顶到 99.99%，避免假象。
+    不做封顶：完成率 > 100%（fill > RouteShares）属数据矛盾，应显式暴露而非
+    被展示层掩盖（由 overfill_pct 规则与 overfill 标记承接）。
     """
     if value is None:
         return "-"
-    pct = value * 100.0
-    if pct > 100.0:
-        pct = 100.0
-    # 未成交 > 0 时完成率必 < 100%，封顶 99.99% 以防两位小数四舍五入显示成 100.00%
-    if value < 1.0 and pct > 99.99:
-        pct = 99.99
-    return f"{pct:.2f}%"
+    return f"{value * 100.0:.2f}%"
+
+
+def _fmt_pct_raw(value: Optional[float]) -> str:
+    """已是百分数（0-100）的值展示，None → '-'。"""
+    if value is None:
+        return "-"
+    return f"{value:.2f}%"
+
+
+def _fmt_overfill_cell(value: Optional[float], flagged: bool) -> str:
+    """完成率单元格：命中 overfill（成交超过委托）时追加警告标记。"""
+    text = _fmt_pct(value)
+    if not flagged:
+        return text
+    return f'{text} <span class="tag tag-overfill">超成交</span>'
 
 
 def _fmt_duration(seconds: Optional[float]) -> str:

@@ -375,10 +375,13 @@ class TestTcaReportAggregator:
         assert algo_names == {"VWAP", "TWAP"}
 
     def test_histogram_buckets(self, mgr: ConnectionManager):
+        """直方图返回 buckets + 样本量 meta（014：区分样本与全量路由）。"""
         report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
         histogram = report["pnl_vwap_histogram"]
-        assert histogram
-        assert sum(b["count"] for b in histogram) == 2
+        assert histogram["buckets"]
+        assert sum(b["count"] for b in histogram["buckets"]) == 2
+        assert histogram["n_used"] == 2
+        assert histogram["n_total"] >= histogram["n_used"]
 
     def test_filters_applied(self, mgr: ConnectionManager):
         report = TcaReportAggregator(mgr).build_report(
@@ -446,8 +449,10 @@ class TestTcaReportAggregator:
         assert kpi["notional"] == pytest.approx(1_100_000.0)
         # notional_usd = 1000×1000×0.006 + 1000×100×1.0 = 6000 + 100000 = 106000
         assert kpi["notional_usd"] == pytest.approx(106_000.0)
-        # fx_coverage：仅 1 条非 1.0（JPY）→ 1/2 = 0.5
-        assert kpi["fx_coverage"] == pytest.approx(0.5)
+        # fx_coverage：USD 换算成功率（两条均可换算）→ 2/2 = 1.0
+        # （不再把「USD 本币天然为 1.0」误算为缺汇率而拉低覆盖率）
+        assert kpi["fx_coverage"] == pytest.approx(1.0)
+        assert kpi["notional_usd_excluded"] is None  # 无被排除路由
 
     def test_kpi_notional_usd_minor_unit(self, tmp_path: Path):
         """小计价单位货币（GBp/ILs/ZAr）USD 成交金额 ÷100（008）。
@@ -514,8 +519,10 @@ class TestTcaReportAggregator:
         assert kpi["notional"] == pytest.approx(1000 * 1000.0 + 1000 * 100.0)
         # KRW 缺汇率 → 该 route 不计入，仅 US 部分计入（而非整组 NULL）
         assert kpi["notional_usd"] == pytest.approx(100_000.0)
-        # fx_coverage：仅 1 条非 1.0 缺汇率？KRW fx_rate=NULL 不计入 → 0/2 = 0.0
-        assert kpi["fx_coverage"] == pytest.approx(0.0)
+        # fx_coverage：USD 换算成功率 → 1/2 = 0.5（KRW 缺汇率不可换算）
+        assert kpi["fx_coverage"] == pytest.approx(0.5)
+        # 被排除金额显式可见（KRW 本币 1000×1000），不再静默从总额消失
+        assert kpi["notional_usd_excluded"] == pytest.approx(1_000_000.0)
 
     def test_kpi_notional_usd_usd_missing_fx_defaults_one(self, tmp_path: Path):
         """USD/未知币种 fx_rate 缺失时仍按 1.0 兜底（USD 无需换算）。"""
@@ -658,18 +665,22 @@ class TestTcaReportAggregator:
         )
         anomaly = report["anomaly"]
         assert anomaly["count"] == 2
-        # 单档阈值：命中即异常，无 critical_count 字段
-        assert "critical_count" not in anomaly
+        # 两档严重度：命中 warning 档即入清单（覆盖范围与 ADR-0015 单档时期一致）
+        assert all(r["severity"] in ("warning", "critical") for r in anomaly["rows"])
         assert all(h["unit"] for r in anomaly["rows"] for h in r["hits"])
 
     def test_anomaly_sorted_by_pnl_vwap_and_fill_count(self, mgr: ConnectionManager):
-        """异常路由按 pnl_vwap 从负到正升序；fill_count 字段随行返回。"""
+        """异常路由按「严重度优先 + pnl_vwap 升序」排序；fill_count 随行返回。"""
         report = TcaReportAggregator(mgr).build_report(
             "20260803", "20260804", min_fill_count=0, min_notional_usd=0,
         )
         rows = report["anomaly"]["rows"]
-        pnls = [r["pnl_vwap"] for r in rows if r["pnl_vwap"] is not None]
-        assert pnls == sorted(pnls)  # 升序：负 → 正
+        rank = {"critical": 0, "warning": 1}
+        keys = [
+            (rank.get(r["severity"], 2), r["pnl_vwap"])
+            for r in rows if r["pnl_vwap"] is not None
+        ]
+        assert keys == sorted(keys)  # 严重度优先，同档内 pnl_vwap 升序（负 → 正）
         assert all(r["fill_count"] == 3 for r in rows)
 
     def test_anomaly_min_fill_count_excludes_low_fill(self, mgr: ConnectionManager):

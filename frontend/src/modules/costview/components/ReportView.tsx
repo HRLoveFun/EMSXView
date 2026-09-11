@@ -31,6 +31,7 @@ import { loadCostViewConfig } from '../lib/storage';
 import {
   formatMoney,
   formatNum,
+  formatPct,
   formatRisk,
   formatShares,
 } from '../lib/report-format';
@@ -97,17 +98,24 @@ const buildThresholdsPayload = (
 ): Record<string, ExportHtmlThresholdPayload> => {
   const thresholds: Record<string, ExportHtmlThresholdPayload> = {};
   for (const rule of Object.values(rules)) {
-    thresholds[rule.key] = { mode: rule.mode, threshold: rule.threshold, enabled: rule.enabled };
+    thresholds[rule.key] = {
+      mode: rule.mode,
+      warning: rule.warning,
+      critical: rule.critical,
+      enabled: rule.enabled,
+    };
   }
   return thresholds;
 };
 
-/** 总成交金额卡片副标题：fx_rate 覆盖率提示 */
-const fxCoverageSub = (coverage: number | null): string => {
-  if (coverage == null) return 'USD 换算 · 无 fx_rate';
+/** 总成交金额卡片副标题：USD 换算成功率与被排除金额（与后端换算成功率口径一致） */
+const fxCoverageSub = (kpi: TcaReportSummary['kpi']): string => {
+  const coverage = kpi.fx_coverage;
+  if (coverage == null) return 'USD 换算 · 无 fx_rate 列';
   const pct = coverage * 100;
-  if (pct >= 99) return 'USD 换算 · fx_rate 全覆盖';
-  return `USD 换算 · fx_rate 覆盖率 ${pct.toFixed(0)}%`;
+  const base = pct >= 99 ? 'USD 换算 · 全覆盖' : `USD 换算 · 覆盖率 ${pct.toFixed(0)}%`;
+  const excluded = kpi.notional_usd_excluded;
+  return excluded ? `${base}（本币排除 ${formatMoney(excluded)}）` : base;
 };
 
 /** KPI 卡片区（与 HTML 报告一致：基础 6 + 决策基准/风险/完成率 + 异常数） */
@@ -124,17 +132,18 @@ const KpiCards = ({
   const cards = [
     { label: 'Route 总数', value: kpi.route_count.toLocaleString(), sub: '' },
     { label: '总成交股数', value: formatShares(kpi.total_route_shares), sub: 'RouteShares 合计' },
-    { label: '总成交金额（美元）', value: formatMoney(kpi.notional_usd), sub: fxCoverageSub(kpi.fx_coverage) },
+    { label: '总成交金额（美元）', value: formatMoney(kpi.notional_usd), sub: fxCoverageSub(kpi) },
     { label: '加权 pnl_vwap', value: formatNum(kpi.weighted_pnl_vwap), sub: '成交额加权 · VWAP 基准' },
-    { label: '平均 par_rate', value: formatNum(kpi.avg_par_rate), sub: '参与率均值' },
-    { label: '平均 RPM', value: formatNum(kpi.avg_rpm), sub: '' },
+    { label: '平均 par_rate', value: formatNum(kpi.avg_par_rate), sub: '成交额加权' },
+    { label: '平均 RPM', value: formatNum(kpi.avg_rpm), sub: '成交额加权' },
   ];
   if (extra) {
     cards.push(
       { label: '加权 arrival 成本', value: formatNum(extra.arrival_cost_bps), sub: '决策基准 · 成交额加权' },
       { label: '加权 IS (bps)', value: formatNum(extra.wagner_is_bps), sub: '实现短缺 · 成交额加权' },
       { label: '成本风险 stddev/CVaR', value: formatRisk(extra.cost_stddev, extra.cost_cvar), sub: '尾部风险' },
-      { label: '平均完成率', value: formatNum(extra.avg_fill), sub: 'fill 均值' },
+      { label: '组合完成率', value: formatPct(extra.avg_fill), sub: 'Σfill / ΣRouteShares' },
+      { label: '未成交金额缺口', value: formatMoney(extra.unfilled_notional_usd), sub: 'Σ(未成交×均价×汇率)' },
     );
   }
    if (anomaly != null) {
@@ -264,26 +273,37 @@ const MarketNotionalTrendChart = ({ rows = [] }: { rows?: TcaReportSummary['mark
   );
 };
 
-/** pnl_vwap 分布直方图 */
-const PnlHistogram = ({ data }: { data: TcaReportSummary['pnl_vwap_histogram'] }) => (
-  <ChartPanel title="pnl_vwap 分布" empty={!data.length}>
-    <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-        <XAxis dataKey="lower" tickFormatter={(v: number) => v.toFixed(1)} fontSize={11} />
-        <YAxis fontSize={11} />
-        <Tooltip
-          formatter={(value: number) => [value, 'routes']}
-          labelFormatter={(v: number, payload) => {
-            const bucket = payload?.[0]?.payload as { lower: number; upper: number } | undefined;
-            return bucket ? `[${bucket.lower.toFixed(2)}, ${bucket.upper.toFixed(2)})` : String(v);
-          }}
-        />
-        <Bar dataKey="count" fill="#4fc3f7" radius={[2, 2, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  </ChartPanel>
-);
+/** pnl_vwap 分布直方图（附样本量披露：分布仅覆盖 pnl_vwap 非 NULL 的路由） */
+const PnlHistogram = ({ data }: { data: TcaReportSummary['pnl_vwap_histogram'] }) => {
+  const buckets = data?.buckets ?? [];
+  const samplePct = data?.n_total ? (data.n_used / data.n_total) * 100 : null;
+  return (
+    <ChartPanel
+      title={
+        samplePct == null
+          ? 'pnl_vwap 分布'
+          : `pnl_vwap 分布（样本 ${data.n_used.toLocaleString()}/${data.n_total.toLocaleString()}，${samplePct.toFixed(0)}%）`
+      }
+      empty={!buckets.length}
+    >
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={buckets}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="lower" tickFormatter={(v: number) => v.toFixed(1)} fontSize={11} />
+          <YAxis fontSize={11} />
+          <Tooltip
+            formatter={(value: number) => [value, 'routes']}
+            labelFormatter={(v: number, payload) => {
+              const bucket = payload?.[0]?.payload as { lower: number; upper: number } | undefined;
+              return bucket ? `[${bucket.lower.toFixed(2)}, ${bucket.upper.toFixed(2)})` : String(v);
+            }}
+          />
+          <Bar dataKey="count" fill="#4fc3f7" radius={[2, 2, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartPanel>
+  );
+};
 
 /** 按日加权 pnl_vwap / 平均 par_rate 双折线（双 y 轴） */
 const DailyTrendChart = ({ data }: { data: TcaReportSummary['daily_series'] }) => (
@@ -313,7 +333,15 @@ const RankingBarChart = ({ title, rows }: { title: string; rows: TcaRankingRow[]
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
           <XAxis type="number" fontSize={11} />
           <YAxis type="category" dataKey="name" fontSize={11} width={80} />
-          <Tooltip formatter={(value: number) => [formatNum(value), '加权 pnl_vwap']} />
+          <Tooltip
+            formatter={(value: number, _name: unknown, item: unknown) => {
+              const row = (item as { payload?: TcaRankingRow } | undefined)?.payload;
+              const suffix = row?.n_used != null && row.route_count
+                ? `（n=${row.n_used}/${row.route_count}）`
+                : '';
+              return [`${formatNum(value)}${suffix}`, '加权 pnl_vwap'];
+            }}
+          />
           <Bar dataKey="weighted_pnl_vwap" radius={[0, 2, 2, 0]}>
             {shown.map((row) => (
               <Cell key={row.name} fill={(row.weighted_pnl_vwap ?? 0) >= 0 ? '#ef5350' : '#26a69a'} />

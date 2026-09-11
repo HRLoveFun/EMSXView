@@ -232,8 +232,8 @@ describe('ReportView', () => {
     await waitFor(() => expect(screen.getByText('总成交金额（美元）')).toBeInTheDocument());
     // notional_usd = 1602000 → $1.60M（formatMoney 缩写）
     expect(screen.getByText('$1.60M')).toBeInTheDocument();
-    // fx_coverage = 0.5 → 覆盖率副标题
-    expect(screen.getByText('USD 换算 · fx_rate 覆盖率 50%')).toBeInTheDocument();
+    // fx_coverage = 0.5 → USD 换算成功率副标题（014：换算成功率口径）
+    expect(screen.getByText('USD 换算 · 覆盖率 50%')).toBeInTheDocument();
   });
 
   it('渲染按市场成交金额（美元）排名与每日趋势图', async () => {
@@ -260,10 +260,10 @@ describe('ReportView', () => {
 
     const call = mockFetchExportHtml.mock.calls[0][0]!;
     expect(call.last).toBe('day');
-    // 默认阈值随请求下发（与 DEFAULT_RULES 对齐，单档阈值）
+    // 默认阈值随请求下发（与 DEFAULT_RULES 对齐，两档阈值）
     expect(call.thresholds).toBeDefined();
     expect(call.thresholds!.tracking_error_bps).toMatchObject({
-      mode: 'absolute-above', threshold: 10, enabled: true,
+      mode: 'absolute-above', warning: 10, critical: 25, enabled: true,
     });
     // 填充笔数下限随请求下发
     expect(call.minFillCount).toBe(10);

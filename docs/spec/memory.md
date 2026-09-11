@@ -44,9 +44,10 @@
 | [ADR-0012](adr/0012-config-isolation-rule.md) | 配置隔离：`Config` 单一来源（本仓库 `data_access/config.py`） | Accepted |
 | [ADR-0013](adr/0013-platform-data-adapter-current-state.md) | platform_data 适配器现状与 data-domain.md 偏差 | Accepted |
 | [ADR-0014](adr/0014-dead-code-cleanup.md) | 死代码清理 — 一次性运维脚本与未接线实现移除 | Accepted |
-| [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | Accepted |
+| [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门）；严重度部分由 ADR-0018 修订 | Accepted |
 | [ADR-0016](adr/0016-external-data-store-readonly-split.md) | 数据目录外置项目外 + 读写职责物理分离（READ 文件级只读） | Accepted |
 | [ADR-0017](adr/0017-cleanup-and-perf-hotspot-mechanism.md) | 代码清理与性能热点机制（CL-xx 清理 + PF-xx 性能，复用 quality_gate 基础设施） | Accepted |
+| [ADR-0018](adr/0018-tca-report-metrics-conventions.md) | TCA 报告指标口径与异常严重度语义（成交额加权 / 两档严重度 / 截断与导出 / REPORT_SPEC） | Accepted |
 | [ADR-0700](adr/0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | Accepted |
 
 ---

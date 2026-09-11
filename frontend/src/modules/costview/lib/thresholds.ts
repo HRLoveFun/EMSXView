@@ -8,12 +8,17 @@ import type {
   ThresholdRule,
 } from '../types';
 
+/** 本地默认规则：后端 /api/tca/monitoring/anomaly-thresholds 为唯一真相源（ADR-0018），
+ *  此处仅作离线兜底；warning 决定是否进入异常清单，critical 仅用于分级标注。
+ *  注：后端的 order_par_gt100 规则（订单参与率求和超限）依赖订单级聚合，
+ *  前端 route 级数据无法计算，故不在此列，仅由后端异常清单承载。 */
 const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
   tracking_error_bps: {
     key: 'tracking_error_bps',
     label: 'Tracking Error',
     mode: 'absolute-above',
-    threshold: 10,
+    warning: 10,
+    critical: 25,
     enabled: true,
     decimals: 1,
     unit: 'bps',
@@ -23,7 +28,8 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'fill_pct',
     label: 'Fill %',
     mode: 'below',
-    threshold: 80,
+    warning: 80,
+    critical: 50,
     enabled: true,
     decimals: 1,
     unit: 'percent',
@@ -33,7 +39,8 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'volume_pct_adv20',
     label: 'Vol % ADV20',
     mode: 'above',
-    threshold: 5,
+    warning: 5,
+    critical: 10,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -43,7 +50,8 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'volume_pct_interval',
     label: 'Vol % Interval',
     mode: 'above',
-    threshold: 20,
+    warning: 20,
+    critical: 35,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -53,7 +61,8 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'intraday_volatility',
     label: 'Intraday Volatility',
     mode: 'above',
-    threshold: 2.5,
+    warning: 2.5,
+    critical: 4,
     enabled: true,
     decimals: 2,
     unit: 'percent',
@@ -63,11 +72,24 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     key: 'price_movement_pct',
     label: 'Price Move',
     mode: 'absolute-above',
-    threshold: 1,
+    warning: 1,
+    critical: 2.5,
     enabled: true,
     decimals: 2,
     unit: 'percent',
     description: 'Absolute price movement during the order interval.',
+  },
+  // 数据质量探针：成交超过委托（fill > RouteShares）属数据矛盾
+  overfill_pct: {
+    key: 'overfill_pct',
+    label: 'Overfill %',
+    mode: 'above',
+    warning: 100,
+    critical: 110,
+    enabled: true,
+    decimals: 1,
+    unit: 'percent',
+    description: 'Fill exceeds route shares (data inconsistency).',
   },
 };
 
@@ -108,10 +130,14 @@ export function getMetricValue(
     case 'intraday_volatility': return route.pnl_vwap_continuous != null ? route.pnl_vwap_continuous / 100 : null;
     // price_movement_pct 由 rpm 代理（百分比，0-100）
     case 'price_movement_pct': return route.rpm;
+    // overfill_pct（数据质量）：成交超过委托的百分比（fill / RouteShares × 100）
+    case 'overfill_pct': return route.fill != null && route.route_shares ? (route.fill / route.route_shares) * 100 : null;
     default: return undefined;
   }
 }
 
+/** 阈值判定（ADR-0018 两档）：越过 warning 入异常清单，越过 critical 标注为严重。
+ *  below 模式下 critical 阈值更小（更严格）。 */
 export function evaluateThreshold(
   rule: ThresholdRule,
   rawValue: number | null | undefined,
@@ -123,10 +149,12 @@ export function evaluateThreshold(
   const value = rule.mode === 'absolute-above' ? Math.abs(rawValue) : rawValue;
 
   if (rule.mode === 'below') {
-    return value <= rule.threshold ? 'critical' : 'normal';
+    if (value <= rule.critical) return 'critical';
+    return value <= rule.warning ? 'warning' : 'normal';
   }
 
-  return value >= rule.threshold ? 'critical' : 'normal';
+  if (value >= rule.critical) return 'critical';
+  return value >= rule.warning ? 'warning' : 'normal';
 }
 
 export function getOrderAlertDetails(
@@ -138,7 +166,8 @@ export function getOrderAlertDetails(
   for (const rule of Object.values(config.rules)) {
     const value = getMetricValue(route, rule.key);
     const severity = evaluateThreshold(rule, value);
-    if (severity === 'critical' && value != null) {
+    // warning 及以上即视为异常（与后端入清单边界一致）
+    if ((severity === 'critical' || severity === 'warning') && value != null) {
       entries.push({
         key: rule.key,
         label: rule.label,
@@ -159,6 +188,7 @@ export function getHighestOrderSeverity(
     .map((rule) => evaluateThreshold(rule, getMetricValue(route, rule.key)));
 
   if (severities.includes('critical')) return 'critical';
+  if (severities.includes('warning')) return 'warning';
   if (severities.includes('normal')) return 'normal';
   return 'none';
 }
@@ -190,9 +220,10 @@ export function getSeverityText(severity: AlertSeverity): string {
 }
 
 export function countAlertOrders(routes: TcaRouteSummary[], config: CostViewConfig): number {
+  // 入异常清单的边界为 warning 档（覆盖范围与后端一致）
   return routes.filter((route) => {
     const severity = getHighestOrderSeverity(route, config);
-    return severity === 'critical';
+    return severity === 'critical' || severity === 'warning';
   }).length;
 }
 
@@ -232,6 +263,7 @@ export function evaluateCohortSeverity(
     evaluateThreshold(config.rules.price_movement_pct, cohort.avg_price_movement_pct ?? null),
   ];
   if (severities.includes('critical')) return 'critical';
+  if (severities.includes('warning')) return 'warning';
   if (severities.includes('normal')) return 'normal';
   return 'none';
 }
@@ -257,21 +289,40 @@ export function formatAnomalyFlag(flag: string): string {
   }
 }
 
+/** 后端阈值 payload（ADR-0018 双档；threshold 为 ADR-0015 单档遗留写法，兼容读取） */
+export interface BackendThresholdRule {
+  mode: ThresholdRule['mode'];
+  warning?: number;
+  critical?: number;
+  threshold?: number;
+  enabled: boolean;
+}
+
 /**
- * 008: 以后端默认阈值合并覆盖本地规则。保留本地规则的中文标签 / 描述 / 小数位 / 单位，
- * 仅用后端值覆盖 mode / warning / critical / enabled（后端为唯一真相源，双份维护防漂移）。
+ * 008/014: 以后端默认阈值合并覆盖本地规则。保留本地的中文标签 / 描述 / 小数位 / 单位，
+ * 仅用后端值覆盖 mode / warning / critical / enabled（后端为唯一真相源）。
+ * 兼容 ADR-0015 单档 payload：threshold 等价于 warning = critical。
  */
 export function mergeBackendThresholds(
-  backendRules: Record<string, { mode: ThresholdRule['mode']; threshold: number; enabled: boolean }>,
+  backendRules: Record<string, BackendThresholdRule>,
 ): Record<CostViewMetricKey, ThresholdRule> {
   const base = createDefaultCostViewConfig().rules;
   const next = {} as Record<CostViewMetricKey, ThresholdRule>;
   for (const key of Object.keys(base) as CostViewMetricKey[]) {
     const backend = backendRules[key];
     const local = base[key];
-    next[key] = backend
-      ? { ...local, mode: backend.mode, threshold: backend.threshold, enabled: backend.enabled }
-      : local;
+    if (!backend) {
+      next[key] = local;
+      continue;
+    }
+    const single = backend.threshold;
+    next[key] = {
+      ...local,
+      mode: backend.mode,
+      warning: backend.warning ?? single ?? local.warning,
+      critical: backend.critical ?? single ?? local.critical,
+      enabled: backend.enabled,
+    };
   }
   return next;
 }
