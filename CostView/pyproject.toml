@@ -16,3 +16,17 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = [".."]
 include = ["CostView*"]
+
+# ── 测试与覆盖率（README §4.2「覆盖率未量化」整改）─────────────────────────
+# 日常运行： pytest CostView/tests/
+# 覆盖率：   pytest CostView/tests/ --cov=CostView/src --cov=CostView/api --cov-report=term-missing
+# 门槛：先跑基线观测实际覆盖率，再在 CI 中启用 --cov-fail-under（建议 70）。
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["CostView/src", "CostView/api"]
+omit = ["**/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
