@@ -12,9 +12,11 @@ Keys:
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterable
 
 from platform_data.contracts.handoff_contracts import (
+    SOURCE_MODULE_MATURITY,
     BrokerStrategyRecommendation,
     ExecutionCandidateHandoff,
     ExecutionPostTradeHandoff,
@@ -28,6 +30,8 @@ from platform_data.contracts.market_contracts import (
     MarketSnapshotFilters,
     MarketSnapshotSort,
 )
+
+_log = logging.getLogger(__name__)
 
 
 class RedisHandoffExchangeAdapter:
@@ -52,6 +56,11 @@ class RedisHandoffExchangeAdapter:
     _KEY_CV_TO_EV = "emsxview:handoff:cv-to-ev"
 
     _MAX_CV_TO_EV = 200
+
+    # 条目过期时间（秒）— 与内存后端 _HANDOFF_TTL (7 天) 对齐。
+    # 此前 Redis 后端三条通道均无 TTL，条目永久存活，消费方可能读到
+    # 过期结论而无任何新鲜度信号（跨模块一致性缺陷）。
+    _TTL_SECONDS = 7 * 24 * 3600
 
     def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         import redis
@@ -191,6 +200,7 @@ class RedisHandoffExchangeAdapter:
             generated_at=_now_iso(),
             trace_id=_new_trace_id("mv-ev"),
             origin_trace_id=origin_trace_id,
+            source_maturity=SOURCE_MODULE_MATURITY.get("MarketView"),
         )
         handoff = ExecutionCandidateHandoff(
             metadata=metadata,
@@ -200,7 +210,25 @@ class RedisHandoffExchangeAdapter:
             candidate_payload=candidate_payload,
             execution_hint=dict(execution_hint or {}),
         )
-        self._redis.set(self._KEY_MV_TO_EV, self._serialize(handoff))
+        # newest-wins 守卫（与内存后端对齐）：乱序发布保留较新条目。
+        # get+set 非原子（无 WATCH/Lua），极端并发下守卫可被穿透，
+        # 属尽力防护——语义仍优于 blind last-write-wins。
+        current = self.get_market_to_execution()
+        if (
+            current is not None
+            and current.metadata.generated_at > handoff.metadata.generated_at
+        ):
+            _log.warning(
+                "handoff: 乱序发布检测 — 保留较新的 Market→Execution 条目 "
+                "(existing=%s incoming=%s)",
+                current.metadata.generated_at, handoff.metadata.generated_at,
+            )
+            return current
+        # pipeline 原子写入 + TTL，防止进程在 set 与 expire 之间崩溃留下永久条目
+        pipe = self._redis.pipeline()
+        pipe.set(self._KEY_MV_TO_EV, self._serialize(handoff))
+        pipe.expire(self._KEY_MV_TO_EV, self._TTL_SECONDS)
+        pipe.execute()
         return handoff
 
     def get_market_to_execution(self) -> ExecutionCandidateHandoff | None:
@@ -233,6 +261,7 @@ class RedisHandoffExchangeAdapter:
             generated_at=_now_iso(),
             trace_id=_new_trace_id("ev-cv"),
             origin_trace_id=origin_trace_id,
+            source_maturity=SOURCE_MODULE_MATURITY.get("ExecutionView"),
         )
         handoff = ExecutionPostTradeHandoff(
             metadata=metadata,
@@ -245,7 +274,25 @@ class RedisHandoffExchangeAdapter:
             route_ids=list(route_ids),
             strategy_params=strategy_params,
         )
-        self._redis.hset(self._KEY_EV_TO_CV, order_id, self._serialize(handoff))
+        # newest-wins 守卫：同一订单的乱序发布保留较新条目（尽力防护，非原子）
+        existing = self.get_execution_to_cost(order_id)
+        if (
+            existing is not None
+            and existing.metadata.generated_at > handoff.metadata.generated_at
+        ):
+            _log.warning(
+                "handoff: 乱序发布检测 — 保留 order %s 较新的 Execution→Cost 条目 "
+                "(existing=%s incoming=%s)",
+                order_id,
+                existing.metadata.generated_at, handoff.metadata.generated_at,
+            )
+            return existing
+        # Hash 级 TTL：每次 publish 刷新整个 Hash 的过期时间（条目活跃即续期，
+        # 停止写入 7 天后整体过期，避免陈旧 order→post-trade 映射被无限期消费）
+        pipe = self._redis.pipeline()
+        pipe.hset(self._KEY_EV_TO_CV, order_id, self._serialize(handoff))
+        pipe.expire(self._KEY_EV_TO_CV, self._TTL_SECONDS)
+        pipe.execute()
         return handoff
 
     def get_execution_to_cost(self, order_id: str) -> ExecutionPostTradeHandoff | None:
@@ -280,6 +327,7 @@ class RedisHandoffExchangeAdapter:
             generated_at=_now_iso(),
             trace_id=_new_trace_id("cv-ev"),
             origin_trace_id=origin_trace_id,
+            source_maturity=SOURCE_MODULE_MATURITY.get("CostView"),
         )
         rec = BrokerStrategyRecommendation(
             metadata=metadata,
@@ -295,8 +343,12 @@ class RedisHandoffExchangeAdapter:
             rationale=rationale,
             source_report_trace_id=source_report_trace_id,
         )
-        self._redis.rpush(self._KEY_CV_TO_EV, self._serialize(rec))
-        self._redis.ltrim(self._KEY_CV_TO_EV, -self._MAX_CV_TO_EV, -1)
+        # pipeline 原子写入 + 容量裁剪 + TTL，防止崩溃窗口留下无 TTL 条目
+        pipe = self._redis.pipeline()
+        pipe.rpush(self._KEY_CV_TO_EV, self._serialize(rec))
+        pipe.ltrim(self._KEY_CV_TO_EV, -self._MAX_CV_TO_EV, -1)
+        pipe.expire(self._KEY_CV_TO_EV, self._TTL_SECONDS)
+        pipe.execute()
         return rec
 
     def list_cost_to_execution(
