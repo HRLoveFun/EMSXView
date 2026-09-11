@@ -19,6 +19,8 @@ export const handoffMetadataSchema = z.object({
   generated_at: z.string(),
   trace_id: z.string(),
   origin_trace_id: z.string().nullable().optional(),
+  // 发布方模块成熟度；旧数据缺省为 null/undefined，消费方按"未知来源"处理
+  source_maturity: z.enum(['GA', 'Beta', 'Scaffold']).nullable().optional(),
 });
 
 export const candidateRowSchema = z.object({

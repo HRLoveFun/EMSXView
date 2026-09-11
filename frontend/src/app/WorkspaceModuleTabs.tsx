@@ -16,7 +16,17 @@ interface WorkspaceModuleTabsProps {
 }
 
 /** Handoff badge shown on the Execution View tab when pending candidates or recommendations exist. */
-function HandoffBadge({ candidateCount, recCount }: { candidateCount: number; recCount: number }) {
+function HandoffBadge({
+  candidateCount,
+  recCount,
+  hasScaffoldRecs,
+}: {
+  candidateCount: number;
+  recCount: number;
+  /** 是否存在骨架模块（Scaffold）来源的推荐 — 提示数据成熟度，仅供参考 */
+  hasScaffoldRecs: boolean;
+}) {
+  const recTitle = `${recCount} pending recommendation${recCount === 1 ? '' : 's'} (from Cost View)${hasScaffoldRecs ? ' — 含骨架模块来源数据，仅供参考' : ''}`;
   return (
     <>
       {candidateCount > 0 && (
@@ -30,9 +40,11 @@ function HandoffBadge({ candidateCount, recCount }: { candidateCount: number; re
       )}
       {recCount > 0 && (
         <span
-          className="ml-1 inline-flex items-center rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-black"
-          aria-label={`${recCount} pending recommendation${recCount === 1 ? '' : 's'} (from Cost View)`}
-          title={`${recCount} pending recommendation${recCount === 1 ? '' : 's'} (from Cost View)`}
+          className={`ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-black ${
+            hasScaffoldRecs ? 'bg-amber-500' : 'bg-emerald-500'
+          }`}
+          aria-label={recTitle}
+          title={recTitle}
         >
           Recommendations {recCount}
         </span>
@@ -49,6 +61,11 @@ export function WorkspaceModuleTabs({
   const { activeCandidateHandoff, recommendations } = useHandoffContracts();
   const candidateCount = activeCandidateHandoff?.candidate_payload.row_count ?? 0;
   const recCount = recommendations.length;
+  // P3 整改：Scaffold 来源（如 MarketView 骨架期写入）的推荐不得静默当作
+  // GA 结论消费 — 徽标转警示色并在 title/aria 中显式标注
+  const hasScaffoldRecs = recommendations.some(
+    (rec) => rec.metadata.source_maturity === 'Scaffold',
+  );
 
   const modules = moduleRegistry.getAll();
 
@@ -88,7 +105,13 @@ export function WorkspaceModuleTabs({
               }
             >
               {m.label}
-              {hasPending && <HandoffBadge candidateCount={candidateCount} recCount={recCount} />}
+              {hasPending && (
+                <HandoffBadge
+                  candidateCount={candidateCount}
+                  recCount={recCount}
+                  hasScaffoldRecs={hasScaffoldRecs}
+                />
+              )}
             </button>
           );
         })}
