@@ -80,6 +80,12 @@ jobs:
         run: |
           cd backend/api
           python -m pytest tests/ -q --ignore=tests/boundaries
+      # TCA 指标锁定：使用仓库内置冻结快照（CostView/tests/golden/snapshot/），
+      # 无需生产数据即可在 CI 执行。口径 / SQL 改动若使锁定指标漂移即失败；
+      # 基线更新 SOP 见 CostView/tests/golden/README.md。
+      - name: "Golden snapshot 回归 (CostView 指标锁定, 硬阻断)"
+        run: |
+          python -m pytest CostView/tests/test_golden_samples.py -q
 
   frontend-tests:
     name: 前端测试 (tsc + vitest)

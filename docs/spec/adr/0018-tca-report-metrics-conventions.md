@@ -114,4 +114,13 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 - 配套测试:
   - `CostView/tests/test_report_metrics.py`（新增：逐缺陷针对性断言）
   - `CostView/tests/test_monitoring.py`（口径断言同步更新）
+  - `CostView/tests/test_golden_samples.py`（指标锁定回归；改用仓库内置冻结快照，SOP 见 `CostView/tests/golden/README.md`）
+- 验证记录（2026-09-11）:
+  - 后端 `CostView/tests/` → 170 passed, 0 skipped（含 golden）
+  - 前端 `vitest run src/modules/costview` → 39 passed；`tsc --noEmit` 通过
+  - golden 回归：冻结快照 4668 行与基线 `total_routes` 一致，锁定 200 条路由 × 18 项指标全部落在容差内
+  - 结论：本次口径变更仅作用于报告聚合 / 渲染层，**订单级指标计算链路零漂移**
+- CI 常态化: `.github/workflows/boundary.yml` 新增「Golden snapshot 回归」步骤（硬阻断）；
+  快照随基线入库（`CostView/tests/golden/snapshot/`，`.gitignore` 显式例外），
+  CI 无需生产数据即可执行
 - 回滚策略: 加权口径与严重度属破坏性变更，回滚需同步前后端与测试，不建议局部回滚。
