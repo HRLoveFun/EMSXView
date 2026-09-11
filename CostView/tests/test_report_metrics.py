@@ -397,6 +397,22 @@ class TestAnomalySeverity:
         assert legacy.rules["volume_pct_adv20"]["warning"] == 7
         assert legacy.rules["volume_pct_adv20"]["critical"] == 7
 
+    def test_legacy_rule_key_migrated(self):
+        """014: 旧规则键 tracking_error_bps 迁移为 pnl_vwap_bps（新键优先）。"""
+        rules = ThresholdRules.from_payload(
+            {"tracking_error_bps": {"mode": "absolute-above", "warning": 7}},
+        ).rules
+
+        assert "tracking_error_bps" not in rules
+        assert rules["pnl_vwap_bps"]["warning"] == 7
+
+        # 新旧键同时出现时不互相覆盖（新键胜出）
+        both = ThresholdRules.from_payload({
+            "tracking_error_bps": {"mode": "absolute-above", "warning": 7},
+            "pnl_vwap_bps": {"mode": "absolute-above", "warning": 9},
+        }).rules
+        assert both["pnl_vwap_bps"]["warning"] == 9
+
 
 # ── 缺陷 5：全量 CSV 导出与 HTML 截断提示 ─────────────────────────────────
 
@@ -632,6 +648,26 @@ class TestSampleDisclosure:
 
         assert "样本 1/2" in html
         assert "样本不足，结论仅供参考" in html
+
+    def test_daily_series_meta_discloses_coverage(self, tca_mgr_factory):
+        """按日走势披露有数据交易日数，且不补零（无数据日不出现在序列中）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "D1", "order_as_of_date": "20260803"},
+            {"OrderId": "D2", "order_as_of_date": "20260804"},
+        ])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260810")
+
+        assert report["daily_series_meta"]["covered_days"] == 2
+        assert len(report["daily_series"]) == 2
+        assert {p["date"] for p in report["daily_series"]} == {"20260803", "20260804"}
+
+    def test_html_notes_daily_coverage(self, tca_mgr_factory):
+        """HTML 报告在走势图下标注覆盖交易日数。"""
+        mgr = tca_mgr_factory([{"OrderId": "D1", "order_as_of_date": "20260803"}])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260810")
+        html = render_report_html(report, None, "2026-09-11 10:00:00")
+
+        assert "1 个有数据交易日" in html
 
 
 # ── 缺陷 11：冲击分解的跨日恢复披露 ───────────────────────────────────────

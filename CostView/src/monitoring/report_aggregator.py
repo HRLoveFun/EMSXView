@@ -91,6 +91,7 @@ class TcaReportAggregator:
                 )
             # 报告期一次性构建 fill_bdib 汇率回填临时表，供下方 4 个 fx 查询复用
             self._prepare_fx_enrichment(conn, start_date, end_date)
+            daily_series = self._query_daily_series(conn, where, params)
             report = {
                 "filters": self._filters_dict(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
@@ -107,7 +108,10 @@ class TcaReportAggregator:
                     conn, where, params,
                 ),
                 "kpi": self._query_kpi(conn, where, params),
-                "daily_series": self._query_daily_series(conn, where, params),
+                "daily_series": daily_series,
+                # 014: 走势覆盖度披露。不补零 —— 0 表示「成本为零」，把「无数据」
+                # 补成 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录。
+                "daily_series_meta": {"covered_days": len(daily_series)},
                 "rankings": {
                     "by_broker": self._query_rankings(conn, where, params, "Broker"),
                     "by_algo": self._query_rankings(conn, where, params, "algo"),
@@ -760,6 +764,7 @@ class TcaReportAggregator:
             "market_notional_trend": [],
             "kpi": None,
             "daily_series": [],
+            "daily_series_meta": {"covered_days": 0},
             "rankings": {"by_broker": [], "by_algo": []},
             "pnl_vwap_histogram": {"buckets": [], "n_used": 0, "n_total": 0},
             "pwp_curve": [],

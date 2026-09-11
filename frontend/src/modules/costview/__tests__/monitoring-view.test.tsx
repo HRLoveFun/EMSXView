@@ -262,7 +262,7 @@ describe('ReportView', () => {
     expect(call.last).toBe('day');
     // 默认阈值随请求下发（与 DEFAULT_RULES 对齐，两档阈值）
     expect(call.thresholds).toBeDefined();
-    expect(call.thresholds!.tracking_error_bps).toMatchObject({
+    expect(call.thresholds!.pnl_vwap_bps).toMatchObject({
       mode: 'absolute-above', warning: 10, critical: 25, enabled: true,
     });
     // 填充笔数下限随请求下发

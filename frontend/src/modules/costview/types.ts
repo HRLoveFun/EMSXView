@@ -6,7 +6,7 @@ export type ThresholdMode = 'absolute-above' | 'above' | 'below';
 export type AlertSeverity = 'none' | 'normal' | 'warning' | 'critical';
 
 export type CostViewMetricKey =
-  | 'tracking_error_bps'
+  | 'pnl_vwap_bps'
   | 'fill_pct'
   | 'volume_pct_adv20'
   | 'volume_pct_interval'

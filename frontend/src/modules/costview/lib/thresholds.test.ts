@@ -6,6 +6,7 @@ import {
   evaluateThreshold,
   formatAnomalyFlag,
   getHighestOrderSeverity,
+  mergeBackendThresholds,
 } from './thresholds';
 import type { ScorecardCohortMetrics, TcaRouteSummary } from '../types';
 
@@ -55,7 +56,7 @@ function createRoute(overrides: Partial<TcaRouteSummary> = {}): TcaRouteSummary 
 describe('CostView thresholds', () => {
   it('evaluates absolute-above thresholds correctly', () => {
     const config = createDefaultCostViewConfig();
-    const trackingRule = config.rules.tracking_error_bps;
+    const trackingRule = config.rules.pnl_vwap_bps;
 
     // 双档（ADR-0018）：10 为 warning 边界，25 为 critical 边界
     expect(evaluateThreshold(trackingRule, 4)).toBe('normal');
@@ -79,6 +80,23 @@ describe('CostView thresholds', () => {
     const route = createRoute({ fill: 1050, route_shares: 1000 });
 
     expect(getHighestOrderSeverity(route, config)).toBe('warning');
+  });
+
+  it('accepts legacy single-tier backend payload (threshold → both tiers)', () => {
+    const merged = mergeBackendThresholds({
+      fill_pct: { mode: 'below', threshold: 70, enabled: true },
+    });
+    // ADR-0015 单档 payload：两档同值，不产生分级
+    expect(merged.fill_pct.warning).toBe(70);
+    expect(merged.fill_pct.critical).toBe(70);
+  });
+
+  it('ignores unknown backend keys such as legacy rule key', () => {
+    const merged = mergeBackendThresholds({
+      // 旧规则键（已重命名为 pnl_vwap_bps）不应写回本地规则集合
+      tracking_error_bps: { mode: 'absolute-above', threshold: 3, enabled: true },
+    } as never);
+    expect(merged.pnl_vwap_bps.warning).toBe(10);
   });
 
   it('uses the highest breached rule as the route severity', () => {

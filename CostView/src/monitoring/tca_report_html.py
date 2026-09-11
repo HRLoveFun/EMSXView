@@ -260,15 +260,17 @@ def _render_data_quality(report: dict[str, Any]) -> str:
 def _render_charts(report: dict[str, Any]) -> str:
     """四个图表面板：直方图 / 按日走势 / 排行 / PWP 曲线。"""
     histogram = _svg_histogram(report.get("pnl_vwap_histogram"))
-    daily = _svg_daily_series(report.get("daily_series") or [])
+    daily_series = report.get("daily_series") or []
+    daily = _svg_daily_series(daily_series)
     broker = _svg_hbar(report.get("rankings", {}).get("by_broker") or [], "Broker 排行（加权 pnl_vwap）")
     algo = _svg_hbar(report.get("rankings", {}).get("by_algo") or [], "Algo 排行（加权 pnl_vwap）")
     pwp = _svg_pwp_curve(report.get("pwp_curve") or [])
+    daily_note = _daily_coverage_note(len(daily_series))
     return f"""
 <h2>分布与走势</h2>
 <div class="grid2">
   <div class="panel"><h2 style="margin-top:0">pnl_vwap 分布直方图</h2>{histogram}</div>
-  <div class="panel"><h2 style="margin-top:0">按日加权 pnl_vwap / 平均 par_rate</h2>{daily}</div>
+  <div class="panel"><h2 style="margin-top:0">按日加权 pnl_vwap / 平均 par_rate</h2>{daily}{daily_note}</div>
 </div>
 <h2>执行方排行</h2>
 <div class="grid2">
@@ -277,6 +279,20 @@ def _render_charts(report: dict[str, Any]) -> str:
 </div>
 <h2>PWP 分档均值</h2>
 <div class="panel">{pwp}</div>"""
+
+
+def _daily_coverage_note(covered_days: int) -> str:
+    """按日走势覆盖度提示（014）。
+
+    走势仅含 tca_route_summary 中有数据的交易日；不补零 —— 0 表示「成本为零」，
+    把无数据日补成 0 属数据失真。缺失定位交由覆盖率表与 BDIB 缺口附录交叉核对。
+    """
+    if covered_days <= 0:
+        return ""
+    return (
+        f'<div class="meta">走势含 {covered_days} 个有数据交易日；区间内无记录的日期'
+        "（非交易日或 TCA 数据缺失）请对照下方覆盖率表与 BDIB 缺口附录。</div>"
+    )
 
 
 def _render_market_charts(report: dict[str, Any]) -> str:

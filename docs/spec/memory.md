@@ -47,7 +47,7 @@
 | [ADR-0015](adr/0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门）；严重度部分由 ADR-0018 修订 | Accepted |
 | [ADR-0016](adr/0016-external-data-store-readonly-split.md) | 数据目录外置项目外 + 读写职责物理分离（READ 文件级只读） | Accepted |
 | [ADR-0017](adr/0017-cleanup-and-perf-hotspot-mechanism.md) | 代码清理与性能热点机制（CL-xx 清理 + PF-xx 性能，复用 quality_gate 基础设施） | Accepted |
-| [ADR-0018](adr/0018-tca-report-metrics-conventions.md) | TCA 报告指标口径与异常严重度语义（成交额加权 / 两档严重度 / 截断与导出 / REPORT_SPEC） | Accepted |
+| [ADR-0018](adr/0018-tca-report-metrics-conventions.md) | TCA 报告指标口径与异常严重度语义（成交额加权 / 两档严重度 / 截断与导出 / REPORT_SPEC / 规则键 pnl_vwap_bps 重命名） | Accepted |
 | [ADR-0700](adr/0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | Accepted |
 
 ---

@@ -28,7 +28,9 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 #: 注意：fill_pct 必须用完成率百分比（fill/RouteShares×100）比对，不能用工数字段 fill（股数），
 #: 否则永远不触发阈值。完成率在查询期预计算并注入 row["completion_rate"]。
 _METRIC_MAP: dict[str, tuple[str, float]] = {
-    "tracking_error_bps": ("pnl_vwap", 1.0),
+    # 014: 原 tracking_error_bps 重命名为 pnl_vwap_bps —— 该规则实为 |pnl_vwap|
+    # 阈值，原名易与「跟踪误差」混淆（见 ADR-0018）
+    "pnl_vwap_bps": ("pnl_vwap", 1.0),
     "fill_pct": ("completion_rate", 100.0),
     "volume_pct_adv20": ("par_rate", 100.0),
     "volume_pct_interval": ("par_rate_continuous", 100.0),
@@ -41,14 +43,14 @@ _METRIC_MAP: dict[str, tuple[str, float]] = {
 }
 
 _RULE_KEYS: tuple[str, ...] = (
-    "tracking_error_bps", "fill_pct", "volume_pct_adv20",
+    "pnl_vwap_bps", "fill_pct", "volume_pct_adv20",
     "volume_pct_interval", "intraday_volatility", "price_movement_pct",
     "overfill_pct", "order_par_gt100",
 )
 
 #: 命中规则的中文标签（渲染展示用）
 _RULE_LABELS: dict[str, str] = {
-    "tracking_error_bps": "Tracking Error",
+    "pnl_vwap_bps": "Pnl VWAP bps",
     "fill_pct": "Fill %",
     "volume_pct_adv20": "Vol % ADV20",
     "volume_pct_interval": "Vol % Interval",
@@ -60,7 +62,7 @@ _RULE_LABELS: dict[str, str] = {
 
 #: 命中规则的单位（渲染「超限具体数值」用）
 _RULE_UNITS: dict[str, str] = {
-    "tracking_error_bps": "bps",
+    "pnl_vwap_bps": "bps",
     "fill_pct": "percent",
     "volume_pct_adv20": "percent",
     "volume_pct_interval": "percent",
@@ -77,7 +79,7 @@ _RULE_UNITS: dict[str, str] = {
 #: below 模式下 critical < warning（更严格），above/absolute-above 模式下
 #: critical > warning。
 DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
-    "tracking_error_bps": {
+    "pnl_vwap_bps": {
         "mode": "absolute-above", "warning": 10, "critical": 25, "enabled": True},
     "fill_pct": {"mode": "below", "warning": 80, "critical": 50, "enabled": True},
     "volume_pct_adv20": {"mode": "above", "warning": 5, "critical": 10, "enabled": True},
@@ -96,6 +98,22 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
 #: 合法的比较模式白名单（P2-6：payload 内 mode 缺失或非法时 fail-fast，
 #: 此前任意字符串会被静默按 above 处理，阈值语义被无声改变）
 _VALID_MODES: tuple[str, ...] = ("absolute-above", "above", "below")
+
+#: 规则键重命名迁移（014）：旧 payload 键 → 新键（旧前端 / 旧配置兼容）
+_LEGACY_RULE_KEYS: dict[str, str] = {"tracking_error_bps": "pnl_vwap_bps"}
+
+
+def _normalize_rule_keys(
+    payload: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """把旧规则键映射为新键（新键已存在时不覆盖，避免静默丢配置）。"""
+    if not payload:
+        return payload
+    normalized = dict(payload)
+    for old, new in _LEGACY_RULE_KEYS.items():
+        if old in normalized and new not in normalized:
+            normalized[new] = normalized.pop(old)
+    return normalized
 
 
 def get_default_thresholds() -> dict[str, dict[str, Any]]:
@@ -136,6 +154,7 @@ class ThresholdRules:
         - enabled 必须为 JSON 布尔值，不再用 bool() 强转（字符串 "false"
           此前会被强转为 True）。
         """
+        payload = _normalize_rule_keys(payload)
         merged: dict[str, dict[str, Any]] = {}
         for key in _RULE_KEYS:
             base = dict(DEFAULT_THRESHOLDS[key])

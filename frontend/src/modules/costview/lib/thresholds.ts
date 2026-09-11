@@ -13,16 +13,17 @@ import type {
  *  注：后端的 order_par_gt100 规则（订单参与率求和超限）依赖订单级聚合，
  *  前端 route 级数据无法计算，故不在此列，仅由后端异常清单承载。 */
 const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
-  tracking_error_bps: {
-    key: 'tracking_error_bps',
-    label: 'Tracking Error',
+  pnl_vwap_bps: {
+    key: 'pnl_vwap_bps',
+    // 014: 原 tracking_error_bps 重命名 —— 该规则实为 |pnl_vwap| 阈值（ADR-0018）
+    label: 'Pnl VWAP (bps)',
     mode: 'absolute-above',
     warning: 10,
     critical: 25,
     enabled: true,
     decimals: 1,
     unit: 'bps',
-    description: 'Absolute tracking error in basis points.',
+    description: 'Absolute pnl_vwap in basis points.',
   },
   fill_pct: {
     key: 'fill_pct',
@@ -118,8 +119,8 @@ export function getMetricValue(
   key: CostViewMetricKey,
 ): number | null | undefined {
   switch (key) {
-    // tracking_error_bps 由后端新指标 pnl_vwap（basis points）承载
-    case 'tracking_error_bps': return route.pnl_vwap;
+    // pnl_vwap_bps 由后端指标 pnl_vwap（basis points）承载（原 tracking_error_bps）
+    case 'pnl_vwap_bps': return route.pnl_vwap;
     // fill_pct（完成率）由成交股数 fill 与目标股数 RouteShares 换算（0-1 小数 ×100 → 阈值按百分比 0-100）
     case 'fill_pct': return route.fill != null && route.route_shares ? (route.fill / route.route_shares) * 100 : null;
     // volume_pct_adv20 由后端参与率 par_rate 承载（0-1 小数，阈值按百分比 0-100）
@@ -255,7 +256,7 @@ export function evaluateCohortSeverity(
     return 'warning';
   }
   const severities: AlertSeverity[] = [
-    evaluateThreshold(config.rules.tracking_error_bps, cohort.avg_tracking_error_bps ?? null),
+    evaluateThreshold(config.rules.pnl_vwap_bps, cohort.avg_tracking_error_bps ?? null),
     evaluateThreshold(config.rules.fill_pct, cohort.avg_fill_pct ?? null),
     evaluateThreshold(config.rules.volume_pct_adv20, cohort.avg_volume_pct_adv20 ?? null),
     evaluateThreshold(config.rules.volume_pct_interval, cohort.avg_volume_pct_interval ?? null),

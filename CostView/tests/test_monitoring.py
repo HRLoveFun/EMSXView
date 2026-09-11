@@ -742,9 +742,9 @@ class TestTcaReportAggregator:
     def test_anomaly_thresholds_overridable(self, mgr: ConnectionManager):
         """放宽 pnl_vwap / fill / par_rate 阈值后无路由触发异常。"""
         thresholds = {
-            "tracking_error_bps": {"mode": "absolute-above", "threshold": 50},
-            "fill_pct": {"mode": "below", "threshold": 10},
-            "volume_pct_adv20": {"mode": "above", "threshold": 50},
+            "pnl_vwap_bps": {"mode": "absolute-above", "warning": 50, "critical": 80},
+            "fill_pct": {"mode": "below", "warning": 10, "critical": 5},
+            "volume_pct_adv20": {"mode": "above", "warning": 50, "critical": 80},
         }
         report = TcaReportAggregator(mgr).build_report(
             "20260803", "20260804", thresholds=thresholds, min_fill_count=0, min_notional_usd=0,

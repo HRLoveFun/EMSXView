@@ -60,6 +60,15 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 
 - 覆盖率表并排展示原始 / SLA 双口径，单元格 tooltip 标注 NULL 原因，结构性 NULL 以虚线区分，BDIB 缺口日交叉高亮；新增整体 SLA 覆盖率。
 - 健康度以缺口 ticker 数精确分级（不再依赖 round 后的百分比），新增 `missing_route_count` / `missing_notional`；`get_health_safe` 降级返回显式 `{"status": "skipped", "reason": ...}`（与「无缺口」可区分）。
+- **按日走势不补零**：`daily_series` 仅含有数据交易日，并由 `daily_series_meta.covered_days` + 图表注释披露覆盖天数。理由：0 在成本指标上表示「成本为零」，把无数据日补 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录交叉核对，不重复造交易日历。
+
+### 9. 异常规则键重命名：`tracking_error_bps` → `pnl_vwap_bps`
+
+- 该规则实为 `|pnl_vwap|` 阈值，原名易与「跟踪误差」混淆；展示标签同步改为 `Pnl VWAP bps`。
+- **旧键迁移（双向兼容）**：
+  - 后端 `anomaly_query._normalize_rule_keys` 接受旧 payload 键并映射为新键（新旧同时出现时新键胜出，不静默丢配置）；
+  - 前端 `lib/storage.migrateRuleKeys` 在读取 localStorage 时把旧键配置迁移为新键。
+- 迁移由测试护栏守住：`test_report_metrics` 的 `test_legacy_rule_key_migrated`、`storage.test.ts`（两条）与 `thresholds.test.ts` 的兼容用例。
 
 ## 后果 (Consequences)
 
@@ -74,6 +83,7 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 - **破坏性变更**：加权口径切换使报告数值与历史报告不可比（本决策明确不保留旧口径对比值）。
 - 前端需同步：`ThresholdRule` 恢复 `warning` / `critical` 并新增两条规则键。
 - 异常清单条数可能上升（overfill 与订单参与率规则新纳入）。
+- 规则键重命名为破坏性变更，前后端需同步升级；已提供旧 payload 与旧 localStorage 配置的兼容层，但第三方直连 API 的消费者若硬编码旧键需自行迁移。
 
 ### 对其他 ADR 的影响
 

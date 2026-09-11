@@ -305,9 +305,14 @@ const PnlHistogram = ({ data }: { data: TcaReportSummary['pnl_vwap_histogram'] }
   );
 };
 
-/** 按日加权 pnl_vwap / 平均 par_rate 双折线（双 y 轴） */
+/** 按日加权 pnl_vwap / 平均 par_rate 双折线（双 y 轴）。
+ *  014: 走势仅含「有数据交易日」（不补零 —— 补 0 会把无数据伪装成零成本），
+ *  标题标注实际天数，缺失定位见覆盖率表与 BDIB 缺口附录。 */
 const DailyTrendChart = ({ data }: { data: TcaReportSummary['daily_series'] }) => (
-  <ChartPanel title="按日走势" empty={!data.length}>
+  <ChartPanel
+    title={data.length ? `按日走势（${data.length} 个有数据交易日）` : '按日走势'}
+    empty={!data.length}
+  >
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
