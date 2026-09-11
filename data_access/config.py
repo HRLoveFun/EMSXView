@@ -229,9 +229,11 @@ class Config:
     TCA_RISK_IMPACT_ENABLED: bool = (
         os.getenv("TCA_RISK_IMPACT_ENABLED", "1") == "1"
     )
-    # Phase 2: route→order 聚合视图/API，默认关闭
+    # Phase 2: route→order 聚合视图/API，默认开启（003 整改：不再靠"默认关闭"
+    # 控制风险——关闭即降级，必须可见。回退方式：env TCA_ORDER_AGG_ENABLED=0，
+    # 前端经 GET /api/tca/capabilities 感知并在 UI 显式提示）。
     TCA_ORDER_AGG_ENABLED: bool = (
-        os.getenv("TCA_ORDER_AGG_ENABLED", "0") == "1"
+        os.getenv("TCA_ORDER_AGG_ENABLED", "1") == "1"
     )
 
     EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
