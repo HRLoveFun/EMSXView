@@ -368,16 +368,6 @@ class MarketDataEnrichmentService:
 
     def _update_mktdata_subscriptions(self, sess):
         current_tickers = self._orders_symbols
-
-        for check_ticker in ["UU/ LN Equity", "SVT LN Equity", "GLEN LN Equity"]:
-            if check_ticker in current_tickers:
-                in_subscribed = check_ticker in self._mktdata_subscribed_tickers
-                in_failed = check_ticker in self._mktdata_failed_tickers
-                logger.info(
-                    f"[MKTDATA CHECK] {check_ticker}: in_cache=True, "
-                    f"subscribed={in_subscribed}, failed={in_failed}"
-                )
-
         new_tickers = current_tickers - self._mktdata_subscribed_tickers
 
         now = datetime.now()
@@ -674,17 +664,6 @@ class MarketDataEnrichmentService:
                 f"for markets {sorted(odd_lot_markets)} "
                 f"(total orders: {len(self._subscription_engine.orders)}, "
                 f"queried: {len(self._round_lot_queried_tickers)})"
-            )
-            sample = sorted(list(target_tickers))[:5]
-            logger.info(f"[ROUND_LOT] Sample tickers to query: {sample}")
-        elif len(self._subscription_engine.orders) > 0 and len(self._round_lot_queried_tickers) == 0:
-            exchanges: dict[str, int] = {}
-            for _, exchange in self._orders_symbol_exchange:
-                exch = exchange or "None"
-                exchanges[exch] = exchanges.get(exch, 0) + 1
-            logger.info(
-                f"[ROUND_LOT] No target tickers for markets {sorted(odd_lot_markets)}. "
-                f"Exchange distribution: {exchanges}"
             )
 
         if not target_tickers:
