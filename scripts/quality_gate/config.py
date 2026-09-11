@@ -13,9 +13,11 @@ from .ast_utils import find_project_root
 PROJECT_ROOT: Path = find_project_root(Path(__file__))
 
 # ── 扫描范围（Python 业务代码根，相对 PROJECT_ROOT）───────────────
+# 010-extract-pipeline：DataPipeline 已迁独立仓库 EMSXDataPipeline（不再扫描）；
+# data_access 为本仓库唯一只读数据入口，2026-09-11 起纳入 OE 检测视野。
 PYTHON_SCAN_ROOTS: list[str] = [
     "backend/api",
-    "DataPipeline",
+    "data_access",
     "CostView/src",
     "platform_data",
     "MarketView",
