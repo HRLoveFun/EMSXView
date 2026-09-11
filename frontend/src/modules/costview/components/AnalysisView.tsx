@@ -121,6 +121,15 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, ord
         </Alert>
       ) : null}
 
+      {viewMode === 'orders' && orderReport && orderReport.order_agg_enabled === false ? (
+        <Alert>
+          <AlertTitle>订单级 TCA 未启用</AlertTitle>
+          <AlertDescription>
+            后端 TCA_ORDER_AGG_ENABLED=0，Order View 的空结果不代表无匹配数据。请切换 Route View（/api/tca/analyze）查询路由级结果，或联系运维开启订单级聚合。
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {filterForm.warningOnly ? (
         <Alert>
           <AlertTitle>Warning-only view enabled</AlertTitle>

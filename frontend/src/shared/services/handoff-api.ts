@@ -31,7 +31,13 @@ function authHeaders(): HeadersInit {
 
 async function readError(response: Response): Promise<string> {
   const body = await response.json().catch(() => ({}));
-  return body?.detail ?? body?.error ?? body?.message ?? `Request failed: ${response.status}`;
+  // B4 整改：detail 支持结构化 {code, message}，字符串 detail 向后兼容
+  const d = body?.detail;
+  if (typeof d === 'string') return d;
+  if (d && typeof d === 'object' && d.message) {
+    return `[${d.code ?? 'error'}] ${d.message}`;
+  }
+  return body?.error ?? body?.message ?? `Request failed: ${response.status}`;
 }
 
 // ─── Contract types ──────────────────────────────────────────────────────────
@@ -43,6 +49,8 @@ export interface HandoffMetadata {
   generated_at: string;
   trace_id: string;
   origin_trace_id?: string | null;
+  /** 发布方模块成熟度；缺省/未知时消费方不得默认信任 */
+  source_maturity?: 'GA' | 'Beta' | 'Scaffold' | null;
 }
 
 export interface CandidateRow {
@@ -137,6 +145,17 @@ export interface PublishPostTradeRequest {
 }
 
 export async function publishPostTradeHandoff(req: PublishPostTradeRequest): Promise<unknown> {
+  // P3 整改（A6）：发送前字节级预检，与后端契约 HANDOFF_MAX_STRATEGY_PARAMS_BYTES
+  // (64KB) 对齐——数值由契约测试跨层锁定，禁止单侧调整。
+  const MAX_STRATEGY_PARAMS_BYTES = 64 * 1024;
+  const paramsBytes = new TextEncoder().encode(
+    JSON.stringify(req.strategy_params ?? {}),
+  ).length;
+  if (paramsBytes > MAX_STRATEGY_PARAMS_BYTES) {
+    throw new Error(
+      `strategy_params 超限: ${paramsBytes} bytes (max ${MAX_STRATEGY_PARAMS_BYTES})，请精简后再发布`,
+    );
+  }
   const response = await fetch(`${API_BASE_URL}/api/executions/handoff/post-trade`, {
     method: 'POST',
     headers: authHeaders(),
