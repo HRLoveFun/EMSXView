@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from datetime import date
 from typing import Any, Optional
 
 import pandas as pd
@@ -45,6 +46,31 @@ def resolve_date_defaults(filters: TcaFilters) -> TcaFilters:
         filters.start_date = ref.strftime("%Y%m%d")
         filters.end_date = filters.start_date
     return filters
+
+
+def business_days_lag(latest_date: str, today: date) -> int:
+    """计算最新数据日与 today 之间的滞后交易日数（周一至周五计为交易日）。
+
+    与数据管道新鲜度 SLA（Config.FRESHNESS_*_BUSINESS_DAYS）同一计量口径：
+    以"交易日"为单位，规避周末/长周末误判。latest_date 为 YYYYMMDD；
+    解析失败返回一个必然触发 fail 级别的大值（保守处理，不静默放行）。
+    latest_date 晚于 today（理论上不应发生）按 0 处理。
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        latest = datetime.strptime(latest_date, "%Y%m%d").date()
+    except (TypeError, ValueError):
+        return 9999
+    if latest >= today:
+        return 0
+    lag = 0
+    cursor = latest + timedelta(days=1)
+    while cursor <= today:
+        if cursor.weekday() < 5:  # 0-4 = Mon-Fri
+            lag += 1
+        cursor += timedelta(days=1)
+    return lag
 
 
 def filters_to_dict(filters: TcaFilters) -> dict:

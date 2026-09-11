@@ -17,7 +17,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from data_access.config import Config as DataAccessConfig
 from platform_data.adapters import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -36,7 +37,9 @@ from platform_data.adapters import (
 )
 from platform_data.contracts import SCORECARD_COHORTS
 from platform_data.regime_query import get_regime_distribution
+from CostView.api.concurrency import QueryTimeoutError, run_bounded
 from CostView.src.tca_query_service import TcaQueryService
+from CostView.src.tca_utils import business_days_lag
 from CostView.src.tca_utils import filters_to_dict as _filters_to_dict
 from CostView.src.tca_utils import resolve_date_defaults
 
@@ -188,10 +191,13 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     if default_date and not _analytics.has_data_for_date(default_date):
         raise HTTPException(
             status_code=503,
-            detail=(
-                f"{default_date} 数据尚未生成。数据更新维护已迁独立项目 "
-                "EMSXDataPipeline；请通过其 Runner（POST /run）触发后再查询。"
-            ),
+            detail={
+                "code": "data_not_ready",
+                "message": (
+                    f"{default_date} 数据尚未生成。数据更新维护已迁独立项目 "
+                    "EMSXDataPipeline；请通过其 Runner（POST /run）触发后再查询。"
+                ),
+            },
         )
     filters = TcaFilters(
         order_ids=f.order_ids,
@@ -206,20 +212,30 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     )
 
     try:
-        report = _analytics.build_tca_report(
+        # P2 并发护栏：线程池卸载 + 信号量限流 + 超时，防止重查询阻塞事件循环
+        report = await run_bounded(
+            _analytics.build_tca_report,
             filters, include_time_series=request.include_time_series,
         )
+    except QueryTimeoutError as exc:
+        raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"CostView database not found: {exc}. Run the data pipeline first.",
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}. Run the data pipeline first.",
+            },
         )
     except Exception as exc:
         logger.error(f"TCA analysis failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"TCA analysis error: {exc}")
 
     if report.data_source_warning:
-        raise HTTPException(status_code=503, detail=report.data_source_warning)
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "data_not_ready", "message": report.data_source_warning},
+        )
 
     # Serialize dataclasses to dict
     report_dict = _serialize_report(report)
@@ -256,12 +272,54 @@ async def analyze_tca_orders(request: TcaAnalyzeRequest):
         offset=request.offset,
     )
 
+    # P0 整改（降级可见性）：TCA_ORDER_AGG_ENABLED 关闭时此前返回
+    # success=True + 空 orders，与"业务上确实无数据"无法区分，属静默误导。
+    # 现显式携带 order_agg_enabled 标志与说明文案；调用方应检查该标志，
+    # 而不是把空列表当成"无匹配订单"。
+    if not DataAccessConfig.TCA_ORDER_AGG_ENABLED:
+        return TcaAnalyzeResponse(
+            success=True,
+            data={
+                "filters": _filters_to_dict(filters),
+                "total_orders": 0,
+                "offset": request.offset,
+                "limit": request.limit,
+                "generated_at": datetime.now().isoformat(),
+                "orders": [],
+                "order_agg_enabled": False,
+            },
+            message=(
+                "订单级 TCA 未启用 (TCA_ORDER_AGG_ENABLED=0)，"
+                "orders 为空不代表无匹配数据；可用 /api/tca/analyze 查询路由级结果。"
+            ),
+        )
+
+    # 与 analyze 一致的默认日期数据探测：未显式过滤且默认日期数据未生成 → 503
+    default_date = _default_query_date(f)
+    if default_date and not _analytics.has_data_for_date(default_date):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "data_not_ready",
+                "message": (
+                    f"{default_date} 数据尚未生成。数据更新维护已迁独立项目 "
+                    "EMSXDataPipeline；请通过其 Runner（POST /run）触发后再查询。"
+                ),
+            },
+        )
+
     try:
-        aggregates = _analytics.build_order_report(filters)
+        # P2 并发护栏：与 analyze 同一套限流/超时语义
+        aggregates = await run_bounded(_analytics.build_order_report, filters)
+    except QueryTimeoutError as exc:
+        raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"CostView database not found: {exc}. Run the data pipeline first.",
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}. Run the data pipeline first.",
+            },
         )
     except Exception as exc:
         logger.error(f"TCA order aggregation failed: {exc}", exc_info=True)
@@ -280,6 +338,7 @@ async def analyze_tca_orders(request: TcaAnalyzeRequest):
             "limit": request.limit,
             "generated_at": datetime.now().isoformat(),
             "orders": [_serialize_order_aggregate(a) for a in page],
+            "order_agg_enabled": True,
         },
         message=f"TCA order report: {len(page)} of {total_orders} orders matched",
     )
@@ -310,11 +369,17 @@ async def analyze_scorecard(request: ScorecardRequest):
         max_orders=request.max_orders,
     )
     try:
-        report = _analytics.build_scorecard(filters)
+        # P2 并发护栏：与 analyze 同一套限流/超时语义
+        report = await run_bounded(_analytics.build_scorecard, filters)
+    except QueryTimeoutError as exc:
+        raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"CostView database not found: {exc}. Run the data pipeline first.",
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}. Run the data pipeline first.",
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -323,7 +388,10 @@ async def analyze_scorecard(request: ScorecardRequest):
         raise HTTPException(status_code=500, detail=f"Scorecard error: {exc}")
 
     if report.data_source_warning and not report.cohorts:
-        raise HTTPException(status_code=503, detail=report.data_source_warning)
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "data_not_ready", "message": report.data_source_warning},
+        )
 
     return ScorecardResponse(
         success=True,
@@ -394,6 +462,7 @@ async def pin_broker_strategy_recommendation(request: PinRecommendationRequest):
                 "handoff_target": rec.metadata.handoff_target,
                 "generated_at": rec.metadata.generated_at,
                 "trace_id": rec.metadata.trace_id,
+                "source_maturity": rec.metadata.source_maturity,
             },
             "cohort": rec.cohort,
             "broker": rec.broker,
@@ -429,6 +498,7 @@ async def get_post_trade_handoff(order_id: str):
                 "generated_at": handoff.metadata.generated_at,
                 "trace_id": handoff.metadata.trace_id,
                 "origin_trace_id": handoff.metadata.origin_trace_id,
+                "source_maturity": handoff.metadata.source_maturity,
             },
             "order_id": handoff.order_id,
             "parent_execution_id": handoff.parent_execution_id,
@@ -441,6 +511,84 @@ async def get_post_trade_handoff(order_id: str):
             "candidate_trace_id": handoff.candidate_trace_id,
         },
         message=f"Post-trade handoff trace_id={handoff.metadata.trace_id}",
+    )
+
+
+# ── Data freshness（数据新鲜度可见性，B2/B6 整改）────────────────────────────
+
+class DataFreshnessResponse(BaseModel):
+    success: bool
+    data: Optional[dict] = None
+    message: str = ""
+
+
+@router.get("/api/tca/data-freshness", response_model=DataFreshnessResponse)
+async def data_freshness():
+    """tca_route_summary 数据新鲜度分级（ok/warn/fail）。
+
+    计量口径与数据管道 SLA 一致：滞后"交易日"数对照
+    Config.FRESHNESS_WARN/FAIL_BUSINESS_DAYS（B2）。warn/fail 时记录
+    WARNING 日志（B6：接 guardrail 类告警留痕，本仓只读不写 guardrail 文件）。
+    数据完全缺失时 status=fail 且 latest_date=None，绝不静默伪装健康。
+    """
+    latest = _analytics.get_latest_tca_date()
+    warn_at = DataAccessConfig.FRESHNESS_WARN_BUSINESS_DAYS
+    fail_at = DataAccessConfig.FRESHNESS_FAIL_BUSINESS_DAYS
+
+    if latest is None:
+        status = "fail"
+        lag: Optional[int] = None
+        logger.warning("data-freshness: tca_route_summary 无任何数据 (status=fail)")
+    else:
+        lag = business_days_lag(latest, date.today())
+        if lag >= fail_at:
+            status = "fail"
+            logger.warning(
+                "data-freshness: 数据滞后 %d 个交易日 (latest=%s, fail 阈值=%d)",
+                lag, latest, fail_at,
+            )
+        elif lag >= warn_at:
+            status = "warn"
+            logger.warning(
+                "data-freshness: 数据滞后 %d 个交易日 (latest=%s, warn 阈值=%d)",
+                lag, latest, warn_at,
+            )
+        else:
+            status = "ok"
+
+    return DataFreshnessResponse(
+        success=True,
+        data={
+            "latest_date": latest,
+            "lag_business_days": lag,
+            "status": status,
+            "thresholds": {"warn": warn_at, "fail": fail_at},
+            "checked_at": datetime.now().isoformat(),
+        },
+        message=f"数据新鲜度: {status}" + (f" (latest={latest})" if latest else " (无数据)"),
+    )
+
+
+# ── Capabilities（能力可见性，P3 整改）────────────────────────────────────────
+
+class CapabilitiesResponse(BaseModel):
+    success: bool
+    data: dict
+
+
+@router.get("/api/tca/capabilities", response_model=CapabilitiesResponse)
+async def capabilities():
+    """暴露当前进程的 TCA 能力开关，供前端显式提示降级/未启用状态。
+
+    前端应据此渲染"订单级分析未启用"等提示，而不是把空结果当成业务结论。
+    """
+    return CapabilitiesResponse(
+        success=True,
+        data={
+            "order_level_tca": DataAccessConfig.TCA_ORDER_AGG_ENABLED,
+            "core_benchmarks": DataAccessConfig.TCA_CORE_BENCHMARKS_ENABLED,
+            "risk_impact": DataAccessConfig.TCA_RISK_IMPACT_ENABLED,
+        },
     )
 
 
