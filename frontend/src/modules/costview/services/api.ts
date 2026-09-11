@@ -68,7 +68,14 @@ function getAuthHeaders(): HeadersInit {
 
 async function readError(response: Response): Promise<string> {
   const body = await response.json().catch(() => ({}));
-  return body?.detail ?? body?.error ?? `Request failed: ${response.status}`;
+  // B4 整改：detail 支持结构化 {code, message}（503 数据新鲜度/降级语义），
+  // 字符串 detail 向后兼容
+  const d = body?.detail;
+  if (typeof d === 'string') return d;
+  if (d && typeof d === 'object' && d.message) {
+    return `[${d.code ?? 'error'}] ${d.message}`;
+  }
+  return body?.error ?? `Request failed: ${response.status}`;
 }
 
 /** analyze 返回 202 时抛出：默认日期数据未生成，数据管道已自动触发 */
@@ -136,6 +143,9 @@ export interface TcaOrderReport {
   limit: number;
   generated_at: string;
   orders: TcaOrderAggregate[];
+  /** P0 降级可见性：false 表示订单级聚合未启用（TCA_ORDER_AGG_ENABLED=0），
+   *  orders 为空不代表无匹配数据；缺省视为 true（旧后端兼容） */
+  order_agg_enabled?: boolean;
 }
 
 export async function analyzeTcaOrders(request: TcaAnalyzeRequest): Promise<TcaOrderReport> {
