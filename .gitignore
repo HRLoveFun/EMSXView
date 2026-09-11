@@ -96,6 +96,11 @@ backend/api/data/
 # --- 迁移数据目录（带时间戳 data.migrated.<ts>，运行产物，勿入版本库；数据应外置 D:\db） ---
 CostView/data.migrated.*/
 
+# --- 例外：golden 冻结快照是**测试夹具**（非运行时数据，与基线 JSON 同源入库） ---
+# 用途：使 CI 与本地无需生产数据即可执行 CostView/tests/test_golden_samples.py 指标锁定回归；
+# 更新 SOP 见 CostView/tests/golden/README.md
+!CostView/tests/golden/snapshot/*.db
+
 # ============================================================
 # AI Assistant Local State (per-user runtime)
 # ============================================================

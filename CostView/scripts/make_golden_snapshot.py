@@ -1,14 +1,20 @@
 """黄金快照裁剪器 — 从生产库（只读）裁剪指定日期区间的 tca_route_summary
 到独立快照文件，供黄金样本基线生成/回归使用。
 
-用法（仓库根执行）：
-    python CostView/scripts/make_golden_snapshot.py \
-        --start 20260901 --end 20260904 \
+用法（仓库根执行，默认输出到入库存放目录）：
+    python CostView/scripts/make_golden_snapshot.py --start 20260901 --end 20260904
+
+    # 临时对比（不覆盖入库快照）
+    python CostView/scripts/make_golden_snapshot.py --start 20260901 --end 20260904 \
         --out _tmp/golden-snapshot
 
 背景：生产 fill_bdib.db 达 GB 级，整库复制成本高且内容随每日更新漂移；
-黄金基线只需要 tca_route_summary 的**冻结**行集。快照放 `_tmp/`
-（.gitignore 覆盖，数据不入库），基线 JSON 人工 review 后入库。
+黄金基线只需要 tca_route_summary 的**冻结**行集（裁剪后约 1.5 MB）。
+
+输出位置：默认 `CostView/tests/golden/snapshot/` —— **入库**的测试夹具，与基线
+JSON 同源一并提交，使 CI / 本地无需生产数据即可跑指标锁定回归；临时对比可显式
+`--out _tmp/<dir>`（.gitignore 覆盖）。基线更新 SOP 见
+`CostView/tests/golden/README.md`。
 
 只读安全：源库以 mode=ro URI 打开，绝不写生产数据（G0 红线）。
 """
@@ -84,8 +90,9 @@ def main() -> int:
                         help="源 fill_bdib.db（只读，默认生产路径）")
     parser.add_argument("--start", required=True, help="起始日 YYYYMMDD")
     parser.add_argument("--end", required=True, help="结束日 YYYYMMDD")
-    parser.add_argument("--out", type=Path, default=Path("_tmp/golden-snapshot"),
-                        help="快照输出目录")
+    parser.add_argument("--out", type=Path,
+                        default=Path("CostView/tests/golden/snapshot"),
+                        help="快照输出目录（默认入库存放目录；临时对比可指向 _tmp/<dir>）")
     args = parser.parse_args()
 
     count = make_snapshot(args.source, args.out, args.start, args.end)
