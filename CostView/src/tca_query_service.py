@@ -109,6 +109,28 @@ class TcaQueryService:
             if conn is not None:
                 conn.close()
 
+    def get_latest_tca_date(self) -> Optional[str]:
+        """返回 tca_route_summary 的最新数据日（YYYYMMDD），无数据返回 None。
+
+        供 /api/tca/data-freshness 计算新鲜度分级（B2 整改）。
+        表不存在 / 库缺失 / 查询异常一律降级为 None（fail-safe，不抛出）。
+        """
+        conn = None
+        try:
+            conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+            if not self._table_exists(conn, Config.TCA_ROUTE_SUMMARY_TABLE):
+                return None
+            row = conn.execute(
+                f"SELECT MAX(order_as_of_date) FROM {Config.TCA_ROUTE_SUMMARY_TABLE}"
+            ).fetchone()
+            return row[0] if row and row[0] else None
+        except Exception as exc:
+            logger.warning("查询 tca_route_summary 最新数据日失败: %s", exc)
+            return None
+        finally:
+            if conn is not None:
+                conn.close()
+
     def build_tca_report(
         self, filters: TcaFilters, *, include_time_series: bool = True,
     ) -> TcaReport:
