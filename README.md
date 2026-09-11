@@ -25,7 +25,7 @@
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
 | **ExecutionView**（`backend/api/` + `frontend/src/modules/execution/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.3 GB、`execution_history.db` 6.3 GB，实测 2026-09-11）；后端约 180 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
-| **CostView**（`CostView/` + `frontend/src/modules/costview/`） | **Beta** | 103 个测试函数（`CostView/tests/`，4 个文件）；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)；11 个 API 端点全部可追溯到代码 | CLI 入口失效（`CostView/src/__main__.py` 缺失，见 §4.2）；测试覆盖率未量化；无黄金样本回归 |
+| **CostView**（`CostView/` + `frontend/src/modules/costview/`） | **Beta** | 118 个测试函数（`CostView/tests/`，7 个测试文件，含 CLI 入口与黄金样本回归）；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)；11 个 API 端点全部可追溯到代码 | 测试覆盖率未量化；黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip） |
 | **MarketView**（`MarketView/`） | **Scaffold** | 仅 3 个端点（快照 / 盘中特征 / handoff 发布），无自身测试目录 | 见 §4.3 未实现清单 |
 | **frontend/**（React 壳） | **Beta** | 17 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
@@ -148,10 +148,11 @@ EMSXView/
 │   │   ├── tca_query_builder.py      # SQL 查询构建器（库缺失 → 降级空结果）
 │   │   ├── tca_cache.py              # 查询缓存（Redis，连接失败 → 降级直查）
 │   │   ├── tca_utils.py              # 纯函数（日期/时间、cohort、scorecard）
-│   │   ├── query_cli.py              # QueryEngine 类（⚠ __main__.py 缺失，CLI 命令行入口失效）
+│   │   ├── __main__.py               # CLI 入口：python -m CostView.src（退出码 0/2/3，见 §4.2）
+│   │   ├── query_cli.py              # QueryEngine 类（CLI 命令分发目标）
 │   │   ├── secure_config.py          # 加密配置
 │   │   └── monitoring/               # bdib_health · metric_coverage · report_aggregator · report_html 等
-│   └── tests/                        # 4 个测试文件，103 个测试函数
+│   └── tests/                        # 7 个测试文件，118 个测试函数（含 golden 基线回归）
 │   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 清理（ADR-0014）；
 #   #     CostView/data/ 历史数据已于 2026-09-02 迁移至 ${EMSXVIEW_DATA_DIR}
 │
@@ -257,10 +258,10 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 | BDIB 数据健康扫描 / 指标覆盖率 / 报告聚合 / 异常阈值 | `GET /api/tca/monitoring/{bdib-health,metric-coverage,report-summary,anomaly-thresholds}`（`monitoring.py`） | `tests/test_monitoring.py`（50 用例） |
 | 自包含 HTML 报告导出（含降级逻辑，见 §8） | `GET /api/tca/monitoring/export-html`（`monitoring.py:270`） | `tests/test_monitoring.py` |
 | 查询缓存（Redis，连接失败自动降级直查） | `src/tca_cache.py` | 降级行为见 §8 |
+| 只读查询 CLI（盘后巡检 / CI） | `python -m CostView.src --query <fills\|raw-fills\|log\|order-log\|orders\|tickers\|summary>`（`src/__main__.py`） | `tests/test_cli_entrypoint.py`（3 用例） |
 
-**规划中 / 入口失效**：
-- **CLI 命令行入口失效**：`CostView/src/__main__.py` 不存在，旧文档中的 `python -m CostView.src --date ...` 命令**不可用**。`src/query_cli.py` 的 `QueryEngine` 类可编程调用，等待恢复 `__main__.py` 入口（调用方式见该文件 docstring）。
-- **黄金样本回归测试**：未建立（无基准计算的快照对比测试）。
+**已知欠缺 / 规划中**：
+- **黄金样本回归需冻结快照**：基线由 `CostView/scripts/gen_golden.py` 生成（`tests/golden/*.json`），运行需 `EMSXVIEW_GOLDEN_DATA_DIR` 指向与基线同源的冻结数据快照目录（含 `fill_bdib.db`，只读）；缺基线或快照时整组自动 skip（不影响常规 CI）。
 - **覆盖率统计**：未配置 coverage 工具链。
 
 **不做什么（职责边界）**：
@@ -442,8 +443,12 @@ npm run build:all-modules       # 全部模块 SPA
 ```
 
 Environment variables (`frontend/.env`):
-- `VITE_API_URL=` — Backend URL (empty = mock/no backend), e.g. `http://<host>:<API_PORT>`
-- `VITE_USE_MOCK=true` — Enable mock Bloomberg data
+
+| 名称 | 作用 | 默认值 | 是否必填 |
+|------|------|--------|----------|
+| `VITE_API_URL` | Backend 基址（如 `http://<host>:<API_PORT>`）；**留空 = mock / 无后端模式** | 空 | 否（接真实后端时必设） |
+
+> 旧文档中的 `VITE_USE_MOCK` 已失效：`frontend/` 源码无任何消费点（2026-09-11 全仓 grep 核实），mock 行为实际由 `VITE_API_URL` 是否为空决定。
 
 ### Backend Development (Core)
 
@@ -459,13 +464,18 @@ python main.py                           # Starts on <API_PORT> (default 3000)
 pytest
 ```
 
-Environment variables (`backend/.env`):
-- `BLOOMBERG_HOST`, `BLOOMBERG_PORT` — Bloomberg SAPI connection
-- `JWT_SECRET` — JWT signing key
-- `EMSXVIEW_OPTIONAL_MODULES` — 可选路由桥接清单（默认 `costview:CostView`；`EMSXVIEW_MERGE_MODULES` 已失效）
-- `EMSXVIEW_HANDOFF_BACKEND` — `memory` or `redis`
-- `ENABLE_DB_PERSISTENCE` — Enable PostgreSQL order/route persistence
-- `CORS_ORIGINS` — Frontend origin for CORS
+Environment variables (`backend/.env`；默认值权威来源 `backend/api/config.py` `Settings`):
+
+| 名称 | 作用 | 默认值 | 是否必填 |
+|------|------|--------|----------|
+| `BLOOMBERG_HOST` / `BLOOMBERG_PORT` | Bloomberg SAPI 连接 | `localhost` / `8194` | 否（实盘需指向终端） |
+| `JWT_SECRET` | JWT 签名密钥 | 空 | **是**（未设 `BYPASS_AUTH=true` 时启动即报错，`config.py` `_validate_settings`） |
+| `EMSXVIEW_OPTIONAL_MODULES` | 可选路由桥接清单（`*`/`all` 加载全部；置空禁用；§1 Deployment Modes） | `costview:CostView` | 否 |
+| `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory`/`redis`，语义见 §3.1） | `memory` | 否 |
+| `ENABLE_DB_PERSISTENCE` | PostgreSQL 订单/路由持久化开关（`false` 时内存 fallback，§8） | `false` | 否 |
+| `ALLOWED_ORIGINS` | CORS 允许的前端来源（逗号分隔） | `http://localhost:5173,http://localhost:80` | 否 |
+
+> 旧文档中的 `CORS_ORIGINS` 为错误变量名——实际是 `ALLOWED_ORIGINS`（`backend/api/config.py:40`）；`EMSXVIEW_MERGE_MODULES` 无消费点（§1）。
 
 ### Microservice Backends
 
@@ -489,19 +499,22 @@ EMSXView 通过 `data_access/` 只读消费分析库；写入由独立仓库 EMS
 
 ```bash
 # 数据根解析优先级：${EMSXVIEW_DATA_DIR} > data_access.config.Config.DEFAULT_DATA_DIR (默认 D:\db)
-# Windows
+# Windows (cmd)
 set EMSXVIEW_DATA_DIR=<data-dir>
+# Windows (PowerShell)
+$env:EMSXVIEW_DATA_DIR = "<data-dir>"
 # Linux / macOS
 export EMSXVIEW_DATA_DIR=<data-dir>
 
 # 只读连接自检（READ tier；任何写请求会被拒绝）
 python -c "from data_access import ConnectionManager, Config; print(Config.DATA_DIR)"
 
-# Run CostView tests（103 个测试函数）
+# Run CostView tests（118 个测试函数；golden 回归无基线/快照时自动 skip）
 python -m pytest CostView/tests/
 
-# ⚠ CLI 注意：`python -m CostView.src` 入口已失效（__main__.py 缺失，见 §4.2）；
-#    编程调用方式见 CostView/src/query_cli.py 的 QueryEngine
+# CostView 只读查询 CLI（盘后巡检 / CI）
+python -m CostView.src --query summary --date 20260408
+# 退出码语义：0 成功 / 2 数据源不可用（库文件缺失、SQLite 错误）/ 3 结果为空且指定 --fail-on-empty
 ```
 
 ### Docker (Production)
@@ -566,6 +579,7 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 | 2026-09-02 | `CostView/data/` 历史数据迁移至 `${EMSXVIEW_DATA_DIR}`（目录归档为 `CostView/data.migrated.202609022339/`） | CostView、data_access | 数据根唯一来源 `data_access/config.py` |
 | 2026-09-11 | 本 README 全面审计重写：成熟度分级、能力"已实现/规划中"二分、数据流时序语义、数据规模实测、降级路径、CLI 失效标注；删除 `tca_fallback.py` 引用（文件已不存在）、删除 "production-ready"/"enterprise-grade"/"canonical" 无判据标注 | 全部模块 | 静态代码审计 + 数据目录实测（验证方式见页脚） |
 | 2026-09-11 | 修正 Deployment Modes：`EMSXVIEW_MERGE_MODULES` 已失效（backend 无消费点），实际机制为 `EMSXVIEW_OPTIONAL_MODULES`（默认仅桥接 costview）；MarketView 无单进程合并路径 | backend、CostView、README 相关章节 | `backend/api/main.py:276` + `config.py:96` + 全仓 grep |
+| 2026-09-11 | CostView CLI 入口恢复（`src/__main__.py`，argparse 包装 `QueryEngine`，退出码 0/2/3）+ 黄金样本回归（`scripts/gen_golden.py` 基线 + `tests/test_golden_samples.py`）、数据新鲜度、CLI 入口测试落地；测试增至 118 个函数（7 文件）。README 同步：CLI 用法、成熟度表、环境变量表格化；修正 `CORS_ORIGINS`→`ALLOWED_ORIGINS`、标注 `VITE_USE_MOCK` 失效 | CostView、frontend 文档、README | `CostView/src/__main__.py` + `CostView/tests/`（工作区变更）+ `backend/api/config.py:40` + 全仓 grep |
 
 ---
 
