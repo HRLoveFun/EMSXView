@@ -256,4 +256,5 @@ if __name__ == "__main__":
     # 平铺入口 scripts/quality_gate.py（pre-commit 与文档使用的形式）是主要通道；
     # 此处补齐守卫，使 ``python -m scripts.quality_gate.run`` 同样可用 ——
     # 否则该形式只 import 模块、不执行扫描且 exit 0，形成「门禁看似通过」的假信号。
+    # 注：该 `-m` 形式从未作为文档入口，仅用于消除临时手敲命令的假信号。
     sys.exit(main())

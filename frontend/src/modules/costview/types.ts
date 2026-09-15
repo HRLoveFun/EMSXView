@@ -366,6 +366,8 @@ export interface MetricCoverageReport {
   /** 全区间整体覆盖率（原始 / SLA） */
   overall?: { coverage: number | null; sla_coverage: number | null };
   group_by_exchange: boolean;
+  /** 统计范围（与报告主体同一作用域） */
+  scope?: TcaReportScope;
   rows: MetricCoverageRow[];
   data_source_warning?: string;
 }
@@ -427,6 +429,44 @@ export interface TcaReportSummaryFilters {
   symbol: string | null;
   exchange: string | null;
   metrics: string[];
+  /** 报告作用域（全报告小节统一口径；未给 exchange 时为 BDIB 白名单口径） */
+  scope?: TcaReportScope;
+  /** 报告期语义：数据截至日 / 预设，供报告头自证（014） */
+  as_of_date?: string | null;
+  preset?: string | null;
+}
+
+/** 报告统计范围：默认 BDIB 白名单内全量；用户指定 exchange 时为用户口径 */
+export interface TcaReportScope {
+  mode: 'bdib_whitelist' | 'user_exchange_filter';
+  exchanges: string[];
+  /** 用户口径下被选中、但不在白名单内的市场（报告头告警依据） */
+  out_of_scope: string[];
+  /** 后端生成的作用域文案（如「BDIB 白名单内 26 个市场」） */
+  label: string;
+}
+
+/** 单个加权指标的样本量与权重覆盖率（条数覆盖 ≠ 权重覆盖） */
+export interface TcaWeightCoverageEntry {
+  n_used: number;
+  n_total: number;
+  /** 样本（条数）覆盖率，已是百分数 0-100 */
+  sample_pct: number | null;
+  used_weight: number;
+  total_weight: number;
+  /** 权重（成交额）覆盖率，已是百分数 0-100 */
+  weight_pct: number | null;
+  /** 样本或权重覆盖低于阈值 → 该均值为子样本口径，结论仅供参考 */
+  insufficient: boolean;
+}
+
+/** 加权 KPI 的覆盖披露（report.weight_coverage） */
+export interface TcaWeightCoverage {
+  metrics: Record<string, TcaWeightCoverageEntry>;
+  /** 覆盖不足判定阈值（百分数） */
+  threshold_pct: number;
+  n_total: number;
+  total_weight: number;
 }
 
 /** 可选市场清单（市场概览表使用） */
@@ -437,7 +477,7 @@ export interface TcaReportMarket {
   notional_usd: number | null;
 }
 
-/** 额外 KPI（006 增补）：决策基准 / 实现短缺 / 风险 / 完成率 */
+/** 额外 KPI（006 增补）：决策基准 / 实现短缺 / 风险 / 完成率 / 零成交 */
 export interface TcaReportExtraKpis {
   arrival_cost_bps: number | null;
   wagner_is_bps: number | null;
@@ -446,8 +486,14 @@ export interface TcaReportExtraKpis {
   cost_p95: number | null;
   /** 组合级完成率 Σfill / ΣRouteShares（对大额未成交敏感） */
   avg_fill: number | null;
-  /** 未成交金额缺口（USD 口径；无 fx_rate 列时为 null） */
+  /** 未成交金额缺口（USD 口径；价格走回退链 p_avg→p_arrival→p_decision→p_close） */
   unfilled_notional_usd?: number | null;
+  /** 因价格回退链全空而无法计入缺口的路由数（缺口低估规模可见） */
+  unfilled_notional_unpriced_routes?: number | null;
+  /** 零成交路由数（fill 为 0/NULL 且有委托股数） */
+  zero_fill_routes?: number;
+  /** 零成交路由的委托金额（USD；完全未执行的机会成本规模） */
+  zero_fill_notional_usd?: number | null;
 }
 
 /** 市场冲击分解（B2-2）：暂时冲击 5/10/30min + 永久冲击 + 收盘价成本 */
@@ -539,7 +585,7 @@ export interface TcaReportFilterOptions {
   brokers: string[];
   algos: string[];
   symbols: string[];
-  /** 市场（Exchange）选项：持久化全量列表，与时间范围解耦 */
+  /** 市场（Exchange）选项：与时间范围解耦，且已按 BDIB 白名单裁剪（与报告统计范围一致） */
   exchanges?: string[];
 }
 
@@ -552,6 +598,8 @@ export interface TcaReportSummary {
   kpi: TcaReportKpi | null;
   extra_kpis: TcaReportExtraKpis | null;
   impact_breakdown: TcaImpactBreakdown | null;
+  /** 加权 KPI 的样本量与权重覆盖率（避免把覆盖子集均值读作全量水位） */
+  weight_coverage?: TcaWeightCoverage | null;
   anomaly: TcaAnomaly | null;
   daily_series: TcaDailySeriesPoint[];
   rankings: { by_broker: TcaRankingRow[]; by_algo: TcaRankingRow[] };
