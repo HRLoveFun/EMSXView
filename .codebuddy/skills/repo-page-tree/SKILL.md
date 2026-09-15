@@ -80,4 +80,7 @@ python scripts/repo_page_tree.py --branch main
 | 目录 + 文件页面 | `python scripts/repo_page_tree.py --with-files` |
 | 指定分支/标签 | `python scripts/repo_page_tree.py --branch <分支>` |
 | 仅指定子目录子树 | `python scripts/repo_page_tree.py --subdir CostView` |
+| 仅保留 2026 年起更新的文件 | `python scripts/repo_page_tree.py --since 2026-01-01` |
+| 近 3 个月更新的文件+页面 | `python scripts/repo_page_tree.py --since "3 months ago" --with-files` |
+| 某日期前更新的（含子目录） | `python scripts/repo_page_tree.py --until 2026-06-01 --subdir CostView` |
 | 写入文件 | `python scripts/repo_page_tree.py --output pages.txt` |
