@@ -79,4 +79,59 @@ describe('CostView storage rule-key migration', () => {
     expect(config.rules.fill_pct.critical).toBe(50);
     expect(config.rules.fill_pct.unit).toBe('percent');
   });
+
+  it('migrates stale default probe mode to above-strict for pre-v2 configs', () => {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify({
+      rules: {
+        overfill_pct: {
+          key: 'overfill_pct', label: 'Overfill', mode: 'above',
+          warning: 100, critical: 110, enabled: true, decimals: 1, unit: 'percent',
+          description: 'stale',
+        },
+      },
+    }));
+
+    const config = loadCostViewConfig();
+
+    // 存储的 mode 是 v1 代码默认值（above）而非用户显式选择 → 迁移为当前默认
+    expect(config.rules.overfill_pct.mode).toBe('above-strict');
+    expect(config.rules.overfill_pct.warning).toBe(100);
+    // 版本号写回，迁移只执行一次
+    expect(config.ruleSchemaVersion).toBe(2);
+  });
+
+  it('keeps user-chosen modes that differ from the stale default', () => {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify({
+      rules: {
+        overfill_pct: {
+          key: 'overfill_pct', label: 'Overfill', mode: 'below',
+          warning: 100, critical: 110, enabled: true, decimals: 1, unit: 'percent',
+          description: 'stale',
+        },
+      },
+    }));
+
+    const config = loadCostViewConfig();
+
+    // mode 是用户显式选择（≠ 旧默认 above）→ 不迁移
+    expect(config.rules.overfill_pct.mode).toBe('below');
+  });
+
+  it('does not re-migrate configs already stamped with the current schema version', () => {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify({
+      ruleSchemaVersion: 2,
+      rules: {
+        overfill_pct: {
+          key: 'overfill_pct', label: 'Overfill', mode: 'above',
+          warning: 100, critical: 110, enabled: true, decimals: 1, unit: 'percent',
+          description: 'user picked inclusive boundary',
+        },
+      },
+    }));
+
+    const config = loadCostViewConfig();
+
+    // v2 配置里 mode: above 属用户显式选择（改回含边界语义）→ 不覆盖
+    expect(config.rules.overfill_pct.mode).toBe('above');
+  });
 });
