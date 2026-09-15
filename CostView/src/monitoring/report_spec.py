@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.4"
+SPEC_VERSION = "2026.09.5"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -72,12 +72,46 @@ REPORT_SPEC: dict[str, Any] = {
     #: report_measure.ORDER_PAR_CRITICAL_SUM（异常规则 critical 档 ×100 与探针共用），
     #: 测试断言三处一致（P1-a 复核 F-b 阈值唯一化）
     "order_par_critical_gt": 2.0,
+    #: D1 / DP-5 定稿：图表轴锚定硬规则（防渲染器各图各自发挥；护栏测试断言
+    #: SVG 产物存在零轴元素）
+    "chart_axis": {
+        "pnl_vwap": "symmetric-around-zero",
+        "par_rate": "zero-anchored",
+        "market_notional": "zero-anchored",
+        "ticks_per_axis": 5,
+    },
     #: 已知限制清单文档（脚注引用，便于归档追溯）
     "known_limitations_doc": "docs/report-tca-known-limitations.md",
 }
 
 #: 排除项的中文展示文案（与 REPORT_SPEC["excluded"] 语义一一对应）
 EXCLUDED_TEXT = "不含显性费用/返佣/税费；无 L2 订单簿流动性；不含事前预测"
+
+
+def _p0_p1_footer_clauses() -> str:
+    """P0 / P1-a / P1-b 新增口径的脚注子句（全由 SPEC 绑定常量插值，不手写数值）。
+
+    F-c（第八轮复核）：离线归档 HTML 的口径自证载体是脚注 —— 新增声明若只进
+    SPEC 与台账而不进脚注，归档读者只能凭版本号回查，声明侧开始漂移。
+    """
+    share_pct = REPORT_SPEC["ranking_min_notional_share"] * 100
+    chart = REPORT_SPEC["chart_axis"]
+    return (
+        f"排行按双维门槛（组样本 n≥{REPORT_SPEC['ranking_min_sample']} 且"
+        f"组成交额占比≥{share_pct:.1f}%）输出最优/最差双侧 Top10；"
+        f"PWP 五档为成交额加权（pwp_weight_mode={REPORT_SPEC['pwp_weight_mode']}）"
+        f"并披露覆盖、分市场小图（Top {REPORT_SPEC['pwp_by_exchange_top_markets']}）"
+        f"承接解释；"
+        f"异常金额门槛按 {REPORT_SPEC['anomaly_notional_gate']} 口径"
+        f"（Amount 缺失回退 fill×p_avg，展示列以 Amount 为准）；"
+        f"订单参与率 >{REPORT_SPEC['order_par_critical_gt'] * 100:.0f}% 疑重复记账单独分档；"
+        f"冲击截断占比分母为冲击计算样本"
+        f"（{REPORT_SPEC['impact_truncated_share_denominator']}）；"
+        f"BDIB 缺口金额与 KPI 同源换算并单列未换算金额；"
+        f"TCA 整日缺失经差集检测披露；"
+        f"成本轴含零轴（pnl_vwap={chart['pnl_vwap']}）、"
+        f"参与率与金额轴零锚定（{chart['par_rate']}/{chart['market_notional']}）；"
+    )
 
 
 def footer_text() -> str:
@@ -95,5 +129,6 @@ def footer_text() -> str:
         f"异常严重度分 "
         f"{len(REPORT_SPEC['anomaly_severity_levels'])} 档，明细上限 "
         f"{REPORT_SPEC['anomaly_row_limit']} 条（全量见随附导出 CSV）；"
+        f"{_p0_p1_footer_clauses()}"
         f"已知限制见 {REPORT_SPEC['known_limitations_doc']}。"
     )
