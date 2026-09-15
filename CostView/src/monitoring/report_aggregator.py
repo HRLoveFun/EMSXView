@@ -611,6 +611,10 @@ class TcaReportAggregator:
         - 返回 (最优侧, 最差侧, 被门槛排除的组数)，排除量由调用方披露。
         同时披露 n_used / route_count：加权值仅由 pnl_vwap 非 NULL（且有成交额
         权重）的路由决定，route_count 却含全部路由。
+        口径注（P1-a 复核 F-e）：金额占比分子（group_weight）要求 pnl_vwap 非 NULL
+        （与加权值同源），分母（total_weight）为全部可加权路由的成交额 —— 轻微
+        不对称且方向保守（仅在 pnl 覆盖极低时可能误排除经济相关性真实的组，
+        0.1% 门槛下实际不可达）。
         """
         used_cond = "pnl_vwap IS NOT NULL AND fill IS NOT NULL AND p_avg IS NOT NULL"
         sql = f"""
@@ -892,6 +896,11 @@ class TcaReportAggregator:
         row = conn.execute(sql, params).fetchone()
         truncated = self._to_float(row[5])
         impact_sample = int(row[6] or 0)
+        truncated_int = int(truncated) if truncated is not None else 0
+        # 防御（P1-a 复核 F-f）：分母自洽依赖写入方不变量「truncated 路由的冲击值
+        # 非 NULL」；不变量被上游破坏时取两者较大值，share 不超 1 —— 不静默钳制
+        # 数值、不掩盖上游违约，仅保证比率语义有效
+        impact_denominator = max(impact_sample, truncated_int)
         return {
             "temp_impact_5min_bps": self._to_float(row[0]),
             "temp_impact_10min_bps": self._to_float(row[1]),
@@ -901,8 +910,8 @@ class TcaReportAggregator:
             "recovery_truncated_count": int(truncated) if truncated is not None else None,
             "impact_sample_count": impact_sample,
             "recovery_truncated_share": (
-                round(truncated / impact_sample, 4)
-                if truncated is not None and impact_sample > 0 else None
+                round(truncated / impact_denominator, 4)
+                if truncated is not None and impact_denominator > 0 else None
             ),
         }
 

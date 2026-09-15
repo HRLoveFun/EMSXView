@@ -331,7 +331,8 @@ class MetricCoverageService:
             f"""
             SELECT COUNT(*) AS total_orders,
                    SUM(CASE WHEN par_sum > 1.0 THEN 1 ELSE 0 END) AS gt100_orders,
-                   SUM(CASE WHEN par_sum > 2.0 THEN 1 ELSE 0 END) AS gt200_orders
+                   SUM(CASE WHEN par_sum > {rm.ORDER_PAR_CRITICAL_SUM}
+                            THEN 1 ELSE 0 END) AS gt200_orders
             FROM {order_par}
             """,
             params,

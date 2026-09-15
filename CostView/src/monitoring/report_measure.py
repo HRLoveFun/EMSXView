@@ -229,6 +229,13 @@ def order_par_key(order_id: Any, date: Any, exchange: Any) -> tuple[str, str, st
     return (str(order_id or ""), str(date or ""), str(exchange or ""))
 
 
+#: 订单参与率「疑重复记账」的求和临界值（critical 档，即 200%）。
+#: 异常规则 ``DEFAULT_THRESHOLDS["order_par_gt100"].critical``（百分比口径 ×100）
+#: 与覆盖率一致性探针的 gt200 分档（求和口径）共同引用本常量 —— 唯一实现源，
+#: 防两处字面量漂移（P1-a 复核 F-b：改 critical 档时探针文案静默脱钩）。
+ORDER_PAR_CRITICAL_SUM: float = 2.0
+
+
 # ── 3.5 异常明细下限门槛的豁免（严重未完成必须可见）────────────────────────
 
 #: 豁免笔数 / 金额下限的规则键（fill_pct = 完成率规则）

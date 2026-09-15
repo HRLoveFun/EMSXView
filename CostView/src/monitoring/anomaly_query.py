@@ -107,9 +107,11 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     "overfill_pct": {
         "mode": "above-strict", "warning": 100, "critical": 110, "enabled": True},
     # 订单参与率求和同为 above-strict：恰为 100% 不算矛盾，与 AnomalyRoute.order_par_gt100
-    # 布尔标记、覆盖率一致性探针（metric_coverage 的 par_sum > 1.0）三处同界
+    # 布尔标记、覆盖率一致性探针（metric_coverage 的 par_sum > 1.0）三处同界；
+    # critical 档（疑重复记账）的唯一实现源见 report_measure.ORDER_PAR_CRITICAL_SUM
     "order_par_gt100": {
-        "mode": "above-strict", "warning": 100, "critical": 200, "enabled": True},
+        "mode": "above-strict", "warning": 100,
+        "critical": rm.ORDER_PAR_CRITICAL_SUM * 100, "enabled": True},
 }
 
 #: 合法的比较模式白名单（P2-6：payload 内 mode 缺失或非法时 fail-fast，
@@ -470,14 +472,17 @@ def query_anomaly_routes_page(
         join = _anomaly_fx_join() if fbfx_ready else ""
         fx_select = "fx_rate" if has_fx else "NULL AS fx_rate"
         fill_count_select = "fill_count" if has_fill_count else "NULL AS fill_count"
-        notional_usd_expr = _anomaly_notional_usd_expr(fbfx_ready, has_fx)
+        notional_display_expr, notional_gate_expr = _anomaly_notional_exprs(
+            fbfx_ready, has_fx,
+        )
         sql = f"""
             SELECT OrderId, RouteId, order_as_of_date, equ_ticker, Exchange,
                    Side, Broker, algo, fill, par_rate, pnl_vwap,
                    arrival_cost_bps, wagner_is_bps, opportunity_cost,
                    RouteShares, cost_cvar, order_duration_sec, recovery_truncated,
                    Amount, Currency, {fill_count_select}, {fx_select},
-                   {notional_usd_expr} AS notional_usd_calc
+                   {notional_display_expr} AS notional_usd_display,
+                   {notional_gate_expr} AS notional_usd_gate
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             WHERE {" AND ".join(conditions)}
         """
@@ -533,10 +538,13 @@ def query_anomaly_routes_page(
             if fc is None or fc < min_fill_count:
                 continue
         amount = _to_float(row.get("Amount"))
-        notional_usd = _to_float(row.get("notional_usd_calc"))
+        # 展示与门槛分离（D7 / DP-3）：展示列取 Amount 权威口径（缺失 → None），
+        # 门槛取 COALESCE 回退口径 —— 两列语义不同，字段不共用
+        notional_usd = _to_float(row.get("notional_usd_display"))
+        notional_gate = _to_float(row.get("notional_usd_gate"))
         # 成交金额(USD)下限过滤：对全部路由生效（下限为 0 时关闭，含无法换算 USD 的路由）
         if min_notional_usd > 0 and not exempt and (
-            notional_usd is None or notional_usd < min_notional_usd
+            notional_gate is None or notional_gate < min_notional_usd
         ):
             continue
         results.append(AnomalyRoute(
@@ -653,25 +661,29 @@ def _anomaly_fx_join() -> str:
     )
 
 
-def _anomaly_notional_usd_expr(fbfx_ready: bool, has_fx: bool) -> str:
-    """异常明细成交金额(USD) 表达式（含小计价单位货币 ÷100 修正）。
+def _anomaly_notional_exprs(fbfx_ready: bool, has_fx: bool) -> tuple[str, str]:
+    """异常明细成交金额(USD) 的展示与门槛表达式（D7 / DP-3 定稿：两者分离）。
 
-    D7（DP-3 定稿）：门槛口径对齐为 ``COALESCE(Amount, fill × p_avg) × 汇率`` ——
-    Amount 缺失（写入方未预置）的路由不再被金额门槛静默误杀（此前
-    ``notional_usd IS NULL → continue``）。展示语义不变：``notional_local``
-    仍为写入方权威列 Amount，未做静默替换。
+    - 展示 = ``Amount × 汇率``（写入方权威列；Amount 缺失 → NULL，渲染 "-"，
+      展示口径与 P1-a 之前一致，不被估算值静默替换）；
+    - 门槛 = ``COALESCE(Amount, fill × p_avg) × 汇率``（Amount 缺失的路由不再
+      被金额门槛误杀）。
+    两个表达式服务语义不同的消费者，**禁止合并** —— P1-a 复核（F-a）的教训：
+    共用单一表达式使 USD 展示列被 fill×p_avg 估算值静默替换，与本币权威列
+    （Amount）同行自相矛盾，且与「异常表金额以 Amount 为准」的披露文案冲突。
     有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)；
     USD/未知币种缺汇率按 1.0 兜底；非 USD 仍缺汇率时为 NULL（不虚高）。
-    无 fx_rate 列时整体返回 NULL（向后兼容旧 schema）。
+    无 fx_rate 列时两者均返回 NULL 字面量（向后兼容旧 schema）。
     """
     if not has_fx:
-        return "NULL"
+        return "NULL", "NULL"
     tca = Config.TCA_ROUTE_SUMMARY_TABLE
     eff = (
         f"COALESCE({tca}.fx_rate, _fbfx.fb_fx)" if fbfx_ready else f"{tca}.fx_rate"
     )
     # 小计价单位修正与 USD 兜底规则的唯一实现见 report_measure（新增币种只改一处）
-    return f"COALESCE(Amount, fill * p_avg) * ({rm.usd_fx_expr(eff)})"
+    fx = rm.usd_fx_expr(eff)
+    return f"Amount * ({fx})", f"COALESCE(Amount, fill * p_avg) * ({fx})"
 
 
 # ── 全量明细导出（014：HTML 截断与审计导出分离）──────────────────────────────

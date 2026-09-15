@@ -68,6 +68,10 @@ REPORT_SPEC: dict[str, Any] = {
     #: D15 / DP-4 定稿：冲击截断占比分母 = 冲击计算样本（任一冲击指标可计算）
     #: （实现常量见 report_aggregator.IMPACT_TRUNCATED_SHARE_DENOMINATOR，测试断言一致）
     "impact_truncated_share_denominator": "impact_sample",
+    #: D17：订单参与率「疑重复记账」临界求和（200%）。唯一实现源见
+    #: report_measure.ORDER_PAR_CRITICAL_SUM（异常规则 critical 档 ×100 与探针共用），
+    #: 测试断言三处一致（P1-a 复核 F-b 阈值唯一化）
+    "order_par_critical_gt": 2.0,
     #: 已知限制清单文档（脚注引用，便于归档追溯）
     "known_limitations_doc": "docs/report-tca-known-limitations.md",
 }
