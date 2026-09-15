@@ -1116,10 +1116,11 @@ class TestBdibWeightFxContract:
             {"OrderId": "F1", "Currency": "GBp", "fx_rate": 1.3,
              "fill": 100.0, "p_avg": 250.0},
         ], with_fx=True)
-        weight = BdibHealthService(mgr)._load_ticker_weight(
+        weight, fx_usd = BdibHealthService(mgr)._load_ticker_weight(
             "20260803", "20260803", rm.resolve_scope(None),
         )
 
+        assert fx_usd is True
         _, notional_usd, unconvertible = weight[("20260803", "AAPL US Equity")]
         assert notional_usd == pytest.approx(100 * 250 * 1.3 * 0.01)
         assert unconvertible == 0.0
@@ -1132,7 +1133,7 @@ class TestBdibWeightFxContract:
             {"OrderId": "F2", "Currency": "EUR", "fx_rate": None,
              "fill": 200.0, "p_avg": 10.0},
         ], with_fx=True)
-        weight = BdibHealthService(mgr)._load_ticker_weight(
+        weight, _ = BdibHealthService(mgr)._load_ticker_weight(
             "20260803", "20260803", rm.resolve_scope(None),
         )
 
@@ -1157,11 +1158,40 @@ class TestBdibWeightFxContract:
         conn.close()
 
         mgr = ConnectionManager(path_overrides={"fill_bdib": db_path})
-        weight = BdibHealthService(mgr)._load_ticker_weight(
+        weight, fx_usd = BdibHealthService(mgr)._load_ticker_weight(
             "20260803", "20260803", rm.resolve_scope(None),
         )
 
+        assert fx_usd is True
         assert weight[("20260803", "AAPL US Equity")][1] == pytest.approx(100 * 2.0 * 1.1)
+
+    def test_no_fx_column_reports_local_currency(self, tca_mgr_factory):
+        """旧 schema 无 fx_rate 列：金额为本币合计且显式标注非 USD 口径。"""
+        mgr = tca_mgr_factory([{"OrderId": "F1", "fill": 100.0, "p_avg": 2.0}])
+        weight, fx_usd = BdibHealthService(mgr)._load_ticker_weight(
+            "20260803", "20260803", rm.resolve_scope(None),
+        )
+
+        assert fx_usd is False
+        assert weight[("20260803", "AAPL US Equity")][1] == pytest.approx(200.0)
+
+    def test_health_payload_discloses_notional_fx_mode(self, tca_mgr_factory, tmp_path):
+        """健康 payload 显式区分 USD / 本币口径，渲染层据此提示。"""
+        TestTcaGapDetection._make_processed_fills(tmp_path, ["20260803"])
+        mgr_local = tca_mgr_factory([{"OrderId": "F1", "fill": 100.0}])
+        health_local = BdibHealthService(mgr_local).get_health(
+            "20260803", "20260803", scope=rm.resolve_scope(None),
+        )
+        assert health_local["gap_notional_fx_usd"] is False
+
+        mgr_usd = tca_mgr_factory(
+            [{"OrderId": "F2", "Currency": "EUR", "fx_rate": 1.1, "fill": 100.0}],
+            with_fx=True,
+        )
+        health_usd = BdibHealthService(mgr_usd).get_health(
+            "20260803", "20260803", scope=rm.resolve_scope(None),
+        )
+        assert health_usd["gap_notional_fx_usd"] is True
 
 
 class TestTcaGapDetection:
@@ -1259,6 +1289,31 @@ class TestSlaDenominatorStructural:
         assert row["coverage"]["p_arrival"] == 50.0
         # SLA 分母剔除 B1：1/1 = 100%（此前 1/2 = 50%，SLA 随管道缺口波动）
         assert row["sla_coverage"]["p_arrival"] == 100.0
+        # 豁免规模随行披露：探针误豁免（bdib_cutoff 残余）的规模可观测、可审计
+        assert row["bdib_gap_routes"] == 1
+
+    def test_local_fx_note_rendered_in_appendix(self):
+        """旧 schema（本币口径）时缺口附录显式提示，避免读者把本币数读作 USD。"""
+        from CostView.src.monitoring.tca_report_html import _render_health_appendix
+
+        health = {
+            "status": "ok",
+            "gap_notional_fx_usd": False,
+            "dates": [{
+                "date": "20260803", "status": "partial", "coverage_pct": 66.7,
+                "missing_ticker_count": 1, "missing_tickers": ["MSFT US Equity"],
+                "missing_route_count": 1, "missing_notional": 200.0,
+                "retention_days_left": 20,
+            }],
+            "summary": {"total_missing_routes": 1, "total_missing_notional": 200.0},
+        }
+        html = _render_health_appendix(health)
+
+        assert "缺口金额为本币口径" in html
+
+        health["gap_notional_fx_usd"] = True
+        html_usd = _render_health_appendix(health)
+        assert "本币口径" not in html_usd
 
     def test_spec_binds_bdib_gap_denominator(self):
         """声明层与实现层的 bdib_missing 分母口径绑定（R5 同款结构化绑定）。"""

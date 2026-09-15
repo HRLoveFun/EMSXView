@@ -366,6 +366,9 @@ class MetricCoverageService:
             "date": row["order_as_of_date"],
             "exchange": row.get("Exchange") if group_by_exchange else None,
             "total_routes": total,
+            # BDIB 缺口路由数（SLA 分母豁免规模）：随行披露使豁免可见、可审计
+            # （探针的边界情形——bdib_cutoff 残余被误豁免——的规模由此可观测）
+            "bdib_gap_routes": bdib_gap,
             "coverage": coverage,
             "sla_coverage": sla_coverage,
             "null_counts": null_counts,
