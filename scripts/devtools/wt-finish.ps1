@@ -3,6 +3,9 @@
 # 注意: 本仓库约定 squash merge —— 分支内容已进 origin/main，但分支不是 main 的祖先，
 #       故 -DeleteBranch 复用上面已通过的 Test-BranchMerged 判定后用 git branch -D；
 #       直接用 git branch -d 会必然误报「not fully merged」而失败（2026-09-15 修复）。
+# 另注: git cherry 的 squash 识别是**逐 commit 比对 patch-id** —— 多提交分支被 squash 后每个
+#       commit 的 patch-id 都不等于合并出的那一个，会被判为未合并而保守拒绝，需确认 PR 已
+#       MERGED 后加 -Force；避免之道是「一分支一提交」（docs/spec/git-workflow.md §4）。
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)][string]$Task,
@@ -23,8 +26,12 @@ $merged = $false
 if ($branch -and -not $Force) {
     $merged = Test-BranchMerged -Root $root -Branch $branch
     if (-not $merged) {
-        Write-Host "[fail] 分支 $branch 尚未合并进 origin/main，拒绝移除" -ForegroundColor Red
-        Write-Host "       若已通过 squash merge 完成合并，确认无误后加 -Force 重试" -ForegroundColor Red
+        $pending = @(& git -C $root rev-list "origin/main..$branch").Count
+        Write-Host "[fail] 分支 $branch 尚未合并进 origin/main（git cherry 判定），拒绝移除" -ForegroundColor Red
+        Write-Host "       该分支相对 origin/main 有 $pending 个提交未被 patch-id 匹配。" -ForegroundColor Red
+        Write-Host "       - 单提交分支：patch-id 可直接匹配，通常不会走到这里" -ForegroundColor Red
+        Write-Host "       - 多提交分支：被 squash 后每个 commit 的 patch-id 都不等于合并出的那一个 → 必然拒绝" -ForegroundColor Red
+        Write-Host "       确认 PR 已 MERGED 后加 -Force 重试；避免之道是「一分支一提交」（docs/spec/git-workflow.md §4）" -ForegroundColor Red
         exit 1
     }
 }
