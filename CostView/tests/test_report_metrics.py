@@ -17,6 +17,7 @@ P0 改造（2026-09-15，见 docs/spec/adr/0018-tca-report-metrics-conventions.m
 from __future__ import annotations
 
 import sqlite3
+import tempfile
 import time
 from datetime import date
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import Any
 
 import pytest
 
+from CostView.api.routers import monitoring as monitoring_router
 from CostView.src.monitoring import (
     BdibHealthService,
     BdibHealthStatus,
@@ -41,6 +43,7 @@ from CostView.src.monitoring import (
 from CostView.src.monitoring.metric_coverage import (
     COMPUTED_METRICS,
     METRIC_NULL_REASON,
+    SLA_DENOMINATOR_BY_REASON,
 )
 from CostView.src.monitoring import report_measure as rm
 from CostView.src.monitoring.anomaly_query import (
@@ -1099,3 +1102,192 @@ class TestReviewRemediation:
         assert [r["order_id"] for r in report["anomaly"]["rows"]] == ["Z1"]
         assert report["anomaly"]["rows"][0]["completion_rate"] == 0.0
         assert report["anomaly"]["rows"][0]["unfilled"] == pytest.approx(1000.0)
+
+
+# ── 第五轮 P0 审计修复：缺口金额 fx 口径 / TCA 整日缺失 / SLA 分母 / CSV 闭环 ──
+
+
+class TestBdibWeightFxContract:
+    """缺口金额换算与 KPI 同源（D8）：fill_bdib 回填 + 小计价单位修正 + 逐行换算。"""
+
+    def test_minor_unit_correction_applied(self, tca_mgr_factory):
+        """GBp 小计价单位路由的缺口金额须 ×0.01（此前缺修正被高估 100 倍）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "F1", "Currency": "GBp", "fx_rate": 1.3,
+             "fill": 100.0, "p_avg": 250.0},
+        ], with_fx=True)
+        weight = BdibHealthService(mgr)._load_ticker_weight(
+            "20260803", "20260803", rm.resolve_scope(None),
+        )
+
+        _, notional_usd, unconvertible = weight[("20260803", "AAPL US Equity")]
+        assert notional_usd == pytest.approx(100 * 250 * 1.3 * 0.01)
+        assert unconvertible == 0.0
+
+    def test_missing_fx_row_excluded_and_disclosed(self, tca_mgr_factory):
+        """缺汇率的路由逐行排除出 USD 金额，其本币金额进入未换算披露（不再整组回退）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "F1", "Currency": "GBp", "fx_rate": 1.3,
+             "fill": 100.0, "p_avg": 250.0},
+            {"OrderId": "F2", "Currency": "EUR", "fx_rate": None,
+             "fill": 200.0, "p_avg": 10.0},
+        ], with_fx=True)
+        weight = BdibHealthService(mgr)._load_ticker_weight(
+            "20260803", "20260803", rm.resolve_scope(None),
+        )
+
+        _, notional_usd, unconvertible = weight[("20260803", "AAPL US Equity")]
+        assert notional_usd == pytest.approx(325.0)
+        assert unconvertible == pytest.approx(2000.0)
+
+    def test_fill_bdib_backfill_used(self, tmp_path):
+        """tca.fx_rate 缺失时经 fill_bdib 回填补全（与 KPI 的 COALESCE 链一致）。"""
+        db_path = tmp_path / "fb_backfill.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        _insert_route(conn, "F1", "20260803",
+                      Currency="EUR", fx_rate=None, fill=100.0, p_avg=2.0)
+        conn.execute(
+            "CREATE TABLE fill_bdib (OrderId TEXT, RouteId TEXT, "
+            "order_as_of_date TEXT, fill_volume REAL, fx_rate REAL)"
+        )
+        conn.execute("INSERT INTO fill_bdib VALUES ('F1', 'R1', '20260803', 10.0, 1.1)")
+        conn.commit()
+        conn.close()
+
+        mgr = ConnectionManager(path_overrides={"fill_bdib": db_path})
+        weight = BdibHealthService(mgr)._load_ticker_weight(
+            "20260803", "20260803", rm.resolve_scope(None),
+        )
+
+        assert weight[("20260803", "AAPL US Equity")][1] == pytest.approx(100 * 2.0 * 1.1)
+
+
+class TestTcaGapDetection:
+    """TCA 整日缺失检测（D11）：有成交但无 TCA 汇总的日期可定位。"""
+
+    @staticmethod
+    def _make_processed_fills(tmp_path: Path, dates: list[str]) -> None:
+        """构造 processed_fills.db（含 Exchange 列，作用域过滤可用）。"""
+        conn = sqlite3.connect(str(tmp_path / "processed_fills.db"))
+        conn.execute(
+            "CREATE TABLE processed_fills (order_as_of_date TEXT, "
+            "equ_ticker TEXT, Exchange TEXT)"
+        )
+        for d in dates:
+            conn.execute(
+                "INSERT INTO processed_fills VALUES (?, 'AAPL US Equity', 'US')", [d],
+            )
+        conn.commit()
+        conn.close()
+
+    def test_gap_dates_detected_and_disclosed(self, tca_mgr_factory, tmp_path):
+        self._make_processed_fills(tmp_path, ["20260803", "20260804"])
+        mgr = tca_mgr_factory([{"OrderId": "G1", "order_as_of_date": "20260803"}])
+        health = BdibHealthService(mgr).get_health(
+            "20260803", "20260804", scope=rm.resolve_scope("US"),
+        )
+
+        assert health["tca_gap_dates"] == ["20260804"]
+        entries = {d["date"]: d for d in health["dates"]}
+        assert entries["20260803"]["tca_missing"] is False
+        assert entries["20260804"]["tca_missing"] is True
+        assert health["summary"]["tca_missing_dates"] == 1
+
+    def test_html_data_quality_warns_tca_gap(self, tca_mgr_factory, tmp_path):
+        self._make_processed_fills(tmp_path, ["20260803", "20260804"])
+        mgr = tca_mgr_factory([{"OrderId": "G1", "order_as_of_date": "20260803"}])
+        health = BdibHealthService(mgr).get_health(
+            "20260803", "20260804", scope=rm.resolve_scope("US"),
+        )
+        html = render_report_html({"filters": {}}, health, "2026-09-15 10:00:00")
+
+        assert "有成交记录但无 TCA 汇总" in html
+        assert "20260804" in html
+
+    def test_coverage_table_highlights_tca_gap(self):
+        """覆盖率表对 TCA 整日缺失日整行橙底高亮。"""
+        coverage = {
+            "metrics": ["pnl_vwap"],
+            "bdib_dependent_metrics": ["pnl_vwap"],
+            "null_reasons": {"pnl_vwap": "bdib_cutoff"},
+            "expected_null_metrics": [],
+            "overall": {"coverage": 80.0, "sla_coverage": 80.0},
+            "rows": [{
+                "date": "20260804", "exchange": None, "total_routes": 10,
+                "coverage": {"pnl_vwap": 80.0},
+                "sla_coverage": {"pnl_vwap": 80.0},
+                "null_counts": {"pnl_vwap": 2},
+            }],
+        }
+        html = _render_coverage_table(coverage, set(), {"20260804"})
+
+        assert "#3a2a1a" in html  # TCA 缺失日整行橙底
+        assert "TCA 整日缺失" in html
+
+
+class TestSlaDenominatorStructural:
+    """SLA 分母结构性修正（D14）：零成交与 BDIB 缺口路由豁免。"""
+
+    def test_zero_fill_route_exempt_from_auction_denominator(self, tca_mgr_factory):
+        mgr = tca_mgr_factory([
+            {"OrderId": "A1", "fill": None},                        # 零成交（旧 schema NULL）
+            {"OrderId": "A2", "fill": 900.0, "fill_close": 900.0},  # 纯竞价
+        ])
+        coverage = MetricCoverageService(mgr).get_coverage(
+            "20260803", "20260803", ["pnl_vwap_continuous"],
+        )
+
+        row = coverage["rows"][0]
+        # 两条路由均为结构内必然 NULL → SLA 分母为 0 → 无 SLA 值（此前分母=1，SLA=0%）
+        assert row["sla_coverage"]["pnl_vwap_continuous"] is None
+        assert row["coverage"]["pnl_vwap_continuous"] == 0.0
+
+    def test_bdib_gap_route_removed_from_sla_denominator(self, tca_mgr_factory):
+        mgr = tca_mgr_factory([
+            # 有成交但核心 BDIB 依赖指标全 NULL → BDIB 缺口路由
+            {"OrderId": "B1", "par_rate": None, "pnl_vwap": None,
+             "p_arrival": None, "p_close": None},
+            {"OrderId": "B2", "pnl_vwap": -2.5, "p_arrival": 150.0},
+        ])
+        coverage = MetricCoverageService(mgr).get_coverage(
+            "20260803", "20260803", ["p_arrival"],
+        )
+
+        row = coverage["rows"][0]
+        assert row["coverage"]["p_arrival"] == 50.0
+        # SLA 分母剔除 B1：1/1 = 100%（此前 1/2 = 50%，SLA 随管道缺口波动）
+        assert row["sla_coverage"]["p_arrival"] == 100.0
+
+    def test_spec_binds_bdib_gap_denominator(self):
+        """声明层与实现层的 bdib_missing 分母口径绑定（R5 同款结构化绑定）。"""
+        assert (
+            report_spec.REPORT_SPEC["sla_bdib_missing_denominator"]
+            == SLA_DENOMINATOR_BY_REASON["bdib_missing"]
+        )
+
+
+class TestHtmlExportCsvClosure:
+    """export-html 的异常明细 CSV 交付闭环（D16）：export_ref 不再恒为 None。"""
+
+    def test_csv_written_for_anomaly_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+        report = {"anomaly": {"rows": [
+            {"order_id": "O1", "route_id": "R1", "date": "20260803", "hits": []},
+            {"order_id": "O2", "route_id": "R1", "date": "20260803", "hits": []},
+        ]}}
+
+        csv_path = monitoring_router._export_anomaly_csv_for_html(report)
+
+        assert csv_path is not None and csv_path.exists()
+        assert csv_path.name.startswith("anomaly_")
+        content = csv_path.read_text(encoding="utf-8-sig")
+        assert "O1" in content and "O2" in content
+
+    def test_no_rows_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+        assert monitoring_router._export_anomaly_csv_for_html(
+            {"anomaly": {"rows": []}}
+        ) is None
