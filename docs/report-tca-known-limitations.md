@@ -87,7 +87,16 @@
 | R5 | 下限豁免的声明 `"fill_pct_critical"` 为字符串拼接，未与实现绑定 | 改规则名时声明层无感 | ✅ 已修：声明改结构化 `{"rule", "severity"}`，实现常量落在 `report_measure`（`FLOOR_EXEMPT_RULE` / `FLOOR_EXEMPT_SEVERITY` / `is_floor_exempt`），测试断言两者一致 |
 | R6 | `fill IS NULL` 的零成交路由与 KPI 口径不对称 | KPI 卡（`COALESCE(fill,0)`）能数到，异常清单却隐身 | ✅ 已修：异常侧按零成交处理（`fill` NULL 原因为 `source`，正常数据不触发，仅旧 schema 兜底）+ 护栏测试 |
 | R7 | 健康扫描不接受作用域 | 用户按市场过滤时缺口附录仍报出其他市场的缺口，与 KPI / 覆盖率 / 异常「同口径」只是巧合 | ✅ 已修：`get_health(..., scope=)` / `get_health_safe` 透传，CLI 与 export-html 端点传入报告作用域 |
-| R8 | `scripts/quality_gate/run.py` 缺 `__main__` 守卫 | `python -m scripts.quality_gate.run` 只 import、不扫描且 exit 0，形成「门禁看似通过」的假信号（注：pre-commit 与文档用的是平铺入口 `scripts/quality_gate.py`，该入口有守卫，故门禁实际一直在跑） | ✅ 已修：补守卫，两种入口行为一致 |
+| R8 | `scripts/quality_gate/run.py` 缺 `__main__` 守卫 | `python -m scripts.quality_gate.run` 只 import、不扫描且 exit 0，形成「门禁看似通过」的假信号。**澄清**：该形式从未作为文档入口出现（`docs/spec/quality-gate.md`、`git-workflow.md`、`.githooks/pre-commit` 一致使用平铺入口 `scripts/quality_gate.py`，该入口自带守卫，故门禁一直在执行）；`-m` 形式仅出现在临时手敲的命令里 | ✅ 已修：补守卫，两种入口行为一致 |
+
+### 2026-09-15 — 第三轮复核（前端口径对齐）
+
+| # | 发现 | 影响 | 处理 |
+|---|------|------|------|
+| F1 | 前端 Report 页未消费 `weight_coverage` / `filters.scope` / 零成交 KPI | HTML 导出已完整披露，网页视图看不到 → **同一报告两个端口径不对账**（与本轮系统性消除的问题同构） | ✅ 已修：补齐 TS 类型（`TcaReportScope` / `TcaWeightCoverage` / 零成交与未计价字段）、新增 `lib/report-format.ts` 展示函数（文案与 HTML 渲染器逐字对齐）、ReportView 的 KPI 卡/报告头接入；10 条单测 |
+| F2 | 「文档指向 `python -m` 坏入口」的前提不成立 | 无 | ✅ 已澄清（见 R8 行）；`run.py` 守卫仍保留，消除 `-m` 形式的假信号 |
+
+**产品口径说明（下拉白名单裁剪的副作用）**：`filter_options.exchanges` 按白名单裁剪后，UI 下拉不再能选出白名单外市场，因此 `filters.scope.out_of_scope` 告警路径实际只对 API/CLI 显式传参生效。这与 `build_report` docstring 的既有意图（「受白名单约束」）自洽，作为默认口径成立；若未来产品上希望用户能主动纳入 CN 等市场观察其 BDIB 指标必然 NULL 的表现，需另行开口子，并**同步该 docstring 与本节**，避免重演文档-实现矛盾。
 
 护栏：`CostView/tests/test_report_metrics.py`（`TestReportScopeUnified` / `TestWeightCoverageDisclosure` /
 `TestZeroFillVisibility` / `TestMeasureConsistency` / `TestReviewRemediation` /
@@ -104,4 +113,5 @@
 - **呈现层可解释性**：按日走势仍各自归一化且无刻度/零轴；排行仍 `ASC + 前 10`（最优在前、无样本门槛）；直方图仍为等宽分桶；PWP 五档仍为简单平均（缺陷 3）。
 - **指标命名与标签**：「总成交股数」卡片实为 `SUM(RouteShares)`（委托股数，副标题才澄清）；`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
 - **币种兜底**：`Currency IS NULL` 时按 USD（fx=1.0）兜底且计入 fx 覆盖率分子 —— 若实为非 USD 币种则金额错、覆盖率虚高。
+- **前端口径与 HTML 报告相反**：`frontend/src/modules/costview/lib/report-format.ts::formatPct` 仍把完成率封顶 100%，与本仓库 ADR-0018 §2「移除展示层封顶以暴露 overfill」相悖 —— 同一条 overfill 数据在网页显示 100%、在 HTML 报告显示 >100%，两个展示面结论相反。
 - **健康扫描信号量饥饿**：`get_health_safe` 超时线程仍阻塞在信号量 acquire 上（P2-5 只防堆积未防排队饥饿）。
