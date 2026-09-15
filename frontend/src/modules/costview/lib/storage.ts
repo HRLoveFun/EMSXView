@@ -64,6 +64,33 @@ function migrateRuleKeys(
 }
 
 
+/** 展示元数据（label / description / decimals / unit）由代码持有：读取本地配置时以当前
+ *  默认值刷新，避免历史配置把「Fill %」这类旧标签长期钉在浏览器里（后端已改而网页仍显示
+ *  旧标签）；用户可编辑字段（mode / warning / critical / enabled）仍以本地为准。
+ *  缺失字段回落到默认值，顺带兜住「旧版本只存了部分字段」的规则对象。
+ *  约定见 ADR-0018 §10.5。 */
+function refreshRulePresentation(
+  rules: Partial<Record<CostViewMetricKey, ThresholdRule>>,
+): Partial<Record<CostViewMetricKey, ThresholdRule>> {
+  const defaults = createDefaultCostViewConfig().rules;
+  const refreshed: Partial<Record<CostViewMetricKey, ThresholdRule>> = {};
+  for (const [key, rule] of Object.entries(rules) as Array<[CostViewMetricKey, ThresholdRule]>) {
+    const base = defaults[key];
+    if (!base) {
+      refreshed[key] = rule;
+      continue;
+    }
+    refreshed[key] = {
+      ...base,
+      mode: rule.mode ?? base.mode,
+      warning: rule.warning ?? base.warning,
+      critical: rule.critical ?? base.critical,
+      enabled: rule.enabled ?? base.enabled,
+    };
+  }
+  return refreshed;
+}
+
 export function loadCostViewConfig(): CostViewConfig {
   if (typeof window === 'undefined') return createDefaultCostViewConfig();
 
@@ -77,7 +104,7 @@ export function loadCostViewConfig(): CostViewConfig {
     ...parsed,
     rules: {
       ...createDefaultCostViewConfig().rules,
-      ...migrateRuleKeys(parsed.rules ?? {}),
+      ...refreshRulePresentation(migrateRuleKeys(parsed.rules ?? {})),
     },
     exportDefaults: {
       ...createDefaultCostViewConfig().exportDefaults,

@@ -43,7 +43,13 @@ from CostView.src.monitoring.metric_coverage import (
     METRIC_NULL_REASON,
 )
 from CostView.src.monitoring import report_measure as rm
+from CostView.src.monitoring.anomaly_query import (
+    _RULE_KEYS,
+    _RULE_LABELS,
+    _RULE_UNITS,
+)
 from CostView.src.monitoring.tca_report_html import (
+    _fmt_hit,
     _fmt_order_par_rate,
     _fmt_pct,
     _render_coverage_table,
@@ -251,6 +257,40 @@ class TestOrderParAggregation:
         assert len(routes) == 1
         assert routes[0].order_par_gt100 is True
         assert any(h["key"] == "order_par_gt100" for h in routes[0].hits)
+
+    def test_exact_full_order_par_not_flagged(self, tca_mgr_factory):
+        """求和恰为 100% 不算矛盾：above-strict 不含等号，与 gt100 标记同界。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "Q1", "RouteId": "R1", "par_rate": 1.0, "pnl_vwap": -1.0},
+        ])
+        routes = _query_anomalies(mgr)
+
+        assert len(routes) == 1
+        assert routes[0].order_par_rate == pytest.approx(1.0)
+        assert routes[0].order_par_gt100 is False
+        assert not any(h["key"] == "order_par_gt100" for h in routes[0].hits)
+
+
+# ── 规则标签约定（ADR-0018 §10.5）：标签不含单位符号 ───────────────────────
+
+
+class TestRuleLabels:
+    """单位由渲染层统一补后缀，标签自带单位即渲染出双单位（ADR-0018 §10.5）。"""
+
+    def test_labels_carry_no_unit_symbol(self):
+        for key in _RULE_KEYS:
+            symbol = "bps" if _RULE_UNITS[key] == "bps" else "%"
+            label = _RULE_LABELS[key]
+            assert symbol not in label, f"{key} 标签含单位符号: {label}"
+
+    def test_rendered_hit_has_single_unit_symbol(self):
+        for key in _RULE_KEYS:
+            unit = _RULE_UNITS[key]
+            symbol = "bps" if unit == "bps" else "%"
+            rendered = _fmt_hit({
+                "key": key, "label": _RULE_LABELS[key], "value": 42.0, "unit": unit,
+            })
+            assert rendered.count(symbol) == 1, f"{key} 渲染出重复单位: {rendered}"
 
 
 # ── 缺陷 13：overfill 数据质量规则 ────────────────────────────────────────

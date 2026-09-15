@@ -58,16 +58,19 @@ _RULE_KEYS: tuple[str, ...] = (
     "overfill_pct", "order_par_gt100",
 )
 
-#: 命中规则的中文标签（渲染展示用）
+#: 命中规则的展示标签（渲染展示用）。
+#: **标签不得含单位符号**：单位由 ``_RULE_UNITS`` 在渲染时统一补后缀，否则会渲染出
+#: 「Fill % 42.0%」「Pnl VWAP bps 15.2 bps」这类重复（ADR-0018 §10.5）。
+#: 前端 ``DEFAULT_RULES`` 保留同名字段（Configure / 订单卡使用），改动须两处同步。
 _RULE_LABELS: dict[str, str] = {
-    "pnl_vwap_bps": "Pnl VWAP bps",
-    "fill_pct": "Fill %",
-    "volume_pct_adv20": "Vol % ADV20",
-    "volume_pct_interval": "Vol % Interval",
+    "pnl_vwap_bps": "Pnl VWAP",
+    "fill_pct": "Fill Rate",
+    "volume_pct_adv20": "ADV20 Participation",
+    "volume_pct_interval": "Interval Participation",
     "intraday_volatility": "Intraday Vol",
     "price_movement_pct": "Price Move",
     "overfill_pct": "Overfill",
-    "order_par_gt100": "Order Par >100%",
+    "order_par_gt100": "Order Par",
 }
 
 #: 命中规则的单位（渲染「超限具体数值」用）
@@ -103,9 +106,10 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     # 只有真正超成交（fill > RouteShares）才入清单，与 AnomalyRoute.overfill 同界
     "overfill_pct": {
         "mode": "above-strict", "warning": 100, "critical": 110, "enabled": True},
-    # 订单参与率求和：仍为 above（含边界）—— 其边界语义单独评估，见 known-limitations §五
+    # 订单参与率求和同为 above-strict：恰为 100% 不算矛盾，与 AnomalyRoute.order_par_gt100
+    # 布尔标记、覆盖率一致性探针（metric_coverage 的 par_sum > 1.0）三处同界
     "order_par_gt100": {
-        "mode": "above", "warning": 100, "critical": 200, "enabled": True},
+        "mode": "above-strict", "warning": 100, "critical": 200, "enabled": True},
 }
 
 #: 合法的比较模式白名单（P2-6：payload 内 mode 缺失或非法时 fail-fast，

@@ -27,7 +27,7 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 
 ### 2. 数据质量规则显式化
 
-- 新增异常规则 `overfill_pct`（above-strict 100，严格大于；2026-09-15 修订见 §10.4）与 `order_par_gt100`（above 100），数据矛盾不再被静默放过。
+- 新增异常规则 `overfill_pct` 与 `order_par_gt100`（均为 above-strict 100，严格大于；2026-09-15 修订见 §10.4 / §10.5），数据矛盾不再被静默放过。
 - 移除展示层封顶；`completion_rate > 1` 单元格附「超成交」标记。
 - `order_par_rate` 聚合键改为 `(OrderId, order_as_of_date, Exchange)`，避免跨市场求和失去物理意义。
 - 覆盖率服务新增一致性探针 `completion_consistency_pct` / `order_par_consistency_pct`（全量口径，供报告头「数据质量提示」区）。
@@ -64,7 +64,7 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 
 ### 9. 异常规则键重命名：`tracking_error_bps` → `pnl_vwap_bps`
 
-- 该规则实为 `|pnl_vwap|` 阈值，原名易与「跟踪误差」混淆；展示标签同步改为 `Pnl VWAP bps`。
+- 该规则实为 `|pnl_vwap|` 阈值，原名易与「跟踪误差」混淆；展示标签同步改为 `Pnl VWAP bps`（2026-09-15 标签归一去掉单位后缀，见 §10.5）。
 - **旧键迁移（双向兼容）**：
   - 后端 `anomaly_query._normalize_rule_keys` 接受旧 payload 键并映射为新键（新旧同时出现时新键胜出，不静默丢配置）；
   - 前端 `lib/storage.migrateRuleKeys` 在读取 localStorage 时把旧键配置迁移为新键。
@@ -195,12 +195,61 @@ HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看�
    本地标签，故必须同步）。
 
 **影响面**：异常清单条数下降（此前被误报的「成交满」路由退出），是**收敛性**变更；
-`order_par_gt100` 的 `above 100`（含边界）**未改**，其边界语义单独评估（待办见
-`docs/report-tca-known-limitations.md` §五）。
+`order_par_gt100` 的边界与其余规则标签由 §10.5 同批收敛。
 
 **护栏**：后端 `TestOverfillRule.test_exact_full_fill_not_flagged`（100% 不命中）+
 `test_overfill_flagged_and_hits` 的标签断言；前端 `thresholds.test.ts`
 「treats overfill boundary as exclusive」锁定标签、模式与四个边界取值。
+
+### 10.5 订单参与率边界与规则标签归一（2026-09-15 第六轮）
+
+**背景**：§10.4 只收敛了 `overfill_pct`，留下两类同源问题：
+
+1. **`order_par_gt100` 边界与同源实现不一致**：规则为 `above 100`（含边界），而
+   `AnomalyRoute.order_par_gt100` 布尔标记（`order_par_rate > 1.0`）与覆盖率一致性探针
+   （`metric_coverage` 的 `par_sum > 1.0`，产出 `order_par_consistency_pct` 供报告头展示）
+   均为**严格大于** —— 求和恰为 100.0% 的路由「进异常清单但不进数据质量计数」，
+   同一份报告内三处口径不可对账。
+2. **其余规则标签仍自带单位符号**：`Pnl VWAP bps`、`Fill %`、`Vol % ADV20`、
+   `Vol % Interval`、`Order Par >100%` 与渲染层的单位后缀叠加，输出
+   `Fill % 42.0%`、`Pnl VWAP bps 15.2 bps`、`Order Par >100% 250.0%`。
+
+**决策**：
+
+1. **`order_par_gt100` 改用 `above-strict`**（warning 100 / critical 200 不变）：与布尔标记、
+   一致性探针同界，`data_quality.order_par_gt100_count` 与异常命中数自此可对账。
+2. **标签一律不含单位符号**，单位由 `_RULE_UNITS` 后缀统一补（`_RULE_LABELS` 与前端
+   `DEFAULT_RULES` 同改）：
+
+   | 规则键 | 旧标签 | 新标签 | 渲染结果示例 |
+   |---|---|---|---|
+   | `pnl_vwap_bps` | `Pnl VWAP bps` | `Pnl VWAP` | `Pnl VWAP 15.2 bps` |
+   | `fill_pct` | `Fill %` | `Fill Rate` | `Fill Rate 42.0%` |
+   | `volume_pct_adv20` | `Vol % ADV20` | `ADV20 Participation` | `ADV20 Participation 12.3%` |
+   | `volume_pct_interval` | `Vol % Interval` | `Interval Participation` | `Interval Participation 21.5%` |
+   | `order_par_gt100` | `Order Par >100%` | `Order Par` | `Order Par 250.0%` |
+   | `overfill_pct` | `Overfill %` | `Overfill`（§10.4） | `Overfill 103.5%` |
+
+   命名沿用规则既有描述中的词汇（`Fill Rate` / `Participation`）；异常明细表头与其他视图的
+   列名不改动 —— 列名是「指标名」而非「命中规则标签」，不追加单位后缀，无重复问题。
+3. **前端本地配置以代码为准刷新展示元数据**：`loadCostViewConfig` 用当前默认值覆盖
+   `label` / `description` / `decimals` / `unit`，仅保留用户可编辑的 `mode` / `warning` /
+   `critical` / `enabled`。否则历史 localStorage 会把旧标签长期钉住（后端已改而网页仍显示
+   `Fill %`），同时兜住「旧版本只存了部分字段」的规则对象。
+4. **Configure 预览样例同步**：`Tracking Error 6.0 bps`（014 规则键重命名前的旧标签）改为
+   `Pnl VWAP 6.0 bps`，与另两条样例一起对齐新标签。
+
+**影响面**：异常清单条数小幅下降（恰好 100% 订单参与率的路由退出）；标签与本地配置刷新均为
+展示层变更，不动报告数值口径。
+
+**护栏**：后端 `TestOrderParAggregation.test_exact_full_order_par_not_flagged`（100% 不命中）+
+`TestRuleLabels.test_rendered_hit_has_single_unit_symbol`（逐规则断言渲染后单位符号只出现
+一次，任一规则把单位写回标签即失败）；前端 `thresholds.test.ts`
+「keeps unit symbols out of rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底）。
+
+**有意未改**：`volume_pct_adv20` / `volume_pct_interval` / `intraday_volatility` /
+`price_movement_pct` 仍为 `above`（含边界）—— 其阈值是「参与率 / 波动进入观察区间」的业务
+阈值，边界相等不构成数据矛盾，严格化只会无理由缩小清单。
 
 ## 后果 (Consequences)
 

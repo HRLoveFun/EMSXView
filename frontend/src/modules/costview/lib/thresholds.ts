@@ -11,12 +11,14 @@ import type {
 /** 本地默认规则：后端 /api/tca/monitoring/anomaly-thresholds 为唯一真相源（ADR-0018），
  *  此处仅作离线兜底；warning 决定是否进入异常清单，critical 仅用于分级标注。
  *  注：后端的 order_par_gt100 规则（订单参与率求和超限）依赖订单级聚合，
- *  前端 route 级数据无法计算，故不在此列，仅由后端异常清单承载。 */
+ *  前端 route 级数据无法计算，故不在此列，仅由后端异常清单承载。
+ *  label 一律不含单位符号：单位由渲染层按 unit 补后缀，否则会出现「Fill % 42.0%」
+ *  这类重复（ADR-0018 §10.5）；后端 `_RULE_LABELS` 须与本处同改。 */
 const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
   pnl_vwap_bps: {
     key: 'pnl_vwap_bps',
     // 014: 原 tracking_error_bps 重命名 —— 该规则实为 |pnl_vwap| 阈值（ADR-0018）
-    label: 'Pnl VWAP (bps)',
+    label: 'Pnl VWAP',
     mode: 'absolute-above',
     warning: 10,
     critical: 25,
@@ -27,7 +29,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
   },
   fill_pct: {
     key: 'fill_pct',
-    label: 'Fill %',
+    label: 'Fill Rate',
     mode: 'below',
     warning: 80,
     critical: 50,
@@ -38,7 +40,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
   },
   volume_pct_adv20: {
     key: 'volume_pct_adv20',
-    label: 'Vol % ADV20',
+    label: 'ADV20 Participation',
     mode: 'above',
     warning: 5,
     critical: 10,
@@ -49,7 +51,7 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
   },
   volume_pct_interval: {
     key: 'volume_pct_interval',
-    label: 'Vol % Interval',
+    label: 'Interval Participation',
     mode: 'above',
     warning: 20,
     critical: 35,

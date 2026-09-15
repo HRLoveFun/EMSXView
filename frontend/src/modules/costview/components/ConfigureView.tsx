@@ -290,9 +290,9 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
               <div className="text-xs text-muted-foreground">Sample Order</div>
               <div className="mt-1 font-mono text-sm">ORDER-123456</div>
               <div className="mt-2 flex flex-wrap gap-2">
-                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('normal')}`}>Tracking Error 6.0 bps</span>
-                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('warning')}`}>Fill % 72.0%</span>
-                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>Vol % ADV20 12.5%</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('normal')}`}>Pnl VWAP 6.0 bps</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('warning')}`}>Fill Rate 72.0%</span>
+                <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone('critical')}`}>ADV20 Participation 12.5%</span>
               </div>
             </div>
             <div className="text-xs text-muted-foreground">Saved settings are stored in this browser only. Export the configuration JSON if you want to reuse the same alert rules elsewhere.</div>
