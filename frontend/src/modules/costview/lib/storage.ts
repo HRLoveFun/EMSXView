@@ -91,6 +91,35 @@ function refreshRulePresentation(
   return refreshed;
 }
 
+/** 阈值规则 schema 版本：v2 = 数据质量探针边界收紧（overfill_pct 改 above-strict，
+ *  ADR-0018 §10.4/§10.5）。老配置（无版本号或 < 2）里保存的旧默认 mode 会随
+ *  `thresholds` payload 每次查询下发、覆盖后端新默认 —— 读取时做一次性迁移。 */
+const RULE_SCHEMA_VERSION = 2;
+
+/** 各版本历史遗留的「旧代码默认 mode」：仅当存储值仍等于它时才迁移（用户显式改过的不动）。 */
+const STALE_RULE_MODES: Partial<Record<CostViewMetricKey, ThresholdRule['mode']>> = {
+  // v1 默认 above（含边界）；v2 起为 above-strict（严格大于，与 overfill 布尔标记同界）
+  overfill_pct: 'above',
+};
+
+/** v1 → v2：把仍是旧默认值的探针 mode 迁移为当前代码默认，消除「后端已修、网页仍误报」。 */
+function migrateStaleRuleModes(
+  rules: Partial<Record<CostViewMetricKey, ThresholdRule>>,
+): Partial<Record<CostViewMetricKey, ThresholdRule>> {
+  const defaults = createDefaultCostViewConfig().rules;
+  const migrated: Partial<Record<CostViewMetricKey, ThresholdRule>> = { ...rules };
+  for (const [key, staleMode] of Object.entries(STALE_RULE_MODES) as Array<
+    [CostViewMetricKey, ThresholdRule['mode']]
+  >) {
+    const rule = migrated[key];
+    const base = defaults[key];
+    if (rule && base && rule.mode === staleMode && base.mode !== staleMode) {
+      migrated[key] = { ...rule, mode: base.mode };
+    }
+  }
+  return migrated;
+}
+
 export function loadCostViewConfig(): CostViewConfig {
   if (typeof window === 'undefined') return createDefaultCostViewConfig();
 
@@ -98,20 +127,21 @@ export function loadCostViewConfig(): CostViewConfig {
     localStorage.getItem(COSTVIEW_CONFIG_KEY),
     createDefaultCostViewConfig(),
   );
+  // 无版本号的历史配置按 v1 处理（触发一次性模式迁移）
+  const storedVersion = parsed.ruleSchemaVersion ?? 1;
+  const rules = refreshRulePresentation(migrateRuleKeys(parsed.rules ?? {}));
 
   return {
     ...createDefaultCostViewConfig(),
     ...parsed,
-    rules: {
-      ...createDefaultCostViewConfig().rules,
-      ...refreshRulePresentation(migrateRuleKeys(parsed.rules ?? {})),
-    },
+    rules: storedVersion < RULE_SCHEMA_VERSION ? migrateStaleRuleModes(rules) : rules,
     exportDefaults: {
       ...createDefaultCostViewConfig().exportDefaults,
       ...(parsed.exportDefaults ?? {}),
     },
     // 向后兼容：旧版本 localStorage 无该字段时回退为「全部市场」
     reportExchanges: Array.isArray(parsed.reportExchanges) ? parsed.reportExchanges : [],
+    ruleSchemaVersion: RULE_SCHEMA_VERSION,
   };
 }
 

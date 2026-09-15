@@ -45,6 +45,8 @@ export interface CostViewConfig {
   /** 异常路由成交金额(USD)下限（对全部路由生效，默认 10000） */
   minNotionalUsd: number;
   updatedAt: string;
+  /** 阈值规则 schema 版本（storage.RULE_SCHEMA_VERSION）：版本变更触发一次性存量迁移 */
+  ruleSchemaVersion?: number;
 }
 
 export interface CostViewFilterFormState {

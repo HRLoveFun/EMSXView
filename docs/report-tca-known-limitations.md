@@ -128,6 +128,7 @@
 |---|------|------|------|
 | H3 | `order_par_gt100` 为 `above 100`（含边界），而 `AnomalyRoute.order_par_gt100` 标记与覆盖率一致性探针（`metric_coverage` 的 `par_sum > 1.0`）均为严格大于 | 求和恰为 `100.0%` 的路由进异常清单却不进 `data_quality.order_par_gt100_count` 与 `order_par_consistency_pct` —— 同一份报告内三处口径不一致 | ✅ 已修：改用 `above-strict`（严格大于 100%），与布尔标记、一致性探针同界，命中数自此可对账 |
 | H4 | 其余规则标签仍自带单位符号：`Pnl VWAP bps`、`Fill %`、`Vol % ADV20`、`Vol % Interval`、`Order Par >100%` | 渲染出 `Fill % 42.0%`、`Pnl VWAP bps 15.2 bps`、`Order Par >100% 250.0%` 等重复单位标签 | ✅ 已修：标签一律不含单位符号（`Pnl VWAP` / `Fill Rate` / `ADV20 Participation` / `Interval Participation` / `Order Par`），单位由渲染层后缀统一补；Configure 预览样例同步 |
+| H5 | 存量配置保存的 `mode: 'above'` 是 v1 代码默认值，随 `thresholds` payload 每次查询下发并覆盖后端新默认（`ThresholdRules.from_payload` 以 payload 为准） | 后端已改 above-strict，老用户网页上完成率恰 100% 的路由仍带 `Overfill 100.0%` 标签 —— 「后端已修、前端仍误报」 | ✅ 已修：配置引入 `ruleSchemaVersion`（v2），读取时仅当存储 mode 仍等于旧默认时迁移为当前默认；用户显式选择不受影响，迁移只执行一次 |
 
 **同批收敛（顺带）**：
 
@@ -136,7 +137,7 @@
 
 护栏：后端 `TestOrderParAggregation.test_exact_full_order_par_not_flagged` 与 `TestRuleLabels`
 （逐规则断言渲染后单位符号只出现一次）；前端 `thresholds.test.ts`「keeps unit symbols out of
-rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底）。
+rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底 / stale mode 一次性迁移）。
 
 **质量门报告入库策略（第四轮 §六.1）**：`scripts/reports/quality_gate/report-*.md` 已加入 `.gitignore` —— 生成物可再生，逐轮修复账本以本文件 §五 为准，避免双账本产生「哪份是真相」分叉；历史两份（20260821 / 20260825）保留在库内作为冻结快照。
 
