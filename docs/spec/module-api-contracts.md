@@ -219,6 +219,12 @@
 > (`TcaOrderSummary` → `TcaRouteDetail`) 迁移为扁平路由结构 (`TcaRouteSummary`)，
 > 34 个字段严格对应数据库 `tca_route_summary` 表列。`TcaOrderSummary` 与
 > `TcaRouteDetail` 已标记为 deprecated，仅用于兼容旧归档代码。
+>
+> 2026-09-15 收敛：`CostView/src/tca_query_service.py` 中的兼容 re-export
+> （`from platform_data.contracts import TcaOrderSummary, TcaRouteDetail`）已移除 ——
+> 双仓库（本仓库 + EMSXDataPipeline）AST 核查确认零消费者。两个类型本身仍在
+> `platform_data/contracts/tca_contracts.py` 定义并经 `platform_data.contracts` 导出，
+> 需要时从契约包直接导入。
 
 ### 执行历史（已移除）
 
