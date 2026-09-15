@@ -23,13 +23,16 @@ foreach ($wt in (Get-WtEntries -Root $root)) {
     elseif ($wt.Detached) { "(detached)" }
     else { "" }
     $branchLabel = if ($wt.Branch) { $wt.Branch } else { "-" }
+    # 会话独占锁：持有者缩写 + 心跳静默秒数（见 docs/spec/git-workflow.md §10）
+    $lockLabel = Format-WtLockLabel -LockInfo (Get-WtLockInfo -Path $wt.Path)
     $rows += [pscustomobject]@{
-        目录   = $wt.Path
-        分支   = $branchLabel
-        领先   = $ahead
-        落后   = $behind
-        未提交 = $dirty
-        备注   = $note
+        目录     = $wt.Path
+        分支     = $branchLabel
+        领先     = $ahead
+        落后     = $behind
+        未提交   = $dirty
+        独占锁   = $lockLabel
+        备注     = $note
     }
 }
 $rows | Format-Table -AutoSize
