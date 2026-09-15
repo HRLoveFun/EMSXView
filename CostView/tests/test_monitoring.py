@@ -25,6 +25,7 @@ from CostView.src.monitoring import (
     resolve_time_range,
     validate_metrics,
 )
+from CostView.src.monitoring import report_measure as rm
 from CostView.src.monitoring.metric_coverage import COMPUTED_METRICS
 from data_access.storage.connection import AccessTier, ConnectionManager
 
@@ -117,6 +118,33 @@ def mgr(fill_bdib_db: Path, tmp_path: Path) -> ConnectionManager:
         "processed_fills": tmp_path / "processed_fills.db",
         "raw_bdib": tmp_path / "raw_bdib.db",
     })
+
+
+# ── 包导出契约 ────────────────────────────────────────────────────────────
+
+
+class TestPackageExports:
+    """__all__ 与 import 必须严格对应（防写侧迁出后残留幽灵导出）。"""
+
+    def test_dunder_all_symbols_resolve(self):
+        import CostView.src.monitoring as monitoring
+
+        missing = [name for name in monitoring.__all__ if not hasattr(monitoring, name)]
+        assert missing == [], f"__all__ 含不可解析符号（import * 会抛错）: {missing}"
+        assert len(monitoring.__all__) == len(set(monitoring.__all__))
+
+    def test_dim_writer_symbols_not_exported(self):
+        """维度表写侧符号随 010-extract-pipeline 迁出本仓库，不得再导出。"""
+        import CostView.src.monitoring as monitoring
+
+        for ghost in ("DIM_COLUMNS", "ensure_schema", "refresh_dim_values"):
+            assert ghost not in monitoring.__all__
+
+    def test_scope_api_exported(self):
+        import CostView.src.monitoring as monitoring
+
+        assert monitoring.ReportScope is rm.ReportScope
+        assert monitoring.resolve_scope is rm.resolve_scope
 
 
 # ── time_range ────────────────────────────────────────────────────────────
@@ -353,6 +381,58 @@ class TestBdibHealthService:
         result = service.get_health("20270101", "20270131", today=date(2027, 2, 1))
         assert result["dates"] == []
         assert "data_source_warning" in result
+
+    def test_scope_narrows_scan_to_selected_market(self, tmp_path: Path):
+        """健康扫描接受报告作用域：按市场过滤后不再报出其他市场的缺口。
+
+        缺 Exchange 列的历史库仍退化为全量 ticker（见 _load_fill_tickers），
+        此处覆盖有列场景：默认白名单含 HK → 缺口；用户口径仅 US → 无缺口。
+        """
+        proc = tmp_path / "processed_fills_scope.db"
+        conn = sqlite3.connect(str(proc))
+        conn.execute(
+            "CREATE TABLE processed_fills "
+            "(order_as_of_date TEXT, equ_ticker TEXT, Exchange TEXT)"
+        )
+        conn.executemany(
+            "INSERT INTO processed_fills VALUES (?, ?, ?)",
+            [
+                ("20260803", "AAPL US Equity", "US"),
+                ("20260803", "0700 HK Equity", "HK"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        bdib = tmp_path / "raw_bdib_scope.db"
+        conn = sqlite3.connect(str(bdib))
+        conn.execute(
+            "CREATE TABLE raw_bdib (order_as_of_date TEXT, equ_ticker TEXT, close REAL)"
+        )
+        # 只有 US 有行情 → 白名单口径下 HK ticker 构成缺口
+        conn.execute("INSERT INTO raw_bdib VALUES ('20260803', 'AAPL US Equity', 150.0)")
+        conn.commit()
+        conn.close()
+
+        service = BdibHealthService(
+            ConnectionManager(path_overrides={
+                "processed_fills": proc, "raw_bdib": bdib,
+                "fill_bdib": tmp_path / "absent_fill_bdib.db",
+            }),
+            parquet_dir=tmp_path / "nonexistent_parquet",
+        )
+        today = date(2026, 8, 4)
+        default = service.get_health("20260803", "20260803", today=today)
+        assert default["dates"][0]["fill_tickers"] == 2
+        assert default["dates"][0]["status"] == "partial"
+        assert default["scope"]["mode"] == rm.WHITELIST_MODE
+
+        us_only = service.get_health(
+            "20260803", "20260803", today=today, scope=rm.resolve_scope("US"),
+        )
+        assert us_only["scope"]["exchanges"] == ["US"]
+        assert us_only["dates"][0]["fill_tickers"] == 1
+        assert us_only["dates"][0]["status"] == "ok"
 
 
 # ── report_aggregator ─────────────────────────────────────────────────────
@@ -632,6 +712,33 @@ class TestTcaReportAggregator:
         assert [r["exchange"] for r in ranking] == ["HK"]
         trend = report["market_notional_trend"]
         assert {p["exchange"] for p in trend} == {"HK"}
+
+    def test_filter_options_market_whitelist_applied(
+        self, mgr: ConnectionManager, fill_bdib_db: Path,
+    ):
+        """维度表就绪时市场下拉同样按白名单裁剪（与回退路径同口径，不随部署漂移）。"""
+        conn = sqlite3.connect(str(fill_bdib_db))
+        conn.execute(
+            "CREATE TABLE tca_report_dims "
+            "(dim_type TEXT, value TEXT, occurrences INTEGER)"
+        )
+        conn.executemany(
+            "INSERT INTO tca_report_dims VALUES (?, ?, ?)",
+            [
+                ("exchange", "US", 30), ("exchange", "CN", 20), ("exchange", "HK", 10),
+                ("broker", "BROKERA", 5), ("broker", "BROKERB", 3),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        options = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260804",
+        )["filter_options"]
+
+        # CN 为白名单外市场（2026-07-16 起移出分析范围）→ 从下拉中裁掉，保序
+        assert options["exchanges"] == ["US", "HK"]
+        assert options["brokers"] == ["BROKERA", "BROKERB"]
 
     def test_metric_coverage_embedded(self, mgr: ConnectionManager):
         report = TcaReportAggregator(mgr).build_report(

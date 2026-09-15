@@ -40,11 +40,13 @@ for p in [_PROJECT_ROOT, _SCRIPT_DIR]:
 
 from CostView.src.monitoring import (  # noqa: E402
     LAST_PRESETS,
+    ReportScope,
     TcaReportAggregator,
     export_anomaly_rows_csv,
     fetch_latest_tca_date,
     get_health_safe,
     render_report_html,
+    resolve_scope,
     resolve_time_range,
 )
 
@@ -79,9 +81,10 @@ def generate_report(
         broker=broker, algo=algo, symbol=symbol, exchange=exchange,
         metrics=metrics, as_of_date=tr.as_of_date, preset=tr.preset,
     )
-    # 健康扫描以同一「数据截至日」为基准，避免保留窗口与报告期口径错位
+    # 健康扫描以同一「数据截至日」+ 同一作用域为基准，避免保留窗口与报告期口径错位
     health = _load_gap_health(
         tr.start_date, tr.end_date, today=_parse_as_of(tr.as_of_date),
+        scope=resolve_scope(exchange),
     )
 
     out_path = output or _default_output_path(tr.start_date, tr.end_date, last)
@@ -137,14 +140,18 @@ def _parse_as_of(value: Optional[str]) -> Optional[date]:
 
 def _load_gap_health(
     start_date: str, end_date: str, today: Optional[date] = None,
+    scope: Optional[ReportScope] = None,
 ) -> dict[str, Any]:
     """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告）。
 
-    today 与报告期（as_of_date）对齐，使保留窗口剩余天数判定基于数据截至日
-    而非自然日；超时/失败时返回 {"status": "skipped", "reason": ...} 而非 None，
-    使报告能显式区分「未扫描」与「无缺口」。
+    today 与报告期（as_of_date）对齐，使保留窗口剩余天数判定基于数据截至日而非
+    自然日；scope 与报告主体（KPI / 覆盖率 / 异常明细）同源，避免用户按市场过滤时
+    缺口附录仍报出其他市场的缺口。超时/失败时返回 {"status": "skipped", "reason": ...}
+    而非 None，使报告能显式区分「未扫描」与「无缺口」。
     """
     kwargs: dict[str, Any] = {"today": today} if today else {}
+    if scope is not None:
+        kwargs["scope"] = scope
     return get_health_safe(start_date, end_date, timeout=12.0, **kwargs)
 
 

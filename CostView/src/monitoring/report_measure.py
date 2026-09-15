@@ -99,7 +99,8 @@ def resolve_scope(exchange: Optional[str]) -> ReportScope:
     values = split_values(exchange)
     if not values:
         return ReportScope(mode=WHITELIST_MODE, exchanges=bdib_whitelist())
-    normalized = tuple(str(v).upper() for v in values)
+    # 大写归一后再去重（'US, us' → 单值），避免 IN 子句与 describe() 出现重复市场
+    normalized = tuple(dict.fromkeys(str(v).upper() for v in values))
     whitelist = set(bdib_whitelist())
     outside = tuple(v for v in normalized if v not in whitelist)
     return ReportScope(mode=USER_MODE, exchanges=normalized, out_of_scope=outside)
@@ -224,6 +225,28 @@ def order_par_aggregate_sql(where: str, *, alias: Optional[str] = None) -> str:
 def order_par_key(order_id: Any, date: Any, exchange: Any) -> tuple[str, str, str]:
     """订单级聚合键（字段顺序与 ``ORDER_PAR_GROUP_COLUMNS`` 一致）。"""
     return (str(order_id or ""), str(date or ""), str(exchange or ""))
+
+
+# ── 3.5 异常明细下限门槛的豁免（严重未完成必须可见）────────────────────────
+
+#: 豁免笔数 / 金额下限的规则键（fill_pct = 完成率规则）
+FLOOR_EXEMPT_RULE: str = "fill_pct"
+#: 触发豁免的严重度档（critical = 严重未完成，含零成交）
+FLOOR_EXEMPT_SEVERITY: str = "critical"
+
+
+def is_floor_exempt(hits: Sequence[dict[str, Any]]) -> bool:
+    """命中列表是否含「豁免下限」的严重档。
+
+    该档的目标样本恰是低完成率路由（含完全未执行），用笔数 / 金额下限过滤会把最严重
+    的情形整体剔除，故必须豁免；口径声明见 ``report_spec.anomaly_floor_exempt``，
+    两者由测试断言一致（改规则名时声明层不会静默脱钩）。
+    """
+    return any(
+        hit.get("key") == FLOOR_EXEMPT_RULE
+        and hit.get("severity") == FLOOR_EXEMPT_SEVERITY
+        for hit in hits
+    )
 
 
 # ── 4. 金额换算与价格回退 ──────────────────────────────────────────────────

@@ -67,21 +67,27 @@ class BdibHealthService:
         end_date: str,
         *,
         today: Optional[date] = None,
+        scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
         """扫描 [start_date, end_date] 内有成交交易日的 BDIB 健康度。
 
+        scope 为报告作用域（None → 默认 BDIB 白名单）：成交 ticker 集合与缺口金额
+        均按同一作用域裁剪，使报告头的缺口附录与 KPI / 覆盖率 / 异常明细严格同口径
+        —— 此前健康扫描独立取白名单，用户按市场过滤时两者只在"恰好同源"时一致。
+
         Returns:
-            {"start_date", "end_date", "retention_days", "dates": [...],
-             "summary": {各状态日数、最近缺口日期、缺口 ticker 总数}}
+            {"start_date", "end_date", "status", "scope", "retention_days",
+             "dates": [...], "summary": {各状态日数、最近缺口日期、缺口 ticker 总数}}
         """
         today = today or date.today()
-        fill_map = self._load_fill_tickers(start_date, end_date)
+        resolved = scope or rm.resolve_scope(None)
+        fill_map = self._load_fill_tickers(start_date, end_date, resolved)
         if not fill_map:
-            return self._empty_result(start_date, end_date)
+            return self._empty_result(start_date, end_date, resolved)
 
         sql_rows, sql_tickers = self._scan_sqlite(start_date, end_date)
         pq_rows, pq_tickers = self._scan_parquet(start_date, end_date)
-        ticker_weight = self._load_ticker_weight(start_date, end_date)
+        ticker_weight = self._load_ticker_weight(start_date, end_date, resolved)
 
         dates = []
         for d in sorted(fill_map):
@@ -96,6 +102,7 @@ class BdibHealthService:
             "start_date": start_date,
             "end_date": end_date,
             "status": "ok",
+            "scope": resolved.to_payload(),
             "retention_days": self._retention_days,
             "dates": dates,
             "summary": self._build_summary(dates),
@@ -104,19 +111,19 @@ class BdibHealthService:
     # ── 数据加载 ─────────────────────────────────────────────────────────
 
     def _load_fill_tickers(
-        self, start_date: str, end_date: str,
+        self, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, set[str]]:
-        """processed_fills 中有成交的 (日期 → ticker 集合)。
+        """processed_fills 中有成交的 (日期 → ticker 集合)，按报告作用域裁剪。
 
-        仅统计 BDIB_EXCHANGE 白名单内交易所的 ticker —— 白名单外交易所
-        （CN/BZ/MM/PW/DC/IT/NZ/MUMBAI 等，2026-07-16 起移出分析范围）的
-        ticker 本就不拉取 BDIB 行情，将其计入缺口会虚高"BDIB 缺口"、拉低
-        指标覆盖率的观感（实际为 out-of-scope，非数据缺失）。
+        默认口径为 BDIB_EXCHANGE 白名单：白名单外交易所（CN/BZ/MM/PW/DC/IT/NZ 等，
+        2026-07-16 起移出分析范围）本就不拉取 BDIB 行情，将其计入缺口会虚高
+        "BDIB 缺口"、拉低指标覆盖率的观感（实际为 out-of-scope，非数据缺失）。
+        作用域由调用方传入（与 KPI / 覆盖率 / 异常明细同源，不再各自取白名单）。
 
-        注：白名单过滤依赖 processed_fills 的 Exchange 列。部分测试/旧表无该列，
+        注：作用域过滤依赖 processed_fills 的 Exchange 列。部分测试/旧表无该列，
         此时退化为"全部成交 ticker"（与历史行为一致），避免硬失败。
         """
-        condition, scope_params = rm.scope_condition(rm.resolve_scope(None))
+        condition, scope_params = rm.scope_condition(scope or rm.resolve_scope(None))
         conn = None
         try:
             conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
@@ -331,17 +338,17 @@ class BdibHealthService:
         return tickers
 
     def _load_ticker_weight(
-        self, start_date: str, end_date: str,
+        self, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
     ) -> dict[tuple[str, str], tuple[int, float]]:
         """tca_route_summary 按 (日期, ticker) 汇总的 (route 数, 成交金额)。
 
         金额优先用 USD（tca.fx_rate，缺失时回退本币），用于量化缺口的成交影响面；
-        作用域与覆盖率 / KPI 同为 BDIB 白名单（report_measure 唯一实现）。
+        作用域由调用方传入，与覆盖率 / KPI 同源（report_measure 唯一实现）。
         注意：此处未接 fill_bdib 汇率回填（与 KPI 的 COALESCE 链不同），回退本币的
         可能性高于 KPI 金额 —— 属已知口径差异，见 docs/report-tca-known-limitations.md。
         表缺失 / 查询失败时返回空字典（不阻断健康分级主体逻辑）。
         """
-        condition, scope_params = rm.scope_condition(rm.resolve_scope(None))
+        condition, scope_params = rm.scope_condition(scope or rm.resolve_scope(None))
         conn = None
         try:
             conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
@@ -388,11 +395,15 @@ class BdibHealthService:
                 notional += entry[1]
         return routes, notional
 
-    def _empty_result(self, start_date: str, end_date: str) -> dict[str, Any]:
+    def _empty_result(
+        self, start_date: str, end_date: str,
+        scope: Optional[rm.ReportScope] = None,
+    ) -> dict[str, Any]:
         return {
             "start_date": start_date,
             "end_date": end_date,
             "status": "ok",
+            "scope": (scope or rm.resolve_scope(None)).to_payload(),
             "retention_days": self._retention_days,
             "dates": [],
             "summary": self._build_summary([]),
@@ -415,11 +426,12 @@ def get_health_safe(
 
     返回结构显式区分三态，不再用 None 表示降级（避免与「无缺口」在渲染上
     不可区分）：
-      - 正常：health dict（含 ``status: "ok"``）
+      - 正常：health dict（含 ``status: "ok"`` 与 ``scope``）
       - 超时：``{"status": "skipped", "reason": "timeout"}``
       - 异常：``{"status": "skipped", "reason": "error"}``
 
     ``health_service`` 可注入（测试用）；默认 ``BdibHealthService``。
+    ``**kwargs`` 透传给 ``get_health``（``today`` 对齐报告期、``scope`` 对齐报告作用域）。
     """
     if health_service is None:
         health_service = BdibHealthService

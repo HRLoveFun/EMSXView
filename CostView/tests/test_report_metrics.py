@@ -781,6 +781,9 @@ class TestReportSpec:
         assert tuple(spec["unfilled_price_fallbacks"]) == rm.UNFILLED_PRICE_FALLBACKS
         assert tuple(spec["scope_modes"]) == (rm.WHITELIST_MODE, rm.USER_MODE)
         assert spec["scope_whitelist_source"] == "Config.BDIB_EXCHANGE"
+        assert spec["anomaly_floor_exempt"] == {
+            "rule": rm.FLOOR_EXEMPT_RULE, "severity": rm.FLOOR_EXEMPT_SEVERITY,
+        }
 
     def test_header_shows_preset_and_as_of(self, tca_mgr_factory):
         """报告头自证报告期：preset + 数据截至日 + 口径版本。"""
@@ -984,3 +987,59 @@ class TestMeasureConsistency:
         assert len(rows) == 1
         assert rows[0].order_par_rate == pytest.approx(1.2)
         assert rows[0].order_par_gt100 is True
+
+
+# ── 复核整改（2026-09-15）：归一化 / 契约绑定 / 订单级作用域 / 零成交对称性 ──
+
+
+class TestReviewRemediation:
+    def test_scope_values_normalized_and_deduped(self):
+        """市场值大写归一后去重：'US, us' 不产生重复 IN 项与重复作用域文案。"""
+        scope = rm.resolve_scope("US, us, hk")
+
+        assert scope.exchanges == ("US", "HK")
+        assert scope.describe() == "用户指定市场 US, HK"
+        assert rm.resolve_scope("US").exchanges == ("US",)
+
+    def test_floor_exempt_contract_bound_to_implementation(self):
+        """下限豁免的声明（结构化）与实现常量绑定，改规则名时不会静默脱钩。"""
+        assert rm.is_floor_exempt(
+            [{"key": rm.FLOOR_EXEMPT_RULE, "severity": rm.FLOOR_EXEMPT_SEVERITY}]
+        ) is True
+        assert rm.is_floor_exempt([{"key": "fill_pct", "severity": "warning"}]) is False
+        assert rm.is_floor_exempt([{"key": "overfill_pct", "severity": "critical"}]) is False
+        assert rm.is_floor_exempt([]) is False
+
+    def test_order_par_aggregation_honours_scope(self, tca_mgr_factory):
+        """订单参与率聚合按作用域裁剪（与一致性探针同契约），不再无谓聚合全量市场。"""
+        from CostView.src.monitoring.anomaly_query import _load_order_par_sums
+        from data_access.storage.connection import AccessTier
+
+        mgr = tca_mgr_factory([
+            {"OrderId": "P1", "RouteId": "R1", "Exchange": "US", "par_rate": 0.6},
+            {"OrderId": "P1", "RouteId": "R2", "Exchange": "HK", "par_rate": 0.6},
+        ])
+        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+        try:
+            scoped = _load_order_par_sums(
+                conn, "20260803", "20260803", rm.resolve_scope("US"),
+            )
+        finally:
+            conn.close()
+
+        assert scoped[rm.order_par_key("P1", "20260803", "US")] == pytest.approx(0.6)
+        # 作用域在聚合内裁剪：白名单外/未选市场的键根本不参与聚合
+        assert rm.order_par_key("P1", "20260803", "HK") not in scoped
+
+    def test_fill_null_treated_as_zero_fill(self, tca_mgr_factory):
+        """fill 缺失的零成交路由与 KPI 口径对称：计入零成交且不被下限屏蔽。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "Z1", "fill": None, "RouteShares": 1000.0, "fill_count": 0,
+             "p_avg": None, "Amount": 0.0, "algo": "VWAP"},
+        ])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+
+        assert report["extra_kpis"]["zero_fill_routes"] == 1
+        assert [r["order_id"] for r in report["anomaly"]["rows"]] == ["Z1"]
+        assert report["anomaly"]["rows"][0]["completion_rate"] == 0.0
+        assert report["anomaly"]["rows"][0]["unfilled"] == pytest.approx(1000.0)

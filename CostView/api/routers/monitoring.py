@@ -24,6 +24,7 @@ from CostView.src.monitoring import (
     LAST_PRESETS,
     BdibHealthService,
     MetricCoverageService,
+    ReportScope,
     TcaReportAggregator,
     ThresholdRules,
     TimeRange,
@@ -33,6 +34,7 @@ from CostView.src.monitoring import (
     get_default_thresholds,
     get_health_safe,
     render_report_html,
+    resolve_scope,
     resolve_time_range,
 )
 from CostView.src.tca_cache import TcaCacheManager
@@ -315,6 +317,7 @@ async def export_tca_html(
         )
         health = _load_health_appendix(
             tr.start_date, tr.end_date, today=_parse_as_of(tr.as_of_date),
+            scope=resolve_scope(exchange),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -360,14 +363,18 @@ def _parse_as_of(value: Optional[str]) -> Optional[date]:
 
 def _load_health_appendix(
     start_date: str, end_date: str, today: Optional[date] = None,
+    scope: Optional[ReportScope] = None,
 ) -> dict:
     """加载 BDIB 健康数据作附录；带超时护栏（导出态超时较短，避免拖垮报告）。
 
     today 与报告期（as_of_date）对齐，使保留窗口剩余天数判定基于数据截至日；
-    超时/失败时返回 {"status": "skipped", "reason": ...} 而非 None，
-    使报告能显式区分「未扫描」与「无缺口」。
+    scope 与报告主体（KPI / 覆盖率 / 异常明细）同源，避免用户按市场过滤时缺口附录
+    仍报出其他市场的缺口。超时/失败时返回 {"status": "skipped", "reason": ...} 而非
+    None，使报告能显式区分「未扫描」与「无缺口」。
     """
     kwargs: dict = {"today": today} if today else {}
+    if scope is not None:
+        kwargs["scope"] = scope
     return get_health_safe(
         start_date, end_date, timeout=12.0,
         health_service=BdibHealthService, **kwargs,

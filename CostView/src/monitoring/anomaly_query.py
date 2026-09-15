@@ -270,31 +270,23 @@ def evaluate_route_thresholds(
 _OVERFILL_EPS = 1e-9
 
 
-#: 豁免笔数 / 金额下限的规则：fill_pct 命中 critical 档 = 严重未完成（含零成交），
-#: 而该档的目标样本恰是低完成率路由 —— 用下限过滤会把最严重的情形整体剔除。
-_FLOOR_EXEMPT_RULES: frozenset[str] = frozenset({"fill_pct"})
-
-
-def _floor_exempt(hits: list[dict[str, Any]]) -> bool:
-    """命中严重未完成是否豁免笔数 / 金额下限（零成交路由须在异常清单中可见）。"""
-    return any(
-        hit.get("key") in _FLOOR_EXEMPT_RULES and hit.get("severity") == "critical"
-        for hit in hits
-    )
-
-
 def _load_order_par_sums(
-    conn, start_date: str, end_date: str,
+    conn, start_date: str, end_date: str, scope: rm.ReportScope,
 ) -> dict[tuple[str, str, str], float]:
-    """订单级参与率求和（只受报告期约束，不受 broker/algo/symbol 维度过滤影响）。
+    """订单级参与率求和（受报告期 + 作用域约束，不受 broker/algo/symbol 维度过滤影响）。
 
     口径的唯一实现见 ``report_measure.order_par_aggregate_sql``，与覆盖率一致性探针
-    共用，保证「订单参与率 >100%」在两处可对账。
+    共用（两处均传作用域），保证「订单参与率 >100%」可对账；作用域条件缺失时虽因
+    聚合键含 Exchange 而结果等价，但会无谓聚合全量市场（大区间下内存 / 耗时浪费），
+    且一旦作用域细到 symbol 级即静默分叉，故按契约显式传入。
     """
-    cursor = conn.execute(
-        rm.order_par_aggregate_sql("order_as_of_date BETWEEN ? AND ?"),
-        [start_date, end_date],
-    )
+    condition = "order_as_of_date BETWEEN ? AND ?"
+    params: list[Any] = [start_date, end_date]
+    scope_sql, scope_params = rm.scope_condition(scope)
+    if scope_sql:
+        condition = f"{condition} AND {scope_sql}"
+        params.extend(scope_params)
+    cursor = conn.execute(rm.order_par_aggregate_sql(condition), params)
     sums: dict[tuple[str, str, str], float] = {}
     for order_id, oad, exchange, par_sum in cursor.fetchall():
         total = _to_float(par_sum)
@@ -448,10 +440,12 @@ def query_anomaly_routes_page(
             conditions.append(scope_sql)
             params.extend(scope_params)
 
-        # 订单参与率：独立全量聚合（仅报告期 + 作用域），不受 broker/algo/symbol
+        # 订单参与率：独立全量聚合（报告期 + 作用域），不受 broker/algo/symbol
         # 维度过滤影响 —— 否则订单拆到多 broker 时过滤视图下只剩子集参与率，
         # 「订单参与率 >100%」探针系统性低估，且与覆盖率一致性探针不可对账。
-        order_par_sum = _load_order_par_sums(conn, start_date, end_date)
+        order_par_sum = _load_order_par_sums(
+            conn, start_date, end_date, resolved_scope,
+        )
 
         join = _anomaly_fx_join() if fbfx_ready else ""
         fx_select = "fx_rate" if has_fx else "NULL AS fx_rate"
@@ -494,10 +488,15 @@ def query_anomaly_routes_page(
         unfilled = None
         completion_rate = None
         overfill = False
-        if route_shares is not None and fill is not None and route_shares > 0:
-            unfilled = route_shares - fill
-            completion_rate = fill / route_shares
-            overfill = fill > route_shares * (1.0 + _OVERFILL_EPS)
+        # fill 缺失（旧库 / 异常行）按零成交处理，与 KPI 的 COALESCE(fill, 0) 同口径：
+        # 否则 completion_rate 为 None → fill_pct 不命中 → 该路由从异常清单隐身，
+        # 而零成交 KPI 卡又能数到它（两处不对称）。fill 的 NULL 原因为 "source"
+        # （写入侧始终非空），故正常数据下本分支不触发，仅为旧 schema 兜底。
+        if route_shares is not None and route_shares > 0:
+            effective_fill = 0.0 if fill is None else fill
+            unfilled = route_shares - effective_fill
+            completion_rate = effective_fill / route_shares
+            overfill = effective_fill > route_shares * (1.0 + _OVERFILL_EPS)
         # 预计算完成率与订单参与率注入 row，供 fill_pct / overfill_pct /
         # order_par_gt100 规则评估（阈值按百分比 0-100）
         order_par_rate = order_par_sum.get(_order_par_key(row))
@@ -506,7 +505,7 @@ def query_anomaly_routes_page(
         hits = evaluate_route_thresholds(row, rules)
         if not hits:
             continue
-        exempt = _floor_exempt(hits)
+        exempt = rm.is_floor_exempt(hits)
         # 填充笔数下限过滤：仅对 algo <> "close" 的路由生效（下限为 0 或列缺失时关闭）
         algo_value = (row.get("algo") or "")
         if floor_active and not exempt and algo_value != "close":

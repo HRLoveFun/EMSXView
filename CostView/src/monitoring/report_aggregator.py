@@ -413,10 +413,15 @@ class TcaReportAggregator:
         返回 {brokers, algos, symbols, exchanges}，各按累计次数降序截断
         （控制 payload 大小）。维度表未初始化（首次部署尚未刷新）时回退
         原时间范围查询，保证功能可用。
+
+        市场选项**两条路径都按 BDIB 白名单过滤**：维度表是全市场目录（含已移出
+        分析范围的市场），若只有回退路径过滤，同一份报告的市场可选集会随「维度表
+        是否就绪」漂移。用户经 API 显式传入白名单外市场时，仍由
+        ``filters.scope.out_of_scope`` 在报告头告警承接。
         """
         persisted = _get_persisted_options(self._mgr, conn=conn)
         if persisted is not None:
-            return persisted
+            return TcaReportAggregator._market_whitelist_only(persisted)
         # 回退：维度表不可用，按原口径对明细表查询（忽略 exchange 过滤）
         result: dict[str, list[str]] = {}
         for dim, col, limit in (
@@ -437,8 +442,19 @@ class TcaReportAggregator:
             except Exception as exc:
                 logger.debug("filter_options[%s] 查询失败: %s", dim, exc)
                 result[dim] = []
-        # 回退模式下的市场选项来自 markets 清单（与 _query_markets 同口径）
+        # 回退模式下的市场选项来自 markets 清单（与 _query_markets 同口径，已含白名单）
         result["exchanges"] = [m["exchange"] for m in self._query_markets(conn, where, params)]
+        return result
+
+    @staticmethod
+    def _market_whitelist_only(options: dict[str, list[str]]) -> dict[str, list[str]]:
+        """把维度表返回的市场下拉裁剪到 BDIB 白名单内（保序、忽略大小写差异）。"""
+        whitelist = set(rm.bdib_whitelist())
+        result = dict(options)
+        result["exchanges"] = [
+            str(ex) for ex in options.get("exchanges") or []
+            if str(ex).strip().upper() in whitelist
+        ]
         return result
 
     def _query_kpi(self, conn, where: str, params: list[Any]) -> dict[str, Any]:

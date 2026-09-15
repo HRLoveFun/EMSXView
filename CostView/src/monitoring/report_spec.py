@@ -28,8 +28,9 @@ REPORT_SPEC: dict[str, Any] = {
     "scope_whitelist_source": "Config.BDIB_EXCHANGE",
     #: 未成交金额的价格回退链（p_avg 缺失时依次回退；全部缺失则该路由不计入并披露条数）
     "unfilled_price_fallbacks": ("p_avg", "p_arrival", "p_decision", "p_close"),
-    #: 异常明细下限门槛（笔数 / 金额）的豁免项：严重未完成（fill_pct critical）必须可见
-    "anomaly_floor_exempt": "fill_pct_critical",
+    #: 异常明细下限门槛（笔数 / 金额）的豁免项：严重未完成必须可见（结构化绑定规则与档位，
+    #: 实现常量见 report_measure.FLOOR_EXEMPT_RULE / FLOOR_EXEMPT_SEVERITY，由测试断言一致）
+    "anomaly_floor_exempt": {"rule": "fill_pct", "severity": "critical"},
     #: 异常严重度档位（warning 决定是否入清单，critical 用于分级标注）
     "anomaly_severity_levels": ("warning", "critical"),
     #: HTML 明细渲染上限（全量经导出 CSV 获取）
