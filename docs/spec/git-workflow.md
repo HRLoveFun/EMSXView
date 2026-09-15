@@ -62,6 +62,7 @@ Documents/
 | `wt-list.ps1` | 列出全部 worktree 及各分支领先/落后 origin/main 的提交数 |
 | `wt-sync.ps1` | 每日同步：对指定（或全部）worktree 执行 `fetch + rebase origin/main` |
 | `wt-finish.ps1` | 完成：校验分支已合并后移除 worktree、prune、可选删分支 |
+| `wt-clean.ps1` | 清理残留：预演/移除已合并 worktree、清孤儿目录、prune、清 `_tmp/`（默认 dry-run） |
 | `wt-common.ps1` | 共享函数库（勿直接执行） |
 
 ### 3.1 新任务
@@ -119,6 +120,21 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 脚本会拒绝移除分支尚未合并进 origin/main 的 worktree（`-Force` 可强行移除，未提交改动将丢失，慎用）。
 
 原生等价：`git worktree remove ../EMSXView-wt-xxx` → `git worktree prune` → `git branch -d <分支>`
+
+### 3.5 清理残留与临时目录
+
+```powershell
+./scripts/devtools/wt-clean.ps1                  # 预演：只报告不删除（同时打印 worktree list / status / _tmp）
+./scripts/devtools/wt-clean.ps1 -Apply           # 执行：移除已合并或无改动的 worktree + prune + 清 _tmp
+./scripts/devtools/wt-clean.ps1 probe -Apply     # 只处理 EMSXView-wt-probe（按任务名过滤）
+./scripts/devtools/wt-clean.ps1 -Apply -Force    # 额外放行：未合并分支 / 脏 worktree / 孤儿目录 / 在途 _tmp（会丢改动）
+```
+
+- **默认 dry-run**：不带 `-Apply` 只输出计划与状态；`-Apply` 才真正删除。
+- **硬边界**：只扫描仓库根的兄弟目录且目录名必须匹配 `EMSXView-wt-*`——主工作树与任意路径天然排除。
+- **常规候选不带 `--force`**：已合并分支 + 无未提交改动的 worktree 用 `git worktree remove <path>`，让 git 再兜底一次；仅「需强制」的候选才加 `--force`。
+- **`_tmp/` 在途保护**：最近 30 分钟内变更的子项视为在途任务产物，默认跳过（`-TmpMinAgeMinutes` 调整，`-Force` 覆盖；`-SkipTmp` 完全跳过）。
+- 原生等价：`git worktree remove ../EMSXView-wt-xxx --force` → `git worktree prune` → `Remove-Item -Recurse -Force _tmp/*`（无 dry-run 保护）。
 
 ---
 
@@ -246,7 +262,7 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 |---|---|---|---|
 | 事件自动化 | `.githooks/`（pre-commit / commit-msg / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、AI 署名拦截、worktree 就绪清单、依赖变更提示、main 直推保护、推送前落后检测 / 自动 rebase | pre-commit / commit-msg 阻断；pre-push 自动 rebase 成功后中断待重推、遇冲突阻断；其余提示 |
 | 时间自动化 | Windows 计划任务（`wt-install-schedule.ps1` 注册，工作日 09:00）运行 `wt-sync.ps1` | 每日 fetch + rebase（未提交自动跳过、冲突自动 abort），日志 `logs/wt-sync-daily.log` | 仅快进 rebase，不清理 |
-| 显式半自动 | `wt-new` / `wt-finish` | 创建 / 清理任务 | 有确认门禁（未合并拒绝移除） |
+| 显式半自动 | `wt-new` / `wt-finish` / `wt-clean` | 创建 / 清理任务 | 有确认门禁（未合并拒绝移除；`wt-clean` 默认 dry-run，删除须显式 `-Apply`） |
 | 永不自动 | — | 删除 worktree / 分支、merge 到 main、数据管道写入、`push -f` | 必须人工确认 |
 
 ### hooks 说明
