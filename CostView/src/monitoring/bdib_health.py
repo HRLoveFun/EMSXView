@@ -442,15 +442,8 @@ class BdibHealthService:
 
     @staticmethod
     def _fbfx_cte() -> str:
-        """fill_bdib 汇率回填 CTE（列名约定与 report_aggregator._fbfx_cte 同源）。"""
-        return (
-            "WITH _fbfx AS ("
-            "SELECT OrderId, RouteId, order_as_of_date AS fxf_oad, "
-            "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
-            "FROM fill_bdib WHERE fx_rate IS NOT NULL "
-            "AND order_as_of_date BETWEEN ? AND ? "
-            "GROUP BY OrderId, RouteId, order_as_of_date) "
-        )
+        """fill_bdib 汇率回填 CTE（实现见 report_measure.fbfx_cte）。"""
+        return rm.fbfx_cte()
 
     @staticmethod
     def _fbfx_join() -> str:

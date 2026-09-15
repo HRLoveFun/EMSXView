@@ -291,6 +291,36 @@ def usd_fx_expr(effective_rate: str, currency_column: str = "Currency") -> str:
     )
 
 
+def fbfx_cte(*, prefix_id_columns: bool = False) -> str:
+    """fill_bdib 汇率回填 CTE（替代临时表，兼容 READ 只读事务）。
+
+    按 ``(OrderId, RouteId, order_as_of_date)`` 以 ``fill_volume`` 加权聚合 fx_rate，
+    用于回填 ``tca_route_summary`` 缺失的 fx_rate。这是该换算口径的**唯一实现**：
+    2026-09-15 前 ``report_aggregator`` / ``bdib_health`` / ``anomaly_query`` 各持
+    一份拷贝（历史上已多次只改其中一处），此处收敛成单一函数。
+
+    ``prefix_id_columns=True`` 时 id 列输出 ``fxf_oid`` / ``fxf_rid``——用于主查询
+    SELECT 列表未加表别名限定的场景，避免 CTE 与主表同名列产生歧义。
+
+    参数约定：CTE 内的 ``BETWEEN ? AND ?`` 复用查询的前两个日期参数，调用方须把
+    ``[start_date, end_date]`` 前置到参数列表最前（三处调用方共用此约定）。
+    """
+    select_expr = (
+        "SELECT OrderId AS fxf_oid, RouteId AS fxf_rid, "
+        "order_as_of_date AS fxf_oad, "
+        if prefix_id_columns
+        else "SELECT OrderId, RouteId, order_as_of_date AS fxf_oad, "
+    )
+    return (
+        "WITH _fbfx AS ("
+        + select_expr
+        + "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
+        "FROM fill_bdib WHERE fx_rate IS NOT NULL "
+        "AND order_as_of_date BETWEEN ? AND ? "
+        "GROUP BY OrderId, RouteId, order_as_of_date) "
+    )
+
+
 def unfilled_price_expr(available: Sequence[str]) -> Optional[str]:
     """未成交金额的价格回退表达式（按 ``UNFILLED_PRICE_FALLBACKS`` 保序取可用列）。
 

@@ -681,16 +681,10 @@ def _has_column(conn: Any, table: str, column: str) -> bool:
 
 # ── fx 汇率回填（异常明细成交金额 USD 补全，与 report_aggregator 同源）────────
 
-#: fill_bdib 汇率回填 CTE（替代临时表，兼容 READ 只读事务）。列名加 fxf_ 前缀避免与主表
-#: OrderId/RouteId/order_as_of_date 列名冲突（主查询 SELECT 列表未加表别名限定）。
-_ANOMALY_FX_CTE = (
-    "WITH _fbfx AS ("
-    "SELECT OrderId AS fxf_oid, RouteId AS fxf_rid, order_as_of_date AS fxf_oad, "
-    "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
-    "FROM fill_bdib WHERE fx_rate IS NOT NULL "
-    "AND order_as_of_date BETWEEN ? AND ? "
-    "GROUP BY OrderId, RouteId, order_as_of_date) "
-)
+#: fill_bdib 汇率回填 CTE（替代临时表，兼容 READ 只读事务）。实现收敛至
+#: ``report_measure.fbfx_cte``；id 列加 fxf_ 前缀避免与主表同名列冲突
+#: （异常查询的 SELECT 列表未加表别名限定）。
+_ANOMALY_FX_CTE = rm.fbfx_cte(prefix_id_columns=True)
 
 
 def _prepare_anomaly_fx(conn) -> bool:
