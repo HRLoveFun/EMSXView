@@ -954,3 +954,111 @@ class TestTcaReportAggregator:
 
 
 # ── report_dims（筛选维度持久化列表）────────────────────────────────────────
+
+
+# ── X7：export-html 端到端（zip 打包闭环）──────────────────────────────────
+
+
+class TestExportHtmlZipClosure:
+    """export-html 的 CSV/zip 交付闭环（X7 台账承诺的端到端集成测试）。"""
+
+    @staticmethod
+    def _fake_report() -> dict:
+        """最小可用报告（含异常明细行，渲染器按 .get 宽松消费）。"""
+        return {
+            "filters": {"start_date": "20260803", "end_date": "20260803"},
+            "kpi": None,
+            "anomaly": {
+                "count": 2,
+                "rows": [
+                    {"order_id": "O1", "route_id": "R1", "date": "20260803",
+                     "hits": []},
+                    {"order_id": "O2", "route_id": "R1", "date": "20260803",
+                     "hits": []},
+                ],
+                "rows_truncated": 0,
+                "export_ref": None,
+                "throttle": {},
+                "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
+            },
+        }
+
+    def test_export_html_bundles_csv_when_rows_present(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        import asyncio
+        import io
+        import zipfile
+
+        from CostView.api.routers import monitoring as monitoring_router
+        from fastapi.responses import Response  # noqa: F401  （类型提示用途）
+
+        monkeypatch.setattr(
+            monitoring_router.tempfile, "gettempdir", lambda: str(tmp_path),
+        )
+
+        async def _fake_build(params: dict):
+            return self._fake_report(), False
+
+        monkeypatch.setattr(
+            monitoring_router, "_build_report_cached", _fake_build,
+        )
+        monkeypatch.setattr(
+            monitoring_router,
+            "_load_health_appendix",
+            lambda *a, **k: {"status": "skipped", "reason": "timeout"},
+        )
+
+        response = asyncio.run(monitoring_router.export_tca_html(
+            start_date="20260803", end_date="20260803",
+            last=None, broker=None, algo=None, symbol=None, exchange=None,
+            metrics=None, thresholds=None,
+            min_fill_count=10, min_notional_usd=10000.0,
+        ))
+
+        # 有异常明细 → zip 响应（HTML + CSV 打包），export_ref 回填进 HTML
+        assert response.media_type == "application/zip"
+        disposition = response.headers["content-disposition"]
+        assert "tca_report_20260803_20260803.zip" in disposition
+        bundle = zipfile.ZipFile(io.BytesIO(response.body))
+        names = bundle.namelist()
+        assert any(n.endswith(".html") for n in names)
+        csv_names = [n for n in names if n.startswith("anomaly_")]
+        assert len(csv_names) == 1
+        html = bundle.read([n for n in names if n.endswith(".html")][0]).decode("utf-8")
+        assert csv_names[0] in html
+        assert "全量明细导出" in html
+        csv_content = bundle.read(csv_names[0]).decode("utf-8-sig")
+        assert "O1" in csv_content and "O2" in csv_content
+
+    def test_export_html_plain_when_no_rows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """无异常明细 → 纯 HTML 下载（不打包空 CSV）。"""
+        import asyncio
+
+        from CostView.api.routers import monitoring as monitoring_router
+
+        async def _fake_build(params: dict):
+            report = self._fake_report()
+            report["anomaly"]["rows"] = []
+            return report, False
+
+        monkeypatch.setattr(
+            monitoring_router, "_build_report_cached", _fake_build,
+        )
+        monkeypatch.setattr(
+            monitoring_router,
+            "_load_health_appendix",
+            lambda *a, **k: {"status": "skipped", "reason": "timeout"},
+        )
+
+        response = asyncio.run(monitoring_router.export_tca_html(
+            start_date="20260803", end_date="20260803",
+            last=None, broker=None, algo=None, symbol=None, exchange=None,
+            metrics=None, thresholds=None,
+            min_fill_count=10, min_notional_usd=10000.0,
+        ))
+
+        assert response.media_type == "text/html; charset=utf-8"
+        assert b"<!DOCTYPE html>" in response.body

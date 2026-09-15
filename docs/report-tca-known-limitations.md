@@ -225,13 +225,17 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 
 
 
-#### 开放验证项（黄金样本证据 → 生产证据的最后一公里）
+#### 开放验证项（黄金样本证据 → 生产证据的最后一公里）——✅ 已闭环（2026-09-15 第十轮哨兵触发）
 
-- **D8 逐行回退与 fill_bdib 回填路径**：黄金样本 fx 全覆盖（`unconvertible=0`、回填 CTE 未触发），
-  仅单测覆盖。真实缺 fx 数据首次出现时回补数值验证（回补前后缺口金额对比）。
-- **D14 探针「零误豁免」结论**：仅在黄金样本（4668 条、GBp 356 条）上成立（探针与 p_arrival
-  NULL 集合完全重合）。需在生产数据跑同样校验（对比 `bdib_gap_routes` 与 bdib_missing 指标
-  NULL 集合）后，方可把「超预期精度」升级为台账正式结论。
+- **D8 逐行回退路径**：✅ 已验证（生产）。哨兵命中历史区间 20250926~20260421 共 2735 条非 USD
+  路由缺 `fx_rate`；对该窗口新旧口径对比：旧 270,408,717,327 → 新 USD 34,769,191,285，
+  **未换算本币金额 355,449,145,419（占比 91.09%）** —— 旧口径「整组 COALESCE 回退」把这些
+  本币金额静默混入/丢弃，新口径全部转为显式披露；minor-unit 修正同时消除（近 10 天窗口
+  fx 全覆盖、差异 −86.77% 与黄金样本 −91.24% 同因，均为 GBp 等小计价单位修正）。
+- **D14 探针「零误豁免」结论**：✅ 已升级为正式结论。生产样本（哨兵实时校验）：bdib_gap
+  217 条均落在 p_arrival NULL 集内（NULL 共 1182 条，其余为零成交 / 收盘竞价等其他结构内
+  NULL），零过度豁免；此前黄金样本 333 条同样与 NULL 集完全重合。
+- 后续由 `scripts/ops/open_validation_sentinel.py` 周期哨兵守护（触发条件再现时提醒复核）。
 
 ### 2026-09-15 — 第九轮（P1-b 呈现层：双轴零轴 / 节流披露 / 脚注扩展 / 小多图共享域）
 
@@ -249,6 +253,16 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 `test_throttle_stats_counted`（新签名）/ `test_legacy_two_tuple_signature_still_works`（旧签名兼容）/
 `test_build_report_discloses_throttle`（第二解包点 + 渲染披露）。
 
+### 2026-09-15 — 第十轮（P2 首批：双端标记对齐 / X7 端到端测试 / 开放验证项主动哨兵）
+
+| # | 事项 | 处理 |
+|---|------|------|
+| P2-1 | 前端异常明细表未渲染「超成交 / >100%」标记（HTML 端已披露，双端不对账 —— G1/F1 同族，按复核建议提为 P2 首项） | ✅ 已修：`AnomalyTable.tsx` 完成率单元格附「超成交」标记、订单参与率单元格附「>100%」标记（`TcaAnomalyRow.overfill` / `order_par_gt100` 字段既有）；新增 `anomaly-table.test.tsx`（命中渲染 / 未命中不渲染两条断言，文案与 HTML 逐字对齐） |
+| P2-2 | X7 悬空承诺：export-html 的 zip 响应缺端到端集成测试 | ✅ 已修：`test_monitoring.py::TestExportHtmlZipClosure` —— 有明细 → 断言 zip 响应（media_type / 文件名 / 包内 HTML+CSV / export_ref 回填 / CSV 内容）；无明细 → 纯 HTML 下载。X7 自此闭环 |
+| P2-3 | 开放验证项被动挂账（等数据出现），存在被淡忘风险 | ✅ 已修：新增 `scripts/ops/open_validation_sentinel.py` 只读哨兵（D8 缺 fx 探针 + D14 探针过度豁免比对，`--strict` 供质量门接线），并注册每周定时任务 —— 首轮运行即命中 D8（见上方开放验证项闭环记录） |
+
+本批不涉及口径变更，`SPEC_VERSION` 维持 `2026.09.5`。
+
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
@@ -256,5 +270,4 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
   EMSXDataPipeline）排查，本仓库以探针持续披露。
 - **指标命名与标签**：「总成交股数」卡片实为 `SUM(RouteShares)`（委托股数，副标题才澄清）；`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
 - **币种兜底**：`Currency IS NULL` 时按 USD（fx=1.0）兜底且计入 fx 覆盖率分子 —— 若实为非 USD 币种则金额错、覆盖率虚高。
-- **前端缺少超成交标记**：数值信号已恢复（`formatPct` 不再封顶，overfill 的 >100% 可见），但 HTML 报告在完成率单元格附的「超成交」标记与订单参与率的「>100%」标记尚未在网页异常明细表渲染（`TcaAnomalyRow.overfill` / `order_par_gt100` 字段已具备，属呈现增强）。
 - **健康扫描信号量饥饿**：`get_health_safe` 超时线程仍阻塞在信号量 acquire 上（P2-5 只防堆积未防排队饥饿）。

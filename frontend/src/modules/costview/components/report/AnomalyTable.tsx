@@ -50,9 +50,23 @@ function AnomalyRowView({ r }: { r: TcaAnomalyRow }) {
       <td className="py-0.5 pr-2 text-left">{formatMoney(r.notional_usd)}</td>
       <td className="py-0.5 pr-2 text-left">{r.broker ?? ''}</td>
       <td className="py-0.5 pr-2 text-left">{r.algo ?? ''}</td>
-      <td className="py-0.5 pr-2 text-right">{formatPct(r.completion_rate)}</td>
+      <td className="py-0.5 pr-2 text-right">
+        {formatPct(r.completion_rate)}
+        {r.overfill ? (
+          <span className="ml-1 inline-block rounded bg-destructive/20 px-1 py-0.5 text-[10px] text-destructive">
+            超成交
+          </span>
+        ) : null}
+      </td>
       <td className="py-0.5 pr-2 text-right">{formatPct(r.par_rate)}</td>
-      <td className="py-0.5 pr-2 text-right">{formatPct(r.order_par_rate)}</td>
+      <td className="py-0.5 pr-2 text-right">
+        {formatPct(r.order_par_rate)}
+        {r.order_par_gt100 ? (
+          <span className="ml-1 inline-block rounded bg-destructive/20 px-1 py-0.5 text-[10px] text-destructive">
+            &gt;100%
+          </span>
+        ) : null}
+      </td>
       <td className="py-0.5 pr-2 text-right">{formatInt(r.fill_count)}</td>
       <td className="py-0.5 pr-2 text-right">{formatShares(r.route_shares)}</td>
       <td className="py-0.5 pr-2 text-right">{formatShares(r.fill)}</td>
