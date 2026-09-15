@@ -154,8 +154,23 @@ HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看�
 4. **测试**：新增 `lib/report-format.test.ts`（10 条）；`npx vitest run src/modules/costview` → 49 passed，
    `npx tsc --noEmit` 通过。
 
-**仍待处理（前端）**：`lib/report-format.ts::formatPct` 仍将完成率封顶 100%，与本 ADR §2「移除展示层
-封顶以暴露 overfill」相反 —— 同一数据矛盾在网页与 HTML 报告中呈现相反结论，已登记进
+### 10.3 前端展示层收尾（2026-09-15 第四轮复核）
+
+1. **冲击分解表接入覆盖披露**：`ImpactBreakdownTable` 增 `coverage` prop，逐行按指标键附
+   「样本 / 权重覆盖」，与 HTML 报告同一张表同措辞（此前该表是 S2 唯一未接入面）。
+2. **移除 `formatPct` 封顶（回归本 ADR §2）**：前端 `formatPct` 此前仍把完成率 / 参与率钳制在
+   100%，与 §2「移除展示层封顶；completion_rate > 1 单元格附超成交标记」相反 ——
+   「组合完成率」卡与异常表的 overfill 数据矛盾在网页被掩盖、在 HTML 报告被暴露，属**展示层
+   掩盖数据矛盾的原缺陷复发（方向相反）**。现改为不封顶（与 HTML `_fmt_pct` 同口径），
+   4 个调用点（组合完成率 / 完成率 / 路由参与率 / 订单参与率）同时受益，单测固化 `1.05 → 105.00%`。
+3. **有意偏差显式声明**：把三处 web 与 HTML 的呈现细节差异（百分数取整、` · ` 分隔符、
+   零成交金额 `$` 前缀）写入 `lib/report-format.ts` 注释，防止未来被单侧「修复」；
+   第四处（scope 文案缺「（全报告统一口径）」后缀）改为对齐，因该后缀承载「全报告同口径」承诺。
+4. **质量门报告入库策略**：`scripts/reports/quality_gate/report-*.md` 加入 `.gitignore`
+   （生成物可再生；逐轮账本以 `known-limitations` §五 为准，避免双账本）。
+
+**仍待处理（前端）**：异常明细表未渲染 HTML 侧既有的「超成交 / >100%」标记
+（`overfill` / `order_par_gt100` 字段已具备；数值信号已由本节第 2 条恢复），已登记进
 `docs/report-tca-known-limitations.md` §五待办。
 
 ## 后果 (Consequences)
@@ -245,6 +260,12 @@ HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看�
   - 前端 `npx tsc --noEmit` → 通过
   - 后端 `CostView/tests` → 191 passed（未触碰）；质量门 AP 0 / OE 新增 0
   - 结论：本轮为展示层对齐，后端口径与数值零变化
+- 验证记录（2026-09-15，第四轮：S2 收尾）:
+  - 前端 `npx vitest run src/modules/costview` → **52 passed**（+3：`formatPct` 去封顶 1、
+    ReportView 覆盖披露与去封顶集成 2）
+  - 前端 `npx tsc --noEmit` → 通过
+  - 后端 `CostView/tests` → 191 passed（未触碰）
+  - 质量门 / 文档漂移审计 → AP 0 / OE 新增 0 / 存量持平；`[OK] No documentation drift detected.`
 - CI 常态化: `.github/workflows/boundary.yml` 新增「Golden snapshot 回归」步骤（硬阻断）；
   快照随基线入库（`CostView/tests/golden/snapshot/`，`.gitignore` 显式例外），
   CI 无需生产数据即可执行

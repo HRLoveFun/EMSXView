@@ -240,6 +240,71 @@ describe('ReportView', () => {
     expect(screen.getByText('USD 换算 · 覆盖率 50%')).toBeInTheDocument();
   });
 
+  it('披露统计范围与加权覆盖（与 HTML 报告同口径）', async () => {
+    mockFetchReportSummary.mockResolvedValue({
+      ...reportSummary,
+      filters: {
+        ...reportSummary.filters,
+        scope: {
+          mode: 'bdib_whitelist',
+          exchanges: ['US', 'HK'],
+          out_of_scope: [],
+          label: 'BDIB 白名单内 2 个市场',
+        },
+      },
+      weight_coverage: {
+        metrics: {
+          pnl_vwap: {
+            n_used: 1,
+            n_total: 2,
+            sample_pct: 50,
+            used_weight: 100,
+            total_weight: 100,
+            weight_pct: 100,
+            insufficient: true,
+          },
+          temp_impact_5min_bps: {
+            n_used: 1,
+            n_total: 2,
+            sample_pct: 50,
+            used_weight: 100,
+            total_weight: 100,
+            weight_pct: 100,
+            insufficient: false,
+          },
+        },
+        threshold_pct: 90,
+        n_total: 2,
+        total_weight: 100,
+      },
+    });
+    render(<ReportView />);
+
+    await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
+    // 报告头：统计范围 + 「全报告统一口径」承诺
+    expect(
+      screen.getByText(/统计范围 BDIB 白名单内 2 个市场（全报告统一口径）/),
+    ).toBeInTheDocument();
+    // 加权 KPI 卡：样本量与权重覆盖并列披露，覆盖不足时提示结论仅供参考
+    expect(screen.getAllByText(/样本 1\/2（50%） · 权重覆盖 100%/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/样本\/权重覆盖不足，结论仅供参考/).length).toBeGreaterThan(0);
+    // 冲击分解表：逐指标覆盖披露（与 HTML 报告同表同措辞）
+    expect(
+      screen.getByText(/成交后 5 分钟价格恢复偏离 · 样本 1\/2（50%） · 权重覆盖 100%/),
+    ).toBeInTheDocument();
+  });
+
+  it('组合完成率不被展示层封顶（overfill >100% 显式暴露）', async () => {
+    mockFetchReportSummary.mockResolvedValue({
+      ...reportSummary,
+      extra_kpis: { ...reportSummary.extra_kpis!, avg_fill: 1.05 },
+    });
+    render(<ReportView />);
+
+    await waitFor(() => expect(screen.getByText('组合完成率')).toBeInTheDocument());
+    expect(screen.getByText('105.00%')).toBeInTheDocument();
+  });
+
   it('渲染按市场成交金额（美元）排名与每日趋势图', async () => {
     render(<ReportView />);
     await waitFor(() => expect(screen.getByText('按市场的成交金额（美元）排名')).toBeInTheDocument());
