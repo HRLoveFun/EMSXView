@@ -14,9 +14,11 @@ import pytest
 from scripts.quality_gate import config
 from scripts.quality_gate.ast_utils import (
     cyclomatic_complexity,
+    dir_of,
     func_line_count,
     make_fingerprint,
     nesting_depth,
+    normalize_path,
     param_count,
     parse_module,
     read_text_safe,
@@ -47,6 +49,27 @@ class TestAstUtils:
         src.write_bytes(b"\xef\xbb\xbf" + b"import os\n\nVALUE = 1\n")
         assert (read_text_safe(src) or "").startswith("import os")
         assert parse_module(src) is not None
+
+    def test_normalize_path_preserves_posix_root(self):
+        """POSIX 绝对路径的根 ``/`` 不得被吞掉（回归）。
+
+        丢根会让 ``/repo/x`` 变成 ``repo/x``，与 ``Path.as_posix()`` 永不相等 ⇒
+        前端 import 图的边在 Linux / CI 上**全部丢失**，CL-10 / OE-01 / OE-06
+        批量误报（实测 CI 上 CL-10 = 166 项）。Windows 因盘符占首位而不暴露。
+        """
+        assert normalize_path("/repo/frontend/src/a") == "/repo/frontend/src/a"
+        assert normalize_path("/repo/./a/../b") == "/repo/b"
+
+    def test_normalize_path_collapses_dots_and_separators(self):
+        """Windows 分隔符与小括号段归一化。"""
+        assert normalize_path("C:/a/./b/../c") == "C:/a/c"
+        assert normalize_path("frontend\\src\\app") == "frontend/src/app"
+        assert normalize_path("/repo/a/../../b") == "/b"
+
+    def test_dir_of(self):
+        """目录部分提取（posix），无目录时返回 ``.``。"""
+        assert dir_of("/repo/frontend/src/main.tsx") == "/repo/frontend/src"
+        assert dir_of("main.tsx") == "."
 
     def test_cyclomatic_complexity_branches(self):
         """if/for/while/and 各 +1。"""

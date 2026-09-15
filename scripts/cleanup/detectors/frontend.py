@@ -11,7 +11,12 @@ import re
 from pathlib import Path
 
 from scripts.quality_gate import config as qg_config
-from scripts.quality_gate.ast_utils import make_fingerprint, rel_posix
+from scripts.quality_gate.ast_utils import (
+    dir_of,
+    make_fingerprint,
+    normalize_path,
+    rel_posix,
+)
 from scripts.quality_gate.context import ScanContext
 from scripts.quality_gate.models import Finding, RuleSet, Severity
 
@@ -97,7 +102,7 @@ def _resolve_spec(ctx: ScanContext, spec: str, importer: str, file_set: set[str]
 def _base_path(ctx: ScanContext, spec: str, importer: str) -> str | None:
     """说明符的候选路径基址（未补扩展名）。"""
     if spec.startswith("."):
-        return _normalize(f"{_dir_of(importer)}/{spec}")
+        return normalize_path(f"{dir_of(importer)}/{spec}")
     if not spec.startswith("@"):
         return None
     prefix = spec.split("/")[0]
@@ -106,26 +111,7 @@ def _base_path(ctx: ScanContext, spec: str, importer: str) -> str | None:
         return None
     rest = spec[len(prefix):].lstrip("/")
     rel = f"{mapped}/{rest}" if mapped and rest else (mapped or rest)
-    return _normalize(str(ctx.root / qg_config.FRONTEND_SCAN_ROOT / rel))
-
-
-def _dir_of(path: str) -> str:
-    """文件路径的目录部分（posix）。"""
-    return path.rsplit("/", 1)[0] if "/" in path else "."
-
-
-def _normalize(path: str) -> str:
-    """路径归一化（消解 ./ ../ 与 Windows 分隔符）。"""
-    out: list[str] = []
-    for part in path.replace("\\", "/").split("/"):
-        if part in ("", "."):
-            continue
-        if part == "..":
-            if out:
-                out.pop()
-            continue
-        out.append(part)
-    return "/".join(out)
+    return normalize_path(str(ctx.root / qg_config.FRONTEND_SCAN_ROOT / rel))
 
 
 def _reachable(entries: set[str], edges: dict[str, set[str]]) -> set[str]:

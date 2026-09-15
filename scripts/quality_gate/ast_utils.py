@@ -55,6 +55,38 @@ def rel_posix(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
+def dir_of(path: str | Path) -> str:
+    """路径的目录部分（posix 风格）。"""
+    text = str(path)
+    return text.rsplit("/", 1)[0] if "/" in text else "."
+
+
+def normalize_path(path: str | Path) -> str:
+    """posix 归一化：消解 ``.`` / ``..`` 与 Windows 分隔符，**保留根前缀**。
+
+    为什么必须保留根前缀（★ 跨平台陷阱）：早期实现丢弃全部空片段（含 POSIX 根
+    ``/``），于是 ``/repo/frontend/src/a`` 被归一化为 ``repo/frontend/src/a``，
+    与 ``Path.as_posix()`` 产出的 ``/repo/...`` **永不相等** → 前端 import 图的
+    所有边在 **Linux / macOS / CI 上全部丢失**，CL-10（前端不可达文件）与
+    OE-01 / OE-06（前端模块与导出可达性）批量误报（实测 CI 上 CL-10 = 166 项）。
+    Windows 本地因盘符 ``C:`` 占据首个非空片段而**恰好不暴露**，属典型
+    「只在 CI 复现」的缺陷 —— 修复见 ADR-0019 后续批次与 skill 复盘。
+    """
+    text = str(path).replace("\\", "/")
+    rooted = text.startswith("/")
+    out: list[str] = []
+    for part in text.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if out:
+                out.pop()
+            continue
+        out.append(part)
+    joined = "/".join(out)
+    return "/" + joined if rooted else joined
+
+
 def iter_functions(tree: ast.Module) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
     """遍历 AST 中全部函数定义（含嵌套函数与类方法）。"""
     for node in ast.walk(tree):
