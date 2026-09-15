@@ -119,7 +119,9 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 
 脚本会拒绝移除分支尚未合并进 origin/main 的 worktree（`-Force` 可强行移除，未提交改动将丢失，慎用）。
 
-原生等价：`git worktree remove ../EMSXView-wt-xxx` → `git worktree prune` → `git branch -d <分支>`
+`-DeleteBranch` 的合并判定复用 `Test-BranchMerged`（`git merge-base --is-ancestor` 或 squash 后 `git cherry` 无 `+` 行），判定通过后以 `git branch -D` 删除——本仓库约定 squash merge，分支内容虽已进 `origin/main` 但不是它的祖先，直接用 `git branch -d` 必然误报 `not fully merged` 而失败；`-DeleteBranch` 因此必须复用上面的判定结果而非再交给 `-d` 自行判断（2026-09-15 修复）。
+
+原生等价：`git worktree remove ../EMSXView-wt-xxx` → `git worktree prune` → `git branch -D <分支>`（squash merge 后祖先校验不成立，故用 `-D`）
 
 ### 3.5 清理残留与临时目录
 
