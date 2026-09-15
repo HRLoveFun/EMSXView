@@ -78,6 +78,10 @@ scripts/reports/output/
 
 # --- 质量门禁趋势库（quality_gate.py 全量扫描写入，可再生；基线历史不入库） ---
 scripts/reports/quality_gate/quality_gate.db
+# --- 质量门禁债务报告（--report 生成物，可再生；逐轮修复账本以
+#     docs/report-tca-known-limitations.md §五 为准，避免双账本产生「哪份是真相」分叉。
+#     report-20260821.md / report-20260825.md 为历史快照，保留在版本库内不再新增） ---
+scripts/reports/quality_gate/report-*.md
 
 # --- 清理门禁运行时产物（cleanup.py 写入，可再生；基线历史不入库） ---
 scripts/reports/cleanup/

@@ -98,6 +98,19 @@
 
 **产品口径说明（下拉白名单裁剪的副作用）**：`filter_options.exchanges` 按白名单裁剪后，UI 下拉不再能选出白名单外市场，因此 `filters.scope.out_of_scope` 告警路径实际只对 API/CLI 显式传参生效。这与 `build_report` docstring 的既有意图（「受白名单约束」）自洽，作为默认口径成立；若未来产品上希望用户能主动纳入 CN 等市场观察其 BDIB 指标必然 NULL 的表现，需另行开口子，并**同步该 docstring 与本节**，避免重演文档-实现矛盾。
 
+### 2026-09-15 — 第四轮复核（S2 收尾：冲击表接入 + 展示层去封顶）
+
+| # | 发现 | 影响 | 处理 |
+|---|------|------|------|
+| G1 | 前端冲击分解表未消费 `weight_coverage`（S2 未完成面） | HTML 报告该表逐指标带覆盖披露，网页视图看不到 → 同一张表两端口径不对账 | ✅ 已修：`ImpactBreakdownTable` 增 `coverage` prop，逐行按指标键附「样本/权重覆盖」；新增集成断言 |
+| G2 | 前端 `formatPct` 仍封顶 100%（与 ADR-0018 §2「移除展示层封顶」相反） | **不只是外观**：「组合完成率」卡与异常表完成率/参与率列把 overfill 驱动的 >100% 钳成 100.00%，数据矛盾在 web 端被掩盖，而 HTML 端显式暴露 —— 展示层掩盖数据矛盾的原缺陷复发 | ✅ 已修：去掉封顶（与 HTML `_fmt_pct` 同口径），4 个调用点（组合完成率、完成率、路由参与率、订单参与率）同时受益；单测固化 `1.05 → 105.00%` |
+| G3 | scope 文案后缀缺失 | HTML 报告头为「统计范围 {label}（全报告统一口径）」，web 端缺后缀 → 关键承诺（全报告同口径）丢失 | ✅ 已修：`formatScopeLabel` 补后缀，与 HTML 逐字对齐 |
+| G4 | 「文案与 HTML 渲染器逐字对齐」表述过强 | 实际为核心句逐字对齐 + 四处呈现细节偏差 | ✅ 已处理：把三处**有意偏差**（百分数取整、` · ` 分隔符、零成交 `$` 前缀）在 `lib/report-format.ts` 注释中显式声明，避免未来被单侧「修复」；第 4 处（scope 后缀）改为对齐 |
+
+**登记新增待办**：前端异常明细表未渲染 HTML 侧既有的「超成交 / >100%」标记（`TcaAnomalyRow.overfill` / `order_par_gt100` 字段已具备）。数值信号已由 G2 恢复（>100% 不再被封顶），标记属呈现增强，排 P2。
+
+**质量门报告入库策略（第四轮 §六.1）**：`scripts/reports/quality_gate/report-*.md` 已加入 `.gitignore` —— 生成物可再生，逐轮修复账本以本文件 §五 为准，避免双账本产生「哪份是真相」分叉；历史两份（20260821 / 20260825）保留在库内作为冻结快照。
+
 护栏：`CostView/tests/test_report_metrics.py`（`TestReportScopeUnified` / `TestWeightCoverageDisclosure` /
 `TestZeroFillVisibility` / `TestMeasureConsistency` / `TestReviewRemediation` /
 `TestReportSpec.test_report_spec_matches_measure_layer`）与
@@ -113,5 +126,5 @@
 - **呈现层可解释性**：按日走势仍各自归一化且无刻度/零轴；排行仍 `ASC + 前 10`（最优在前、无样本门槛）；直方图仍为等宽分桶；PWP 五档仍为简单平均（缺陷 3）。
 - **指标命名与标签**：「总成交股数」卡片实为 `SUM(RouteShares)`（委托股数，副标题才澄清）；`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
 - **币种兜底**：`Currency IS NULL` 时按 USD（fx=1.0）兜底且计入 fx 覆盖率分子 —— 若实为非 USD 币种则金额错、覆盖率虚高。
-- **前端口径与 HTML 报告相反**：`frontend/src/modules/costview/lib/report-format.ts::formatPct` 仍把完成率封顶 100%，与本仓库 ADR-0018 §2「移除展示层封顶以暴露 overfill」相悖 —— 同一条 overfill 数据在网页显示 100%、在 HTML 报告显示 >100%，两个展示面结论相反。
+- **前端缺少超成交标记**：数值信号已恢复（`formatPct` 不再封顶，overfill 的 >100% 可见），但 HTML 报告在完成率单元格附的「超成交」标记与订单参与率的「>100%」标记尚未在网页异常明细表渲染（`TcaAnomalyRow.overfill` / `order_par_gt100` 字段已具备，属呈现增强）。
 - **健康扫描信号量饥饿**：`get_health_safe` 超时线程仍阻塞在信号量 acquire 上（P2-5 只防堆积未防排队饥饿）。

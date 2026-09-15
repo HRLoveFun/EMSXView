@@ -676,7 +676,7 @@ export function ReportView() {
           </div>
           <PwpCurveChart data={report.pwp_curve} />
           {/* 与 HTML 报告对齐：市场冲击分解 / 异常路由明细 / 指标覆盖率 / BDIB 缺口附录 */}
-          <ImpactBreakdownTable impact={report.impact_breakdown} />
+          <ImpactBreakdownTable impact={report.impact_breakdown} coverage={report.weight_coverage} />
           <AnomalyTable anomaly={report.anomaly} />
           <CoverageTable coverage={report.metric_coverage} />
           <BdibHealthAppendix health={health} />
