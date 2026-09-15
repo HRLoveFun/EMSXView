@@ -2,6 +2,18 @@
 # Pre-commit hook: 自动同步 CODEBUDDY.md 与 AGENTS.md
 # 规范源为 AGENTS.md；若仅 CODEBUDDY.md 被编辑，则反向同步
 # 设置方式: git config core.hooksPath .githooks
+. "$(dirname "$0")/common.sh"
+
+# ═══════════════════════════════════════════════════════════════════════
+# 会话独占锁校验（阻断）
+# 同一工作目录若已被另一会话持有，则拒绝提交 —— 防止共享 index 被并发写入
+# 导致「他人改动混进我的提交 / 我的在制品被覆盖」。
+# 必须在下方任何 early return 之前执行，否则仅改文档时门禁会被绕过。
+# 详见 docs/spec/git-workflow.md §10。
+# ═══════════════════════════════════════════════════════════════════════
+if ! lock_verify; then
+    exit 1
+fi
 
 CB="CODEBUDDY.md"
 AG="AGENTS.md"

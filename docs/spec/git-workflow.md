@@ -226,6 +226,7 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 5. **上下文自带规范**：新窗口的 Agent 首次进入 worktree 后，按 `AGENTS.md`「文档阅读顺序」读取规范（worktree 内文档齐全，与主工作树一致）。
 6. **并行前做重叠评估**：让 AI 对比两个并行任务的预计改动文件集，重叠大（同一热点文件）时改为串行或拆分。
 7. **同步状态汇报**：Agent 完成阶段性提交后，汇报分支名、领先 origin/main 的提交数、是否可合并。
+8. **同目录单写者（独占锁）**：`pre-commit` 会校验本工作目录的会话独占锁（见 §10）。锁冲突时**不得**用 `EMSXVIEW_LOCK_TAKEOVER=true` 抢锁后继续在同一目录作业——规范做法是为当前任务另建 worktree。发现 `git status` 出现「非我改动」时，先判断对方是否仍在途（比对文件 mtime 是否仍在推进、是否有运行中的进程），确认对方收工后才决定取舍；**禁止** `git restore .` / `checkout -- .` / `reset --hard` / `stash` 一刀切（对方在制品会直接丢失）。
 
 ---
 
@@ -260,7 +261,7 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 
 | 层 | 载体 | 覆盖场景 | 阻断性 |
 |---|---|---|---|
-| 事件自动化 | `.githooks/`（pre-commit / commit-msg / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、AI 署名拦截、worktree 就绪清单、依赖变更提示、main 直推保护、推送前落后检测 / 自动 rebase | pre-commit / commit-msg 阻断；pre-push 自动 rebase 成功后中断待重推、遇冲突阻断；其余提示 |
+| 事件自动化 | `.githooks/`（pre-commit / commit-msg / post-checkout / post-merge / post-index-change / pre-push） | 会话独占锁校验、提交门禁、文档同步、AI 署名拦截、worktree 就绪清单、依赖变更提示、并发索引写入告警、main 直推保护、推送前落后检测 / 自动 rebase | pre-commit / commit-msg 阻断；pre-push 默认阻断直推 main、自动 rebase 成功后中断待重推、遇冲突阻断；post-index-change 仅告警；其余提示 |
 | 时间自动化 | Windows 计划任务（`wt-install-schedule.ps1` 注册，工作日 09:00）运行 `wt-sync.ps1` | 每日 fetch + rebase（未提交自动跳过、冲突自动 abort），日志 `logs/wt-sync-daily.log` | 仅快进 rebase，不清理 |
 | 显式半自动 | `wt-new` / `wt-finish` / `wt-clean` | 创建 / 清理任务 | 有确认门禁（未合并拒绝移除；`wt-clean` 默认 dry-run，删除须显式 `-Apply`） |
 | 永不自动 | — | 删除 worktree / 分支、merge 到 main、数据管道写入、`push -f` | 必须人工确认 |
@@ -268,12 +269,33 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 ### hooks 说明
 
 - `core.hookspath=.githooks` 存于共享的 `.git/config`，**所有 worktree 自动生效**，无需任何配置。
-- `pre-commit`（已有）：`AGENTS.md`↔`CODEBUDDY.md` 同步 + `quality_gate.py --staged` 增量快检（**阻断**）。
+- `pre-commit`（已有；2026-09-15 增加独占锁校验）：**会话独占锁校验**（见下「会话独占锁」）→ `AGENTS.md`↔`CODEBUDDY.md` 同步 → `quality_gate.py --staged` 增量快检（**阻断**）。锁校验置于所有 early return 之前，避免「仅改文档」时门禁被绕过。
 - `commit-msg`（2026-09-15 新增）：拦截 AI 共同作者尾注（`Co-Authored-By: Claude <noreply@anthropic.com>`、`Assisted-By: Copilot` 等，特征词表见 hook 内 `AI_KEYWORDS`）——`Co-Authored-By` 会把 AI 账号计入仓库 Contributors，而清除它必须重写已发布历史 + `push -f`（2026-09-15 已因该尾注改写 77 个提交、丢失 9 个 GitHub 签名）。命中即**阻断提交**并打印命中行号；仅匹配 `co-authored-by:` / `assisted-by:` 尾注行，正文提及 AI 名称不受影响；确需临时放行：`ALLOW_AI_COAUTHOR=true git commit ...`。
 - `post-checkout`：`git worktree add` 时输出新 worktree 就绪清单（依赖 / 端口 / 规范入口）；分支切换导致依赖清单（`package-lock.json` / 各 `requirements.txt`）变化时提示重装。非阻断。
 - `post-merge`：`git pull` / merge 更新依赖清单时提示重装。非阻断。
-- `pre-push`：直推 main 时提示（默认不阻断；设 `EMSXVIEW_HOOK_BLOCK_MAIN=true` 强制阻断）。推送任务分支前 fetch 并检测落后 `origin/main` 的提交数：默认仅提示、不阻断（保留 §4.3 WIP push 保存进度的场景）；设 `EMSXVIEW_HOOK_AUTO_REBASE=true` 后自动 rebase——成功则中断本次推送并提示重推（pre-push 无法改写待推 sha），冲突则 abort 恢复原状并阻断；脏工作树 / rebase 中间态 / 离线时静默跳过。与每日定时 `wt-sync.ps1` 互补：时间同步为主、push 前事件兜底。
+- `post-index-change`（2026-09-15 新增）：索引被写入后**刷新本会话锁心跳**；若锁持有者是**其他会话**（即本目录存在并发写入）则立即告警。非阻断——post-* 钩子无法阻断，作用是把静默的并发污染变成可见事件。
+- `pre-push`：**默认阻断直推 main**（`EMSXVIEW_HOOK_BLOCK_MAIN=false` 可显式放行；2026-09-15 语义反转——原为 opt-in 阻断，因多会话各自直推 main 曾产生 `Merge branches 'main' and 'main'` 分叉）。推送任务分支前 fetch 并检测落后 `origin/main` 的提交数：默认仅提示、不阻断（保留 §4.3 WIP push 保存进度的场景）；设 `EMSXVIEW_HOOK_AUTO_REBASE=true` 后自动 rebase——成功则中断本次推送并提示重推（pre-push 无法改写待推 sha），冲突则 abort 恢复原状并阻断；脏工作树 / rebase 中间态 / 离线时静默跳过。与每日定时 `wt-sync.ps1` 互补：时间同步为主、push 前事件兜底。
 - 依赖提示默认仅打印、**不自动安装**（`npm install` / `pip install` 耗时且依赖本机环境，装错环境比漏装更糟）；如需自动安装可在 hook 中自行扩展。
+
+### 会话独占锁（防同目录多会话并发写 index，2026-09-15 引入）
+
+**背景**：同一工作目录被两个 IDE / Agent 会话同时使用——一方跑全库清理作业批量改写文件，另一方在合并后 `git status` 看到 35 个「非我改动」；共享 index 被并发 `git add`，造成「他人改动混进我的提交 / 我的在制品消失」；两个会话各自直推 main 还产生了 `Merge branches 'main' and 'main'` 分叉。
+
+**机制**：
+
+| 项 | 说明 |
+|---|---|
+| 锁文件 | `$(git rev-parse --absolute-git-dir)/EMSXVIEW_SESSION_LOCK`，**按工作树隔离**（主工作树在 `.git/`，链接工作树在 `.git/worktrees/<name>/`） |
+| 会话标识 | `EMSXVIEW_SESSION_ID` → `CODEBUDDY_SESSION_ID` → `CLAUDE_SESSION_ID` → `TERM_SESSION_ID` / `WT_SESSION` → `VSCODE_PID`，取首个非空者 |
+| 获取 / 校验 | `pre-commit`：锁空闲、或持有者即本会话 → 写入并刷新心跳；被他人持有且心跳新鲜 → **阻断提交** |
+| 陈旧接管 | 心跳静默超过 `EMSXVIEW_LOCK_TTL`（默认 1800s）→ 判定为陈旧锁，自动接管并提示 |
+| 显式接管 | `EMSXVIEW_LOCK_TAKEOVER=true git commit ...`（**确认对方已收工**后再用） |
+| 心跳 / 告警 | `post-index-change`：本会话每次 `git add` 后刷新心跳；索引被其他会话写入时告警 |
+| 状态查看 | `scripts/devtools/wt-list.ps1` 的「独占锁」列 |
+
+**为什么按工作树隔离就够了**：规范用法（一任务一 worktree）下每个会话各持一把锁，天然互不干扰；**只有两个会话落在同一目录时才会碰撞**——正是要拦截的场景。因此锁冲突的正确处置是「另建 worktree」，而不是抢锁。
+
+**失败即放行（fail-open）**：无法确定会话标识时不阻断、仅提示一次，避免单人开发被误锁卡死。
 
 ### 定时同步任务
 

@@ -1,6 +1,9 @@
 #!/bin/bash
 # pre-push hook：main 直推保护 + 推送前分支落后检测
-# 1) main 直推保护：默认仅提示；设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 后强制阻断并引导走任务分支 + PR
+# 1) main 直推保护：默认阻断并引导走任务分支 + PR；
+#    设置 EMSXVIEW_HOOK_BLOCK_MAIN=false 可显式放行（仅提示）
+#    2026-09-15 语义反转（原为 opt-in 阻断）——诱因是多会话各自直推 main
+#    曾产生 "Merge branches 'main' and 'main'" 分叉，提示级保护已不足
 # 2) 落后检测：推送任务分支前 fetch 并检测落后 origin/main 的提交数（与每日 wt-sync 互补的事件兜底）
 #    - 默认仅提示不阻断（保留 WIP push 保存进度的场景，见 git-workflow.md §4.3）
 #    - 设置 EMSXVIEW_HOOK_AUTO_REBASE=true 后自动 rebase（显式 opt-in；冲突自动 abort 并阻断）
@@ -18,11 +21,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
     case "$remote_ref" in
         refs/heads/main)
-            if [ "$EMSXVIEW_HOOK_BLOCK_MAIN" = "true" ]; then
+            if [ "$EMSXVIEW_HOOK_BLOCK_MAIN" = "false" ]; then
+                hook_info "提示：正在直推 main（EMSXVIEW_HOOK_BLOCK_MAIN=false 已显式放行）"
+            else
                 hook_info "已阻断直推 main：功能代码请走任务分支 + PR（见 docs/spec/git-workflow.md §4）"
+                hook_info "确需直推（如同步已审阅的 hotfix）：EMSXVIEW_HOOK_BLOCK_MAIN=false git push"
                 exit 1
             fi
-            hook_info "提示：正在直推 main，规范建议任务分支 + PR（设置 EMSXVIEW_HOOK_BLOCK_MAIN=true 可强制阻断）"
             ;;
         *)
             # 仅记录与当前检出分支一致的待推分支：rebase 只能作用于 HEAD 所在分支
