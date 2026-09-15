@@ -9,6 +9,11 @@ description = "CostView TCA analysis and reporting domain"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.5",
+    # pandas 是运行时硬依赖（src/tca_utils.py、src/query_cli.py、src/__main__.py、
+    # src/monitoring/bdib_health.py 直接 import），此前一直由已删除的
+    # CostView/requirements.txt 隐式提供；补此声明以保持全新环境可安装（python-dateutil
+    # 由 pandas 传递依赖带入，无需独立声明）。
+    "pandas>=2.0.0",
     "emsxview-platform-data",
     "emsxview-datapipeline",
 ]
