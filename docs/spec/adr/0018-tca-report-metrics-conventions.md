@@ -238,6 +238,13 @@ HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看�
    `Fill %`），同时兜住「旧版本只存了部分字段」的规则对象。
 4. **Configure 预览样例同步**：`Tracking Error 6.0 bps`（014 规则键重命名前的旧标签）改为
    `Pnl VWAP 6.0 bps`，与另两条样例一起对齐新标签。
+5. **存量配置的一次性模式迁移（2026-09-15 补记）**：本 ADR 合入后，老用户 localStorage 中仍保存
+   `overfill_pct: { mode: 'above' }` —— 那是**当时的代码默认值**而非用户显式选择，且会随
+   `thresholds` payload 每次查询下发、覆盖后端新默认（`ThresholdRules.from_payload` 以 payload
+   为准），表现为「后端已修、完成率 100% 的路由仍带 Overfill 标签」。修复：配置引入
+   `ruleSchemaVersion`（当前 2）；读取时仅当存储 mode 仍等于旧默认（`above`）时迁移为当前默认
+   （`above-strict`），用户显式选择的其他 mode 不动；版本号随保存写回，迁移只执行一次，
+   此后用户改回 `above` 属显式选择、不再被覆盖。
 
 **影响面**：异常清单条数小幅下降（恰好 100% 订单参与率的路由退出）；标签与本地配置刷新均为
 展示层变更，不动报告数值口径。
@@ -245,7 +252,8 @@ HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看�
 **护栏**：后端 `TestOrderParAggregation.test_exact_full_order_par_not_flagged`（100% 不命中）+
 `TestRuleLabels.test_rendered_hit_has_single_unit_symbol`（逐规则断言渲染后单位符号只出现
 一次，任一规则把单位写回标签即失败）；前端 `thresholds.test.ts`
-「keeps unit symbols out of rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底）。
+「keeps unit symbols out of rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底 /
+stale mode 一次性迁移三条用例）。
 
 **有意未改**：`volume_pct_adv20` / `volume_pct_interval` / `intraday_volatility` /
 `price_movement_pct` 仍为 `above`（含边界）—— 其阈值是「参与率 / 波动进入观察区间」的业务
