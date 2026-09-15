@@ -512,6 +512,34 @@ def test_all_detectors_run_without_exception(tmp_path):
         assert isinstance(detector(ctx), list)
 
 
+# ── CL-10 前端图路径解析（跨平台回归） ─────────────────────────────
+
+class TestFrontendGraphPaths:
+    """CL-10：POSIX 绝对根（Linux / CI）下的说明符解析（回归）。
+
+    历史缺陷：路径归一化丢弃 POSIX 根 ``/`` ⇒ 解析结果与 ``Path.as_posix()``
+    永不相等 ⇒ CI 上 166 个前端文件被误报为不可达。Windows 本地因盘符占首位而不复现。
+    """
+
+    def test_alias_resolution_with_posix_root(self, tmp_path):
+        """别名说明符在 POSIX 绝对根下必须解析到绝对路径。"""
+        ctx = _ctx(tmp_path, {"frontend/src/app/main.tsx": ""})
+        ctx.root = Path("/repo")
+        files = {"/repo/frontend/src/app/x.ts"}
+        resolved = frontend._resolve_spec(
+            ctx, "@/app/x", "/repo/frontend/src/app/main.tsx", files)
+        assert resolved == "/repo/frontend/src/app/x.ts"
+
+    def test_relative_resolution_with_posix_root(self, tmp_path):
+        """相对说明符在 POSIX 绝对根下必须解析到绝对路径。"""
+        ctx = _ctx(tmp_path, {"frontend/src/app/main.tsx": ""})
+        ctx.root = Path("/repo")
+        files = {"/repo/frontend/src/app/components/x.tsx"}
+        resolved = frontend._resolve_spec(
+            ctx, "./components/x", "/repo/frontend/src/app/main.tsx", files)
+        assert resolved == "/repo/frontend/src/app/components/x.tsx"
+
+
 # ── CL-12 过时类方法 ───────────────────────────────────────────────
 
 class TestDeadMethods:

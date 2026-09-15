@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 from .. import config
-from ..ast_utils import make_fingerprint, rel_posix
+from ..ast_utils import dir_of, make_fingerprint, normalize_path, rel_posix
 from ..context import ScanContext
 from ..models import Finding, RuleSet, Severity
 
@@ -182,7 +182,7 @@ def _parse_clause(clause: str, take_last: bool) -> list[str]:
 def _resolve_path(ctx: ScanContext, spec: str, importer: str, file_set: set) -> str | None:
     """解析 import 说明符到文件（相对路径 + 别名映射 + 扩展名补全）。"""
     if spec.startswith("."):
-        base = _normalize(_dir_of(importer) + "/" + spec)
+        base = normalize_path(dir_of(importer) + "/" + spec)
     elif spec.startswith("@"):
         prefix = spec.split("/")[0]
         mapped = config.FRONTEND_ALIASES.get(prefix)
@@ -191,7 +191,7 @@ def _resolve_path(ctx: ScanContext, spec: str, importer: str, file_set: set) -> 
         # 别名挂载点为 frontend/src，mapped 为相对 src 的子路径（可能为空）
         rest = spec[len(prefix):].lstrip("/")
         rel_path = f"{mapped}/{rest}" if mapped and rest else (mapped or rest)
-        base = _normalize(str(ctx.root / config.FRONTEND_SCAN_ROOT / rel_path))
+        base = normalize_path(str(ctx.root / config.FRONTEND_SCAN_ROOT / rel_path))
     else:
         return None                          # npm 包不参与
     for ext in _EXT_PROBES:
@@ -199,26 +199,6 @@ def _resolve_path(ctx: ScanContext, spec: str, importer: str, file_set: set) -> 
         if probe in file_set:
             return probe
     return None
-
-
-def _dir_of(path: str) -> str:
-    """文件路径的目录部分（posix）。"""
-    return path.rsplit("/", 1)[0] if "/" in path else "."
-
-
-def _normalize(path) -> str:
-    """路径归一化（消解 ./ ../ 与 Windows 分隔符）。"""
-    parts = str(path).replace("\\", "/").split("/")
-    out: list[str] = []
-    for part in parts:
-        if part in ("", "."):
-            continue
-        if part == "..":
-            if out:
-                out.pop()
-            continue
-        out.append(part)
-    return "/".join(out)
 
 
 def _detect_unused_exports(rel: str, path, exports: dict, imports: set,
