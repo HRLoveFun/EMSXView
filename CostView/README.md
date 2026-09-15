@@ -11,7 +11,7 @@ and broker recommendation services. It runs as an independent FastAPI service,
 is a **read-only consumer** of the analytical SQLite stores (via `data_access/`,
 all connections `mode=ro`), and never writes to any database.
 
-> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：211 个测试函数（`CostView/tests/`，7 个测试文件，pytest 实际收集 217 个用例，含 CLI 入口与黄金样本回归）；已知限制清单公开发布；13 个 API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
+> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：213 个测试函数（`CostView/tests/`，7 个测试文件，pytest 实际收集 219 个用例，含 CLI 入口与黄金样本回归）；已知限制清单公开发布；13 个 API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
 
 ## Architecture
 
@@ -34,11 +34,12 @@ CostView/                          # CostView domain
 │   ├── __main__.py                # CLI 入口：python -m CostView.src（退出码 0/2/3，见 §4.2）
 │   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │                                  # anomaly_query · tca_report_html · time_range
-├── tests/                          # 7 个测试文件，211 个测试函数（pytest 收集 217 个用例：
-│                                   #   test_report_metrics 105 / test_monitoring 55 /
+├── tests/                          # 7 个测试文件，213 个测试函数（pytest 收集 219 个用例：
+│                                   #   test_report_metrics 105 / test_monitoring 57 /
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
-│                                   #   test_order_aggregation 9 / test_cli_entrypoint 3 /
-│                                   #   test_golden_samples 1（参数化展开 6 个用例））
+│                                   #   test_order_aggregation 9 /
+│                                   #   test_cli_entrypoint 3（参数化展开 9）/
+│                                   #   test_golden_samples 1）
 ├── scripts/                        # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
 # 注：data.migrated.<ts>/ 为 2026-09-02 数据迁移的本地留证目录，已被 .gitignore 忽略
 #     （匹配规则 `CostView/data.migrated.*/`），从不入版本库；释放磁盘需人工确认后再删除
@@ -111,7 +112,7 @@ python -m CostView.src --query tickers    --ticker-type equ_ticker
 ## Verification
 
 ```bash
-# 运行单元测试（7 个测试文件，211 个测试函数，pytest 收集 217 个用例）
+# 运行单元测试（7 个测试文件，213 个测试函数，pytest 收集 219 个用例）
 python -m pytest CostView/tests/
 
 # 黄金样本回归（口径漂移硬阻断；缺 golden 基线/冻结快照时自动 skip）
