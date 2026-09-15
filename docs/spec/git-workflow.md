@@ -127,13 +127,15 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 ./scripts/devtools/wt-clean.ps1                  # 预演：只报告不删除（同时打印 worktree list / status / _tmp）
 ./scripts/devtools/wt-clean.ps1 -Apply           # 执行：移除已合并或无改动的 worktree + prune + 清 _tmp
 ./scripts/devtools/wt-clean.ps1 probe -Apply     # 只处理 EMSXView-wt-probe（按任务名过滤）
-./scripts/devtools/wt-clean.ps1 -Apply -Force    # 额外放行：未合并分支 / 脏 worktree / 孤儿目录 / 在途 _tmp（会丢改动）
+./scripts/devtools/wt-clean.ps1 -Apply -Force    # 仅对指名的 -Task 生效：放行脏 worktree / 孤儿目录 / 在途 _tmp
 ```
 
 - **默认 dry-run**：不带 `-Apply` 只输出计划与状态；`-Apply` 才真正删除。
 - **硬边界**：只扫描仓库根的兄弟目录且目录名必须匹配 `EMSXView-wt-*`——主工作树与任意路径天然排除。
 - **常规候选不带 `--force`**：已合并分支 + 无未提交改动的 worktree 用 `git worktree remove <path>`，让 git 再兜底一次；仅「需强制」的候选才加 `--force`。
-- **`_tmp/` 在途保护**：最近 30 分钟内变更的子项视为在途任务产物，默认跳过（`-TmpMinAgeMinutes` 调整，`-Force` 覆盖；`-SkipTmp` 完全跳过）。
+- **锁保护（任何模式都不移除）**：git `locked` 或存在会话独占锁（`<git-dir>/EMSXVIEW_SESSION_LOCK`）的 worktree 一律跳过，须人工先 `git worktree unlock` / 确认对方收工后再处理。
+- **强制须指名**：`-Force` 的强副作用（脏 worktree / 孤儿目录 / 在途 `_tmp`）只在**显式 `-Task` 指名**时生效；未指名时全量扫描一律跳过并告警。起因：全量 `-Force` 曾试图移除另一个会话含 674 项在途改动的 worktree，仅因对方恰好处于 `git worktree add` 的 `locked` 窗口才未酿成损失。
+- **`_tmp/` 在途保护**：最近 30 分钟内变更的子项视为在途任务产物，默认跳过（`-TmpMinAgeMinutes` 调整；`-Force` 且指名时覆盖；`-SkipTmp` 完全跳过）。
 - 原生等价：`git worktree remove ../EMSXView-wt-xxx --force` → `git worktree prune` → `Remove-Item -Recurse -Force _tmp/*`（无 dry-run 保护）。
 
 ---
