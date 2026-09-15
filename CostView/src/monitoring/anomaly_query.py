@@ -25,6 +25,9 @@ from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
 from . import report_measure as rm
+from ._common import has_column as _has_column
+from ._common import to_float as _to_float
+from ._common import to_int as _to_int
 
 logger = logging.getLogger(__name__)
 
@@ -651,33 +654,7 @@ def _empty_throttle() -> dict[str, Any]:
     }
 
 
-def _to_float(value: Any) -> Optional[float]:
-    """数值安全转换，None/NaN → None。"""
-    if value is None:
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if result == result else None
-
-
-def _to_int(value: Any) -> Optional[int]:
-    """整数安全转换（fill_count 等），None/NaN → None。"""
-    if value is None:
-        return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError):
-        return None
-    return result if result == result else None
-
-
-def _has_column(conn: Any, table: str, column: str) -> bool:
-    """判断表是否含指定列（向后兼容旧库缺列场景）。"""
-    cursor = conn.execute(f"PRAGMA table_info({table})")
-    return any(row[1] == column for row in cursor.fetchall())
-
+# ── 类型安全转换与 schema 探测：统一实现见 monitoring/_common.py ──────────────
 
 # ── fx 汇率回填（异常明细成交金额 USD 补全，与 report_aggregator 同源）────────
 

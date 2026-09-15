@@ -28,6 +28,7 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 from data_access.storage.market_store import MarketStoreReader
 
 from . import report_measure as rm
+from . import _common
 
 logger = logging.getLogger(__name__)
 
@@ -170,12 +171,8 @@ class BdibHealthService:
 
     @staticmethod
     def _table_has_column(conn, table: str, column: str) -> bool:
-        """判断 processed_fills 等表是否含指定列（幂等兼容旧 schema / 测试 fixture）。"""
-        try:
-            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-        except Exception:
-            return False
-        return any(str(r[1]).lower() == column.lower() for r in rows)
+        """判断表是否含指定列（幂等兼容旧 schema / 测试 fixture；实现见 _common.py）。"""
+        return _common.has_column(conn, table, column)
 
     def _scan_sqlite(
         self, start_date: str, end_date: str,
@@ -489,16 +486,8 @@ class BdibHealthService:
 
     @staticmethod
     def _table_exists(conn) -> bool:
-        """tca_route_summary 表/视图是否存在于当前库。"""
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') "
-                "AND name = ? LIMIT 1",
-                [Config.TCA_ROUTE_SUMMARY_TABLE],
-            ).fetchone()
-        except Exception:
-            return False
-        return row is not None
+        """tca_route_summary 表/视图是否存在于当前库（实现见 _common.py）。"""
+        return _common.tca_summary_exists(conn)
 
     @staticmethod
     def _sum_missing_weight(

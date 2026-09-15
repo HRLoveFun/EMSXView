@@ -25,6 +25,7 @@ from typing import Any, Optional
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
+from . import _common
 from . import report_measure as rm
 from .metric_coverage import MetricCoverageService, validate_metrics
 from .anomaly_query import (
@@ -930,22 +931,13 @@ class TcaReportAggregator:
 
     @staticmethod
     def _table_exists(conn) -> bool:
-        cursor = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ? LIMIT 1",
-            [Config.TCA_ROUTE_SUMMARY_TABLE],
-        )
-        return cursor.fetchone() is not None
+        """tca_route_summary 表/视图是否存在（实现见 monitoring/_common.py）。"""
+        return _common.tca_summary_exists(conn)
 
     @staticmethod
     def _table_columns(conn) -> set[str]:
-        """tca_route_summary 现有列名集合（小写；PRAGMA 失败 → 空集）。"""
-        try:
-            rows = conn.execute(
-                f"PRAGMA table_info({Config.TCA_ROUTE_SUMMARY_TABLE})"
-            ).fetchall()
-        except Exception:
-            return set()
-        return {str(r[1]).lower() for r in rows}
+        """tca_route_summary 现有列名集合（小写；实现见 monitoring/_common.py）。"""
+        return _common.tca_summary_columns(conn)
 
     @classmethod
     def _has_column(cls, conn, column: str) -> bool:
@@ -954,21 +946,13 @@ class TcaReportAggregator:
 
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
-        """数值安全转换，None/NaN → None。"""
-        if value is None:
-            return None
-        result = float(value)
-        return result if result == result else None
+        """数值安全转换，None/NaN/不可解析 → None（统一实现，不再抛异常）。"""
+        return _common.to_float(value)
 
     @staticmethod
     def _to_int(value: Any) -> Optional[int]:
         """整数安全转换（计数类列），None/非法值 → None。"""
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
+        return _common.to_int(value)
 
     @staticmethod
     def _filters_dict(
