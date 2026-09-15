@@ -69,22 +69,11 @@ def get_tca_query_service(key: str = "default") -> TcaQueryServiceProtocol:
 # AccessTier 来自本仓库只读访问层 data_access（010-extract-pipeline 后的唯一数据入口）。
 from data_access import AccessTier
 from platform_data.contracts.protocols import ConnectionManagerProtocol
-from platform_data.contracts import (
-    ScorecardCohortMetrics,
-    ScorecardFilters,
-    ScorecardReport,
-    TcaFilters,
-    TcaReport,
-)
 
-# ── Re-export constants from canonical location ─────────────────────────────────
-# Imported from platform_data.contracts.db_constants which is the single source
-# of truth. Direct consumers should import from contracts directly.
-from platform_data.contracts.db_constants import (
-    BARS_PER_YEAR,
-    BDIB_DAILY_SUMMARY_TABLE,
-    RAW_BDIB_TABLE,
-)
+# 常量唯一真相源为 platform_data.contracts.db_constants；跨域消费者应直接从
+# platform_data.contracts 导入 —— 本模块**不再**承担 re-export 职责
+# （2026-09-15 收敛：原 re-export 面双仓库零消费者，见 skill iteration-log）。
+from platform_data.contracts.db_constants import BDIB_DAILY_SUMMARY_TABLE
 
 
 class _ConnectionManagerDailySummaryReader:

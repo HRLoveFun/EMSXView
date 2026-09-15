@@ -418,7 +418,3 @@ class TcaQueryService:
             [table_name],
         )
         return cursor.fetchone() is not None
-
-
-# 兼容旧导入：TcaOrderSummary/TcaRouteDetail 仍可访问
-from platform_data.contracts import TcaOrderSummary, TcaRouteDetail  # noqa: E402,F401

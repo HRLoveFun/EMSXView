@@ -67,6 +67,7 @@
 | 行号型指纹的产生抖动 | 位置级规则（`nested@{line}` / `comment@{line}` / `unreachable@{line}`）在无关行增删后会换 fingerprint，被记为「新增 + 清偿」各若干 | 属设计取舍（位置即身份）；批量编辑工具文件时会出现个位数抖动，可忽略；如需消除可改为内容片段哈希 |
 | 级联失效 | 删除一个文件会让「仅供其使用」的下游符号新变为零引用（本次 `exchange_tz.batch_convert_ny_to_local` 即如此） | 删除批次完成后**必须复扫一次**再定下一批，勿按首轮清单一次性删完 |
 | OE-06 同文件使用型 | 「导出无跨文件消费者」包含两类：真死代码 vs 仅本文件使用的多余 `export`（含 shadcn/ui 的 `export { A, B }` 约定与模块内部类型面），后者删除即破坏编译 | 待实现：把「同文件仍有引用」单列子类并降级为提示；`_is_exempt` 目前不排除 `__tests__/`，测试内的 `export function measure` 会混入清单 |
+| OE-06「同文件使用」计数含 `export` 行 | 本文件出现次数（`own > 1`）把**声明处的 `export` 语句本身**计入 → `export function X(){}` 这种「仅靠导出维持被使用」的符号被判成 SAME_FILE_ONLY（实测 `PopoverAnchor`：裁剪导出列表后 `tsc --noUnusedLocals` 立即报 TS6133） | 判定时应**扣除导出语句行**再计数；前端收敛批次以 `tsc -b` 兜底（`noUnusedLocals` 会把这类伪存活暴露为编译错误） |
 | 部分扫描污染趋势库 | `cleanup --ruleset cl|pf` 仍写 `scans` 记录（n_findings=0），`last_full_scan()` 取到虚假 0 项基准 → 报告趋势表与「环比上次全量」失真 | **已修**（2026-09-14）：`_is_full_coverage(mode, ruleset)` 统一 `save_scan` 与 `_maintain_baseline` 口径；分析型单规则集扫描不再入库 |
 | 检测器修复 ≠ 真实清偿 | 修复误报后同批 fingerprint 从基线消失，被记为 `fixed`，会虚高「存量清偿率」 | 统计与复盘时须扣除「修复导致的消失」数量；本轮为 71（OE-06 跨行）+ 1（别名）+ 3（PF-01 头部）= 75 项 |
 | 子串遮蔽（假阴性） | 外部审计脚本用 `sub.name in text`（子串）判定跨文件存活：`get_distinct_dates` 被 `get_distinct_dates_in_range` 遮蔽、`_fill_bdib_conn` 被 `tca_query_builder.py` 的同名**模块级函数**遮蔽 → 真死方法被判存活 | 判定存活必须用**词边界正则**（`(?<![\w.])name(?![\w])`）并区分「同名不同实体」；删除后须复扫以捕获级联 |
@@ -614,7 +615,32 @@ cleanup 复扫清理项 0。**
 `tsc -b` exit 0；`vitest run` 155 通过；`cleanup --ruleset cl` **清理项 0**（引入 CL-12 时首批 14 → 收口后 0）；
 `audit_doc_drift.py` 无漂移。
 
-**6. 本批新增的两条经验**：
+**6. 跟进批次（同日，授权后）**：`CL-12` 接入 CI 日常路径 + 收口最后 9 项 re-export 面 + shadcn 3 项
+
+- **`CL-12` 真正进入日常门禁**：此前 `cleanup.py` 只在人工执行时运行（pre-commit 只跑
+  `quality_gate --staged`，不含 cleanup 规则集）→ 新增 `.github/workflows/cleanup-report.yml`，
+  每个 PR / push 全量运行并把结果写入 Job Summary + 上传产物（**建议性、不阻断**，
+  沿用既有 `doc-drift-report.yml` 的 `continue-on-error` + Summary + artifact 模式）；
+  摘要渲染抽为 `scripts/cleanup/summary.py`（4 项单测，含「缺文件不失败」的 CI 友好约束）。
+- **`--strict` 评估结论 = 暂不开启**（三条理由 + 三条切换条件写入 workflow 头注释与
+  `ruleset-cl.md`「CI 集成与 `--strict` 门槛」）：核心障碍是 `--strict` 语义为
+  「基线外新增项阻断」而**基线库被 .gitignore 排除** → CI 全新鲜克隆下基线为空，
+  会把全部存量项判为新增；且误报收口不能依赖 `--suppress`（记录在未入库的库里）。
+- **最后 9 项未使用 import 收口**（`tca_bridge.py` 7 项 + `tca_query_service.py` 2 项）：
+  双仓库 AST 核查（**408 个 .py**：本仓库 + EMSXDataPipeline）确认**零消费者** ——
+  命名空间历史上是 re-export 面，但实际消费者只从 `platform_data.contracts` 导入。
+  移除 + 同步 `docs/spec/module-api-contracts.md`（注明兼容 re-export 已退役、
+  两个 deprecated 类型仍由契约包导出）。`tca_bridge` 的常量注释同步改写为
+  「本模块不再承担 re-export 职责」。
+- **shadcn 3 项收敛（`badge`/`popover`/`scroll-area`）**：三者是**分组导出**
+  （`export { A, B }`）形态，故走列表裁剪；其中 `PopoverAnchor` 裁剪后 `tsc -b` 立即报
+  `TS6133 声明未使用` → 证明它此前**仅靠 export 维持「被使用」**，遂整体删除组件实现
+  （6 行）。**这是一条新的口径提醒**：`own>1` 的「仅本文件使用」判定会被
+  **导出语句本身**计入，应扣除 export 行再判（已记入「遗漏候选段」）。
+- **验证**：`pytest` **481 passed / 1 skipped**（+4 摘要单测）；`tsc -b` exit 0；
+  `vitest run` 155 通过；`cleanup --ruleset cl` 清理项 0；workflow YAML 本地解析通过。
+
+**7. 本批新增的三条经验**：
 
 - **「工具报出」与「应当保留」可以并存**：CL-12 首批 14 项里，4 项是**已文档化的契约公开面**。
   删除决策的最后一关始终是**查契约文档**（`module-boundary.md`），而不是查调用方数量 ——

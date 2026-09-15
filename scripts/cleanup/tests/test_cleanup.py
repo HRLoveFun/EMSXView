@@ -678,6 +678,51 @@ class TestDeadMethods:
         assert rules["CL-12"][0].est_effort_h == 0.5
 
 
+# ── CI 摘要渲染 ────────────────────────────────────────────────────
+
+class TestSummary:
+    """`cleanup/summary.py`：JSON → Markdown 摘要（CI Job Summary 消费）。"""
+
+    def test_renders_counts_and_cleanup_rows(self):
+        from scripts.cleanup import summary
+
+        payload = {
+            "files_scanned": 380,
+            "duration_s": 3.68,
+            "findings": [
+                {"rule_id": "CL-12", "file": "a.py", "line": 7,
+                 "symbol": "C.dead", "message": "过时类方法"},
+                {"rule_id": "PF-02", "file": "b.py", "line": 9,
+                 "symbol": "<loop>", "message": "嵌套循环"},
+            ],
+        }
+        text = "\n".join(summary.render(payload))
+        assert "**1**" in text and "| 1 |" in text
+        assert "`a.py:7`" in text and "`C.dead`" in text
+        assert "| 380 |" in text
+
+    def test_reports_zero_cleanup(self):
+        from scripts.cleanup import summary
+
+        text = "\n".join(summary.render({"findings": []}))
+        assert "清理项为 0" in text
+
+    def test_truncates_long_lists(self):
+        from scripts.cleanup import summary
+
+        payload = {"findings": [
+            {"rule_id": "CL-02", "file": "f.py", "line": i, "symbol": "s", "message": "m"}
+            for i in range(summary.MAX_ROWS + 3)]}
+        text = "\n".join(summary.render(payload))
+        assert "（其余 3 项见报告产物）" in text
+
+    def test_missing_file_does_not_fail(self, tmp_path, capsys):
+        from scripts.cleanup import summary
+
+        assert summary.main([str(tmp_path / "absent.json")]) == 0
+        assert "未读取到" in capsys.readouterr().out
+
+
 # ── CLI 基线写入口径 ───────────────────────────────────────────────
 
 
