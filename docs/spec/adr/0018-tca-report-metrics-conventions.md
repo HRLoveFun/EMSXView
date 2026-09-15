@@ -70,6 +70,49 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
   - 前端 `lib/storage.migrateRuleKeys` 在读取 localStorage 时把旧键配置迁移为新键。
 - 迁移由测试护栏守住：`test_report_metrics` 的 `test_legacy_rule_key_migrated`、`storage.test.ts`（两条）与 `thresholds.test.ts` 的兼容用例。
 
+### 10. 报告口径层收敛为单一实现源（2026-09-15 P0 修订）
+
+**背景**：对报告模块的评估指标复查发现一类同源缺陷 —— *同一契约在多个小节各写一份实现，
+只有一处随迭代演进*，导致同一份报告内数字不可对账：
+
+| 契约 | 分裂形态 | 后果 |
+|---|---|---|
+| 市场作用域 | 覆盖率按 `Config.BDIB_EXCHANGE` 白名单、KPI / 异常按全量 | 同报告内 overfill 条数与异常表命中不可对账；直方图样本被 out-of-scope 路由稀释 |
+| 加权均值覆盖 | 均值只由「指标非 NULL 且有成交额权重」的子集决定，但只披露条数覆盖（且仅直方图 / 排行有） | 缺口集中在大单时 KPI 实为子样本均值却「看起来正常」 |
+| 维度过滤 | 聚合器支持多值 `IN`、异常查询按 `= ?` 单值匹配 | 前端多选（逗号拼接）时异常清单静默清空，KPI 却正常 |
+| 订单级聚合 | 异常按维度过滤后的行求和、一致性探针按全量 | 过滤视图下 `order_par_gt100` 探针系统性低估 |
+| 金额换算 | 小计价单位 / fx 兜底在聚合器与异常查询各写一份 | 新增币种需多处同步，易漂移 |
+
+**决策**：
+
+1. 新增 `CostView/src/monitoring/report_measure.py` 作为口径**实现**的唯一来源
+   （`report_spec.py` 仍是口径**声明**的唯一来源，两者由测试断言一致）：
+   - 作用域：`resolve_scope` / `scope_condition`（默认 BDIB 白名单；用户指定 exchange 时为用户口径，
+     白名单外选择记入 `out_of_scope` 并在报告头告警）；
+   - 加权：`weight_cond` / `weighted_avg_sql` / `weight_coverage_select`（成交额口径唯一入口，
+     覆盖披露与均值的纳入条件同源）；
+   - 订单级：`order_par_aggregate_sql` / `order_par_key`（仅报告期 + 作用域，禁止含维度过滤）；
+   - 金额：`usd_fx_expr` / `minor_unit_expr` / `unfilled_price_expr` / 零成交与未计价表达式。
+2. **全报告小节共用同一作用域**：KPI / 直方图 / 走势 / 排行 / PWP / 市场概览 / 异常明细 / 覆盖率
+   一律由 `build_report` 一次性解析的 scope 生成条件；`filter_options.exchanges` 仍忽略用户
+   exchange（下拉需展示全部可选市场，但受白名单约束）。
+3. **加权均值必须披露覆盖**：新增 `report["weight_coverage"]`（每指标 `n_used/n_total`、
+   `used_weight/total_weight`、`sample_pct`/`weight_pct`/`insufficient`），渲染层在 KPI 卡片与
+   冲击分解表标注；阈值 `SAMPLE_COVERAGE_MIN_PCT = 90`（`report_spec` 与实现由测试断言一致）。
+4. **零成交路由必须可见**：
+   - 缺口金额价格回退链 `p_avg → p_arrival → p_decision → p_close`，缺口口径改为
+     `RouteShares − COALESCE(fill, 0)`（fill 为 NULL 视为零成交）；价格全缺时该路由贡献 NULL
+     且条数单列披露；
+   - 新增 `zero_fill_routes` / `zero_fill_notional_usd`（KPI 卡片单列「零成交路由」）；
+   - 异常明细的笔数 / 金额下限对 `fill_pct` critical（严重未完成，含零成交）**豁免**；
+     `fill_count` 列缺失（旧 schema）时下限 fail-open 并记录告警，不静默清空清单。
+5. **多选过滤统一**：维度过滤改为 `report_measure.dimension_condition`（多值 `IN`），聚合器与
+   异常查询共用；订单级聚合改为独立全量查询后按 `(OrderId, order_as_of_date, Exchange)` 回联。
+
+**版本**：`SPEC_VERSION` `2026.09` → `2026.09.2`；`report_spec` 新增 `weight_coverage_min_pct` /
+`scope_modes` / `scope_whitelist_source` / `unfilled_price_fallbacks` / `anomaly_floor_exempt`
+并由脚注展示。
+
 ## 后果 (Consequences)
 
 ### 正面
@@ -84,6 +127,14 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 - 前端需同步：`ThresholdRule` 恢复 `warning` / `critical` 并新增两条规则键。
 - 异常清单条数可能上升（overfill 与订单参与率规则新纳入）。
 - 规则键重命名为破坏性变更，前后端需同步升级；已提供旧 payload 与旧 localStorage 配置的兼容层，但第三方直连 API 的消费者若硬编码旧键需自行迁移。
+- **（2026-09-15 P0）报告数值随作用域收窄而变化**：白名单外市场不再进入 KPI / 走势 / 排行 /
+  市场概览 / 异常明细（此前仅覆盖率剔除），与旧版本报告数值不可直接比较；需要纳入时应显式传
+  `exchange`，此时报告头会告警该市场 DBIB 依赖指标必然为 NULL。
+- **（2026-09-15 P0）异常清单条数进一步上升**：严重未完成（`fill_pct` critical，含零成交）路由
+  豁免笔数 / 金额下限；同时多选过滤修复后，此前「意外为空」的筛选组合会恢复出明细。
+- **（2026-09-15 P0）payload 为追加式变更**：新增 `weight_coverage`、`filters.scope`、
+  `metric_coverage.scope`、`extra_kpis.zero_fill_routes` / `zero_fill_notional_usd` /
+  `unfilled_notional_unpriced_routes`，旧消费者只需忽略未知键。
 
 ### 对其他 ADR 的影响
 
@@ -98,11 +149,19 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 - **保留 ADR-0015 单档 + 仅展示数值**：否决。数值化无法支撑分级处置（容忍 vs 立即停单）。
 - **异常明细一次性全量内嵌 HTML**：否决。报告体积曾达 5MB+，改为渲染截断 + CSV 导出。
 - **健康度继续以 round 后覆盖率分级**：否决。浮点精度可把 99.995% 误判为 ok。
+- **（2026-09-15）保留全量 KPI + 并列「白名单内」对照卡**：否决。把口径选择推给读者，且异常明细
+  与覆盖率的对齐问题未解决；改为默认白名单 + 用户口径显式切换 + 报告头告警。
+- **（2026-09-15）零成交路由按原缺口口径补 0**：否决。补 0 会把「无价格可估」伪装成
+  「无机会成本」，与「不补零」原则冲突；改为价格回退链 + 未计价条数披露。
+- **（2026-09-15）旧 schema 缺 `fill_count` 列时抛错**：否决。旧库应仍可导出报告，
+  故取 fail-open + 日志告警（不静默清空清单），而非中断导出。
 
 ## 实施注意事项 (Implementation Notes)
 
 - 涉及的关键文件:
-  - `CostView/src/monitoring/report_aggregator.py`（加权口径、组合完成率、未成交金额、样本量 meta、跨日披露、fx 质量）
+  - `CostView/src/monitoring/report_measure.py`（新增：口径实现唯一来源 —— 作用域 / 加权与覆盖 /
+    订单级聚合 / 金额回退与零成交；2026-09-15 P0）
+  - `CostView/src/monitoring/report_aggregator.py`（加权口径、组合完成率、未成交金额、样本量 meta、跨日披露、fx 质量、作用域与权重覆盖）
   - `CostView/src/monitoring/anomaly_query.py`（两档阈值、severity、排序与 limit、overfill / order_par 规则、CSV 导出）
   - `CostView/src/monitoring/metric_coverage.py`（SLA 双口径、整体覆盖率、一致性探针、NULL 原因一致性）
   - `CostView/src/monitoring/bdib_health.py`（精确分级、金额权重、三态降级）
@@ -120,6 +179,13 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
   - 前端 `vitest run src/modules/costview` → 39 passed；`tsc --noEmit` 通过
   - golden 回归：冻结快照 4668 行与基线 `total_routes` 一致，锁定 200 条路由 × 18 项指标全部落在容差内
   - 结论：本次口径变更仅作用于报告聚合 / 渲染层，**订单级指标计算链路零漂移**
+- 验证记录（2026-09-15，P0 修订）:
+  - 后端 `CostView/tests/` → 182 passed, 0 skipped（含 golden；新增 11 条护栏）
+  - 新增护栏分布：作用域统一（3）、加权覆盖披露（2）、零成交可见性（4）、
+    过滤与订单级口径一致性（2）+ 口径声明-实现一致性（1）
+  - 破坏面：`test_monitoring.test_kpi_notional_usd_minor_unit` 的夹具使用了白名单外市场代码
+    `IT`（意大利 Bloomberg 代码应为 `IM`），作用域统一后该路由不再计入 KPI；已修正夹具代码
+  - 结论：变更集中在报告聚合 / 口径层，golden 快照零漂移（订单级指标计算链路未触碰）
 - CI 常态化: `.github/workflows/boundary.yml` 新增「Golden snapshot 回归」步骤（硬阻断）；
   快照随基线入库（`CostView/tests/golden/snapshot/`，`.gitignore` 显式例外），
   CI 无需生产数据即可执行

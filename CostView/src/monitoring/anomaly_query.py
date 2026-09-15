@@ -6,12 +6,16 @@
 - mode：absolute-above / above / below（evaluateThreshold 同款）
 - 默认阈值 = 前端 DEFAULT_RULES 同值（两处常量，注释互引）
 
+作用域 / 维度过滤（多值 IN）/ 订单级聚合 / 金额换算统一引用 ``report_measure``
+（口径唯一实现源），避免异常清单与聚合器、覆盖率在小节间口径分叉。
+
 查询全部参数化（? 占位符），指标名仅来自内部白名单常量，无注入风险。
 """
 
 from __future__ import annotations
 
 import csv
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +23,10 @@ from typing import Any, Optional
 
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
+
+from . import report_measure as rm
+
+logger = logging.getLogger(__name__)
 
 # ── 阈值规则定义（与前端 thresholds.ts 同步）────────────────────────────────
 
@@ -262,16 +270,47 @@ def evaluate_route_thresholds(
 _OVERFILL_EPS = 1e-9
 
 
+#: 豁免笔数 / 金额下限的规则：fill_pct 命中 critical 档 = 严重未完成（含零成交），
+#: 而该档的目标样本恰是低完成率路由 —— 用下限过滤会把最严重的情形整体剔除。
+_FLOOR_EXEMPT_RULES: frozenset[str] = frozenset({"fill_pct"})
+
+
+def _floor_exempt(hits: list[dict[str, Any]]) -> bool:
+    """命中严重未完成是否豁免笔数 / 金额下限（零成交路由须在异常清单中可见）。"""
+    return any(
+        hit.get("key") in _FLOOR_EXEMPT_RULES and hit.get("severity") == "critical"
+        for hit in hits
+    )
+
+
+def _load_order_par_sums(
+    conn, start_date: str, end_date: str,
+) -> dict[tuple[str, str, str], float]:
+    """订单级参与率求和（只受报告期约束，不受 broker/algo/symbol 维度过滤影响）。
+
+    口径的唯一实现见 ``report_measure.order_par_aggregate_sql``，与覆盖率一致性探针
+    共用，保证「订单参与率 >100%」在两处可对账。
+    """
+    cursor = conn.execute(
+        rm.order_par_aggregate_sql("order_as_of_date BETWEEN ? AND ?"),
+        [start_date, end_date],
+    )
+    sums: dict[tuple[str, str, str], float] = {}
+    for order_id, oad, exchange, par_sum in cursor.fetchall():
+        total = _to_float(par_sum)
+        if total is not None:
+            sums[rm.order_par_key(order_id, oad, exchange)] = total
+    return sums
+
+
 def _order_par_key(row: dict[str, Any]) -> tuple[str, str, str]:
     """订单参与率聚合键：(OrderId, order_as_of_date, Exchange)。
 
     按交易所分组，避免跨市场求和使订单参与率失去物理意义
     （不同市场的成交量不可直接相加）。
     """
-    return (
-        str(row.get("OrderId") or ""),
-        str(row.get("order_as_of_date") or ""),
-        str(row.get("Exchange") or ""),
+    return rm.order_par_key(
+        row.get("OrderId"), row.get("order_as_of_date"), row.get("Exchange"),
     )
 
 
@@ -325,17 +364,19 @@ def query_anomaly_routes(
     min_fill_count: int = 10,
     min_notional_usd: float = 10000.0,
     limit: Optional[int] = None,
+    scope: Optional[rm.ReportScope] = None,
 ) -> list[AnomalyRoute]:
     """查询异常路由（便捷封装，返回排序后的明细列表）。
 
     limit 为 None 时返回全部命中路由；否则仅返回严重度最高的前 limit 条。
+    scope 为报告作用域（None → 由 exchange 解析，未给出时取 BDIB 白名单）。
     需要同时获得命中总数时请用 :func:`query_anomaly_routes_page`。
     """
     routes, _ = query_anomaly_routes_page(
         mgr, start_date, end_date, rules,
         broker=broker, algo=algo, symbol=symbol, exchange=exchange,
         min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
-        limit=limit,
+        limit=limit, scope=scope,
     )
     return routes
 
@@ -353,13 +394,21 @@ def query_anomaly_routes_page(
     min_fill_count: int = 10,
     min_notional_usd: float = 10000.0,
     limit: Optional[int] = None,
+    scope: Optional[rm.ReportScope] = None,
 ) -> tuple[list[AnomalyRoute], int]:
     """查询筛选范围内命中阈值（warning 档及以上）的路由，返回 (明细, 命中总数)。
 
+    broker/algo/symbol 支持逗号分隔多值（IN 匹配，与聚合器共用 report_measure 实现）；
+    scope 为报告作用域（默认取 BDIB 白名单，与 KPI / 覆盖率 / 健康扫描同一口径）。
     min_fill_count：异常路由填充笔数下限（默认 10）。仅对 algo <> "close" 的路由生效——
     该档路由填充笔数低于下限时视为样本噪声、不计入异常清单；algo="close" 不做此限制。
+    **fill_pct 命中 critical（严重未完成，含零成交）的路由豁免该下限**：该档的目标样本
+    恰是低完成率路由，用笔数下限过滤会把「完全未执行」这一最严重情形整体剔除。
     min_notional_usd：异常路由成交金额(USD)下限（默认 10000），对全部路由生效——
-    无法换算 USD（fx 缺失）或金额低于下限的路由不计入异常清单。
+    无法换算 USD（fx 缺失）或金额低于下限的路由不计入异常清单；严重未完成路由同样豁免
+    （零成交路由 Amount 为 0，否则会被金额门槛二次屏蔽）。
+    fill_count 列缺失（旧 schema）时下限不可评估，此时 fail-open 并记录告警，
+    不静默清空清单。
     明细按「严重度优先 + pnl_vwap 升序」排序（critical 在前，同档内成本由劣到优）；
     limit 截断的是**排序后**的前 N 条，因此截断样本无偏（必为最严重的 N 条）。
     表不存在时返回 ([], 0)。
@@ -382,15 +431,27 @@ def query_anomaly_routes_page(
         # 金额(USD) 在 tca.fx_rate 缺失时也能从 fill_bdib 补全。
         fbfx_ready = _prepare_anomaly_fx(conn) if has_fx else False
 
+        # 维度与作用域条件由 report_measure 统一生成：此前此处按 `= ?` 单值匹配，
+        # 而聚合器按 IN 匹配 —— 前端多选（逗号拼接）时异常清单会静默清空。
         conditions = ["order_as_of_date BETWEEN ? AND ?"]
         params: list[Any] = [start_date, end_date]
         for column, value in (
-            ("Broker", broker), ("algo", algo),
-            ("equ_ticker", symbol), ("Exchange", exchange),
+            ("Broker", broker), ("algo", algo), ("equ_ticker", symbol),
         ):
-            if value:
-                conditions.append(f"{column} = ?")
-                params.append(value)
+            condition, values = rm.dimension_condition(column, value)
+            if condition:
+                conditions.append(condition)
+                params.extend(values)
+        resolved_scope = scope or rm.resolve_scope(exchange)
+        scope_sql, scope_params = rm.scope_condition(resolved_scope)
+        if scope_sql:
+            conditions.append(scope_sql)
+            params.extend(scope_params)
+
+        # 订单参与率：独立全量聚合（仅报告期 + 作用域），不受 broker/algo/symbol
+        # 维度过滤影响 —— 否则订单拆到多 broker 时过滤视图下只剩子集参与率，
+        # 「订单参与率 >100%」探针系统性低估，且与覆盖率一致性探针不可对账。
+        order_par_sum = _load_order_par_sums(conn, start_date, end_date)
 
         join = _anomaly_fx_join() if fbfx_ready else ""
         fx_select = "fx_rate" if has_fx else "NULL AS fx_rate"
@@ -418,13 +479,13 @@ def query_anomaly_routes_page(
         if conn is not None:
             conn.close()
 
-    # 订单参与率：同一订单键下所有路由 par_rate 之和（0-1 小数，可能 >1）
-    order_par_sum: dict[tuple[str, str, str], float] = {}
-    for row in rows:
-        key = _order_par_key(row)
-        pr = _to_float(row.get("par_rate"))
-        if pr is not None:
-            order_par_sum[key] = order_par_sum.get(key, 0.0) + pr
+    floor_active = min_fill_count > 0 and has_fill_count
+    if min_fill_count > 0 and not has_fill_count:
+        logger.warning(
+            "tca_route_summary 缺 fill_count 列，填充笔数下限(%s)不生效："
+            "异常清单不做笔数过滤（fail-open，避免静默清空）",
+            min_fill_count,
+        )
 
     results: list[AnomalyRoute] = []
     for row in rows:
@@ -445,16 +506,19 @@ def query_anomaly_routes_page(
         hits = evaluate_route_thresholds(row, rules)
         if not hits:
             continue
-        # 填充笔数下限过滤：仅对 algo <> "close" 的路由生效（下限为 0 时关闭）
+        exempt = _floor_exempt(hits)
+        # 填充笔数下限过滤：仅对 algo <> "close" 的路由生效（下限为 0 或列缺失时关闭）
         algo_value = (row.get("algo") or "")
-        if algo_value != "close" and min_fill_count > 0:
+        if floor_active and not exempt and algo_value != "close":
             fc = _to_int(row.get("fill_count"))
             if fc is None or fc < min_fill_count:
                 continue
         amount = _to_float(row.get("Amount"))
         notional_usd = _to_float(row.get("notional_usd_calc"))
         # 成交金额(USD)下限过滤：对全部路由生效（下限为 0 时关闭，含无法换算 USD 的路由）
-        if min_notional_usd > 0 and (notional_usd is None or notional_usd < min_notional_usd):
+        if min_notional_usd > 0 and not exempt and (
+            notional_usd is None or notional_usd < min_notional_usd
+        ):
             continue
         results.append(AnomalyRoute(
             order_id=str(row.get("OrderId") or ""),
@@ -579,16 +643,12 @@ def _anomaly_notional_usd_expr(fbfx_ready: bool, has_fx: bool) -> str:
     """
     if not has_fx:
         return "NULL"
-    minor = "CASE WHEN Currency IN ('GBp', 'ILs', 'ZAr') THEN 0.01 ELSE 1.0 END"
     tca = Config.TCA_ROUTE_SUMMARY_TABLE
     eff = (
         f"COALESCE({tca}.fx_rate, _fbfx.fb_fx)" if fbfx_ready else f"{tca}.fx_rate"
     )
-    return (
-        f"CASE WHEN {eff} IS NOT NULL THEN Amount * {eff} * {minor} "
-        f"WHEN Currency IS NULL OR Currency = 'USD' THEN Amount * 1.0 "
-        f"ELSE NULL END"
-    )
+    # 小计价单位修正与 USD 兜底规则的唯一实现见 report_measure（新增币种只改一处）
+    return f"Amount * ({rm.usd_fx_expr(eff)})"
 
 
 # ── 全量明细导出（014：HTML 截断与审计导出分离）──────────────────────────────

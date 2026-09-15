@@ -6,7 +6,14 @@
 
 加权口径：成交额权重 = fill * p_avg（仅二者均非 NULL 时计入），与 KPI 的
 notional = SUM(fill × p_avg) 同源 —— 保证「加权成本」可由「总成交金额」反推校验，
-且未成交路由不再以「意图规模」放大权重。
+且未成交路由不再以「意图规模」放大权重。加权均值必须同时披露样本量与权重覆盖率
+（report["weight_coverage"]）：条数覆盖 90% 不代表权重覆盖 90%，BDIB 缺口集中在
+大单时 KPI 实为覆盖子集均值，需让读者可见。
+
+作用域（缺陷 · 白名单作用域不一致）：报告全部小节共用同一作用域 —— 默认取
+Config.BDIB_EXCHANGE 白名单（白名单外市场本就不拉 BDIB、指标必然 NULL），用户显式
+指定 exchange 时改用用户口径，并披露所选市场中的白名单外项。作用域 / 加权 / 订单级
+聚合 / 金额回退的唯一实现见 report_measure.py。
 所有过滤条件参数化（? 占位符），指标名仅来自内部白名单常量。
 """
 
@@ -18,6 +25,7 @@ from typing import Any, Optional
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
+from . import report_measure as rm
 from .metric_coverage import MetricCoverageService, validate_metrics
 from .anomaly_query import (
     ThresholdRules,
@@ -70,16 +78,22 @@ class TcaReportAggregator:
         故截断样本必为最严重的 N 条，且 count 始终为全量命中数）。
         as_of_date / preset 由调用方（装配脚本 / API）透传，仅写入 filters 供报告头
         展示「口径 last=… ，数据截至 …」，使归档报告可自证报告期。
-        markets 清单遵循 exchange 过滤（导出时按交易所整体过滤，市场概览同步收窄；
-        无 exchange 时等价于忽略 exchange）。filter_options.exchanges 仍忽略 exchange
-        过滤（供前端筛选下拉展示全部可选市场）。表不存在时返回带 data_source_warning 的空报告。
+        exchange 不再只是「市场概览的收窄条件」，而是整份报告的作用域：给出时为用户
+        口径（含白名单外市场时在 filters.scope.out_of_scope 披露），未给出时为
+        BDIB 白名单口径 —— KPI / 覆盖率 / 异常 / 市场概览因此天然可对账。
+        filter_options.exchanges 仍忽略 exchange 过滤（供前端筛选下拉展示全部可选
+        市场，但受白名单约束）。表不存在时返回带 data_source_warning 的空报告。
         """
         selected = validate_metrics(metrics)
+        # 作用域一次性解析：KPI / 直方图 / 走势 / 排行 / 市场概览 / 异常 / 覆盖率
+        # 全部共用同一 Exchange 条件（默认白名单；用户指定 exchange 时为用户口径）
+        scope = rm.resolve_scope(exchange)
         where, params = self._build_where(
-            start_date, end_date, broker, algo, symbol, exchange,
+            start_date, end_date, broker, algo, symbol, scope,
         )
+        # 筛选下拉的市场选项忽略 exchange 过滤（展示全部可选市场），但仍遵循白名单
         where_no_exchange, params_no_exchange = self._build_where(
-            start_date, end_date, broker, algo, symbol, None,
+            start_date, end_date, broker, algo, symbol, rm.resolve_scope(None),
         )
         conn = None
         try:
@@ -87,81 +101,105 @@ class TcaReportAggregator:
             if not self._table_exists(conn):
                 return self._empty_report(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
-                    as_of_date=as_of_date, preset=preset,
+                    as_of_date=as_of_date, preset=preset, scope=scope,
                 )
             # 报告期一次性构建 fill_bdib 汇率回填临时表，供下方 4 个 fx 查询复用
             self._prepare_fx_enrichment(conn, start_date, end_date)
-            daily_series = self._query_daily_series(conn, where, params)
             report = {
                 "filters": self._filters_dict(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
-                    as_of_date=as_of_date, preset=preset,
+                    as_of_date=as_of_date, preset=preset, scope=scope,
                 ),
-                # 市场概览遵循 exchange 过滤：导出时按交易所整体过滤时，
-                # 该小节也仅展示所选交易所（无 exchange 时与 where_no_exchange 等价）。
-                "markets": self._query_markets(conn, where, params),
-                "filter_options": self._query_filter_options(conn, where_no_exchange, params_no_exchange),
-                "market_notional_ranking": self._query_market_notional_ranking(
-                    conn, where, params,
-                ),
-                "market_notional_trend": self._query_market_notional_trend(
-                    conn, where, params,
-                ),
-                "kpi": self._query_kpi(conn, where, params),
-                "daily_series": daily_series,
-                # 014: 走势覆盖度披露。不补零 —— 0 表示「成本为零」，把「无数据」
-                # 补成 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录。
-                "daily_series_meta": {"covered_days": len(daily_series)},
-                "rankings": {
-                    "by_broker": self._query_rankings(conn, where, params, "Broker"),
-                    "by_algo": self._query_rankings(conn, where, params, "algo"),
-                },
-                "pnl_vwap_histogram": self._query_pnl_histogram(conn, where, params),
-                "pwp_curve": self._query_pwp_curve(conn, where, params),
-                # 006: 决策基准 / 风险 / 完成率 / 冲击分解 / 异常明细
-                "extra_kpis": self._query_extra_kpis(conn, where, params),
-                "impact_breakdown": self._query_impact_breakdown(conn, where, params),
             }
+            report.update(self._query_sections(
+                conn, where, params, where_no_exchange, params_no_exchange,
+            ))
         except FileNotFoundError:
             # 只读模式下 fill_bdib.db 缺失 → 空报告（与表缺失同语义, 009）
             return self._empty_report(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
-                as_of_date=as_of_date, preset=preset,
+                as_of_date=as_of_date, preset=preset, scope=scope,
             )
         finally:
             if conn is not None:
                 conn.close()
 
-        # 附加所选指标的覆盖率小节（复用覆盖率服务，口径与监控页一致）
+        # 附加所选指标的覆盖率小节（同一作用域；口径与监控页一致）
         report["metric_coverage"] = MetricCoverageService(self._mgr).get_coverage(
-            start_date, end_date, selected,
+            start_date, end_date, selected, scope=scope,
         )
-        # S6 异常路由明细（阈值可参数化，默认同前端）
-        rules = ThresholdRules.from_payload(thresholds)
+        # S6 异常路由明细（阈值可参数化，默认同前端；作用域与聚合各小节一致）
         anomalies, anomaly_total = query_anomaly_routes_page(
-            self._mgr, start_date, end_date, rules,
+            self._mgr, start_date, end_date, ThresholdRules.from_payload(thresholds),
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
             min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
-            limit=anomaly_limit,
+            limit=anomaly_limit, scope=scope,
         )
-        anomaly_rows = [a.__dict__ for a in anomalies]
-        report["anomaly"] = {
+        report["anomaly"] = self._anomaly_payload(anomalies, anomaly_total)
+        return report
+
+    def _query_sections(
+        self, conn, where: str, params: list[Any],
+        where_no_exchange: str, params_no_exchange: list[Any],
+    ) -> dict[str, Any]:
+        """一次连接内完成全部小节聚合（KPI / 走势 / 排行 / 分布 / PWP / 附加 KPI）。
+
+        where 与 where_no_exchange 的差异仅在于是否含用户 exchange 过滤：筛选下拉需
+        展示全部可选市场，其余小节与整份报告同作用域。
+        """
+        daily_series = self._query_daily_series(conn, where, params)
+        return {
+            # 市场概览遵循 exchange 过滤：导出时按交易所整体过滤时，
+            # 该小节也仅展示所选交易所（无 exchange 时与 where_no_exchange 等价）。
+            "markets": self._query_markets(conn, where, params),
+            "filter_options": self._query_filter_options(
+                conn, where_no_exchange, params_no_exchange,
+            ),
+            "market_notional_ranking": self._query_market_notional_ranking(
+                conn, where, params,
+            ),
+            "market_notional_trend": self._query_market_notional_trend(
+                conn, where, params,
+            ),
+            "kpi": self._query_kpi(conn, where, params),
+            "daily_series": daily_series,
+            # 014: 走势覆盖度披露。不补零 —— 0 表示「成本为零」，把「无数据」
+            # 补成 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录。
+            "daily_series_meta": {"covered_days": len(daily_series)},
+            "rankings": {
+                "by_broker": self._query_rankings(conn, where, params, "Broker"),
+                "by_algo": self._query_rankings(conn, where, params, "algo"),
+            },
+            "pnl_vwap_histogram": self._query_pnl_histogram(conn, where, params),
+            "pwp_curve": self._query_pwp_curve(conn, where, params),
+            # 006: 决策基准 / 风险 / 完成率 / 冲击分解
+            "extra_kpis": self._query_extra_kpis(conn, where, params),
+            "impact_breakdown": self._query_impact_breakdown(conn, where, params),
+            # 加权 KPI 的样本量与权重覆盖率（避免把覆盖子集均值读作全量水位）
+            "weight_coverage": self._query_weight_coverage(conn, where, params),
+        }
+
+    @staticmethod
+    def _anomaly_payload(
+        anomalies: list[Any], anomaly_total: int,
+    ) -> dict[str, Any]:
+        """异常明细段落：全量计数与截断明细分离，附数据质量计数与导出占位。"""
+        rows = [a.__dict__ for a in anomalies]
+        return {
             # count 为全量命中数（与 rows 截断解耦）
             "count": anomaly_total,
-            "rows": anomaly_rows,
-            "rows_truncated": max(0, anomaly_total - len(anomaly_rows)),
+            "rows": rows,
+            "rows_truncated": max(0, anomaly_total - len(rows)),
             # 全量 CSV 导出相对路径；由装配脚本落盘后回填，未导出时为 None
             "export_ref": None,
-            # 数据质量提示（013）：命中 overfill / 订单参与率 >100% 的条数，
-            # 供报告头「数据质量提示」区展示（与异常明细截断解耦）
+            # 数据质量提示（013）：命中 overfill / 订单参与率 >100% 的条数
             "data_quality": {
-                "overfill_count": sum(1 for r in anomaly_rows if r.get("overfill")),
+                "overfill_count": sum(1 for r in rows if r.get("overfill")),
                 "order_par_gt100_count": sum(
-                    1 for r in anomaly_rows if r.get("order_par_gt100")
+                    1 for r in rows if r.get("order_par_gt100")
                 ),
             },
         }
-        return report
 
     # ── 过滤条件 ─────────────────────────────────────────────────────────
 
@@ -172,32 +210,28 @@ class TcaReportAggregator:
         broker: Optional[str],
         algo: Optional[str],
         symbol: Optional[str],
-        exchange: Optional[str],
+        scope: rm.ReportScope,
     ) -> tuple[str, list[Any]]:
         """构建 WHERE 子句与参数列表（全部 ? 绑定）。
 
-        broker/algo/symbol/exchange 支持逗号分隔多值 → IN (...) 匹配；
-        单个值等价于 = 匹配。
+        broker/algo/symbol 支持逗号分隔多值 → IN (...) 匹配（单值等价 =）；
+        市场维度统一由作用域承载（默认 BDIB 白名单，用户指定时为用户口径），
+        与覆盖率 / 异常 / 健康扫描共用同一条件，避免各小节分母不可对账。
         """
         conditions = ["order_as_of_date BETWEEN ? AND ?"]
         params: list[Any] = [start_date, end_date]
         for column, value in (
-            ("Broker", broker), ("algo", algo),
-            ("equ_ticker", symbol), ("Exchange", exchange),
+            ("Broker", broker), ("algo", algo), ("equ_ticker", symbol),
         ):
-            values = TcaReportAggregator._split_values(value)
-            if values:
-                placeholders = ", ".join(["?"] * len(values))
-                conditions.append(f"{column} IN ({placeholders})")
+            condition, values = rm.dimension_condition(column, value)
+            if condition:
+                conditions.append(condition)
                 params.extend(values)
+        scope_sql, scope_params = rm.scope_condition(scope)
+        if scope_sql:
+            conditions.append(scope_sql)
+            params.extend(scope_params)
         return "WHERE " + " AND ".join(conditions), params
-
-    @staticmethod
-    def _split_values(raw: Optional[str]) -> list[str]:
-        """逗号分隔多值解析；None/空 → []；单值 → [单值]。"""
-        if not raw:
-            return []
-        return [v.strip() for v in raw.split(",") if v.strip()]
 
     # ── fx 汇率回填（报告期一次性构建，消除 gap sentinel 导致的整组 NULL）──
 
@@ -262,22 +296,14 @@ class TcaReportAggregator:
         )
 
     def _fx_usd_expr(self) -> str:
-        """USD 成交金额表达式（含小计价单位货币 ÷100 修正）。
+        """USD 换算因子（含小计价单位修正；换算规则的唯一实现见 report_measure）。
 
         有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)（回填可用时）；
         USD/未知币种缺汇率按 1.0 兜底；非 USD 币种仍缺汇率时该 route 贡献 NULL
         （SUM 忽略，不虚高、亦不再整体置空）。
         """
-        minor = "CASE WHEN Currency IN ('GBp', 'ILs', 'ZAr') THEN 0.01 ELSE 1.0 END"
-        if self._fbfx_ready:
-            eff = "COALESCE(fx_rate, _fbfx.fb_fx)"
-        else:
-            eff = "fx_rate"
-        return (
-            f"CASE WHEN {eff} IS NOT NULL THEN {eff} * {minor} "
-            f"WHEN Currency IS NULL OR Currency = 'USD' THEN 1.0 "
-            f"ELSE NULL END"
-        )
+        effective = "COALESCE(fx_rate, _fbfx.fb_fx)" if self._fbfx_ready else "fx_rate"
+        return rm.usd_fx_expr(effective)
 
     # ── 各小节查询 ───────────────────────────────────────────────
 
@@ -610,20 +636,35 @@ class TcaReportAggregator:
         ]
 
     def _query_extra_kpis(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
-        """决策基准 / 实现短缺 / 风险 / 完成率 聚合（006 增补）。
+        """决策基准 / 实现短缺 / 风险 / 完成率 / 未成交缺口 聚合（006 增补）。
 
         对齐文献 D1（决策基准 + 市场时间基准并存）与 B2-3（风险维度）：
         - arrival_cost_bps / wagner_is_bps：成交额加权
         - cost_stddev / cost_cvar / cost_p95：成交额加权
         - avg_fill：组合级完成率 SUM(fill) / SUM(RouteShares)，对大额未成交敏感
           （逐单简单平均会被大量小额成交掩盖真实执行缺口）
-        - unfilled_notional_usd：未成交金额缺口 SUM((RouteShares - fill) × p_avg × fx)，
-          仅正缺口计入；无法换算 USD 的路由贡献 NULL（不虚高），与 KPI fx 口径同源
+        - unfilled_notional_usd：未成交金额缺口，价格走回退链
+          COALESCE(p_avg, p_arrival, p_decision, p_close)。原实现以 p_avg 计价，
+          零成交路由 p_avg 为 NULL → 整条贡献被 SUM 跳过：「完全未执行」这一最严重
+          情形对缺口金额贡献为 0。现按缺口口径计入（fill 为 NULL 视作零成交），
+          仅正缺口计入，价格全缺时该路由贡献 NULL（不虚高）。
+        - zero_fill_routes / zero_fill_notional_usd：零成交路由数与委托金额 ——
+          单独度量「计划成交但一股未成」的规模（此前仅 avg_fill 分母可见其存在）。
+        - unfilled_notional_unpriced_routes：因价格全缺而无法计入缺口的路由数，
+          披露剩余低估规模，避免读者把缺口读作完整值。
         """
         has_fx = self._has_column(conn, "fx_rate")
         fx_sum = self._fx_usd_expr() if has_fx else "NULL"
         join = self._fx_join() if has_fx else ""
         weighted = lambda m: self._weighted_avg_sql(m)  # noqa: E731
+        price = rm.unfilled_price_expr(sorted(self._table_columns(conn)))
+        money_ready = bool(has_fx and price)
+        if price:
+            unfilled = rm.unfilled_notional_expr(price, fx_sum, usd=has_fx)
+            unpriced = rm.unfilled_unpriced_expr(price)
+            zero_notional = rm.zero_fill_notional_expr(price, fx_sum, usd=has_fx)
+        else:
+            unfilled = unpriced = zero_notional = "NULL"
         sql = f"""
             SELECT
                 {weighted("arrival_cost_bps")} AS arrival_cost_bps,
@@ -632,9 +673,10 @@ class TcaReportAggregator:
                 {weighted("cost_cvar")} AS cost_cvar,
                 {weighted("cost_p95")} AS cost_p95,
                 SUM(fill) * 1.0 / NULLIF(SUM(RouteShares), 0) AS avg_fill,
-                SUM(CASE WHEN RouteShares > fill
-                         THEN (RouteShares - fill) * p_avg * ({fx_sum})
-                         ELSE 0 END) AS unfilled_notional_usd
+                {unfilled} AS unfilled_notional_usd,
+                {unpriced} AS unfilled_notional_unpriced_routes,
+                {rm.zero_fill_count_expr()} AS zero_fill_routes,
+                {zero_notional} AS zero_fill_notional_usd
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
         """
@@ -647,8 +689,47 @@ class TcaReportAggregator:
             "cost_cvar": self._to_float(row[3]),
             "cost_p95": self._to_float(row[4]),
             "avg_fill": self._to_float(row[5]),
-            # 无 fx_rate 列时与 notional_usd 同语义返回 None（不误报为 0）
-            "unfilled_notional_usd": self._to_float(row[6]) if has_fx else None,
+            # 无 fx_rate 列 / 无可用价格列时与 notional_usd 同语义返回 None（不误报为 0）
+            "unfilled_notional_usd": self._to_float(row[6]) if money_ready else None,
+            "unfilled_notional_unpriced_routes": (
+                self._to_int(row[7]) if price else None
+            ),
+            "zero_fill_routes": self._to_int(row[8]) or 0,
+            "zero_fill_notional_usd": (
+                self._to_float(row[9]) if money_ready else None
+            ),
+        }
+
+    def _query_weight_coverage(
+        self, conn, where: str, params: list[Any],
+    ) -> dict[str, Any]:
+        """加权 KPI 的样本量与权重覆盖率（加权均值实为覆盖子集均值）。
+
+        加权均值只由「指标非 NULL 且有成交额权重」的路由决定，而均值本身不暴露
+        该子集规模；BDIB 缺口集中在少数大单时，条数覆盖 95% 可能对应权重覆盖 60%，
+        KPI 数值「看起来正常」实为子样本均值。故对每个加权指标同时披露：
+        - 样本覆盖 = n_used / n_total（条数口径）
+        - 权重覆盖 = used_weight / total_weight（成交额口径，与 notional 同源）
+        两者之一低于阈值即标记 insufficient，由渲染层提示「结论仅供参考」。
+        """
+        metrics_sql = rm.weight_coverage_select(rm.WEIGHTED_METRICS)
+        sql = f"SELECT {metrics_sql} FROM {Config.TCA_ROUTE_SUMMARY_TABLE} {where}"
+        row = conn.execute(sql, params).fetchone()
+        n_total = int(row[0] or 0)
+        total_weight = float(row[1] or 0.0)
+        metrics: dict[str, Any] = {}
+        for index, metric in enumerate(rm.WEIGHTED_METRICS):
+            metrics[metric] = rm.weight_coverage_entry(
+                int(row[2 + index * 2] or 0),
+                n_total,
+                float(row[3 + index * 2] or 0.0),
+                total_weight,
+            )
+        return {
+            "metrics": metrics,
+            "threshold_pct": rm.SAMPLE_COVERAGE_MIN_PCT,
+            "n_total": n_total,
+            "total_weight": total_weight,
         }
 
     def _query_impact_breakdown(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
@@ -695,17 +776,13 @@ class TcaReportAggregator:
 
     @staticmethod
     def _weighted_avg_sql(metric: str) -> str:
-        """成交额加权均值 SQL 片段（metric 为内部白名单值，无注入风险）。
+        """成交额加权均值 SQL 片段（口径实现的唯一来源为 report_measure）。
 
         权重为实际成交额 fill × p_avg（traded 口径），与 KPI notional 同源；
         该函数被 KPI / daily_series / rankings / extra_kpis / impact_breakdown
         五处复用，改动即全局一致，避免各小节口径分叉。
         """
-        cond = f"{metric} IS NOT NULL AND fill IS NOT NULL AND p_avg IS NOT NULL"
-        return (
-            f"SUM(CASE WHEN {cond} THEN {metric} * fill * p_avg END) / "
-            f"NULLIF(SUM(CASE WHEN {cond} THEN fill * p_avg END), 0)"
-        )
+        return rm.weighted_avg_sql(metric)
 
     @staticmethod
     def _table_exists(conn) -> bool:
@@ -716,15 +793,20 @@ class TcaReportAggregator:
         return cursor.fetchone() is not None
 
     @staticmethod
-    def _has_column(conn, column: str) -> bool:
-        """tca_route_summary 是否含指定列（幂等兼容旧 schema）。"""
+    def _table_columns(conn) -> set[str]:
+        """tca_route_summary 现有列名集合（小写；PRAGMA 失败 → 空集）。"""
         try:
             rows = conn.execute(
                 f"PRAGMA table_info({Config.TCA_ROUTE_SUMMARY_TABLE})"
             ).fetchall()
         except Exception:
-            return False
-        return any(str(r[1]).lower() == column.lower() for r in rows)
+            return set()
+        return {str(r[1]).lower() for r in rows}
+
+    @classmethod
+    def _has_column(cls, conn, column: str) -> bool:
+        """tca_route_summary 是否含指定列（幂等兼容旧 schema）。"""
+        return column.lower() in cls._table_columns(conn)
 
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
@@ -735,28 +817,41 @@ class TcaReportAggregator:
         return result if result == result else None
 
     @staticmethod
+    def _to_int(value: Any) -> Optional[int]:
+        """整数安全转换（计数类列），None/非法值 → None。"""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _filters_dict(
         start_date: str, end_date: str, broker: Optional[str], algo: Optional[str],
         symbol: Optional[str], exchange: Optional[str], metrics: list[str],
         as_of_date: Optional[str] = None, preset: Optional[str] = None,
+        scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
+        """过滤条件 + 报告期 + 作用域（作用域使报告可自证「统计了哪些市场」）。"""
         return {
             "start_date": start_date, "end_date": end_date,
             "broker": broker, "algo": algo, "symbol": symbol, "exchange": exchange,
             "metrics": metrics,
             "as_of_date": as_of_date, "preset": preset,
+            "scope": scope.to_payload() if scope else None,
         }
 
     def _empty_report(
         self, start_date: str, end_date: str, broker: Optional[str],
         algo: Optional[str], symbol: Optional[str], exchange: Optional[str],
         selected: list[str], as_of_date: Optional[str] = None,
-        preset: Optional[str] = None,
+        preset: Optional[str] = None, scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
         return {
             "filters": self._filters_dict(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
-                as_of_date=as_of_date, preset=preset,
+                as_of_date=as_of_date, preset=preset, scope=scope,
             ),
             "markets": [],
             "filter_options": {"brokers": [], "algos": [], "symbols": [], "exchanges": []},
@@ -770,6 +865,7 @@ class TcaReportAggregator:
             "pwp_curve": [],
             "extra_kpis": None,
             "impact_breakdown": None,
+            "weight_coverage": None,
             "anomaly": {
                 "count": 0, "rows": [], "rows_truncated": 0, "export_ref": None,
                 "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
