@@ -3,7 +3,7 @@
 > 定位：个人多任务并行开发的标准作业流程，针对 AI Agent（CodeBuddy / Claude Code / Cursor 等）协作场景优化。
 > 决策记录：[ADR-0700](adr/0700-git-worktree-parallel-workflow.md)
 > 生效范围：本仓库所有分支操作、并行任务管理与 AI Agent 工作区隔离。
-> Last updated: 2026-09-02
+> Last updated: 2026-09-15
 
 ---
 
@@ -244,7 +244,7 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 
 | 层 | 载体 | 覆盖场景 | 阻断性 |
 |---|---|---|---|
-| 事件自动化 | `.githooks/`（pre-commit / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、worktree 就绪清单、依赖变更提示、main 直推保护、推送前落后检测 / 自动 rebase | pre-commit 阻断；pre-push 自动 rebase 成功后中断待重推、遇冲突阻断；其余提示 |
+| 事件自动化 | `.githooks/`（pre-commit / commit-msg / post-checkout / post-merge / pre-push） | 提交门禁、文档同步、AI 署名拦截、worktree 就绪清单、依赖变更提示、main 直推保护、推送前落后检测 / 自动 rebase | pre-commit / commit-msg 阻断；pre-push 自动 rebase 成功后中断待重推、遇冲突阻断；其余提示 |
 | 时间自动化 | Windows 计划任务（`wt-install-schedule.ps1` 注册，工作日 09:00）运行 `wt-sync.ps1` | 每日 fetch + rebase（未提交自动跳过、冲突自动 abort），日志 `logs/wt-sync-daily.log` | 仅快进 rebase，不清理 |
 | 显式半自动 | `wt-new` / `wt-finish` | 创建 / 清理任务 | 有确认门禁（未合并拒绝移除） |
 | 永不自动 | — | 删除 worktree / 分支、merge 到 main、数据管道写入、`push -f` | 必须人工确认 |
@@ -253,6 +253,7 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 
 - `core.hookspath=.githooks` 存于共享的 `.git/config`，**所有 worktree 自动生效**，无需任何配置。
 - `pre-commit`（已有）：`AGENTS.md`↔`CODEBUDDY.md` 同步 + `quality_gate.py --staged` 增量快检（**阻断**）。
+- `commit-msg`（2026-09-15 新增）：拦截 AI 共同作者尾注（`Co-Authored-By: Claude <noreply@anthropic.com>`、`Assisted-By: Copilot` 等，特征词表见 hook 内 `AI_KEYWORDS`）——`Co-Authored-By` 会把 AI 账号计入仓库 Contributors，而清除它必须重写已发布历史 + `push -f`（2026-09-15 已因该尾注改写 77 个提交、丢失 9 个 GitHub 签名）。命中即**阻断提交**并打印命中行号；仅匹配 `co-authored-by:` / `assisted-by:` 尾注行，正文提及 AI 名称不受影响；确需临时放行：`ALLOW_AI_COAUTHOR=true git commit ...`。
 - `post-checkout`：`git worktree add` 时输出新 worktree 就绪清单（依赖 / 端口 / 规范入口）；分支切换导致依赖清单（`package-lock.json` / 各 `requirements.txt`）变化时提示重装。非阻断。
 - `post-merge`：`git pull` / merge 更新依赖清单时提示重装。非阻断。
 - `pre-push`：直推 main 时提示（默认不阻断；设 `EMSXVIEW_HOOK_BLOCK_MAIN=true` 强制阻断）。推送任务分支前 fetch 并检测落后 `origin/main` 的提交数：默认仅提示、不阻断（保留 §4.3 WIP push 保存进度的场景）；设 `EMSXVIEW_HOOK_AUTO_REBASE=true` 后自动 rebase——成功则中断本次推送并提示重推（pre-push 无法改写待推 sha），冲突则 abort 恢复原状并阻断；脏工作树 / rebase 中间态 / 离线时静默跳过。与每日定时 `wt-sync.ps1` 互补：时间同步为主、push 前事件兜底。

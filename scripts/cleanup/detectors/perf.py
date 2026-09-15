@@ -58,7 +58,7 @@ def _loop_io(tree: ast.Module, rel: str) -> list[Finding]:
     """循环体内出现数据库/文件/HTTP 调用。"""
     findings: list[Finding] = []
     for loop, depth in _iter_loops(tree):
-        names = _io_calls_in(loop)
+        names = _io_calls_in_executed(loop)
         if not names:
             continue
         severity = Severity.HIGH if depth > config.MAX_LOOP_NESTING else Severity.MEDIUM
@@ -71,8 +71,25 @@ def _loop_io(tree: ast.Module, rel: str) -> list[Finding]:
     return findings
 
 
+def _io_calls_in_executed(loop: ast.AST) -> set[str]:
+    """循环中**会重复执行**的部分命中的 IO 调用名。
+
+    ``for r in cursor.fetchall():`` 的迭代表达式只在进入循环时求值一次，
+    不属于 N+1（逐行 walk 整个循环节点会把它误判为循环内 IO）；
+    ``while f():`` 的条件每轮求值，仍需计入。
+    """
+    parts: list[ast.AST] = list(getattr(loop, "body", []))
+    parts.extend(getattr(loop, "orelse", []))
+    if isinstance(loop, ast.While):
+        parts.append(loop.test)
+    names: set[str] = set()
+    for node in parts:
+        names |= _io_calls_in(node)
+    return names
+
+
 def _io_calls_in(loop: ast.AST) -> set[str]:
-    """循环体内命中的 IO 调用名集合。"""
+    """节点子树内命中的 IO 调用名集合。"""
     names: set[str] = set()
     for node in ast.walk(loop):
         if not isinstance(node, ast.Call):
