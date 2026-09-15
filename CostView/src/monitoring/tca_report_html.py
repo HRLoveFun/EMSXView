@@ -305,13 +305,26 @@ def _render_data_quality(
     consistency = (report.get("metric_coverage") or {}).get("consistency") or {}
     overfill = consistency.get("overfill_routes") or 0
     gt100 = consistency.get("order_par_gt100_orders") or 0
+    gt200 = consistency.get("order_par_gt200_orders") or 0
+    amount_mismatch = consistency.get("amount_mismatch_routes") or 0
     if overfill or gt100:
         completion_pct = _fmt_pct_raw(consistency.get("completion_consistency_pct"))
         order_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
+        gt200_note = (
+            f"（其中 &gt;200% 的 {gt200} 个疑重复记账）" if gt200 else ""
+        )
         parts.append(
             f'<div class="warn">成交超过委托（fill &gt; RouteShares）的路由 {overfill} 条'
             f"（完成率一致性 {completion_pct}）；订单参与率求和 &gt;100% 的订单 {gt100} 个"
-            f"（一致性 {order_pct}）。上述为数据矛盾信号，建议核对上游成交/委托数据。</div>"
+            f"{gt200_note}（一致性 {order_pct}）。上述为数据矛盾信号，"
+            "建议核对上游成交/委托数据。</div>"
+        )
+    if amount_mismatch > 0:
+        amount_pct = _fmt_pct_raw(consistency.get("amount_consistency_pct"))
+        parts.append(
+            f'<div class="warn">金额列（Amount）与成交额口径（fill × p_avg）偏差超 0.5% '
+            f"的路由 {amount_mismatch} 条（金额一致性 {amount_pct}）—— 异常表金额以 "
+            "Amount 为准，对账请参考该探针。</div>"
         )
     tca_gap = sorted((health or {}).get("tca_gap_dates") or [])
     if tca_gap:
@@ -332,13 +345,18 @@ def _render_data_quality(
 
 
 def _render_charts(report: dict[str, Any]) -> str:
-    """四个图表面板：直方图 / 按日走势 / 排行 / PWP 曲线。"""
+    """图表面板：直方图 / 按日走势 / 排行（双侧）/ PWP 曲线（含分市场小多图）。"""
     histogram = _svg_histogram(report.get("pnl_vwap_histogram"))
     daily_series = report.get("daily_series") or []
     daily = _svg_daily_series(daily_series)
-    broker = _svg_hbar(report.get("rankings", {}).get("by_broker") or [], "Broker 排行（加权 pnl_vwap）")
-    algo = _svg_hbar(report.get("rankings", {}).get("by_algo") or [], "Algo 排行（加权 pnl_vwap）")
+    rankings = report.get("rankings") or {}
+    broker_best = _svg_hbar(rankings.get("by_broker") or [], _ranking_title("Broker", "最优"))
+    broker_worst = _svg_hbar(rankings.get("by_broker_worst") or [], _ranking_title("Broker", "最差"))
+    algo_best = _svg_hbar(rankings.get("by_algo") or [], _ranking_title("Algo", "最优"))
+    algo_worst = _svg_hbar(rankings.get("by_algo_worst") or [], _ranking_title("Algo", "最差"))
+    ranking_note = _ranking_gate_note(rankings.get("meta") or {})
     pwp = _svg_pwp_curve(report.get("pwp_curve") or [])
+    pwp_small = _render_pwp_small_multiples(report.get("pwp_by_exchange") or [])
     daily_note = _daily_coverage_note(len(daily_series))
     return f"""
 <h2>分布与走势</h2>
@@ -347,12 +365,50 @@ def _render_charts(report: dict[str, Any]) -> str:
   <div class="panel"><h2 style="margin-top:0">按日加权 pnl_vwap / 平均 par_rate</h2>{daily}{daily_note}</div>
 </div>
 <h2>执行方排行</h2>
+{ranking_note}
 <div class="grid2">
-  <div class="panel">{broker}</div>
-  <div class="panel">{algo}</div>
+  <div class="panel">{broker_best}</div>
+  <div class="panel">{broker_worst}</div>
+</div>
+<div class="grid2">
+  <div class="panel">{algo_best}</div>
+  <div class="panel">{algo_worst}</div>
 </div>
 <h2>PWP 分档均值</h2>
-<div class="panel">{pwp}</div>"""
+<div class="panel">{pwp}<div class="meta" style="margin-top:8px">PWP 为成交额加权（与总成交金额同源）；跨市场混合的逐档值无物理解释，分市场解释见下方小多图。</div></div>
+{pwp_small}"""
+
+
+def _ranking_title(dimension: str, side: str) -> str:
+    """排行面板标题（含门槛口径；meta 缺省时退化为通用标题）。"""
+    return f"{dimension} 成本{side} Top10（加权 pnl_vwap）"
+
+
+def _ranking_gate_note(meta: dict[str, Any]) -> str:
+    """排行门槛口径与排除量披露（D4）：噪声组不上榜，但被排除的事实可见。"""
+    if not meta:
+        return ""
+    share = float(meta.get("min_notional_share") or 0.0) * 100.0
+    text = (
+        f'<div class="meta">排行门槛：组样本 n_used ≥ {int(meta.get("min_sample") or 0)}'
+        f" 且组成交额占比 ≥ {share:.1f}%（门槛对象为聚合组）；"
+        f"被排除组：Broker {int(meta.get('excluded_by_broker') or 0)} 个、"
+        f"Algo {int(meta.get('excluded_by_algo') or 0)} 个。</div>"
+    )
+    return text
+
+
+def _render_pwp_small_multiples(markets: list[dict[str, Any]]) -> str:
+    """分市场 PWP 小多图（DP-2 定稿口径）：Top N 市场（按组成交额）逐市场曲线。"""
+    if not markets:
+        return ""
+    panels = "".join(
+        f'<div class="panel"><h2 style="margin-top:0">'
+        f"{_esc(m.get('name') or m.get('exchange') or '')} PWP（分市场）</h2>"
+        f"{_svg_pwp_curve(m.get('curve') or [])}</div>"
+        for m in markets
+    )
+    return f'<h2>PWP 分市场小多图（Top {len(markets)}）</h2><div class="grid2">{panels}</div>'
 
 
 def _daily_coverage_note(covered_days: int) -> str:
@@ -507,8 +563,8 @@ def _render_impact_breakdown(
     if truncated_count:
         pct = f"{share * 100:.1f}%" if share is not None else "-"
         truncated_note = (
-            f"其中 {truncated_count:,} 条（{pct}）因恢复窗口越界使用次日收盘价，"
-            "冲击值为跨日兜底口径。"
+            f"其中 {truncated_count:,} 条（占冲击计算样本 {pct}）因恢复窗口越界"
+            "使用次日收盘价，冲击值为跨日兜底口径。"
         )
     return f"""
 <h2>市场冲击分解</h2>

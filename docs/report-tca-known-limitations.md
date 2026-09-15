@@ -45,6 +45,10 @@
 - 异常明细的笔数 / 金额下限对**严重未完成**（`fill_pct` 命中 critical，含零成交）路由**豁免**：该档目标样本恰是低完成率路由，用下限过滤会把「完全未执行」整体剔除
 - 订单参与率按「仅报告期 + 作用域」**全量聚合**，不受 broker / algo / symbol 维度过滤影响，与覆盖率一致性探针共用同一实现（两处可对账）
 - 异常严重度分 **warning / critical 两档**：warning 为进入异常清单的边界，critical 仅作分级标注
+- Broker / Algo 排行按**双维门槛**（组样本 n_used ≥ 5 且组成交额占比 ≥ 0.1%，门槛对象为聚合组）输出**最优 / 最差双侧** Top 10；被门槛排除的组数显式披露
+- PWP 五档为**成交额加权**（与总成交金额同源）并披露样本/权重覆盖；默认聚合曲线 + Top 6 市场小多图（跨市场混合的逐档值无物理解释，分市场解释由小图承接）
+- 异常明细的成交金额(USD)门槛按 **COALESCE(Amount, fill × p_avg) × 汇率**（Amount 缺失的路由不再被门槛误杀）；展示列仍以写入方权威列 Amount 为准，Amount 与 fill×p_avg 的偏差（0.5% 容差）由数据质量区探针披露
+- 市场冲击分解的跨日恢复占比分母为**冲击计算样本**（任一冲击指标可计算的路由），随 payload 披露 `impact_sample_count`
 - 异常明细 HTML 渲染上限 **1000 条**（按严重度降序排列，截断样本无偏）；全量明细经随附 `anomaly_<hash>.csv` 导出（CLI 侧与 HTML 同目录落盘；API export-html 侧 HTML + CSV 打包为 zip 下载，`export_ref` 不再为空）
 - BDIB 缺口附录在扫描超时 / 异常时显式标注「未扫描」，与「无缺口」区分
 - USD 换算覆盖率按「可换算路由占比」计（含 USD 路由与 `fill_bdib` 回填汇率），并披露被排除的本币金额
@@ -185,12 +189,46 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 | X6 | `bdib_gap` 探针豁免规模仅内部分母消费，不可审计 | ✅ 已修：覆盖率行输出 `bdib_gap_routes`，豁免规模可见（探针误豁免边界情形的规模可观测） |
 | X7 | D16 交付物（zip/CSV）未随两份核心文件一并核验 | ✅ 已独立终验（见上表）；端到端 zip 响应建议在 P1 批次以 TestClient 集成测试补齐 |
 
-### 仍待处理（P1/P2，不在本次 P0 范围）
+### 2026-09-15 — 第八轮（P1-a 聚合查询层：排行门槛 / PWP 加权 / 金额一致性 / 冲击样本分母）
 
-- **异常明细节流未披露**：`min_fill_count` / `min_notional_usd` 排除的条数仍未回传，读者无法得知异常样本被截取多少（已对严重未完成豁免，其余仍静默）。
-- **金额列未同源**：异常明细金额用 `Amount × fx`，KPI 金额用 `fill × p_avg × fx`；两列缺同一性校验，异常表金额与「总成交金额」可能不可对账。
+语义决策点 DP-1~DP-5 定稿后实施（本轮不含 D1 轴策略与 D6 节流披露，属 P1-b）：
+
+| # | 缺陷 | 决策点 | 处理 |
+|---|------|--------|------|
+| P1-1 | 排行 `ASC + 前 10`、无样本门槛：小样本组把统计噪声伪装成执行能力，且尾部劣者不可见 | DP-1 选 B：组样本 `n_used ≥ 5`（组维度，不复用异常明细 fill_count 的单路由语义）+ 组成交额占比 ≥ 0.1%（经济相关性）双维门槛 | ✅ 已修：双维门槛 + 最优/最差双侧 Top10 + `excluded_by_broker/algo` 排除量披露；声明层 `ranking_min_sample` / `ranking_min_notional_share` 与实现常量结构化绑定 |
+| P1-2 | PWP 五档等权 AVG 且跨市场混合：与加权 KPI 不可对账；逐档值跨市场混合无物理解释 | DP-2：纳入成交额加权体系；默认聚合曲线 + Top 6 市场小多图（组合加权趋势合法，分市场解释由小图承接） | ✅ 已修：`_query_pwp_curve` 改 `weighted_avg_sql`；PWP 五档进入 `WEIGHTED_METRICS`（weight_coverage 披露样本/权重覆盖）；新增 `pwp_by_exchange`（按组成交额降序 Top 6）+ 渲染小多图 + 图注声明 |
+| P1-3 | 异常表金额（Amount×fx）与 KPI 金额（fill×p_avg×fx）不同源无校验；Amount 缺失路由被金额门槛静默误杀 | DP-3：探针仅披露（Amount 为展示权威列，不静默替换）；门槛口径改 `COALESCE(Amount, fill×p_avg)×汇率`；容差 0.5% | ✅ 已修：一致性探针增 `amount_check/mismatch/consistency_pct`，数据质量区披露；`_anomaly_notional_usd_expr` 改 COALESCE；`anomaly_notional_gate` / `amount_consistency_tolerance_pct` 落 SPEC |
+| P1-4 | order_par_gt100 critical=200 档与一致性探针（只统计 >100%）无对应分档 | DP-3 附带 | ✅ 已修：探针增 `order_par_gt200_orders`，数据质量区文案分档「其中 >200% 的 N 个疑重复记账」 |
+| P1-5 | 冲击截断 share 分母为 `COUNT(*)`（全量路由）而非冲击计算样本，渗透度被稀释 | DP-4：分母 = 任一冲击指标可计算的路由（truncated 路由冲击值非 NULL，必然落在分子分母内，口径自洽） | ✅ 已修：`impact_sample_count` 随 payload 披露，share 分母改冲击样本，文案改「占冲击计算样本」；`impact_truncated_share_denominator` 落 SPEC 并绑定实现常量 |
+
+附带修复：`anomaly_query.query_anomaly_routes_page` 表缺失 / 库缺失两条路径返回裸 `[]` 而非
+`([], 0)` 元组（调用方解包即崩）—— 顺手对齐元组契约。
+
+同批：`SPEC_VERSION` → `2026.09.4`；`_RANKING_MIN_SAMPLE` / `_RANKING_MIN_NOTIONAL_SHARE` /
+`IMPACT_TRUNCATED_SHARE_DENOMINATOR` 等实现常量与 SPEC 结构化绑定（R5 模式）。
+
+护栏：`CostView/tests/test_report_metrics.py`（`TestRankingSampleGate` / `TestPwpWeighting` /
+`TestAmountConsistency` / `TestImpactTruncatedShare`）；既有
+`test_rankings_grouped` / `test_rankings_disclose_sample` / `test_impact_breakdown_counts_truncated`
+已对齐新口径（门槛生效 / 双侧输出 / 冲击样本分母）。
+
+#### 开放验证项（黄金样本证据 → 生产证据的最后一公里）
+
+- **D8 逐行回退与 fill_bdib 回填路径**：黄金样本 fx 全覆盖（`unconvertible=0`、回填 CTE 未触发），
+  仅单测覆盖。真实缺 fx 数据首次出现时回补数值验证（回补前后缺口金额对比）。
+- **D14 探针「零误豁免」结论**：仅在黄金样本（4668 条、GBp 356 条）上成立（探针与 p_arrival
+  NULL 集合完全重合）。需在生产数据跑同样校验（对比 `bdib_gap_routes` 与 bdib_missing 指标
+  NULL 集合）后，方可把「超预期精度」升级为台账正式结论。
+
+### 仍待处理（P1-b / P2）
+
+- **异常明细节流未披露（D6，P1-b）**：`min_fill_count` / `min_notional_usd` 排除的条数仍未回传 —— 返回签名
+  `(rows, total) → +throttle_stats` 属跨模块变更，P1-b 按向后兼容可选第三返回值实施。
+- **呈现层可解释性（D1，P1-b；D3，P2）**：按日走势仍各自归一化且无刻度/零轴（DP-5 轴锚定规则已定稿，
+  落 `REPORT_SPEC["chart_axis"]` + SVG 零轴护栏测试随 P1-b 实施）；直方图仍为等宽分桶。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
-- **呈现层可解释性**：按日走势仍各自归一化且无刻度/零轴；排行仍 `ASC + 前 10`（最优在前、无样本门槛）；直方图仍为等宽分桶；PWP 五档仍为简单平均（缺陷 3）。
+- **金额列展示根因**：展示列仍为 Amount（权威列）；超差（>0.5%）的路由根因需写入方（独立仓库
+  EMSXDataPipeline）排查，本仓库以探针持续披露。
 - **指标命名与标签**：「总成交股数」卡片实为 `SUM(RouteShares)`（委托股数，副标题才澄清）；`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
 - **币种兜底**：`Currency IS NULL` 时按 USD（fx=1.0）兜底且计入 fx 覆盖率分子 —— 若实为非 USD 币种则金额错、覆盖率虚高。
 - **前端缺少超成交标记**：数值信号已恢复（`formatPct` 不再封顶，overfill 的 >100% 可见），但 HTML 报告在完成率单元格附的「超成交」标记与订单参与率的「>100%」标记尚未在网页异常明细表渲染（`TcaAnomalyRow.overfill` / `order_par_gt100` 字段已具备，属呈现增强）。

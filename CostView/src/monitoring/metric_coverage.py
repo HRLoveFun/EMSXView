@@ -294,20 +294,33 @@ class MetricCoverageService:
     def _query_consistency(
         conn, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
-        """数据一致性探针（013）：overfill 与订单参与率 >100% 的整体占比。
+        """数据一致性探针（013 + P1-a）：overfill / 订单参与率越界 / 金额列同源性。
 
         与异常判定（overfill_pct / order_par_gt100 规则）同源，但此处给出整体
         比例，不受异常清单截断影响，供报告头「数据质量提示」区展示。
         订单级聚合（(OrderId, order_as_of_date, Exchange) 求和）与异常明细共用
         report_measure 的唯一实现，避免两处口径分叉；分母同作用域。
+        D7：Amount（写入方预置列）与 KPI 的 fill × p_avg 成交额口径做同一性
+        校验（0.5% 相对容差覆盖舍入与最小价位跳动），仅披露不替换 —— Amount
+        是异常表展示的权威列。D17：order_par >200% 单独分档（critical 档，
+        疑重复记账），使提示区能区分「越界」与「几乎必然数据矛盾」的规模。
         """
         where, params = MetricCoverageService._scope_where(start_date, end_date, scope)
+        # D7 容差：|Amount - fill×p_avg| > 0.5% × max(|fill×p_avg|, 1)
+        _AMOUNT_TOLERANCE = 0.005
         route_row = conn.execute(
             f"""
             SELECT COUNT(*) AS total_routes,
                    SUM(CASE WHEN fill IS NOT NULL AND RouteShares IS NOT NULL
                             AND RouteShares > 0 AND fill > RouteShares
-                            THEN 1 ELSE 0 END) AS overfill_routes
+                            THEN 1 ELSE 0 END) AS overfill_routes,
+                   SUM(CASE WHEN Amount IS NOT NULL AND fill IS NOT NULL
+                            AND p_avg IS NOT NULL THEN 1 ELSE 0 END) AS amount_check_total,
+                   SUM(CASE WHEN Amount IS NOT NULL AND fill IS NOT NULL
+                            AND p_avg IS NOT NULL
+                            AND ABS(Amount - fill * p_avg)
+                                > {_AMOUNT_TOLERANCE} * MAX(ABS(fill * p_avg), 1.0)
+                            THEN 1 ELSE 0 END) AS amount_mismatch_routes
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             WHERE {where}
             """,
@@ -317,22 +330,33 @@ class MetricCoverageService:
         order_row = conn.execute(
             f"""
             SELECT COUNT(*) AS total_orders,
-                   SUM(CASE WHEN par_sum > 1.0 THEN 1 ELSE 0 END) AS gt100_orders
+                   SUM(CASE WHEN par_sum > 1.0 THEN 1 ELSE 0 END) AS gt100_orders,
+                   SUM(CASE WHEN par_sum > 2.0 THEN 1 ELSE 0 END) AS gt200_orders
             FROM {order_par}
             """,
             params,
         ).fetchone()
         total_routes = int(route_row[0] or 0)
         overfill_routes = int(route_row[1] or 0)
+        amount_check_total = int(route_row[2] or 0)
+        amount_mismatch_routes = int(route_row[3] or 0)
         total_orders = int(order_row[0] or 0)
         gt100_orders = int(order_row[1] or 0)
+        gt200_orders = int(order_row[2] or 0)
         return {
             "total_routes": total_routes,
             "overfill_routes": overfill_routes,
             "completion_consistency_pct": _consistency_pct(total_routes, overfill_routes),
             "total_orders": total_orders,
             "order_par_gt100_orders": gt100_orders,
+            "order_par_gt200_orders": gt200_orders,
             "order_par_consistency_pct": _consistency_pct(total_orders, gt100_orders),
+            # D7：金额列同源性（可校验路由 = Amount 与 fill×p_avg 均非 NULL）
+            "amount_check_routes": amount_check_total,
+            "amount_mismatch_routes": amount_mismatch_routes,
+            "amount_consistency_pct": _consistency_pct(
+                amount_check_total, amount_mismatch_routes,
+            ),
         }
 
     @staticmethod

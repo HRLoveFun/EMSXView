@@ -447,12 +447,33 @@ class TestTcaReportAggregator:
         assert len(report["daily_series"]) == 2
         assert len(report["pwp_curve"]) == 5
 
-    def test_rankings_grouped(self, mgr: ConnectionManager):
-        report = TcaReportAggregator(mgr).build_report("20260803", "20260804")
+    def test_rankings_grouped(self, tmp_path: Path):
+        """排行按 broker/algo 分组（D4：组样本达门槛才上榜，meta 携带门槛口径）。"""
+        db_path = tmp_path / "fill_bdib_rank.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        for i in range(6):
+            _insert_route(conn, f"RA{i}", "20260803")
+            _insert_route(conn, f"RB{i}", "20260803", Broker="BROKERB", algo="TWAP",
+                          equ_ticker="0700 HK Equity", Exchange="HK", pnl_vwap=1.5)
+        conn.commit()
+        conn.close()
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
         broker_names = {r["name"] for r in report["rankings"]["by_broker"]}
         assert broker_names == {"BROKERA", "BROKERB"}
         algo_names = {r["name"] for r in report["rankings"]["by_algo"]}
         assert algo_names == {"VWAP", "TWAP"}
+        meta = report["rankings"]["meta"]
+        assert meta["min_sample"] == 5
+        assert meta["excluded_by_broker"] == 0
+        # 双侧输出（D4）：最优/最差列表均存在
+        assert report["rankings"]["by_broker_worst"]
+        assert report["rankings"]["by_algo_worst"]
 
     def test_histogram_buckets(self, mgr: ConnectionManager):
         """直方图返回 buckets + 样本量 meta（014：区分样本与全量路由）。"""

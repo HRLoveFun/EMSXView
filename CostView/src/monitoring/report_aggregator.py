@@ -37,11 +37,26 @@ logger = logging.getLogger(__name__)
 
 #: 直方图分桶数
 _HISTOGRAM_BINS = 20
-#: 排行输出上限
+#: 排行输出上限（单侧）
 _RANKING_LIMIT = 20
+#: 排行样本门槛（D4 / DP-1 定稿口径 B）：组内「有成交额权重的路由数」下限。
+#: 门槛对象是 broker 聚合组而非单条路由，不复用异常明细 fill_count（单路由）
+#: 的语义 —— 组样本量以 n_used 计。
+_RANKING_MIN_SAMPLE = 5
+#: 排行经济相关性门槛：组成交额占报告期总成交额的下限（防「样本够但金额
+#: 边缘」的噪声组；成交额与加权权重同源 fill × p_avg）
+_RANKING_MIN_NOTIONAL_SHARE = 0.001
+#: 排行聚合组的 SQL 安全上限（broker/algo 组数量级为几十，1000 为防御值）
+_RANKING_MAX_GROUPS = 1000
 #: PWP 档位（数值为百分比）
 _PWP_RATE_LABELS = [("pwp_5", 5), ("pwp_10", 10), ("pwp_15", 15),
                     ("pwp_20", 20), ("pwp_25", 25)]
+#: 分市场 PWP 小多图的市场数（DP-2 定稿口径：默认聚合曲线 + Top N 市场小图）
+_PWP_TOP_MARKETS = 6
+#: 冲击截断占比的分母口径（D15 / DP-4 定稿）：「冲击计算样本」= 任一冲击指标
+#: 可计算（temp/perm 之一非 NULL）的路由，而非全量路由 —— 恢复被截断的路由
+#: 冲击值非 NULL，必然同时落在分子与分母内，口径自洽。
+IMPACT_TRUNCATED_SHARE_DENOMINATOR = "impact_sample"
 
 
 class TcaReportAggregator:
@@ -146,8 +161,12 @@ class TcaReportAggregator:
 
         where 与 where_no_exchange 的差异仅在于是否含用户 exchange 过滤：筛选下拉需
         展示全部可选市场，其余小节与整份报告同作用域。
+        各小节 SQL 保持独立（可独立降级），P1-a 不做跨节 SQL 合并；排行门槛的
+        「报告期总成交额」复用 weight_coverage 的 total_weight（同一表达式、
+        同一作用域，非二次查询）。
         """
         daily_series = self._query_daily_series(conn, where, params)
+        weight_coverage = self._query_weight_coverage(conn, where, params)
         return {
             # 市场概览遵循 exchange 过滤：导出时按交易所整体过滤时，
             # 该小节也仅展示所选交易所（无 exchange 时与 where_no_exchange 等价）。
@@ -166,17 +185,42 @@ class TcaReportAggregator:
             # 014: 走势覆盖度披露。不补零 —— 0 表示「成本为零」，把「无数据」
             # 补成 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录。
             "daily_series_meta": {"covered_days": len(daily_series)},
-            "rankings": {
-                "by_broker": self._query_rankings(conn, where, params, "Broker"),
-                "by_algo": self._query_rankings(conn, where, params, "algo"),
-            },
+            "rankings": self._query_rankings_set(conn, where, params, weight_coverage),
             "pnl_vwap_histogram": self._query_pnl_histogram(conn, where, params),
             "pwp_curve": self._query_pwp_curve(conn, where, params),
+            # D5：分市场加权 PWP 小多图数据（跨市场混合的逐档值无物理解释）
+            "pwp_by_exchange": self._query_pwp_by_exchange(conn, where, params),
             # 006: 决策基准 / 风险 / 完成率 / 冲击分解
             "extra_kpis": self._query_extra_kpis(conn, where, params),
             "impact_breakdown": self._query_impact_breakdown(conn, where, params),
             # 加权 KPI 的样本量与权重覆盖率（避免把覆盖子集均值读作全量水位）
-            "weight_coverage": self._query_weight_coverage(conn, where, params),
+            "weight_coverage": weight_coverage,
+        }
+
+    def _query_rankings_set(
+        self, conn, where: str, params: list[Any],
+        weight_coverage: Optional[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """排行集合（D4）：最优/最差双侧 + 门槛排除数披露（broker / algo 各一组）。"""
+        total_weight = float((weight_coverage or {}).get("total_weight") or 0.0)
+        by_broker, by_broker_worst, excluded_broker = self._query_rankings(
+            conn, where, params, "Broker", total_weight,
+        )
+        by_algo, by_algo_worst, excluded_algo = self._query_rankings(
+            conn, where, params, "algo", total_weight,
+        )
+        return {
+            # by_broker / by_algo 保持「最优侧」列表（向后兼容既有消费方）
+            "by_broker": by_broker,
+            "by_algo": by_algo,
+            "by_broker_worst": by_broker_worst,
+            "by_algo_worst": by_algo_worst,
+            "meta": {
+                "min_sample": _RANKING_MIN_SAMPLE,
+                "min_notional_share": _RANKING_MIN_NOTIONAL_SHARE,
+                "excluded_by_broker": excluded_broker,
+                "excluded_by_algo": excluded_algo,
+            },
         }
 
     @staticmethod
@@ -553,37 +597,63 @@ class TcaReportAggregator:
         ]
 
     def _query_rankings(
-        self, conn, where: str, params: list[Any], dimension: str,
-    ) -> list[dict[str, Any]]:
-        """broker / algo 排行（按成交额加权 pnl_vwap 升序，成本从优到劣）。
+        self, conn, where: str, params: list[Any],
+        dimension: str, total_weight: float,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        """broker / algo 排行（D4 / DP-1 定稿口径 B）：双维门槛 + 双侧输出。
 
-        同时返回 n_used / n_total：加权值仅由 pnl_vwap 非 NULL（且有成交额权重）
-        的路由决定，route_count 却含全部路由 —— 披露样本量避免「route 数大但成本
-        好」实为「多数路由无数据」的误读。
+        - 样本门槛：``n_used >= _RANKING_MIN_SAMPLE``（组内有成交额权重的路由数；
+          门槛对象是聚合组，不复用异常明细 fill_count 的单路由语义）；
+        - 经济相关性门槛：组成交额（与加权权重同源）占报告期总成交额
+          ``>= _RANKING_MIN_NOTIONAL_SHARE``（total_weight 为 0 时关闭该维度）；
+        - 双侧输出：最优（加权 pnl_vwap 升序）与最差（降序）各取前 _RANKING_LIMIT，
+          与异常明细「严重度优先」哲学对齐 —— 此前仅 ASC 前 10，尾部劣者不可见；
+        - 返回 (最优侧, 最差侧, 被门槛排除的组数)，排除量由调用方披露。
+        同时披露 n_used / route_count：加权值仅由 pnl_vwap 非 NULL（且有成交额
+        权重）的路由决定，route_count 却含全部路由。
         """
         used_cond = "pnl_vwap IS NOT NULL AND fill IS NOT NULL AND p_avg IS NOT NULL"
         sql = f"""
             SELECT COALESCE({dimension}, '(unknown)') AS name,
                    COUNT(*) AS route_count,
                    SUM(CASE WHEN {used_cond} THEN 1 ELSE 0 END) AS n_used,
+                   SUM(CASE WHEN {used_cond}
+                            THEN {rm.WEIGHT_EXPRESSION} ELSE 0 END) AS group_weight,
                    {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
                    {self._weighted_avg_sql("par_rate")} AS avg_par_rate
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
             GROUP BY {dimension}
-            ORDER BY weighted_pnl_vwap IS NULL, weighted_pnl_vwap ASC
-            LIMIT {_RANKING_LIMIT}
+            ORDER BY name
+            LIMIT {_RANKING_MAX_GROUPS}
         """
-        return [
+        rows = [
             {
                 "name": str(r[0]),
                 "route_count": int(r[1]),
                 "n_used": int(r[2] or 0),
-                "weighted_pnl_vwap": self._to_float(r[3]),
-                "avg_par_rate": self._to_float(r[4]),
+                "group_weight": float(r[3] or 0.0),
+                "weighted_pnl_vwap": self._to_float(r[4]),
+                "avg_par_rate": self._to_float(r[5]),
             }
             for r in conn.execute(sql, params).fetchall()
         ]
+        eligible = [
+            row for row in rows
+            if row["n_used"] >= _RANKING_MIN_SAMPLE
+            and (
+                total_weight <= 0
+                or row["group_weight"] >= total_weight * _RANKING_MIN_NOTIONAL_SHARE
+            )
+        ]
+
+        def _sort_key(row: dict[str, Any]) -> tuple[int, float, str]:
+            value = row["weighted_pnl_vwap"]
+            return (value is None, value if value is not None else 0.0, row["name"])
+
+        best = sorted(eligible, key=_sort_key)[:_RANKING_LIMIT]
+        worst = sorted(eligible, key=_sort_key, reverse=True)[:_RANKING_LIMIT]
+        return best, worst, len(rows) - len(eligible)
 
     def _query_pnl_histogram(
         self, conn, where: str, params: list[Any],
@@ -642,13 +712,53 @@ class TcaReportAggregator:
     def _query_pwp_curve(
         self, conn, where: str, params: list[Any],
     ) -> list[dict[str, Any]]:
-        """PWP 五档位均值曲线。"""
-        avgs = ", ".join(f"AVG({col})" for col, _ in _PWP_RATE_LABELS)
+        """PWP 五档位均值曲线（D5：成交额加权，与全报告唯一加权口径同源）。
+
+        此前为等权 AVG —— 与加权 KPI 不可对账，且 PWP 不在 WEIGHTED_METRICS
+        体系内（weight_coverage 不披露其样本量）。加权后与 KPI 加权口径同源，
+        跨期对比与 broker 归因才成立。
+        """
+        avgs = ", ".join(self._weighted_avg_sql(col) for col, _ in _PWP_RATE_LABELS)
         sql = f"SELECT {avgs} FROM {Config.TCA_ROUTE_SUMMARY_TABLE} {where}"
         row = conn.execute(sql, params).fetchone()
         return [
             {"rate": rate, "avg_pwp": self._to_float(row[i])}
             for i, (_, rate) in enumerate(_PWP_RATE_LABELS)
+        ]
+
+    def _query_pwp_by_exchange(
+        self, conn, where: str, params: list[Any],
+    ) -> list[dict[str, Any]]:
+        """分市场加权 PWP 曲线（D5 / DP-2 定稿口径：聚合曲线 + Top N 市场小多图）。
+
+        PWP 的经济含义依赖市场微观结构，跨市场混合的**逐档值**无物理解释
+        （与订单参与率「跨市场求和无物理意义故按 Exchange 分组」契约同理）；
+        但全市场聚合加权曲线回答「组合整体执行质量水位」仍合法（与加权
+        pnl_vwap KPI 同构）。本查询按市场分组输出 Top N（按组成交额降序），
+        分市场解释由渲染层小多图承接。
+        """
+        weighted = [self._weighted_avg_sql(col) for col, _ in _PWP_RATE_LABELS]
+        sql = f"""
+            SELECT COALESCE(Exchange, '(unknown)') AS exchange,
+                   COALESCE(SUM(CASE WHEN fill IS NOT NULL AND p_avg IS NOT NULL
+                                     THEN {rm.WEIGHT_EXPRESSION} END), 0) AS group_weight,
+                   {", ".join(weighted)}
+            FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
+            {where}
+            GROUP BY Exchange
+            ORDER BY group_weight DESC
+            LIMIT {_PWP_TOP_MARKETS}
+        """
+        return [
+            {
+                "exchange": str(r[0]),
+                "name": Config.MARKET_ORDER.get(str(r[0]), str(r[0])),
+                "curve": [
+                    {"rate": rate, "avg_pwp": self._to_float(r[2 + i])}
+                    for i, (_, rate) in enumerate(_PWP_RATE_LABELS)
+                ],
+            }
+            for r in conn.execute(sql, params).fetchall()
         ]
 
     def _query_extra_kpis(self, conn, where: str, params: list[Any]) -> dict[str, Any]:
@@ -760,6 +870,13 @@ class TcaReportAggregator:
         truncated_expr = (
             "SUM(COALESCE(recovery_truncated, 0))" if has_truncated else "NULL"
         )
+        # D15：截断占比分母改「冲击计算样本」（任一冲击指标可计算的路由），
+        # 与冲击加权均值的计算范围一致；全量路由作分母会稀释跨日兜底口径的渗透度
+        impact_sample_expr = (
+            "SUM(CASE WHEN perm_impact_bps IS NOT NULL "
+            "OR temp_impact_5min_bps IS NOT NULL OR temp_impact_10min_bps IS NOT NULL "
+            "OR temp_impact_30min_bps IS NOT NULL THEN 1 ELSE 0 END)"
+        )
         sql = f"""
             SELECT
                 {weighted("temp_impact_5min_bps")} AS t5,
@@ -768,13 +885,13 @@ class TcaReportAggregator:
                 {weighted("perm_impact_bps")} AS perm,
                 {weighted("close_cost_bps")} AS close_cost,
                 {truncated_expr} AS truncated_count,
-                COUNT(*) AS total_count
+                {impact_sample_expr} AS impact_sample
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
         """
         row = conn.execute(sql, params).fetchone()
         truncated = self._to_float(row[5])
-        total_count = int(row[6] or 0)
+        impact_sample = int(row[6] or 0)
         return {
             "temp_impact_5min_bps": self._to_float(row[0]),
             "temp_impact_10min_bps": self._to_float(row[1]),
@@ -782,9 +899,10 @@ class TcaReportAggregator:
             "perm_impact_bps": self._to_float(row[3]),
             "close_cost_bps": self._to_float(row[4]),
             "recovery_truncated_count": int(truncated) if truncated is not None else None,
+            "impact_sample_count": impact_sample,
             "recovery_truncated_share": (
-                round(truncated / total_count, 4)
-                if truncated is not None and total_count > 0 else None
+                round(truncated / impact_sample, 4)
+                if truncated is not None and impact_sample > 0 else None
             ),
         }
 
@@ -876,9 +994,18 @@ class TcaReportAggregator:
             "kpi": None,
             "daily_series": [],
             "daily_series_meta": {"covered_days": 0},
-            "rankings": {"by_broker": [], "by_algo": []},
+            "rankings": {
+                "by_broker": [], "by_algo": [],
+                "by_broker_worst": [], "by_algo_worst": [],
+                "meta": {
+                    "min_sample": _RANKING_MIN_SAMPLE,
+                    "min_notional_share": _RANKING_MIN_NOTIONAL_SHARE,
+                    "excluded_by_broker": 0, "excluded_by_algo": 0,
+                },
+            },
             "pnl_vwap_histogram": {"buckets": [], "n_used": 0, "n_total": 0},
             "pwp_curve": [],
+            "pwp_by_exchange": [],
             "extra_kpis": None,
             "impact_breakdown": None,
             "weight_coverage": None,

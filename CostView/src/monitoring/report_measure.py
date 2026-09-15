@@ -134,13 +134,15 @@ def dimension_condition(column: str, raw: Optional[str]) -> tuple[str, list[Any]
 
 # ── 2. 成交额加权与样本（权重）覆盖 ────────────────────────────────────────
 
-#: 需披露「样本 / 权重覆盖」的加权指标（KPI 卡 + 附加 KPI + 冲击分解表）
+#: 需披露「样本 / 权重覆盖」的加权指标（KPI 卡 + 附加 KPI + 冲击分解表 + PWP 曲线）
 WEIGHTED_METRICS: tuple[str, ...] = (
     "pnl_vwap", "par_rate", "RPM",
     "arrival_cost_bps", "wagner_is_bps",
     "cost_stddev", "cost_cvar", "cost_p95",
     "temp_impact_5min_bps", "temp_impact_10min_bps", "temp_impact_30min_bps",
     "perm_impact_bps", "close_cost_bps",
+    # D5：PWP 五档纳入加权体系（此前等权 AVG 与加权 KPI 不可对账）
+    "pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25",
 )
 
 #: 加权权重表达式（与「总成交金额」同源；report_spec 的 weight_expression 即此串）
