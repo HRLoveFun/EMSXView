@@ -1,0 +1,35 @@
+#!/bin/bash
+# commit-msg hook: 阻断 AI 共同作者尾注（Co-Authored-By: Claude 等 AI 账号）
+# 背景：Co-Authored-By 尾注会把 AI 账号计入仓库 Contributors，
+#       清除成本极高（需重写已发布历史 + 强制推送），故在提交源头拦截。
+# 设置方式: git config core.hooksPath .githooks
+# 临时放行: ALLOW_AI_COAUTHOR=true git commit ...
+. "$(dirname "$0")/common.sh"
+
+msg_file="$1"
+
+# 无消息文件则跳过（异常情况，不阻断提交）
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+    exit 0
+fi
+
+# 显式放行开关
+if [ "$ALLOW_AI_COAUTHOR" = "true" ]; then
+    hook_info "已按 ALLOW_AI_COAUTHOR=true 放行 AI 共同作者尾注校验"
+    exit 0
+fi
+
+# AI 署名特征（大小写不敏感）；仅匹配共同作者尾注行，正文提及不受影响
+AI_KEYWORDS='anthropic|claude|codebuddy|cursor|copilot|openai|chatgpt|gemini|deepseek|doubao|qwen|通义|豆包'
+
+matched="$(grep -inE "^(co-authored-by|assisted-by):.*(${AI_KEYWORDS})" "$msg_file" || true)"
+
+if [ -n "$matched" ]; then
+    hook_info "已阻断提交：提交信息含 AI 共同作者尾注"
+    printf '%s\n' "$matched"
+    hook_info "请删除该尾注后重新提交（Co-Authored-By 会把 AI 账号计入仓库 Contributors）"
+    hook_info "确需临时放行：ALLOW_AI_COAUTHOR=true git commit ..."
+    exit 1
+fi
+
+exit 0
