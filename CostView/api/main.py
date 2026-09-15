@@ -4,9 +4,10 @@
 Does NOT depend on Bloomberg EMSX session. Communicates with the main
 EMSXView service via Redis handoff exchange (cross-process mode).
 
-Run:
+Run（默认仅绑定回环 127.0.0.1，见 config.py 的 P1-3 安全整改；
+跨机直连需显式设置 COSTVIEW_HOST=0.0.0.0 并自行承担网络边界控制）：
     python main.py
-    uvicorn main:app --host 0.0.0.0 --port 8002
+    uvicorn main:app --host 127.0.0.1 --port 8002
 """
 from __future__ import annotations
 

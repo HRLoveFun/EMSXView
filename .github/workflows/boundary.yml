@@ -70,8 +70,9 @@ jobs:
           pip install -e ../../CostView --no-deps
           pip install numpy pandas duckdb pyarrow python-dateutil pydantic psutil
           pip install pytest-asyncio
-          # CostView 运行依赖（其 requirements.txt 含 blpapi，故按需显式补装非 Bloomberg 项）
-          pip install colorama openpyxl python-dotenv
+          # CostView 运行依赖：包级依赖（含 pandas）已在 pyproject.toml 声明，
+          # 因采用 --no-deps 安装故此处显式补装；旧 CostView/requirements.txt
+          # （含 blpapi 等 Bloomberg 遗留项）已于 2026-09-15 删除，故不再逐项补装其条目
           # 依赖内部包: 仓库根(platform_data/CostView/data_access) + blpapi stub
           echo "PYTHONPATH=$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
       - name: "边界测试 (硬阻断: 真正的边界违规)"

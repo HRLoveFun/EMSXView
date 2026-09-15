@@ -113,8 +113,7 @@ EMSXView/
 │   └── README.md
 ├── CostView/
 │   ├── README.md
-│   ├── pyproject.toml                # pip package: emsxview-costview
-│   ├── requirements.txt
+│   ├── pyproject.toml                # pip package: emsxview-costview（含 pandas 等运行时依赖声明）
 │   ├── api/
 │   │   ├── main.py                   # FastAPI entry (<COSTVIEW_PORT>, default 8002)
 │   │   └── routers/
@@ -125,14 +124,14 @@ EMSXView/
 │   │   ├── tca_query_builder.py
 │   │   ├── tca_cache.py
 │   │   ├── tca_utils.py
-│   │   ├── query_cli.py              # QueryEngine（⚠ __main__.py 缺失，CLI 命令行入口失效）
-│   │   ├── secure_config.py
+│   │   ├── __main__.py               # CLI 入口：python -m CostView.src（退出码 0/2/3）
+│   │   ├── query_cli.py              # QueryEngine 类（CLI 命令分发目标）
 │   │   └── monitoring/               # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │   │                                 #   anomaly_query · tca_report_html · time_range
-│   ├── scripts/
-│   ├── tests/                        # 4 个测试文件，103 个测试函数
-│   └── data.migrated.202609022339/   # 历史数据归档（2026-09-02 迁出；现行数据根 ${EMSXVIEW_DATA_DIR}）
+│   ├── scripts/                      # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
+│   ├── tests/                        # 7 个测试文件，211 个测试函数（含 golden 基线回归）
 │   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 删除（ADR-0014，见 §6.1）
+│   #     data.migrated.<ts>/ 为本地数据迁移留证目录，已被 .gitignore 忽略，从不入版本库
 ├── platform_data/
 │   ├── __init__.py
 │   ├── adapters/                      # Cross-module adapters (subpackage)
