@@ -74,3 +74,40 @@ function Test-BranchMerged {
     $ahead = @($cherry | Where-Object { $_ -like "+*" })
     return ($ahead.Count -eq 0)
 }
+
+# 读取指定 worktree 的会话独占锁；无锁或不可读返回 $null
+# 锁路径按工作树隔离，见 .githooks/common.sh 与 docs/spec/git-workflow.md §10
+function Get-WtLockInfo {
+    param([string]$Path)
+    try {
+        $gitDir = (& git -C $Path rev-parse --absolute-git-dir 2>$null | Select-Object -First 1)
+        if (-not $gitDir) { return $null }
+        $lock = Join-Path $gitDir "EMSXVIEW_SESSION_LOCK"
+        if (-not (Test-Path $lock)) { return $null }
+        $kv = @{}
+        foreach ($line in (Get-Content $lock -ErrorAction SilentlyContinue)) {
+            if ($line -match "^([^=]+)=(.*)$") { $kv[$Matches[1]] = $Matches[2] }
+        }
+        if (-not $kv.ContainsKey("session")) { return $null }
+        $idle = "?"
+        if ($kv["heartbeat"] -match "^\d+$") {
+            $idle = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$kv["heartbeat"])
+        }
+        return [pscustomobject]@{
+            Session = $kv["session"]
+            Branch  = $kv["branch"]
+            Host    = $kv["host"]
+            IdleSec = $idle
+        }
+    }
+    catch { return $null }
+}
+
+# 锁标识缩写（表格列宽友好）
+function Format-WtLockLabel {
+    param($LockInfo)
+    if (-not $LockInfo) { return "-" }
+    $sid = $LockInfo.Session
+    if ($sid.Length -gt 12) { $sid = $sid.Substring(0, 12) + "..." }
+    return "$sid ($($LockInfo.IdleSec)s)"
+}

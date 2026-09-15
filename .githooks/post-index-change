@@ -1,0 +1,28 @@
+#!/bin/bash
+# post-index-change hook（非阻断）：
+# 1) 本会话活动期刷新独占锁心跳 —— 避免长时间暂存 / 分批提交时被他人按 TTL 误判为陈旧
+# 2) 索引被「其他会话」写入时立即告警 —— post-* 钩子无法阻断，但把静默的
+#    并发污染变成可见事件（共享 index 被对方 git add 污染后，本会话的 commit
+#    会把对方文件一并带入，正是「非我改动混进提交」的成因）
+# 机制说明见 docs/spec/git-workflow.md §10。
+. "$(dirname "$0")/common.sh"
+
+lf="$(lock_file)"
+[ -f "$lf" ] || exit 0
+
+sid="$(lock_session_id)" || exit 0
+holder="$(lock_field "$lf" session)"
+[ -n "$holder" ] || exit 0
+
+# 本会话持有锁：仅刷新心跳
+if [ "$holder" = "$sid" ]; then
+    lock_write "$lf" "$sid"
+    exit 0
+fi
+
+# 锁属于他人：本目录存在并发写入
+hook_info "警告：本工作目录的索引刚被写入，但独占锁持有者是另一个会话"
+hook_info "  持有 session=$holder   本会话=$sid"
+hook_info "  该目录可能存在对方的在制品，请勿继续在此 git add / commit"
+hook_info "  规范做法：为当前任务另建 worktree —— scripts/devtools/wt-new.ps1 <task>"
+exit 0
