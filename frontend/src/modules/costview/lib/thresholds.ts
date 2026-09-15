@@ -80,11 +80,13 @@ const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {
     unit: 'percent',
     description: 'Absolute price movement during the order interval.',
   },
-  // 数据质量探针：成交超过委托（fill > RouteShares）属数据矛盾
+  // 数据质量探针：成交超过委托（fill > RouteShares）属数据矛盾。
+  // 用 above-strict（严格大于 100%）：完成率恰为 100% 是正常「成交满」，不算矛盾 ——
+  // 与后端 anomaly_query 的边界、TcaAnomalyRow.overfill 布尔标记同界。
   overfill_pct: {
     key: 'overfill_pct',
-    label: 'Overfill %',
-    mode: 'above',
+    label: 'Overfill',
+    mode: 'above-strict',
     warning: 100,
     critical: 110,
     enabled: true,
@@ -137,8 +139,14 @@ function getMetricValue(
   }
 }
 
+/** 越界判定：above-strict 用严格大于（边界值不算越界），与后端 _exceeds 同款 */
+function exceeds(value: number, bound: number, strict: boolean): boolean {
+  return strict ? value > bound : value >= bound;
+}
+
 /** 阈值判定（ADR-0018 两档）：越过 warning 入异常清单，越过 critical 标注为严重。
- *  below 模式下 critical 阈值更小（更严格）。 */
+ *  below 模式下 critical 阈值更小（更严格）；above-strict 与 above 同序，
+ *  但「恰好等于阈值」（如 overfill 完成率 100.0%）不算越界。 */
 export function evaluateThreshold(
   rule: ThresholdRule,
   rawValue: number | null | undefined,
@@ -154,8 +162,9 @@ export function evaluateThreshold(
     return value <= rule.warning ? 'warning' : 'normal';
   }
 
-  if (value >= rule.critical) return 'critical';
-  return value >= rule.warning ? 'warning' : 'normal';
+  const strict = rule.mode === 'above-strict';
+  if (exceeds(value, rule.critical, strict)) return 'critical';
+  return exceeds(value, rule.warning, strict) ? 'warning' : 'normal';
 }
 
 export function getOrderAlertDetails(

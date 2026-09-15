@@ -8,6 +8,7 @@ import type {
   TcaOrderAggregate,
   TcaReport,
   TcaReportSummary,
+  ThresholdRule,
   UpdateStatusResponse,
 } from '../types';
 
@@ -310,9 +311,10 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
 }
 
 /** 006/014: 阈值规则 → 导出端点 thresholds 查询参数（与后端 ThresholdRules 契约对齐）。
- *  双档（ADR-0018）：warning 决定是否入清单，critical 仅用于分级标注。 */
+ *  双档（ADR-0018）：warning 决定是否入清单，critical 仅用于分级标注。
+ *  mode 直接复用 ThresholdRule 的联合类型，避免模式枚举在多处各写一份。 */
 export interface ExportHtmlThresholdPayload {
-  mode: 'absolute-above' | 'above' | 'below';
+  mode: ThresholdRule['mode'];
   warning: number;
   critical: number;
   enabled: boolean;
