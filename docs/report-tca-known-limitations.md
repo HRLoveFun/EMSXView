@@ -166,6 +166,25 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 护栏：`CostView/tests/test_report_metrics.py`（`TestBdibWeightFxContract` /
 `TestTcaGapDetection` / `TestSlaDenominatorStructural` / `TestHtmlExportCsvClosure`）。
 
+#### 第七轮合入后独立复核（post-merge，#29 squash 后）
+
+黄金样本库（`CostView/tests/golden/snapshot/fill_bdib.db`，4668 条路由、20260901~20260904）数值验证：
+
+| 项 | 结论 |
+|---|------|
+| D8 量级核验 | GBp 市场：旧 17,063,317,081 → 新 170,633,171，比值精确 **0.0100** —— 审计预言的 100× 高估坐实并消除；全样本总金额 −91.24%（GBp 占旧口径 92%）；未换算披露 = 0（黄金样本 fx 全覆盖，逐行回退路径仅由单测覆盖） |
+| D14 探针精度 | `bdib_gap` 探针命中 333 条（7.1%），与 p_arrival NULL 集合**完全重合**（SLA 92.87% → 100.00%，分母 4668 → 4335）—— 本样本上无「bdib_cutoff 残余被误豁免」；纯竞价豁免新旧一致（2160/2160，fill 无 NULL，扩展仅旧 schema 兼容路径） |
+| D11 端到端 | payload 接线运行正常（4 dates、tca_gap_dates=[]、tca_missing_dates=0）；差集语义由 tmp_path 单测隔离验证（黄金端到端混用了真实 processed_fills，不作为差集数值依据） |
+| D16 独立终验 | main 合并代码核验通过：zip 打包（`writestr(html) + write(csv)`）、`export_ref` 浅拷贝回填不污染共享缓存、媒体类型与文件名切换正确 |
+
+复核发现的三项小事项（非阻塞）已同批处理：
+
+| # | 事项 | 处理 |
+|---|------|------|
+| X5 | 旧 schema 无 fx 列时 `missing_notional` 实为本币合计，读者可能误读作 USD | ✅ 已修：`_load_ticker_weight` 返回 `(权重表, 是否 USD 口径)`，payload 增 `gap_notional_fx_usd`，附录页脚显式提示「缺口金额为本币口径」 |
+| X6 | `bdib_gap` 探针豁免规模仅内部分母消费，不可审计 | ✅ 已修：覆盖率行输出 `bdib_gap_routes`，豁免规模可见（探针误豁免边界情形的规模可观测） |
+| X7 | D16 交付物（zip/CSV）未随两份核心文件一并核验 | ✅ 已独立终验（见上表）；端到端 zip 响应建议在 P1 批次以 TestClient 集成测试补齐 |
+
 ### 仍待处理（P1/P2，不在本次 P0 范围）
 
 - **异常明细节流未披露**：`min_fill_count` / `min_notional_usd` 排除的条数仍未回传，读者无法得知异常样本被截取多少（已对严重未完成豁免，其余仍静默）。

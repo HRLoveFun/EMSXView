@@ -900,6 +900,11 @@ def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
         f"其中未能换算 USD 的本币金额 {_fmt_big(unconvertible)}（缺口金额或被低估）。"
         if unconvertible else ""
     )
+    # 旧 schema 无 fx_rate 列：缺口金额实为本币合计，显式提示避免读作 USD
+    local_note = (
+        "旧 schema 无汇率列，缺口金额为本币口径。"
+        if not health.get("gap_notional_fx_usd", True) else ""
+    )
     return f"""
 <h2>BDIB 缺口附录（{len(gap_dates)} 天）</h2>
 <div class="panel" style="overflow-x:auto">
@@ -907,7 +912,7 @@ def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
 <th>缺口 ticker</th><th>受影响 route 数</th><th>缺口成交金额</th>
 <th>保留窗口剩余(天)</th><th class="l">缺失 ticker 样例</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<div class="meta" style="margin-top:8px">缺口影响面：合计受影响 route {summary.get('total_missing_routes', 0):,} 条、成交金额 {_fmt_big(summary.get('total_missing_notional'))}（USD 换算与 KPI 同源：fill_bdib 回填 + 小计价单位修正；逐行换算，缺汇率的路由不计入）。{unconvertible_note}标记「TCA 缺失」的日期同时无 TCA 汇总（见数据质量提示）。保留窗口内（partial/missing）可用 scripts/ops/backfill_bdib_by_market.py 回补；unrecoverable 已超出 Bloomberg BDIB 保留期限，无法回补。</div>
+<div class="meta" style="margin-top:8px">{local_note}缺口影响面：合计受影响 route {summary.get('total_missing_routes', 0):,} 条、成交金额 {_fmt_big(summary.get('total_missing_notional'))}（USD 换算与 KPI 同源：fill_bdib 回填 + 小计价单位修正；逐行换算，缺汇率的路由不计入）。{unconvertible_note}标记「TCA 缺失」的日期同时无 TCA 汇总（见数据质量提示）。保留窗口内（partial/missing）可用 scripts/ops/backfill_bdib_by_market.py 回补；unrecoverable 已超出 Bloomberg BDIB 保留期限，无法回补。</div>
 </div>"""
 
 
