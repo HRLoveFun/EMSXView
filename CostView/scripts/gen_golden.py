@@ -27,7 +27,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from data_access.storage.connection import AccessTier, ConnectionManager  # noqa: E402
+from data_access.storage.connection import ConnectionManager  # noqa: E402
 from platform_data.contracts import TcaFilters  # noqa: E402
 
 # 纳入黄金锁定的关键指标（金额类容差 1e-6，比率类放宽至 1e-4）

@@ -14,7 +14,6 @@ and are re-exported here for caller convenience.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -411,20 +410,6 @@ class TcaQueryService:
         # 时序数据作为额外字段注入
         data["time_series"] = time_series
         return TcaRouteSummary(**data)
-
-    # ── Connection helpers ──────────────────────────────────────────────────
-
-    def _proc_fills_conn(self):
-        return self._mgr.get_connection("processed_fills", AccessTier.READ, row_factory=sqlite3.Row)
-
-    def _fill_bdib_conn(self):
-        return self._mgr.get_connection("fill_bdib", AccessTier.READ)
-
-    def _raw_bdib_conn(self):
-        return self._mgr.get_connection("raw_bdib", AccessTier.READ, row_factory=sqlite3.Row)
-
-    def _raw_fills_conn(self):
-        return self._mgr.get_connection("raw_fills", AccessTier.READ)
 
     @staticmethod
     def _table_exists(conn, table_name: str) -> bool:

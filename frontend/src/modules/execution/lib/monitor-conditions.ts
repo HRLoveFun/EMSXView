@@ -87,7 +87,7 @@ function fmtThreshold(v: number): string {
   return v.toLocaleString();
 }
 
-export interface ConditionDef {
+interface ConditionDef {
   id: ConditionId;
   label: string;
   unit: string;
@@ -180,7 +180,7 @@ export function matchesAnyCondition(order: Order, conditions: MonitorConditions)
 }
 
 /** Per-order flag badges for the Flags column. */
-export interface MonitorFlag {
+interface MonitorFlag {
   label: string;
   color: string;
   bgColor: string;

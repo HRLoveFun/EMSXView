@@ -20,7 +20,7 @@ from .context import (
     collect_python_files,
 )
 from .detectors import FULL_DETECTORS, STAGED_DETECTORS, ap_adapter
-from .models import Finding, RuleSet, ScanResult
+from .models import Finding, ScanResult
 from .reporter import generate_report
 from .scoring import gate_verdict
 from .store import GateStore

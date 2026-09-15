@@ -56,7 +56,7 @@
 
 | 能力缺口 | 现状 | 替代手段 |
 |---|---|---|
-| 类方法的零引用判定 | CL-02 只判模块级符号 | vulture `--min-confidence 80` |
+| 类方法的零引用判定 | **已内置为 `CL-12`**（2026-09-15，见下）；CL-02 仍只判模块级符号 | 内置检测器；vulture 退化为可选交叉核对 |
 | 跨文件重复代码块 | 由 `quality_gate` OE-04（AST 归一化整函数匹配）覆盖 | 直接跑 `quality_gate --ruleset oe` |
 | 未使用的 npm / pip 依赖 | 未实现 | knip（JS）/ deptry（Python） |
 | 前端打包体积归因 | 未实现 | `vite-bundle-visualizer` |
@@ -69,6 +69,8 @@
 | OE-06 同文件使用型 | 「导出无跨文件消费者」包含两类：真死代码 vs 仅本文件使用的多余 `export`（含 shadcn/ui 的 `export { A, B }` 约定与模块内部类型面），后者删除即破坏编译 | 待实现：把「同文件仍有引用」单列子类并降级为提示；`_is_exempt` 目前不排除 `__tests__/`，测试内的 `export function measure` 会混入清单 |
 | 部分扫描污染趋势库 | `cleanup --ruleset cl|pf` 仍写 `scans` 记录（n_findings=0），`last_full_scan()` 取到虚假 0 项基准 → 报告趋势表与「环比上次全量」失真 | **已修**（2026-09-14）：`_is_full_coverage(mode, ruleset)` 统一 `save_scan` 与 `_maintain_baseline` 口径；分析型单规则集扫描不再入库 |
 | 检测器修复 ≠ 真实清偿 | 修复误报后同批 fingerprint 从基线消失，被记为 `fixed`，会虚高「存量清偿率」 | 统计与复盘时须扣除「修复导致的消失」数量；本轮为 71（OE-06 跨行）+ 1（别名）+ 3（PF-01 头部）= 75 项 |
+| 子串遮蔽（假阴性） | 外部审计脚本用 `sub.name in text`（子串）判定跨文件存活：`get_distinct_dates` 被 `get_distinct_dates_in_range` 遮蔽、`_fill_bdib_conn` 被 `tca_query_builder.py` 的同名**模块级函数**遮蔽 → 真死方法被判存活 | 判定存活必须用**词边界正则**（`(?<![\w.])name(?![\w])`）并区分「同名不同实体」；删除后须复扫以捕获级联 |
+| 类方法零引用判定 | `CL-02` 只判模块级符号，类方法需外部工具 | **已内置为 `CL-12`**（2026-09-15 收尾批次，见下）；补丁另一处同类缺陷：`_fill_bdib_conn` 被同名**模块级函数**遮蔽 → 引入「同名实体区分」 |
 
 ---
 
@@ -480,4 +482,144 @@ cleanup 复扫清理项 0。**
 
 - **遗留提示**：`OE-06` 仍存在「同文件使用型」误报（见遗漏候选段）；
   `cleanup` 趋势库中留有一次 `--ruleset cl` 造成的 0 项历史记录（口径已修，历史行未清理）。
+
+### 2026-09-15 · 全库清理（**授权执行**：用户「最高权限：识别和移除过时冗余」）
+
+- **模式与规模**：全库 / 强度=执行删除；379 文件 / 34,412 行 Python；CL 命中 **0** / PF 命中 216（含 PF-06 15）
+- **并集侧**：`quality_gate --ruleset oe` 存量 **188 → 178**（−10，全部来自 OE-06 前端零引用导出）
+- **实际删除**（分 4 批，批间全量回归）：
+  - **B1 未使用 import（Python，41 处 / 26 文件）**：AST 判定零引用（含字符串注解兜底）+ 词边界全仓复核 +
+    re-export 面识别；`50 → 9`（剩余 9 项为**有意保留**的兼容 re-export 面，见「保留判定」）
+  - **B2 前端零引用导出（10 处 / 8 文件）**：`ViolationTooltip`、`hasBrokerStrategiesInFile`、
+    `hasStrategyInfoInFile`、`triggerUpdate`、`TcaMetricName`、`MetricNullReason`、`METRIC_NULL_REASON`、
+    `fmtPct`、`measure`、`token-service.getAuthHeaders`（后者与 `shared/services/http-client.ts` 同名**重复实现**）
+  - **B3/B4 类方法零引用（Python，34 处 / 8 文件）**：`data_access/storage/repositories/fills.py` 14、
+    `raw_fills.py` 4、`market_store.py` 7（含 `get_market_context` + 5 个仅供其调用的 helper）、
+    `repositories/_base.py` 1、`CostView/src/tca_query_service.py` 4、`backend/api/repositories/parent_child_repository.py` 4、
+    `platform_data/contracts/boundary_registry.py` 4、`platform_data/adapters/redis_handoff.py` 1
+  - **级联清理**（删除后复扫暴露，正是「级联失效」条目所述）：`MarketStoreReader.get_distinct_dates` /
+    `get_distinct_tickers`、`SqliteFillReadRepository.get_processed_dates`
+  - **B5 临时遗留文件（CL-07，2 个）**：仓库根 `_tmp_qg.txt`、`frontend/_tmp_vitest.log`（均未跟踪）
+  - **合计**：39 文件改动 / **−750 行**（16 行新增为 import 语句保留部分）
+- **保留判定（未删，逐条写明理由）**：
+  - `platform_data/adapters/tca_bridge.py` 的 5 个 contract 类型 + 2 个 db 常量 import —— 紧邻「Re-export constants
+    from canonical location」注释块，属**显式声明的兼容 re-export 面**，删则破坏对外可访问性；
+  - `CostView/src/tca_query_service.py:439` 的 `TcaOrderSummary/TcaRouteDetail` —— 注释明写「兼容旧导入」
+    且带 `# noqa: E402,F401`，属显式兼容面；
+  - 前端 **68 项「仅本文件使用」的 `export` 关键字**（25 文件）—— 与规则 fix_hint 一致但**本轮不执行**：
+    `components/ui/*` 3 项属 shadcn 上游生成面（重新 `shadcn add` 会回退），其余多为 `types.ts` / `services/*.ts`
+    的**类型词表**（模块存在目的即导出类型），收益为纯表面收敛、成本为 25 文件噪声 diff 与 DX 退化，
+    按「收益/风险比」暂缓，清单已产出待人工决策；
+  - `scripts/ci/blpapi_stub/blpapi/__init__.py` 3 个方法 —— 第三方 API 桩（`EMPTY_STUB_EXEMPT_PATH_PARTS` 先例）；
+  - `platform_data/contracts/data_access.py` —— ADR-0013 规划中契约，`DEAD_FILE_EXEMPT` 既有豁免。
+- **跨仓库确认（第三轮质询）**：`data_access/` 侧删除沿用 2026-09-10 的决定性证据（管道仓库全量检索
+  `data_access` 0 命中，其 README 自述不依赖本仓库代码树），本轮未发现新证据推翻该结论。
+- **独立复核（不依赖 cleanup 检测器）**：CL-08 全仓 0；CL-09 唯一命中为
+  `scripts/cleanup/tests/test_cleanup.py:190` 的**检测器测试夹具**（刻意构造的注释代码块，保留）；
+  CL-07 命中 2 项均已删除（见 B5）。
+- **误报（工具报出/漏报，经核实）**：
+  - **漏报**：`tca_query_service.py` 的 4 个 `_*_conn` helper 中 `_fill_bdib_conn` 被
+    `tca_query_builder.py` 的**同名模块级函数**遮蔽 → 审计脚本判其存活；人工核实后一并删除
+    （同批 `import sqlite3` 级联失效，已删）
+  - **漏报**：`get_distinct_dates` 被 `get_distinct_dates_in_range`、`get_processed_dates` 被
+    `get_unprocessed_dates` **子串遮蔽** → 删除首批后复扫才暴露（见「高频误报段」新增两行）
+- **分级偏差**：本轮 PF 命中 **216 → 190（−26）** 并非性能优化成果 —— 其中 **PF-03 75 → 51（−24）**
+  全部来自被删死方法内的无界 `SELECT *`（移除死代码即移除候选）。**口径警示**：PF 数量变化必须区分
+  「真实优化」与「死代码消失」，否则会虚报收益。
+- **规则/阈值变更**：无（`config.py` 未改）。工具层建议已入「高频误报段」：类方法判定需词边界匹配 +
+  同名实体区分，建议内置为 `CL-12`。
+- **验证**：批间与收尾均跑 `pytest backend CostView scripts/quality_gate/tests scripts/cleanup/tests`
+  = **464 passed / 1 skipped**（与改动前基线一致）；`compileall` 全仓 exit 0；`tsc -b` exit 0；
+  `vitest run` **19 文件 / 155 用例全绿**；`cleanup --report` 清理项 **0**；`quality_gate` AP 违规 0。
+- **文档同批修订**：`scripts/README.md`（原描述含**已不存在的** `_archive/`、`workflow/` 与已迁出的
+  `ops/import_excel_fills.py`、`ops/sync-metrics.py`、`backfill_raw_fills_oaod_eet.py`，且漏记
+  `ci/`、`cleanup/`、`quality_gate/`、`reports/`、`devtools/wt-*.ps1` → 按实际目录重写）。
+  历史记录（`docs/archive/**`、`specs/**`、`docs/spec/adr/**`）按纪律**未改**。
+- **未执行（需人工确认 / 需授权）**：
+  1. 前端 68 项多余 `export` 关键字的收敛；
+  2. `scripts/reports/quality_gate/report-20260915.md` 已被 git 跟踪，但 `.gitignore` 策略
+     （`report-*.md` 忽略 + 注释「历史快照保留在版本库内**不再新增**」+ 「避免双账本」）与之冲突
+     —— 属**有意提交**的生成物，不擅自删除，待人工决策；
+  3. 外部工具 knip / vulture / deptry / radon 仍未安装（本轮以自建 AST 审计替代，结果已交叉核对）。
+
+### 2026-09-15 · 收尾批次（授权后：CL-12 内置 + 前端 export 收敛 + 生成物出库）
+
+**范围**：接上一轮（同日「全库清理」）的三项遗留 + 一项新规则。**这一批的边际价值主要在机制**：
+把上一轮靠临时脚本做的类方法判定**固化为可重复的门禁规则**，并顺手完成前端公开面收敛与一条
+与 `.gitignore` 策略冲突的生成物出库。
+
+**1. 新增 `CL-12` 过时类方法（零引用）** —— 见 [ADR-0019](../../../../docs/spec/adr/0019-cl12-dead-class-method-detection.md)
+
+- **实现**：`scripts/cleanup/detectors/dead_methods.py` + `config.py` 阈值/豁免 + `CL_DETECTORS` 注册；
+  自测 `TestDeadMethods` **12 用例**（含 2 条真实漏报的回归：`get_x` vs `get_x_y` 子串关系、
+  模块级同名函数 vs 类方法的实体归属）。
+- **两条关键设计**（均由上一轮实测漏报反推）：
+  - **词边界匹配** `(?<![\w.])name(?![\w])` —— `_` 属 `\w`，`get_x` 不再被 `get_x_y` 遮蔽；
+  - **同名实体区分** —— 文件自带同名模块级符号时，其内裸标识符归属自有符号，仅 `obj.name` 属性访问计为引用。
+- **首轮实测（真实仓库）**：产出 **14 项**候选，其中 **1 项为真误报**（
+  `ConnectionManager.close_thread_cached_connections` —— docstring 明写「Deprecated no-op…保留以兼容旧调用点」，
+  按 CL-05 既有口径应豁免）→ **已补 docstring 占位/兼容 no-op 豁免**并加单测。
+- **三轮质询结论**：
+  - **删除 10 项**（约 130 行）：`ParentChildRepository.{create_parent, update_parent_filled, create_slice}`、
+    `ConnectionManager.{get_admin_connection, get_all_paths, get_existing_databases}`、
+    `MarketStoreReader.get_row_count`、`SqliteFillReadRepository.get_fills_for_date`、
+    `SqliteRawFillReadRepository.{get_fills_for_date, get_row_count}`；
+    其中 `get_admin_connection`（docstring 已标 `.. deprecated:: 010-extract-pipeline`）属写/管理能力，
+    删除与 2026-09-10 删 `backup_database` 同理，**强化 ADR-0016 只读边界**；
+  - **保留 4 项并新增 `DEAD_METHOD_EXEMPT_NAMES` 收口**：`HandoffExchangeAdapter` 与
+    `RedisHandoffExchangeAdapter` 的 `clear_market_to_execution` / `clear_cost_to_execution`
+    —— 三轮质询第三轮**命中**：`.codebuddy/rules/module-boundary.md` §2.3 明确列为「外部可见方法」，
+    是已文档化的适配器公开面。**这是本批唯一一次「工具报出但必须保留」**，也验证了三轮质询的必要性。
+- **跨仓库质询（本轮首次可直连取证）**：发现管道仓库在 `Documents/EMSXDataPipeline`（兄弟目录），
+  233 个文件直扫结论 ——
+  - 对本仓库代码树的 import **仅 1 处**且为**悬空引用**（`runner/diagnostics.py:84`
+    `from platform_data.database_diagnostics import init_diagnostics_db`；该模块在本仓库**不存在**，
+    管道仓库亦无自带 `platform_data/`）→ 前几轮「管道不消费本仓库代码」的结论**得到直接证实**；
+  - 上一轮删除的全部符号在管道仓库中的命中**均为其自有副本的定义**（如
+    `DataPipeline/storage/market_store.py` 自带 `get_market_context` / `verify_integrity` / `get_distinct_dates`，
+    `DataPipeline/storage/repositories/fills.py` 自带 `get_processed_dates` / `get_unprocessed_dates` …），
+    **不是引用** → 跨仓库安全性从「记录在案的历史结论」升级为「当轮直接取证」。
+
+**2. 前端「仅本文件使用」的多余 `export` 收敛（65/68）**
+
+- **做法**：逐个定位声明行去掉 `export ` 前缀（只改关键字、不动实现），
+  `tsc -b` exit 0 + `vitest run` **19 文件 / 155 用例全绿**验证无断裂。
+- **保留 3 项**（`components/ui/{badge,popover,scroll-area}` 的
+  `badgeVariants` / `PopoverAnchor` / `ScrollBar`）：三者是 shadcn **上游分组导出面**
+  （`export { Badge, badgeVariants }` 形态），且 `ScrollBar` 是 `ScrollArea` 的**组合原语**；
+  收敛会在下次 `shadcn add <component>` 时被上游模板覆盖回退，属**无持久收益的 churn**。
+- **口径**：这不是「删代码」，而是收窄模块公开面；68 项全部为「本文件内部有引用」，
+  故 fix_hint 始终是「去掉多余 export 关键字，**切勿删除实现**」。
+
+**3. 生成物出库（按 `.gitignore` 既有策略）**
+
+- `scripts/reports/quality_gate/report-20260915.md` 已 `git rm` 出库。
+  依据 `.gitignore` 第 81-84 行的明确策略：`report-*.md` 忽略 + 注释写明
+  「20260821/20260825 为历史快照，保留在版本库内**不再新增**」+「逐轮修复账本以
+  `docs/report-tca-known-limitations.md` §五 为准，**避免双账本**产生『哪份是真相』分叉」。
+  出库后该路径由忽略规则接管（`git check-ignore` 对新文件已生效，历史两份快照保留）。
+
+**4. 文档同批修订**
+
+- 新增 `docs/spec/adr/0019-cl12-dead-class-method-detection.md`；
+  `docs/spec/memory.md` 索引补 ADR-0019，并在 ADR-0017 行标注「类方法零引用判定由 ADR-0019 扩展」
+  （沿用 ADR-0015 → 0018 的**索引行标注**惯例，**不改 ADR 正文**）；
+  `docs/spec/adr/README.md` 补 0018（此前缺登记）与 0019；
+- skill 侧：`ruleset-cl.md` 增 CL-12 全节（判定 / 两条关键设计 / 豁免 / 分级 / 验证 / 已知边界）、
+  `tool-matrix.md` 把 vulture 从「负责类方法」降级为「可选交叉核对」、
+  本文件「遗漏候选段」与「高频误报段」相应收口。
+
+**5. 验证**：`pytest backend CostView scripts/quality_gate/tests scripts/cleanup/tests`
+→ **477 passed / 1 skipped**（较上批 464 增加 13 项 CL-12 新用例）；`compileall` exit 0；
+`tsc -b` exit 0；`vitest run` 155 通过；`cleanup --ruleset cl` **清理项 0**（引入 CL-12 时首批 14 → 收口后 0）；
+`audit_doc_drift.py` 无漂移。
+
+**6. 本批新增的两条经验**：
+
+- **「工具报出」与「应当保留」可以并存**：CL-12 首批 14 项里，4 项是**已文档化的契约公开面**。
+  删除决策的最后一关始终是**查契约文档**（`module-boundary.md`），而不是查调用方数量 ——
+  零调用方的公开 API 依然是 API。
+- **兄弟仓库可直接取证**：跨仓库质询过去依赖一次性人工检索记录；本轮确认管道仓库就在
+  兄弟目录且可只读扫描后，把「跨仓库安全」从历史结论升级为**当轮可复现的取证步骤**；
+  同时「同名副本」与「真实引用」必须区分 —— 前者恰恰是**删除安全**的证据。
 

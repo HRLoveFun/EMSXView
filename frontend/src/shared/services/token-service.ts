@@ -11,13 +11,6 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-export function getAuthHeaders(): HeadersInit {
-  const headers: HeadersInit = { 'Content-Type': 'application/json' };
-  const token = getToken();
-  if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-  return headers;
-}
-
 export const tokenService = {
   setToken: (token: string) => localStorage.setItem(TOKEN_KEY, token),
   getToken: () => getToken(),

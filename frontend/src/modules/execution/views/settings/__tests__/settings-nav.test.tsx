@@ -7,7 +7,7 @@
  *
  * 运行：npm test
  */
-import { Profiler, type ProfilerOnRenderCallback, type ReactElement } from 'react';
+import { Profiler, type ProfilerOnRenderCallback } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -16,23 +16,6 @@ import { SettingsNav } from '../SettingsNav';
 interface Commit {
   phase: 'mount' | 'update' | 'nested-update';
   actualDuration: number;
-}
-
-/**
- * 在 React.Profiler 内渲染并记录每次 commit。
- * `actualDuration` 是本次 commit 的渲染耗时（React 自己的计时，不含 layout/paint）。
- */
-export function measure(
-  ui: ReactElement,
-  onRender: ProfilerOnRenderCallback,
-): { rerender: (next: ReactElement) => void } {
-  const wrapped = <Profiler id="target" onRender={onRender}>{ui}</Profiler>;
-  const utils = render(wrapped);
-  return {
-    rerender: (next: ReactElement) => {
-      utils.rerender(<Profiler id="target" onRender={onRender}>{next}</Profiler>);
-    },
-  };
 }
 
 describe('SettingsNav（React.Profiler 渲染基准）', () => {

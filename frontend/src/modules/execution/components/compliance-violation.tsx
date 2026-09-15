@@ -4,12 +4,6 @@
  */
 
 import { AlertTriangle } from 'lucide-react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import type { Violation, ViolationCode } from '@execution/types'
 
 const VIOLATION_LABELS: Record<ViolationCode, string> = {
@@ -31,7 +25,7 @@ interface ViolationBadgeProps {
   className?: string;
 }
 
-export function ViolationBadge({ code, severity = 'BLOCK', className = '' }: ViolationBadgeProps) {
+function ViolationBadge({ code, severity = 'BLOCK', className = '' }: ViolationBadgeProps) {
   const isWarn = severity === 'WARN';
   return (
     <span
@@ -66,31 +60,3 @@ export function ViolationList({ violations, className = '' }: ViolationListProps
   );
 }
 
-interface ViolationTooltipProps {
-  violations: Violation[];
-  children: React.ReactNode;
-}
-
-/** Hover tooltip showing full violation messages, used on table cells. */
-export function ViolationTooltip({ violations, children }: ViolationTooltipProps) {
-  if (!violations.length) return <>{children}</>;
-  return (
-    <TooltipProvider delayDuration={150}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-block">{children}</span>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          <ul className="space-y-1 text-xs">
-            {violations.map((v, i) => (
-              <li key={i}>
-                <span className="font-semibold">{violationLabel(v.code)}</span>
-                <span className="text-muted-foreground"> — {typeof v.message === 'string' ? v.message : JSON.stringify(v.message)}</span>
-              </li>
-            ))}
-          </ul>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}

@@ -36,7 +36,6 @@ class HandoffMetadataResponse(BaseModel):
 # ── Market → Execution handoff (contract 1) ─────────────────────────────────
 
 # Lightweight candidate row (avoids depending on schemas/marketview.py).
-from platform_data.adapters import MarketCandidatePayload, MarketCandidateRow
 
 
 class MarketCandidateRowResponse(BaseModel):

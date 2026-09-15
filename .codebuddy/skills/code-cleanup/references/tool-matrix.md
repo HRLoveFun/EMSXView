@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | JS/TS | **knip** | 一次分析 5 类：未使用文件、未使用导出、未使用依赖、未解析 import、未使用 devDependencies | `npx knip --reporter json`（免安装） | 最强补充。**必须与 CL-10/OE-06 交叉核对**：knip 会把入口配置读错而漏报/误报 |
 | JS/TS | ts-prune | 仅未使用导出 | `npx ts-prune` | knip 的降级替代 |
-| Python | **vulture** | 未使用函数/类/变量/属性/import，可配 `--min-confidence` | `pip install vulture` → `vulture . --min-confidence 80` | 覆盖 CL-02 的类方法与局部符号（本 skill 刻意不判类方法，交给它） |
+| Python | **vulture** | 未使用函数/类/变量/属性/import，可配 `--min-confidence` | `pip install vulture` → `vulture . --min-confidence 80` | 与 `CL-12` 交叉核对类方法（CL-12 已内置类方法判定，vulture 退化为可选增强）；覆盖局部符号与属性 |
 | Python | ruff（F401/F811/F841/ARG） | 未使用 import/变量/参数 | `pip install ruff` → `ruff check --select F,ARG` | 与 CL-06 重叠；ruff 更准，优先采信 ruff |
 | Python | pyright / mypy | 类型层面不可达与未使用 | `pyright backend/ CostView/src/ data_access/ platform_data/`（见 AP-10） | 类型收窄能暴露「永不成立的分支」 |
 | 依赖 | deptry / `pip-audit` | 未使用/缺失/漏洞依赖 | `pip install deptry` → `deptry .` | 补足「无用依赖」清理（knip 覆盖 JS 侧） |

@@ -331,19 +331,6 @@ class ConnectionManager:
         """
         return None
 
-    def get_admin_connection(self, database: str) -> sqlite3.Connection:
-        """Create a raw admin connection for schema init/migration.
-
-        .. deprecated:: 010-extract-pipeline
-            EMSXView 是纯读取消费者，管理连接属于独立仓库
-            EMSXDataPipeline 的职责 —— 本方法一律拒绝。
-        """
-        raise PermissionError(
-            "admin connections are not available in EMSXView "
-            "(read-only consumer, 010-extract-pipeline); "
-            "use the EMSXDataPipeline repository for DDL/maintenance."
-        )
-
     def connection(
         self,
         database: str,
@@ -393,14 +380,6 @@ class ConnectionManager:
             raw_conn.row_factory = row_factory
         return AccessControlledConnection(raw_conn, tier)
 
-    def get_all_paths(self) -> dict[str, Path]:
-        """Return a snapshot of all registered database paths."""
-        return dict(self._registry)
-
     def database_exists(self, database: str) -> bool:
         """Check if the database file exists on disk."""
         return self.get_path(database).exists()
-
-    def get_existing_databases(self) -> list[str]:
-        """Return names of databases whose files exist on disk."""
-        return [name for name, path in self._registry.items() if path.exists()]

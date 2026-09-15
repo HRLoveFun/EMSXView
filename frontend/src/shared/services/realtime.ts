@@ -21,13 +21,13 @@ export interface DeltaEvent {
   data: Record<string, unknown>;
 }
 
-export interface ConnectedEvent {
+interface ConnectedEvent {
   type: 'connected';
   cursor: number;
   timestamp: string;
 }
 
-export interface ReplayDoneEvent {
+interface ReplayDoneEvent {
   type: 'replay_done';
   replayed: number;
   cursor: number;
@@ -35,10 +35,10 @@ export interface ReplayDoneEvent {
 
 type MessagePayload = DeltaEvent | ConnectedEvent | ReplayDoneEvent | { type: string; [k: string]: unknown };
 
-export type DeltaHandler = (event: DeltaEvent) => void;
-export type StatusHandler = (status: 'connecting' | 'connected' | 'disconnected') => void;
+type DeltaHandler = (event: DeltaEvent) => void;
+type StatusHandler = (status: 'connecting' | 'connected' | 'disconnected') => void;
 
-export interface RealtimeClientOptions {
+interface RealtimeClientOptions {
   /** WebSocket URL, e.g. ws://localhost:3000/ws/orders */
   url: string;
   /** Heartbeat interval in ms (default 15000) */

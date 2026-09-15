@@ -40,6 +40,7 @@ RULE_TITLES: dict[str, str] = {
     "CL-08": "冗余文件：空壳模块",
     "CL-09": "冗余逻辑：注释掉的代码块",
     "CL-10": "冗余文件：前端不可达文件",
+    "CL-12": "过时类方法（零引用）",
     "PF-01": "高耗时：循环内 IO/查询（N+1）",
     "PF-02": "高耗时：嵌套循环 O(n²) / 线性扫描",
     "PF-03": "高内存：全量加载 / 无界读取",
@@ -119,6 +120,32 @@ TEMP_FILE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 # ── CL-10 前端不可达文件 ──────────────────────────────────────────
 # 前端图入口：多入口构建（主应用 + standalone 模块）+ 测试装配
 FRONTEND_ENTRY_NAMES: set[str] = {"main.tsx", "main.ts", "index.tsx", "test-setup.ts"}
+
+# ── CL-12 类方法零引用 ────────────────────────────────────────────
+# 框架/多态基类：方法由框架按名分派或为契约本身，静态不可证伪 → 整类豁免
+CLASS_METHOD_EXEMPT_BASES: set[str] = {
+    "Protocol", "ABC", "ABCMeta", "BaseModel", "BaseSettings", "Enum", "StrEnum",
+    "IntEnum", "TypedDict", "NamedTuple", "Generic", "Exception", "BaseException",
+    "TestCase", "NodeVisitor", "NodeTransformer", "Action", "Handler", "Formatter",
+    "BaseHTTPRequestHandler", "Iterator", "Iterable", "Mapping", "Sequence",
+}
+# 动态名字访问调用名：类体内出现即放弃该类的静态判定（属性可能被运行时装载）
+CLASS_METHOD_DYNAMIC_CALLS: set[str] = {
+    "getattr", "setattr", "delattr", "vars", "locals", "globals", "eval", "exec",
+    "import_module", "__import__",
+}
+# 类体内定义这些 dunder 说明属性可能由代理/兜底逻辑提供 → 整类豁免
+CLASS_METHOD_DYNAMIC_DUNDERS: set[str] = {"__getattr__", "__getattribute__"}
+# 桩/替身代码路径特征（第三方 API 桩天然由「零引用」方法组成）
+CLASS_METHOD_STUB_PATH_PARTS: tuple[str, ...] = ("stub", "mock", "fake", "fixture")
+DEAD_METHOD_MEDIUM_LOC: int = 10     # 方法长度 ≥ 该值 → medium，否则 low
+# 人工审定的方法级豁免（契约声明的对外 API —— 零静态调用方不等于可删）
+# 依据：.codebuddy/rules/module-boundary.md §2.3 「外部可见方法」列表
+# （handoff 适配器的 clear_* 属跨域公开面，删除会破坏已文档化的适配器契约）
+DEAD_METHOD_EXEMPT_NAMES: set[str] = {
+    "clear_market_to_execution",
+    "clear_cost_to_execution",
+}
 
 # ── PF 阈值 ───────────────────────────────────────────────────────
 MAX_FILE_LINES: int = 800            # 文件级热点阈值

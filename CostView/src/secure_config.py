@@ -8,12 +8,10 @@ Supports environment variables, secure credential files, and keyring integration
 import os
 import json
 import logging
-import getpass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 

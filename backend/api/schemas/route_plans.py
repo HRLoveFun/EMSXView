@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 _BATCH_ROUTE_MAX_SIZE = int(os.getenv("BATCH_ROUTE_MAX_SIZE", "500"))
 

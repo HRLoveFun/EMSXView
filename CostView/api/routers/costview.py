@@ -14,20 +14,15 @@ No external API calls are made during analysis.
 from __future__ import annotations
 
 import logging
-import os
 import re
-import uuid
 from datetime import date, datetime
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from data_access.config import Config as DataAccessConfig
 from platform_data.adapters import (
-    ScorecardCohortMetrics,
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,

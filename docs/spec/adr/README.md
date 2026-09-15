@@ -67,6 +67,8 @@ NNNN-<kebab-case-title>.md
 | [0015](0015-anomaly-route-filter.md) | 异常路由筛选与阈值归并（单档阈值 + 两道过滤闸门） | costview, analytics, frontend, backend |
 | [0016](0016-external-data-store-readonly-split.md) | 数据目录外置项目外 + 读写职责物理分离（READ 文件级只读） | data, storage, sqlite, refactoring |
 | [0017](0017-cleanup-and-perf-hotspot-mechanism.md) | 代码清理与性能热点机制 — 复用 quality_gate 基础设施 + 独立基线 | refactoring, cleanup, performance, tooling, scripts |
+| [0018](0018-tca-report-metrics-conventions.md) | TCA 报告指标口径与异常严重度语义（成交额加权 / 两档严重度 / 截断与导出 / REPORT_SPEC / 规则键重命名） | costview, analytics, reporting |
+| [0019](0019-cl12-dead-class-method-detection.md) | CL-12 类方法零引用检测 — 词边界匹配 + 同名实体区分 | refactoring, cleanup, tooling, scripts |
 | [0700](0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | process, workflow, documentation |
 
 ### Proposed

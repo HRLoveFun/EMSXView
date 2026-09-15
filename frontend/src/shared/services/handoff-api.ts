@@ -42,7 +42,7 @@ async function readError(response: Response): Promise<string> {
 
 // ─── Contract types ──────────────────────────────────────────────────────────
 
-export interface HandoffMetadata {
+interface HandoffMetadata {
   contract_version: string;
   source: string;
   handoff_target: string;
@@ -53,7 +53,7 @@ export interface HandoffMetadata {
   source_maturity?: 'GA' | 'Beta' | 'Scaffold' | null;
 }
 
-export interface CandidateRow {
+interface CandidateRow {
   equ_ticker: string;
   trade_date: string;
   daily_close: number | null;
@@ -65,7 +65,7 @@ export interface CandidateRow {
   volatility_alert: string;
 }
 
-export interface CandidatePayload {
+interface CandidatePayload {
   source: string;
   handoff_target: string;
   trade_date: string | null;

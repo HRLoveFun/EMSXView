@@ -25,7 +25,7 @@ export function applyCostViewClientFilters(
   };
 }
 
-export function paginateCostViewReport(
+function paginateCostViewReport(
   report: TcaReport,
   limit: number,
   offset: number,

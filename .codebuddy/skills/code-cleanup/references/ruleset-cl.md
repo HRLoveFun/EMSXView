@@ -23,6 +23,7 @@
 | CL-08 | 空壳模块 | low | 除 docstring/`pass`/`__future__` 外无任何顶层语句 | `dead_files._empty_modules` |
 | CL-09 | 注释掉的代码块 | low | 连续注释块（≥4 行）中命中 ≥2 行语句特征 | `dead_logic._commented_code` |
 | CL-10 | 前端不可达文件 | medium | 从 4 个构建入口 + 测试装配 BFS 未触达 | `frontend.detect_cleanup` |
+| CL-12 | 过时类方法（零引用） | medium / low | 方法名全库零引用（词边界匹配 + 同名实体区分） | `dead_methods.detect` |
 
 **已由 `quality_gate` 覆盖、不重复实现**：`OE-01` 冗余模块、`OE-02` 过度抽象（单实现 ABC / 1:1 传递函数）、
 `OE-04` 重复代码块（≥30 行等价块）、`OE-06` 前端未使用导出。全库清理时两套一起跑，取并集。
@@ -190,6 +191,53 @@
 
 **验证方法**：`rg "<file-stem>" frontend/ --glob '!*.map'` + 检查 `frontend/*.html` 与
 `vite.config*.ts` 的 `rollupOptions.input`。
+
+---
+
+## CL-12 过时类方法
+
+**判定**：类方法名在整个代码语料（全库 `.py` + `frontend/src/**/*.ts(x)`，排除
+`docs/`·`specs/`·`plans/`）中，除下列三类出现外再无其它出现：
+
+1. 同名符号的**定义处**（`def name` / `class name`，含其它类/其它文件的同名成员）；
+2. 同名符号的**导入语句**；
+3. **定义文件之外、且自带同名模块级符号的文件内的裸标识符**出现 —— 归属该文件自有符号，
+   不计为对本方法的引用。
+
+**两条关键设计（均由真实漏报反推，不是理论推演）**：
+
+- **词边界匹配**：`(?<![\w.])name(?![\w])`。`_` 属 `\w`，故 `get_x` **不会**被 `get_x_y` 遮蔽；
+  子串匹配（`name in text`）曾把 `get_distinct_dates`（真死方法）判为存活；
+- **同名实体区分**：`tca_query_builder.py` 的模块级 `_fill_bdib_conn()` 与
+  `TcaQueryService._fill_bdib_conn()` 同名，前者的裸调用曾让后者被误判存活。
+
+**保守取向**：注释提及、字符串字面量、`getattr(obj, "name")` 一律计为引用
+→ **漏报可接受、误删不可接受**（与 CL-02 同取向）。
+
+**自动豁免**（见 `config.py`）：
+
+- dunder 方法；
+- 框架装饰器命中的方法（`@property` / `@fixture` / `@router.*` / `@field_validator` …）；
+- docstring 显式声明为「占位 / 预留 / TODO / placeholder / not implemented / **no-op**」——
+  兼容性 no-op 不算清理对象（实测 `ConnectionManager.close_thread_cached_connections`）；
+- 路径含 `stub` / `mock` / `fake` / `fixture`，以及 `tests/`·`test/` 目录；
+- 类基类命中框架/多态特征（`Protocol` / `ABC` / `BaseModel` / `Enum` / `TestCase` / `NodeVisitor` …）；
+- 类体内出现动态名字访问（`getattr` / `setattr` / `vars` / `locals` / `eval` / `exec` …）
+  或代理 dunder（`__getattr__` / `__getattribute__`）；
+- **人工豁免清单** `DEAD_METHOD_EXEMPT_NAMES`：契约声明的对外 API，零静态调用方 ≠ 可删
+  （首批收口 handoff 适配器的 `clear_*`，依据 `module-boundary.md` §2.3「外部可见方法」）。
+
+**分级**：方法 ≥10 行 → `medium`，否则 `low`。
+
+**验证方法**：`rg "<Class>\.<method>"` 与 `rg "\.<method>\("` 全仓 + 跨仓库核查
+（`EMSXDataPipeline` 是否有**同名副本**——有副本说明它用自己的，不构成对本仓库的引用）
++ IDE Find Usages + 确认非 DI/回调按名注册。
+
+**已知边界**：
+
+- 「同名属性访问来自本类实例」不可证 → `obj.name()` 一律计为引用（漏报）；
+- 类方法被运行时按名注入（DI 容器）时静态不可证伪 → 走 `DEAD_METHOD_EXEMPT_NAMES` 收口，
+  而非逐条 `--suppress`（否则下一轮扫描重复报警）。
 
 ---
 

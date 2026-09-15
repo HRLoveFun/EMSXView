@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 
 export type TradePane = 'orders' | 'routes' | 'inspector';
 
-export interface TradeHotkeyHandlers {
+interface TradeHotkeyHandlers {
   /** Called when user presses J / ArrowDown. */
   onCursorDown?: (pane: TradePane) => void;
   /** Called when user presses K / ArrowUp. */
@@ -118,7 +118,7 @@ export function useTradeHotkeys(
 
 // ─── Cheatsheet overlay ──────────────────────────────────────────────────────
 
-export interface HotkeyCheatsheetProps {
+interface HotkeyCheatsheetProps {
   open: boolean;
   onClose: () => void;
 }

@@ -7,7 +7,6 @@ simple input parameters.
 """
 from __future__ import annotations
 
-from typing import Optional
 
 
 # ── Message field parsers (no self dependency) ──────────────────────────

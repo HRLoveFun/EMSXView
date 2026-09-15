@@ -33,8 +33,9 @@ from ._constants import EMSX_ORDER_TYPE_MAP
 from .connection import BloombergConnectionManager
 from .subscriptions import EMSXSubscriptionEngine
 from .._bloomberg_parsing import (
-    msg_safe_int, msg_safe_float, msg_safe_str,
-    order_type_uses_limit_price, order_type_uses_stop_price,
+    msg_safe_str,
+    order_type_uses_limit_price,
+    order_type_uses_stop_price,
 )
 
 logger = logging.getLogger("main")

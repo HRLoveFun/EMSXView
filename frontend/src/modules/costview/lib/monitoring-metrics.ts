@@ -20,8 +20,6 @@ export const ALL_TCA_METRICS = [
   'perm_impact_bps', 'recovery_truncated',
 ] as const;
 
-export type TcaMetricName = (typeof ALL_TCA_METRICS)[number];
-
 /** 依赖 BDIB 行情的指标（BDIB 缺失时 NULL 属预期） */
 export const BDIB_DEPENDENT_METRICS: ReadonlySet<string> = new Set([
   // 原有 BDIB 依赖项
@@ -88,23 +86,3 @@ export const METRIC_LABELS: Record<string, string> = {
   // 007: 路由级 USD 汇率
   fx_rate: 'USD 汇率',
 };
-
-/** 每项指标为 NULL 的结构性原因（与后端 metric_coverage.METRIC_NULL_REASON 对齐） */
-export const METRIC_NULL_REASON: Record<string, string> = {
-  fill_count: 'source', fill: 'source', fill_continuous: 'source', fill_close: 'source',
-  par_rate: 'bdib_cutoff', par_rate_continuous: 'closing_auction', par_rate_close: 'bdib_cutoff',
-  p_avg: 'source', p_avg_continuous: 'closing_auction',
-  pnl_vwap: 'bdib_cutoff', pnl_vwap_continuous: 'closing_auction',
-  RPM: 'source', RPM_continuous: 'closing_auction',
-  pwp_5: 'bdib_cutoff', pwp_10: 'bdib_cutoff', pwp_15: 'bdib_cutoff', pwp_20: 'bdib_cutoff', pwp_25: 'bdib_cutoff',
-  p_arrival: 'bdib_missing', p_close: 'bdib_missing', arrival_cost_bps: 'bdib_missing',
-  close_cost_bps: 'bdib_missing', opportunity_cost: 'bdib_missing',
-  p_decision: 'bdib_missing', delay_cost: 'bdib_missing', trading_cost: 'bdib_missing',
-  wagner_is: 'bdib_missing', wagner_is_bps: 'bdib_missing',
-  cost_stddev: 'single_fill', cost_p95: 'single_fill', cost_cvar: 'single_fill',
-  order_duration_sec: 'single_fill', exec_rate_shares_per_min: 'single_fill',
-  temp_impact_5min_bps: 'bdib_cutoff', temp_impact_10min_bps: 'bdib_cutoff', temp_impact_30min_bps: 'bdib_cutoff',
-  perm_impact_bps: 'next_day_close', recovery_truncated: 'source',
-  fx_rate: 'fx',
-};
-export type MetricNullReason = typeof METRIC_NULL_REASON;

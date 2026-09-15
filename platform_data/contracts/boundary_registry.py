@@ -78,49 +78,6 @@ class BoundaryContractRegistry:
         """返回全部已注册契约 (按 module_id 排序)。"""
         return sorted(self._contracts.values(), key=lambda c: c.module_id)
 
-    def all_forbidden_imports(self) -> dict[str, tuple[str, ...]]:
-        """{module_id: forbidden_imports} 映射 — 供审计脚本生成检测规则。"""
-        return {c.module_id: c.forbidden_imports for c in self.all_contracts()}
-
-    def data_owners(self) -> dict[str, tuple[str, ...]]:
-        """{data_domain: (owner_module_ids)} 映射 — 供越界写检测使用。"""
-        owners: dict[str, list[str]] = {}
-        for contract in self.all_contracts():
-            for domain in contract.can_write:
-                owners.setdefault(domain, []).append(contract.module_id)
-        return {k: tuple(v) for k, v in owners.items()}
-
-    def validate_cross_module_read(
-        self, module_id: str, domain: str
-    ) -> tuple[bool, str]:
-        """校验模块对数据域的读取权限。
-
-        Returns:
-            (allowed, reason)
-        """
-        contract = self._contracts.get(module_id)
-        if contract is None:
-            return True, f"模块 {module_id} 未注册契约, 默认放行"
-        if domain in contract.can_read:
-            return True, ""
-        return (
-            False,
-            f"模块 {module_id} 无权限读取数据域 '{domain}'",
-        )
-
-    def validate_cross_module_write(
-        self, module_id: str, domain: str
-    ) -> tuple[bool, str]:
-        """校验模块对数据域的写入权限。"""
-        contract = self._contracts.get(module_id)
-        if contract is None:
-            return True, f"模块 {module_id} 未注册契约, 默认放行"
-        if domain in contract.can_write:
-            return True, ""
-        return (
-            False,
-            f"模块 {module_id} 无权限写入数据域 '{domain}'",
-        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -10,7 +10,6 @@ Extracted from the formerly monolithic adapters.py (lines 1-124).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from platform_data.contracts.tca_service_protocol import TcaQueryServiceProtocol
 

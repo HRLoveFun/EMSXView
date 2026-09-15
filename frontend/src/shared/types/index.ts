@@ -23,20 +23,20 @@ export type ConnectionStatus = 'connected' | 'disconnected' | 'pending';
 export type BloombergConnectionState = 'connected' | 'disconnected' | 'connecting' | 'error';
 export type StartupPhase = 'backend_starting' | 'bloomberg_connecting' | 'subscriptions_warming' | 'ready' | 'error';
 
-export interface BackendStartupSnapshot {
+interface BackendStartupSnapshot {
   httpReady: boolean;
   startedAt?: string | null;
   uptime?: number | null;
 }
 
-export interface BloombergStartupSnapshot {
+interface BloombergStartupSnapshot {
   status: BloombergConnectionState;
   message?: string;
   lastConnected?: string | null;
   uptime?: number | null;
 }
 
-export interface SubscriptionStartupSnapshot {
+interface SubscriptionStartupSnapshot {
   ordersInitPaintDone: boolean;
   routesInitPaintDone: boolean;
   subscriptionFailed: boolean;

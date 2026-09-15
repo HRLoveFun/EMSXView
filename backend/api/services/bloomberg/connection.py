@@ -14,7 +14,6 @@ import threading
 from datetime import datetime
 from typing import List, Optional, Any
 
-import blpapi
 from blpapi import SessionOptions, Session, Service
 
 from schemas import ConnectionStatus, StartupStatus, BackendStartupStatus, SubscriptionStartupStatus

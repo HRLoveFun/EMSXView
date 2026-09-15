@@ -11,8 +11,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from datetime import date
-from secure_config import get_config_manager, get_uuid, CredentialNotFoundError
+from secure_config import get_config_manager, CredentialNotFoundError
 from fill_fetch import FillFetch, resolve_uuid
 
 

@@ -133,7 +133,7 @@ const CRITICAL_ROUTE_STATUSES = new Set<string>([
   'REJECTED', 'CXLREJ', 'CXLRPRJ', 'ROUTE-ERR', 'BUST',
 ]);
 
-export interface OrderHealthInput {
+interface OrderHealthInput {
   order: Order;
   conditions: MonitorConditions;
   ctx?: LazyContext;

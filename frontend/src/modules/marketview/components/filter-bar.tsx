@@ -2,7 +2,7 @@ import type { MarketSnapshotRequest, MarketStockPool } from '../types';
 import { fromISODateInput, toISODateInput } from '../lib/workspace';
 
 // 数值型筛选键（四个阈值输入框共用同一处理逻辑）
-export type NumericQueryKey =
+type NumericQueryKey =
   | 'min_adv_20d'
   | 'min_total_volume'
   | 'min_daily_volatility'

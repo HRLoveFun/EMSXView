@@ -70,7 +70,7 @@ export function deriveMarketKey(
   return ex || null;
 }
 
-export interface UseMarketBrokerMappingResult {
+interface UseMarketBrokerMappingResult {
   /** Brokers explicitly allowed for `market`, or null if no row configured.
    *  Returns an empty array if every broker for that market is unchecked. */
   allowedFor: (market: string | null | undefined) => string[] | null;
