@@ -10,14 +10,15 @@
 2. `.codebuddy/rules/project-context.md` — 技术栈与模块清单
 3. `.codebuddy/rules/coding-style.md` — 命名/目录/状态管理
 4. `.codebuddy/rules/module-boundary.md` — ★ 模块边界契约
-5. `docs/spec/project-structure.md` — 当前仓库结构
-6. `docs/spec/data-domain.md` — 数据域所有权
-7. `docs/spec/memory.md` — 架构记忆入口（指向 ADR 列表）
-8. `docs/spec/module-onboarding.md` — 新增模块流程
-9. `docs/spec/anti-patterns.md` — ★ 禁止模式
-10. `docs/spec/plan-design-principles.md` — ★ 计划设计原则
-11. `docs/spec/refactoring-methodology.md` — ★ 系统性安全重构框架
-12. `docs/spec/git-workflow.md` — Git 多任务并行工作流（多任务 / 多 Agent 并行前必读）
+5. `.codebuddy/rules/agent-workflow.md` — ★ Agent 作业节奏（等待 / 轮询一律每 5 秒一次）
+6. `docs/spec/project-structure.md` — 当前仓库结构
+7. `docs/spec/data-domain.md` — 数据域所有权
+8. `docs/spec/memory.md` — 架构记忆入口（指向 ADR 列表）
+9. `docs/spec/module-onboarding.md` — 新增模块流程
+10. `docs/spec/anti-patterns.md` — ★ 禁止模式
+11. `docs/spec/plan-design-principles.md` — ★ 计划设计原则
+12. `docs/spec/refactoring-methodology.md` — ★ 系统性安全重构框架
+13. `docs/spec/git-workflow.md` — Git 多任务并行工作流（多任务 / 多 Agent 并行前必读）
 
 ## 回复语言约定
 
