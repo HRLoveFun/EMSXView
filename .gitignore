@@ -117,6 +117,7 @@ CostView/data.migrated.*/
 !.codebuddy/skills/code-review/
 !.codebuddy/skills/code-cleanup/
 !.codebuddy/skills/readme-guidelines/
+!.codebuddy/skills/repo-page-tree/
 
 # --- Notebooks (with outputs) ---
 *.ipynb
