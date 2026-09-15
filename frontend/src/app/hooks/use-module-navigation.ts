@@ -8,7 +8,7 @@ import type { ModuleId } from '@shared/lib/module-registry';
 export type { ModuleId as AppModule } from '@shared/lib/module-registry';
 
 /** UI mode for the subscriptions-warming notice. */
-export type SubscriptionsWarmingMode = 'initial' | 'reconnecting' | 'timed-out';
+type SubscriptionsWarmingMode = 'initial' | 'reconnecting' | 'timed-out';
 
 /** After this many seconds with no stream + no data, surface a degraded-mode notice. */
 const SUBSCRIPTIONS_WARMING_TIMEOUT_SEC = 60;

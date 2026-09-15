@@ -114,7 +114,7 @@ export function createDefaultCostViewConfig(): CostViewConfig {
   };
 }
 
-export function getMetricValue(
+function getMetricValue(
   route: TcaRouteSummary,
   key: CostViewMetricKey,
 ): number | null | undefined {
@@ -291,7 +291,7 @@ export function formatAnomalyFlag(flag: string): string {
 }
 
 /** 后端阈值 payload（ADR-0018 双档；threshold 为 ADR-0015 单档遗留写法，兼容读取） */
-export interface BackendThresholdRule {
+interface BackendThresholdRule {
   mode: ThresholdRule['mode'];
   warning?: number;
   critical?: number;

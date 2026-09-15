@@ -3,7 +3,7 @@ interface TimeFieldNames {
   end: string;
 }
 
-export const BROKER_TIME_FIELDS: Record<string, TimeFieldNames> = {
+const BROKER_TIME_FIELDS: Record<string, TimeFieldNames> = {
   'EQ-BARCLAY': { start: 'StartTime', end: 'EndTime' },
   'EQ-MS': { start: 'Start Time', end: 'End Time' },
   'EQ-CLSA': { start: 'Start Time', end: 'End Time' },
@@ -27,7 +27,7 @@ export const BROKER_TIME_FIELDS: Record<string, TimeFieldNames> = {
   'EQ-ABCI': { start: 'Start Time', end: 'End Time' },
 };
 
-export const BROKER_STRATEGY_TIME_OVERRIDES: Record<string, Record<string, TimeFieldNames>> = {
+const BROKER_STRATEGY_TIME_OVERRIDES: Record<string, Record<string, TimeFieldNames>> = {
   'EQ-MACQ': {
     'CLOSEPLUS': { start: 'ContStrtTime', end: 'ContEndTime' },
   },

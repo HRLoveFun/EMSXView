@@ -34,7 +34,7 @@ from .subscriptions import EMSXSubscriptionEngine
 from .enrichment import MarketDataEnrichmentService
 from .request_handler import EMSXRequestHandler, configure_handler
 
-from .._bloomberg_parsing import derive_currency, derive_exchange
+from .._bloomberg_parsing import derive_exchange
 
 logger = logging.getLogger("main")
 

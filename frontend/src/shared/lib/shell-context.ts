@@ -11,7 +11,7 @@ import type { ModuleId } from './module-registry';
 // ── Types ──────────────────────────────────────────────────────────────────
 
 /** Modes for the subscriptions-warming UI notice shown during Bloomberg startup. */
-export type ShellWarmingMode = 'initial' | 'reconnecting' | 'timed-out';
+type ShellWarmingMode = 'initial' | 'reconnecting' | 'timed-out';
 
 /** Shell-level services available to every module via React context. */
 export interface ShellContextValue {

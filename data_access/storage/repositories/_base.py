@@ -43,13 +43,6 @@ class BaseRepository:
         self._mgr = connection_manager or ConnectionManager()
         self._database = database
 
-    def _get_conn(
-        self,
-        tier: Optional[AccessTier] = None,
-    ) -> AccessControlledConnection:
-        """Create an access-controlled connection."""
-        return self._mgr.get_connection(self._database, tier)
-
     def _get_read_conn(self) -> AccessControlledConnection:
         """Create a READ connection."""
         return self._mgr.get_connection(self._database, AccessTier.READ)

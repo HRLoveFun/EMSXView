@@ -1,6 +1,6 @@
 export type MarketAlertSeverity = 'none' | 'normal' | 'warning' | 'critical';
-export type MarketAlertFilter = 'all' | 'warning' | 'critical';
-export type MarketSortField =
+type MarketAlertFilter = 'all' | 'warning' | 'critical';
+type MarketSortField =
   | 'equ_ticker'
   | 'daily_close'
   | 'daily_volatility'
@@ -11,9 +11,9 @@ export type MarketSortField =
   | 'volume_vs_adv20_pct'
   | 'liquidity_alert'
   | 'volatility_alert';
-export type MarketSortDirection = 'asc' | 'desc';
+type MarketSortDirection = 'asc' | 'desc';
 
-export interface MarketAlert {
+interface MarketAlert {
   code: string;
   category: string;
   severity: MarketAlertSeverity;
@@ -28,7 +28,7 @@ export interface MarketStockPool {
   default_sort_direction: MarketSortDirection;
 }
 
-export interface MarketSnapshotFilters {
+interface MarketSnapshotFilters {
   min_adv_20d: number | null;
   min_total_volume: number | null;
   min_daily_volatility: number | null;
@@ -37,7 +37,7 @@ export interface MarketSnapshotFilters {
   volatility_alert: MarketAlertFilter;
 }
 
-export interface MarketSnapshotSort {
+interface MarketSnapshotSort {
   field: MarketSortField;
   direction: MarketSortDirection;
 }
@@ -58,7 +58,7 @@ export interface MarketSnapshotRow {
   alerts: MarketAlert[];
 }
 
-export interface MarketCandidateRow {
+interface MarketCandidateRow {
   equ_ticker: string;
   trade_date: string;
   daily_close: number | null;
@@ -110,7 +110,7 @@ export interface MarketSnapshotRequest {
 
 export type IntradayBucketMinutes = 5 | 10 | 15 | 30 | 60;
 
-export interface IntradayFeatureBucket {
+interface IntradayFeatureBucket {
   bucket_start: string;
   bucket_end: string;
   bar_count: number;

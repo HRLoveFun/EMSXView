@@ -8,7 +8,14 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from scripts.cleanup.detectors import dead_files, dead_logic, dead_symbols, frontend, perf
+from scripts.cleanup.detectors import (
+    dead_files,
+    dead_logic,
+    dead_methods,
+    dead_symbols,
+    frontend,
+    perf,
+)
 from scripts.quality_gate.context import ScanContext
 
 
@@ -505,7 +512,174 @@ def test_all_detectors_run_without_exception(tmp_path):
         assert isinstance(detector(ctx), list)
 
 
+# ── CL-12 过时类方法 ───────────────────────────────────────────────
+
+class TestDeadMethods:
+    """CL-12：类方法零引用（含词边界匹配与同名实体区分）。"""
+
+    def test_reports_zero_reference_method(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store:
+                def used(self):
+                    return 1
+
+                def dead(self):
+                    return 2
+
+
+            def main():
+                return Store().used()
+        """})
+        rules = _rules(dead_methods.detect(ctx))
+        assert [f.symbol for f in rules["CL-12"]] == ["Store.dead"]
+
+    def test_ignores_self_call(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store:
+                def outer(self):
+                    return self.inner()
+
+                def inner(self):
+                    return 1
+
+
+            def main():
+                return Store().outer()
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_dunder(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store:
+                def __repr__(self):
+                    return "store"
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_framework_decorated(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store:
+                @property
+                def size(self):
+                    return 0
+
+                @staticmethod
+                def make():
+                    return Store()
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_class_with_dynamic_access(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store:
+                def dead(self):
+                    return getattr(self, "_x", None)
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_framework_base(self, tmp_path):
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store(Protocol):
+                def dead(self):
+                    return 1
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_declared_compat_noop(self, tmp_path):
+        """显式声明为 deprecated no-op 的兼容方法不是清理对象。"""
+        ctx = _ctx(tmp_path, {"m.py": """
+            class Store:
+                def close_thread_cached_connections(self) -> None:
+                    \"\"\"Deprecated no-op（线程缓存已移除，保留以兼容旧调用点）。\"\"\"
+                    return None
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_stub_path(self, tmp_path):
+        ctx = _ctx(tmp_path, {"vendor/stub/mod.py": """
+            class SessionOptions:
+                def setServerHost(self, host):
+                    self._host = host
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_ignores_test_dir(self, tmp_path):
+        ctx = _ctx(tmp_path, {"tests/test_m.py": """
+            class Helper:
+                def dead(self):
+                    return 1
+        """})
+        assert "CL-12" not in _rules(dead_methods.detect(ctx))
+
+    def test_word_boundary_does_not_shadow(self, tmp_path):
+        """CL-12 回归：`get_x` 不得被 `get_x_y` 子串遮蔽。"""
+        ctx = _ctx(tmp_path, {
+            "a.py": """
+                class Store:
+                    def get_x(self):
+                        return 1
+            """,
+            "b.py": """
+                def get_x_y():
+                    return 2
+
+
+                RESULT = get_x_y()
+            """,
+        })
+        rules = _rules(dead_methods.detect(ctx))
+        assert [f.symbol for f in rules["CL-12"]] == ["Store.get_x"]
+
+    def test_same_name_module_symbol_not_counted(self, tmp_path):
+        """CL-12 回归：同名模块级函数的裸调用不得计为本方法的引用。"""
+        ctx = _ctx(tmp_path, {
+            "a.py": """
+                class Store:
+                    def probe(self):
+                        return 1
+            """,
+            "b.py": """
+                def probe(mgr):
+                    return mgr
+
+
+                RESULT = probe(1)
+            """,
+        })
+        rules = _rules(dead_methods.detect(ctx))
+        assert [f.symbol for f in rules["CL-12"]] == ["Store.probe"]
+
+    def test_same_name_attribute_access_counts(self, tmp_path):
+        """同名仅作属性访问时必须计为引用（保守不报）。"""
+        ctx = _ctx(tmp_path, {
+            "a.py": """
+                class Store:
+                    def probe(self):
+                        return 1
+            """,
+            "b.py": """
+                def probe(mgr):
+                    return mgr
+
+
+                class Other:
+                    def go(self, obj):
+                        return obj.probe()
+            """,
+        })
+        symbols = [f.symbol for f in _rules(dead_methods.detect(ctx)).get("CL-12", [])]
+        assert "Store.probe" not in symbols
+
+    def test_long_method_is_medium(self, tmp_path):
+        body = "\n".join("        x%d = %d" % (i, i) for i in range(12))
+        ctx = _ctx(tmp_path, {"m.py": "class Store:\n    def dead(self):\n%s\n    \n" % body})
+        rules = _rules(dead_methods.detect(ctx))
+        assert rules["CL-12"][0].severity.value == "medium"
+        assert rules["CL-12"][0].est_effort_h == 0.5
+
+
 # ── CLI 基线写入口径 ───────────────────────────────────────────────
+
 
 def test_partial_ruleset_scan_not_recorded(tmp_path, monkeypatch):
     """规则集过滤扫描不得写入趋势库（否则「环比上次全量」出现虚假 0 项基准）。"""

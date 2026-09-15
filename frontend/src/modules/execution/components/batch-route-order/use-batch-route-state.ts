@@ -51,7 +51,7 @@ type ParamsBuilder = () => ReturnType<
 type ParamsSnapshot = ReturnType<ParamsBuilder>;
 type FieldSetter = (fieldName: string, value: string) => void;
 
-export interface UseBatchRouteStateInput {
+interface UseBatchRouteStateInput {
   orders: Order[];
   routes?: Route[];
   open: boolean;
@@ -59,7 +59,7 @@ export interface UseBatchRouteStateInput {
   onComplete?: () => void;
 }
 
-export interface UseBatchRouteStateReturn {
+interface UseBatchRouteStateReturn {
   // ── Raw state ──────────────────────────────────────────────────────
   selectedBrokers: string[];
   brokerStrategies: Record<string, string>;

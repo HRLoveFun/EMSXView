@@ -30,11 +30,11 @@ export const DEFAULT_FILTER_FORM_STATE: CostViewFilterFormState = {
   limit: 50,
 };
 
-export const DEFAULT_VIEW_STATE: CostViewViewState = {
+const DEFAULT_VIEW_STATE: CostViewViewState = {
   activeTab: 'overview',
 };
 
-export const DEFAULT_EXPORT_STATE: CostViewExportState = {
+const DEFAULT_EXPORT_STATE: CostViewExportState = {
   lastExportAt: null,
   lastExportFormat: null,
   lastExportScope: null,
@@ -171,7 +171,7 @@ export function saveCostViewScorecardForm(state: ScorecardFormState): void {
 
 // ── 监控页状态（时间范围预设 + 指标勾选）────────────────────────────────────
 
-export const DEFAULT_MONITORING_STATE: MonitoringViewState = {
+const DEFAULT_MONITORING_STATE: MonitoringViewState = {
   lastPreset: 'month',
   selectedMetrics: [...ALL_TCA_METRICS],
 };

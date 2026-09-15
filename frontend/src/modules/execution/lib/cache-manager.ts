@@ -13,7 +13,7 @@
  */
 
 // Cache storage types
-export type CacheStorage = 'memory' | 'localStorage';
+type CacheStorage = 'memory' | 'localStorage';
 
 // Cache entry metadata
 interface CacheEntry<T> {
@@ -23,7 +23,7 @@ interface CacheEntry<T> {
 }
 
 // Cache configuration
-export interface CacheConfig {
+interface CacheConfig {
   key: string;
   ttl: number; // Time to live in milliseconds
   storage: CacheStorage;
