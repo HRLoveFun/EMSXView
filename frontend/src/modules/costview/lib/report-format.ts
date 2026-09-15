@@ -1,5 +1,11 @@
 /** CostView 报告统一格式化工具（Report 页面与 HTML 导出共用口径） */
 
+import type {
+  TcaReportExtraKpis,
+  TcaReportScope,
+  TcaWeightCoverageEntry,
+} from '../types';
+
 export const formatNum = (value: number | null, digits = 2): string =>
   value == null || !Number.isFinite(value) ? '—' : value.toLocaleString('en-US', { maximumFractionDigits: digits });
 
@@ -61,3 +67,51 @@ export const formatMoneyWithCcy = (value: number | null, currency: string | null
   const prefix = ccy ? `${ccy} ` : '';
   return `${prefix}${formatMoney(value)}`;
 };
+
+/** 已是百分数（0-100）的展示，0 位小数；None → —（仅供本模块内覆盖披露复用） */
+const formatPctPoint = (value: number | null): string =>
+  value == null || !Number.isFinite(value) ? '—' : `${Math.round(value)}%`;
+
+/** 副标题拼接：基础文案 + 覆盖披露（无披露时原样返回） */
+export const appendNote = (base: string, note?: string): string =>
+  note ? `${base} · ${note}` : base;
+
+/**
+ * 加权指标的样本量与权重覆盖披露（文案与 HTML 报告 `_weight_note` 对齐）。
+ *
+ * 条数覆盖与权重覆盖必须并列：BDIB 缺口集中在少数大单时，条数覆盖可以很高而
+ * 权重覆盖很低 —— 此时 KPI 是子样本口径，量级不足以支撑跨期对比。
+ */
+export const formatWeightCoverage = (entry?: TcaWeightCoverageEntry | null): string => {
+  if (!entry) return '';
+  const parts: string[] = [];
+  if (entry.n_total) {
+    parts.push(`样本 ${entry.n_used}/${entry.n_total}（${formatPctPoint(entry.sample_pct)}）`);
+  }
+  if (entry.weight_pct != null) parts.push(`权重覆盖 ${formatPctPoint(entry.weight_pct)}`);
+  if (entry.insufficient) parts.push('样本/权重覆盖不足，结论仅供参考');
+  return parts.join(' · ');
+};
+
+/** 报告统计范围文案（filters.scope / metric_coverage.scope） */
+export const formatScopeLabel = (scope?: TcaReportScope | null): string =>
+  scope?.label ? `统计范围 ${scope.label}` : '';
+
+/** 白名单外市场告警文案（与 HTML 报告头 `_scope_note` 对齐）；无越界选择 → 空串 */
+export const formatScopeWarning = (scope?: TcaReportScope | null): string => {
+  const outside = scope?.out_of_scope ?? [];
+  if (!outside.length) return '';
+  return `所选市场 ${outside.join(', ')} 不在 BDIB 白名单内 —— 这些市场不拉取 BDIB`
+    + ' 行情，其 BDIB 依赖指标必然为 NULL，覆盖率与走势请对照下方覆盖率表解读。';
+};
+
+/** 未成交金额缺口副标题：口径说明 + 未能计价路由数（缺口低估规模可见） */
+export const formatUnfilledSub = (extra?: TcaReportExtraKpis | null): string => {
+  const base = 'Σ(未成交 × 价格回退链 × 汇率)';
+  const unpriced = extra?.unfilled_notional_unpriced_routes;
+  return unpriced ? `${base} · 未计价 ${formatInt(unpriced)} 条（未计入）` : base;
+};
+
+/** 零成交路由卡副标题：委托金额 + 语义说明 */
+export const formatZeroFillSub = (extra?: TcaReportExtraKpis | null): string =>
+  `委托金额 ${formatMoney(extra?.zero_fill_notional_usd ?? null)} · 完全未执行`;

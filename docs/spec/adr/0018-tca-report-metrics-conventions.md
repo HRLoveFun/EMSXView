@@ -135,6 +135,29 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
    不扫描且 exit 0）。pre-commit 使用的是平铺入口 `scripts/quality_gate.py`（本身有守卫），
    故门禁实际一直在执行。
 
+### 10.2 前端口径对齐（2026-09-15 第三轮）
+
+HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看不到 → **同一报告两个端口径不对账**，
+与 §10 消除的问题同构，故一并闭合：
+
+1. **类型契约补齐**：`types.ts` 新增 `TcaReportScope` / `TcaWeightCoverage` / `TcaWeightCoverageEntry`，
+   `TcaReportSummaryFilters` 增 `scope`（及 `as_of_date` / `preset`），`TcaReportExtraKpis` 增
+   `zero_fill_routes` / `zero_fill_notional_usd` / `unfilled_notional_unpriced_routes`，
+   `MetricCoverageReport` 增 `scope`，`TcaReportSummary` 增 `weight_coverage`。
+2. **展示唯一实现**：前端展示函数集中在 `lib/report-format.ts`
+   （`formatWeightCoverage` / `appendNote` / `formatScopeLabel` / `formatScopeWarning` /
+   `formatUnfilledSub` / `formatZeroFillSub`），**文案与 HTML 渲染器逐字对齐**（含「样本/权重覆盖不足，
+   结论仅供参考」与白名单外市场告警），避免两端各自措辞再次分叉。
+3. **接入点**：`ReportView` 的 KPI 卡（加权 pnl_vwap / par_rate / RPM / arrival / IS / 风险逐卡附披露）、
+   新增「零成交路由」卡、未成交缺口副标题附价格回退链与未计价条数、报告头显示统计范围与数据截至日、
+   白名单外选择渲染告警条。
+4. **测试**：新增 `lib/report-format.test.ts`（10 条）；`npx vitest run src/modules/costview` → 49 passed，
+   `npx tsc --noEmit` 通过。
+
+**仍待处理（前端）**：`lib/report-format.ts::formatPct` 仍将完成率封顶 100%，与本 ADR §2「移除展示层
+封顶以暴露 overfill」相反 —— 同一数据矛盾在网页与 HTML 报告中呈现相反结论，已登记进
+`docs/report-tca-known-limitations.md` §五待办。
+
 ## 后果 (Consequences)
 
 ### 正面
@@ -217,6 +240,11 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
   - `from CostView.src.monitoring import *` 复验通过（整改前抛 `AttributeError: DIM_COLUMNS`）
   - 质量门（平铺入口 `python scripts/quality_gate.py`）→ AP 违规 0 / OE 新增 0 / 存量 187
   - 未改口径数值：本轮仅修一致性与契约，报告数值与第一轮一致
+- 验证记录（2026-09-15，第三轮：前端口径对齐）:
+  - 前端 `npx vitest run src/modules/costview` → **49 passed**（7 文件；新增 `report-format.test.ts` 10 条）
+  - 前端 `npx tsc --noEmit` → 通过
+  - 后端 `CostView/tests` → 191 passed（未触碰）；质量门 AP 0 / OE 新增 0
+  - 结论：本轮为展示层对齐，后端口径与数值零变化
 - CI 常态化: `.github/workflows/boundary.yml` 新增「Golden snapshot 回归」步骤（硬阻断）；
   快照随基线入库（`CostView/tests/golden/snapshot/`，`.gitignore` 显式例外），
   CI 无需生产数据即可执行

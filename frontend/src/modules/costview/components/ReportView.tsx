@@ -29,11 +29,18 @@ import {
 import { fetchBdibHealth, fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
 import { loadCostViewConfig } from '../lib/storage';
 import {
+  appendNote,
+  formatInt,
   formatMoney,
   formatNum,
   formatPct,
   formatRisk,
+  formatScopeLabel,
+  formatScopeWarning,
   formatShares,
+  formatUnfilledSub,
+  formatWeightCoverage,
+  formatZeroFillSub,
 } from '../lib/report-format';
 import { MultiSelectFilter } from './MultiSelectFilter';
 import { SymbolSearchInput } from './SymbolSearchInput';
@@ -118,39 +125,77 @@ const fxCoverageSub = (kpi: NonNullable<TcaReportSummary['kpi']>): string => {
   return excluded ? `${base}（本币排除 ${formatMoney(excluded)}）` : base;
 };
 
-/** KPI 卡片区（与 HTML 报告一致：基础 6 + 决策基准/风险/完成率 + 异常数） */
+/** KPI 卡片区（与 HTML 报告一致：基础 6 + 决策基准/风险/完成率/零成交 + 异常数） */
 const KpiCards = ({
   kpi,
   extra,
   anomaly,
+  weightCoverage,
 }: {
   kpi: TcaReportSummary['kpi'];
   extra?: TcaReportSummary['extra_kpis'];
   anomaly?: TcaReportSummary['anomaly'];
+  weightCoverage?: TcaReportSummary['weight_coverage'];
 }) => {
   if (!kpi) return null;
+  const note = (metric: string): string =>
+    formatWeightCoverage(weightCoverage?.metrics?.[metric]);
   const cards = [
     { label: 'Route 总数', value: kpi.route_count.toLocaleString(), sub: '' },
     { label: '总成交股数', value: formatShares(kpi.total_route_shares), sub: 'RouteShares 合计' },
     { label: '总成交金额（美元）', value: formatMoney(kpi.notional_usd), sub: fxCoverageSub(kpi) },
-    { label: '加权 pnl_vwap', value: formatNum(kpi.weighted_pnl_vwap), sub: '成交额加权 · VWAP 基准' },
-    { label: '平均 par_rate', value: formatNum(kpi.avg_par_rate), sub: '成交额加权' },
-    { label: '平均 RPM', value: formatNum(kpi.avg_rpm), sub: '成交额加权' },
+    {
+      label: '加权 pnl_vwap',
+      value: formatNum(kpi.weighted_pnl_vwap),
+      sub: appendNote('成交额加权 · VWAP 基准', note('pnl_vwap')),
+    },
+    {
+      label: '平均 par_rate',
+      value: formatNum(kpi.avg_par_rate),
+      sub: appendNote('成交额加权', note('par_rate')),
+    },
+    {
+      label: '平均 RPM',
+      value: formatNum(kpi.avg_rpm),
+      sub: appendNote('成交额加权', note('RPM')),
+    },
   ];
   if (extra) {
     cards.push(
-      { label: '加权 arrival 成本', value: formatNum(extra.arrival_cost_bps), sub: '决策基准 · 成交额加权' },
-      { label: '加权 IS (bps)', value: formatNum(extra.wagner_is_bps), sub: '实现短缺 · 成交额加权' },
-      { label: '成本风险 stddev/CVaR', value: formatRisk(extra.cost_stddev, extra.cost_cvar), sub: '尾部风险' },
+      {
+        label: '加权 arrival 成本',
+        value: formatNum(extra.arrival_cost_bps),
+        sub: appendNote('决策基准 · 成交额加权', note('arrival_cost_bps')),
+      },
+      {
+        label: '加权 IS (bps)',
+        value: formatNum(extra.wagner_is_bps),
+        sub: appendNote('实现短缺 · 成交额加权', note('wagner_is_bps')),
+      },
+      {
+        label: '成本风险 stddev/CVaR',
+        value: formatRisk(extra.cost_stddev, extra.cost_cvar),
+        sub: appendNote('尾部风险', note('cost_cvar')),
+      },
       { label: '组合完成率', value: formatPct(extra.avg_fill), sub: 'Σfill / ΣRouteShares' },
-      { label: '未成交金额缺口', value: formatMoney(extra.unfilled_notional_usd ?? null), sub: 'Σ(未成交×均价×汇率)' },
+      {
+        label: '未成交金额缺口',
+        value: formatMoney(extra.unfilled_notional_usd ?? null),
+        sub: formatUnfilledSub(extra),
+      },
+      // 完全未执行（零成交）单独成卡：成本 KPI 与异常清单都看不到这批路由
+      {
+        label: '零成交路由',
+        value: formatInt(extra.zero_fill_routes ?? 0),
+        sub: formatZeroFillSub(extra),
+      },
     );
   }
-   if (anomaly != null) {
-     cards.push(
-       { label: '异常路由', value: anomaly.count.toLocaleString(), sub: '见下方明细' },
-     );
-   }
+  if (anomaly != null) {
+    cards.push(
+      { label: '异常路由', value: anomaly.count.toLocaleString(), sub: '见下方明细' },
+    );
+  }
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       {cards.map((card) => (
@@ -585,19 +630,37 @@ export function ReportView() {
 
       {report && (
         <>
-          {/* 报告头：显示具体日期区间与当前筛选条件 */}
+          {/* 报告头：显示具体日期区间、统计范围与当前筛选条件 */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-4 py-3">
             <div className="text-sm font-medium">
               报告区间：{formatReportDate(report.filters.start_date)} ~ {formatReportDate(report.filters.end_date)}
+              {report.filters.as_of_date && (
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  数据截至 {formatReportDate(report.filters.as_of_date)}
+                </span>
+              )}
             </div>
             <div className="text-xs text-muted-foreground">
+              {formatScopeLabel(report.filters.scope)}
+              {report.filters.scope ? ' · ' : ''}
               市场：{form.markets.length > 0 ? form.markets.join(', ') : '全部'}
               {form.brokers.length > 0 && ` · Broker：${form.brokers.join(', ')}`}
               {form.algos.length > 0 && ` · Algo：${form.algos.join(', ')}`}
               {form.symbols.length > 0 && ` · Symbol：${form.symbols.join(', ')}`}
             </div>
           </div>
-          <KpiCards kpi={report.kpi} extra={report.extra_kpis} anomaly={report.anomaly} />
+          {formatScopeWarning(report.filters.scope) && (
+            <Alert variant="destructive">
+              <AlertTitle>统计范围提示</AlertTitle>
+              <AlertDescription>{formatScopeWarning(report.filters.scope)}</AlertDescription>
+            </Alert>
+          )}
+          <KpiCards
+            kpi={report.kpi}
+            extra={report.extra_kpis}
+            anomaly={report.anomaly}
+            weightCoverage={report.weight_coverage}
+          />
           {/* 市场概览表（与 HTML 报告「市场概览」对齐） */}
           <MarketOverviewTable rows={report.market_notional_ranking} />
           {/* 008: 市场成交金额（美元）排名 + 每日趋势（单栏纵向排列） */}
