@@ -47,13 +47,14 @@ def render_report_html(
         _render_market_tabs(report.get("markets"), report.get("kpi")),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly"), report.get("weight_coverage")),
-        _render_data_quality(report),
+        _render_data_quality(report, health),
         _render_market_charts(report),
         _render_charts(report),
         _render_impact_breakdown(report.get("impact_breakdown"),
                                  report.get("weight_coverage")),
         _render_anomaly_table(report.get("anomaly")),
-        _render_coverage_table(report.get("metric_coverage"), _gap_dates(health)),
+        _render_coverage_table(report.get("metric_coverage"), _gap_dates(health),
+                               _tca_gap_dates(health)),
         _render_health_appendix(health),
         _render_footer(),
         "</body></html>",
@@ -289,23 +290,40 @@ def _unfilled_sub(extra: dict[str, Any]) -> str:
     return text
 
 
-def _render_data_quality(report: dict[str, Any]) -> str:
-    """数据质量提示区：overfill 与订单参与率 >100% 的规模（全量口径）。
+def _render_data_quality(
+    report: dict[str, Any],
+    health: Optional[dict[str, Any]] = None,
+) -> str:
+    """数据质量提示区：overfill / 订单参与率 >100% / TCA 整日缺失。
 
-    数据取自覆盖率服务的一致性探针（覆盖全部路由，不受异常明细截断影响）；
-    无异常信号时不渲染该区。
+    数据质量计数取自覆盖率服务的一致性探针（覆盖全部路由，不受异常明细截断
+    影响）；TCA 整日缺失取自健康扫描的差集检测（有成交但无 TCA 汇总的日期），
+    使 ETL 断档在报告内可见 —— 该日前覆盖率表同样源自 tca_route_summary，
+    无差集检测时对断档全体失明。无任何信号时不渲染该区。
     """
+    parts: list[str] = []
     consistency = (report.get("metric_coverage") or {}).get("consistency") or {}
     overfill = consistency.get("overfill_routes") or 0
     gt100 = consistency.get("order_par_gt100_orders") or 0
-    if not overfill and not gt100:
+    if overfill or gt100:
+        completion_pct = _fmt_pct_raw(consistency.get("completion_consistency_pct"))
+        order_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
+        parts.append(
+            f'<div class="warn">成交超过委托（fill &gt; RouteShares）的路由 {overfill} 条'
+            f"（完成率一致性 {completion_pct}）；订单参与率求和 &gt;100% 的订单 {gt100} 个"
+            f"（一致性 {order_pct}）。上述为数据矛盾信号，建议核对上游成交/委托数据。</div>"
+        )
+    tca_gap = sorted((health or {}).get("tca_gap_dates") or [])
+    if tca_gap:
+        sample = ", ".join(tca_gap[:10]) + ("…" if len(tca_gap) > 10 else "")
+        parts.append(
+            f'<div class="warn">区间内 {len(tca_gap)} 个交易日有成交记录但无 TCA 汇总'
+            f"（管道 S5.5 未产出）：{_esc(sample)} —— 走势/覆盖率在这些日期的缺失属"
+            "管道缺口，并非非交易日，请先回补 TCA 汇总再解读趋势。</div>"
+        )
+    if not parts:
         return ""
-    completion_pct = _fmt_pct_raw(consistency.get("completion_consistency_pct"))
-    order_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
-    return f"""
-<h2>数据质量提示</h2>
-<div class="warn">成交超过委托（fill &gt; RouteShares）的路由 {overfill} 条（完成率一致性 {completion_pct}）；
-订单参与率求和 &gt;100% 的订单 {gt100} 个（一致性 {order_pct}）。上述为数据矛盾信号，建议核对上游成交/委托数据。</div>"""
+    return "<h2>数据质量提示</h2>\n" + "\n".join(parts)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -347,7 +365,8 @@ def _daily_coverage_note(covered_days: int) -> str:
         return ""
     return (
         f'<div class="meta">走势含 {covered_days} 个有数据交易日；区间内无记录的日期'
-        "（非交易日或 TCA 数据缺失）请对照下方覆盖率表与 BDIB 缺口附录。</div>"
+        "（非交易日或 TCA 数据缺失，后者已由整日缺失检测自动识别、见数据质量提示）"
+        "请对照下方覆盖率表与 BDIB 缺口附录。</div>"
     )
 
 
@@ -777,15 +796,24 @@ def _gap_dates(health: Optional[dict[str, Any]]) -> set[str]:
     }
 
 
+def _tca_gap_dates(health: Optional[dict[str, Any]]) -> set[str]:
+    """TCA 整日缺失日期集合（有成交但无 TCA 汇总）；检测未执行时为空。"""
+    if not health or health.get("status") == "skipped":
+        return set()
+    return set(health.get("tca_gap_dates") or [])
+
+
 def _render_coverage_table(
     coverage: Optional[dict[str, Any]],
     gap_dates: Optional[set[str]] = None,
+    tca_gap_dates: Optional[set[str]] = None,
 ) -> str:
     """日期 × 指标覆盖率表（原始 / SLA 双口径 + NULL 原因提示）。
 
     单元格为「原始 / SLA」组合值：SLA 口径剔除结构内必然 NULL（收盘竞价 /
-    单笔成交），避免把结构性 NULL 误判成"数据质量差"；tooltip 给出 NULL 原因。
-    ``gap_dates``（BDIB 缺口日）整行加暗红底色，便于与缺口附录交叉定位。
+    单笔成交 / BDIB 缺口路由），避免把结构性 NULL 误判成"数据质量差"；
+    tooltip 给出 NULL 原因。``gap_dates``（BDIB 缺口日）整行暗红底色、
+    ``tca_gap_dates``（TCA 整日缺失日）整行橙底，便于与缺口附录交叉定位。
     """
     if not coverage or not coverage.get("rows"):
         return ""
@@ -794,13 +822,19 @@ def _render_coverage_table(
     reasons = coverage.get("null_reasons") or {}
     expected_null = set(coverage.get("expected_null_metrics") or [])
     gap_dates = gap_dates or set()
+    tca_gap_dates = tca_gap_dates or set()
     header = "".join(
         f"<th>{m}{'*' if m in dependent else ''}</th>" for m in metrics
     )
     body_rows = []
     for row in coverage["rows"]:
         sla = row.get("sla_coverage") or {}
-        row_style = ' style="background:#2a1f1f"' if row["date"] in gap_dates else ""
+        if row["date"] in gap_dates:
+            row_style = ' style="background:#2a1f1f"'
+        elif row["date"] in tca_gap_dates:
+            row_style = ' style="background:#3a2a1a"'
+        else:
+            row_style = ""
         cells = "".join(
             _coverage_cell(
                 row["coverage"].get(m), sla.get(m),
@@ -820,9 +854,9 @@ def _render_coverage_table(
             f"SLA {_fmt_pct_raw(overall.get('sla_coverage'))}"
         )
     return f"""
-<h2>指标覆盖率（%）<span style="font-size:11px;color:#5f7186">　* = 依赖 BDIB 行情；单元格＝原始 / SLA；虚线框＝结构性必然 NULL；暗红行＝BDIB 缺口日</span></h2>
+<h2>指标覆盖率（%）<span style="font-size:11px;color:#5f7186">　* = 依赖 BDIB 行情；单元格＝原始 / SLA；虚线框＝结构性必然 NULL；暗红行＝BDIB 缺口日；橙底行＝TCA 整日缺失</span></h2>
 <div class="panel" style="overflow-x:auto;max-height:420px;overflow-y:auto">
-<div class="meta">原始覆盖率分母为全部路由；SLA 覆盖率剔除结构内必然 NULL（收盘竞价 / 单笔成交）；单元格底色按 SLA 口径（SLA 无值时回退原始口径）。{_esc(overall_note)}</div>
+<div class="meta">原始覆盖率分母为全部路由；SLA 覆盖率剔除结构内必然 NULL（收盘竞价 / 零成交 / 单笔成交 / BDIB 缺口路由）；单元格底色按 SLA 口径（SLA 无值时回退原始口径）。{_esc(overall_note)}</div>
 <table><thead><tr><th class="l">日期</th><th>routes</th>{header}</tr></thead>
 <tbody>{''.join(body_rows)}</tbody></table></div>"""
 
@@ -850,7 +884,8 @@ def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
         return '<h2>BDIB 缺口附录</h2><div class="panel">监控范围内 BDIB 覆盖完整，无缺口。</div>'
     rows = "".join(
         f'<tr><td class="l">{d["date"]}</td>'
-        f'<td><span class="tag tag-{d["status"]}">{d["status"]}</span></td>'
+        f'<td><span class="tag tag-{d["status"]}">{d["status"]}</span>'
+        f'{" <span class=\"tag tag-missing\">TCA 缺失</span>" if d.get("tca_missing") else ""}</td>'
         f"<td>{d['coverage_pct']:.1f}%</td><td>{d['missing_ticker_count']}</td>"
         f"<td>{d.get('missing_route_count', 0):,}</td>"
         f"<td>{_fmt_big(d.get('missing_notional'))}</td>"
@@ -860,6 +895,11 @@ def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
         for d in gap_dates
     )
     summary = health.get("summary") or {}
+    unconvertible = summary.get("total_missing_notional_unconvertible") or 0.0
+    unconvertible_note = (
+        f"其中未能换算 USD 的本币金额 {_fmt_big(unconvertible)}（缺口金额或被低估）。"
+        if unconvertible else ""
+    )
     return f"""
 <h2>BDIB 缺口附录（{len(gap_dates)} 天）</h2>
 <div class="panel" style="overflow-x:auto">
@@ -867,7 +907,7 @@ def _render_health_appendix(health: Optional[dict[str, Any]]) -> str:
 <th>缺口 ticker</th><th>受影响 route 数</th><th>缺口成交金额</th>
 <th>保留窗口剩余(天)</th><th class="l">缺失 ticker 样例</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<div class="meta" style="margin-top:8px">缺口影响面：合计受影响 route {summary.get('total_missing_routes', 0):,} 条、成交金额 {_fmt_big(summary.get('total_missing_notional'))}（金额优先 USD，缺汇率时为本币）。保留窗口内（partial/missing）可用 scripts/ops/backfill_bdib_by_market.py 回补；unrecoverable 已超出 Bloomberg BDIB 保留期限，无法回补。</div>
+<div class="meta" style="margin-top:8px">缺口影响面：合计受影响 route {summary.get('total_missing_routes', 0):,} 条、成交金额 {_fmt_big(summary.get('total_missing_notional'))}（USD 换算与 KPI 同源：fill_bdib 回填 + 小计价单位修正；逐行换算，缺汇率的路由不计入）。{unconvertible_note}标记「TCA 缺失」的日期同时无 TCA 汇总（见数据质量提示）。保留窗口内（partial/missing）可用 scripts/ops/backfill_bdib_by_market.py 回补；unrecoverable 已超出 Bloomberg BDIB 保留期限，无法回补。</div>
 </div>"""
 
 

@@ -88,6 +88,9 @@ class BdibHealthService:
         sql_rows, sql_tickers = self._scan_sqlite(start_date, end_date)
         pq_rows, pq_tickers = self._scan_parquet(start_date, end_date)
         ticker_weight = self._load_ticker_weight(start_date, end_date, resolved)
+        # TCA 整日缺失检测（缺陷 D11）：有成交记录但 tca_route_summary 无汇总行的日期
+        # （管道 S5.5 未产出）。None 表示日期集不可得，检测显式降级而非静默放行。
+        tca_dates = self._load_tca_dates(start_date, end_date, resolved)
 
         dates = []
         for d in sorted(fill_map):
@@ -97,8 +100,9 @@ class BdibHealthService:
                 d, fill_map[d], sql_rows.get(d, 0), pq_rows.get(d, 0),
                 bdib_set, today,
                 missing_weight=self._sum_missing_weight(d, missing, ticker_weight),
+                tca_missing=(d not in tca_dates) if tca_dates is not None else False,
             ))
-        return {
+        result = {
             "start_date": start_date,
             "end_date": end_date,
             "status": "ok",
@@ -107,6 +111,13 @@ class BdibHealthService:
             "dates": dates,
             "summary": self._build_summary(dates),
         }
+        if tca_dates is None:
+            result["data_source_warning"] = (
+                "TCA 汇总日期集不可得，TCA 整日缺失检测未执行"
+            )
+        else:
+            result["tca_gap_dates"] = sorted(set(fill_map) - tca_dates)
+        return result
 
     # ── 数据加载 ─────────────────────────────────────────────────────────
 
@@ -241,20 +252,24 @@ class BdibHealthService:
         parquet_rows: int,
         bdib_tickers: set[str],
         today: date,
-        missing_weight: tuple[int, float] = (0, 0),
+        missing_weight: tuple[int, float, float] = (0, 0, 0),
+        tca_missing: bool = False,
     ) -> dict[str, Any]:
         """单日健康记录：覆盖率 + 分级 + 保留窗口 + 缺口影响面。
 
-        missing_weight 为 (受影响 route 数, 缺口成交金额)。ticker 数只反映
-        「多少个标的缺失」，无法回答"影响多少成交量"；金额/路由权重使缺口严重度
-        可度量（例如缺 3 个 ticker 却覆盖 80% 成交额的情形得以暴露）。
+        missing_weight 为 (受影响 route 数, 缺口成交金额, 未换算本币金额)。
+        ticker 数只反映「多少个标的缺失」，无法回答"影响多少成交量"；
+        金额/路由权重使缺口严重度可度量（例如缺 3 个 ticker 却覆盖 80% 成交额
+        的情形得以暴露）。
+        ``tca_missing``：当日有成交记录但 tca_route_summary 无汇总行（管道 S5.5
+        未产出）—— 该日走势/覆盖率缺失属管道缺口，而非非交易日。
         """
         missing = sorted(fill_tickers - bdib_tickers)
         fill_count = len(fill_tickers)
         coverage = (fill_count - len(missing)) / fill_count * 100.0 if fill_count else 100.0
         days_old = (today - datetime.strptime(date_str, Config.DATE_FORMAT).date()).days
         retention_left = self._retention_days - days_old
-        missing_routes, missing_notional = missing_weight
+        missing_routes, missing_notional, missing_unconvertible = missing_weight
         return {
             "date": date_str,
             "fill_tickers": fill_count,
@@ -264,6 +279,8 @@ class BdibHealthService:
             "missing_tickers": missing[:MAX_MISSING_TICKERS_DETAIL],
             "missing_route_count": missing_routes,
             "missing_notional": missing_notional,
+            "missing_notional_unconvertible": missing_unconvertible,
+            "tca_missing": tca_missing,
             "sqlite_rows": sqlite_rows,
             "parquet_rows": parquet_rows,
             "status": self._classify(
@@ -307,6 +324,10 @@ class BdibHealthService:
             "total_missing_tickers": sum(d["missing_ticker_count"] for d in dates),
             "total_missing_routes": sum(d.get("missing_route_count", 0) for d in dates),
             "total_missing_notional": sum(d.get("missing_notional", 0.0) for d in dates),
+            "total_missing_notional_unconvertible": sum(
+                d.get("missing_notional_unconvertible", 0.0) for d in dates
+            ),
+            "tca_missing_dates": sum(1 for d in dates if d.get("tca_missing")),
             "latest_gap_date": max(gap_dates) if gap_dates else None,
         }
 
@@ -339,13 +360,18 @@ class BdibHealthService:
 
     def _load_ticker_weight(
         self, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
-    ) -> dict[tuple[str, str], tuple[int, float]]:
-        """tca_route_summary 按 (日期, ticker) 汇总的 (route 数, 成交金额)。
+    ) -> dict[tuple[str, str], tuple[int, float, float]]:
+        """tca_route_summary 按 (日期, ticker) 汇总的 (route 数, 成交金额, 未换算金额)。
 
-        金额优先用 USD（tca.fx_rate，缺失时回退本币），用于量化缺口的成交影响面；
-        作用域由调用方传入，与覆盖率 / KPI 同源（report_measure 唯一实现）。
-        注意：此处未接 fill_bdib 汇率回填（与 KPI 的 COALESCE 链不同），回退本币的
-        可能性高于 KPI 金额 —— 属已知口径差异，见 docs/report-tca-known-limitations.md。
+        金额口径与 KPI 同源（换算规则唯一实现见 report_measure.usd_fx_expr）：
+        - 有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)（回填可用时），
+          与 KPI 的 COALESCE 链一致（历史缺陷：此前未接回填，回退本币概率高于 KPI）；
+        - 换算含小计价单位修正（GBp/ILs/ZAr ×0.01 —— 历史缺陷：缺此修正使 GBp
+          市场缺口金额被高估 100 倍）；
+        - 逐行换算：非 USD 且缺有效汇率的路由贡献 NULL（SUM 忽略，不虚高），其本币
+          金额单独计入 notional_unconvertible 披露。此前 ``COALESCE(SUM(a), SUM(b))``
+          是整组粒度回退：组内部分路由缺汇率时缺口金额被静默低估且无披露。
+        作用域由调用方传入，与覆盖率 / KPI 同源。
         表缺失 / 查询失败时返回空字典（不阻断健康分级主体逻辑）。
         """
         condition, scope_params = rm.scope_condition(scope or rm.resolve_scope(None))
@@ -355,22 +381,37 @@ class BdibHealthService:
             has_fx = self._table_has_column(
                 conn, Config.TCA_ROUTE_SUMMARY_TABLE, "fx_rate",
             )
-            amount = (
-                "COALESCE(SUM(fill * p_avg * fx_rate), SUM(fill * p_avg))"
-                if has_fx else "SUM(fill * p_avg)"
-            )
+            if not has_fx:
+                # 旧 schema 无 fx_rate 列：金额退化为本币口径（历史行为），无换算语义
+                cte, join, fx_expr = "", "", "1.0"
+            else:
+                fbfx_ready = self._fill_bdib_table_exists(conn)
+                effective = (
+                    "COALESCE(t.fx_rate, _fbfx.fb_fx)" if fbfx_ready else "t.fx_rate"
+                )
+                cte = self._fbfx_cte() if fbfx_ready else ""
+                join = self._fbfx_join() if fbfx_ready else ""
+                fx_expr = rm.usd_fx_expr(effective, currency_column="t.Currency")
             scope_sql = f" AND {condition}" if condition else ""
+            params: list[Any] = [start_date, end_date, *scope_params]
+            if cte:
+                # CTE 内的 BETWEEN 复用前两个日期参数（与 report_aggregator._apply_fx 同约定）
+                params = [start_date, end_date] + params
             cursor = conn.execute(
-                f"SELECT order_as_of_date, equ_ticker, COUNT(*), {amount} "
-                f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} "
-                "WHERE order_as_of_date BETWEEN ? AND ? AND equ_ticker IS NOT NULL"
+                f"{cte}"
+                "SELECT t.order_as_of_date, t.equ_ticker, COUNT(*), "
+                f"SUM(t.fill * t.p_avg * ({fx_expr})) AS notional_usd, "
+                f"SUM(CASE WHEN ({fx_expr}) IS NULL "
+                "THEN t.fill * t.p_avg ELSE 0 END) AS notional_unconvertible "
+                f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} t{join} "
+                "WHERE t.order_as_of_date BETWEEN ? AND ? AND t.equ_ticker IS NOT NULL"
                 f"{scope_sql} "
-                "GROUP BY order_as_of_date, equ_ticker",
-                [start_date, end_date, *scope_params],
+                "GROUP BY t.order_as_of_date, t.equ_ticker",
+                params,
             )
             return {
-                (str(d), str(t)): (int(n), float(a or 0.0))
-                for d, t, n, a in cursor.fetchall()
+                (str(d), str(t)): (int(n), float(a or 0.0), float(u or 0.0))
+                for d, t, n, a, u in cursor.fetchall()
             }
         except Exception as exc:
             logger.debug("读取 ticker 成交金额失败（缺口影响面降级）: %s", exc)
@@ -380,20 +421,100 @@ class BdibHealthService:
                 conn.close()
 
     @staticmethod
+    def _fill_bdib_table_exists(conn) -> bool:
+        """fill_bdib 明细表是否存在于当前库（fx 回填可用性探测）。"""
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='fill_bdib' LIMIT 1"
+            ).fetchone()
+        except Exception:
+            return False
+        return row is not None
+
+    @staticmethod
+    def _fbfx_cte() -> str:
+        """fill_bdib 汇率回填 CTE（列名约定与 report_aggregator._fbfx_cte 同源）。"""
+        return (
+            "WITH _fbfx AS ("
+            "SELECT OrderId, RouteId, order_as_of_date AS fxf_oad, "
+            "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
+            "FROM fill_bdib WHERE fx_rate IS NOT NULL "
+            "AND order_as_of_date BETWEEN ? AND ? "
+            "GROUP BY OrderId, RouteId, order_as_of_date) "
+        )
+
+    @staticmethod
+    def _fbfx_join() -> str:
+        """fill_bdib 汇率回填 LEFT JOIN 片段（主表别名 t）。"""
+        return (
+            " LEFT JOIN _fbfx"
+            " ON _fbfx.OrderId = t.OrderId"
+            " AND _fbfx.RouteId = t.RouteId"
+            " AND _fbfx.fxf_oad = t.order_as_of_date"
+        )
+
+    def _load_tca_dates(
+        self, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
+    ) -> Optional[set[str]]:
+        """tca_route_summary 中有汇总数据的日期集合（TCA 整日缺失检测用）。
+
+        返回 None 表示日期集不可得（表不存在 / 查询失败），此时整日缺失检测降级
+        为「未执行」并显式披露，不误报缺口。
+        """
+        condition, scope_params = rm.scope_condition(scope or rm.resolve_scope(None))
+        conn = None
+        try:
+            conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+            if not self._table_exists(conn):
+                return set()
+            where = "order_as_of_date BETWEEN ? AND ?"
+            params: list[Any] = [start_date, end_date]
+            if condition:
+                where = f"{where} AND {condition}"
+                params.extend(scope_params)
+            rows = conn.execute(
+                f"SELECT DISTINCT order_as_of_date "
+                f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE {where}",
+                params,
+            ).fetchall()
+            return {str(r[0]) for r in rows}
+        except Exception as exc:
+            logger.warning("读取 TCA 汇总日期集失败（整日缺失检测降级）: %s", exc)
+            return None
+        finally:
+            if conn is not None:
+                conn.close()
+
+    @staticmethod
+    def _table_exists(conn) -> bool:
+        """tca_route_summary 表/视图是否存在于当前库。"""
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') "
+                "AND name = ? LIMIT 1",
+                [Config.TCA_ROUTE_SUMMARY_TABLE],
+            ).fetchone()
+        except Exception:
+            return False
+        return row is not None
+
+    @staticmethod
     def _sum_missing_weight(
         date_str: str,
         missing: set[str],
-        ticker_weight: dict[tuple[str, str], tuple[int, float]],
-    ) -> tuple[int, float]:
-        """汇总某日缺口 ticker 的 (受影响 route 数, 成交金额)。"""
+        ticker_weight: dict[tuple[str, str], tuple[int, float, float]],
+    ) -> tuple[int, float, float]:
+        """汇总某日缺口 ticker 的 (受影响 route 数, 成交金额, 未换算本币金额)。"""
         routes = 0
         notional = 0.0
+        unconvertible = 0.0
         for ticker in missing:
             entry = ticker_weight.get((date_str, ticker))
             if entry:
                 routes += entry[0]
                 notional += entry[1]
-        return routes, notional
+                unconvertible += entry[2]
+        return routes, notional, unconvertible
 
     def _empty_result(
         self, start_date: str, end_date: str,

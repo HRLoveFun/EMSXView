@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.2"
+SPEC_VERSION = "2026.09.3"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -37,6 +37,15 @@ REPORT_SPEC: dict[str, Any] = {
     "anomaly_row_limit": 1000,
     #: fx 兜底顺序：fill_bdib 回填 → tca.fx_rate → USD 按 1.0
     "fx_fallback": ("fill_bdib_backfill", "tca.fx_rate", "1.0-usd"),
+    #: BDIB 缺口金额换算与 KPI 同源（fill_bdib 回填 + 小计价单位修正 + 逐行换算，
+    #: 未能换算的本币金额单独披露为 missing_notional_unconvertible）
+    "gap_notional_fx": "same-as-kpi-with-unconvertible-disclosure",
+    #: TCA 整日缺失检测：健康扫描输出 tca_gap_dates（有成交但无 TCA 汇总的日期），
+    #: 报告头数据质量区披露，覆盖率表橙底行高亮
+    "tca_gap_detection": True,
+    #: SLA 分母对 bdib_missing 类指标剔除「BDIB 缺口路由」
+    #: （实现见 metric_coverage.SLA_DENOMINATOR_BY_REASON，由测试断言一致）
+    "sla_bdib_missing_denominator": "non_bdib_gap",
     #: 机会成本公式（下游消费者据此解读 opportunity_cost 列）
     "opportunity_cost_formula": "(Pn - P0) * unfilled * side",
     #: 明确排除的成本/口径项
