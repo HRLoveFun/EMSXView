@@ -27,6 +27,8 @@ from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 from data_access.storage.market_store import MarketStoreReader
 
+from . import report_measure as rm
+
 logger = logging.getLogger(__name__)
 
 #: 缺口明细中 missing_tickers 列表的最大返回长度（防止单日数百 ticker 撑爆响应）
@@ -114,19 +116,18 @@ class BdibHealthService:
         注：白名单过滤依赖 processed_fills 的 Exchange 列。部分测试/旧表无该列，
         此时退化为"全部成交 ticker"（与历史行为一致），避免硬失败。
         """
-        whitelist = tuple(str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip())
+        condition, scope_params = rm.scope_condition(rm.resolve_scope(None))
         conn = None
         try:
             conn = self._mgr.get_connection("processed_fills", AccessTier.READ)
             has_exchange = self._table_has_column(conn, Config.PROCESSED_FILLS_TABLE, "Exchange")
-            if has_exchange and whitelist:
-                placeholders = ", ".join(["?"] * len(whitelist))
+            if has_exchange and condition:
                 cursor = conn.execute(
                     f"SELECT DISTINCT order_as_of_date, equ_ticker "
                     f"FROM {Config.PROCESSED_FILLS_TABLE} "
                     f"WHERE order_as_of_date BETWEEN ? AND ? AND equ_ticker IS NOT NULL "
-                    f"AND Exchange IN ({placeholders})",
-                    [start_date, end_date, *whitelist],
+                    f"AND {condition}",
+                    [start_date, end_date, *scope_params],
                 )
             else:
                 cursor = conn.execute(
@@ -334,10 +335,13 @@ class BdibHealthService:
     ) -> dict[tuple[str, str], tuple[int, float]]:
         """tca_route_summary 按 (日期, ticker) 汇总的 (route 数, 成交金额)。
 
-        金额优先用 USD（COALESCE(tca.fx_rate, fill_bdib 回填) 口径与
-        report_aggregator 同源），无 fx_rate 列时回退本币；用于量化缺口的
-        成交影响面。表缺失 / 查询失败时返回空字典（不阻断健康分级主体逻辑）。
+        金额优先用 USD（tca.fx_rate，缺失时回退本币），用于量化缺口的成交影响面；
+        作用域与覆盖率 / KPI 同为 BDIB 白名单（report_measure 唯一实现）。
+        注意：此处未接 fill_bdib 汇率回填（与 KPI 的 COALESCE 链不同），回退本币的
+        可能性高于 KPI 金额 —— 属已知口径差异，见 docs/report-tca-known-limitations.md。
+        表缺失 / 查询失败时返回空字典（不阻断健康分级主体逻辑）。
         """
+        condition, scope_params = rm.scope_condition(rm.resolve_scope(None))
         conn = None
         try:
             conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
@@ -348,12 +352,14 @@ class BdibHealthService:
                 "COALESCE(SUM(fill * p_avg * fx_rate), SUM(fill * p_avg))"
                 if has_fx else "SUM(fill * p_avg)"
             )
+            scope_sql = f" AND {condition}" if condition else ""
             cursor = conn.execute(
                 f"SELECT order_as_of_date, equ_ticker, COUNT(*), {amount} "
                 f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} "
-                "WHERE order_as_of_date BETWEEN ? AND ? AND equ_ticker IS NOT NULL "
+                "WHERE order_as_of_date BETWEEN ? AND ? AND equ_ticker IS NOT NULL"
+                f"{scope_sql} "
                 "GROUP BY order_as_of_date, equ_ticker",
-                [start_date, end_date],
+                [start_date, end_date, *scope_params],
             )
             return {
                 (str(d), str(t)): (int(n), float(a or 0.0))

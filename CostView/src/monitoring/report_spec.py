@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09"
+SPEC_VERSION = "2026.09.2"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -20,6 +20,16 @@ REPORT_SPEC: dict[str, Any] = {
     #: 唯一加权口径：成交额加权（fill × p_avg），与总成交金额同源
     "weight_mode": "traded",
     "weight_expression": "fill * p_avg",
+    #: 加权均值的覆盖披露：样本（条数）覆盖与权重（成交额）覆盖低于阈值时标注结论仅供参考
+    #: （实现常量见 report_measure.SAMPLE_COVERAGE_MIN_PCT，由测试断言两者一致）
+    "weight_coverage_min_pct": 90.0,
+    #: 报告作用域：默认 BDIB 白名单内全量，用户指定 exchange 时为用户口径（全报告小节统一）
+    "scope_modes": ("bdib_whitelist", "user_exchange_filter"),
+    "scope_whitelist_source": "Config.BDIB_EXCHANGE",
+    #: 未成交金额的价格回退链（p_avg 缺失时依次回退；全部缺失则该路由不计入并披露条数）
+    "unfilled_price_fallbacks": ("p_avg", "p_arrival", "p_decision", "p_close"),
+    #: 异常明细下限门槛（笔数 / 金额）的豁免项：严重未完成（fill_pct critical）必须可见
+    "anomaly_floor_exempt": "fill_pct_critical",
     #: 异常严重度档位（warning 决定是否入清单，critical 用于分级标注）
     "anomaly_severity_levels": ("warning", "critical"),
     #: HTML 明细渲染上限（全量经导出 CSV 获取）
@@ -42,10 +52,16 @@ EXCLUDED_TEXT = "不含显性费用/返佣/税费；无 L2 订单簿流动性；
 
 def footer_text() -> str:
     """由口径常量生成报告脚注（含版本号与已知限制文档引用）。"""
+    fallbacks = " → ".join(REPORT_SPEC["unfilled_price_fallbacks"])
     return (
         f"口径 v{REPORT_SPEC['spec_version']}：价格偏离（{EXCLUDED_TEXT}）；"
         f"opportunity_cost 按 {REPORT_SPEC['opportunity_cost_formula']} 计；"
-        f"加权口径为 {REPORT_SPEC['weight_expression']}（与总成交金额同源）；"
+        f"加权口径为 {REPORT_SPEC['weight_expression']}（与总成交金额同源），"
+        f"并披露样本量与权重覆盖率（低于 "
+        f"{REPORT_SPEC['weight_coverage_min_pct']:.0f}% 标注结论仅供参考）；"
+        f"统计范围默认 BDIB 白名单"
+        f"（{REPORT_SPEC['scope_whitelist_source']}）内全量、全报告小节同口径；"
+        f"未成交金额按 {fallbacks} 回退计价，零成交路由计入并单列；"
         f"异常严重度分 "
         f"{len(REPORT_SPEC['anomaly_severity_levels'])} 档，明细上限 "
         f"{REPORT_SPEC['anomaly_row_limit']} 条（全量见随附导出 CSV）；"

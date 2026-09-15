@@ -39,6 +39,11 @@
 - 机会成本按 (Pn − P0) × 未成交数量 × 方向调整计算
 - 到达价 / 决策价 / 收盘价 / VWAP 回答不同问题（D1），报告同时呈现决策基准与市场时间基准
 - 加权口径为 **fill × p_avg**（成交额加权，与「总成交金额」同源）；不保留意图规模（RouteShares）加权对比值
+- 报告统计范围默认以 **BDIB 白名单**（`Config.BDIB_EXCHANGE`）为界，KPI / 走势 / 排行 / 市场概览 / 异常明细 / 覆盖率 / BDIB 附录**全部小节同口径**；用户显式指定 `exchange` 时切换为用户口径，所选市场含白名单外项时在报告头显式告警（这些市场不拉 BDIB 行情，指标必然为 NULL）
+- 加权均值**必须同时披露样本量与权重覆盖率**（条数覆盖 ≠ 权重覆盖）；任一覆盖低于 **90%** 时标注「结论仅供参考」
+- 未成交金额缺口按价格回退链 **p_avg → p_arrival → p_decision → p_close** 计价（原仅取 p_avg，零成交路由因 p_avg 为 NULL 而贡献被跳过）；零成交路由计入缺口，并单列「零成交路由 / 委托金额（USD）」卡片；价格全缺的路由条数单列披露（缺口低估规模可见）
+- 异常明细的笔数 / 金额下限对**严重未完成**（`fill_pct` 命中 critical，含零成交）路由**豁免**：该档目标样本恰是低完成率路由，用下限过滤会把「完全未执行」整体剔除
+- 订单参与率按「仅报告期 + 作用域」**全量聚合**，不受 broker / algo / symbol 维度过滤影响，与覆盖率一致性探针共用同一实现（两处可对账）
 - 异常严重度分 **warning / critical 两档**：warning 为进入异常清单的边界，critical 仅作分级标注
 - 异常明细 HTML 渲染上限 **1000 条**（按严重度降序排列，截断样本无偏）；全量明细经随附 `anomaly_<hash>.csv` 导出
 - BDIB 缺口附录在扫描超时 / 异常时显式标注「未扫描」，与「无缺口」区分
@@ -50,6 +55,34 @@
 
 - 补齐任一 K 项后，在本表更新状态并标注日期/计划编号。
 - 新报告功能开发前先查本表，避免重复实现已有缺陷项。
-- 口径变更（加权方式 / 严重度档位 / 明细上限 / fx 兜底顺序）须同时更新
+- 口径变更（加权方式 / 严重度档位 / 明细上限 / fx 兜底顺序 / **作用域与覆盖披露**）须同时更新
   `report_spec.py`（含 `SPEC_VERSION`）、本清单与
   [ADR-0018](spec/adr/0018-tca-report-metrics-conventions.md)。
+- 同一口径在多个小节出现时，**只允许有一份实现**：作用域 / 加权 / 订单级聚合 / 金额回退
+  的实现统一在 `CostView/src/monitoring/report_measure.py`，调用方不得各自重写 SQL 片段。
+
+## 五、口径修复记录
+
+### 2026-09-15 — P0（作用域 / 覆盖披露 / 零成交可见）
+
+| # | 缺陷 | 影响 | 处理 |
+|---|------|------|------|
+| P0-1 | 加权 KPI 无样本量与权重覆盖披露 | BDIB 缺口集中在大单时，KPI 数值「看起来正常」实为子集均值；跨期对比失效 | ✅ 已修：新增 `report["weight_coverage"]`（样本 + 权重双口径），KPI 卡片 / 冲击分解表逐指标标注，低于 90% 提示结论仅供参考 |
+| P0-2 | 零成交路由的机会成本黑洞 | 成本 KPI（无 pnl_vwap）、缺口金额（p_avg 为 NULL）、异常清单（笔数/金额下限）三处同时隐身，「完全未执行」不可见 | ✅ 已修：缺口金额走价格回退链、零成交路由数与委托金额单独成卡、严重未完成豁免下限门槛 |
+| P0-3 | 白名单作用域只作用于覆盖率 | 同一报告内 overfill 条数与异常表命中不可对账；直方图样本被 out-of-scope 路由稀释 | ✅ 已修：作用域一次性解析并由 KPI / 覆盖率 / 异常 / 市场概览共用；用户口径下白名单外选择显式告警 |
+| P0-4 | 多选过滤在异常清单失效 | 前端多选（逗号拼接）时异常清单静默清空，KPI 却正常，无任何告警 | ✅ 已修：维度过滤与作用域统一经 `report_measure`，`=` 改为 `IN` |
+| P0-5 | `order_par_gt100` 探针在维度过滤下失真 | 按 broker 过滤后订单参与率只剩子集，探针系统性低估，与一致性探针不可对账 | ✅ 已修（同批）：订单级聚合改为「仅报告期 + 作用域」全量查询，两处共用同一实现 |
+
+护栏：`CostView/tests/test_report_metrics.py`（`TestReportScopeUnified` / `TestWeightCoverageDisclosure` /
+`TestZeroFillVisibility` / `TestMeasureConsistency` / `TestReportSpec.test_report_spec_matches_measure_layer`）。
+
+### 仍待处理（P1/P2，不在本次 P0 范围）
+
+- **异常明细节流未披露**：`min_fill_count` / `min_notional_usd` 排除的条数仍未回传，读者无法得知异常样本被截取多少（已对严重未完成豁免，其余仍静默）。
+- **金额列未同源**：异常明细金额用 `Amount × fx`，KPI 金额用 `fill × p_avg × fx`；两列缺同一性校验，异常表金额与「总成交金额」可能不可对账。
+- **BDIB 缺口金额未接回填**：`bdib_health._load_ticker_weight` 只用 `tca.fx_rate`（无 `fill_bdib` 回填），比 KPI 更容易回退本币。
+- **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、排序为日期序（未按缺口金额排序）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
+- **TCA 整日缺失不可定位**：走势与覆盖率行均源自 `tca_route_summary`，仍缺 `processed_fills` 与 `tca_route_summary` 的日期差集校验。
+- **呈现层可解释性**：按日走势仍各自归一化且无刻度/零轴；排行仍 `ASC + 前 10`（最优在前、无样本门槛）；直方图仍为等宽分桶；PWP 五档仍为简单平均（缺陷 3）。
+- **规则标签语义**：`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
+- **健康扫描信号量饥饿**：`get_health_safe` 超时线程仍阻塞在信号量 acquire 上（P2-5 只防堆积未防排队饥饿）。

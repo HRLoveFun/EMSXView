@@ -16,6 +16,8 @@ from typing import Any, Optional
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
+from . import report_measure as rm
+
 logger = logging.getLogger(__name__)
 
 #: 38 项计算指标白名单（与上游数据契约 platform_data/contracts/tca_contracts.py::
@@ -152,14 +154,19 @@ class MetricCoverageService:
         end_date: str,
         metrics: Optional[list[str]] = None,
         group_by_exchange: bool = False,
+        scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
         """按日期（可选 ×Exchange）统计各指标非 NULL 率。
+
+        scope 为报告作用域（None → 默认 BDIB 白名单口径），与 KPI / 异常 / 健康扫描
+        共用同一分母：白名单外市场本就不拉 BDIB、指标必然 NULL；用户按市场过滤时
+        （scope = 用户口径）覆盖率同步收窄，报告内两处数字因此可对账。
 
         Returns:
             {
                 "start_date":..., "end_date":..., "metrics": [...],
                 "bdib_dependent_metrics": [...],
-                "group_by_exchange": bool,
+                "group_by_exchange": bool, "scope": {...},
                 "rows": [{"date", "exchange", "total_routes",
                           "coverage": {m: pct},          # 原始口径（分母剔除白名单外交易所）
                           "sla_coverage": {m: pct},      # SLA 口径（再剔除 closing_auction/single_fill 结构内 NULL）
@@ -168,23 +175,24 @@ class MetricCoverageService:
             表不存在时 rows 为空并附 data_source_warning。
         """
         selected = validate_metrics(metrics)
+        resolved = scope or rm.resolve_scope(None)
         conn = None
         consistency: Optional[dict[str, Any]] = None
         try:
             conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
             if not self._table_exists(conn):
                 return self._empty_result(
-                    start_date, end_date, selected, group_by_exchange,
+                    start_date, end_date, selected, group_by_exchange, resolved,
                     warning="tca_route_summary 不存在 — 请先运行管道 S5.5",
                 )
             rows = self._query_coverage(
-                conn, start_date, end_date, selected, group_by_exchange,
+                conn, start_date, end_date, selected, group_by_exchange, resolved,
             )
-            consistency = self._query_consistency(conn, start_date, end_date)
+            consistency = self._query_consistency(conn, start_date, end_date, resolved)
         except FileNotFoundError:
             # 只读模式下 fill_bdib.db 缺失 → 空覆盖率（与表缺失同语义, 009）
             return self._empty_result(
-                start_date, end_date, selected, group_by_exchange,
+                start_date, end_date, selected, group_by_exchange, resolved,
                 warning="tca_route_summary 不存在 — 请先运行管道 S5.5",
             )
         finally:
@@ -202,6 +210,7 @@ class MetricCoverageService:
             "null_reasons": metric_null_reasons(selected),
             "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
+            "scope": resolved.to_payload(),
             "overall": overall,
             "consistency": consistency,
             "rows": rows,
@@ -214,19 +223,21 @@ class MetricCoverageService:
         end_date: str,
         selected: list[str],
         group_by_exchange: bool,
+        scope: rm.ReportScope,
     ) -> list[dict[str, Any]]:
         """单条聚合 SQL 完成全部指标的覆盖率统计。
 
-        分母口径与 bdib_health 对齐：白名单（Config.BDIB_EXCHANGE）外交易所
-        本就不拉 BDIB、指标必然 NULL，计入分母会虚降覆盖率观感（out-of-scope
-        非数据缺失）。同时聚合纯竞价/多笔路由计数，供 SLA 覆盖率剔除结构内 NULL。
+        分母口径与 bdib_health / KPI / 异常明细一致（report_measure 作用域唯一实现）：
+        白名单外交易所本就不拉 BDIB、指标必然 NULL，计入分母会虚降覆盖率观感
+        （out-of-scope 非数据缺失）。同时聚合纯竞价/多笔路由计数，供 SLA 覆盖率
+        剔除结构内 NULL。
         """
         metric_aggs = ", ".join(
             f"SUM(CASE WHEN {m} IS NOT NULL THEN 1 ELSE 0 END) AS nn_{m}"
             for m in selected
         )
         group_cols = "order_as_of_date, Exchange" if group_by_exchange else "order_as_of_date"
-        where, params = self._scope_where(start_date, end_date)
+        where, params = self._scope_where(start_date, end_date, scope)
         sql = f"""
             SELECT {group_cols}, COUNT(*) AS total_routes,
                 SUM(CASE WHEN fill > 0 AND fill_close >= fill THEN 1 ELSE 0 END) AS pure_auction,
@@ -245,34 +256,32 @@ class MetricCoverageService:
         ]
 
     @staticmethod
-    def _scope_where(start_date: str, end_date: str) -> tuple[str, list[Any]]:
-        """覆盖率 / 一致性共享的过滤范围：日期区间 + BDIB 交易所白名单。
+    def _scope_where(
+        start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
+    ) -> tuple[str, list[Any]]:
+        """覆盖率 / 一致性共享的过滤范围：日期区间 + 作用域（默认 BDIB 白名单）。
 
+        作用域由 report_measure 唯一实现，与 KPI / 异常明细 / 健康扫描同源：
         白名单外交易所本就不拉 BDIB、指标必然 NULL，计入分母会虚降覆盖率观感。
         """
-        whitelist = tuple(
-            str(e).strip().upper() for e in Config.BDIB_EXCHANGE if str(e).strip()
-        )
+        condition, values = rm.scope_condition(scope or rm.resolve_scope(None))
         where = "order_as_of_date BETWEEN ? AND ?"
-        params: list[Any] = [start_date, end_date]
-        if whitelist:
-            placeholders = ", ".join(["?"] * len(whitelist))
-            where += f" AND UPPER(Exchange) IN ({placeholders})"
-            params.extend(whitelist)
-        return where, params
+        if condition:
+            return f"{where} AND {condition}", [start_date, end_date, *values]
+        return where, [start_date, end_date]
 
     @staticmethod
     def _query_consistency(
-        conn, start_date: str, end_date: str,
+        conn, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
         """数据一致性探针（013）：overfill 与订单参与率 >100% 的整体占比。
 
         与异常判定（overfill_pct / order_par_gt100 规则）同源，但此处给出整体
         比例，不受异常清单截断影响，供报告头「数据质量提示」区展示。
-        订单参与率按 (OrderId, order_as_of_date, Exchange) 分组求和，避免跨市场
-        相加使参与率失去物理意义。分母口径与覆盖率一致（BDIB 白名单内交易所）。
+        订单级聚合（(OrderId, order_as_of_date, Exchange) 求和）与异常明细共用
+        report_measure 的唯一实现，避免两处口径分叉；分母同作用域。
         """
-        where, params = MetricCoverageService._scope_where(start_date, end_date)
+        where, params = MetricCoverageService._scope_where(start_date, end_date, scope)
         route_row = conn.execute(
             f"""
             SELECT COUNT(*) AS total_routes,
@@ -284,16 +293,12 @@ class MetricCoverageService:
             """,
             params,
         ).fetchone()
+        order_par = rm.order_par_aggregate_sql(where, alias="order_par")
         order_row = conn.execute(
             f"""
             SELECT COUNT(*) AS total_orders,
                    SUM(CASE WHEN par_sum > 1.0 THEN 1 ELSE 0 END) AS gt100_orders
-            FROM (
-                SELECT SUM(par_rate) AS par_sum
-                FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
-                WHERE {where}
-                GROUP BY OrderId, order_as_of_date, Exchange
-            )
+            FROM {order_par}
             """,
             params,
         ).fetchone()
@@ -387,6 +392,7 @@ class MetricCoverageService:
         end_date: str,
         selected: list[str],
         group_by_exchange: bool,
+        scope: rm.ReportScope,
         warning: str,
     ) -> dict[str, Any]:
         return {
@@ -397,6 +403,7 @@ class MetricCoverageService:
             "null_reasons": metric_null_reasons(selected),
             "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
+            "scope": scope.to_payload(),
             "overall": None,
             "consistency": None,
             "rows": [],

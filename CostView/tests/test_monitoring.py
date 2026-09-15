@@ -458,6 +458,8 @@ class TestTcaReportAggregator:
         """小计价单位货币（GBp/ILs/ZAr）USD 成交金额 ÷100（008）。
 
         本币 notional 不做修正；仅 USD 换算时对 GBp/ILs/ZAr 乘 0.01。
+        注：市场用白名单内的 Bloomberg 代码（LN/IM/SJ/US）—— 报告作用域统一为
+        BDIB 白名单后，白名单外市场（如意大利的 IT 写法）不进任何小节的分母。
         """
         db_path = tmp_path / "fill_bdib.db"
         conn = sqlite3.connect(str(db_path))
@@ -467,7 +469,7 @@ class TestTcaReportAggregator:
         # ZAr：1000×100×0.055×0.01 = 55；USD：1000×100×1.0 = 100000（不修正）
         _insert_route(conn, "G1", "20260803", Exchange="LN", Currency="GBp",
                       fill=1000.0, p_avg=100.0, fx_rate=1.30)
-        _insert_route(conn, "I1", "20260803", Exchange="IT", Currency="ILs",
+        _insert_route(conn, "I1", "20260803", Exchange="IM", Currency="ILs",
                       fill=1000.0, p_avg=100.0, fx_rate=0.28)
         _insert_route(conn, "Z1", "20260803", Exchange="SJ", Currency="ZAr",
                       fill=1000.0, p_avg=100.0, fx_rate=0.055)

@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from data_access.config import Config
 
+from . import report_measure as rm
 from .report_spec import REPORT_SPEC, footer_text
 
 # ── SVG 画布常量 ──
@@ -45,11 +46,12 @@ def render_report_html(
         _render_header(filters, generated_at),
         _render_market_tabs(report.get("markets"), report.get("kpi")),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
-                          report.get("anomaly")),
+                          report.get("anomaly"), report.get("weight_coverage")),
         _render_data_quality(report),
         _render_market_charts(report),
         _render_charts(report),
-        _render_impact_breakdown(report.get("impact_breakdown")),
+        _render_impact_breakdown(report.get("impact_breakdown"),
+                                 report.get("weight_coverage")),
         _render_anomaly_table(report.get("anomaly")),
         _render_coverage_table(report.get("metric_coverage"), _gap_dates(health)),
         _render_health_appendix(health),
@@ -121,8 +123,11 @@ svg text {{ font-family: inherit; }}
 
 
 def _render_header(filters: dict[str, Any], generated_at: str) -> str:
-    """报告头：标题 + 过滤条件摘要（含 preset / 数据截至日）+ 口径脚注。"""
+    """报告头：标题 + 过滤条件摘要（含作用域 / preset / 数据截至日）+ 口径脚注。"""
     cond = [f"日期 {filters.get('start_date')} ~ {filters.get('end_date')}"]
+    scope = filters.get("scope") or {}
+    if scope.get("label"):
+        cond.append(f"统计范围 {scope['label']}（全报告统一口径）")
     if filters.get("preset"):
         cond.append(f"口径 last={filters['preset']}")
     if filters.get("as_of_date"):
@@ -137,7 +142,23 @@ def _render_header(filters: dict[str, Any], generated_at: str) -> str:
     return f"""
 <h1>TCA 可视化报告 <span style="font-size:14px;color:#7d8fa3">tca_route_summary</span></h1>
 <div class="meta"><span>生成时间 {_esc(generated_at)}</span>{cond_html}</div>
-<div class="disclaimer">{_esc(footer_text())}</div>"""
+{_scope_note(scope)}<div class="disclaimer">{_esc(footer_text())}</div>"""
+
+
+def _scope_note(scope: dict[str, Any]) -> str:
+    """作用域告警：用户把白名单外市场纳入报告时显式提示（不静默混入分母）。
+
+    白名单外市场（CN/BZ 等）本就不拉 BDIB 行情，其 BDIB 依赖指标必然为 NULL；
+    混入后覆盖率与走势会被天然缺数据稀释，读者须知道该情形来自口径而非数据缺陷。
+    """
+    outside = scope.get("out_of_scope") or []
+    if not outside:
+        return ""
+    return (
+        '<div class="warn">所选市场 ' + _esc(", ".join(outside))
+        + " 不在 BDIB 白名单内 —— 这些市场不拉取 BDIB 行情，其 BDIB 依赖指标必然为 "
+        "NULL，覆盖率与走势请对照下方覆盖率表解读。</div>"
+    )
 
 
 def _render_footer() -> str:
@@ -198,28 +219,12 @@ def _render_kpi_cards(
     kpi: Optional[dict[str, Any]],
     extra: Optional[dict[str, Any]],
     anomaly: Optional[dict[str, Any]],
+    weight_coverage: Optional[dict[str, Any]] = None,
 ) -> str:
-    """KPI 卡片区：整体水位（5）+ 基准/短缺/风险/完成率/异常（5）。"""
+    """KPI 卡片区：整体水位（6）+ 基准/短缺/风险/完成率/异常（7）。"""
     if not kpi:
         return '<div class="warn">tca_route_summary 无数据 — 请先运行管道 S5.5。</div>'
-    cards = [
-        ("Route 总数", f"{kpi['route_count']:,}", ""),
-        ("总成交股数", _fmt_big(kpi["total_route_shares"]), "RouteShares 合计"),
-        # 007: 总成交金额（USD 换算，标注 fx_rate 覆盖率）
-        ("总成交金额（美元）", _fmt_big(kpi.get("notional_usd")), _fx_coverage_sub(kpi)),
-        ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")), "成交额加权 · VWAP 基准"),
-        ("平均 par_rate", _fmt_num(kpi.get("avg_par_rate")), "成交额加权"),
-        ("平均 RPM", _fmt_num(kpi.get("avg_rpm")), "成交额加权"),
-    ]
-    if extra:
-        cards += [
-            ("加权 arrival 成本", _fmt_num(extra.get("arrival_cost_bps")), "决策基准 · 成交额加权"),
-            ("加权 IS (bps)", _fmt_num(extra.get("wagner_is_bps")), "实现短缺 · 成交额加权"),
-            ("成本风险 stddev/CVaR", _fmt_risk(extra.get("cost_stddev"), extra.get("cost_cvar")), "尾部风险"),
-            ("组合完成率", _fmt_pct(extra.get("avg_fill")), "Σfill / ΣRouteShares"),
-            ("未成交金额缺口(USD)", _fmt_big(extra.get("unfilled_notional_usd")),
-             "Σ(未成交×均价×汇率)"),
-        ]
+    cards = _kpi_card_specs(kpi, extra, weight_coverage)
     if anomaly is not None:
         cards.append(
             ("异常路由", f"{anomaly.get('count', 0):,}", "见下方明细"),
@@ -231,6 +236,57 @@ def _render_kpi_cards(
         for label, value, sub in cards
     )
     return f'<div class="cards">{inner}</div>'
+
+
+def _kpi_card_specs(
+    kpi: dict[str, Any],
+    extra: Optional[dict[str, Any]],
+    weight_coverage: Optional[dict[str, Any]],
+) -> list[tuple[str, str, str]]:
+    """KPI 卡片 (标签, 数值, 副标题) 清单；加权指标副标题附样本量与权重覆盖率。"""
+    metrics = (weight_coverage or {}).get("metrics") or {}
+
+    def note(metric: str) -> str:
+        return _weight_note(metrics.get(metric))
+
+    cards = [
+        ("Route 总数", f"{kpi['route_count']:,}", ""),
+        ("总成交股数", _fmt_big(kpi["total_route_shares"]), "RouteShares 合计"),
+        # 007: 总成交金额（USD 换算，标注 fx_rate 覆盖率）
+        ("总成交金额（美元）", _fmt_big(kpi.get("notional_usd")), _fx_coverage_sub(kpi)),
+        ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")),
+         "成交额加权 · VWAP 基准" + note("pnl_vwap")),
+        ("平均 par_rate", _fmt_num(kpi.get("avg_par_rate")),
+         "成交额加权" + note("par_rate")),
+        ("平均 RPM", _fmt_num(kpi.get("avg_rpm")), "成交额加权" + note("RPM")),
+    ]
+    if not extra:
+        return cards
+    return cards + [
+        ("加权 arrival 成本", _fmt_num(extra.get("arrival_cost_bps")),
+         "决策基准 · 成交额加权" + note("arrival_cost_bps")),
+        ("加权 IS (bps)", _fmt_num(extra.get("wagner_is_bps")),
+         "实现短缺 · 成交额加权" + note("wagner_is_bps")),
+        ("成本风险 stddev/CVaR",
+         _fmt_risk(extra.get("cost_stddev"), extra.get("cost_cvar")),
+         "尾部风险" + note("cost_cvar")),
+        ("组合完成率", _fmt_pct(extra.get("avg_fill")), "Σfill / ΣRouteShares"),
+        ("未成交金额缺口(USD)", _fmt_big(extra.get("unfilled_notional_usd")),
+         _unfilled_sub(extra)),
+        # 完全未执行（零成交）单独成卡：此前仅 avg_fill 分母隐含其存在，
+        # 成本 KPI 与异常清单都看不到这批路由。
+        ("零成交路由", f"{extra.get('zero_fill_routes', 0):,}",
+         f"委托金额 {_fmt_big(extra.get('zero_fill_notional_usd'))} · 完全未执行"),
+    ]
+
+
+def _unfilled_sub(extra: dict[str, Any]) -> str:
+    """未成交金额缺口卡副标题：价格回退口径 + 未能计价路由数（缺口低估规模）。"""
+    text = "Σ(未成交 × 价格回退链 × 汇率)"
+    unpriced = extra.get("unfilled_notional_unpriced_routes")
+    if unpriced:
+        text += f"　未计价 {int(unpriced):,} 条（未计入）"
+    return text
 
 
 def _render_data_quality(report: dict[str, Any]) -> str:
@@ -400,21 +456,31 @@ def _svg_market_trend(points: list[dict[str, Any]]) -> str:
     return _svg_wrap(parts)
 
 
-def _render_impact_breakdown(impact: Optional[dict[str, Any]]) -> str:
-    """市场冲击分解表（B2-2）：暂时冲击 5/10/30min + 永久冲击。"""
+def _render_impact_breakdown(
+    impact: Optional[dict[str, Any]],
+    weight_coverage: Optional[dict[str, Any]] = None,
+) -> str:
+    """市场冲击分解表（B2-2）：暂时冲击 5/10/30min + 永久冲击 + 样本/权重覆盖。"""
     if not impact:
         return ""
+    metrics = (weight_coverage or {}).get("metrics") or {}
     rows = [
-        ("暂时冲击 5min", _fmt_num(impact.get("temp_impact_5min_bps")), "成交后 5 分钟价格恢复偏离"),
-        ("暂时冲击 10min", _fmt_num(impact.get("temp_impact_10min_bps")), "成交后 10 分钟价格恢复偏离"),
-        ("暂时冲击 30min", _fmt_num(impact.get("temp_impact_30min_bps")), "成交后 30 分钟价格恢复偏离"),
-        ("永久冲击", _fmt_num(impact.get("perm_impact_bps")), "收盘价相对到达价的持续偏离"),
-        ("收盘价成本", _fmt_num(impact.get("close_cost_bps")), "收盘价基准偏离"),
+        ("暂时冲击 5min", _fmt_num(impact.get("temp_impact_5min_bps")),
+         "成交后 5 分钟价格恢复偏离", "temp_impact_5min_bps"),
+        ("暂时冲击 10min", _fmt_num(impact.get("temp_impact_10min_bps")),
+         "成交后 10 分钟价格恢复偏离", "temp_impact_10min_bps"),
+        ("暂时冲击 30min", _fmt_num(impact.get("temp_impact_30min_bps")),
+         "成交后 30 分钟价格恢复偏离", "temp_impact_30min_bps"),
+        ("永久冲击", _fmt_num(impact.get("perm_impact_bps")),
+         "收盘价相对到达价的持续偏离", "perm_impact_bps"),
+        ("收盘价成本", _fmt_num(impact.get("close_cost_bps")),
+         "收盘价基准偏离", "close_cost_bps"),
     ]
     body = "".join(
         f'<tr><td class="l">{_esc(label)}</td><td>{_esc(value)} bps</td>'
-        f'<td class="l" style="white-space:normal">{_esc(desc)}</td></tr>'
-        for label, value, desc in rows
+        f'<td class="l" style="white-space:normal">'
+        f"{_esc(desc + _weight_note(metrics.get(metric)))}</td></tr>"
+        for label, value, desc, metric in rows
     )
     truncated_count = impact.get("recovery_truncated_count")
     share = impact.get("recovery_truncated_share")
@@ -529,8 +595,29 @@ def _anomaly_notes(rendered: int, truncated: int, export_ref: Optional[str]) -> 
     return "".join(parts)
 
 
-#: 样本覆盖率低于该阈值时提示「样本不足，结论仅供参考」
-_SAMPLE_COVERAGE_MIN_PCT = 90.0
+#: 样本覆盖率低于该阈值时提示「样本不足，结论仅供参考」（唯一真相源：report_measure）
+_SAMPLE_COVERAGE_MIN_PCT = rm.SAMPLE_COVERAGE_MIN_PCT
+
+
+def _weight_note(entry: Optional[dict[str, Any]]) -> str:
+    """加权 KPI 的样本量与权重覆盖率后缀（全角空格分隔，内联于卡片副标题）。
+
+    条数覆盖与权重覆盖必须并列披露：BDIB 缺口集中在少数大单时，条数覆盖可以很高
+    而权重覆盖很低 —— 此时均值是子样本口径，量级不足以支撑跨期对比结论。
+    """
+    if not entry:
+        return ""
+    parts: list[str] = []
+    n_used, n_total = entry.get("n_used"), entry.get("n_total")
+    if n_used is not None and n_total:
+        parts.append(
+            f"样本 {n_used:,}/{n_total:,}（{_fmt_pct_raw(entry.get('sample_pct'))}）"
+        )
+    if entry.get("weight_pct") is not None:
+        parts.append(f"权重覆盖 {_fmt_pct_raw(entry.get('weight_pct'))}")
+    if entry.get("insufficient"):
+        parts.append("样本/权重覆盖不足，结论仅供参考")
+    return "".join(f"　{part}" for part in parts)
 
 
 def _sample_note(n_used: Optional[int], n_total: Optional[int]) -> str:
