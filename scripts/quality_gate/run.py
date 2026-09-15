@@ -250,3 +250,10 @@ def _force_utf8_stdout() -> None:
     """Windows 控制台（cp1252）下强制 UTF-8，避免中文输出 UnicodeEncodeError。"""
     if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
         sys.stdout.reconfigure(encoding="utf-8")
+
+
+if __name__ == "__main__":
+    # 平铺入口 scripts/quality_gate.py（pre-commit 与文档使用的形式）是主要通道；
+    # 此处补齐守卫，使 ``python -m scripts.quality_gate.run`` 同样可用 ——
+    # 否则该形式只 import 模块、不执行扫描且 exit 0，形成「门禁看似通过」的假信号。
+    sys.exit(main())

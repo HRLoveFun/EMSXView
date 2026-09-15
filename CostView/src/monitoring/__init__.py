@@ -9,7 +9,11 @@
     report_aggregator — TCA 可视化报告聚合（KPI/分布/走势/排行/PWP/冲击/异常明细）
     tca_report_html   — 自包含 HTML 报告渲染器（内联 CSS + SVG 图表，零外部依赖）
     anomaly_query     — 异常路由判定查询与阈值参数化（DEFAULT_THRESHOLDS）
-    report_dims       — 报告筛选维度持久化列表（市场/Broker/Algo/Symbol 刷新与读取）
+    report_dims       — 报告筛选维度表读取（写侧刷新已随数据管道迁独立项目）
+
+``__all__`` 必须与上方 import 严格对应（由 test_monitoring 的导出清单护栏守住）：
+维度表写侧符号（DIM_COLUMNS / ensure_schema / refresh_dim_values）随 010-extract-pipeline
+迁出本仓库，不得再出现在导出列表中。
 """
 
 from .time_range import (
@@ -37,6 +41,10 @@ from .anomaly_query import (
     get_default_thresholds,
     query_anomaly_routes,
     query_anomaly_routes_page,
+)
+from .report_measure import (
+    ReportScope,
+    resolve_scope,
 )
 from .report_dims import (
     get_filter_options,
@@ -66,10 +74,9 @@ __all__ = [
     "query_anomaly_routes",
     "query_anomaly_routes_page",
     "export_anomaly_rows_csv",
-    "DIM_COLUMNS",
-    "ensure_schema",
+    "ReportScope",
+    "resolve_scope",
     "get_filter_options",
-    "refresh_dim_values",
     "REPORT_SPEC",
     "SPEC_VERSION",
     "footer_text",

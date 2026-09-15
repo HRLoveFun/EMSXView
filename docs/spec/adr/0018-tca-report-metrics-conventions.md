@@ -113,6 +113,28 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 `scope_modes` / `scope_whitelist_source` / `unfilled_price_fallbacks` / `anomaly_floor_exempt`
 并由脚注展示。
 
+### 10.1 复核整改（2026-09-15 第二轮，同批提交）
+
+对 §10 的独立复核确认四项 P0 实质落地，并暴露若干一致性问题，已一并整改：
+
+1. **作用域缺口补齐**：健康扫描此前独立取白名单（与报告作用域只在"恰好同源"时一致），
+   现 `BdibHealthService.get_health(..., scope=)` / `get_health_safe` 透传作用域，CLI 与
+   `export-html` 端点传入报告作用域 → 「全报告小节同口径」成为结构约束而非巧合；
+   `_load_order_par_sums` 亦显式传入作用域（与一致性探针同契约，避免无谓聚合全量市场）。
+2. **公共 API 契约修复**：`CostView/src/monitoring/__init__.py` 的 `__all__` 清理幽灵导出
+   （维度表写侧符号随 010-extract-pipeline 迁出），并导出 `ReportScope` / `resolve_scope`；
+   新增「`__all__` 每个符号可解析」护栏。
+3. **下拉口径一致**：`filter_options.exchanges` 两条路径（维度表 / 回退）统一按白名单裁剪，
+   消除同一份报告的市场可选集随「维度表是否就绪」漂移；显式越界选择仍由 `out_of_scope` 告警承接。
+4. **声明-实现绑定**：`anomaly_floor_exempt` 由字符串改为结构化 `{"rule", "severity"}`，
+   实现常量（`report_measure.FLOOR_EXEMPT_RULE` / `FLOOR_EXEMPT_SEVERITY` / `is_floor_exempt`）
+   与声明由测试断言一致。
+5. **口径对称性**：异常判定对 `fill IS NULL` 按零成交处理（与 KPI 的 `COALESCE(fill, 0)` 同口径），
+   消除「KPI 数得到、异常清单看不到」的不对称；`resolve_scope` 大写归一后去重。
+6. **工具修正**：`scripts/quality_gate/run.py` 补 `__main__` 守卫（`python -m` 形式此前只 import
+   不扫描且 exit 0）。pre-commit 使用的是平铺入口 `scripts/quality_gate.py`（本身有守卫），
+   故门禁实际一直在执行。
+
 ## 后果 (Consequences)
 
 ### 正面
@@ -168,7 +190,10 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
   - `CostView/src/monitoring/tca_report_html.py`（严重度配色、截断与导出提示、覆盖率双口径、样本量、脚注）
   - `CostView/src/monitoring/time_range.py`（as_of_date）
   - `CostView/src/monitoring/report_spec.py`（新增：口径唯一真相源）
-  - `scripts/reports/generate_tca_report.py`（as_of 透传、CSV 落盘）
+  - `CostView/src/monitoring/__init__.py`（导出契约：清理幽灵导出、导出 scope API；2026-09-15）
+  - `scripts/reports/generate_tca_report.py`（as_of 透传、CSV 落盘、健康扫描作用域透传）
+  - `CostView/api/routers/monitoring.py`（export-html 端点向健康扫描透传作用域）
+  - `scripts/quality_gate/run.py`（补 `__main__` 守卫，使 `python -m` 形式不再空跑）
   - 前端 `frontend/src/modules/costview/`（两档阈值、严重度展示、口径与样本标注）
 - 配套测试:
   - `CostView/tests/test_report_metrics.py`（新增：逐缺陷针对性断言）
@@ -186,6 +211,12 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
   - 破坏面：`test_monitoring.test_kpi_notional_usd_minor_unit` 的夹具使用了白名单外市场代码
     `IT`（意大利 Bloomberg 代码应为 `IM`），作用域统一后该路由不再计入 KPI；已修正夹具代码
   - 结论：变更集中在报告聚合 / 口径层，golden 快照零漂移（订单级指标计算链路未触碰）
+- 验证记录（2026-09-15，复核整改第二轮）:
+  - 后端 `CostView/tests/` → **191 passed**（+9：`TestPackageExports` 3、市场下拉白名单 1、
+    健康扫描作用域 1、`TestReviewRemediation` 4）
+  - `from CostView.src.monitoring import *` 复验通过（整改前抛 `AttributeError: DIM_COLUMNS`）
+  - 质量门（平铺入口 `python scripts/quality_gate.py`）→ AP 违规 0 / OE 新增 0 / 存量 187
+  - 未改口径数值：本轮仅修一致性与契约，报告数值与第一轮一致
 - CI 常态化: `.github/workflows/boundary.yml` 新增「Golden snapshot 回归」步骤（硬阻断）；
   快照随基线入库（`CostView/tests/golden/snapshot/`，`.gitignore` 显式例外），
   CI 无需生产数据即可执行
