@@ -5,6 +5,13 @@
 - 缺陷 2：完成率改为组合级 SUM(fill) / SUM(RouteShares)，新增未成交金额缺口
 - 缺陷 3：order_par_rate 按 (OrderId, order_as_of_date, Exchange) 聚合，不跨市场求和
 - 缺陷 13：overfill（成交超过委托）进入异常判定与一致性探针，不再被静默放过
+
+P0 改造（2026-09-15，见 docs/spec/adr/0018-tca-report-metrics-conventions.md）：
+- 作用域统一：默认 BDIB 白名单，全报告小节共用同一 Exchange 口径并披露白名单外选择
+- 加权 KPI 披露样本量与权重覆盖率（条数覆盖 ≠ 权重覆盖），低于阈值标注结论仅供参考
+- 零成交路由可见：缺口金额走价格回退链、单独披露零成交路由数与委托金额、
+  严重未完成路由豁免笔数/金额下限
+- 过滤与订单级聚合统一经 report_measure：多选 IN 匹配、订单参与率按全量聚合
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ from CostView.src.monitoring.metric_coverage import (
     COMPUTED_METRICS,
     METRIC_NULL_REASON,
 )
+from CostView.src.monitoring import report_measure as rm
 from CostView.src.monitoring.tca_report_html import (
     _fmt_order_par_rate,
     _fmt_pct,
@@ -90,14 +98,19 @@ def _insert_route(conn: sqlite3.Connection, order_id: str, oad: str, **overrides
 
 @pytest.fixture()
 def tca_mgr_factory(tmp_path: Path):
-    """工厂 fixture：按给定路由行列表构造临时 fill_bdib.db 并返回 ConnectionManager。"""
+    """工厂 fixture：按给定路由行列表构造临时 fill_bdib.db 并返回 ConnectionManager。
+
+    ``with_fx=True`` 额外补 fx_rate 列，用于 USD 口径（金额缺口 / 零成交委托金额）用例。
+    """
     counter = {"n": 0}
 
-    def _make(rows: list[dict[str, Any]]) -> ConnectionManager:
+    def _make(rows: list[dict[str, Any]], *, with_fx: bool = False) -> ConnectionManager:
         counter["n"] += 1
         db_path = tmp_path / f"fill_bdib_{counter['n']}.db"
         conn = sqlite3.connect(str(db_path))
         conn.execute(_TCA_DDL)
+        if with_fx:
+            conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
         for idx, row in enumerate(rows):
             overrides = dict(row)
             order_id = str(overrides.pop("OrderId", f"O{idx}"))
@@ -756,6 +769,19 @@ class TestReportSpec:
         assert str(report_spec.REPORT_SPEC["anomaly_row_limit"]) in text
         assert report_spec.REPORT_SPEC["known_limitations_doc"] in text
 
+    def test_report_spec_matches_measure_layer(self):
+        """口径声明与 report_measure 实现常量一致（防「声明-实现」漂移）。"""
+        from CostView.src.monitoring.tca_report_html import (
+            _SAMPLE_COVERAGE_MIN_PCT,
+        )
+
+        spec = report_spec.REPORT_SPEC
+        assert spec["weight_coverage_min_pct"] == rm.SAMPLE_COVERAGE_MIN_PCT
+        assert _SAMPLE_COVERAGE_MIN_PCT == rm.SAMPLE_COVERAGE_MIN_PCT
+        assert tuple(spec["unfilled_price_fallbacks"]) == rm.UNFILLED_PRICE_FALLBACKS
+        assert tuple(spec["scope_modes"]) == (rm.WHITELIST_MODE, rm.USER_MODE)
+        assert spec["scope_whitelist_source"] == "Config.BDIB_EXCHANGE"
+
     def test_header_shows_preset_and_as_of(self, tca_mgr_factory):
         """报告头自证报告期：preset + 数据截至日 + 口径版本。"""
         mgr = tca_mgr_factory([{"OrderId": "A1"}])
@@ -767,3 +793,194 @@ class TestReportSpec:
         assert "口径 last=day" in html
         assert "数据截至 20260803" in html
         assert f"口径 v{report_spec.SPEC_VERSION}" in html
+
+
+# ── P0-1：作用域统一（白名单 / 用户口径）───────────────────────────────────
+
+
+class TestReportScopeUnified:
+    def test_out_of_scope_market_excluded_from_all_sections(self, tca_mgr_factory):
+        """白名单外市场不进任何小节，KPI / 市场概览 / 异常 / 覆盖率四处同口径。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "S1", "Exchange": "US", "par_rate": 0.15, "pnl_vwap": 0.0},
+            {"OrderId": "S2", "Exchange": "CN", "par_rate": 0.15, "pnl_vwap": 0.0},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_fill_count=0, min_notional_usd=0.0,
+        )
+
+        assert report["kpi"]["route_count"] == 1
+        assert {m["exchange"] for m in report["markets"]} == {"US"}
+        assert report["anomaly"]["count"] == 1
+        assert report["metric_coverage"]["rows"][0]["total_routes"] == 1
+        assert report["filters"]["scope"]["mode"] == rm.WHITELIST_MODE
+
+    def test_user_scope_records_out_of_scope_selection(self, tca_mgr_factory):
+        """用户显式选择白名单外市场时计入报告并披露 out_of_scope（不静默混入）。"""
+        mgr = tca_mgr_factory([{"OrderId": "S1", "Exchange": "CN"}])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", exchange="CN,US",
+        )
+        scope = report["filters"]["scope"]
+
+        assert scope["mode"] == rm.USER_MODE
+        assert scope["out_of_scope"] == ["CN"]
+        assert report["kpi"]["route_count"] == 1  # 用户口径优先，白名单外市场仍计入
+        html = render_report_html(report, None, "2026-09-15 10:00:00")
+        assert "不在 BDIB 白名单内" in html
+
+    def test_coverage_respects_user_scope(self, tca_mgr_factory):
+        """用户按市场过滤时覆盖率同步收窄（与 KPI 共用作用域）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "U1", "Exchange": "US", "pnl_vwap": 1.0},
+            {"OrderId": "H1", "Exchange": "HK", "pnl_vwap": None},
+        ])
+        coverage = MetricCoverageService(mgr).get_coverage(
+            "20260803", "20260803", ["pnl_vwap"], scope=rm.resolve_scope("HK"),
+        )
+
+        assert coverage["scope"]["exchanges"] == ["HK"]
+        assert coverage["rows"][0]["total_routes"] == 1
+        assert coverage["rows"][0]["coverage"]["pnl_vwap"] == 0.0
+
+
+# ── P0-2：加权 KPI 的样本量与权重覆盖披露 ─────────────────────────────────
+
+
+class TestWeightCoverageDisclosure:
+    def test_weight_coverage_exposes_subset_mean(self, tca_mgr_factory):
+        """缺口集中在大单时：条数覆盖 50% 但权重覆盖近 0 → 标记结论不足。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "W1", "fill": 1.0, "p_avg": 1.0, "pnl_vwap": 0.0},
+            {"OrderId": "W2", "fill": 1000.0, "p_avg": 100.0, "pnl_vwap": None},
+        ])
+        coverage = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["weight_coverage"]
+        entry = coverage["metrics"]["pnl_vwap"]
+
+        assert (entry["n_used"], entry["n_total"]) == (1, 2)
+        assert entry["sample_pct"] == pytest.approx(50.0)
+        assert entry["weight_pct"] < 1.0
+        assert entry["insufficient"] is True
+        assert coverage["threshold_pct"] == rm.SAMPLE_COVERAGE_MIN_PCT
+
+    def test_kpi_card_renders_sample_and_weight(self, tca_mgr_factory):
+        """KPI 卡片副标题披露样本量与权重覆盖率（不再只有数值）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "W1", "fill": 1.0, "p_avg": 1.0, "pnl_vwap": 0.0},
+            {"OrderId": "W2", "fill": 1000.0, "p_avg": 100.0, "pnl_vwap": None},
+        ])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-09-15 10:00:00")
+
+        assert "样本 1/2" in html
+        assert "权重覆盖" in html
+        assert "样本/权重覆盖不足，结论仅供参考" in html
+
+
+# ── P0-3：零成交路由的机会成本可见性 ──────────────────────────────────────
+
+
+class TestZeroFillVisibility:
+    def test_zero_fill_counts_and_notional(self, tca_mgr_factory):
+        """零成交路由的缺口金额与委托金额：p_avg 缺失时按可达价格回退计量。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "Z1", "fill": 0.0, "RouteShares": 1000.0, "fill_count": 0,
+             "p_avg": None, "p_arrival": 20.0, "Currency": "USD", "fx_rate": 1.0},
+        ], with_fx=True)
+        extra = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["extra_kpis"]
+
+        assert extra["zero_fill_routes"] == 1
+        assert extra["zero_fill_notional_usd"] == pytest.approx(20_000.0)
+        # 原先 p_avg 为 NULL → 该路由对缺口贡献被 SUM 跳过（系统性低估）
+        assert extra["unfilled_notional_usd"] == pytest.approx(20_000.0)
+        assert extra["unfilled_notional_unpriced_routes"] == 0
+
+    def test_unfilled_price_fallback_chain_and_unpriced(self, tca_mgr_factory):
+        """价格回退链按 p_avg → p_arrival → p_decision → p_close；全缺则披露未计价。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "F1", "fill": 0.0, "RouteShares": 10.0, "fill_count": 0,
+             "p_avg": None, "p_arrival": None, "p_decision": 5.0, "p_close": 7.0,
+             "Currency": "USD", "fx_rate": 1.0},
+            {"OrderId": "F2", "fill": 0.0, "RouteShares": 10.0, "fill_count": 0,
+             "p_avg": None, "p_arrival": None, "p_decision": None, "p_close": None,
+             "Currency": "USD", "fx_rate": 1.0},
+        ], with_fx=True)
+        extra = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["extra_kpis"]
+
+        assert extra["unfilled_notional_usd"] == pytest.approx(50.0)  # F1 用 p_decision
+        assert extra["unfilled_notional_unpriced_routes"] == 1        # F2 未计价
+        assert extra["zero_fill_routes"] == 2
+
+    def test_zero_fill_route_survives_floor_filters(self, tca_mgr_factory):
+        """零成交路由（fill_pct critical）不受笔数/金额下限屏蔽，最严重情形可见。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "Z1", "fill": 0.0, "RouteShares": 1000.0, "fill_count": 0,
+             "p_avg": None, "Amount": 0.0, "algo": "VWAP"},
+            {"OrderId": "N1", "fill": 990.0, "RouteShares": 1000.0, "fill_count": 1,
+             "par_rate": 0.07, "pnl_vwap": -1.0},
+        ])
+        # 默认下限（笔数 10 / 金额 10000 USD）下：Z1 豁免、N1 仍按下限过滤
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+
+        assert report["anomaly"]["count"] == 1
+        assert report["anomaly"]["rows"][0]["order_id"] == "Z1"
+        assert any(
+            h["key"] == "fill_pct" and h["severity"] == "critical"
+            for h in report["anomaly"]["rows"][0]["hits"]
+        )
+
+    def test_zero_fill_card_rendered(self, tca_mgr_factory):
+        """零成交路由数与委托金额在 KPI 卡片区可见。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "Z1", "fill": 0.0, "RouteShares": 1000.0, "fill_count": 0,
+             "p_avg": None, "p_arrival": 20.0, "Currency": "USD", "fx_rate": 1.0},
+        ], with_fx=True)
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-09-15 10:00:00")
+
+        assert "零成交路由" in html
+        assert "完全未执行" in html
+
+
+# ── P0-4：过滤条件与订单级聚合的口径一致性 ────────────────────────────────
+
+
+class TestMeasureConsistency:
+    def test_multivalue_filter_applies_to_anomaly(self, tca_mgr_factory):
+        """多选过滤（逗号拼接）在异常清单中同样生效，不再静默清空。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A1", "Broker": "BROKERA", "par_rate": 0.15},
+            {"OrderId": "B1", "Broker": "BROKERB", "par_rate": 0.15},
+            {"OrderId": "C1", "Broker": "BROKERC", "par_rate": 0.15},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", broker="BROKERA,BROKERB",
+            min_fill_count=0, min_notional_usd=0.0,
+        )
+
+        assert report["kpi"]["route_count"] == 2
+        assert report["anomaly"]["count"] == 2
+        assert {r["broker"] for r in report["anomaly"]["rows"]} == {
+            "BROKERA", "BROKERB",
+        }
+
+    def test_order_par_rate_uses_full_scope_not_filtered_rows(self, tca_mgr_factory):
+        """订单参与率按全量聚合：按 broker 过滤后仍反映整单参与率（探针不失真）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "P1", "RouteId": "R1", "Broker": "BROKERA", "par_rate": 0.6},
+            {"OrderId": "P1", "RouteId": "R2", "Broker": "BROKERB", "par_rate": 0.6},
+        ])
+        rows, _ = query_anomaly_routes_page(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            broker="BROKERA", min_fill_count=0, min_notional_usd=0.0,
+        )
+
+        assert len(rows) == 1
+        assert rows[0].order_par_rate == pytest.approx(1.2)
+        assert rows[0].order_par_gt100 is True
