@@ -134,7 +134,10 @@ export function loadCostViewConfig(): CostViewConfig {
   return {
     ...createDefaultCostViewConfig(),
     ...parsed,
-    rules: storedVersion < RULE_SCHEMA_VERSION ? migrateStaleRuleModes(rules) : rules,
+    rules: {
+      ...createDefaultCostViewConfig().rules,
+      ...(storedVersion < RULE_SCHEMA_VERSION ? migrateStaleRuleModes(rules) : rules),
+    },
     exportDefaults: {
       ...createDefaultCostViewConfig().exportDefaults,
       ...(parsed.exportDefaults ?? {}),
