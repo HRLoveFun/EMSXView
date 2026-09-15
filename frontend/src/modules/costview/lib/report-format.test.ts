@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendNote,
+  formatPct,
   formatScopeLabel,
   formatScopeWarning,
   formatUnfilledSub,
@@ -76,9 +77,20 @@ describe('appendNote', () => {
   });
 });
 
+describe('formatPct', () => {
+  it('不封顶：overfill 驱动的 >100% 完成率必须显式暴露（与 HTML 报告同口径）', () => {
+    expect(formatPct(1.05)).toBe('105.00%');
+    expect(formatPct(1.5)).toBe('150.00%');
+    expect(formatPct(0.92)).toBe('92.00%');
+    expect(formatPct(null)).toBe('—');
+  });
+});
+
 describe('formatScopeLabel / formatScopeWarning', () => {
-  it('展示统计范围文案', () => {
-    expect(formatScopeLabel(scope())).toBe('统计范围 BDIB 白名单内 2 个市场');
+  it('展示统计范围文案，并保留「全报告统一口径」承诺（与 HTML 报告头逐字对齐）', () => {
+    expect(formatScopeLabel(scope())).toBe(
+      '统计范围 BDIB 白名单内 2 个市场（全报告统一口径）',
+    );
     expect(formatScopeLabel(null)).toBe('');
   });
 
