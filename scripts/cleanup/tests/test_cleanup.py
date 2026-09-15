@@ -267,6 +267,24 @@ class TestBackendPerf:
         """})
         assert "PF-01" not in _rules(perf.detect(ctx))
 
+    def test_ignores_io_in_for_header(self, tmp_path):
+        """``for r in cursor.fetchall()`` 的迭代表达式只求值一次，不是 N+1。"""
+        ctx = _ctx(tmp_path, {"m.py": """
+            def dump(conn):
+                for row in conn.execute("select 1").fetchall():
+                    print(row)
+        """})
+        assert "PF-01" not in _rules(perf.detect(ctx))
+
+    def test_reports_io_in_while_condition(self, tmp_path):
+        """``while`` 的条件每轮求值，仍应判为循环内 IO。"""
+        ctx = _ctx(tmp_path, {"m.py": """
+            def poll(conn):
+                while conn.execute("select 1").fetchone():
+                    print("tick")
+        """})
+        assert "PF-01" in _rules(perf.detect(ctx))
+
     def test_reports_nested_loop(self, tmp_path):
         ctx = _ctx(tmp_path, {"m.py": """
             def pair(left, right):
@@ -485,3 +503,30 @@ def test_all_detectors_run_without_exception(tmp_path):
 
     for detector in FULL_DETECTORS:
         assert isinstance(detector(ctx), list)
+
+
+# ── CLI 基线写入口径 ───────────────────────────────────────────────
+
+def test_partial_ruleset_scan_not_recorded(tmp_path, monkeypatch):
+    """规则集过滤扫描不得写入趋势库（否则「环比上次全量」出现虚假 0 项基准）。"""
+    from scripts.cleanup import cli, config as cli_config
+    from scripts.quality_gate.store import GateStore
+
+    (tmp_path / "backend").mkdir()
+    (tmp_path / "backend" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(cli_config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(cli_config, "DB_PATH", tmp_path / "cleanup.db")
+
+    assert cli.main(["--ruleset", "cl", "--quiet"]) == 0
+    store = GateStore(cli_config.DB_PATH)
+    try:
+        assert store.last_full_scan() is None      # 部分扫描不留趋势记录
+    finally:
+        store.close()
+
+    assert cli.main(["--quiet"]) == 0              # 全量 + 全规则集才记录
+    store = GateStore(cli_config.DB_PATH)
+    try:
+        assert store.last_full_scan() is not None
+    finally:
+        store.close()

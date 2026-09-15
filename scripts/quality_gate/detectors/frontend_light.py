@@ -33,6 +33,15 @@ _RE_EXPORT_LIST = re.compile(
 _RE_EXPORT_STAR = re.compile(r"^\s*export\s*\*\s*from\s+['\"]([^'\"]+)['\"]")
 _RE_USE_STATE = re.compile(r"\buseState\s*[<(]")
 
+# 跨行 import/export-from 子句 —— 逐行匹配（上面 _RE_* 均带 ^ 锚点）无法覆盖
+# ``import {\n a,\n} from 'x'`` 形态，会使真实消费者未被登记、导出被误判无引用。
+# 故对全文再做一次无锚点补扫（单行形态由逐行扫描覆盖，此处按换行过滤去重）。
+_RE_ML_IMPORT = re.compile(
+    r"import\s+(?:type\s+)?([\w*\s{},]+?)\s+from\s*['\"]([^'\"]+)['\"]")
+_RE_ML_EXPORT_LIST = re.compile(
+    r"export\s*\{([^}]*)\}\s*from\s*['\"]([^'\"]+)['\"]")
+_ML_CLAUSE_PATTERNS: tuple[re.Pattern[str], ...] = (_RE_ML_IMPORT, _RE_ML_EXPORT_LIST)
+
 # 相对导入解析的扩展名补全顺序
 _EXT_PROBES = ("", ".ts", ".tsx", "/index.ts", "/index.tsx")
 
@@ -74,7 +83,21 @@ def _build_name_graph(ctx: ScanContext, all_files: list) -> tuple[dict, set]:
         src = path.as_posix()
         for line in text.splitlines():
             _scan_line(ctx, src, line, file_set, exports, imports)
+        _scan_multiline_clauses(ctx, src, text, file_set, imports)
     return exports, imports
+
+
+def _scan_multiline_clauses(ctx: ScanContext, src: str, text: str,
+                           file_set: set, imports: set) -> None:
+    """补扫跨行 import/export-from 子句（单行形态已由 ``_scan_line`` 覆盖）。"""
+    for pattern in _ML_CLAUSE_PATTERNS:
+        for names, spec in pattern.findall(text):
+            if "\n" not in names:
+                continue
+            target = _resolve_path(ctx, spec, src, file_set)
+            if target is None:
+                continue
+            imports.update((target, name) for name in _parse_source_names(names))
 
 
 def _scan_line(ctx: ScanContext, src: str, line: str, file_set: set,
@@ -85,7 +108,7 @@ def _scan_line(ctx: ScanContext, src: str, line: str, file_set: set,
     if m:
         target = _resolve_path(ctx, m.group(2), src, file_set)
         if target:
-            for name in _parse_import_names(m.group(1)):
+            for name in _parse_source_names(m.group(1)):
                 imports.add((target, name))
         return
     # 副作用 / 动态 import：整文件消费
@@ -111,10 +134,10 @@ def _scan_line(ctx: ScanContext, src: str, line: str, file_set: set,
         if source:
             target = _resolve_path(ctx, source, src, file_set)
             if target:
-                for name in _parse_import_names(names):
+                for name in _parse_source_names(names):
                     imports.add((target, name))   # re-export = 消费源文件
         else:
-            exports.setdefault(src, set()).update(_parse_import_names(names))
+            exports.setdefault(src, set()).update(_parse_binding_names(names))
         return
     m = _RE_EXPORT_STAR.match(line)
     if m:
@@ -128,19 +151,31 @@ def _is_default_export(line: str) -> bool:
     return bool(re.match(r"^\s*export\s+default\b", line))
 
 
-def _parse_import_names(clause: str) -> list[str]:
-    """解析 import 子句中的名字（``a, b as c, {d}`` → [a, c, d]；``* as n`` → [*]）。"""
+def _parse_binding_names(clause: str) -> list[str]:
+    """解析子句中的本地绑定名（``a, b as c, {d}`` → [a, c, d]；``* as n`` → [*]）。"""
+    return _parse_clause(clause, take_last=True)
+
+
+def _parse_source_names(clause: str) -> list[str]:
+    """解析子句中被消费的原始导出名（``a, b as c`` → [a, b]；``* as n`` → [*]）。
+
+    import / re-export 的**来源侧**语义：``import { X as Y }`` 与
+    ``export { A as B } from './y'`` 消费的都是 ``as`` 之前的名字。
+    若误取绑定名，真实消费者会被记到错误的符号上，活代码会被判为「无消费者」。
+    """
+    return _parse_clause(clause, take_last=False)
+
+
+def _parse_clause(clause: str, take_last: bool) -> list[str]:
+    """名字解析核心：剥 ``{}`` 与 ``type`` 前缀；含 ``*`` 视为整文件消费。"""
     clause = clause.strip().strip("{}")
     if "*" in clause:
         return ["*"]
     names: list[str] = []
     for part in clause.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        # ``b as c`` 取绑定名 c；``type a`` 取 a
-        tokens = part.replace("type ", "").split()
-        names.append(tokens[-1] if tokens else part)
+        tokens = part.strip().replace("type ", "").split()
+        if tokens:
+            names.append(tokens[-1] if take_last else tokens[0])
     return names
 
 
@@ -208,8 +243,9 @@ def _detect_unused_exports(rel: str, path, exports: dict, imports: set,
             file=rel,
             line=1,
             symbol=name,
-            message=f"未使用导出: {name}（全库无消费者引用）",
-            fix_hint="删除该导出及其实现；若为公共 API 预留请 suppressed 注明",
+            message=f"未使用导出: {name}（无跨文件消费者）",
+            fix_hint="去掉多余的 export 关键字（符号在本文件内仍被使用时切勿删除实现）；"
+                     "确无用途再删实现；公共 API 预留请 suppressed 注明",
             fingerprint=make_fingerprint("OE-06", rel, name),
             est_effort_h=0.25,
         )

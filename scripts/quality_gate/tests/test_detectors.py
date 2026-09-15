@@ -399,3 +399,57 @@ class TestFrontendLightDetector:
         )
         findings = frontend_light.detect(ctx)
         assert not any(f.symbol == "usedFn" for f in findings)
+
+    def test_multiline_import_counts_as_consumer(self, tmp_path, monkeypatch):
+        """跨行 import 子句的消费者必须被登记（防止导出误判无引用）。"""
+        frontend = tmp_path / "frontend" / "src"
+        frontend.mkdir(parents=True)
+        (frontend / "lib.ts").write_text(
+            "export function usedFn(): void {}\n", encoding="utf-8")
+        (frontend / "app.ts").write_text(
+            "import {\n  usedFn,\n} from './lib';\n", encoding="utf-8")
+        monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+        ctx = ScanContext(
+            root=tmp_path, mode="full",
+            python_files=[], frontend_files=[frontend / "lib.ts"],
+            all_python_files=[],
+            all_frontend_files=[frontend / "lib.ts", frontend / "app.ts"],
+        )
+        findings = frontend_light.detect(ctx)
+        assert not any(f.symbol == "usedFn" for f in findings)
+
+    def test_aliased_import_counts_by_source_name(self, tmp_path, monkeypatch):
+        """``import { X as Y }`` 消费的是源名 X，绑定名 Y 不代表 X 未被使用。"""
+        frontend = tmp_path / "frontend" / "src"
+        frontend.mkdir(parents=True)
+        (frontend / "lib.ts").write_text(
+            "export function realName(): void {}\n", encoding="utf-8")
+        (frontend / "app.ts").write_text(
+            "import { realName as aliasName } from './lib';\n", encoding="utf-8")
+        monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+        ctx = ScanContext(
+            root=tmp_path, mode="full",
+            python_files=[], frontend_files=[frontend / "lib.ts"],
+            all_python_files=[],
+            all_frontend_files=[frontend / "lib.ts", frontend / "app.ts"],
+        )
+        findings = frontend_light.detect(ctx)
+        assert not any(f.symbol == "realName" for f in findings)
+
+    def test_multiline_export_list_reexport_counts(self, tmp_path, monkeypatch):
+        """跨行 ``export { a } from './lib'`` 的 re-export 必须记为消费。"""
+        frontend = tmp_path / "frontend" / "src"
+        frontend.mkdir(parents=True)
+        (frontend / "lib.ts").write_text(
+            "export function usedFn(): void {}\n", encoding="utf-8")
+        (frontend / "barrel.ts").write_text(
+            "export {\n  usedFn,\n} from './lib';\n", encoding="utf-8")
+        monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+        ctx = ScanContext(
+            root=tmp_path, mode="full",
+            python_files=[], frontend_files=[frontend / "lib.ts"],
+            all_python_files=[],
+            all_frontend_files=[frontend / "lib.ts", frontend / "barrel.ts"],
+        )
+        findings = frontend_light.detect(ctx)
+        assert not any(f.symbol == "usedFn" for f in findings)

@@ -45,6 +45,10 @@
 | PF-03 | `CREATE OR REPLACE VIEW ... AS SELECT *` 被当作数据加载（DuckDB/Parquet 视图是惰性的） | `RE_LAZY_DDL` 命中即不判 |
 | PF-03 | 注册表/标签类小表（`order_label`、`*_registry`、2 千余行）全读被判「结果集不可控」 | 表名命中 `RE_BOUNDED_TABLE_NAME` 降级为 low |
 | PF-03 | 有 WHERE 约束的 `SELECT *` 与真无界混为一谈 | 分级：无 WHERE/LIMIT 且非小表 → medium；其余（列未裁剪 / 受约束 / 拼装待确认）→ low |
+| OE-06 | 跨行 import 子句漏匹配（`_RE_IMPORT` 带 `^` 锚点按行扫描，`import {\n a,\n} from 'x'` 整条丢失）→ 真实消费者未登记，导出被判「无消费者」 | 增 `_RE_ML_IMPORT` / `_RE_ML_EXPORT_LIST` 全文补扫（`_scan_multiline_clauses`），仅处理含换行的子句 |
+| OE-06 | 别名导入 `import { X as Y }` 记为消费 `Y`（绑定名）→ 源名 `X` 被判无消费者 | 拆 `_parse_source_names`（取 `as` 前）/ `_parse_binding_names`（取 `as` 后）；import 与 re-export 的**来源侧**一律用源名 |
+| OE-06 | 导出仅在本文件内使用 → 不是死代码，原 fix_hint「删除该导出及其实现」会删掉活符号 | fix_hint 改为「去掉多余 export 关键字……切勿删除实现」；同文件使用型待单列子类（见遗漏候选段） |
+| PF-01 | `for r in cursor.fetchall():` 的迭代表达式只求值一次，却被 whole-loop walk 算作循环内 IO | `_io_calls_in_executed`：只统计 body/orelse，`While.test` 保留（条件每轮求值） |
 
 ---
 
@@ -62,6 +66,9 @@
 | `parse_module` 静默失败 | 解析失败（如 BOM / 语法错误）与「无 import 边」不可区分，图类规则会静默误报 | 已修 BOM 根因；后续可让检测器把「解析失败文件」单独列为提示项 |
 | 行号型指纹的产生抖动 | 位置级规则（`nested@{line}` / `comment@{line}` / `unreachable@{line}`）在无关行增删后会换 fingerprint，被记为「新增 + 清偿」各若干 | 属设计取舍（位置即身份）；批量编辑工具文件时会出现个位数抖动，可忽略；如需消除可改为内容片段哈希 |
 | 级联失效 | 删除一个文件会让「仅供其使用」的下游符号新变为零引用（本次 `exchange_tz.batch_convert_ny_to_local` 即如此） | 删除批次完成后**必须复扫一次**再定下一批，勿按首轮清单一次性删完 |
+| OE-06 同文件使用型 | 「导出无跨文件消费者」包含两类：真死代码 vs 仅本文件使用的多余 `export`（含 shadcn/ui 的 `export { A, B }` 约定与模块内部类型面），后者删除即破坏编译 | 待实现：把「同文件仍有引用」单列子类并降级为提示；`_is_exempt` 目前不排除 `__tests__/`，测试内的 `export function measure` 会混入清单 |
+| 部分扫描污染趋势库 | `cleanup --ruleset cl|pf` 仍写 `scans` 记录（n_findings=0），`last_full_scan()` 取到虚假 0 项基准 → 报告趋势表与「环比上次全量」失真 | **已修**（2026-09-14）：`_is_full_coverage(mode, ruleset)` 统一 `save_scan` 与 `_maintain_baseline` 口径；分析型单规则集扫描不再入库 |
+| 检测器修复 ≠ 真实清偿 | 修复误报后同批 fingerprint 从基线消失，被记为 `fixed`，会虚高「存量清偿率」 | 统计与复盘时须扣除「修复导致的消失」数量；本轮为 71（OE-06 跨行）+ 1（别名）+ 3（PF-01 头部）= 75 项 |
 
 ---
 
@@ -402,3 +409,75 @@ cleanup 复扫清理项 0。**
 **能力缺口（新增）**：CL 规则**不检查日志语句**，故「级别错用 / TRACE 遗留 / 热循环内 INFO」
 这类问题只能靠人工或外部工具发现 —— 建议新增 `CL-11 调试日志遗留`（热循环内 INFO/WARNING、
 `TRACE_`/`DEBUG_` 前缀但非 DEBUG 级别、硬编码 ticker 的 check 分支）。
+
+### 2026-09-14 · 全库全面清理复盘（范围：全仓；**只报告**，未删除任何生产代码）
+
+- **模式与规模**：全库 / 强度=只报告；376 文件 / 33,396 行 Python；CL 命中 **0** / PF 命中 214（含 PF-06 15）
+- **清理侧结论**：`CL-xx = 0`（既有存量已在 B1~B5 批次清完）。检测器自测 42 passed，
+  排除「检测器失效导致的假阴性」——**本轮无删除对象**。
+- **并集侧（quality_gate OE）**：OE 存量 **259 → 187**（−72）。本轮真正的产出不是新清单，
+  而是**修复了 3 类会产生错误删除建议的检测器缺陷**（详见「高频误报段」）。
+
+- **误报（工具报出、经核实不成立）**：
+  - `OE-06` 跨行 import：`_RE_IMPORT` 带 `^` 锚点按行匹配，`import {\n a,\n} from 'x'`
+    整条漏匹配 → 消费者未登记。`use-handoff-contracts.tsx` / `handoff-api.ts` / costview 的
+    `lib/*` 与 `types.ts` 全部因此入列：**158 项中 71 项**（45%）为误报，且 fix_hint 指示
+    「删除该导出及其实现」——照做会删掉活代码。修复后 `frontend/src/shared/**` 的
+    `publishMarketCandidates` / `fetchBrokerRecommendations` / `parseApiData` 等全部归位。
+  - `OE-06` 别名导入：`import { X as Y }` 记为消费 `Y`。`SettingsBoard.tsx:10` 的
+    `MarketBrokerMappingSection as MarketBrokerMappingComponent` 使活组件被判「真实零引用」。
+  - `OE-06` fix_hint 措辞：剩余 81 项「仅本文件使用」的导出，原措辞同样会误导成删实现。
+  - `PF-01` 头部迭代表达式：`for r in cursor.fetchall():` 的 `fetchall` 只求值一次，
+    却被 whole-loop walk 计入。9 项中 **3 项**误报（`bdib_health.py:139` / `fills.py:270` /
+    `raw_fills.py:113`，逐条核对 body/orelse 后确认 body 内无 IO）。
+
+- **工具缺陷（非规则误报，独立发现）**：`cleanup --ruleset <cl|pf>` 仍写 `scans` 趋势记录
+  （`n_findings=0`）→ `last_full_scan()` 取到虚假 0 项基准，实测到
+  「环比上次全量（…）: findings **0 → 217**」与趋势表 0 行。
+
+- **性能候选实测状态（本轮未新增实测，沿用历史结论并显式标注）**：
+  - 服务未运行（3000 / 5173 / 8001 / 8002 均无监听）→ py-spy / React Profiler 本轮不可用，
+    **PF-xx 一律维持「静态候选 · 待实测」**，不声称任何优化成果。
+  - `PF-03` 74 项**全为 low**（medium 已于 2026-09-10 实测清空至 0）；
+    `PF-07` 47 项已于 2026-09-10 用 MutationObserver 实测（317 次 mutation / 0 个 >50ms 长任务）
+    → **当前数据规模下不构成瓶颈**，属规模增长后的潜在项。
+  - `PF-06` 榜首 `_mktdata_subscription_loop`（热度 2688.4）**已不是性能问题**：代码确认
+    `enrichment.py:162-171` 已做 housekeeping 周期化节流，2026-09-11 实测空闲 CPU 14.4% → 0.2%；
+    热度分反映的是**结构复杂度**（CC 58 / 嵌套 12），与 OE-05 完全重合。
+  - `PF-06 ∩ OE-05` 同点交叉 **10 处**（`_evaluate_route_item`、`_validate_split_totals`、
+    `bloomberg/adapter.py:229 get_orders`、`connection.py:99 connect`、`_mktdata_subscription_loop`、
+    `_subscription_loop`、`_process_subscription_message`、`_process_route_message`、
+    `order_projections.py:18 enrich_orders`、`anomaly_query.py:343 query_anomaly_routes_page`）
+    → 两套规则集独立指向同一批函数，**信号强于任一单套**，建议按「可维护性拆分」立项，
+    而非按性能优化（后者须先有 profiler 证据）。
+  - `PF-04` 唯一项 `orders_execution.py:38 _parent_store` 经核实为**文档化的进程内 mock**
+    （文件头写明「replaced by real DB session in production」）→ 处置建议为 **suppress + 待办注释**，
+    而非加 LRU（加淘汰会改变 mock 语义）。
+
+- **分级偏差**：无。本轮未调整任何 `config.py` 阈值；`PF-01` 3 项误报原本被定为 **medium**，
+  说明「medium 不一定真」——再次印证静态候选必须实测。
+
+- **规则/阈值变更**：无阈值变更；实现层变更为
+  `frontend_light.py`（`_scan_multiline_clauses` + `_parse_source_names` / `_parse_binding_names` + fix_hint）、
+  `perf.py`（`_io_calls_in_executed`）、`cleanup/cli.py`（`_is_full_coverage`）。
+
+- **验证**：`pytest scripts/quality_gate/tests scripts/cleanup/tests` → **69 passed**（新增 5 个用例：
+  跨行 import / 跨行 re-export / 别名导入 / for 头部非 IO / while 条件仍判 IO + 部分扫描不入库）；
+  `quality_gate --quiet`：AP 违规 0 / OE 存量 187 / 债务 167.79h；
+  `cleanup --report`：清理项 0 / 性能项 199 / 热点 15 / 存量清偿率 44%。
+
+- **基线口径警示**：本轮 `fixed` 172 项中含 **75 项是「检测器修复导致的消失」**
+  （71 + 1 + 3），**不代表真实清偿**。历史同类修复（PF-03 的 21→1、PF-08 正则）
+  也应以同一口径扣除后再解读清偿率。
+
+- **未执行（需授权 / 需环境）**：① 任何生产代码删除（CL=0 无对象；OE 侧 5 项真实零引用
+  `monitoring-metrics.py::MetricNullReason`/`TcaMetricName`、
+  `settings-nav.test.tsx::measure`、`shared/lib/format-utils.ts::fmtPct`、
+  `shared/services/token-service.ts::getAuthHeaders`，与 81 项 export 冗余，全部待人工确认）；
+  ② PF-01 已实测确认的 6 项 N+1（`fills.py:353`、`bdib_health.py:179`、`report_aggregator.py:396`、
+  `report_dims.py:59`、`query_cli.py:189`、`quality_gate/store.py:107`）的改写与 before/after 计时；
+  ③ 外部工具（knip / vulture / py-spy / EXPLAIN QUERY PLAN）。
+
+- **遗留提示**：`OE-06` 仍存在「同文件使用型」误报（见遗漏候选段）；
+  `cleanup` 趋势库中留有一次 `--ruleset cl` 造成的 0 项历史记录（口径已修，历史行未清理）。
+

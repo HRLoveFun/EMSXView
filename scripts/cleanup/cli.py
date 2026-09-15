@@ -93,7 +93,10 @@ def _run_scan(args: argparse.Namespace) -> int:
         known = store.load_open_fingerprints("oe")
         result = _build_result(trigger, mode, ctx, findings,
                               round(time.monotonic() - start, 2))
-        store.save_scan(result)
+        if _is_full_coverage(mode, args.ruleset):
+            # 规则集过滤 / staged 属于部分覆盖，写入趋势库会让「环比上次全量」
+            # 与报告趋势表出现虚假的 0 项基准（同 _maintain_baseline 的口径）。
+            store.save_scan(result)
         store.upsert_baseline(findings)
         fixed = _maintain_baseline(store, mode, args.ruleset, findings)
         new_ids = {f.fingerprint for f in findings if f.is_new(known)}
@@ -162,10 +165,19 @@ def _drop_suppressed(store: GateStore, findings: list[Finding]) -> list[Finding]
     return [f for f in findings if f.fingerprint not in suppressed]
 
 
+def _is_full_coverage(mode: str, ruleset: str) -> bool:
+    """是否为「全量 + 全规则集」的完整覆盖扫描。
+
+    规则集过滤与 staged 均为部分覆盖：其结果不得进入趋势库，
+    否则「环比上次全量」与报告趋势表会出现虚假基准。
+    """
+    return mode == "full" and ruleset == "all"
+
+
 def _maintain_baseline(store: GateStore, mode: str, ruleset: str,
                        findings: list[Finding]) -> int:
     """完整扫描标记清偿；部分扫描（规则集过滤）覆盖面不全故跳过。"""
-    if mode != "full" or ruleset != "all":
+    if not _is_full_coverage(mode, ruleset):
         return 0
     return store.mark_fixed_missing({f.fingerprint for f in findings})
 
