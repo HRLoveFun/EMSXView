@@ -822,7 +822,7 @@ def _render_coverage_table(
     return f"""
 <h2>指标覆盖率（%）<span style="font-size:11px;color:#5f7186">　* = 依赖 BDIB 行情；单元格＝原始 / SLA；虚线框＝结构性必然 NULL；暗红行＝BDIB 缺口日</span></h2>
 <div class="panel" style="overflow-x:auto;max-height:420px;overflow-y:auto">
-<div class="meta">原始覆盖率分母为全部路由；SLA 覆盖率剔除结构内必然 NULL（收盘竞价 / 单笔成交）。{_esc(overall_note)}</div>
+<div class="meta">原始覆盖率分母为全部路由；SLA 覆盖率剔除结构内必然 NULL（收盘竞价 / 单笔成交）；单元格底色按 SLA 口径（SLA 无值时回退原始口径）。{_esc(overall_note)}</div>
 <table><thead><tr><th class="l">日期</th><th>routes</th>{header}</tr></thead>
 <tbody>{''.join(body_rows)}</tbody></table></div>"""
 
@@ -969,7 +969,9 @@ def _coverage_cell(
     """
     if pct is None and sla_pct is None:
         return '<td style="color:#5f7186">-</td>'
-    style = f"background:{_coverage_bg(pct if pct is not None else sla_pct)}"
+    # 底色由 SLA 口径决定：SLA 无值（SLA 分母为 0）时回退原始口径，避免整格失色
+    bg_pct = sla_pct if sla_pct is not None else pct
+    style = f"background:{_coverage_bg(bg_pct)}"
     if expected_null:
         style += ";border:1px dashed #5f7186"
     title = f' title="NULL 原因：{_esc(reason)}"' if reason else ""

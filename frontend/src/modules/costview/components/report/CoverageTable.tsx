@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { MetricCoverageReport } from '../../types';
 
-/** 覆盖率单元格背景色（与 HTML 报告一致） */
+/** 覆盖率单元格背景色（与 HTML 报告一致）：按 SLA 口径着色，SLA 无值时回退原始口径 */
 function coverageBg(pct: number | null): string {
   if (pct == null) return '';
   if (pct >= 99.0) return 'bg-emerald-900/40';
@@ -21,7 +21,7 @@ export function CoverageTable({ coverage }: { coverage?: MetricCoverageReport | 
         <CardTitle className="text-sm">
           指标覆盖率（%）
           <span className="ml-2 text-[10px] text-muted-foreground">
-            * = 依赖 BDIB 行情；单元格＝原始 / SLA（悬停查看 NULL 原因）
+            * = 依赖 BDIB 行情；单元格＝原始 / SLA（底色按 SLA，悬停查看 NULL 原因）
             {overall?.coverage != null
               ? `；整体 原始 ${overall.coverage.toFixed(2)}% / SLA ${overall.sla_coverage?.toFixed(2) ?? '—'}%`
               : ''}
@@ -57,7 +57,7 @@ export function CoverageTable({ coverage }: { coverage?: MetricCoverageReport | 
                     return (
                       <td
                         key={m}
-                        className={`py-0.5 pr-2 text-right ${coverageBg(v)}`}
+                        className={`py-0.5 pr-2 text-right ${coverageBg(sla ?? v)}`}
                         title={reason ? `NULL 原因：${reason}` : undefined}
                       >
                         {text}
