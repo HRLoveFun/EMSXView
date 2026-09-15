@@ -55,7 +55,7 @@
 - BDIB 缺口附录的缺口成交金额与 KPI **同源换算**（`fill_bdib` 回填 + 小计价单位修正 + 逐行换算）；缺汇率的路由不计入 USD 金额，其本币金额单列披露为「未换算金额」（缺口低估规模可见）
 - 区间内 **TCA 整日缺失**（有成交但无 TCA 汇总，管道 S5.5 未产出）经差集检测自动定位，在报告头数据质量区披露并在覆盖率表橙底行高亮 —— 该情形此前对走势/覆盖率/附录三处交叉验证全体失明
 - **SLA 覆盖率分母**对 `bdib_missing` 类指标剔除「BDIB 缺口路由」（有成交但核心 BDIB 依赖指标全 NULL）；纯竞价豁免分母含零成交路由 —— SLA 口径自此隔离管道缺口波动，与原始口径保持区分度
-- 按日走势仅含「有数据交易日」（**不补零**，避免把无数据伪装成零成本），并标注覆盖天数；缺失定位见覆盖率表与数据质量提示
+- 按日走势为**双轴 + 零轴 + 真实刻度**（左轴 pnl_vwap 对称含零轴；右轴 par_rate 零锚定；市场金额趋势零锚定）—— 此前各自独立归一且无刻度，负成本区间会得出相反结论；仅含「有数据交易日」（**不补零**），并标注覆盖天数；缺失定位见覆盖率表与数据质量提示
 - 异常规则键为 `pnl_vwap_bps`（语义 = `|pnl_vwap|` 阈值；原名 `tracking_error_bps` 已弃用，旧键仍兼容读取）
 
 ## 四、维护约定
@@ -233,14 +233,24 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
   NULL 集合完全重合）。需在生产数据跑同样校验（对比 `bdib_gap_routes` 与 bdib_missing 指标
   NULL 集合）后，方可把「超预期精度」升级为台账正式结论。
 
-### 仍待处理（P1-b / P2）
+### 2026-09-15 — 第九轮（P1-b 呈现层：双轴零轴 / 节流披露 / 脚注扩展 / 小多图共享域）
 
-- **异常明细节流未披露（D6，P1-b）**：`min_fill_count` / `min_notional_usd` 排除的条数仍未回传 —— 返回签名
-  `(rows, total) → +throttle_stats` 属跨模块变更，P1-b 按向后兼容可选第三返回值实施。
-- **呈现层可解释性（D1，P1-b；D3，P2）**：按日走势仍各自归一化且无刻度/零轴（DP-5 轴锚定规则已定稿，
-  落 `REPORT_SPEC["chart_axis"]` + SVG 零轴护栏测试随 P1-b 实施）；直方图仍为等宽分桶。
-- **P1-b 追加（第八轮复核归入）**：F-c `footer_text()` 按绑定 SPEC 常量扩展七项新声明
-  （归档口径自证缺口）；F-d PWP 小多图共享统一 y 域 + 聚合面板接入 `_weight_note`（与 D1 轴策略同批）。
+| # | 缺陷 | 处理 |
+|---|------|------|
+| P1-6 | D1：按日双折线各自独立归一、无零轴、无刻度 —— 负成本区间最优点被映射到底部（读者得出相反结论），离线归档无通道还原真实数值 | ✅ 已修：`_svg_daily_series` 重写为双轴 + 零轴 + 5 档真实刻度（DP-5 硬规则：左轴 pnl_vwap 对称含零、零轴虚线强调；右轴 par_rate 零锚定 [0, max×1.1]）；市场金额趋势改零锚定（min 锚定的 5% 伪波动消除）；`chart_axis` 落 SPEC 并与渲染层 `REPORT_SPEC_CHART_TICKS` 绑定；SVG 产物护栏断言零轴虚线/负刻度/「最负点在底部」 |
+| P1-7 | D6：`min_fill_count` / `min_notional_usd` 的排除量发生在循环内不进任何返回字段，读者无从得知异常清单被截取多少 | ✅ 已修：新增 `query_anomaly_routes_page_ex` 返回 `(rows, total, throttle_stats)`（阈值命中 / 笔数剔除 / 金额剔除 / 豁免 / fill_count 缺失标记），旧二元签名保留为兼容包装（一个版本周期）；双解包点（`query_anomaly_routes` 内部、`build_report`）同 PR 改造并同测；payload 增 `anomaly.throttle`，明细 notes 区披露「异常节流：…」 |
+| P1-8 | F-c：`footer_text()` 未随 P0/P1 扩展，七项新增 SPEC 声明不进归档脚注，口径自证出现缺口 | ✅ 已修：新增 `_p0_p1_footer_clauses()`，排行门槛 / PWP 加权 / 金额门槛 / gt200 分档 / 冲击分母 / 缺口金额 / TCA 检测 / 轴策略全部由 SPEC 绑定常量插值生成（不手写数值）；护栏断言脚注含各绑定值 |
+| P1-9 | F-d：PWP 小多图各面板独立 y 缩放（跨市场视觉比较失效）；聚合面板未渲染 PWP 各档覆盖 note | ✅ 已修：`_svg_pwp_curve` 增可选 `domain` 参数（缺省独立归一，聚合面板不受影响），小多图跨面板共享 y 域；新增 `_pwp_coverage_note`（五档任一覆盖不足即提示最差权重覆盖） |
+| 流程 | SPEC_VERSION 未随 F-a 口径修正 bump：#31 与 #33 共用 2026.09.4，#31 归档 HTML 的 USD 展示列与 #33 后产出不同，同版本号不同产出 | ✅ 已修：`SPEC_VERSION` → **2026.09.5**。**#31 归档例外**：该期间归档的 HTML 在 Amount 缺失路由上 USD 展示列为 fill×p_avg 估算值（F-a 修复前口径），#33 起为 Amount 权威口径（缺失显示 "-"）；#31 归档报告无法凭版本号自证该口径，需按生成日期判读 |
+
+护栏：`CostView/tests/test_report_metrics.py`（`TestChartAxisPolicy` / `TestAnomalyThrottleDisclosure` /
+`TestReportSpec.test_footer_covers_p0_p1a_p1b_declarations` /
+`test_chart_axis_policy_binds_implementation`）；双解包点覆盖：
+`test_throttle_stats_counted`（新签名）/ `test_legacy_two_tuple_signature_still_works`（旧签名兼容）/
+`test_build_report_discloses_throttle`（第二解包点 + 渲染披露）。
+
+### 仍待处理（P2）
+- **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
 - **金额列展示根因**：展示列仍为 Amount（权威列）；超差（>0.5%）的路由根因需写入方（独立仓库
   EMSXDataPipeline）排查，本仓库以探针持续披露。

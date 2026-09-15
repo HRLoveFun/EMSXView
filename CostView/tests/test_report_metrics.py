@@ -36,6 +36,7 @@ from CostView.src.monitoring import (
     get_health_safe,
     query_anomaly_routes,
     query_anomaly_routes_page,
+    query_anomaly_routes_page_ex,
     render_report_html,
     report_aggregator,
     report_spec,
@@ -834,6 +835,48 @@ class TestReportSpec:
         assert str(report_spec.REPORT_SPEC["anomaly_row_limit"]) in text
         assert report_spec.REPORT_SPEC["known_limitations_doc"] in text
 
+    def test_footer_covers_p0_p1a_p1b_declarations(self):
+        """F-c：脚注由 SPEC 绑定常量插值覆盖 P0/P1 新增口径（归档自证完整）。"""
+        spec = report_spec.REPORT_SPEC
+        text = report_spec.footer_text()
+
+        # D4 排行门槛（双维）
+        assert f"n≥{spec['ranking_min_sample']}" in text
+        assert f"{spec['ranking_min_notional_share'] * 100:.1f}%" in text
+        # D5 PWP 加权与小多图
+        assert f"pwp_weight_mode={spec['pwp_weight_mode']}" in text
+        assert f"Top {spec['pwp_by_exchange_top_markets']}" in text
+        # D7 门槛口径 + D17 分档
+        assert spec["anomaly_notional_gate"] in text
+        assert f"{spec['order_par_critical_gt'] * 100:.0f}%" in text
+        # D15 分母 + P0 缺口金额 / TCA 检测 / D1 轴策略
+        assert spec["impact_truncated_share_denominator"] in text
+        assert "未换算金额" in text
+        assert "差集检测" in text
+        assert spec["chart_axis"]["pnl_vwap"] in text
+
+    def test_chart_axis_policy_binds_implementation(self):
+        """D1 / DP-5：轴锚定规则的声明与渲染层常量绑定。"""
+        from CostView.src.monitoring.tca_report_html import (
+            REPORT_SPEC_CHART_TICKS,
+        )
+
+        assert (
+            report_spec.REPORT_SPEC["chart_axis"]["ticks_per_axis"]
+            == REPORT_SPEC_CHART_TICKS
+        )
+        assert (
+            report_spec.REPORT_SPEC["chart_axis"]["pnl_vwap"]
+            == "symmetric-around-zero"
+        )
+        assert (
+            report_spec.REPORT_SPEC["chart_axis"]["par_rate"] == "zero-anchored"
+        )
+        assert (
+            report_spec.REPORT_SPEC["chart_axis"]["market_notional"]
+            == "zero-anchored"
+        )
+
     def test_report_spec_matches_measure_layer(self):
         """口径声明与 report_measure 实现常量一致（防「声明-实现」漂移）。"""
         from CostView.src.monitoring.tca_report_html import (
@@ -1583,3 +1626,151 @@ class TestImpactTruncatedShare:
             report_spec.REPORT_SPEC["impact_truncated_share_denominator"]
             == report_aggregator.IMPACT_TRUNCATED_SHARE_DENOMINATOR
         )
+
+
+class TestChartAxisPolicy:
+    """D1 / DP-5：双轴 + 零轴 + 真实刻度（SVG 产物护栏）。"""
+
+    @staticmethod
+    def _text_y_by_value(svg: str) -> dict[float, float]:
+        """从 PWP/曲线数值标签提取 值 → y 坐标 映射（SVG y 向下增长）。"""
+        import re
+
+        return {
+            float(v): float(y)
+            for y, v in re.findall(
+                r'<text x="[\d.]+" y="([\d.]+)" fill="#9fb3c8"[^>]*>'
+                r"(-?\d+\.\d+)</text>",
+                svg,
+            )
+        }
+
+    def test_daily_series_has_zero_axis_and_ticks(self):
+        """零轴虚线元素 + 双轴真实刻度值存在（护栏：声明与实现不漂移）。"""
+        from CostView.src.monitoring.tca_report_html import _svg_daily_series
+
+        series = [
+            {"date": "20260803", "weighted_pnl_vwap": -8.0, "avg_par_rate": 0.2},
+            {"date": "20260804", "weighted_pnl_vwap": -2.0, "avg_par_rate": 0.4},
+        ]
+        svg = _svg_daily_series(series)
+
+        assert "stroke-dasharray" in svg          # 零轴虚线
+        assert "-8.8" in svg                       # 左轴负刻度（对称域）
+        assert ">0.0</text>" in svg                # 右轴零锚定刻度
+        assert "加权 pnl_vwap" in svg and "平均 par_rate" in svg
+
+    def test_negative_only_series_keeps_optimum_at_bottom(self):
+        """全程为负的成本线：最优点（最负）靠近画布底部而非顶部（误读修复）。"""
+        import re
+
+        from CostView.src.monitoring.tca_report_html import _svg_daily_series
+
+        series = [
+            {"date": "20260803", "weighted_pnl_vwap": -2.0, "avg_par_rate": None},
+            {"date": "20260804", "weighted_pnl_vwap": -8.0, "avg_par_rate": None},
+        ]
+        svg = _svg_daily_series(series)
+        pts = [
+            tuple(float(v) for v in pair.split(","))
+            for pair in re.findall(r'points="([^"]+)"', svg)[0].split()
+        ]
+
+        # SVG y 向下增长：最负点（-8）的 y 必须大于 -2 的 y（底部 = 优）
+        assert pts[1][1] > pts[0][1]
+
+    def test_market_trend_zero_anchored(self):
+        """市场金额趋势零锚定：5% 日间波动不再被放大成暴跌（伪波动消除）。"""
+        import re
+
+        from CostView.src.monitoring.tca_report_html import _svg_market_trend
+
+        points = [
+            {"date": "20260803", "exchange": "US", "notional_usd": 1_000_000.0},
+            {"date": "20260804", "exchange": "US", "notional_usd": 950_000.0},
+        ]
+        svg = _svg_market_trend(points)
+        coords = [
+            tuple(float(v) for v in pair.split(","))
+            for pair in re.findall(r'points="([^"]+)"', svg)[0].split()
+        ]
+        y1, y2 = coords[0][1], coords[1][1]
+
+        # 旧口径（min 锚定）下两点的 y 差为整个绘图高（~212px）；零锚定后 ~10px
+        assert abs(y2 - y1) < 30
+
+    def test_pwp_small_multiples_share_domain(self):
+        """F-d：小多图各面板共享 y 域（跨市场视觉比较成立）。"""
+        from CostView.src.monitoring.tca_report_html import _render_pwp_small_multiples
+
+        markets = [
+            {"exchange": "US", "name": "美国",
+             "curve": [{"rate": 5, "avg_pwp": 1.0}, {"rate": 10, "avg_pwp": 2.0}]},
+            {"exchange": "HK", "name": "香港",
+             "curve": [{"rate": 5, "avg_pwp": 9.0}, {"rate": 10, "avg_pwp": 10.0}]},
+        ]
+        y_by_value = self._text_y_by_value(_render_pwp_small_multiples(markets))
+
+        # 共享域 [1,10]：US 面板的 2.0 必须显著低于 HK 面板的 9.0
+        # （独立归一时 2.0 在 US 面板底部、9.0 在 HK 面板顶部，高度不可比）
+        assert y_by_value[2.0] > y_by_value[9.0]
+
+
+class TestAnomalyThrottleDisclosure:
+    """D6：异常节流统计回传与披露。"""
+
+    @staticmethod
+    def _rows():
+        return [
+            # 入选：critical 命中 + 笔数/金额过门槛
+            {"OrderId": "H1", "pnl_vwap": -30.0, "fill_count": 20,
+             "fill": 900.0, "p_avg": 150.0},
+            # 笔数下限剔除
+            {"OrderId": "H2", "pnl_vwap": -30.0, "fill_count": 2,
+             "fill": 900.0, "p_avg": 150.0},
+            # 金额下限剔除（Amount=100 → 门槛口径 100 < 10000）
+            {"OrderId": "H3", "pnl_vwap": -30.0, "fill_count": 20,
+             "fill": 900.0, "p_avg": 150.0, "Amount": 100.0},
+            # 严重未完成豁免（fill_pct critical）→ 入选且不计门槛
+            {"OrderId": "Z1", "fill": None, "RouteShares": 1000.0,
+             "pnl_vwap": -2.5},
+        ]
+
+    def test_throttle_stats_counted(self, tca_mgr_factory):
+        mgr = tca_mgr_factory(self._rows(), with_fx=True)
+        rows, total, throttle = query_anomaly_routes_page_ex(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=10, min_notional_usd=10000.0,
+        )
+
+        assert total == 2
+        assert {r.order_id for r in rows} == {"H1", "Z1"}
+        assert throttle["threshold_hits"] == 4
+        assert throttle["excluded_by_fill_count"] == 1
+        assert throttle["excluded_by_notional"] == 1
+        assert throttle["floor_exempted"] == 1
+        assert throttle["fill_count_column_missing"] is False
+
+    def test_legacy_two_tuple_signature_still_works(self, tca_mgr_factory):
+        """旧二元解包签名保留一个版本周期（复核接线提醒：双解包点同测）。"""
+        mgr = tca_mgr_factory(self._rows(), with_fx=True)
+        rows, total = query_anomaly_routes_page(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=10, min_notional_usd=10000.0,
+        )
+
+        assert total == 2
+        assert len(rows) == 2
+
+    def test_build_report_discloses_throttle(self, tca_mgr_factory):
+        """payload 携带 throttle，渲染层在明细 notes 区披露。"""
+        mgr = tca_mgr_factory(self._rows(), with_fx=True)
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_fill_count=10, min_notional_usd=10000.0,
+        )
+        html = render_report_html(report, None, "2026-09-15 10:00:00")
+
+        assert report["anomaly"]["throttle"]["excluded_by_fill_count"] == 1
+        assert "异常节流" in html
+        assert "笔数下限剔除 1 条" in html
+        assert "严重未完成豁免 1 条" in html

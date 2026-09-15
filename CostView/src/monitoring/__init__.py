@@ -41,6 +41,7 @@ from .anomaly_query import (
     get_default_thresholds,
     query_anomaly_routes,
     query_anomaly_routes_page,
+    query_anomaly_routes_page_ex,
 )
 from .report_measure import (
     ReportScope,
@@ -73,6 +74,7 @@ __all__ = [
     "ANOMALY_RULE_META",
     "query_anomaly_routes",
     "query_anomaly_routes_page",
+    "query_anomaly_routes_page_ex",
     "export_anomaly_rows_csv",
     "ReportScope",
     "resolve_scope",

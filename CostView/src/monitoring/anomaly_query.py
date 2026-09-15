@@ -412,6 +412,38 @@ def query_anomaly_routes_page(
 ) -> tuple[list[AnomalyRoute], int]:
     """查询筛选范围内命中阈值（warning 档及以上）的路由，返回 (明细, 命中总数)。
 
+    D6 兼容包装：二元解包签名保留一个版本周期（P1-b 复核接线提醒 ——
+    ``query_anomaly_routes`` 与既有消费方按二元解包，直接改三元会同步崩）；
+    需要节流统计（阈值命中 / 门槛剔除量披露）时请用
+    :func:`query_anomaly_routes_page_ex`。
+    其余参数语义见 :func:`query_anomaly_routes_page_ex`。
+    """
+    routes, total, _ = query_anomaly_routes_page_ex(
+        mgr, start_date, end_date, rules,
+        broker=broker, algo=algo, symbol=symbol, exchange=exchange,
+        min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
+        limit=limit, scope=scope,
+    )
+    return routes, total
+
+
+def query_anomaly_routes_page_ex(
+    mgr: ConnectionManager,
+    start_date: str,
+    end_date: str,
+    rules: ThresholdRules,
+    *,
+    broker: Optional[str] = None,
+    algo: Optional[str] = None,
+    symbol: Optional[str] = None,
+    exchange: Optional[str] = None,
+    min_fill_count: int = 10,
+    min_notional_usd: float = 10000.0,
+    limit: Optional[int] = None,
+    scope: Optional[rm.ReportScope] = None,
+) -> tuple[list[AnomalyRoute], int, dict[str, Any]]:
+    """查询异常路由并返回 (明细, 命中总数, 节流统计)（D6 / DP 定稿口径）。
+
     broker/algo/symbol 支持逗号分隔多值（IN 匹配，与聚合器共用 report_measure 实现）；
     scope 为报告作用域（默认取 BDIB 白名单，与 KPI / 覆盖率 / 健康扫描同一口径）。
     min_fill_count：异常路由填充笔数下限（默认 10）。仅对 algo <> "close" 的路由生效——
@@ -419,13 +451,16 @@ def query_anomaly_routes_page(
     **fill_pct 命中 critical（严重未完成，含零成交）的路由豁免该下限**：该档的目标样本
     恰是低完成率路由，用笔数下限过滤会把「完全未执行」这一最严重情形整体剔除。
     min_notional_usd：异常路由成交金额(USD)下限（默认 10000），对全部路由生效——
-    无法换算 USD（fx 缺失）或金额低于下限的路由不计入异常清单；严重未完成路由同样豁免
+    金额按门槛口径（COALESCE(Amount, fill×p_avg)×汇率）判定；严重未完成路由同样豁免
     （零成交路由 Amount 为 0，否则会被金额门槛二次屏蔽）。
     fill_count 列缺失（旧 schema）时下限不可评估，此时 fail-open 并记录告警，
     不静默清空清单。
+    节流统计（throttle_stats）：阈值命中数、笔数/金额下限剔除量、豁免量、
+    fill_count 列缺失标记 —— 此前这些排除发生在循环内不进任何返回字段，读者
+    无从得知异常清单被截取了多少（D6）。
     明细按「严重度优先 + pnl_vwap 升序」排序（critical 在前，同档内成本由劣到优）；
     limit 截断的是**排序后**的前 N 条，因此截断样本无偏（必为最严重的 N 条）。
-    表不存在时返回 ([], 0)。
+    表不存在时返回 ([], 0, 空 stat)。
     """
     conn = None
     try:
@@ -435,7 +470,7 @@ def query_anomaly_routes_page(
             [Config.TCA_ROUTE_SUMMARY_TABLE],
         )
         if cursor.fetchone() is None:
-            return [], 0
+            return [], 0, _empty_throttle()
 
         # fx_rate 列在旧库可能缺失（向后兼容）：缺失时以 NULL 占位，USD 不换算。
         has_fx = _has_column(conn, Config.TCA_ROUTE_SUMMARY_TABLE, "fx_rate")
@@ -493,7 +528,7 @@ def query_anomaly_routes_page(
         rows = [dict(zip([d[0] for d in cursor.description], r)) for r in cursor.fetchall()]
     except FileNotFoundError:
         # 只读模式下 fill_bdib.db 缺失 → 无异常路由（与表缺失同语义, 009）
-        return [], 0
+        return [], 0, _empty_throttle()
     finally:
         if conn is not None:
             conn.close()
@@ -505,6 +540,16 @@ def query_anomaly_routes_page(
             "异常清单不做笔数过滤（fail-open，避免静默清空）",
             min_fill_count,
         )
+
+    # 节流统计（D6）：排除量此前发生在循环内不进任何返回字段，读者无从得知
+    # 异常清单被截取了多少；现逐层计数并随返回值披露
+    throttle: dict[str, Any] = {
+        "threshold_hits": 0,
+        "excluded_by_fill_count": 0,
+        "excluded_by_notional": 0,
+        "floor_exempted": 0,
+        "fill_count_column_missing": bool(min_fill_count > 0 and not has_fill_count),
+    }
 
     results: list[AnomalyRoute] = []
     for row in rows:
@@ -530,12 +575,16 @@ def query_anomaly_routes_page(
         hits = evaluate_route_thresholds(row, rules)
         if not hits:
             continue
+        throttle["threshold_hits"] += 1
         exempt = rm.is_floor_exempt(hits)
+        if exempt:
+            throttle["floor_exempted"] += 1
         # 填充笔数下限过滤：仅对 algo <> "close" 的路由生效（下限为 0 或列缺失时关闭）
         algo_value = (row.get("algo") or "")
         if floor_active and not exempt and algo_value != "close":
             fc = _to_int(row.get("fill_count"))
             if fc is None or fc < min_fill_count:
+                throttle["excluded_by_fill_count"] += 1
                 continue
         amount = _to_float(row.get("Amount"))
         # 展示与门槛分离（D7 / DP-3）：展示列取 Amount 权威口径（缺失 → None），
@@ -546,6 +595,7 @@ def query_anomaly_routes_page(
         if min_notional_usd > 0 and not exempt and (
             notional_gate is None or notional_gate < min_notional_usd
         ):
+            throttle["excluded_by_notional"] += 1
             continue
         results.append(AnomalyRoute(
             order_id=str(row.get("OrderId") or ""),
@@ -587,7 +637,18 @@ def query_anomaly_routes_page(
     total = len(results)
     if limit is not None:
         results = results[: max(0, limit)]
-    return results, total
+    return results, total, throttle
+
+
+def _empty_throttle() -> dict[str, Any]:
+    """空节流统计（表缺失 / 库缺失路径；计数语义与正常路径一致）。"""
+    return {
+        "threshold_hits": 0,
+        "excluded_by_fill_count": 0,
+        "excluded_by_notional": 0,
+        "floor_exempted": 0,
+        "fill_count_column_missing": False,
+    }
 
 
 def _to_float(value: Any) -> Optional[float]:
