@@ -3,7 +3,8 @@
 供 HTML 报告 S6 异常路由明细表使用，判定口径与前端
 ``frontend/src/modules/costview/lib/thresholds.ts`` 完全对齐：
 - 规则键 → 指标字段映射（getMetricValue 同款）
-- mode：absolute-above / above / below（evaluateThreshold 同款）
+- mode：absolute-above / above / above-strict / below（evaluateThreshold 同款；
+  above-strict 为严格大于，边界值不算越界，供「数据矛盾」探针使用）
 - 默认阈值 = 前端 DEFAULT_RULES 同值（两处常量，注释互引）
 
 作用域 / 维度过滤（多值 IN）/ 订单级聚合 / 金额换算统一引用 ``report_measure``
@@ -45,6 +46,8 @@ _METRIC_MAP: dict[str, tuple[str, float]] = {
     "price_movement_pct": ("rpm", 1.0),
     # 数据质量探针（013）：完成率超过 100% / 订单参与率求和超过 100% 均属数据矛盾，
     # 此前被展示层封顶掩盖，现作为独立规则纳入异常判定，不再静默放过。
+    # overfill_pct 走 above-strict（严格大于）：完成率恰为 100.0% 属正常「成交满」，
+    # 只有真正越界（fill > RouteShares）才算矛盾 —— 与 AnomalyRoute.overfill 同界。
     "overfill_pct": ("completion_rate", 100.0),
     "order_par_gt100": ("order_par_rate", 100.0),
 }
@@ -63,7 +66,7 @@ _RULE_LABELS: dict[str, str] = {
     "volume_pct_interval": "Vol % Interval",
     "intraday_volatility": "Intraday Vol",
     "price_movement_pct": "Price Move",
-    "overfill_pct": "Overfill %",
+    "overfill_pct": "Overfill",
     "order_par_gt100": "Order Par >100%",
 }
 
@@ -83,8 +86,8 @@ _RULE_UNITS: dict[str, str] = {
 #: 本地 DEFAULT_RULES 仅作离线兜底。调整阈值只需改此处）。
 #: 双档语义（修订 ADR-0015）：``warning`` 为「进入异常清单」的边界（覆盖范围与该
 #: ADR 单档时期保持一致），``critical`` 仅用于分级标注，不改变清单覆盖范围。
-#: below 模式下 critical < warning（更严格），above/absolute-above 模式下
-#: critical > warning。
+#: below 模式下 critical < warning（更严格），above / absolute-above / above-strict
+#: 模式下 critical > warning；above-strict 与 above 同序，但边界值不算越界。
 DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     "pnl_vwap_bps": {
         "mode": "absolute-above", "warning": 10, "critical": 25, "enabled": True},
@@ -96,15 +99,18 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
         "mode": "above", "warning": 2.5, "critical": 4, "enabled": True},
     "price_movement_pct": {
         "mode": "absolute-above", "warning": 1, "critical": 2.5, "enabled": True},
-    # 数据质量探针：超过 warning 档即入清单，超过 critical 档标注为严重
-    "overfill_pct": {"mode": "above", "warning": 100, "critical": 110, "enabled": True},
+    # 数据质量探针：above-strict（严格大于 100%）—— 完成率恰为 100% 属正常成交满，
+    # 只有真正超成交（fill > RouteShares）才入清单，与 AnomalyRoute.overfill 同界
+    "overfill_pct": {
+        "mode": "above-strict", "warning": 100, "critical": 110, "enabled": True},
+    # 订单参与率求和：仍为 above（含边界）—— 其边界语义单独评估，见 known-limitations §五
     "order_par_gt100": {
         "mode": "above", "warning": 100, "critical": 200, "enabled": True},
 }
 
 #: 合法的比较模式白名单（P2-6：payload 内 mode 缺失或非法时 fail-fast，
 #: 此前任意字符串会被静默按 above 处理，阈值语义被无声改变）
-_VALID_MODES: tuple[str, ...] = ("absolute-above", "above", "below")
+_VALID_MODES: tuple[str, ...] = ("absolute-above", "above", "above-strict", "below")
 
 #: 规则键重命名迁移（014）：旧 payload 键 → 新键（旧前端 / 旧配置兼容）
 _LEGACY_RULE_KEYS: dict[str, str] = {"tracking_error_bps": "pnl_vwap_bps"}
@@ -207,6 +213,15 @@ class ThresholdRules:
 _SEVERITY_RANK: dict[str, int] = {"critical": 0, "warning": 1, "none": 2}
 
 
+def _exceeds(value: float, bound: float, strict: bool) -> bool:
+    """越界判定：``strict`` 为 True 时用严格大于（边界值不算越界）。
+
+    ``above`` 用 ``>=``、``above-strict`` 用 ``>``，共用同一条告警路径，
+    避免严格语义被写成第二份分支而在两处漂移。
+    """
+    return value > bound if strict else value >= bound
+
+
 def _evaluate_rule(
     rule: dict[str, Any], raw_value: Optional[float],
 ) -> str:
@@ -214,7 +229,8 @@ def _evaluate_rule(
 
     进入异常清单的边界为 ``warning`` 档（与 ADR-0015 单档时期的覆盖范围一致）；
     ``critical`` 档仅用于分级标注，不改变清单覆盖范围。below 模式下两档关系
-    相反（critical 阈值更小、更严格）。
+    相反（critical 阈值更小、更严格）；above-strict 与 above 同序，仅「恰好等于
+    阈值」（如完成率 100.0%）不算越界。
     """
     if not rule.get("enabled", True) or raw_value is None:
         return "none"
@@ -226,9 +242,10 @@ def _evaluate_rule(
         if value <= critical:
             return "critical"
         return "warning" if value <= warning else "none"
-    if value >= critical:
+    strict = mode == "above-strict"
+    if _exceeds(value, critical, strict):
         return "critical"
-    return "warning" if value >= warning else "none"
+    return "warning" if _exceeds(value, warning, strict) else "none"
 
 
 def _worst_severity(hits: list[dict[str, Any]]) -> str:

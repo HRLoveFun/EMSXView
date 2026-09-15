@@ -109,6 +109,19 @@
 
 **登记新增待办**：前端异常明细表未渲染 HTML 侧既有的「超成交 / >100%」标记（`TcaAnomalyRow.overfill` / `order_par_gt100` 字段已具备）。数值信号已由 G2 恢复（>100% 不再被封顶），标记属呈现增强，排 P2。
 
+### 2026-09-15 — 第五轮（异常规则边界与标签修订）
+
+| # | 发现 | 影响 | 处理 |
+|---|------|------|------|
+| H1 | `overfill_pct` 为 `above 100`（含边界），而 `AnomalyRoute.overfill` 为严格 `fill > RouteShares` | 完成率恰为 100.0%（正常成交满，占多数）的路由带 `Overfill % 100.0%` 标签进入异常清单，但 `overfill` 为 `False` —— 标签语义与实际含义相反，属数据质量探针误报 | ✅ 已修：新增 `above-strict` 模式（严格大于），`overfill_pct` 改用之；100.0% 不再入清单，命中与 `overfill` 布尔标记同界；轻微超成交（100.1%）仍照旧捕获 |
+| H2 | 规则标签 `Overfill %` 自带 `%`，渲染层再补单位后缀 | 标签渲染为 `Overfill % 100.0%`（双 `%`），版面噪声且易读错 | ✅ 已修：标签改 `Overfill`，`%` 统一由单位后缀补（后端 `_RULE_LABELS` 与前端 `DEFAULT_RULES` 同改） |
+
+**登记新增待办**：`order_par_gt100` 仍为 `above 100`（含边界）—— 订单参与率求和恰为 100.0% 是否应入清单需单独评估（其「越界」语义与 `overfill` 不同：求和恰为 100% 在理论上即全部参与，是否算矛盾取决于业务定义），本次**未改**，避免口径被顺手改动。
+
+护栏：后端 `CostView/tests/test_report_metrics.py`（`TestOverfillRule.test_exact_full_fill_not_flagged` 与
+`test_overfill_flagged_and_hits` 的标签断言）；前端 `lib/thresholds.test.ts`
+（「treats overfill boundary as exclusive」，锁定标签、模式与四个边界取值）。
+
 **质量门报告入库策略（第四轮 §六.1）**：`scripts/reports/quality_gate/report-*.md` 已加入 `.gitignore` —— 生成物可再生，逐轮修复账本以本文件 §五 为准，避免双账本产生「哪份是真相」分叉；历史两份（20260821 / 20260825）保留在库内作为冻结快照。
 
 护栏：`CostView/tests/test_report_metrics.py`（`TestReportScopeUnified` / `TestWeightCoverageDisclosure` /

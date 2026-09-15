@@ -2,7 +2,8 @@ export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'report'
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 export type ExportScope = 'current-page' | 'all-filtered' | 'selected-order';
-type ThresholdMode = 'absolute-above' | 'above' | 'below';
+/** above-strict：严格大于（边界值不算越界，供数据质量探针使用） */
+type ThresholdMode = 'absolute-above' | 'above' | 'above-strict' | 'below';
 export type AlertSeverity = 'none' | 'normal' | 'warning' | 'critical';
 
 export type CostViewMetricKey =

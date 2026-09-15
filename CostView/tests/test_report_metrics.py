@@ -269,6 +269,9 @@ class TestOverfillRule:
         assert routes[0].overfill is True
         assert routes[0].completion_rate == pytest.approx(1.1)
         assert any(h["key"] == "overfill_pct" for h in routes[0].hits)
+        # 标签不含重复的 %（单位后缀由渲染层补），避免渲染出「Overfill % 110.0%」
+        labels = [h["label"] for h in routes[0].hits if h["key"] == "overfill_pct"]
+        assert labels == ["Overfill"]
 
     def test_normal_completion_not_flagged(self, tca_mgr_factory):
         """正常完成率不触发 overfill_pct（规则不误报）。"""
@@ -279,6 +282,19 @@ class TestOverfillRule:
         routes = _query_anomalies(mgr)
 
         assert len(routes) == 1
+        assert routes[0].overfill is False
+        assert not any(h["key"] == "overfill_pct" for h in routes[0].hits)
+
+    def test_exact_full_fill_not_flagged(self, tca_mgr_factory):
+        """完成率恰为 100% 属正常「成交满」：above-strict 不含等号，不误报数据矛盾。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "V1", "fill": 1000.0, "RouteShares": 1000.0,
+             "p_avg": 10.0, "pnl_vwap": -1.0, "par_rate": 0.1},
+        ])
+        routes = _query_anomalies(mgr)
+
+        assert len(routes) == 1
+        assert routes[0].completion_rate == pytest.approx(1.0)
         assert routes[0].overfill is False
         assert not any(h["key"] == "overfill_pct" for h in routes[0].hits)
 

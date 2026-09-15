@@ -27,7 +27,7 @@ CostView 报告（HTML 导出 / Monitoring）在评估指标层面暴露出一�
 
 ### 2. 数据质量规则显式化
 
-- 新增异常规则 `overfill_pct`（above 100）与 `order_par_gt100`（above 100），数据矛盾不再被静默放过。
+- 新增异常规则 `overfill_pct`（above-strict 100，严格大于；2026-09-15 修订见 §10.4）与 `order_par_gt100`（above 100），数据矛盾不再被静默放过。
 - 移除展示层封顶；`completion_rate > 1` 单元格附「超成交」标记。
 - `order_par_rate` 聚合键改为 `(OrderId, order_as_of_date, Exchange)`，避免跨市场求和失去物理意义。
 - 覆盖率服务新增一致性探针 `completion_consistency_pct` / `order_par_consistency_pct`（全量口径，供报告头「数据质量提示」区）。
@@ -172,6 +172,35 @@ HTML 导出已完整披露加权覆盖与统计范围，而网页 Report 页看�
 **仍待处理（前端）**：异常明细表未渲染 HTML 侧既有的「超成交 / >100%」标记
 （`overfill` / `order_par_gt100` 字段已具备；数值信号已由本节第 2 条恢复），已登记进
 `docs/report-tca-known-limitations.md` §五待办。
+
+### 10.4 异常规则边界与标签修订（2026-09-15 第五轮）
+
+**背景**：`overfill_pct` 自 §2 起为 `above 100`（含边界），而 `AnomalyRoute.overfill`
+布尔标记为严格 `fill > RouteShares`。两者在 100% 这个点上**语义不一致**：完成率恰为
+100.0%（正常成交满，占大多数）的路由既会带着 `Overfill % 100.0%` 标签进入异常清单，
+`overfill` 又为 `False` —— 标签语义与实际含义相反，属「数据质量探针误报」。
+另：该规则标签自带 `%`，渲染层再补单位后缀，输出为 `Overfill % 100.0%`（双 `%`）。
+
+**决策**：
+
+1. **新增 `above-strict` 模式**（严格大于，边界值不算越界）：`_VALID_MODES` 与前端
+   `ThresholdMode` 同步扩展，`_evaluate_rule` / `evaluateThreshold` 经同一「越界判定」
+   分支处理，不写第二份比较逻辑；Configure 的模式下拉新增 `Above (strict)`
+   （模式仍是用户可改的公开契约，改回 `above` 即恢复含边界语义，属显式选择）。
+2. **`overfill_pct` 改用 `above-strict`**（warning 100 / critical 110 不变）：完成率恰为
+   100.0% 不再入清单，其命中与 `AnomalyRoute.overfill` 布尔标记**同界**；
+   `fill > RouteShares` 的轻微超成交（如 100.1%）仍照旧捕获，临界档位不变。
+3. **标签 `Overfill %` → `Overfill`**：`%` 由渲染层的单位后缀统一补，消除双 `%`。
+   后端 `_RULE_LABELS` 与前端 `DEFAULT_RULES` 两处同改（后端为阈值真相源，前端保留
+   本地标签，故必须同步）。
+
+**影响面**：异常清单条数下降（此前被误报的「成交满」路由退出），是**收敛性**变更；
+`order_par_gt100` 的 `above 100`（含边界）**未改**，其边界语义单独评估（待办见
+`docs/report-tca-known-limitations.md` §五）。
+
+**护栏**：后端 `TestOverfillRule.test_exact_full_fill_not_flagged`（100% 不命中）+
+`test_overfill_flagged_and_hits` 的标签断言；前端 `thresholds.test.ts`
+「treats overfill boundary as exclusive」锁定标签、模式与四个边界取值。
 
 ## 后果 (Consequences)
 

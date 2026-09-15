@@ -82,6 +82,20 @@ describe('CostView thresholds', () => {
     expect(getHighestOrderSeverity(route, config)).toBe('warning');
   });
 
+  it('treats overfill boundary as exclusive (exactly 100% is a clean fill)', () => {
+    const config = createDefaultCostViewConfig();
+    const rule = config.rules.overfill_pct;
+
+    // 标签不再自带 %，避免与单位后缀组成「Overfill % 100.0%」
+    expect(rule.label).toBe('Overfill');
+    expect(rule.mode).toBe('above-strict');
+    // 边界均不含等号：100% 属正常成交满，110% 仍只是 warning
+    expect(evaluateThreshold(rule, 100)).toBe('normal');
+    expect(evaluateThreshold(rule, 100.1)).toBe('warning');
+    expect(evaluateThreshold(rule, 110)).toBe('warning');
+    expect(evaluateThreshold(rule, 110.1)).toBe('critical');
+  });
+
   it('accepts legacy single-tier backend payload (threshold → both tiers)', () => {
     const merged = mergeBackendThresholds({
       fill_pct: { mode: 'below', threshold: 70, enabled: true },

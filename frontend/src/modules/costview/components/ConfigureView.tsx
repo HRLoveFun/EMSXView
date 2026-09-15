@@ -167,6 +167,7 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
                       <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={rule.mode} onChange={(event) => updateRule(rule.key, { ...rule, mode: event.target.value as ThresholdRule['mode'] })}>
                         <option value="absolute-above">Absolute above</option>
                         <option value="above">Above</option>
+                        <option value="above-strict">Above (strict)</option>
                         <option value="below">Below</option>
                       </select>
                     </td>
