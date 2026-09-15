@@ -116,11 +116,27 @@
 | H1 | `overfill_pct` 为 `above 100`（含边界），而 `AnomalyRoute.overfill` 为严格 `fill > RouteShares` | 完成率恰为 100.0%（正常成交满，占多数）的路由带 `Overfill % 100.0%` 标签进入异常清单，但 `overfill` 为 `False` —— 标签语义与实际含义相反，属数据质量探针误报 | ✅ 已修：新增 `above-strict` 模式（严格大于），`overfill_pct` 改用之；100.0% 不再入清单，命中与 `overfill` 布尔标记同界；轻微超成交（100.1%）仍照旧捕获 |
 | H2 | 规则标签 `Overfill %` 自带 `%`，渲染层再补单位后缀 | 标签渲染为 `Overfill % 100.0%`（双 `%`），版面噪声且易读错 | ✅ 已修：标签改 `Overfill`，`%` 统一由单位后缀补（后端 `_RULE_LABELS` 与前端 `DEFAULT_RULES` 同改） |
 
-**登记新增待办**：`order_par_gt100` 仍为 `above 100`（含边界）—— 订单参与率求和恰为 100.0% 是否应入清单需单独评估（其「越界」语义与 `overfill` 不同：求和恰为 100% 在理论上即全部参与，是否算矛盾取决于业务定义），本次**未改**，避免口径被顺手改动。
+**原登记待办（`order_par_gt100` 边界）与同类标签问题已在第六轮一并收敛**，见下节。
 
 护栏：后端 `CostView/tests/test_report_metrics.py`（`TestOverfillRule.test_exact_full_fill_not_flagged` 与
 `test_overfill_flagged_and_hits` 的标签断言）；前端 `lib/thresholds.test.ts`
 （「treats overfill boundary as exclusive」，锁定标签、模式与四个边界取值）。
+
+### 2026-09-15 — 第六轮（order_par 边界与规则标签归一）
+
+| # | 发现 | 影响 | 处理 |
+|---|------|------|------|
+| H3 | `order_par_gt100` 为 `above 100`（含边界），而 `AnomalyRoute.order_par_gt100` 标记与覆盖率一致性探针（`metric_coverage` 的 `par_sum > 1.0`）均为严格大于 | 求和恰为 `100.0%` 的路由进异常清单却不进 `data_quality.order_par_gt100_count` 与 `order_par_consistency_pct` —— 同一份报告内三处口径不一致 | ✅ 已修：改用 `above-strict`（严格大于 100%），与布尔标记、一致性探针同界，命中数自此可对账 |
+| H4 | 其余规则标签仍自带单位符号：`Pnl VWAP bps`、`Fill %`、`Vol % ADV20`、`Vol % Interval`、`Order Par >100%` | 渲染出 `Fill % 42.0%`、`Pnl VWAP bps 15.2 bps`、`Order Par >100% 250.0%` 等重复单位标签 | ✅ 已修：标签一律不含单位符号（`Pnl VWAP` / `Fill Rate` / `ADV20 Participation` / `Interval Participation` / `Order Par`），单位由渲染层后缀统一补；Configure 预览样例同步 |
+
+**同批收敛（顺带）**：
+
+- 前端本地配置加载改为「展示元数据（label / description / decimals / unit）以代码为准，用户可编辑字段（mode / warning / critical / enabled）以本地为准」——否则历史 localStorage 会把旧标签长期钉在浏览器里，后端标签已改而网页仍显示旧标签；同时兜住「旧版本只存了部分字段」的规则对象。
+- Configure 预览样例中的 `Tracking Error 6.0 bps` 为 014 规则键重命名前的旧标签，同步改为 `Pnl VWAP 6.0 bps`。
+
+护栏：后端 `TestOrderParAggregation.test_exact_full_order_par_not_flagged` 与 `TestRuleLabels`
+（逐规则断言渲染后单位符号只出现一次）；前端 `thresholds.test.ts`「keeps unit symbols out of
+rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底）。
 
 **质量门报告入库策略（第四轮 §六.1）**：`scripts/reports/quality_gate/report-*.md` 已加入 `.gitignore` —— 生成物可再生，逐轮修复账本以本文件 §五 为准，避免双账本产生「哪份是真相」分叉；历史两份（20260821 / 20260825）保留在库内作为冻结快照。
 
