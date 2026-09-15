@@ -367,10 +367,11 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 ```
 emsxview-platform-data   ← pydantic, python-dateutil
-emsxview-costview        ← pydantic, emsxview-platform-data
+emsxview-costview        ← pydantic, pandas, emsxview-platform-data
 ```
 
-> `data_access/` 是仓库内模块（非独立 pip 包）；原 `emsxview-datapipeline` 包已随 010-extract-pipeline 迁出至独立仓库 EMSXDataPipeline。
+> 2026-09-15 起 CostView 的运行依赖统一由 `CostView/pyproject.toml` 声明（`pandas` 已显式列出，此前依赖已删除的 `CostView/requirements.txt` 隐式提供）。
+> `data_access/` 是仓库内模块（非独立 pip 包）；原 `emsxview-datapipeline` 包已随 010-extract-pipeline 迁出至独立仓库 EMSXDataPipeline（CI 以 `--no-deps` 安装 CostView，故该残留声明暂不影响流水线）。
 
 ---
 
