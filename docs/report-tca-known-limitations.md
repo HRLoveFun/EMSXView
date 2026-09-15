@@ -45,10 +45,13 @@
 - 异常明细的笔数 / 金额下限对**严重未完成**（`fill_pct` 命中 critical，含零成交）路由**豁免**：该档目标样本恰是低完成率路由，用下限过滤会把「完全未执行」整体剔除
 - 订单参与率按「仅报告期 + 作用域」**全量聚合**，不受 broker / algo / symbol 维度过滤影响，与覆盖率一致性探针共用同一实现（两处可对账）
 - 异常严重度分 **warning / critical 两档**：warning 为进入异常清单的边界，critical 仅作分级标注
-- 异常明细 HTML 渲染上限 **1000 条**（按严重度降序排列，截断样本无偏）；全量明细经随附 `anomaly_<hash>.csv` 导出
+- 异常明细 HTML 渲染上限 **1000 条**（按严重度降序排列，截断样本无偏）；全量明细经随附 `anomaly_<hash>.csv` 导出（CLI 侧与 HTML 同目录落盘；API export-html 侧 HTML + CSV 打包为 zip 下载，`export_ref` 不再为空）
 - BDIB 缺口附录在扫描超时 / 异常时显式标注「未扫描」，与「无缺口」区分
 - USD 换算覆盖率按「可换算路由占比」计（含 USD 路由与 `fill_bdib` 回填汇率），并披露被排除的本币金额
-- 按日走势仅含「有数据交易日」（**不补零**，避免把无数据伪装成零成本），并标注覆盖天数；缺失定位见覆盖率表
+- BDIB 缺口附录的缺口成交金额与 KPI **同源换算**（`fill_bdib` 回填 + 小计价单位修正 + 逐行换算）；缺汇率的路由不计入 USD 金额，其本币金额单列披露为「未换算金额」（缺口低估规模可见）
+- 区间内 **TCA 整日缺失**（有成交但无 TCA 汇总，管道 S5.5 未产出）经差集检测自动定位，在报告头数据质量区披露并在覆盖率表橙底行高亮 —— 该情形此前对走势/覆盖率/附录三处交叉验证全体失明
+- **SLA 覆盖率分母**对 `bdib_missing` 类指标剔除「BDIB 缺口路由」（有成交但核心 BDIB 依赖指标全 NULL）；纯竞价豁免分母含零成交路由 —— SLA 口径自此隔离管道缺口波动，与原始口径保持区分度
+- 按日走势仅含「有数据交易日」（**不补零**，避免把无数据伪装成零成本），并标注覆盖天数；缺失定位见覆盖率表与数据质量提示
 - 异常规则键为 `pnl_vwap_bps`（语义 = `|pnl_vwap|` 阈值；原名 `tracking_error_bps` 已弃用，旧键仍兼容读取）
 
 ## 四、维护约定
@@ -146,13 +149,28 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 `TestReportSpec.test_report_spec_matches_measure_layer`）与
 `CostView/tests/test_monitoring.py`（`TestPackageExports` / 市场下拉白名单 / 健康扫描作用域）。
 
+### 2026-09-15 — 第七轮（P0 交叉审计修复：fx 口径 / CSV 闭环 / TCA 缺失 / SLA 分母）
+
+独立深度交叉审计新发现的四项 P0 缺陷（前三轮/四轮台账均未覆盖或仅部分登记）：
+
+| # | 缺陷 | 影响 | 处理 |
+|---|------|------|------|
+| X1 | BDIB 缺口金额缺小计价单位修正 + 整组粒度回退（原台账只登记了「未接回填」一层） | `_load_ticker_weight` 自行拼 fx SQL：GBp 市场缺口金额高估 100 倍；组内部分路由缺汇率时缺口金额被静默低估且无披露；未接 `fill_bdib` 回填，比 KPI 更易回退本币 | ✅ 已修：换算改经 `report_measure.usd_fx_expr` 单一实现（fill_bdib 回填 CTE + minor-unit ×0.01），逐行换算，缺汇率路由的本币金额单列 `missing_notional_unconvertible` 披露 |
+| X2 | 脚注承诺「全量见随附导出 CSV」但 API export-html 从不落盘，`export_ref` 恒为 None | 报告文本承诺不存在的附件；超 1000 条时其余异常无任何获取途径（三处实现各自完好、组合后承诺落空，四轮复核均未捕获） | ✅ 已修：export-html 把全量异常明细落盘 CSV（系统临时目录）并与 HTML 打包为 zip 返回；对报告浅拷贝回填 `export_ref`，不污染 report-summary 共享缓存（前端会渲染该字段） |
+| X3 | TCA 整日缺失不可定位 | 走势/覆盖率/缺口附录均源自 `tca_route_summary` 或回答 BDIB 缺口，S5.5 断档日在报告内静默消失，可跨周不被发现 | ✅ 已修：健康扫描输出 `tca_gap_dates`（processed_fills ↔ tca_route_summary 日期差集）；报告头数据质量区披露、覆盖率表橙底行高亮、附录行加「TCA 缺失」标记；日期集不可得时显式降级披露，不静默放行 |
+| X4 | SLA 分母结构性错配 | `bdib_missing` 类指标分母为全部路由 —— BDIB 缺口越大 SLA 越低，SLA 口径随管道缺口波动、与原始口径失去区分度；纯竞价判定漏掉 fill=NULL 的零成交路由 | ✅ 已修：`SLA_DENOMINATOR_BY_REASON["bdib_missing"] = "non_bdib_gap"`（有成交但核心 BDIB 依赖指标全 NULL 的路由自 tca 表内探针剔除，无需跨服务注入健康扫描）；纯竞价判定改 `COALESCE(fill,0)=0 OR fill_close >= fill` |
+
+同批：`SPEC_VERSION` → `2026.09.3`；`REPORT_SPEC` 新增 `gap_notional_fx` / `tca_gap_detection` /
+`sla_bdib_missing_denominator`（与实现结构化绑定，R5 同款模式）。
+
+护栏：`CostView/tests/test_report_metrics.py`（`TestBdibWeightFxContract` /
+`TestTcaGapDetection` / `TestSlaDenominatorStructural` / `TestHtmlExportCsvClosure`）。
+
 ### 仍待处理（P1/P2，不在本次 P0 范围）
 
 - **异常明细节流未披露**：`min_fill_count` / `min_notional_usd` 排除的条数仍未回传，读者无法得知异常样本被截取多少（已对严重未完成豁免，其余仍静默）。
 - **金额列未同源**：异常明细金额用 `Amount × fx`，KPI 金额用 `fill × p_avg × fx`；两列缺同一性校验，异常表金额与「总成交金额」可能不可对账。
-- **BDIB 缺口金额未接回填**：`bdib_health._load_ticker_weight` 只用 `tca.fx_rate`（无 `fill_bdib` 回填），比 KPI 更容易回退本币。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
-- **TCA 整日缺失不可定位**：走势与覆盖率行均源自 `tca_route_summary`，仍缺 `processed_fills` 与 `tca_route_summary` 的日期差集校验。
 - **呈现层可解释性**：按日走势仍各自归一化且无刻度/零轴；排行仍 `ASC + 前 10`（最优在前、无样本门槛）；直方图仍为等宽分桶；PWP 五档仍为简单平均（缺陷 3）。
 - **指标命名与标签**：「总成交股数」卡片实为 `SUM(RouteShares)`（委托股数，副标题才澄清）；`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
 - **币种兜底**：`Currency IS NULL` 时按 USD（fx=1.0）兜底且计入 fx 覆盖率分子 —— 若实为非 USD 币种则金额错、覆盖率虚高。

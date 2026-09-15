@@ -12,8 +12,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import logging
+import tempfile
+import zipfile
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -30,6 +35,7 @@ from CostView.src.monitoring import (
     TimeRange,
     ANOMALY_RULE_META,
     REPORT_SPEC,
+    export_anomaly_rows_csv,
     fetch_latest_tca_date,
     get_default_thresholds,
     get_health_safe,
@@ -315,6 +321,8 @@ async def export_tca_html(
                 min_fill_count, min_notional_usd,
             )
         )
+        # D16 交付闭环：全量异常明细落盘为 CSV，与 HTML 打包（脚注承诺兑现）
+        csv_path = _export_anomaly_csv_for_html(report)
         health = _load_health_appendix(
             tr.start_date, tr.end_date, today=_parse_as_of(tr.as_of_date),
             scope=resolve_scope(exchange),
@@ -326,8 +334,28 @@ async def export_tca_html(
         raise HTTPException(status_code=500, detail=f"HTML 报告错误: {exc}")
 
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    html = render_report_html(report, health, generated_at)
     filename = f"tca_report_{tr.start_date}_{tr.end_date}.html"
+    if csv_path is not None:
+        # 有异常明细：浅拷贝报告并回填 export_ref（不污染共享缓存对象），
+        # 渲染后与 CSV 打包为 zip，保证离线 HTML 内的「全量明细导出」链接可达
+        render_report = {
+            **report,
+            "anomaly": {**report["anomaly"], "export_ref": csv_path.name},
+        }
+        html = render_report_html(render_report, health, generated_at)
+        bundle = io.BytesIO()
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(filename, html)
+            zf.write(str(csv_path), csv_path.name)
+        zip_name = filename[:-len(".html")] + ".zip"
+        return Response(
+            content=bundle.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{zip_name}"',
+            },
+        )
+    html = render_report_html(report, health, generated_at)
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",
@@ -335,6 +363,31 @@ async def export_tca_html(
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+def _export_anomaly_csv_for_html(report: dict) -> Optional[Path]:
+    """把全量异常明细落盘为 CSV，返回文件路径（无明细时返回 None）。
+
+    交付闭环（缺陷 D16）：口径脚注承诺「全量见随附导出 CSV」，但 export-html
+    此前从不落盘，export_ref 恒为 None。现导出到系统临时目录（运行产物不入库），
+    并与 HTML 打包成 zip 返回。文件名以「路由主键序列」哈希命名（与 CLI
+    generate_tca_report.py 同规则），避免同名覆盖并便于归档比对。
+    注意：调用方对报告浅拷贝后回填 export_ref，不得回填缓存对象本身 ——
+    report-summary 与 export-html 共享同一缓存，直接回填会让网页端渲染出
+    指向服务器本地文件的死链（前端 AnomalyTable 会消费该字段）。
+    """
+    anomaly = report.get("anomaly") or {}
+    rows = anomaly.get("rows") or []
+    if not rows:
+        return None
+    raw = "|".join(
+        f"{r.get('order_id')}:{r.get('route_id')}:{r.get('date')}" for r in rows
+    )
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    exports_dir = Path(tempfile.gettempdir()) / "emsxview_exports"
+    csv_path = exports_dir / f"anomaly_{digest}.csv"
+    export_anomaly_rows_csv(rows, csv_path)
+    return csv_path
 
 
 def _parse_thresholds(raw: Optional[str]) -> Optional[dict]:

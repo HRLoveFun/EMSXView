@@ -98,18 +98,30 @@ EXPECTED_NULL_METRICS: frozenset[str] = frozenset({
 })
 
 #: SLA 覆盖率的分母口径：按 NULL 原因剔除"结构内必然 NULL"的路由。
-#:   closing_auction → 分母剔除纯竞价路由（fill_close >= fill，无连续执行过程，
-#:                     continuous 类指标必然 NULL）；single_fill → 分母 = fill_count>=2
-#:   （单笔/同刻成交的方差/时长无法定义）；其余原因 → 分母 = 全部路由。
+#:   closing_auction → 分母剔除纯竞价路由（fill_close >= fill 或零成交，无连续执行
+#:                     过程，continuous 类指标必然 NULL；零成交路由（fill 为
+#:                     0/NULL）的 continuous 指标同为结构内必然 NULL，一并豁免，
+#:                     此前仅按 fill > 0 AND fill_close >= fill 判定而漏掉零成交）；
+#:   single_fill → 分母 = fill_count>=2（单笔/同刻成交的方差/时长无法定义）；
+#:   bdib_missing → 分母剔除「BDIB 缺口路由」（有成交但核心 BDIB 依赖指标全 NULL，
+#:                   见 BDIB_GAP_PROBE_METRICS）—— 无行情时到达价/收盘价类指标
+#:                   与 closing_auction 同为"结构内必然"，不豁免会让 SLA 口径
+#:                   随管道缺口波动，与原始口径失去区分度；
+#:   其余原因 → 分母 = 全部路由。
 SLA_DENOMINATOR_BY_REASON: dict[str, str] = {
     "closing_auction": "non_pure_auction",
     "single_fill": "multi_fill",
     "source": "total",
     "conditional": "total",
     "bdib_cutoff": "total",
-    "bdib_missing": "total",
+    "bdib_missing": "non_bdib_gap",
     "next_day_close": "total",
 }
+
+#: BDIB 缺口路由探针（SLA 分母用）：有成交但四项核心 BDIB 依赖指标全 NULL 的路由，
+#: 视为「该 ticker/date 完全无 BDIB 行情」的结构缺数。探针在 tca 表内自洽计算，
+#: 无需跨服务注入健康扫描结果（健康扫描为重 IO 且与覆盖率查询独立缓存）。
+BDIB_GAP_PROBE_METRICS: tuple[str, ...] = ("par_rate", "pnl_vwap", "p_arrival", "p_close")
 
 
 def metric_null_reasons(metrics: Optional[list[str]] = None) -> dict[str, str]:
@@ -229,19 +241,27 @@ class MetricCoverageService:
 
         分母口径与 bdib_health / KPI / 异常明细一致（report_measure 作用域唯一实现）：
         白名单外交易所本就不拉 BDIB、指标必然 NULL，计入分母会虚降覆盖率观感
-        （out-of-scope 非数据缺失）。同时聚合纯竞价/多笔路由计数，供 SLA 覆盖率
-        剔除结构内 NULL。
+        （out-of-scope 非数据缺失）。同时聚合纯竞价/多笔/BDIB 缺口路由计数，供
+        SLA 覆盖率剔除结构内 NULL（分母口径见 SLA_DENOMINATOR_BY_REASON）。
         """
         metric_aggs = ", ".join(
             f"SUM(CASE WHEN {m} IS NOT NULL THEN 1 ELSE 0 END) AS nn_{m}"
             for m in selected
         )
+        # 纯竞价判定把零成交（fill 为 0/NULL）一并豁免：该情形下 continuous 类
+        # 指标同为结构内必然 NULL，留在分母会让 SLA 口径混入与质量无关的缺数
+        probe_all_null = " AND ".join(
+            f"{m} IS NULL" for m in BDIB_GAP_PROBE_METRICS
+        )
         group_cols = "order_as_of_date, Exchange" if group_by_exchange else "order_as_of_date"
         where, params = self._scope_where(start_date, end_date, scope)
         sql = f"""
             SELECT {group_cols}, COUNT(*) AS total_routes,
-                SUM(CASE WHEN fill > 0 AND fill_close >= fill THEN 1 ELSE 0 END) AS pure_auction,
+                SUM(CASE WHEN COALESCE(fill, 0) = 0 OR fill_close >= fill
+                         THEN 1 ELSE 0 END) AS pure_auction,
                 SUM(CASE WHEN fill_count >= 2 THEN 1 ELSE 0 END) AS multi_fill,
+                SUM(CASE WHEN COALESCE(fill, 0) > 0 AND {probe_all_null}
+                         THEN 1 ELSE 0 END) AS bdib_gap,
                 {metric_aggs}
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             WHERE {where}
@@ -325,6 +345,7 @@ class MetricCoverageService:
         total = int(row["total_routes"])
         pure_auction = int(row.get("pure_auction") or 0)
         multi_fill = int(row.get("multi_fill") or 0)
+        bdib_gap = int(row.get("bdib_gap") or 0)
         coverage: dict[str, Optional[float]] = {}
         sla_coverage: dict[str, Optional[float]] = {}
         null_counts: dict[str, int] = {}
@@ -337,7 +358,8 @@ class MetricCoverageService:
             reason = METRIC_NULL_REASON.get(m)
             denom_key = SLA_DENOMINATOR_BY_REASON.get(reason, "total")
             denom = {"total": total, "non_pure_auction": total - pure_auction,
-                     "multi_fill": multi_fill}[denom_key]
+                     "multi_fill": multi_fill,
+                     "non_bdib_gap": total - bdib_gap}[denom_key]
             sla_coverage[m] = round(nn / denom * 100.0, 2) if denom > 0 else None
             sla_raw[m] = (nn, denom)
         return {
