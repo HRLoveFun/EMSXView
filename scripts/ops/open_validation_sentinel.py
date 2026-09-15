@@ -60,13 +60,20 @@ def _check_d8_backfill(conn) -> tuple[bool, str]:
     if not n_missing:
         return False, "D8 回退路径未触发（非 USD 路由 fx 全覆盖）"
     return True, (
-        f"D8 回退路径已被真实数据触发：{n_missing} 条非 USD 路由缺 fx_rate —— "
-        "请回补缺口金额数值验证（回补前后对比），并更新台账开放验证项"
+        f"D8 回退路径持续存在：{n_missing} 条非 USD 路由缺 fx_rate —— 数值验证已于"
+        "台账第十轮以生产证据闭环，此命中仅提示关注新增数据的回退规模是否显著变化"
     )
 
 
 def _check_d14_probe(conn, scope: rm.ReportScope) -> tuple[bool, str]:
-    """D14 探针精度探测：bdib_gap 命中集是否与 p_arrival NULL 集重合。"""
+    """D14 探针精度探测：按日配对的「探针命中 ⊆ 当日 p_arrival NULL」校验。
+
+    F-g（第十一轮复核）：bdib_gap 探针要求四项全 NULL，而 bdib_missing 类
+    指标（p_arrival / p_close / arrival_cost_bps / close_cost_bps）各计一条
+    NULL —— 同一缺口日两个集合的**全表基数数学上不可比**，必须按日配对：
+    探针四项全 NULL 蕴含 p_arrival NULL，故任一交易日「探针命中数 > 当日
+    p_arrival NULL 数」即为真矛盾（过度豁免），按日判定既严谨又可定位问题日。
+    """
     condition, scope_params = rm.scope_condition(scope)
     where = "COALESCE(fill, 0) > 0"
     params: list = []
@@ -74,28 +81,31 @@ def _check_d14_probe(conn, scope: rm.ReportScope) -> tuple[bool, str]:
         where = f"{where} AND {condition}"
         params.extend(scope_params)
     try:
-        row = conn.execute(
-            f"SELECT "
+        rows = conn.execute(
+            f"SELECT order_as_of_date, "
             f"SUM(CASE WHEN {_BDIB_GAP_PROBE} THEN 1 ELSE 0 END), "
-            f"SUM(CASE WHEN p_arrival IS NULL THEN 1 ELSE 0 END), "
-            f"SUM(CASE WHEN {_BDIB_GAP_PROBE} AND p_arrival IS NOT NULL "
-            "THEN 1 ELSE 0 END) "
-            f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE {where}",
+            f"SUM(CASE WHEN p_arrival IS NULL THEN 1 ELSE 0 END) "
+            f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE {where} "
+            "GROUP BY order_as_of_date",
             params,
-        ).fetchone()
+        ).fetchall()
     except Exception as exc:
         return False, f"D14 探针不可用（{exc}），视为未触发"
-    gap_routes, arrival_null, over_exempt = (int(v or 0) for v in row)
-    if over_exempt:
+    gap_total = sum(int(r[1] or 0) for r in rows)
+    bad_days = [
+        (str(r[0]), int(r[1] or 0), int(r[2] or 0))
+        for r in rows
+        if int(r[1] or 0) > int(r[2] or 0)
+    ]
+    if bad_days:
+        sample = ", ".join(f"{d}(探针{g}>NULL{n})" for d, g, n in bad_days[:5])
         return True, (
-            f"D14 探针出现过度豁免：{over_exempt} 条路由被探针剔除但 p_arrival "
-            "可计算（bdib_cutoff 残余量级超预期）—— 请在生产数据上重跑 SLA 校验，"
-            "并更新台账「零误豁免」结论"
+            f"D14 探针出现过度豁免（{len(bad_days)} 个交易日）：{sample} —— "
+            "请在生产数据上重跑 SLA 校验，并更新台账「零误豁免」结论"
         )
     return False, (
-        f"D14 探针无过度豁免（生产样本）：bdib_gap {gap_routes} 条均落在 "
-        f"p_arrival NULL 集内（NULL 共 {arrival_null} 条，其余为其他结构内 NULL，"
-        "如零成交 / 收盘竞价）"
+        f"D14 探针无过度豁免（生产样本）：{gap_total} 条探针命中分布在 "
+        f"{len(rows)} 个交易日，逐日命中数 ≤ 当日 p_arrival NULL 数"
     )
 
 
