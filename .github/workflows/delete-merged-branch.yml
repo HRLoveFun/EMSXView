@@ -1,0 +1,65 @@
+# 合并后自动删除源分支 (2026-09-15)
+#
+# 目的：PR 合并（squash/merge）完成后，自动删除其 head 源分支，
+#       避免远端堆积已完成任务的特性分支。
+#
+# 触发点：pull_request 关闭（含合并与放弃关闭两种事件）。
+#   - 仅当 github.event.pull_request.merged == true 才执行删除；
+#   - 关闭但未合并（如放弃）不会误删。
+#
+# 保护逻辑（防止误删长期分支）：
+#   - 受保护分支名清单见下方 env.PROTECTED_BRANCHES，命中即跳过删除；
+#   - 默认保护 main / master / tca（与仓库现有 CI 长生命周期分支一致）。
+#
+# 与现有 CLI 约定互补：
+#   本地合并约定已用 `gh pr merge --squash --delete-branch` 兜底删除；
+#   本 Workflow 作为安全网，覆盖「通过 GitHub UI 合并」或「漏带 --delete-branch」
+#   的情形。两者不冲突（已删除的分支再次删除会静默跳过）。
+
+name: delete-merged-branch
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+env:
+  # 受保护分支：命中即跳过自动删除（逗号分隔）
+  PROTECTED_BRANCHES: "main,master,tca"
+
+jobs:
+  delete-branch:
+    name: 合并后删除源分支
+    # 仅合并成功才运行（关闭但未合并不会误删）
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: 删除已合并的 head 分支
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const head = context.payload.pull_request.head.ref;
+            const protectedBranches = process.env.PROTECTED_BRANCHES
+              .split(",")
+              .map((b) => b.trim())
+              .filter(Boolean);
+
+            if (protectedBranches.includes(head)) {
+              console.log(`✋ 跳过受保护分支: ${head}`);
+              return;
+            }
+
+            console.log(`🗑 删除已合并分支: ${head}`);
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${head}`,
+              });
+              console.log(`✅ 已删除分支 ${head}`);
+            } catch (err) {
+              // 分支已在别处被删除 / 无权限时静默放行，不阻断
+              console.log(`⚠ 删除分支 ${head} 失败（可能已不存在）: ${err.message}`);
+            }
