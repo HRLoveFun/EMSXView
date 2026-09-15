@@ -183,11 +183,21 @@
 说明符解析支持相对路径 `./x`、别名 `@` / `@app` / `@shared` / `@execution` / `@costview` / `@marketview`
 （别名映射取自 `quality_gate/config.py::FRONTEND_ALIASES`，与 `vite.config.ts` 保持一致）。
 
+**★ 跨平台陷阱（2026-09-15 实测修复）**：路径归一化（`ast_utils.normalize_path`）**必须保留
+POSIX 根前缀 `/`**。早期实现丢弃全部空片段（含根 `/`），于是 `/repo/frontend/src/a` 变成
+`repo/frontend/src/a`，与 `Path.as_posix()` 永不相等 ⇒ **前端 import 图的所有边在
+Linux / macOS / CI 上全部丢失**，未触达文件被误报为「不可达」（实测 CI 上 166 项，
+本地 Windows 因盘符 `C:` 占首位而恰好不暴露）。同一实现曾被
+`quality_gate/detectors/frontend_light.py` 复制一份（影响 OE-01 / OE-06），
+现已统一收敛到 `ast_utils.normalize_path` 单一实现。
+
 **已知误报来源**：
 
 - `index.html` 直接 `<script src>` 引用的文件；
 - 动态字符串拼接的 `import(`；
-- 多入口构建配置新增后未同步入口清单。
+- 多入口构建配置新增后未同步入口清单；
+- **仅在 CI/Linux 复现的路径形态差异** —— 改图类规则后务必看 CI 的
+  `cleanup-report` 作业计数，本地 Windows 通过不代表图没断。
 
 **验证方法**：`rg "<file-stem>" frontend/ --glob '!*.map'` + 检查 `frontend/*.html` 与
 `vite.config*.ts` 的 `rollupOptions.input`。

@@ -640,7 +640,31 @@ cleanup 复扫清理项 0。**
 - **验证**：`pytest` **481 passed / 1 skipped**（+4 摘要单测）；`tsc -b` exit 0；
   `vitest run` 155 通过；`cleanup --ruleset cl` 清理项 0；workflow YAML 本地解析通过。
 
-**7. 本批新增的三条经验**：
+**7. 观察窗口复盘（同日，CI 已在 5 个 PR + 3 次 push 上运行）→ 发现并修复一个跨平台缺陷**
+
+**先看数据再看结论**：从 CI 日志重建 cleanup JSON 后发现 —— **CL 并非 0，而是 166 项 CL-10**
+（本地 Windows 恒为 0）。即：**CI 作业上线首日就抓到一个本地不可复现的系统性误报**，
+这正是「先跑几轮观察」的价值，也**直接否决了当时切 `--strict` 的可行性**
+（若已切，每个 PR 都会被 166 项误报阻断）。
+
+- **根因**：`cleanup/detectors/frontend.py::_normalize` 丢弃全部空片段（**含 POSIX 根 `/`**）：
+  `/repo/frontend/src/a` → `repo/frontend/src/a`，与 `Path.as_posix()` 产出的 `/repo/...`
+  **永不相等** ⇒ 前端 import 图的**所有边在 Linux / CI 上丢失** ⇒ 除入口外全部被判「不可达」。
+  Windows 本地因盘符 `C:` 占据首个非空片段而**恰好不暴露** —— 典型「只在 CI 复现」缺陷。
+- **影响面（不止 CL-10）**：同一实现被 `quality_gate/detectors/frontend_light.py`
+  **复制了一份**，故 OE-01（前端死模块）与 OE-06（未使用导出）在 Linux/CI 上同样失真。
+  此前未被发现的原因：quality_gate 只在**本地 Windows**（pre-commit）运行，CI 只跑 audit 脚本。
+- **修复**：把路径工具**收敛为单一实现** `scripts/quality_gate/ast_utils.py::normalize_path`
+  （保留根前缀）+ `dir_of`，两处检测器改为导入；**删除两份重复实现**（符合 ADR-0017
+  「不另写工具、不重复建框架」）。
+- **回归用例（5 个）**：`ast_utils.normalize_path` 保留 POSIX 根 / 消解 `..` 与 Windows 分隔符 /
+  `dir_of`；CL-10 在**POSIX 绝对根**下（模拟 Linux）别名与相对说明符均能解析到绝对路径
+  —— 后者在不修复时必然失败（已用旧算法逐项对照验证）。
+- **经验（第三条）**：**跨平台路径工具必须显式保留根前缀**；判据是「归一化结果是否与
+  `Path.as_posix()` 同形」，而不是「本地跑通」。
+  **图类规则的验证必须包含 CI 计数**，因为 Windows 盘符会掩盖 POSIX 根丢失。
+
+**8. 本批新增的三条经验**：
 
 - **「工具报出」与「应当保留」可以并存**：CL-12 首批 14 项里，4 项是**已文档化的契约公开面**。
   删除决策的最后一关始终是**查契约文档**（`module-boundary.md`），而不是查调用方数量 ——
