@@ -48,6 +48,7 @@ from CostView.src.monitoring.metric_coverage import (
 )
 from CostView.src.monitoring import report_measure as rm
 from CostView.src.monitoring.anomaly_query import (
+    DEFAULT_THRESHOLDS,
     _RULE_KEYS,
     _RULE_LABELS,
     _RULE_UNITS,
@@ -1504,6 +1505,49 @@ class TestAmountConsistency:
         )
 
         assert [r.order_id for r in rows] == ["GA1"]
+
+    def test_display_usd_is_amount_authoritative(self, tca_mgr_factory):
+        """展示列语义（F-a）：Amount 缺失 → notional_usd 为 None，不被估算值替换。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "GA1", "Amount": None, "fill": 900.0, "p_avg": 150.0,
+             "pnl_vwap": -30.0},
+        ], with_fx=True)
+        rows, _ = query_anomaly_routes_page(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=0, min_notional_usd=10000.0,
+        )
+
+        # 经门槛（COALESCE 口径）入选，但展示列（Amount 权威口径）无值 ——
+        # 与本币列一致呈现 "-"，避免同行两列一个无值一个有值的自相矛盾
+        assert rows[0].notional_usd is None
+        assert rows[0].notional_local is None
+
+    def test_display_usd_uses_amount_when_present(self, tca_mgr_factory):
+        """展示列取 Amount × 汇率（与 fill×p_avg 解耦，混合来源不可再发生）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "GB1", "Amount": 50000.0, "fill": 900.0, "p_avg": 150.0,
+             "pnl_vwap": -30.0},
+        ], with_fx=True)
+        rows, _ = query_anomaly_routes_page(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=0, min_notional_usd=10000.0,
+        )
+
+        # Amount=50K ≠ fill×p_avg=135K：展示列必须忠实 Amount（fx=1.0 兜底），
+        # 门槛经 COALESCE 以 fill×p_avg 判定（135K ≥ 10K，入选）
+        assert rows[0].notional_usd == pytest.approx(50000.0)
+
+    def test_gt200_threshold_single_source(self):
+        """gt200 阈值唯一化（F-b）：探针 / 异常规则 critical 档 / SPEC 三处一致。"""
+        assert rm.ORDER_PAR_CRITICAL_SUM == pytest.approx(2.0)
+        assert (
+            DEFAULT_THRESHOLDS["order_par_gt100"]["critical"]
+            == rm.ORDER_PAR_CRITICAL_SUM * 100
+        )
+        assert (
+            report_spec.REPORT_SPEC["order_par_critical_gt"]
+            == rm.ORDER_PAR_CRITICAL_SUM
+        )
 
     def test_html_data_quality_shows_amount_probe(self, tca_mgr_factory):
         """数据质量提示区展示金额一致性探针。"""

@@ -212,6 +212,19 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 `test_rankings_grouped` / `test_rankings_disclose_sample` / `test_impact_breakdown_counts_truncated`
 已对齐新口径（门槛生效 / 双侧输出 / 冲击样本分母）。
 
+#### 第八轮合入后独立复核（post-merge，#31 squash 后）
+
+| # | 发现 | 处置 |
+|---|------|------|
+| F-a（中） | `_anomaly_notional_usd_expr` 的 COALESCE 单一表达式同时喂给门槛与 USD 展示列 —— Amount 缺失路由的 USD 列被 fill×p_avg 估算值静默替换，与本币权威列（Amount）同行自相矛盾，且与数据质量区「异常表金额以 Amount 为准」文案冲突（DP-3「展示不静默替换」只落了本币列） | ✅ 已修：拆为 `_anomaly_notional_exprs` 返回 (展示, 门槛) 双表达式 —— 展示 = Amount×fx（缺失 → "-"，口径回到 P1-a 之前）、门槛 = COALESCE×fx；护栏固化「Amount 缺失 → notional_usd 为 None」「Amount 在 → 展示忠实 Amount（与 fill×p_avg 解耦）」 |
+| F-b（中低） | gt200 阈值两处字面量（探针 `par_sum > 2.0` 与规则 critical=200），改档时探针文案静默脱钩 | ✅ 已修：`report_measure.ORDER_PAR_CRITICAL_SUM = 2.0` 唯一实现源，规则 critical 与探针同引用；SPEC 增 `order_par_critical_gt`，测试断言三处一致 |
+| F-c（中低） | `footer_text()` 未随 P0/P1-a 扩展，七项新增 SPEC 声明不进归档脚注，口径自证出现缺口 | ⏩ 归入 P1-b（与 D1 的 `chart_axis` 声明同属脚注/声明层批次），由 SPEC 常量插值生成、护栏断言脚注含各绑定值 |
+| F-d（低） | PWP 小多图各面板独立 y 缩放（跨市场视觉比较失效，D1 同族）；聚合 PWP 面板未渲染各档 weight_coverage note（披露断在最后一公里） | ⏩ 归入 P1-b 的 D1 轴工作（小多图共享统一 y 域 + `_weight_note` 接入） |
+| F-e（提示） | 排行金额占比分子要求 pnl_vwap 非 NULL、分母为全部可加权成交额，轻微不对称（方向保守，0.1% 下不可达） | ✅ 已修：`_query_rankings` docstring 补口径说明 |
+| F-f（提示） | D15 分母自洽依赖写入方不变量「truncated 路由冲击值非 NULL」，不变量破坏时 share 理论可超 1 | ✅ 已修：分母取 `max(impact_sample, truncated_count)` 防御（不静默钳制数值、不掩盖上游违约） |
+
+
+
 #### 开放验证项（黄金样本证据 → 生产证据的最后一公里）
 
 - **D8 逐行回退与 fill_bdib 回填路径**：黄金样本 fx 全覆盖（`unconvertible=0`、回填 CTE 未触发），
@@ -226,6 +239,8 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
   `(rows, total) → +throttle_stats` 属跨模块变更，P1-b 按向后兼容可选第三返回值实施。
 - **呈现层可解释性（D1，P1-b；D3，P2）**：按日走势仍各自归一化且无刻度/零轴（DP-5 轴锚定规则已定稿，
   落 `REPORT_SPEC["chart_axis"]` + SVG 零轴护栏测试随 P1-b 实施）；直方图仍为等宽分桶。
+- **P1-b 追加（第八轮复核归入）**：F-c `footer_text()` 按绑定 SPEC 常量扩展七项新声明
+  （归档口径自证缺口）；F-d PWP 小多图共享统一 y 域 + 聚合面板接入 `_weight_note`（与 D1 轴策略同批）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
 - **金额列展示根因**：展示列仍为 Amount（权威列）；超差（>0.5%）的路由根因需写入方（独立仓库
   EMSXDataPipeline）排查，本仓库以探针持续披露。
