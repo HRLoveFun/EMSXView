@@ -96,6 +96,15 @@ describe('CostView thresholds', () => {
     expect(evaluateThreshold(rule, 110.1)).toBe('critical');
   });
 
+  it('keeps unit symbols out of rule labels (renderer appends the unit)', () => {
+    const config = createDefaultCostViewConfig();
+
+    for (const rule of Object.values(config.rules)) {
+      const symbol = rule.unit === 'bps' ? 'bps' : '%';
+      expect(rule.label.includes(symbol), `规则标签含单位符号: ${rule.label}`).toBe(false);
+    }
+  });
+
   it('accepts legacy single-tier backend payload (threshold → both tiers)', () => {
     const merged = mergeBackendThresholds({
       fill_pct: { mode: 'below', threshold: 70, enabled: true },
