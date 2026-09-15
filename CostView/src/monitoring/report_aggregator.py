@@ -29,7 +29,7 @@ from . import report_measure as rm
 from .metric_coverage import MetricCoverageService, validate_metrics
 from .anomaly_query import (
     ThresholdRules,
-    query_anomaly_routes_page,
+    query_anomaly_routes_page_ex,
 )
 from .report_dims import get_filter_options as _get_persisted_options
 
@@ -143,14 +143,15 @@ class TcaReportAggregator:
         report["metric_coverage"] = MetricCoverageService(self._mgr).get_coverage(
             start_date, end_date, selected, scope=scope,
         )
-        # S6 异常路由明细（阈值可参数化，默认同前端；作用域与聚合各小节一致）
-        anomalies, anomaly_total = query_anomaly_routes_page(
+        # S6 异常路由明细（阈值可参数化，默认同前端；作用域与聚合各小节一致）；
+        # D6：节流统计（阈值命中 / 门槛剔除量）经第二解包点透传进 payload
+        anomalies, anomaly_total, throttle = query_anomaly_routes_page_ex(
             self._mgr, start_date, end_date, ThresholdRules.from_payload(thresholds),
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
             min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
             limit=anomaly_limit, scope=scope,
         )
-        report["anomaly"] = self._anomaly_payload(anomalies, anomaly_total)
+        report["anomaly"] = self._anomaly_payload(anomalies, anomaly_total, throttle)
         return report
 
     def _query_sections(
@@ -225,9 +226,14 @@ class TcaReportAggregator:
 
     @staticmethod
     def _anomaly_payload(
-        anomalies: list[Any], anomaly_total: int,
+        anomalies: list[Any],
+        anomaly_total: int,
+        throttle: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """异常明细段落：全量计数与截断明细分离，附数据质量计数与导出占位。"""
+        """异常明细段落：全量计数与截断明细分离，附数据质量计数与导出占位。
+
+        throttle（D6）：阈值命中与门槛剔除量披露，渲染层在明细 notes 区展示。
+        """
         rows = [a.__dict__ for a in anomalies]
         return {
             # count 为全量命中数（与 rows 截断解耦）
@@ -236,6 +242,8 @@ class TcaReportAggregator:
             "rows_truncated": max(0, anomaly_total - len(rows)),
             # 全量 CSV 导出相对路径；由装配脚本落盘后回填，未导出时为 None
             "export_ref": None,
+            # 节流统计（D6）：阈值命中 / 笔数 / 金额 / 豁免 / fill_count 缺失
+            "throttle": dict(throttle or {}),
             # 数据质量提示（013）：命中 overfill / 订单参与率 >100% 的条数
             "data_quality": {
                 "overfill_count": sum(1 for r in rows if r.get("overfill")),
@@ -1020,6 +1028,7 @@ class TcaReportAggregator:
             "weight_coverage": None,
             "anomaly": {
                 "count": 0, "rows": [], "rows_truncated": 0, "export_ref": None,
+                "throttle": {},
                 "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
             },
             "metric_coverage": None,

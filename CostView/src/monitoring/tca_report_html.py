@@ -20,6 +20,10 @@ from data_access.config import Config
 from . import report_measure as rm
 from .report_spec import REPORT_SPEC, footer_text
 
+#: 每轴刻度档数（REPORT_SPEC["chart_axis"]["ticks_per_axis"] 的本地镜像；
+#: 由护栏测试断言两处一致 —— report_spec 为纯常量模块，此处不反向 import）
+REPORT_SPEC_CHART_TICKS = 5
+
 # ── SVG 画布常量 ──
 _CHART_W = 780
 _CHART_H = 260
@@ -375,7 +379,7 @@ def _render_charts(report: dict[str, Any]) -> str:
   <div class="panel">{algo_worst}</div>
 </div>
 <h2>PWP 分档均值</h2>
-<div class="panel">{pwp}<div class="meta" style="margin-top:8px">PWP 为成交额加权（与总成交金额同源）；跨市场混合的逐档值无物理解释，分市场解释见下方小多图。</div></div>
+<div class="panel">{pwp}{_pwp_coverage_note(report.get("weight_coverage"))}<div class="meta" style="margin-top:8px">PWP 为成交额加权（与总成交金额同源）；跨市场混合的逐档值无物理解释，分市场解释见下方小多图。</div></div>
 {pwp_small}"""
 
 
@@ -399,16 +403,42 @@ def _ranking_gate_note(meta: dict[str, Any]) -> str:
 
 
 def _render_pwp_small_multiples(markets: list[dict[str, Any]]) -> str:
-    """分市场 PWP 小多图（DP-2 定稿口径）：Top N 市场（按组成交额）逐市场曲线。"""
+    """分市场 PWP 小多图（DP-2 定稿口径）：Top N 市场（按组成交额）逐市场曲线。
+
+    F-d：各面板共享同一 y 域（跨市场视觉比较才成立），曲线点旁仍标注真实数值。
+    """
     if not markets:
         return ""
+    domain = _pwp_shared_domain(markets)
     panels = "".join(
         f'<div class="panel"><h2 style="margin-top:0">'
         f"{_esc(m.get('name') or m.get('exchange') or '')} PWP（分市场）</h2>"
-        f"{_svg_pwp_curve(m.get('curve') or [])}</div>"
+        f"{_svg_pwp_curve(m.get('curve') or [], domain=domain)}</div>"
         for m in markets
     )
     return f'<h2>PWP 分市场小多图（Top {len(markets)}）</h2><div class="grid2">{panels}</div>'
+
+
+def _pwp_coverage_note(weight_coverage: Optional[dict[str, Any]]) -> str:
+    """PWP 五档的样本/权重覆盖提示（F-d：披露链路接到最后一公里）。
+
+    五档任一「覆盖不足」即提示（取最差权重覆盖），避免五个 note 撑爆面板。
+    """
+    metrics = (weight_coverage or {}).get("metrics") or {}
+    entries = [
+        metrics[m] for m in ("pwp_5", "pwp_10", "pwp_15", "pwp_20", "pwp_25")
+        if m in metrics
+    ]
+    if not entries:
+        return ""
+    if not any(e.get("insufficient") for e in entries):
+        return ""
+    worst_weight = min(
+        (e.get("weight_pct") for e in entries if e.get("weight_pct") is not None),
+        default=None,
+    )
+    detail = f"（最差权重覆盖 {_fmt_pct_raw(worst_weight)}）" if worst_weight is not None else ""
+    return f'<div class="warn" style="margin-top:8px">PWP 各档存在样本/权重覆盖不足，结论仅供参考{detail}。</div>'
 
 
 def _daily_coverage_note(covered_days: int) -> str:
@@ -501,7 +531,10 @@ def _svg_market_trend(points: list[dict[str, Any]]) -> str:
     all_vals = [by_date[d].get(ex) for ex in top_ex for d in order if by_date[d].get(ex) is not None]
     if not all_vals:
         return _empty_hint("无市场趋势数据")
-    lo, hi = min(all_vals), max(all_vals)
+    # D1 / DP-5：金额非负 → y 轴零锚定 [0, max×1.05]。此前 min 锚定使 5% 的
+    # 日间波动在视觉上像 80% 的暴跌（伪波动）
+    lo = 0.0
+    hi = (max(all_vals) or 1.0) * 1.05
     span = (hi - lo) or 1.0
     plot_w = _CHART_W - _PAD_L - _PAD_R
     plot_h = _CHART_H - _PAD_T - _PAD_B
@@ -637,7 +670,7 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
         )
     return f"""
 <h2>异常路由明细（{_esc(str(count))} 条）</h2>
-{_anomaly_notes(len(rendered), truncated, anomaly.get("export_ref"))}
+{_anomaly_notes(len(rendered), truncated, anomaly.get("export_ref"), anomaly.get("throttle"))}
 <div class="scroll-panel">
 <table><thead><tr>
 <th class="l">命中规则</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
@@ -653,8 +686,13 @@ def _severity_tag_class(severity: Optional[str]) -> str:
     return "tag-sev-critical" if severity == "critical" else "tag-sev-warning"
 
 
-def _anomaly_notes(rendered: int, truncated: int, export_ref: Optional[str]) -> str:
-    """异常明细的截断说明与全量导出链接。"""
+def _anomaly_notes(
+    rendered: int,
+    truncated: int,
+    export_ref: Optional[str],
+    throttle: Optional[dict[str, Any]] = None,
+) -> str:
+    """异常明细的截断说明、节流披露（D6）与全量导出链接。"""
     parts: list[str] = []
     if truncated > 0:
         parts.append(
@@ -662,6 +700,22 @@ def _anomaly_notes(rendered: int, truncated: int, export_ref: Optional[str]) -> 
             f"{rendered} 条异常路由；其余 {truncated} 条未在 HTML 中展开，"
             f"已计入上方「异常路由」KPI 计数，可缩小时间范围或收紧阈值查看。</div>"
         )
+    if throttle:
+        bits: list[str] = []
+        if throttle.get("threshold_hits"):
+            bits.append(f"阈值命中 {int(throttle['threshold_hits']):,} 条")
+        if throttle.get("excluded_by_fill_count"):
+            bits.append(f"笔数下限剔除 {int(throttle['excluded_by_fill_count']):,} 条")
+        if throttle.get("excluded_by_notional"):
+            bits.append(f"金额下限剔除 {int(throttle['excluded_by_notional']):,} 条")
+        if throttle.get("floor_exempted"):
+            bits.append(f"严重未完成豁免 {int(throttle['floor_exempted']):,} 条")
+        if bits:
+            parts.append(f'<div class="meta">异常节流：{"；".join(bits)}。</div>')
+        if throttle.get("fill_count_column_missing"):
+            parts.append(
+                '<div class="meta">fill_count 列缺失，笔数下限不生效（fail-open）。</div>'
+            )
     if export_ref:
         parts.append(
             f'<div class="meta">全量明细导出：<a href="{_esc(export_ref)}" '
@@ -750,24 +804,83 @@ def _svg_histogram(histogram: Optional[dict[str, Any]]) -> str:
 
 
 def _svg_daily_series(series: list[dict[str, Any]]) -> str:
-    """按日双折线：加权 pnl_vwap + 平均 par_rate（各自归一到独立 y 轴）。"""
+    """按日双折线（D1 / DP-5 定稿）：双轴 + 零轴 + 真实刻度值。
+
+    此前两条量纲不同的折线各自独立归一且无任何刻度：pnl_vwap 全程为负时最优点
+    被映射到底部（读者得出相反结论），交叉纯属归一化伪影，离线归档无通道还原
+    真实数值。现按 REPORT_SPEC["chart_axis"] 硬规则：
+    - 左轴 pnl_vwap（成本指标）：domain 对称含零（max(|min|,|max|) 双向扩展），
+      零轴以虚线强调；
+    - 右轴 par_rate（参与率，非负）：[0, max×1.1] 零锚定；
+    - 双轴各渲染 5 档真实刻度值（左轴锚 end、右轴锚 start）。
+    """
     if not series:
         return _empty_hint("无按日数据")
-    labels = [s["date"][4:] for s in series]  # MMDD
-    lines = [
-        ([s["weighted_pnl_vwap"] for s in series], _COLOR_LINE1, "加权 pnl_vwap"),
-        ([s["avg_par_rate"] for s in series], _COLOR_LINE2, "平均 par_rate"),
-    ]
+    left = [s.get("weighted_pnl_vwap") for s in series]
+    right = [s.get("avg_par_rate") for s in series]
+    left_valid = [v for v in left if v is not None]
+    right_valid = [v for v in right if v is not None]
+    if not left_valid and not right_valid:
+        return _empty_hint("无按日数据")
+
+    # 双轴刻度需要左右各留标签宽度，局部覆盖全局画布内边距
+    pad_l, pad_r, pad_t, pad_b = 52, 48, 16, 32
+    plot_w = _CHART_W - pad_l - pad_r
+    plot_h = _CHART_H - pad_t - pad_b
+    # 左轴：对称含零（max(|min|,|max|) 双向扩展 + 10% 头距）
+    l_span = max((abs(v) for v in left_valid), default=0.0) * 1.1 or 1.0
+    l_lo, l_hi = -l_span, l_span
+    # 右轴：零锚定（参与率非负，[0, max×1.1]）
+    r_hi = (max(right_valid) if right_valid else 1.0) * 1.1 or 1.0
+    r_lo = 0.0
+
+    def _x(i: int) -> float:
+        return pad_l + (i + 0.5) * plot_w / max(len(series), 1)
+
+    def _map_y(v: float, lo: float, hi: float) -> float:
+        return pad_t + plot_h - (v - lo) / (hi - lo) * plot_h
+
     parts = [_svg_frame(1.0, "")]
-    for values, color, name in lines:
-        pts = _line_points(values, len(series))
-        legend_y = _PAD_T + 10 + 14 * lines.index((values, color, name))
-        if pts:
-            parts.append(f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="1.8"/>')
+    # 双轴刻度值（5 档）
+    ticks = int(REPORT_SPEC_CHART_TICKS)
+    for k in range(ticks):
+        frac = k / (ticks - 1)
+        lv = l_lo + (l_hi - l_lo) * frac
         parts.append(
-            f'<text x="{_CHART_W - _PAD_R - 130}" y="{legend_y}" fill="{color}" font-size="11">{name}</text>'
+            f'<text x="{pad_l - 5}" y="{_map_y(lv, l_lo, l_hi) + 3:.1f}" '
+            f'fill="#7d8fa3" font-size="9" text-anchor="end">{lv:.1f}</text>'
         )
-    parts.append(_x_axis_labels(labels))
+        rv = r_lo + (r_hi - r_lo) * frac
+        parts.append(
+            f'<text x="{_CHART_W - pad_r + 5}" y="{_map_y(rv, r_lo, r_hi) + 3:.1f}" '
+            f'fill="#7d8fa3" font-size="9" text-anchor="start">{rv:.1f}</text>'
+        )
+    # 零轴（左轴 domain 内的 0）虚线强调 —— 成本指标的最优/最劣分界
+    y_zero = _map_y(0.0, l_lo, l_hi)
+    parts.append(
+        f'<line x1="{pad_l}" y1="{y_zero:.1f}" x2="{_CHART_W - pad_r}" '
+        f'y2="{y_zero:.1f}" stroke="#5f7186" stroke-dasharray="4 3"/>'
+    )
+    lines = [
+        (left, _COLOR_LINE1, "加权 pnl_vwap", l_lo, l_hi),
+        (right, _COLOR_LINE2, "平均 par_rate", r_lo, r_hi),
+    ]
+    for idx, (values, color, name, lo, hi) in enumerate(lines):
+        pts = " ".join(
+            f"{_x(i):.1f},{_map_y(v, lo, hi):.1f}"
+            for i, v in enumerate(values)
+            if v is not None
+        )
+        legend_y = pad_t + 10 + 14 * idx
+        if pts:
+            parts.append(
+                f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="1.8"/>'
+            )
+        parts.append(
+            f'<text x="{_CHART_W - pad_r - 130}" y="{legend_y}" fill="{color}" '
+            f'font-size="11">{name}</text>'
+        )
+    parts.append(_x_axis_labels([s["date"][4:] for s in series]))
     return _svg_wrap(parts)
 
 
@@ -814,18 +927,44 @@ def _svg_hbar(rows: list[dict[str, Any]], title: str) -> str:
     return "".join(parts)
 
 
-def _svg_pwp_curve(points: list[dict[str, Any]]) -> str:
-    """PWP 五档位均值曲线。"""
-    valid = [p for p in points if p.get("avg_pwp") is not None]
+def _svg_pwp_curve(
+    points: list[dict[str, Any]],
+    domain: Optional[tuple[float, float]] = None,
+) -> str:
+    """PWP 五档位均值曲线；``domain`` 传入 (lo, hi) 时按共享值域映射。
+
+    F-d（第八轮复核）：小多图若各面板独立归一，同一高度在不同面板代表不同
+    bps 值 —— 为其而生的小图恰恰无法做跨市场视觉比较。domain 由调用方
+    （小多图）跨面板统一计算后传入；缺省 None 保持独立归一（聚合面板不受影响）。
+    """
+    valid = [p["avg_pwp"] for p in points if p.get("avg_pwp") is not None]
     if not valid:
         return _empty_hint("无 PWP 数据")
-    values = [p["avg_pwp"] for p in points]
+    if domain is not None:
+        lo, hi = domain
+        span = (hi - lo) or 1.0
+        plot_w = _CHART_W - _PAD_L - _PAD_R
+        plot_h = _CHART_H - _PAD_T - _PAD_B
+
+        def _pt(i: int, v: Optional[float]) -> tuple[Optional[float], Optional[float]]:
+            if v is None:
+                return None, None
+            x = _PAD_L + (i + 0.5) * plot_w / max(len(points), 1)
+            return x, _PAD_T + plot_h - (v - lo) / span * plot_h
+    else:
+        values = valid
+        def _pt(i: int, v: Optional[float]) -> tuple[Optional[float], Optional[float]]:
+            return _point_xy(i, v, values, len(points))
     parts = [_svg_frame(1.0, "")]
-    pts = _line_points(values, len(points))
+    pts = " ".join(
+        f"{x:.1f},{y:.1f}"
+        for x, y in (_pt(i, p.get("avg_pwp")) for i, p in enumerate(points))
+        if x is not None
+    )
     if pts:
         parts.append(f'<polyline points="{pts}" fill="none" stroke="{_COLOR_LINE1}" stroke-width="2"/>')
     for i, p in enumerate(points):
-        x, y = _point_xy(i, p.get("avg_pwp"), values, len(points))
+        x, y = _pt(i, p.get("avg_pwp"))
         if x is None:
             continue
         parts.append(
@@ -836,6 +975,22 @@ def _svg_pwp_curve(points: list[dict[str, Any]]) -> str:
             f'{p["rate"]}%</text>'
         )
     return _svg_wrap(parts)
+
+
+def _pwp_shared_domain(markets: list[dict[str, Any]]) -> Optional[tuple[float, float]]:
+    """小多图的跨面板共享 y 域：全部市场全部档位的 min/max（F-d）。"""
+    vals = [
+        p.get("avg_pwp")
+        for m in markets
+        for p in (m.get("curve") or [])
+        if p.get("avg_pwp") is not None
+    ]
+    if not vals:
+        return None
+    lo, hi = min(vals), max(vals)
+    if lo == hi:
+        return lo - 1.0, hi + 1.0
+    return lo, hi
 
 
 # ═══════════════════════════════════════════════════════════════════════════
