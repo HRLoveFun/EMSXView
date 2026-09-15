@@ -151,7 +151,8 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 5. **禁止 `git push -f`**：仅允许对自己创建、确认无他人协作的分支做 force-with-lease，且需在 commit 信息说明原因。
 6. **同一分支不得检出两个 worktree**（git 会直接报错）——新任务永远新建分支。
 7. **合并方式**：PR 合并建议 Squash merge，保持 main 历史一行一个任务。
-8. **顺序执行 git 操作**：多个 Agent 同时操作共享 refs（fetch/rebase 同一分支）易产生竞态；跨 worktree 的 git 命令串行执行。
+8. **一分支一提交（squash 友好）**：`Test-BranchMerged` 的 squash 识别是**逐 commit 比对 patch-id**——多提交分支被 squash 后，每个 commit 的 patch-id 都不等于合并出的那一个，会被判为「未合并」，使 `wt-finish -DeleteBranch` 必须加 `-Force`。因此 push 前把分支压成 1 个提交：`git reset --soft origin/main && git commit`（或 `git rebase -i origin/main` 全 squash）。实测对照：单提交分支 `git cherry` 输出 `- <sha>`（判定已合并），双提交分支输出 `+ <sha1>` / `+ <sha2>`（判定未合并）。
+9. **顺序执行 git 操作**：多个 Agent 同时操作共享 refs（fetch/rebase 同一分支）易产生竞态；跨 worktree 的 git 命令串行执行。
 
 ---
 
