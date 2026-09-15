@@ -37,6 +37,7 @@ from CostView.src.monitoring import (
     query_anomaly_routes,
     query_anomaly_routes_page,
     render_report_html,
+    report_aggregator,
     report_spec,
     resolve_time_range,
 )
@@ -698,16 +699,19 @@ class TestSampleDisclosure:
     def test_rankings_disclose_sample(self, tca_mgr_factory):
         """排行披露 n_used/n_total，避免「route 数大但成本好」的误读。"""
         mgr = tca_mgr_factory([
-            {"OrderId": "R1", "Broker": "A", "pnl_vwap": 1.0},
-            {"OrderId": "R2", "Broker": "A", "pnl_vwap": None},
+            {"OrderId": f"R{i}", "Broker": "A", "pnl_vwap": 1.0}
+            for i in range(1, 7)
+        ] + [
+            {"OrderId": f"N{i}", "Broker": "A", "pnl_vwap": None}
+            for i in range(1, 3)
         ])
         broker_rows = TcaReportAggregator(mgr).build_report(
             "20260803", "20260803",
         )["rankings"]["by_broker"]
 
         assert len(broker_rows) == 1
-        assert broker_rows[0]["route_count"] == 2
-        assert broker_rows[0]["n_used"] == 1
+        assert broker_rows[0]["route_count"] == 8
+        assert broker_rows[0]["n_used"] == 6
 
     def test_histogram_html_shows_sample_note(self, tca_mgr_factory):
         """样本覆盖率不足时图表区给出「结论仅供参考」提示。"""
@@ -747,16 +751,17 @@ class TestSampleDisclosure:
 
 class TestImpactRecoveryDisclosure:
     def test_impact_breakdown_counts_truncated(self, tca_mgr_factory):
-        """冲击分解披露跨日恢复路由条数与占比。"""
+        """冲击分解披露跨日恢复路由条数与占比（D15：分母为冲击计算样本）。"""
         mgr = tca_mgr_factory([
-            {"OrderId": "I1", "recovery_truncated": 1},
-            {"OrderId": "I2", "recovery_truncated": 0},
+            {"OrderId": "I1", "temp_impact_5min_bps": 1.0, "recovery_truncated": 1},
+            {"OrderId": "I2", "perm_impact_bps": 2.0, "recovery_truncated": 0},
         ])
         impact = TcaReportAggregator(mgr).build_report(
             "20260803", "20260803",
         )["impact_breakdown"]
 
         assert impact["recovery_truncated_count"] == 1
+        assert impact["impact_sample_count"] == 2
         assert impact["recovery_truncated_share"] == pytest.approx(0.5)
 
     def test_impact_breakdown_html_notes_truncation(self, tca_mgr_factory):
@@ -1346,3 +1351,191 @@ class TestHtmlExportCsvClosure:
         assert monitoring_router._export_anomaly_csv_for_html(
             {"anomaly": {"rows": []}}
         ) is None
+
+
+# ── P1-a 批次：排行门槛 / PWP 加权 / 金额一致性 / 冲击样本分母 ────────────────
+
+
+class TestRankingSampleGate:
+    """排行双维门槛与双侧输出（D4 / DP-1 定稿口径 B）。"""
+
+    def test_small_group_excluded(self, tca_mgr_factory):
+        """n_used 不足门槛的 broker 组不上榜，且排除量披露。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "S1", "Broker": "SMALL", "pnl_vwap": -9.0},
+            {"OrderId": "S2", "Broker": "SMALL", "pnl_vwap": -9.5},
+            *[{"OrderId": f"B{i}", "Broker": "BIG", "pnl_vwap": -1.0}
+              for i in range(6)],
+        ])
+        rankings = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["rankings"]
+
+        assert [r["name"] for r in rankings["by_broker"]] == ["BIG"]
+        assert rankings["meta"]["excluded_by_broker"] == 1
+
+    def test_dual_side_output(self, tca_mgr_factory):
+        """最优（升序）与最差（降序）双侧各自排序输出，尾部劣者可见。"""
+        mgr = tca_mgr_factory([
+            *[{"OrderId": f"P{i}", "Broker": "GOOD", "pnl_vwap": -5.0}
+              for i in range(6)],
+            *[{"OrderId": f"Q{i}", "Broker": "BAD", "pnl_vwap": 5.0}
+              for i in range(6)],
+        ])
+        rankings = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["rankings"]
+
+        assert rankings["by_broker"][0]["name"] == "GOOD"
+        assert rankings["by_broker_worst"][0]["name"] == "BAD"
+
+    def test_notional_share_gate(self, tca_mgr_factory):
+        """样本够但金额占比边缘的组同样排除（经济相关性维度）。"""
+        mgr = tca_mgr_factory([
+            *[{"OrderId": f"B{i}", "Broker": "BIG", "fill": 1000.0,
+               "p_avg": 100.0, "pnl_vwap": -1.0} for i in range(6)],
+            *[{"OrderId": f"T{i}", "Broker": "TINY", "fill": 1.0,
+               "p_avg": 1.0, "pnl_vwap": -9.0} for i in range(6)],
+        ])
+        rankings = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["rankings"]
+
+        # TINY 权重 6 / 总 600006 ≈ 0.0001% < 0.1% → 排除
+        assert [r["name"] for r in rankings["by_broker"]] == ["BIG"]
+        assert rankings["meta"]["excluded_by_broker"] == 1
+
+    def test_spec_binds_ranking_gate(self):
+        """声明层与实现层的排行门槛绑定（R5 模式）。"""
+        assert (
+            report_spec.REPORT_SPEC["ranking_min_sample"]
+            == report_aggregator._RANKING_MIN_SAMPLE
+        )
+        assert (
+            report_spec.REPORT_SPEC["ranking_min_notional_share"]
+            == report_aggregator._RANKING_MIN_NOTIONAL_SHARE
+        )
+
+
+class TestPwpWeighting:
+    """PWP 加权口径与分市场小多图数据（D5 / DP-2 定稿）。"""
+
+    def test_pwp_uses_traded_weight(self, tca_mgr_factory):
+        """PWP 为成交额加权而非等权 AVG（与加权 KPI 同源、可对账）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "W1", "fill": 900.0, "p_avg": 150.0, "pwp_5": 1.0},
+            {"OrderId": "W2", "fill": 100.0, "p_avg": 10.0, "pwp_5": 9.0},
+        ])
+        curve = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["pwp_curve"]
+
+        w5 = next(c for c in curve if c["rate"] == 5)["avg_pwp"]
+        assert w5 == pytest.approx((1.0 * 135000 + 9.0 * 1000) / 136000)
+
+    def test_pwp_by_exchange_returns_top_markets(self, tca_mgr_factory):
+        """分市场曲线按组成交额降序输出 Top N，逐市场可解释。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "U1", "Exchange": "US", "fill": 1000.0, "pwp_5": 1.0},
+            {"OrderId": "H1", "Exchange": "HK", "fill": 100.0, "pwp_5": 2.0},
+        ])
+        markets = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["pwp_by_exchange"]
+
+        assert [m["exchange"] for m in markets] == ["US", "HK"]
+        assert len(markets[0]["curve"]) == 5
+
+    def test_pwp_in_weighted_metrics_system(self, tca_mgr_factory):
+        """PWP 纳入 weight_coverage 披露体系（样本/权重覆盖可得）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "W1", "fill": 100.0, "p_avg": 10.0, "pwp_5": 1.0},
+        ])
+        metrics = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["weight_coverage"]["metrics"]
+
+        assert "pwp_5" in metrics
+        assert report_spec.REPORT_SPEC["pwp_weight_mode"] == "traded"
+
+
+class TestAmountConsistency:
+    """金额列同源校验 + order_par 分档 + 门槛 COALESCE（D7/D17 / DP-3 定稿）。"""
+
+    def test_amount_mismatch_disclosed(self, tca_mgr_factory):
+        """Amount 与 fill×p_avg 偏差超 0.5% 的路由计入一致性探针（仅披露）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A1", "Amount": 1000.0, "fill": 100.0, "p_avg": 10.0},
+            {"OrderId": "A2", "Amount": 2000.0, "fill": 100.0, "p_avg": 10.0},
+        ])
+        consistency = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["metric_coverage"]["consistency"]
+
+        assert consistency["amount_check_routes"] == 2
+        assert consistency["amount_mismatch_routes"] == 1
+        assert consistency["amount_consistency_pct"] == 50.0
+
+    def test_order_par_gt200_tiered(self, tca_mgr_factory):
+        """订单参与率 >200% 单独分档（critical 档，疑重复记账）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "P1", "RouteId": "R1", "par_rate": 0.6},
+            {"OrderId": "P1", "RouteId": "R2", "par_rate": 0.6},  # 1.2 → >100%
+            {"OrderId": "P2", "RouteId": "R1", "par_rate": 0.9},
+            {"OrderId": "P2", "RouteId": "R2", "par_rate": 0.9},
+            {"OrderId": "P2", "RouteId": "R3", "par_rate": 0.9},  # 2.7 → >200%
+        ])
+        consistency = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["metric_coverage"]["consistency"]
+
+        assert consistency["order_par_gt100_orders"] == 2
+        assert consistency["order_par_gt200_orders"] == 1
+
+    def test_amount_gate_coalesce_fill_pavg(self, tca_mgr_factory):
+        """Amount 缺失的路由经 COALESCE(fill×p_avg) 参与金额门槛（不再误杀）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "GA1", "Amount": None, "fill": 900.0, "p_avg": 150.0,
+             "pnl_vwap": -30.0},
+        ], with_fx=True)
+        rows, _ = query_anomaly_routes_page(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=0, min_notional_usd=10000.0,
+        )
+
+        assert [r.order_id for r in rows] == ["GA1"]
+
+    def test_html_data_quality_shows_amount_probe(self, tca_mgr_factory):
+        """数据质量提示区展示金额一致性探针。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A2", "Amount": 2000.0, "fill": 100.0, "p_avg": 10.0},
+        ])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-09-15 10:00:00")
+
+        assert "金额一致性" in html
+
+
+class TestImpactTruncatedShare:
+    """冲击截断占比分母 = 冲击计算样本（D15 / DP-4 定稿）。"""
+
+    def test_share_uses_impact_sample(self, tca_mgr_factory):
+        """分母为任一冲击指标可计算的路由数（全量路由会稀释渗透度）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "I1", "temp_impact_5min_bps": 1.0, "recovery_truncated": 1},
+            {"OrderId": "I2", "perm_impact_bps": 2.0},
+            {"OrderId": "I3"},  # 无冲击值 → 不入分母
+        ])
+        impact = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["impact_breakdown"]
+
+        assert impact["impact_sample_count"] == 2
+        assert impact["recovery_truncated_share"] == pytest.approx(0.5)
+
+    def test_spec_binds_denominator(self):
+        """声明层与实现层的分母口径绑定（R5 模式）。"""
+        assert (
+            report_spec.REPORT_SPEC["impact_truncated_share_denominator"]
+            == report_aggregator.IMPACT_TRUNCATED_SHARE_DENOMINATOR
+        )

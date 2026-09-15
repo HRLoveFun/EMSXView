@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.3"
+SPEC_VERSION = "2026.09.4"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -52,6 +52,22 @@ REPORT_SPEC: dict[str, Any] = {
     "excluded": (
         "explicit_fees", "rebates", "taxes", "L2_liquidity", "pre_trade_forecast",
     ),
+    #: D4 / DP-1 定稿口径 B：排行双维门槛（组样本量 + 组成交额占比）与双侧输出
+    #: （实现常量见 report_aggregator._RANKING_MIN_SAMPLE 等，由测试断言一致）
+    "ranking_min_sample": 5,
+    "ranking_min_notional_share": 0.001,
+    "ranking_sides": ("best", "worst"),
+    #: D5 / DP-2 定稿：PWP 纳入成交额加权体系（WEIGHTED_METRICS），默认聚合曲线
+    #: + Top N 市场小多图（跨市场混合的逐档值无物理解释，分市场解释由小图承接）
+    "pwp_weight_mode": "traded",
+    "pwp_by_exchange_top_markets": 6,
+    #: D7 / DP-3 定稿：金额门槛口径 COALESCE(Amount, fill×p_avg)×汇率（Amount 缺失
+    #: 不再被误杀）；一致性校验容差 0.5%（仅披露，不改异常表 Amount 展示列）
+    "anomaly_notional_gate": "coalesce-amount-fill-pavg",
+    "amount_consistency_tolerance_pct": 0.5,
+    #: D15 / DP-4 定稿：冲击截断占比分母 = 冲击计算样本（任一冲击指标可计算）
+    #: （实现常量见 report_aggregator.IMPACT_TRUNCATED_SHARE_DENOMINATOR，测试断言一致）
+    "impact_truncated_share_denominator": "impact_sample",
     #: 已知限制清单文档（脚注引用，便于归档追溯）
     "known_limitations_doc": "docs/report-tca-known-limitations.md",
 }

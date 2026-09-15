@@ -433,7 +433,7 @@ def query_anomaly_routes_page(
             [Config.TCA_ROUTE_SUMMARY_TABLE],
         )
         if cursor.fetchone() is None:
-            return []
+            return [], 0
 
         # fx_rate 列在旧库可能缺失（向后兼容）：缺失时以 NULL 占位，USD 不换算。
         has_fx = _has_column(conn, Config.TCA_ROUTE_SUMMARY_TABLE, "fx_rate")
@@ -488,7 +488,7 @@ def query_anomaly_routes_page(
         rows = [dict(zip([d[0] for d in cursor.description], r)) for r in cursor.fetchall()]
     except FileNotFoundError:
         # 只读模式下 fill_bdib.db 缺失 → 无异常路由（与表缺失同语义, 009）
-        return []
+        return [], 0
     finally:
         if conn is not None:
             conn.close()
@@ -656,7 +656,11 @@ def _anomaly_fx_join() -> str:
 def _anomaly_notional_usd_expr(fbfx_ready: bool, has_fx: bool) -> str:
     """异常明细成交金额(USD) 表达式（含小计价单位货币 ÷100 修正）。
 
-    Amount × 有效汇率；有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)。
+    D7（DP-3 定稿）：门槛口径对齐为 ``COALESCE(Amount, fill × p_avg) × 汇率`` ——
+    Amount 缺失（写入方未预置）的路由不再被金额门槛静默误杀（此前
+    ``notional_usd IS NULL → continue``）。展示语义不变：``notional_local``
+    仍为写入方权威列 Amount，未做静默替换。
+    有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)；
     USD/未知币种缺汇率按 1.0 兜底；非 USD 仍缺汇率时为 NULL（不虚高）。
     无 fx_rate 列时整体返回 NULL（向后兼容旧 schema）。
     """
@@ -667,7 +671,7 @@ def _anomaly_notional_usd_expr(fbfx_ready: bool, has_fx: bool) -> str:
         f"COALESCE({tca}.fx_rate, _fbfx.fb_fx)" if fbfx_ready else f"{tca}.fx_rate"
     )
     # 小计价单位修正与 USD 兜底规则的唯一实现见 report_measure（新增币种只改一处）
-    return f"Amount * ({rm.usd_fx_expr(eff)})"
+    return f"COALESCE(Amount, fill * p_avg) * ({rm.usd_fx_expr(eff)})"
 
 
 # ── 全量明细导出（014：HTML 截断与审计导出分离）──────────────────────────────
