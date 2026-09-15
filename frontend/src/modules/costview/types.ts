@@ -2,7 +2,7 @@ export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'report'
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 export type ExportScope = 'current-page' | 'all-filtered' | 'selected-order';
-export type ThresholdMode = 'absolute-above' | 'above' | 'below';
+type ThresholdMode = 'absolute-above' | 'above' | 'below';
 export type AlertSeverity = 'none' | 'normal' | 'warning' | 'critical';
 
 export type CostViewMetricKey =
@@ -83,7 +83,7 @@ export interface TcaAnalyzeRequest {
   offset?: number;
 }
 
-export interface TcaTimeSeriesPoint {
+interface TcaTimeSeriesPoint {
   ts: string;
   close: number | null;
   fill_px: number | null;
@@ -208,13 +208,7 @@ export interface TcaReport {
 }
 
 
-export interface TriggerUpdateResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
-
-export interface StageInfo {
+interface StageInfo {
   name: 'initialization' | 'fill_fetch' | 'processing' | 'completion';
   label: string;
   progress: number;  // 0-100 within this stage
@@ -319,7 +313,7 @@ export interface BdibHealthDateEntry {
   retention_days_left: number;
 }
 
-export interface BdibHealthSummary {
+interface BdibHealthSummary {
   total_dates: number;
   ok_dates: number;
   partial_dates: number;
@@ -372,7 +366,7 @@ export interface MetricCoverageReport {
   data_source_warning?: string;
 }
 
-export interface TcaReportKpi {
+interface TcaReportKpi {
   route_count: number;
   total_route_shares: number;
   weighted_pnl_vwap: number | null;
@@ -387,7 +381,7 @@ export interface TcaReportKpi {
   notional_usd_excluded?: number | null;
 }
 
-export interface TcaDailySeriesPoint {
+interface TcaDailySeriesPoint {
   date: string;
   route_count: number;
   weighted_pnl_vwap: number | null;
@@ -403,25 +397,25 @@ export interface TcaRankingRow {
   avg_par_rate: number | null;
 }
 
-export interface TcaHistogramBucket {
+interface TcaHistogramBucket {
   lower: number;
   upper: number;
   count: number;
 }
 
 /** pnl_vwap 分布（附样本量披露：分布仅覆盖 pnl_vwap 非 NULL 的路由） */
-export interface TcaPnlHistogram {
+interface TcaPnlHistogram {
   buckets: TcaHistogramBucket[];
   n_used: number;
   n_total: number;
 }
 
-export interface TcaPwpPoint {
+interface TcaPwpPoint {
   rate: number;
   avg_pwp: number | null;
 }
 
-export interface TcaReportSummaryFilters {
+interface TcaReportSummaryFilters {
   start_date: string;
   end_date: string;
   broker: string | null;
@@ -461,7 +455,7 @@ export interface TcaWeightCoverageEntry {
 }
 
 /** 加权 KPI 的覆盖披露（report.weight_coverage） */
-export interface TcaWeightCoverage {
+interface TcaWeightCoverage {
   metrics: Record<string, TcaWeightCoverageEntry>;
   /** 覆盖不足判定阈值（百分数） */
   threshold_pct: number;
@@ -470,7 +464,7 @@ export interface TcaWeightCoverage {
 }
 
 /** 可选市场清单（市场概览表使用） */
-export interface TcaReportMarket {
+interface TcaReportMarket {
   exchange: string;
   route_count: number;
   notional: number | null;
@@ -509,7 +503,7 @@ export interface TcaImpactBreakdown {
 }
 
 /** 异常路由命中规则 */
-export interface TcaAnomalyHit {
+interface TcaAnomalyHit {
   key: string;
   label: string;
   value: number;
@@ -573,7 +567,7 @@ export interface TcaMarketNotionalRankRow {
 }
 
 /** 008: 按市场成交金额（美元）每日趋势点 */
-export interface TcaMarketNotionalTrendPoint {
+interface TcaMarketNotionalTrendPoint {
   date: string;
   exchange: string;
   name: string;
@@ -581,7 +575,7 @@ export interface TcaMarketNotionalTrendPoint {
 }
 
 /** 多选筛选选项（007：distinct 值列表，供多选下拉使用） */
-export interface TcaReportFilterOptions {
+interface TcaReportFilterOptions {
   brokers: string[];
   algos: string[];
   symbols: string[];

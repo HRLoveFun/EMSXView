@@ -12,7 +12,7 @@ import { z } from 'zod';
 
 // ─── Handoff 契约 (WBS-08, 与 backend/api/schemas/handoff.py 对齐) ─────────
 
-export const handoffMetadataSchema = z.object({
+const handoffMetadataSchema = z.object({
   contract_version: z.string(),
   source: z.string(),
   handoff_target: z.string(),
@@ -23,7 +23,7 @@ export const handoffMetadataSchema = z.object({
   source_maturity: z.enum(['GA', 'Beta', 'Scaffold']).nullable().optional(),
 });
 
-export const candidateRowSchema = z.object({
+const candidateRowSchema = z.object({
   equ_ticker: z.string(),
   trade_date: z.string(),
   daily_close: z.number().nullable(),
@@ -35,7 +35,7 @@ export const candidateRowSchema = z.object({
   volatility_alert: z.string(),
 });
 
-export const candidatePayloadSchema = z.object({
+const candidatePayloadSchema = z.object({
   source: z.string(),
   handoff_target: z.string(),
   trade_date: z.string().nullable(),

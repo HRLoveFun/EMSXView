@@ -22,7 +22,6 @@ from models.route_plan import (
 )
 from schemas import Order
 from services.benchmark_engine import (
-    PlannedSlice,
     ScheduleRequest,
     VolumeProfile,
     compute_schedule,

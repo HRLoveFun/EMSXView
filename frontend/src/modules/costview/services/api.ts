@@ -8,7 +8,6 @@ import type {
   TcaOrderAggregate,
   TcaReport,
   TcaReportSummary,
-  TriggerUpdateResponse,
   UpdateStatusResponse,
 } from '../types';
 
@@ -117,24 +116,6 @@ export async function analyzeTca(request: TcaAnalyzeRequest): Promise<TcaReport>
   return json.data as TcaReport;
 }
 
-export async function triggerUpdate(): Promise<TriggerUpdateResponse> {
-  // 经 :3000 鉴权代理触发；运行中重复触发（409）由后端归一为"已受理"并回带当前状态
-  const response = await fetch(`${API_BASE_URL}/api/tca/runner/run`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(await readError(response));
-  }
-  const json = await response.json();
-  const s = json.data as RunnerStatus;
-  return {
-    job_id: s.id,
-    status: s.state === 'running' ? 'running' : 'started',
-    message: json.message ?? 'pipeline triggered',
-  };
-}
-
 /** 003-tca-core-benchmarks: Order 级 TCA 聚合查询 */
 export interface TcaOrderReport {
   filters: TcaAnalyzeRequest['filters'] & { aggregation: string; limit: number; offset: number };
@@ -236,7 +217,7 @@ export async function fetchScorecard(payload: ScorecardRequestPayload): Promise<
 // -- Monitoring（BDIB 健康 / 指标覆盖率 / 报告聚合）----------------------------
 
 /** 监控查询公共参数：last 预设与 start/end 显式区间二选一（YYYYMMDD） */
-export interface MonitoringQuery {
+interface MonitoringQuery {
   last?: LastPreset;
   startDate?: string;
   endDate?: string;
@@ -287,7 +268,7 @@ export async function fetchMetricCoverage(
   );
 }
 
-export interface ReportSummaryQuery extends MonitoringQuery {
+interface ReportSummaryQuery extends MonitoringQuery {
   broker?: string | string[];
   algo?: string | string[];
   symbol?: string | string[];
@@ -338,7 +319,7 @@ export interface ExportHtmlThresholdPayload {
 }
 
 /** 异常路由判定默认阈值（后端 anomaly-thresholds 端点返回） */
-export interface AnomalyThresholdsResponse {
+interface AnomalyThresholdsResponse {
   rules: Record<string, ExportHtmlThresholdPayload>;
   rule_meta: Record<string, { label: string; metric_field: string; scale: number }>;
 }
@@ -350,7 +331,7 @@ export async function fetchAnomalyThresholds(): Promise<AnomalyThresholdsRespons
   );
 }
 
-export interface ExportHtmlQuery extends MonitoringQuery {
+interface ExportHtmlQuery extends MonitoringQuery {
   broker?: string | string[];
   algo?: string | string[];
   symbol?: string | string[];
@@ -422,7 +403,7 @@ export interface RegimeDistributionRow {
   total: number;
 }
 
-export interface RegimeDistributionResponse {
+interface RegimeDistributionResponse {
   success: boolean;
   rows: RegimeDistributionRow[];
   regime_dim: string;

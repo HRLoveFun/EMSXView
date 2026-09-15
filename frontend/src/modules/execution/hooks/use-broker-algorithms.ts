@@ -32,7 +32,7 @@ export interface StrategyParameter {
   description: string;
 }
 
-export interface BrokerAlgorithmState {
+interface BrokerAlgorithmState {
   configs: BrokerAlgorithmConfig[];
   isLoading: boolean;
   isRefreshing: boolean;

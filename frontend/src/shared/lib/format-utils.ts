@@ -20,12 +20,6 @@ export function fmtInt(v: number | null | undefined): string {
   return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
-/** Format a percentage value (2 dp + '%'). Returns '—' for nullish. */
-export function fmtPct(v: number | null | undefined): string {
-  if (v == null) return '—';
-  return v.toFixed(2) + '%';
-}
-
 /** Format a dollar value with auto-scaling (K/M). Returns '—' for nullish. */
 export function fmtDollar(v: number | null | undefined): string {
   if (v == null) return '—';

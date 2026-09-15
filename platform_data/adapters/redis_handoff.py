@@ -299,9 +299,6 @@ class RedisHandoffExchangeAdapter:
         raw = self._redis.hget(self._KEY_EV_TO_CV, order_id)
         return self._deserialize_post_trade(raw)
 
-    def clear_execution_to_cost(self) -> None:
-        self._redis.delete(self._KEY_EV_TO_CV)
-
     # — Cost → Execution —
 
     def publish_cost_to_execution(

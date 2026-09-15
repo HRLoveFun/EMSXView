@@ -140,25 +140,6 @@ export async function getStrategyInfoFromFile(
 }
 
 /**
- * Check if file data exists for a broker
- */
-export async function hasBrokerStrategiesInFile(broker: string): Promise<boolean> {
-  await initializeCache();
-  return fileCache.strategies.has(broker);
-}
-
-/**
- * Check if file data exists for a strategy
- */
-export async function hasStrategyInfoInFile(
-  broker: string,
-  strategy: string
-): Promise<boolean> {
-  await initializeCache();
-  return fileCache.params.has(`${broker}_${strategy}`);
-}
-
-/**
  * Get all available brokers from file
  */
 export async function getAvailableBrokersFromFile(): Promise<string[]> {

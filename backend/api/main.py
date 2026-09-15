@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 EMSXView Trading API - Bloomberg EMSX Integration Service
 Production-ready backend for EMSXView Trading Tool
@@ -9,14 +9,11 @@ Version: 1.0.0
 
 import os
 import sys
-import json
 import glob
 import time
 import asyncio
 import logging
 import logging.handlers
-from datetime import datetime
-from typing import List, Optional
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -148,7 +145,7 @@ bloomberg_service = BloombergEMSXService()
 # Authentication (imported from deps.py)
 # ============================================================================
 
-from deps import verify_token, audit_log, init_services
+from deps import init_services
 
 # Wire singletons into the shared dependency module (legacy path).
 # P2-2: Services are also stored in app.state below for FastAPI Depends().

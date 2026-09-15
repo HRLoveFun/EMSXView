@@ -11,7 +11,7 @@ from typing import Callable
 from scripts.quality_gate.context import ScanContext
 from scripts.quality_gate.models import Finding
 
-from . import dead_files, dead_logic, dead_symbols, frontend, perf
+from . import dead_files, dead_logic, dead_methods, dead_symbols, frontend, perf
 
 Detector = Callable[[ScanContext], list[Finding]]
 
@@ -19,6 +19,7 @@ Detector = Callable[[ScanContext], list[Finding]]
 CL_DETECTORS: list[Detector] = [
     dead_files.detect,      # CL-01 / CL-07 / CL-08
     dead_symbols.detect,    # CL-02
+    dead_methods.detect,    # CL-12
     dead_logic.detect,      # CL-03 / CL-04 / CL-05 / CL-06 / CL-09
     frontend.detect_cleanup,  # CL-10
 ]

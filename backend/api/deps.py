@@ -16,10 +16,9 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from auth import AuthManager
 from config import settings
 from service_provider import RepositoryProvider
 from services.auth_service import authenticate as _authenticate
