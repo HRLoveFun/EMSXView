@@ -87,7 +87,7 @@ class BdibHealthService:
 
         sql_rows, sql_tickers = self._scan_sqlite(start_date, end_date)
         pq_rows, pq_tickers = self._scan_parquet(start_date, end_date)
-        ticker_weight = self._load_ticker_weight(start_date, end_date, resolved)
+        ticker_weight, gap_fx_usd = self._load_ticker_weight(start_date, end_date, resolved)
         # TCA 整日缺失检测（缺陷 D11）：有成交记录但 tca_route_summary 无汇总行的日期
         # （管道 S5.5 未产出）。None 表示日期集不可得，检测显式降级而非静默放行。
         tca_dates = self._load_tca_dates(start_date, end_date, resolved)
@@ -110,6 +110,9 @@ class BdibHealthService:
             "retention_days": self._retention_days,
             "dates": dates,
             "summary": self._build_summary(dates),
+            # 缺口金额是否为 USD 口径（False = 旧 schema 无 fx_rate 列，金额为本币合计，
+            # 渲染层须显式提示，避免读者把本币数读作 USD）
+            "gap_notional_fx_usd": gap_fx_usd,
         }
         if tca_dates is None:
             result["data_source_warning"] = (
@@ -360,8 +363,12 @@ class BdibHealthService:
 
     def _load_ticker_weight(
         self, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
-    ) -> dict[tuple[str, str], tuple[int, float, float]]:
+    ) -> tuple[dict[tuple[str, str], tuple[int, float, float]], bool]:
         """tca_route_summary 按 (日期, ticker) 汇总的 (route 数, 成交金额, 未换算金额)。
+
+        返回 ``(权重表, 是否 USD 口径)``：``False`` = 旧 schema 无 fx_rate 列，
+        金额退化为本币合计（历史行为）——此时字段仍名 notional 但口径为本币，
+        调用方须据此在渲染层显式提示，避免读者把本币数读作 USD。
 
         金额口径与 KPI 同源（换算规则唯一实现见 report_measure.usd_fx_expr）：
         - 有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)（回填可用时），
@@ -372,7 +379,8 @@ class BdibHealthService:
           金额单独计入 notional_unconvertible 披露。此前 ``COALESCE(SUM(a), SUM(b))``
           是整组粒度回退：组内部分路由缺汇率时缺口金额被静默低估且无披露。
         作用域由调用方传入，与覆盖率 / KPI 同源。
-        表缺失 / 查询失败时返回空字典（不阻断健康分级主体逻辑）。
+        表缺失 / 查询失败时返回空权重表（不阻断健康分级主体逻辑；口径标志置 True
+        —— 金额不可得时不误标「本币口径」）。
         """
         condition, scope_params = rm.scope_condition(scope or rm.resolve_scope(None))
         conn = None
@@ -409,13 +417,14 @@ class BdibHealthService:
                 "GROUP BY t.order_as_of_date, t.equ_ticker",
                 params,
             )
-            return {
+            weights = {
                 (str(d), str(t)): (int(n), float(a or 0.0), float(u or 0.0))
                 for d, t, n, a, u in cursor.fetchall()
             }
+            return weights, has_fx
         except Exception as exc:
             logger.debug("读取 ticker 成交金额失败（缺口影响面降级）: %s", exc)
-            return {}
+            return {}, True
         finally:
             if conn is not None:
                 conn.close()
@@ -528,6 +537,7 @@ class BdibHealthService:
             "retention_days": self._retention_days,
             "dates": [],
             "summary": self._build_summary([]),
+            "gap_notional_fx_usd": True,
             "data_source_warning": "日期范围内 processed_fills 无成交记录",
         }
 
