@@ -11,7 +11,9 @@
     "build:marketview": "vite build --config vite.base.ts -- --module=marketview",
     "build:all-modules": "npm run build:execution && npm run build:costview && npm run build:marketview",
     "lint": "eslint .",
+    "lint:modules": "cd .. && eslint --config frontend/eslint.config.js ExecutionView/module",
     "preview": "vite preview",
+    "postinstall": "node ../scripts/devtools/link-module-deps.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

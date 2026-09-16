@@ -109,9 +109,10 @@ def _base_path(ctx: ScanContext, spec: str, importer: str) -> str | None:
     mapped = qg_config.FRONTEND_ALIASES.get(prefix)
     if mapped is None:
         return None
+    # 别名映射值为**仓库根相对**路径（模块可独立为根级目录）
     rest = spec[len(prefix):].lstrip("/")
-    rel = f"{mapped}/{rest}" if mapped and rest else (mapped or rest)
-    return normalize_path(str(ctx.root / qg_config.FRONTEND_SCAN_ROOT / rel))
+    rel = f"{mapped}/{rest}" if rest else mapped
+    return normalize_path(str(ctx.root / rel))
 
 
 def _reachable(entries: set[str], edges: dict[str, set[str]]) -> set[str]:

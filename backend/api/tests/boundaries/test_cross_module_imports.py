@@ -57,7 +57,7 @@ PYTHON_RULES = [
 
 TS_RULES = [
     (
-        REPO_ROOT / "frontend" / "src" / "modules" / "execution",
+        REPO_ROOT / "ExecutionView" / "module",
         "*.tsx",
         "@costview",
         "AP-01",
@@ -66,7 +66,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "frontend" / "src" / "modules" / "execution",
+        REPO_ROOT / "ExecutionView" / "module",
         "*.ts",
         "@costview",
         "AP-01",
@@ -93,7 +93,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "frontend" / "src" / "modules" / "execution",
+        REPO_ROOT / "ExecutionView" / "module",
         "*.tsx",
         "@app",
         "AP-01",
@@ -102,7 +102,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "frontend" / "src" / "modules" / "execution",
+        REPO_ROOT / "ExecutionView" / "module",
         "*.ts",
         "@app",
         "AP-01",

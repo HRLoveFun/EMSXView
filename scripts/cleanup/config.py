@@ -21,7 +21,11 @@ PYTHON_SCAN_ROOTS: list[str] = [
     "MarketView",
     "scripts",
 ]
-FRONTEND_SCAN_ROOT: str = "frontend/src"
+# 前端源码扫描根（可多根）：模块可独立为仓库根级目录（如 ExecutionView/）
+FRONTEND_SCAN_ROOTS: list[str] = [
+    "frontend/src",
+    "ExecutionView/module",
+]
 
 # 「零引用」计数的语料排除目录（文档/历史记录不是消费者，计入会掩蔽真死代码）
 CORPUS_EXCLUDE_PARTS: set[str] = {"docs", "specs", "plans"} | GLOBAL_EXCLUDE_DIRS

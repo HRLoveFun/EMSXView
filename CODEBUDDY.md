@@ -62,9 +62,9 @@
 ### Broker ↔ Exchange 映射清单（★ 维护点）
 
 - **唯一数据源**：`frontend/src/shared/lib/broker-exchange-mapping.ts`（导出 `EXCHANGE_FOR_BROKER` / `getBrokerExchangeMapping()` / `EXCHANGE_LIST`）
-- **维护方式**：增删交易所或 broker 时**只改 shared 文件**；`frontend/src/modules/execution/data/broker-exchange-mapping.ts` 仅为 re-export 兼容层
+- **维护方式**：增删交易所或 broker 时**只改 shared 文件**；`ExecutionView/module/data/broker-exchange-mapping.ts` 仅为 re-export 兼容层
 - **Report 专有市场**：仅需出现在 Report Exchanges、但不进入授权表的交易所（如 `C1` 沪港通、`HK` 香港），加入 `REPORT_ONLY_EXCHANGES` 常量（挂 `EXCHANGE_LIST`，不挂 `EXCHANGE_FOR_BROKER`）
-- **禁止**：在 `modules/execution/data/broker-exchange-mapping.ts` 内直接编辑映射（改此处不生效且会造成漂移）
+- **禁止**：在 `ExecutionView/module/data/broker-exchange-mapping.ts` 内直接编辑映射（改此处不生效且会造成漂移）
 
 ### 后端约定
 
@@ -90,7 +90,7 @@
   | 数据管道写入方（仓库外） | 独立仓库 EMSXDataPipeline（唯一写入方）——本仓库**禁止 import**，文档中**不写其磁盘路径**，需引用时用本仓库 `data_access/*` 路径 |
   | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
   | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
-  | 前端模块代码 | `frontend/src/modules/<module>/`（`components/` `hooks/` `services/`） |
+  | 前端模块代码 | `frontend/src/modules/<module>/`（`components/` `hooks/` `services/`）；ExecutionView 已独立为根级 `ExecutionView/module/`（结构与迁移见 [specs/012-executionview-root-extract/plan.md](specs/012-executionview-root-extract/plan.md)） |
   | 前端共享 UI | `frontend/src/components/`、`frontend/src/components/ui/` |
   | 测试 | 各模块自身 `tests/`（Python）或 `__tests__/`（前端） |
   | 运维/诊断脚本 | `scripts/`（部署启动器归 `scripts/deploy/`） |

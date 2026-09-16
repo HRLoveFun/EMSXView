@@ -380,7 +380,7 @@ await streamNdjsonBatch('/api/orders/batch-route', payload,
 ### 前端错误处理策略
 
 ```typescript
-// frontend/src/modules/execution/services/http-client.ts
+// ExecutionView/module/services/http-client.ts
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<ApiResponse<T>> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,

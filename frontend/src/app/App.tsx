@@ -1,6 +1,6 @@
 // Platform Shell — entry point
 // Side-effect imports: module registries register themselves before AppShell queries them.
-import '../modules/execution/module.registry';
+import '@execution/module.registry';
 import '../modules/marketview/module.registry';
 import '../modules/costview/module.registry';
 // 010-extract-pipeline: databaseview 模块已迁独立项目 EMSXDataPipeline Runner，
