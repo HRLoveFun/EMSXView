@@ -45,7 +45,7 @@
 
 ### 数据获取
 - 前端通过 Vite 代理 `/api/*` 和 `/ws/*` 到后端 `http://localhost:3000`
-- 各模块 API 客户端服务位于模块 `services/` 目录（如 `ExecutionView/module/services/execution-api.ts`、`modules/costview/services/*`）
+- 各模块 API 客户端服务位于模块 `services/` 目录（如 `ExecutionView/module/services/execution-api.ts`、`CostView/module/services/*`）
 - 开发模式支持 Mock 模式（`VITE_USE_MOCK=true`），不依赖后端运行
 
 ### 表单处理

@@ -444,14 +444,19 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<ApiResp
 
 ```
 EMSXView/
-├── frontend/                       # 独立前端项目
+├── frontend/                       # 独立前端项目（壳层 + 共享层）
 │   ├── src/
+│   │   ├── app/                    # App.tsx / AppShell.tsx（模块编排）
 │   │   ├── shared/
 │   │   │   ├── services/           # 共享服务（realtime, token-service）
 │   │   │   └── types/              # ApiResponse 等共享类型
-│   │   └── modules/               # 业务模块（各自调用 /api/* 端点）
+│   │   └── components/             # shadcn/ui 共享组件
 │   ├── vite.config.ts             # /api/*, /ws/* → <API_PORT>(默认3000) 代理
 │   └── package.json
+│
+├── ExecutionView/module/           # 业务模块（仓库根级，与 frontend/ 平级；各自调用 /api/* 端点）
+├── CostView/module/
+├── MarketView/module/
 │
 ├── backend/                        # 独立后端项目
 │   ├── api/

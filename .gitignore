@@ -97,8 +97,9 @@ scripts/reports/cleanup/
 # ============================================================
 # Data files (runtime generated - NEVER commit)
 # 注意：目录模式必须锚定（前导 /），否则会误伤源码树内的 data 目录
-# （曾导致 frontend/src/modules/execution/data/ 兼容层未被跟踪；
-#  该模块已于 2026-09-16 迁至 ExecutionView/module/data/，规则仍须保持锚定）
+# （曾导致 frontend/src/modules/execution/data/ 兼容层未被跟踪 —— ADR-0014；
+#  三模块已于 2026-09-16 迁至仓库根级：ExecutionView/module/data/、CostView/module/、
+#  MarketView/module/。规则仍须保持锚定，勿改回非锚定的 data/）
 # ============================================================
 CostView/data/
 /data/

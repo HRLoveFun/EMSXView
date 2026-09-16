@@ -1,7 +1,7 @@
 """前端清理与性能检测器 — CL-10 不可达文件 / PF-07 渲染热点 / PF-08 Provider 未 memo。
 
 CL-10 做「多入口可达性」：本项目前端有 4 个真实入口（主应用 `src/main.tsx` +
-`src/standalone/{execution,costview,marketview}/main.tsx`）与测试装配文件，
+`{ExecutionView,CostView,MarketView}/standalone/main.tsx`）与测试装配文件，
 从入口 BFS 得可达集，未达文件即零引用候选。
 """
 

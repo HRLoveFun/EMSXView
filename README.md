@@ -100,24 +100,28 @@ EMSXView/
 ├── frontend/                         # ★ 规范 React 前端壳 [Beta]
 │   ├── package.json                  # npm: emsxview-trading-tool
 │   ├── vite.config.ts                # 主 Vite 配置（dev server <FRONTEND_PORT>, default 5173）
-│   │   # 另有 vite.config.{execution,costview,marketview}.ts 三个独立 SPA 构建配置
-│   └── src/
+│   ├── vite.base.ts                  # 独立模块构建基座（--module=<id> → dist-modules/<module>/）
+│   └── src/                          # 只放壳层与共享层（业务模块已迁至仓库根级，specs/012 / 018）
 │       ├── main.tsx                  # ReactDOM entry → <App />
 │       ├── app/                      # App.tsx · AppShell.tsx · WorkspaceModuleTabs.tsx · Toolbar.tsx
-│       ├── modules/
-│       │   ├── execution/            # 订单/路由工作台 [GA]
-│       │   │   ├── views/            # OrderTable, RouteTable, ExecutionBoard, MonitorBoard, BatchOperationPanel
-│       │   │   ├── components/       # 24+ dialogs (cancel, modify, batch-route, algo-launch, etc.)
-│       │   │   ├── services/         # orders-api, routes-api, broker-api, realtime, etc.
-│       │   │   ├── stores/           # order-stream-store, route-stream-store (Zustand)
-│       │   │   └── types/
-│       │   ├── costview/             # Post-trade TCA UI [Beta]（CostView 前端唯一规范入口）
-│       │   │   ├── components/       # Overview, Scorecard, Analysis, FilterWorkbench, Charts, Export
-│       │   │   └── services/         # TCA API client
-│       │   └── marketview/           # Pre-trade shell anchor [Scaffold]
 │       ├── shared/                   # ModuleRegistry, ShellContext, http-client, WS, handoff-api
 │       ├── components/               # shadcn/ui shared components, error-boundary, startup-gate
-│       └── standalone/               # Standalone SPA builds for each module
+│       └── standalone/
+│           └── shell-less.tsx        # 独立构建共用的无 Shell 桩 Provider
+│
+├── ExecutionView/                    # 订单/路由工作台 [GA]（仓库根级，与 frontend/ 平级）
+│   ├── module/
+│   │   ├── views/                    # OrderTable, RouteTable, ExecutionBoard, MonitorBoard, BatchOperationPanel
+│   │   ├── components/               # 24+ dialogs (cancel, modify, batch-route, algo-launch, etc.)
+│   │   ├── services/                 # orders-api, routes-api, broker-api, realtime, etc.
+│   │   ├── stores/                   # order-stream-store, route-stream-store (Zustand)
+│   │   ├── types/
+│   │   └── module.registry.ts        # + module.contract.ts（对外接口契约）
+│   └── standalone/                   # 独立构建入口
+├── CostView/
+│   └── module/                       # Post-trade TCA UI [Beta]（CostView 前端唯一规范入口）
+├── MarketView/
+│   └── module/                       # Pre-trade shell anchor [Scaffold]
 │
 ├── backend/                          # ★ Core backend [GA]
 │   ├── docker-compose.yml            # Production Docker (8 services)
@@ -335,9 +339,9 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 | 入口 | 说明 | 状态 |
 |------|------|------|
-| `frontend/src/modules/<module>/`（主壳 tab） | 规范 UI 入口，三模块同壳 | **唯一规范入口** |
-| `npm run build:execution` / `build:costview` / `build:marketview`（`vite.config.<module>.ts` → `dist/<module>/`） | 独立 SPA 构建，**与主壳同源代码**，仅打包目标不同 | 规范 |
-| `frontend/src/standalone/` | 独立构建所需的壳适配层 | 规范 |
+| `<Module>/module/`（仓库根级，主壳 tab；`ExecutionView` / `CostView` / `MarketView`） | 规范 UI 入口，三模块同壳 | **唯一规范入口** |
+| `npm run build:execution` / `build:costview` / `build:marketview`（`vite.base.ts --module=<id>` → `frontend/dist-modules/<module>/`） | 独立 SPA 构建，**与主壳同源代码**，仅打包目标不同；产物与主应用 `frontend/dist/` 分离（ADR-0020） | 规范 |
+| `<Module>/standalone/`（各模块自带入口）、`frontend/src/standalone/shell-less.tsx`（共用无 Shell 桩 Provider） | 独立构建所需的入口与壳适配层 | 规范 |
 | ~~`CostView/frontend/`~~ | legacy prototype UI | **已于 2026-08-26 删除**（[ADR-0014](./docs/spec/adr/0014-dead-code-cleanup.md)），勿再引用 |
 
 ---

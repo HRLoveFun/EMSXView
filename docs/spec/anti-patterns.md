@@ -72,7 +72,7 @@ rg "(SELECT|INSERT|UPDATE|DELETE)\s+(FROM|INTO)" backend/api/routers/
 **为什么坏**: 错误处理不一致；无统一 loading/error 状态；难以添加拦截器（日志/重试/认证）
 **检测**:
 ```bash
-rg "(fetch\(|axios\.)" frontend/src/modules/*/components/
+rg "(fetch\(|axios\.)" {ExecutionView,CostView,MarketView}/module/components/
 ```
 **修复**: 走模块 `services/` 目录的服务封装
 **例外**: 单元测试 (`*.test.tsx`)、`shared/services/realtime.ts` 内部封装
@@ -191,7 +191,7 @@ pyright backend/ CostView/src/ data_access/ platform_data/
 **为什么坏**: 失去 Shell 对认证/WS/Toast 的统一管理
 **检测**:
 ```bash
-rg "window\.location\." frontend/src/modules/*/components/ frontend/src/modules/*/views/
+rg "window\.location\." {ExecutionView,CostView,MarketView}/module/{components,views}/
 ```
 **修复**: 改用 `useShellContext().navigateTo(...)`
 
@@ -204,7 +204,7 @@ rg "window\.location\." frontend/src/modules/*/components/ frontend/src/modules/
 **为什么坏**: Shell 不知道 WS 状态；无法统一重连/可见性恢复
 **检测**:
 ```bash
-rg "new WebSocket\(" frontend/src/modules/
+rg "new WebSocket\(" {ExecutionView,CostView,MarketView}/module/
 ```
 **修复**: 在 `module.registry.ts` 声明 `realtimeWsPath`，Shell 统一管理
 **参考**: [ADR-0008](../adr/0008-frontend-module-registry-pattern.md)
