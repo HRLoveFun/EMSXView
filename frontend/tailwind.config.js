@@ -6,10 +6,14 @@ export default {
   content: [
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',
-    // ExecutionView 已独立为仓库根级目录（与 frontend 平级），类名扫描需一并覆盖，
-    // 否则其独占的 utility 类会被 purge 掉
+    // 三个业务模块均位于仓库根级目录（与 frontend 平级），类名扫描需一并覆盖，
+    // 否则其独占的 utility 类会被 purge 掉（UI 静默丢样式）
     '../ExecutionView/module/**/*.{js,ts,jsx,tsx}',
     '../ExecutionView/standalone/**/*.{js,ts,jsx,tsx}',
+    '../CostView/module/**/*.{js,ts,jsx,tsx}',
+    '../CostView/standalone/**/*.{js,ts,jsx,tsx}',
+    '../MarketView/module/**/*.{js,ts,jsx,tsx}',
+    '../MarketView/standalone/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {

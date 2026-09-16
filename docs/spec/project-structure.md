@@ -43,10 +43,11 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 Browser
   |
   v
-frontend/ (canonical React shell)
-  |- MarketView module anchor
-  |- ExecutionView workspace
-  `- CostView module
+frontend/ (canonical React shell: app/ 编排 + shared/ 契约层 + components/ 共享 UI)
+  |
+  +--ExecutionView/module   (实时订单与路由工作区，仓库根级)
+  +--CostView/module        (盘后分析 / TCA UI，仓库根级)
+  `--MarketView/module      (盘前锚点，仓库根级)
   |
   v
 backend/api (FastAPI assembly layer)
@@ -77,7 +78,7 @@ EMSXView/
 ├── QUICKSTART.md
 ├── relaunch_service.bat
 ├── package.json                      # npm workspaces 根（frontend + ExecutionView；lockfile 唯一在仓库根，ADR-0020）
-├── frontend/                         # Canonical React frontend shell
+├── frontend/                         # Canonical React frontend shell（壳层 + 共享层，不含业务模块）
 │   ├── package.json
 │   ├── dist/                         # 主应用构建产物（npm run build）
 │   ├── dist-modules/                 # 独立模块构建产物（npm run build:<module>，与 dist/ 分离互不覆盖）
@@ -86,9 +87,9 @@ EMSXView/
 │       │   ├── App.tsx               # Module registry side-effect imports
 │       │   ├── AppShell.tsx          # Root layout orchestrator
 │       │   └── ...
-│       ├── modules/
-│       │   ├── marketview/           # MarketView module anchor
-│       │   └── costview/             # CostView module
+│       ├── standalone/
+│       │   └── shell-less.tsx        # 独立构建用的无 Shell 桩 Provider（三个模块共用）
+│       ├── components/               # 共享 UI（shadcn）
 │       └── shared/                   # Cross-module shared layer
 ├── ExecutionView/                    # ExecutionView 模块（根级独立目录；012-executionview-root-extract）
 │   ├── README.md                     # 职责边界 / 接口契约 / 运行与构建
@@ -119,6 +120,8 @@ EMSXView/
 │   ├── main.py                       # FastAPI entry（无 Bloomberg 依赖）
 │   ├── config.py
 │   ├── routers/marketview.py         # snapshot / intraday-features / handoff 端点
+│   ├── module/                       # 前端模块（仓库根级；原 frontend/src/modules/marketview/，018 平移）
+│   ├── standalone/                   # 独立构建入口（index.html + main.tsx）
 │   └── README.md
 ├── CostView/
 │   ├── README.md
@@ -139,6 +142,8 @@ EMSXView/
 │   │                                 #   anomaly_query · tca_report_html · time_range
 │   ├── scripts/                      # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
 │   ├── tests/                        # 7 个测试文件，213 个测试函数（含 golden 基线回归）
+│   ├── module/                       # 前端模块（仓库根级；原 frontend/src/modules/costview/，018 平移）
+│   ├── standalone/                   # 独立构建入口（index.html + main.tsx）
 │   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 删除（ADR-0014，见 §6.1）
 │   #     data.migrated.202609022339/（2026-09-02 迁移留证，约 145GB）已于 2026-09-16
 │   #     确认数据根稳定后删除；.gitignore 的 CostView/data.migrated.*/ 规则保留
@@ -349,7 +354,7 @@ Cross-domain access should follow this order of preference:
 
 - `CostView/frontend/` prototype was first archived under `docs/archive/`, then **fully removed from the repository** in the 2026-08-26 dead-weight cleanup (recoverable from git history).
 - It is not the canonical CostView UI.
-- New production UI work should go to `frontend/src/modules/costview/`.
+- New production UI work should go to `CostView/module/`（仓库根级模块，与 `frontend/` 平级；2026-09-16 由 `frontend/src/modules/costview/` 平移，见 specs/018）。
 
 ### 6.2 Empty placeholders
 

@@ -17,10 +17,11 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
         "@app": path.resolve(__dirname, "./src/app"),
         "@shared": path.resolve(__dirname, "./src/shared"),
-        // ExecutionView 已独立为仓库根级目录（与 frontend 平级）
+        // 三个业务模块均已独立为仓库根级目录（与 frontend 平级）：
+        // ExecutionView/module、CostView/module、MarketView/module
         "@execution": path.resolve(__dirname, "../ExecutionView/module"),
-        "@costview": path.resolve(__dirname, "./src/modules/costview"),
-        "@marketview": path.resolve(__dirname, "./src/modules/marketview"),
+        "@costview": path.resolve(__dirname, "../CostView/module"),
+        "@marketview": path.resolve(__dirname, "../MarketView/module"),
       },
       // npm workspaces 下依赖被提升到仓库根 node_modules；dedupe 确保
       // 无论从哪条路径解析，react / react-dom 都只取同一份实例
@@ -30,8 +31,13 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
       setupFiles: ['./src/test-setup.ts'],
-      // ExecutionView 源码与测试位于仓库根级目录，需一并纳入收集范围
-      include: ['src/**/*.test.{ts,tsx}', '../ExecutionView/**/*.test.{ts,tsx}'],
+      // 三个业务模块的源码与测试均位于仓库根级目录，需一并纳入收集范围
+      include: [
+        'src/**/*.test.{ts,tsx}',
+        '../ExecutionView/**/*.test.{ts,tsx}',
+        '../CostView/module/**/*.test.{ts,tsx}',
+        '../MarketView/module/**/*.test.{ts,tsx}',
+      ],
     },
     server: {
       port: 5173,
@@ -62,10 +68,11 @@ export default defineConfig(({ mode }) => {
           manualChunks(id) {
             // ── App module chunks (keep lazy-loaded modules in dedicated bundles) ──
             // 010-extract-pipeline: databaseview 模块已迁独立项目，chunk 规则同步移除
-            if (id.includes('/src/modules/costview/')) {
+            // 业务模块位于仓库根级目录（CostView/module、MarketView/module）
+            if (id.includes('/CostView/module/')) {
               return 'module-costview';
             }
-            if (id.includes('/src/modules/marketview/')) {
+            if (id.includes('/MarketView/module/')) {
               return 'module-marketview';
             }
 

@@ -12,7 +12,7 @@
 |---|------|------|------|------|
 | T1 | PR 合并回 main（004-backend-test-stabilization） | `docs/archive/2026-09-16/004-backend-test-stabilization/checklists/progress.md` | ✅ | 已合并（PR #3）；spec 于 2026-09-16 归档 |
 | T2 | PR 合并回 main（005-bloomberg-quota-pause） | `docs/archive/2026-09-16/005-bloomberg-quota-pause/checklists/progress.md` | ✅ | 已合并（merge `fb645d0`）；spec 于 2026-09-16 归档 |
-| T3 | `frontend/src/modules/costview/lib/monitoring-metrics.ts:42` fill label 文案 `'成交率'` 改为 `'成交股数'` | `docs/archive/2026-09-16/006-costview-html-report/checklists/progress.md` 遗留 | ⏳ | fill 是股数，非成交率 |
+| T3 | `frontend/src/modules/costview/lib/monitoring-metrics.ts:42` fill label 文案 `'成交率'` 改为 `'成交股数'` | `docs/archive/2026-09-16/006-costview-html-report/checklists/progress.md` 遗留 | ✅ | 已核实修好（2026-09-16）：现文件 `CostView/module/lib/monitoring-metrics.ts:47` 为 `fill: '成交股数'`，全文无 `'成交率'` 残留 |
 | T4 | `tca_route_summary.fx_rate` 历史回填 | `docs/archive/2026-09-16/007-costview-report-filters/checklists/progress.md` 遗留 | ✅ | 2026-09-01 诊断验证全量 0% NULL（8/26 全量重算 + backfill_tca_route_fx 已覆盖） |
 | T5 | 异常明细 arrival_cost_bps / opportunity_cost / wagner_is_bps / cost_cvar / order_duration_sec / recovery_truncated 真实库 100% NULL（Phase 0/1 核心指标列从未回填）；需重跑 S3 管道回填 | `docs/archive/2026-09-16/008-costview-anomaly-detail/plan.md` 调查结论 | ✅ | 2026-09-01 诊断验证：p_arrival/wagner_is 覆盖 87-95%（8/27-28 全量重算已回填），残余 ~3% 为 bdib_missing 真缺口 |
 | T6 | 异常明细筛选规则 `fill_pct` 后端映射 bug 已修正：原用 `fill`(股数)比对阈值（永远不触发），现对齐前端用完成率百分比 | `docs/archive/2026-09-16/008-costview-anomaly-detail/plan.md` | ✅ | 后端 `anomaly_query._METRIC_MAP` fill_pct → completion_rate×100 |

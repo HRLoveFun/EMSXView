@@ -37,12 +37,15 @@ const MODULE_LAYOUTS: Record<string, ModuleLayout> = {
     chunkMatch: '/ExecutionView/module/',
   },
   costview: {
-    entry: 'src/standalone/costview/index.html',
-    chunkMatch: '/src/modules/costview/',
+    // 入口与源码均在仓库根级 CostView/ 下（与 ExecutionView 同构）
+    root: '../CostView/standalone',
+    entry: 'index.html',
+    chunkMatch: '/CostView/module/',
   },
   marketview: {
-    entry: 'src/standalone/marketview/index.html',
-    chunkMatch: '/src/modules/marketview/',
+    root: '../MarketView/standalone',
+    entry: 'index.html',
+    chunkMatch: '/MarketView/module/',
   },
 };
 
@@ -79,10 +82,10 @@ export function createModuleConfig(opts: ModuleBuildOptions): UserConfig {
         '@': path.resolve(__dirname, './src'),
         '@app': path.resolve(__dirname, './src/app'),
         '@shared': path.resolve(__dirname, './src/shared'),
-        // ExecutionView 为仓库根级目录（与 frontend 平级）
+        // 三个业务模块均为仓库根级目录（与 frontend 平级）
         '@execution': path.resolve(__dirname, '../ExecutionView/module'),
-        '@costview': path.resolve(__dirname, './src/modules/costview'),
-        '@marketview': path.resolve(__dirname, './src/modules/marketview'),
+        '@costview': path.resolve(__dirname, '../CostView/module'),
+        '@marketview': path.resolve(__dirname, '../MarketView/module'),
       },
       // npm workspaces 下依赖被提升到仓库根 node_modules；dedupe 确保
       // 无论从哪条路径解析，react / react-dom 都只取同一份实例

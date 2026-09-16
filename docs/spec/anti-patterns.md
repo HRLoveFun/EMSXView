@@ -37,7 +37,7 @@
 **检测**:
 ```bash
 rg "from ['\"]@costview" ExecutionView/module/
-rg "from ['\"]@marketview" frontend/src/modules/costview/
+rg "from ['\"]@marketview" CostView/module/
 rg "from CostView\.src" backend/api/ platform_data/
 rg "from DataPipeline" backend/ CostView/ platform_data/ data_access/
 ```
@@ -131,7 +131,7 @@ rg "^#\s+[A-Z][a-z]+" backend/ data_access/ platform_data/ --type py
 **为什么坏**: 跨模块状态耦合；破坏模块独立性；独立部署时丢失状态
 **检测**:
 ```bash
-rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/ frontend/src/modules/marketview/
+rg "useOrderStreamStore|useRouteStreamStore" CostView/module/ MarketView/module/
 ```
 **修复**: 改走 handoff 契约（`useHandoffContracts`）或 ShellContext
 **参考**: [ADR-0007](../adr/0007-handoff-exchange-pattern.md)

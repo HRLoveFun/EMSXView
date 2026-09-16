@@ -55,7 +55,7 @@ python main.py                    # Starts on :8001
 bdib_daily_summary (SQLite)
   → platform_data/adapters/market.py (MarketReferenceDataAdapter)
     → MarketView/routers/marketview.py (FastAPI endpoint)
-      → frontend/src/modules/marketview/MarketViewModule.tsx (UI)
+      → MarketView/module/MarketViewModule.tsx (UI，仓库根级模块)
 ```
 
 ## Nginx Routing

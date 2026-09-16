@@ -7,10 +7,10 @@
 /* eslint-disable react-refresh/only-export-components -- 独立构建入口，不适用 fast refresh */
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
-import '../../index.css';
-import '../../modules/costview/module.registry';
+import '@/index.css';
+import '@costview/module.registry';
 import { moduleRegistry } from '@shared/lib/module-registry';
-import { ShellLessProvider } from '../shell-less';
+import { ShellLessProvider } from '@/standalone/shell-less';
 
 const desc = moduleRegistry.get('costview')!;
 const CostViewModule = lazy(desc.loader);

@@ -22,12 +22,12 @@ CostView Report 页已有"导出 HTML 报告"按钮 → `GET /api/tca/monitoring
 | `CostView/src/monitoring/metric_coverage.py` | 38 项指标覆盖率白名单 `COMPUTED_METRICS` |
 | `CostView/src/monitoring/bdib_health.py` | BDIB 健康附录 |
 | `CostView/src/monitoring/time_range.py` | last 预设/日期区间解析 |
-| `frontend/src/modules/costview/components/ReportView.tsx` | 导出按钮 + 阈值下发 |
-| `frontend/src/modules/costview/services/api.ts` | `fetchExportHtml` |
-| `frontend/src/modules/costview/lib/thresholds.ts` | 前端阈值（与后端 `DEFAULT_THRESHOLDS` 双处同步） |
+| `CostView/module/components/ReportView.tsx` | 导出按钮 + 阈值下发 |
+| `CostView/module/services/api.ts` | `fetchExportHtml` |
+| `CostView/module/lib/thresholds.ts` | 前端阈值（与后端 `DEFAULT_THRESHOLDS` 双处同步） |
 | `scripts/reports/generate_tca_report.py` | CLI 入口（与 API 共用渲染器） |
 | `CostView/tests/test_monitoring.py` | 后端测试（43 用例） |
-| `frontend/src/modules/costview/__tests__/monitoring-view.test.tsx` | 前端导出按钮测试 |
+| `CostView/module/__tests__/monitoring-view.test.tsx` | 前端导出按钮测试 |
 
 ## 数据流
 
@@ -114,7 +114,7 @@ CostView Report 页已有"导出 HTML 报告"按钮 → `GET /api/tca/monitoring
 # 后端
 python -m pytest CostView/tests/test_monitoring.py -q
 # 前端
-cd frontend && npm test -- src/modules/costview/
+cd frontend && npm test -- ../CostView/module/
 # CLI 真实生成
 python scripts/reports/generate_tca_report.py --last day
 # 端点直测
