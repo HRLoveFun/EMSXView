@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiService } from '@execution/services/execution-api';
 
-// Types（仅本 hook 内部使用，不对外导出；对外类型见 modules/execution/types/broker.ts）
+// Types（仅本 hook 内部使用，不对外导出；对外类型见 ../types/broker.ts）
 interface BrokerAlgorithmConfig {
   broker: string;
   assetClass: string;

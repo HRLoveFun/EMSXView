@@ -84,10 +84,15 @@ EMSXView/
 │       │   ├── AppShell.tsx          # Root layout orchestrator
 │       │   └── ...
 │       ├── modules/
-│       │   ├── execution/            # Execution domain module
 │       │   ├── marketview/           # MarketView module anchor
 │       │   └── costview/             # CostView module
 │       └── shared/                   # Cross-module shared layer
+├── ExecutionView/                    # ExecutionView 模块（根级独立目录；012-executionview-root-extract）
+│   ├── README.md                     # 职责边界 / 接口契约 / 运行与构建
+│   ├── module/                       # 模块实现（components/ hooks/ views/ services/ stores/ types/ lib/ data/）
+│   │   ├── module.registry.ts        # 自注册描述符（shell 经 moduleRegistry 发现）
+│   │   └── module.contract.ts        # ★ 对外接口契约（ExecutionModuleProps / ExecutionModuleContribution）
+│   └── standalone/                   # 独立构建入口（index.html + main.tsx）
 ├── data_access/                      # 只读数据访问层（010-extract-pipeline 后本仓库唯一数据入口）
 │   ├── config.py                     # Config：数据根 + 库/表常量（唯一真相源）
 │   ├── storage/                      # connection(mode=ro) / market_store / repositories / schema
@@ -192,9 +197,10 @@ Responsibilities:
 Current module split inside the shell:
 
 - `modules/marketview/` — pre-trade shell anchor
-- `modules/execution/` — Execution workspace；对外接口契约收敛于 `modules/execution/module.contract.ts`
-  （`ExecutionModuleProps` → `ExecutionModuleContribution`），模块禁止反向 import `@app/*`，宿主能力经 `@shared/lib/shell-context`
 - `modules/costview/` — active post-trade UI
+- `../ExecutionView/module/` — Execution workspace（已独立为仓库根级目录，与 `frontend/` 平级）；
+  对外接口契约收敛于 `ExecutionView/module/module.contract.ts`
+  （`ExecutionModuleProps` → `ExecutionModuleContribution`），模块禁止反向 import `@app/*`，宿主能力经 `@shared/lib/shell-context`
 
 > `modules/databaseview/` 已随 010-extract-pipeline 移除（数据库维护归独立仓库 EMSXDataPipeline 的 Runner）。
 

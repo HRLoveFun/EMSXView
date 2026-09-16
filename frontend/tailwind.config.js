@@ -3,7 +3,14 @@ import tailwindcssAnimate from "tailwindcss-animate";
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    // ExecutionView 已独立为仓库根级目录（与 frontend 平级），类名扫描需一并覆盖，
+    // 否则其独占的 utility 类会被 purge 掉
+    '../ExecutionView/module/**/*.{js,ts,jsx,tsx}',
+    '../ExecutionView/standalone/**/*.{js,ts,jsx,tsx}',
+  ],
   theme: {
     extend: {
       colors: {

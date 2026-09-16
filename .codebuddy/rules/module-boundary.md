@@ -37,7 +37,7 @@ RATIONALE:   决策理由（链接到对应 ADR）
 
 **DETECT**:
 ```bash
-rg "from ['\"]@costview" frontend/src/modules/execution/
+rg "from ['\"]@costview" ExecutionView/module/
 rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/
 ```
 
@@ -78,7 +78,7 @@ rg "from ['\"]@marketview" frontend/src/modules/costview/
 
 **DETECT**:
 ```bash
-rg "from ['\"]@marketview" frontend/src/modules/execution/
+rg "from ['\"]@marketview" ExecutionView/module/
 ```
 
 ---
@@ -113,7 +113,7 @@ rg "from ['\"]@marketview" frontend/src/modules/execution/
 - 经 `@shared/lib/shell-context` 的 `useShellContext()` 获取宿主能力（导航 / toast / 实时连接状态 / logout）
 - 经 `@shared/hooks/use-handoff-contracts` + `@shared/services/handoff-api` 收发交接合约
 - 经 `@shared/services/*`、`@shared/types`、`@shared/lib/format-utils` 复用共享能力
-- 模块对外接口定义收敛在 `frontend/src/modules/execution/module.contract.ts`
+- 模块对外接口定义收敛在 `ExecutionView/module/module.contract.ts`
 
 **CANNOT**:
 - 反向 `import` Shell 层 `@app/*`（模块依赖壳层属分层倒置，会引入循环依赖并使独立构建失效）
@@ -122,8 +122,8 @@ rg "from ['\"]@marketview" frontend/src/modules/execution/
 
 **DETECT**:
 ```bash
-rg "from ['\"]@app" frontend/src/modules/execution/
-rg "from ['\"]@execution" frontend/src/ -g '!modules/execution/**'
+rg "from ['\"]@app" ExecutionView/module/
+rg "from ['\"]@execution" frontend/src/
 python scripts/audit_cross_imports.py --module frontend_execution
 ```
 
