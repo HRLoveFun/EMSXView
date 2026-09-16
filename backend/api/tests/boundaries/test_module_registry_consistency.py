@@ -8,20 +8,27 @@
 执行: pytest backend/api/tests/boundaries/test_module_registry_consistency.py -v
 """
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+# 模块源码根来自唯一真相源（scripts/module_layout.py）；此前硬编码 frontend/src/modules/*，
+# 三个模块迁到仓库根级后本检查会静默取到空集合并 skip（specs/018 实测过）
+from scripts.module_layout import FRONTEND_MODULES  # noqa: E402
 
 
 def _list_ts_module_ids() -> list[str]:
-    """从所有 module.registry.ts 提取 module id"""
-    modules_dir = REPO_ROOT / "frontend" / "src" / "modules"
-    if not modules_dir.exists():
-        return []
+    """从各前端模块的 module.registry.ts 提取 module id"""
     ids = []
-    for registry in modules_dir.glob("*/module.registry.ts"):
+    for module in FRONTEND_MODULES:
+        registry = REPO_ROOT / module.root / "module.registry.ts"
+        if not registry.exists():
+            continue
         text = registry.read_text(encoding="utf-8")
         m = re.search(r"id:\s*['\"]([^'\"]+)['\"]", text)
         if m:

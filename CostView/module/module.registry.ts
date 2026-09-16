@@ -8,7 +8,7 @@ const descriptor: ModuleDescriptor = {
   id: 'costview',
   label: 'Cost View',
   order: 20,
-  loader: () => import('@/modules/costview/CostViewModule'),
+  loader: () => import('@costview/CostViewModule'),
 };
 
 moduleRegistry.register(descriptor);

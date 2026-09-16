@@ -38,7 +38,7 @@ RATIONALE:   决策理由（链接到对应 ADR）
 **DETECT**:
 ```bash
 rg "from ['\"]@costview" ExecutionView/module/
-rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/
+rg "useOrderStreamStore|useRouteStreamStore" CostView/module/
 ```
 
 **TEST**: `tests/boundaries/test_cross_module_imports.py::test_execution_no_costview_imports`
@@ -58,7 +58,7 @@ rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/
 
 **DETECT**:
 ```bash
-rg "from ['\"]@marketview" frontend/src/modules/costview/
+rg "from ['\"]@marketview" CostView/module/
 ```
 
 **TEST**: `tests/boundaries/test_cross_module_imports.py::test_cross_module_no_direct_imports`
@@ -349,7 +349,7 @@ rg "new WebSocket\(" frontend/src/modules/
 
 **DETECT**:
 ```bash
-rg "useOrderStreamStore|useRouteStreamStore" frontend/src/modules/costview/ frontend/src/modules/marketview/
+rg "useOrderStreamStore|useRouteStreamStore" CostView/module/ MarketView/module/
 ```
 
 **RATIONALE**: 跨模块 store 访问会破坏模块独立性。
