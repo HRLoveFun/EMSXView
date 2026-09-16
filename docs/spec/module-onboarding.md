@@ -13,17 +13,19 @@
 ### A.1 创建目录结构
 
 ```
-frontend/src/modules/<new-module-id>/
-├── components/        # 模块内组件
-├── hooks/             # 模块内 Hook
-├── services/          # API 调用封装
-├── stores/            # Zustand 状态存储（如需）
-├── types/             # 类型定义
-├── views/             # 页面级视图
-├── lib/               # 模块内工具
-├── data/              # 静态数据 / 配置
-├── <NewModule>.tsx    # 模块根组件
-└── module.registry.ts # 模块注册入口
+<NewModule>/                     # 仓库根级目录（与 frontend/ 平级；specs/012、018 已把三模块迁至此形态）
+├── module/                    # 模块实现
+│   ├── components/            # 模块内组件
+│   ├── hooks/                 # 模块内 Hook
+│   ├── services/              # API 调用封装
+│   ├── stores/                # Zustand 状态存储（如需）
+│   ├── types/                 # 类型定义
+│   ├── views/                 # 页面级视图
+│   ├── lib/                   # 模块内工具
+│   ├── data/                  # 静态数据 / 配置
+│   ├── <NewModule>.tsx        # 模块根组件
+│   └── module.registry.ts     # 模块注册入口
+└── standalone/                # 独立构建入口（index.html + main.tsx）
 ```
 
 ### A.2 创建 `module.registry.ts`
@@ -51,8 +53,8 @@ moduleRegistry.register(descriptor);
 修改 `frontend/src/app/App.tsx`：
 
 ```typescript
-// 顶部 side-effect import
-import '../modules/<new-module-id>/module.registry';
+// 顶部 side-effect import（走模块别名，与 @execution / @costview / @marketview 同风格）
+import '@<new-module-id>/module.registry';
 ```
 
 ### A.4 更新规范文档与模块拓扑登记
@@ -76,8 +78,8 @@ import '../modules/<new-module-id>/module.registry';
 npm ci
 
 cd frontend
-npm run build         # 验证模块能被正确打包
-npm test -- src/modules/<new-module-id>/   # 只跑该模块测试
+npm run build                # 验证模块能被正确打包
+npm test -- ../<NewModule>/module/   # 只跑该模块测试（模块测试在仓库根级目录下）
 ```
 
 > 勿用裸 `npx vitest`：依赖已提升到仓库根，`frontend/node_modules/.bin` 为空，走 `npm run/npm test` 才会带上正确的 PATH。

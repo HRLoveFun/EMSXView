@@ -205,9 +205,11 @@ Responsibilities:
 
 Current module split inside the shell:
 
-- `modules/marketview/` — pre-trade shell anchor
-- `modules/costview/` — active post-trade UI
-- `../ExecutionView/module/` — Execution workspace（已独立为仓库根级目录，与 `frontend/` 平级）；
+- `../ExecutionView/module/` — Execution workspace（仓库根级，与 `frontend/` 平级）
+- `../CostView/module/` — active post-trade UI（仓库根级）
+- `../MarketView/module/` — pre-trade shell anchor（仓库根级）；
+
+  （三模块对外接口契约与依赖约束：Execution workspace 的见下：
   对外接口契约收敛于 `ExecutionView/module/module.contract.ts`
   （`ExecutionModuleProps` → `ExecutionModuleContribution`），模块禁止反向 import `@app/*`，宿主能力经 `@shared/lib/shell-context`
 

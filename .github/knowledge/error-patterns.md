@@ -36,7 +36,7 @@ Common error patterns and solutions encountered in EMSX development.
 
 **Pattern:** A module tab shows blank content or loading spinner never resolves.  
 **Cause:** The module's chunk failed to load (404) or the module component threw during mount.  
-**Solution:** Check browser console for chunk load errors. Verify the module's entry point (`modules/<name>/index.tsx`) exists and exports a default React component.
+**Solution:** Check browser console for chunk load errors. Verify the module's entry point (`<Module>/module/module.registry.ts` 及其 lazy 加载的根组件，如 `CostView/module/CostViewModule.tsx`) exists and exports a default React component.
 
 ### Path alias not resolving in import
 

@@ -20,7 +20,7 @@
 | React 组件文件 | PascalCase `.tsx` | `OrderTable.tsx`、`AppShell.tsx` |
 | 工具/库文件 | camelCase `.ts` | `formatDate.ts`、`validators.ts` |
 | 常量文件 | camelCase `.ts` 或 `constants.ts` | `routeConstants.ts` |
-| 类型定义文件 | `types.ts` 或 `types/index.ts` | `modules/execution/types/` |
+| 类型定义文件 | `types.ts` 或 `types/index.ts` | `ExecutionView/module/types/` |
 | React 组件 | PascalCase | `OrderTable`、`RoutePanel` |
 | 自定义 Hook | `use` 前缀 + camelCase | `useOrders()`、`useShellContext()` |
 | 普通函数 | camelCase | `formatOrderId()`、`parseBrokerResponse()` |

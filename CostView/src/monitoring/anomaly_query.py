@@ -1,7 +1,7 @@
 """异常路由判定查询与阈值参数化。
 
 供 HTML 报告 S6 异常路由明细表使用，判定口径与前端
-``frontend/src/modules/costview/lib/thresholds.ts`` 完全对齐：
+``CostView/module/lib/thresholds.ts`` 完全对齐：
 - 规则键 → 指标字段映射（getMetricValue 同款）
 - mode：absolute-above / above / above-strict / below（evaluateThreshold 同款；
   above-strict 为严格大于，边界值不算越界，供「数据矛盾」探针使用）

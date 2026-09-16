@@ -130,7 +130,7 @@ python scripts/audit_cross_imports.py --module frontend_execution
 **TEST**: `backend/api/tests/boundaries/test_cross_module_imports.py::test_no_forbidden_imports[AP-01:execution:@app]`
 
 **RATIONALE**: 壳层只依赖注册描述符与契约类型，模块只依赖 `@shared/*` 契约层，双向皆不越界，
-ExecutionView 才能在「Shell 内嵌」与「独立构建（`frontend/src/standalone/execution/`）」两种宿主下行为一致。
+ExecutionView 才能在「Shell 内嵌」与「独立构建（`ExecutionView/standalone/`）」两种宿主下行为一致。
 接口契约落文件（`module.contract.ts`）而非散落在组件签名中，可直接被编译器与测试校验。
 [ADR-0008](../docs/spec/adr/0008-frontend-module-registry-pattern.md)
 
@@ -329,7 +329,7 @@ rg "['\"][^'\"]*\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 
 **DETECT**:
 ```bash
-rg "new WebSocket\(" frontend/src/modules/
+rg "new WebSocket\(" {ExecutionView,CostView,MarketView}/module/
 ```
 
 **RATIONALE**: Shell 统一管理 WS 连接生命周期与重连。[ADR-0008](../docs/spec/adr/0008-frontend-module-registry-pattern.md)
