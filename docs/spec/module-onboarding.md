@@ -89,16 +89,17 @@ pytest tests/boundaries/test_module_registry_consistency.py -v
 
 适用：跨域需要新的数据访问入口（如新增 `RiskDataAdapter`）。
 
-> **当前代码现状 (2026-06-03)**：`platform_data/adapters.py` 已拆分为
+> **当前代码现状 (2026-09-16)**：`platform_data/adapters.py` 已拆分为
 > 子包 `platform_data/adapters/{handoff,market,redis_handoff,tca_bridge}.py`。
-> `platform_data/adapters/__init__.py` 做向后兼容 re-export。
+> `platform_data/adapters/__init__.py` **只** re-export 适配器类与工厂函数
+> （2026-09-16 收敛：契约类型与下划线私有符号的 re-export 已移除）。
 > 新适配器应放在子包下。
 
 ### B.1 创建子包文件
 
 ```
 platform_data/adapters/
-├── __init__.py           # 维护 re-export 列表
+├── __init__.py           # 适配器 re-export 列表（仅适配器与工厂）
 ├── handoff.py            # 已有
 ├── market.py             # 已有
 ├── redis_handoff.py      # 已有
@@ -141,7 +142,14 @@ from platform_data.adapters.<new_domain> import (
 )
 ```
 
-并在 `platform_data/__init__.py` 顶层导出（按需）。
+边界纪律（2026-09-16 收敛后）：
+
+- **只** re-export 适配器类与工厂函数；
+- **不** re-export 契约类型（跨域数据类型一律从 `platform_data.contracts` 导入）；
+- **不** re-export 下划线私有符号（跨域禁止访问，见 `.codebuddy/rules/module-boundary.md` §2.3）。
+
+并在 `platform_data/__init__.py` 顶层导出（按需；顶层入口清单见
+[module-api-contracts.md §平台适配器入口](module-api-contracts.md)）。
 
 ### B.4 更新规范文档
 
