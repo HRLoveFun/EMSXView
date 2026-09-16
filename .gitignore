@@ -40,6 +40,9 @@ yarn-error.log*
 coverage/
 .nyc_output/
 .pytest_cache/
+# --- 测试运行器输出产物（如 vitest_out.txt，勿入版本库） ---
+*.out.txt
+vitest_out.txt
 
 # --- Build outputs ---
 app/dist/
