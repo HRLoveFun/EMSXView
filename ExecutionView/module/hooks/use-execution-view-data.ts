@@ -127,12 +127,8 @@ export function useExecutionViewData({
   // ── Initial data load ──────────────────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) {
+      // 只做 ref 复位（不触发渲染）；对外「清空」由下方返回值派生
       initialDataLoadedRef.current = false;
-      setAllOrders([]);
-      setAllRoutes([]);
-      setCurrentTrader('');
-      setSelectedOrders(new Set());
-      setIsLoading(false);
       return;
     }
     const canFetch = isBackendReady || allowFallbackFetch;
@@ -171,12 +167,14 @@ export function useExecutionViewData({
     onToast,
   });
 
+  // 未登录时对外表现为「无数据」：在返回值处派生，取代原先在 effect 内同步清空 4 处 state
+  // （避免 effect 内 setState 引发的级联渲染；同时对消费者语义完全一致）
   return {
-    allOrders,
-    allRoutes,
-    currentTrader,
-    selectedOrders,
-    isLoading,
+    allOrders: isAuthenticated ? allOrders : [],
+    allRoutes: isAuthenticated ? allRoutes : [],
+    currentTrader: isAuthenticated ? currentTrader : '',
+    selectedOrders: isAuthenticated ? selectedOrders : new Set<string>(),
+    isLoading: isAuthenticated ? isLoading : false,
     fetchOrders,
     ...mutations,
   };

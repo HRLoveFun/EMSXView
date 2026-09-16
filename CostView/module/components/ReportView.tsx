@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileBarChart, FileDown, RefreshCw } from 'lucide-react';
 import {
   Bar,
@@ -433,12 +433,10 @@ const ChartPanel = ({ title, empty, children }: { title: string; empty: boolean;
 );
 
 export function ReportView() {
-  // 初始表单在挂载时构建一次（读取 Configure 中的默认交易所范围）
-  const initialFormRef = useRef<ReportFormState | null>(null);
-  if (initialFormRef.current === null) {
-    initialFormRef.current = buildInitialReportForm();
-  }
-  const [form, setForm] = useState<ReportFormState>(initialFormRef.current);
+  // 初始表单在挂载时构建一次（读取 Configure 中的默认交易所范围）；用 state 固定，
+  // 既作 useState 初值、又供「重置」复用（原先用 ref 承载，会在渲染期读 ref）
+  const [initialForm] = useState<ReportFormState>(() => buildInitialReportForm());
+  const [form, setForm] = useState<ReportFormState>(initialForm);
   const [report, setReport] = useState<TcaReportSummary | null>(null);
   const [health, setHealth] = useState<BdibHealthReport | null>(null);
   const [options, setOptions] = useState<TcaReportSummary['filter_options']>({ brokers: [], algos: [], symbols: [], exchanges: [] });
@@ -516,11 +514,14 @@ export function ReportView() {
   }, [buildQuery]);
 
   useEffect(() => {
-    const initial = initialFormRef.current!;
+    const initial = initialForm;
+    // 豁免理由：挂载时首屏拉取报表/选项/健康度，属「与外部系统同步」的必要副作用；
+    // setState（loading 态）位于异步回调整体之前的同步置位，用于立即显示加载态。
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
     void loadReport(initial);
     void loadMeta(initial);
     void loadHealth(initial);
-  }, [loadReport, loadMeta, loadHealth]);
+  }, [loadReport, loadMeta, loadHealth, initialForm]);
 
   const updatePreset = (value: string) =>
     setForm((prev) => ({ ...prev, preset: value as ReportFormState['preset'] }));

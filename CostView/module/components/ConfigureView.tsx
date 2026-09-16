@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Download, RotateCcw, Save, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,10 +31,8 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
   // Report 可选交易所清单：与 ExecutionView Market Broker Mapping 共用同一固定映射
   const marketOptions = EXCHANGE_LIST;
 
-  useEffect(() => {
-    setDraft(config);
-  }, [config]);
-
+  // config 变化时重置草稿交由调用方以 key 重挂载实现（React 推荐的「用 key 重置 state」），
+  // 避免「prop 变化 → effect 内同步 setState」引发的级联渲染
   const isDirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(config), [config, draft]);
 
   function updateRule(ruleKey: keyof CostViewConfig['rules'], nextRule: ThresholdRule) {

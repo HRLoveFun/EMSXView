@@ -173,6 +173,9 @@ export function UnifiedModifyRouteDialog({
       const s = route.strategyType || '';
       const n = route.notes || '';
 
+      // 待重构（specs/020）：打开时回填 8 组字段（orig* + 可编辑态），理想修法是调用方以 key 重挂载 +
+      // 各 state 初值取自 route；因改动面较大，本 PR 保留现状并登记待办。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOrigAmount(a); setAmount(a);
       setOrigOrderType(ot); setOrderType(ot);
       setOrigLimitPrice(lp); setLimitPrice(lp);
@@ -190,6 +193,8 @@ export function UnifiedModifyRouteDialog({
   // Resolve asset class
   useEffect(() => {
     let cancelled = false;
+    // 待重构（specs/020）：无 ticker 时回落默认资产类别；理想修法是 key 重挂载后由初值承担该回落
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!open || !route?.ticker) { setAssetClass('EQTY'); return; }
     cachedApiService.resolveAssetClass(route.ticker, 'EQTY')
       .then(ac => { if (!cancelled) setAssetClass(ac || 'EQTY'); })
@@ -211,6 +216,9 @@ export function UnifiedModifyRouteDialog({
   // Load strategy list whenever broker changes
   useEffect(() => {
     if (!open) return;
+    // 豁免理由：broker 变化时拉取策略列表，属「与外部系统同步」的必要副作用；
+    // fetchStrategies 同步置 loading/清空态用于立刻反馈，无法改写成派生值（数据源不在 React 内）。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (broker) void fetchStrategies(broker);
   }, [open, broker, fetchStrategies]);
 
