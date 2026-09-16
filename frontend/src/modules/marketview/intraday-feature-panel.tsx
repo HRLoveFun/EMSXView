@@ -17,7 +17,7 @@ interface IntradayFeaturePanelProps {
   onClose: () => void;
 }
 
-export function SummaryCard({ label, value }: { label: string; value: string }) {
+function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border/70 bg-background px-4 py-3">
       <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
