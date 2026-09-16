@@ -3,6 +3,7 @@
  */
 import path from 'path';
 import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
 import type { UserConfig } from 'vite';
 
 export interface ModuleBuildOptions {
@@ -75,3 +76,23 @@ export function createModuleConfig(opts: ModuleBuildOptions): UserConfig {
     },
   };
 }
+
+/** 受支持的 standalone 模块清单（与 src/standalone/ 目录一一对应）。 */
+const SUPPORTED_MODULES = ['execution', 'costview', 'marketview'] as const;
+
+/**
+ * 默认导出：供 `vite build --config vite.base.ts -- --module=<name>` 直接使用，
+ * 模块名从命令行 argv 解析（不占用 --mode，保持 import.meta.env.MODE 原语义），
+ * 替代原先每个模块一份样板配置文件（vite.config.<module>.ts）的方式。
+ */
+export default defineConfig(() => {
+  // 从 argv 提取 --module=<name>（vite CLI 不识别该参数，故置于 -- 分隔符之后）
+  const moduleArg = process.argv.find((arg) => arg.startsWith('--module='));
+  const moduleName = moduleArg?.split('=')[1] ?? '';
+  if (!(SUPPORTED_MODULES as readonly string[]).includes(moduleName)) {
+    throw new Error(
+      `[vite.base] 缺少或无效的 --module 参数，请使用 --module ${SUPPORTED_MODULES.join('|')}`,
+    );
+  }
+  return createModuleConfig({ moduleName });
+});
