@@ -36,7 +36,7 @@
 **为什么坏**: 跨域 import 把业务模块的内部细节泄漏到调用方，导致打包膨胀、循环依赖、单元测试无法独立运行
 **检测**:
 ```bash
-rg "from ['\"]@costview" frontend/src/modules/execution/
+rg "from ['\"]@costview" ExecutionView/module/
 rg "from ['\"]@marketview" frontend/src/modules/costview/
 rg "from CostView\.src" backend/api/ platform_data/
 rg "from DataPipeline" backend/ CostView/ platform_data/ data_access/

@@ -188,10 +188,10 @@ def _resolve_path(ctx: ScanContext, spec: str, importer: str, file_set: set) -> 
         mapped = config.FRONTEND_ALIASES.get(prefix)
         if mapped is None:
             return None
-        # 别名挂载点为 frontend/src，mapped 为相对 src 的子路径（可能为空）
+        # 别名映射值为**仓库根相对**路径（模块可独立为根级目录）
         rest = spec[len(prefix):].lstrip("/")
-        rel_path = f"{mapped}/{rest}" if mapped and rest else (mapped or rest)
-        base = normalize_path(str(ctx.root / config.FRONTEND_SCAN_ROOT / rel_path))
+        rel_path = f"{mapped}/{rest}" if rest else mapped
+        base = normalize_path(str(ctx.root / rel_path))
     else:
         return None                          # npm 包不参与
     for ext in _EXT_PROBES:

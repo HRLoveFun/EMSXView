@@ -12,7 +12,7 @@
       "@/*": ["./src/*"],
       "@app/*": ["./src/app/*"],
       "@shared/*": ["./src/shared/*"],
-      "@execution/*": ["./src/modules/execution/*"],
+      "@execution/*": ["./../ExecutionView/module/*"],
       "@costview/*": ["./src/modules/costview/*"],
       "@marketview/*": ["./src/modules/marketview/*"]
     },
@@ -32,5 +32,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src", "../ExecutionView/module", "../ExecutionView/standalone"]
 }

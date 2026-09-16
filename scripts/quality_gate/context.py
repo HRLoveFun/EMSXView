@@ -33,15 +33,18 @@ def collect_all_python_files(root: Path) -> list[Path]:
 
 
 def collect_frontend_files(root: Path) -> list[Path]:
-    """收集前端源码文件（.ts/.tsx）。"""
-    base = root / config.FRONTEND_SCAN_ROOT
-    if not base.exists():
-        return []
-    return sorted(
-        p for p in base.rglob("*")
-        if p.suffix in (".ts", ".tsx")
-        and not any(part in config.GLOBAL_EXCLUDE_DIRS for part in p.parts)
-    )
+    """收集前端源码文件（.ts/.tsx，覆盖全部前端扫描根）。"""
+    files: list[Path] = []
+    for rel_root in config.FRONTEND_SCAN_ROOTS:
+        base = root / rel_root
+        if not base.exists():
+            continue
+        files.extend(
+            p for p in base.rglob("*")
+            if p.suffix in (".ts", ".tsx")
+            and not any(part in config.GLOBAL_EXCLUDE_DIRS for part in p.parts)
+        )
+    return sorted(set(files))
 
 
 def _iter_py(base: Path) -> list[Path]:

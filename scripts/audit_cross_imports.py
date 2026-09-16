@@ -32,8 +32,9 @@ from platform_data.contracts.boundary_registry import boundary_registry  # noqa:
 
 # 模块 id → (扫描根, 文件后缀) 映射; 新增模块时在此追加一行
 MODULE_SCAN_ROOTS: dict[str, list[tuple[Path, str]]] = {
-    "frontend_execution": [(REPO_ROOT / "frontend" / "src" / "modules" / "execution", "*.tsx"),
-                            (REPO_ROOT / "frontend" / "src" / "modules" / "execution", "*.ts")],
+    # ExecutionView 已独立为仓库根级目录（specs/012-executionview-root-extract）
+    "frontend_execution": [(REPO_ROOT / "ExecutionView" / "module", "*.tsx"),
+                            (REPO_ROOT / "ExecutionView" / "module", "*.ts")],
     "frontend_costview": [(REPO_ROOT / "frontend" / "src" / "modules" / "costview", "*.tsx"),
                            (REPO_ROOT / "frontend" / "src" / "modules" / "costview", "*.ts")],
     "frontend_marketview": [(REPO_ROOT / "frontend" / "src" / "modules" / "marketview", "*.tsx"),

@@ -7,8 +7,8 @@
 /* eslint-disable react-refresh/only-export-components -- 独立构建入口，不适用 fast refresh */
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
-import '../../index.css';
-import '../../modules/execution/module.registry';
+import '@/index.css';
+import '@execution/module.registry';
 import { moduleRegistry } from '@shared/lib/module-registry';
 import { ShellContext } from '@shared/lib/shell-context';
 import type { ShellContextValue } from '@shared/lib/shell-context';

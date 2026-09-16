@@ -22,7 +22,11 @@ PYTHON_SCAN_ROOTS: list[str] = [
     "platform_data",
     "MarketView",
 ]
-FRONTEND_SCAN_ROOT: str = "frontend/src"
+# 前端源码扫描根（可多根）：模块可独立为仓库根级目录（如 ExecutionView/）
+FRONTEND_SCAN_ROOTS: list[str] = [
+    "frontend/src",
+    "ExecutionView/module",
+]
 
 # 全库收集时排除的目录名（import 图 / 调用计数仍覆盖业务目录）
 GLOBAL_EXCLUDE_DIRS: set[str] = {
@@ -68,15 +72,15 @@ FRONTEND_EXEMPT_FILES: set[str] = {
     "src/main.tsx",
     "src/vite-env.d.ts",
 }
-# 前端路径别名映射（来源 vite.config.ts resolve.alias；漂移需同步此表）
-# 值为相对 frontend/src 的 posix 路径（别名挂载点在 frontend/src，非仓库根）
+# 前端路径别名映射（来源 vite.config.ts / vite.base.ts resolve.alias；漂移需同步此表）
+# 值为**仓库根相对**的 posix 路径（模块可独立为根级目录，故不再统一挂在 frontend/src 下）
 FRONTEND_ALIASES: dict[str, str] = {
-    "@": "",
-    "@app": "app",
-    "@shared": "shared",
-    "@execution": "modules/execution",
-    "@costview": "modules/costview",
-    "@marketview": "modules/marketview",
+    "@": "frontend/src",
+    "@app": "frontend/src/app",
+    "@shared": "frontend/src/shared",
+    "@execution": "ExecutionView/module",
+    "@costview": "frontend/src/modules/costview",
+    "@marketview": "frontend/src/modules/marketview",
 }
 
 # ── 门禁模式 ──────────────────────────────────────────────────────

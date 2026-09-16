@@ -24,7 +24,7 @@
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `frontend/src/modules/execution/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.3 GB、`execution_history.db` 6.3 GB，实测 2026-09-11）；后端约 180 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.3 GB、`execution_history.db` 6.3 GB，实测 2026-09-11）；后端约 180 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
 | **CostView**（`CostView/` + `frontend/src/modules/costview/`） | **Beta** | 213 个测试函数（`CostView/tests/`，7 个测试文件，pytest 收集 219 个用例，含 CLI 入口与黄金样本回归）；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)；13 个 API 端点全部可追溯到代码 | 测试覆盖率未量化；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA）；黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip） |
 | **MarketView**（`MarketView/`） | **Scaffold** | 仅 3 个端点（快照 / 盘中特征 / handoff 发布），无自身测试目录 | 见 §4.3 未实现清单 |
 | **frontend/**（React 壳） | **Beta** | 17 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
@@ -220,7 +220,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 每个模块给出：定位 / 入口 / 能力（**已实现 与 规划中 二分**，每条带入口+验证）/ 不做什么 / 验证命令。模块深入细节见各子 README（§10）。
 
-### 4.1 ExecutionView（`backend/api/` + `frontend/src/modules/execution/`）— GA
+### 4.1 ExecutionView（`backend/api/` + `ExecutionView/module/`）— GA
 
 **定位**：订单与路由执行管理核心服务，Bloomberg EMSX 集成。**入口**：`backend/api/main.py`（`<API_PORT>`，默认 3000）；核心路由 9 个始终加载（connection / auth / orders / routes / broker / realtime / debug / route_plans / market_broker_mapping），可选路由经 `_register_optional`（`main.py:314`）。
 
