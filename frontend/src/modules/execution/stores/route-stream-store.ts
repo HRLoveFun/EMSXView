@@ -6,7 +6,7 @@
 import type { Route } from '@execution/types'
 import type { DeltaEvent } from '@shared/services/realtime';
 
-export interface RouteStreamStore {
+interface RouteStreamStore {
   /** Apply a delta event. Returns true if the store was modified. */
   apply(event: DeltaEvent): boolean;
   /** Get current snapshot as array (same shape as REST response). */

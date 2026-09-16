@@ -11,19 +11,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiService } from '@execution/services/execution-api';
 
-// Types
-export interface BrokerAlgorithmConfig {
+// Types（仅本 hook 内部使用，不对外导出；对外类型见 modules/execution/types/broker.ts）
+interface BrokerAlgorithmConfig {
   broker: string;
   assetClass: string;
   strategies: StrategyConfig[];
 }
 
-export interface StrategyConfig {
+interface StrategyConfig {
   name: string;
   parameters: StrategyParameter[];
 }
 
-export interface StrategyParameter {
+interface StrategyParameter {
   fieldName: string;
   stringValue: string;
   disable: string;

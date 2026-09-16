@@ -7,7 +7,7 @@
  * Source: desk-defined mapping.
  */
 
-export type Region = 'APAC' | 'EMEA' | 'EUR' | 'NSA';
+type Region = 'APAC' | 'EMEA' | 'EUR' | 'NSA';
 
 /** Exchange code to region lookup */
 export const EXCHANGE_REGION: Record<string, Region> = {

@@ -19,7 +19,7 @@ import { useExecutionPoller } from './use-execution-poller';
 import { useExecutionMutations } from './use-execution-mutations';
 
 // ── Module-level cache (shared with poller) ──────────────────────────────
-export const traderInfoCache = createCache<TraderInfo>(CACHE_CONFIGS.TRADER_INFO);
+const traderInfoCache = createCache<TraderInfo>(CACHE_CONFIGS.TRADER_INFO);
 
 interface UseExecutionViewDataOptions {
   isAuthenticated: boolean;
