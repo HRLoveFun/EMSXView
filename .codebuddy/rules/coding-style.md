@@ -87,6 +87,10 @@
 - React 组件使用函数组件 + Hooks，不使用 class 组件
 - 一个文件仅导出一个组件（默认导出），辅助类型/工具可命名导出
 - 事件处理函数与 JSX 属性保持一致命名
+- **表单/对话框的「打开或切换目标时重置」一律用「调用方 `key` 重挂载 + state 初值取自 props」**，
+  禁止在 `useEffect` 内同步 `setState` 回填；同理「某 prop 变化 ⇒ 同步本地 state」应改为派生值或 key。
+  反例与修法见 `specs/021-t10-form-reset-refactor/plan.md`；`react-hooks/set-state-in-effect` 已在
+  CI 硬阻断（`npm run lint` + `npm run lint:modules`），新增即失败
 
 ### Python / FastAPI 专项
 
