@@ -54,6 +54,12 @@ python -m pytest CostView/tests/test_golden_samples.py -q
 - 基线 diff 必须逐条可归因；无法解释的漂移先查代码，不要直接改基线。
 - 快照是**测试夹具**而非运行时数据：`.gitignore` 的「数据文件不入库」规则对本目录
   有显式例外（`!CostView/tests/golden/snapshot/*.db`）。
+- **覆盖边界**：golden 只走 `gen_golden.py` → `build_tca_report` 的 per_order 指标
+  链路，**不覆盖 monitoring 侧路径**（报告聚合 / 异常明细 / BDIB 健康扫描——
+  fx 回填 CTE `report_measure.fbfx_cte` 仅在这些路径生效）。改 monitoring 口径
+  时 golden 不会兜底，安全网是 `tests/test_monitoring.py` /
+  `tests/test_report_metrics.py` 的口径断言（`fx_coverage`、`notional_usd` 等），
+  改动后必须全量跑 `pytest CostView/tests/` 而非只跑 golden。
 
 ## 回归记录
 
