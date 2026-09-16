@@ -15,7 +15,10 @@ dependencies = [
     # 由 pandas 传递依赖带入，无需独立声明）。
     "pandas>=2.0.0",
     "emsxview-platform-data",
-    "emsxview-datapipeline",
+    # 注：emsxview-datapipeline 已于 2026-09-16 移除——010-extract-pipeline 后管道
+    # 迁至独立仓库 EMSXDataPipeline，CostView 为只读消费者且禁止 import
+    # DataPipeline.*（AP-01），该声明在代码中无任何消费点；本模块数据访问一律经
+    # 仓库内 data_access/ 与 platform_data/。
 ]
 
 [tool.setuptools.packages.find]
