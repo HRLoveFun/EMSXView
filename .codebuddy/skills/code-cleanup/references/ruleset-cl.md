@@ -177,7 +177,7 @@
 **判定**：从以下入口 BFS 未触达的 `frontend/src/**/*.ts(x)`：
 
 - `src/main.tsx`（主应用）
-- `src/standalone/{execution,costview,marketview}/main.tsx`（三个单模块构建入口）
+- `{ExecutionView,CostView,MarketView}/standalone/main.tsx`（三个单模块构建入口，仓库根级）
 - `src/test-setup.ts`、所有 `*.test.ts(x)`、所有 `*.d.ts`（前两类由测试运行器直接加载）
 
 说明符解析支持相对路径 `./x`、别名 `@` / `@app` / `@shared` / `@execution` / `@costview` / `@marketview`
