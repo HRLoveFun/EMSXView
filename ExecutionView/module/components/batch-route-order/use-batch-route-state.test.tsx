@@ -10,7 +10,7 @@
  *   6. open=false 时不做对账
  */
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { Order } from '@execution/types';
 import { useBatchRouteState } from './use-batch-route-state';
