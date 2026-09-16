@@ -70,6 +70,7 @@ NNNN-<kebab-case-title>.md
 | [0018](0018-tca-report-metrics-conventions.md) | TCA 报告指标口径与异常严重度语义（成交额加权 / 两档严重度 / 截断与导出 / REPORT_SPEC / 规则键重命名） | costview, analytics, reporting |
 | [0019](0019-cl12-dead-class-method-detection.md) | CL-12 类方法零引用检测 — 词边界匹配 + 同名实体区分 | refactoring, cleanup, tooling, scripts |
 | [0020](0020-frontend-npm-workspaces.md) | 前端依赖树收敛为 npm workspaces（frontend + ExecutionView）+ 模块产物目录隔离 | frontend, build, tooling, process |
+| [0021](0021-gate-first-scan-baseline.md) | 质量门禁首次扫描自动建基线 — OE guard 的零基线豁免 | process, tooling, quality-gate |
 | [0700](0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | process, workflow, documentation |
 
 ### Proposed

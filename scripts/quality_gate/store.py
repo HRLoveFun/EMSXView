@@ -138,6 +138,15 @@ class GateStore:
             (ruleset,)).fetchall()
         return {r[0] for r in rows}
 
+    def has_baseline(self) -> bool:
+        """基线库是否已有任何记录。
+
+        用于区分「首次扫描」（库为空 ⇒ 本次结果即基线快照）与「存量已全部清偿」
+        （曾经建过基线、现无 open 项）—— 两者在 ``load_open_fingerprints`` 上表现相同，
+        但门禁语义相反（见 ADR-0021）。
+        """
+        return self._conn.execute("SELECT 1 FROM baseline LIMIT 1").fetchone() is not None
+
     def load_suppressed(self) -> set[str]:
         """suppressed 的 fingerprint 集合（扫描结果全局过滤）。"""
         rows = self._conn.execute(

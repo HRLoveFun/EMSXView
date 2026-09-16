@@ -69,6 +69,11 @@ python scripts/quality_gate.py --suppress <fingerprint> --note "理由"
 | Phase 2 block（规划） | OE 亦为全量阻断 | 存量清零后启用；需新增配置开关并在 `scoring.gate_verdict` 中读取（当前无语义开关） |
 
 - full 扫描后自动标记本轮未见的 open 项为 fixed
+- **首次扫描（基线库为空）**：本次结果即基线快照，全部 OE 记存量、**不判新增**。判定依据是
+  `GateStore.has_baseline()`，与「存量已全部清偿（无 open 项）」严格区分——后者仍按 guard 语义
+  判定新增。原因：基线库（`scripts/reports/quality_gate/*.db`）不入库、按 worktree / 机器独立，
+  若无此豁免，新克隆或新 worktree 的首个提交会被仓库既有债务整体误阻断（实测两次）。
+  **AP 契约违规不适用该豁免**，始终阻断。见 [ADR-0021](adr/0021-gate-first-scan-baseline.md)
 - 误报治理：`--suppress <fingerprint> --note "理由"` 或文件级豁免清单
 
 ## pre-commit 集成
