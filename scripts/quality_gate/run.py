@@ -104,13 +104,17 @@ def _run_scan(args: argparse.Namespace) -> int:
         prev = store.last_full_scan()
         # 先加载基线快照用于门禁判定（必须在 upsert 之前，否则新增项被误判为存量）
         oe_open = store.load_open_fingerprints("oe")
+        # 基线库为空 ⇒ 首次扫描：本次结果即基线快照，全部 OE 记存量（否则新克隆 /
+        # 新 worktree 的首个提交会被仓库既有债务误阻断；基线库不入库，见 ADR-0021）
+        baseline_established = store.has_baseline()
         store.save_scan(result)
         store.upsert_baseline(findings)
         # 仅完整扫描（full + 全规则集）才标记清偿 — 部分扫描覆盖面不完整
         fixed_hint = _maintain_baseline(store, mode, args.ruleset, findings, ctx)
-        verdict = gate_verdict(result.findings, oe_open)
+        verdict = gate_verdict(result.findings, oe_open, baseline_established)
         report_path = generate_report(result, store) if (args.report and mode == "full") else None
-        _output_verdict(result, verdict, prev, args, failures, fixed_hint, report_path)
+        _output_verdict(result, verdict, prev, args, failures, fixed_hint, report_path,
+                        baseline_established)
         blocking = verdict["ap_violations"] + verdict["oe_new"]
         return 1 if blocking else 0
     finally:
@@ -212,12 +216,16 @@ def _maintain_baseline(store: GateStore, mode: str, ruleset: str | None,
 
 def _output_verdict(result: ScanResult, verdict: dict, prev: dict | None,
                     args: argparse.Namespace, failures: list[str],
-                    fixed_hint: list[str], report_path: Path | None) -> None:
+                    fixed_hint: list[str], report_path: Path | None,
+                    baseline_established: bool = True) -> None:
     """输出门禁判定（终端格式，含修复建议）。"""
     ap_n, new_n, old_n = (len(verdict["ap_violations"]),
                           len(verdict["oe_new"]), len(verdict["oe_existing"]))
     print(f"[quality-gate] {result.mode} 扫描完成（{result.duration_s}s，"
           f"{result.files_scanned} 文件）: AP 违规 {ap_n} / OE 新增 {new_n} / 存量 {old_n}")
+    if not baseline_established:
+        print(f"[quality-gate] 首次扫描：已建立 OE 基线（{old_n} 项），本轮不判定新增 "
+              "—— 后续扫描按基线演进（ADR-0021）")
     for failure in failures:
         print(f"[quality-gate] [warn] 检测器异常（fail-open 跳过）: {failure}")
     for hint in fixed_hint:

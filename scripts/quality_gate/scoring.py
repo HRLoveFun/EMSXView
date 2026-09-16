@@ -47,16 +47,23 @@ def by_module(findings: list[Finding]) -> dict[str, list[Finding]]:
     return out
 
 
-def gate_verdict(findings: list[Finding], oe_open_baseline: set[str]) -> dict:
+def gate_verdict(findings: list[Finding], oe_open_baseline: set[str],
+                 baseline_established: bool = True) -> dict:
     """门禁判定。
 
     返回 {ap_violations, oe_new, oe_existing}：
-    - ap_violations：AP 违规（block 语义，非空即阻断）
+    - ap_violations：AP 违规（block 语义，非空即阻断；与基线无关）
     - oe_new：基线外新增 OE（guard 语义，非空即阻断）
     - oe_existing：存量 OE（放行）
+
+    ``baseline_established=False`` 表示本机 / 本工作树**首次扫描**（基线库为空）：
+    本次结果即基线快照，全部 OE 记存量、不判新增。否则新克隆 / 新 worktree 的首次提交
+    会被仓库既有债务整体误阻断（基线库不入库，见 ADR-0021）。
     """
     ap_violations = [f for f in findings if f.ruleset is RuleSet.AP]
     oe = [f for f in findings if f.ruleset is RuleSet.OE]
+    if not baseline_established:
+        return {"ap_violations": ap_violations, "oe_new": [], "oe_existing": oe}
     oe_new = [f for f in oe if f.is_new(oe_open_baseline)]
     oe_existing = [f for f in oe if not f.is_new(oe_open_baseline)]
     return {"ap_violations": ap_violations, "oe_new": oe_new, "oe_existing": oe_existing}
