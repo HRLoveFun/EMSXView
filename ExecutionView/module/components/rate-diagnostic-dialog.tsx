@@ -9,7 +9,8 @@
  *   - Manual refresh button
  */
 
-import { useEffect, useMemo, useState, Fragment } from 'react';
+import { useCallback, useMemo, useState, Fragment } from 'react';
+import { useAsyncData } from '@shared/hooks/use-async-data';
 import { Loader2, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react';
 import {
   Dialog,
@@ -73,42 +74,37 @@ const classifyGroup = (g: DiagnosticGroup): GroupStatus => {
 };
 
 export function RateDiagnosticDialog({ open, onOpenChange }: RateDiagnosticDialogProps) {
-  const [data, setData] = useState<DiagnosticData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showOnlyIssues, setShowOnlyIssues] = useState(true);
 
-  const runDiagnostic = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await apiService.diagnoseStrategyRate();
-      if (res.success && res.data) {
-        setData(res.data as DiagnosticData);
-        // Auto-expand partial/missing groups for immediate visibility
-        const autoExpand = new Set<string>();
-        (res.data as DiagnosticData).groups.forEach(g => {
-          if (classifyGroup(g) !== 'ok') autoExpand.add(`${g.broker}|${g.strategyType}`);
-        });
-        setExpanded(autoExpand);
-      } else {
-        setError(res.error || 'Diagnostic request failed');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+  // 取数走 useAsyncData：loading 由 key 派生；打开对话框才拉取（key=null 即跳过）。
+  // 原实现是「effect 内 runDiagnostic()」——会被 react-hooks/set-state-in-effect 命中。
+  const loadDiagnostic = useCallback(async () => {
+    const res = await apiService.diagnoseStrategyRate();
+    if (!res.success || !res.data) {
+      throw new Error(res.error || 'Diagnostic request failed');
     }
-  };
+    return res.data as DiagnosticData;
+  }, []);
 
-  useEffect(() => {
-    // 豁免理由：打开时按需拉取诊断结果，属「与外部系统同步」的必要副作用；
-    // 守卫条件（!data && !loading）保证同一 open 周期只发起一次，无级联渲染风险。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (open && !data && !loading) void runDiagnostic();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const applyDiagnostic = useCallback((next: DiagnosticData) => {
+    // Auto-expand partial/missing groups for immediate visibility（数据回调内，规则允许的形态）
+    const autoExpand = new Set<string>();
+    next.groups.forEach(g => {
+      if (classifyGroup(g) !== 'ok') autoExpand.add(`${g.broker}|${g.strategyType}`);
+    });
+    setExpanded(autoExpand);
+  }, []);
+
+  const {
+    data: diagnostic,
+    error: diagnosticError,
+    isLoading: loading,
+    reload: runDiagnostic,
+  } = useAsyncData(open ? 'rate-diagnostic' : null, loadDiagnostic, applyDiagnostic);
+
+  const data = diagnostic ?? null;
+  const error = diagnosticError ? diagnosticError.message : '';
 
   const visibleGroups = useMemo(() => {
     if (!data) return [];

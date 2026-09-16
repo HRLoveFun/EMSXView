@@ -20,7 +20,8 @@
 | T8 | CostView 指标覆盖率修复：① 计划任务 CostView_DailyUpdate 被禁用致日更断流 8/27-8/31（已 re-enable + 回补）；② bar 时间戳区间语义对齐（纯竞价路由末 bar fallback，修复 par_rate/pnl_vwap/par_rate_close 大面积 NULL）；③ 覆盖率分母剔除白名单外交易所 + SLA 豁免口径 | `008-costview-report-enhancement` 分支 | ✅ | 2026-09-02 终验：全量 180 日重算完成，par_rate 全量 NULL 60%→20%，SLA 口径下 continuous 类 52→81%；调度恢复后日更已自动产出 9/1 数据 |
 | T9 | 重算 20260901 的 temp_impact/perm_impact（next_day_close 结构性延迟：需等 9/3 日更产出 9/2 daily_summary 后执行 `recompute_all_tca_route_metrics.py --dates 20260901`） | `008-costview-report-enhancement` | ⏳ | 8/31 已于 9/2 补重算回填（temp5 20.6→60.0%、perm 0→54.2%）；9/1 同理待次日数据 |
 | T10 | 「打开/切换目标时回填表单 state」类重构（4 处）：`route-plan-manager.tsx`、`unified-modify-route-dialog.tsx` | `specs/020-react-hooks-set-state-debt/plan.md` | ✅ | 2026-09-16 完成（`specs/021-t10-form-reset-refactor`）：改「state 初值取自 props + 调用方 key 重挂载」，删除 69 行回填 effect；新增 5 条契约测试；CI 已接入 `npm run lint` + `npm run lint:modules`（硬阻断） |
-| T11 | 复核 6 处「与外部系统同步」类 `set-state-in-effect` 豁免（`MonitoringView` / `ReportView` 首屏加载 / `broker-strategy-fields` / `market-broker-mapping-section` / `rate-diagnostic-dialog` / `use-batch-route-state`） | `specs/020-react-hooks-set-state-debt/plan.md` | ⏳ | 若后续引入数据层（如 react-query），可把这些手写 fetch+loading 收敛掉，豁免随之消失 |
+| T11 | 复核 6 处「与外部系统同步」类 `set-state-in-effect` 豁免 | `specs/020-react-hooks-set-state-debt/plan.md` | ✅ | 2026-09-16（`specs/022-t11-async-data-layer`）：新增仓库内取数层 `@shared/hooks/use-async-data`（loading 由 key 派生、setState 只在回调内，7 条契约测试），**5 处 fetch 豁免全部删除**；第 6 处（对账）转 T12 |
+| T12 | `use-batch-route-state.ts` 对账逻辑派生化：`rows = buildRows(orders, rowPatch)`，用户编辑只写 `rowPatch`（涉及 ~10 处 updater 需改为读派生值） | `specs/022-t11-async-data-layer/plan.md` §4 | ⏳ | **前置条件**：该 hook 现零测试覆盖（`BatchOperationPanel.test.tsx` 不涉及 batch-route）——先补 hook 级测试再做状态所有权重构，否则违背「行为保全优先」 |
 
 ## 已完成
 
