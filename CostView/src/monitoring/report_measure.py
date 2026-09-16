@@ -302,6 +302,16 @@ def fbfx_cte(*, prefix_id_columns: bool = False) -> str:
     ``prefix_id_columns=True`` 时 id 列输出 ``fxf_oid`` / ``fxf_rid``——用于主查询
     SELECT 列表未加表别名限定的场景，避免 CTE 与主表同名列产生歧义。
 
+    ⚠ **双形态是有意设计，不是冗余，禁止合并为单一形态**：
+    - ``prefix_id_columns=False``（裸列名）：``report_aggregator`` / ``bdib_health``
+      ——两处主查询均以表别名（或全表名）限定列，裸名无歧义；
+    - ``prefix_id_columns=True``（``fxf_oid`` / ``fxf_rid`` 前缀）：仅
+      ``anomaly_query``——其主查询 SELECT 列表未加表别名限定，若改用裸列名，
+      SQLite 会因 ``OrderId`` / ``RouteId`` 同时存在于 CTE 与主表而抛
+      "ambiguous column name"（或在更宽松的引擎里静默错绑）。
+    两形态的 SQL 字面量已与 2026-09-15 收敛前的三份原始拷贝逐字节等价（含
+    ``fxf_oad`` 两形态共用的别名）。
+
     参数约定：CTE 内的 ``BETWEEN ? AND ?`` 复用查询的前两个日期参数，调用方须把
     ``[start_date, end_date]`` 前置到参数列表最前（三处调用方共用此约定）。
     """
