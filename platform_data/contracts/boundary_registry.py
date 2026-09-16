@@ -96,7 +96,8 @@ def _register_default_contracts() -> None:
             module_id="frontend_execution",
             can_read=("execution_state",),
             can_write=("execution_state",),
-            forbidden_imports=("@costview", "@marketview", "@databaseview"),
+            # "@app" = 禁止反向依赖 Shell 层（宿主能力经 @shared/lib/shell-context 获取）
+            forbidden_imports=("@costview", "@marketview", "@databaseview", "@app"),
         ),
         ModuleBoundaryContract(
             module_id="frontend_costview",
