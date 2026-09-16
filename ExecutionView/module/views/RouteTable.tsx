@@ -816,7 +816,9 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
             onOpenChange={setIsCancelDialogOpen}
             onConfirm={handleCancel}
           />
+          {/* key: 打开 / 切换路由时重挂载 → 修改表单回到该路由的原值 */}
           <UnifiedModifyRouteDialog
+            key={`${selectedRoute?.id ?? 'none'}:${isModifyDialogOpen}`}
             route={selectedRoute}
             open={isModifyDialogOpen}
             onOpenChange={setIsModifyDialogOpen}

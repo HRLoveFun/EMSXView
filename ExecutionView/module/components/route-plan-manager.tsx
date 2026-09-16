@@ -209,7 +209,9 @@ export function RoutePlanManager() {
         </div>
       )}
 
+      {/* key: 打开 / 切换编辑目标时重挂载 → 表单回到该目标的值（新建则为默认值） */}
       <RoutePlanDialog
+        key={`${editPlan?.id ?? 'new'}:${isDialogOpen}`}
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         editPlan={editPlan}
@@ -242,68 +244,33 @@ const scheduleTypeOptions = [
   { value: 'POV', label: 'POV' },
 ];
 
-function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDialogProps) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [matchMarket, setMatchMarket] = useState('');
-  const [matchSymbol, setMatchSymbol] = useState('');
-  const [matchSide, setMatchSide] = useState<MatchSide>('BOTH');
-  const [matchPortfolio, setMatchPortfolio] = useState('');
-  const [matchTrader, setMatchTrader] = useState('');
-  const [matchExchange, setMatchExchange] = useState('');
-  const [matchCurrency, setMatchCurrency] = useState('');
-  const [activationMode, setActivationMode] = useState<ActivationMode>('MANUAL');
-  const [splitType, setSplitType] = useState<SplitType>('BROKER_SPLIT');
-  const [scheduleType, setScheduleType] = useState('TWAP');
-  const [numSlices, setNumSlices] = useState(10);
-  const [defaultEndTimeLocal, setDefaultEndTimeLocal] = useState('16:00');
-  const [allocations, setAllocations] = useState<RoutePlanAllocation[]>([]);
+/** 导出仅供测试直接验证「state 初值取自 editPlan」的契约（生产路径只由 RoutePlanManager 渲染）。 */
+export function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDialogProps) {
+  // 表单初值即「编辑目标的值」（新建时取默认值）。打开 / 切换编辑目标由调用方以 key 重挂载实现，
+  // 取代原先在 effect 内同步 setState 回填（React 官方「用 key 重置 state」）
+  const [name, setName] = useState(editPlan?.name ?? '');
+  const description = editPlan?.description || '';   // 只读（界面不提供编辑）
+  const [matchMarket, setMatchMarket] = useState(editPlan?.matchMarket || '');
+  const [matchSymbol, setMatchSymbol] = useState(editPlan?.matchSymbol || '');
+  const [matchSide, setMatchSide] = useState<MatchSide>(editPlan?.matchSide ?? 'BOTH');
+  const [matchPortfolio, setMatchPortfolio] = useState(editPlan?.matchPortfolio || '');
+  const [matchTrader, setMatchTrader] = useState(editPlan?.matchTrader || '');
+  const matchExchange = editPlan?.matchExchange || '';   // 只读（界面不提供编辑）
+  const [matchCurrency, setMatchCurrency] = useState(editPlan?.matchCurrency || '');
+  const [activationMode, setActivationMode] = useState<ActivationMode>(editPlan?.activationMode ?? 'MANUAL');
+  const [splitType, setSplitType] = useState<SplitType>(editPlan?.splitType ?? 'BROKER_SPLIT');
+  const [scheduleType, setScheduleType] = useState(editPlan?.scheduleType || 'TWAP');
+  const [numSlices, setNumSlices] = useState(editPlan?.numSlices || 10);
+  const [defaultEndTimeLocal, setDefaultEndTimeLocal] = useState(editPlan?.defaultEndTimeLocal || '16:00');
+  const [allocations, setAllocations] = useState<RoutePlanAllocation[]>(editPlan?.allocations || []);
   const [marketOptions, setMarketOptions] = useState<string[]>([]);
   const [availableBrokers, setAvailableBrokers] = useState<string[]>([]);
+  // 未选市场时券商选项视为空（读侧派生，取代原先在 effect 内同步 setState 清空）
+  const brokerOptions = matchMarket ? availableBrokers : [];
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Reset form on open/edit
-  useEffect(() => {
-    if (!open) return;
-    if (editPlan) {
-      // 待重构（specs/020）：此效果为「编辑态回填 15 个字段」，理想修法是调用方以 key 重挂载 +
-      // 各 state 初值取自 editPlan；因改动面较大，本 PR 保留现状并登记待办。
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setName(editPlan.name);
-      setDescription(editPlan.description || '');
-      setMatchMarket(editPlan.matchMarket || '');
-      setMatchSymbol(editPlan.matchSymbol || '');
-      setMatchSide(editPlan.matchSide);
-      setMatchPortfolio(editPlan.matchPortfolio || '');
-      setMatchTrader(editPlan.matchTrader || '');
-      setMatchExchange(editPlan.matchExchange || '');
-      setMatchCurrency(editPlan.matchCurrency || '');
-      setActivationMode(editPlan.activationMode);
-      setSplitType(editPlan.splitType);
-      setScheduleType(editPlan.scheduleType || 'TWAP');
-      setNumSlices(editPlan.numSlices || 10);
-      setDefaultEndTimeLocal(editPlan.defaultEndTimeLocal || '16:00');
-      setAllocations(editPlan.allocations || []);
-    } else {
-      setName('');
-      setDescription('');
-      setMatchMarket('');
-      setMatchSymbol('');
-      setMatchSide('BOTH');
-      setMatchPortfolio('');
-      setMatchTrader('');
-      setMatchExchange('');
-      setMatchCurrency('');
-      setActivationMode('MANUAL');
-      setSplitType('BROKER_SPLIT');
-      setScheduleType('TWAP');
-      setNumSlices(10);
-      setDefaultEndTimeLocal('16:00');
-      setAllocations([]);
-    }
-    setError('');
-  }, [open, editPlan]);
+  // 表单回填已改为「state 初值取自 editPlan + 调用方 key 重挂载」，无需 effect
 
   // Fetch markets & brokers from Market Broker Mapping API
   useEffect(() => {
@@ -319,9 +286,7 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
   }, [open, matchMarket]);
 
   useEffect(() => {
-    // 待重构（specs/020）：空市场时应清空券商列表，理想修法是在读侧派生（matchMarket 为空 ⇒ 选项为空）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!matchMarket) { setAvailableBrokers([]); return; }
+    if (!matchMarket) return;   // 空市场：选项由 brokerOptions 读侧派生为空
     // Re-fetch brokers when market changes (the promise above may not have settled yet)
     apiService.getMarketBrokerMapping().then(result => {
       if (result.success && result.data) {
@@ -576,9 +541,9 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
               <div className="flex items-center justify-between mb-2">
                 <Label className="text-sm font-semibold">Broker Allocation</Label>
                 <div className="flex items-center gap-2">
-                  {availableBrokers.length > 0 && (
+                  {brokerOptions.length > 0 && (
                     <span className="text-xs text-muted-foreground">
-                      {availableBrokers.length} broker{availableBrokers.length === 1 ? '' : 's'} available
+                      {brokerOptions.length} broker{brokerOptions.length === 1 ? '' : 's'} available
                     </span>
                   )}
                   <Button variant="outline" size="sm" onClick={addAllocation}>
@@ -603,9 +568,9 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
                           className="w-24"
                           list={`broker-suggestions-${idx}`}
                         />
-                        {availableBrokers.length > 0 && (
+                        {brokerOptions.length > 0 && (
                           <datalist id={`broker-suggestions-${idx}`}>
-                            {availableBrokers.map(b => <option key={b} value={b} />)}
+                            {brokerOptions.map(b => <option key={b} value={b} />)}
                           </datalist>
                         )}
                       </div>
