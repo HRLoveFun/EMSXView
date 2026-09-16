@@ -677,6 +677,12 @@ cleanup 复扫清理项 0。**
 
 ### 2026-09-16 · platform_data 冗余审查与 re-export 面收敛（范围：platform_data；授权执行）
 
+> **⚠️ 标签口径提示（追溯必读）**：本条目中出现的 **「B1 / B2 / B3」一律指执行期编号**，
+> 其中 **B3 = `platform_data/__init__.py` 顶层 re-export 收敛**。用户侧方案的编号与之**不等价**
+> —— 方案的「B 类」对应本条目 B1+B2，而方案无「B3」；若在别处见「B3 指
+> `tca_contracts.py` 的 deprecated docstring 迁移指引」，那是**另一项**，于收尾批次落地。
+> 教训见文末「收尾批次」条目：**执行中调整批次划分时，必须在报告与日志中同时写明标签定义**。
+
 - **模式与规模**：全库基线 + 定点（`platform_data/`）；强度 = 清单 → 用户裁定 → 执行。
   CL 命中 **0** / PF 216 存量；`quality_gate --ruleset oe` 命中 16 项**全为 OE-05 复杂度**
   （`market.py::get_intraday_features` CC 66、`get_market_snapshot` CC 48）→ 转重构专项，不混入本批。
@@ -713,10 +719,32 @@ cleanup 复扫清理项 0。**
   `contracts/data_access.py`（ADR-0013 规划契约，既有 `DEAD_FILE_EXEMPT`）、
   `contracts/boundary_registry.py`、`config.py::_validated_handoff_backend`（环境变量白名单校验）、
   `HANDOFF_MAX_STRATEGY_PARAMS_BYTES` 等数值真相源（契约测试锁定）。
+- **归档反序列化路径取证（第三轮质询第三维，收尾批次补做）**：仓库内 `pickle` / `marshal` /
+  `joblib` **0 使用**；数据根（`${EMSXVIEW_DATA_DIR}`，本机 `D:\db`）**无 `.pkl`**，
+  文本候选 18 个（17 `.json` + 1 `.csv`）对 `TcaOrderSummary` / `TcaRouteDetail` **0 命中**；
+  `redis_handoff` 的「按字段名重建」只覆盖 handoff / market 契约。→ 该维度当前**无消费者**，
+  剩余不可扫描面仅限仓库与数据根之外的临时手工导出。
 - **未执行**：`market.py` 两处复杂度（CC 66 / 48）属 OE-05 重构专项；
   `market.py:403/417`、`tca_bridge.py:127`、`regime_query.py:62` 4 处无界读取属性能实测专项。
 - **验证**：`compileall` exit 0；backend **191 passed**（边界 15 passed / 1 skipped）；
   CostView **219**；MarketView **12**；门禁自测 **91**；
   `audit_cross_imports` / `audit_underscore_access` / `audit_db_paths` / `audit_doc_drift` 全通过；
   `cleanup --ruleset cl` 清理项 **0**；CI 4 项检查全绿后 squash 合并、worktree 与分支已清理。
+
+### 2026-09-16 · platform_data 收敛收尾批次（用户复核结论落地）
+
+- **背景**：用户复核 PR #50 / #51 后判定「整体通过」，同时提出两项收尾：(1) `tca_contracts.py`
+  两个 deprecated 类型的 docstring **未**补「已不再从包顶层 re-export」的迁移指引；
+  (2) 「B3」标签在执行清单与方案间**指代不同对象**，需明确口径。
+- **落地**：
+  - `platform_data/contracts/tca_contracts.py`：`TcaRouteDetail` / `TcaOrderSummary` docstring
+    补迁移指引（显式子模块导入示例 + 定义保留观察期说明）—— 使 deprecated 契约**自描述**，
+    不必依赖 `contracts/__init__.py` 的注释或外部文档才能得知包顶层已不再导出。
+  - 上一条目补「⚠️ 标签口径提示」+ 归档反序列化取证结论（见该条目）。
+- **教训（新增，值得固化）**：**跨会话交接的「编号」是易失契约**。同一次任务中，
+  「执行清单编号」与「方案编号」可能错位：本案执行期把方案 B 类拆成 B1+B2、并在执行中
+  撤销原 B3、另立 C 类判定，而用户侧对 B3 的指代落在 `tca_contracts.py` docstring 上。
+  → 凡在执行中**调整批次划分**（拆分 / 撤销 / 改判），必须在**产出报告 + 迭代日志**中
+  **同时写明标签定义**；否则下一轮追溯会把两个 B3 混为一谈。这是一类与代码无关、
+  但会造成返工的沟通缺陷，成本高于代码本身。
 
