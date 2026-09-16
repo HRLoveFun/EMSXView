@@ -101,18 +101,25 @@ describe('useBatchRouteState —— 行状态对账', () => {
   });
 
   it('选中 broker：每行补齐分配槽；取消选择后槽移除', async () => {
-    const { result, rerender } = renderState([makeOrder('o1')], true);
+    const order = makeOrder('o1');
+    const { result, rerender } = renderState([order], true);
 
-    act(() => result.current.toggleBroker('BROKER_A'));
-    expect(result.current.rows['o1'].allocations['BROKER_A']).toMatchObject({ qty: '0' });
+    // toggleBroker 受「交易所-券商映射」约束：取一个对该订单合法的券商
+    const broker =
+      result.current.allBrokers.find(b => result.current.isBrokerAllowedFor(b, order))
+      ?? result.current.allBrokers[0];
 
-    act(() => result.current.toggleBroker('BROKER_A'));
-    expect(result.current.rows['o1'].allocations['BROKER_A']).toBeUndefined();
+    act(() => result.current.toggleBroker(broker));
+    expect(result.current.selectedBrokers).toContain(broker);
+    expect(result.current.rows['o1'].allocations[broker]).toMatchObject({ qty: '0' });
 
-    // 换一批订单后仍按当前 selectedBrokers 补槽
-    act(() => result.current.toggleBroker('BROKER_B'));
+    act(() => result.current.toggleBroker(broker));
+    expect(result.current.rows['o1'].allocations[broker]).toBeUndefined();
+
+    // 换一批订单后，新行也按当前 selectedBrokers 补槽
+    act(() => result.current.toggleBroker(broker));
     rerender({ orders: [makeOrder('o1'), makeOrder('o2')], open: true });
-    expect(result.current.rows['o2'].allocations['BROKER_B']).toMatchObject({ qty: '0' });
+    expect(result.current.rows['o2'].allocations[broker]).toMatchObject({ qty: '0' });
   });
 
   it('open=false：不做对账（行状态保持上一次）', async () => {
