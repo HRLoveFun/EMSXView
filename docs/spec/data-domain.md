@@ -190,7 +190,7 @@ Rule: Consumers import from `platform_data.contracts`, not from `CostView.src.*`
 The shared code entry is:
 
 - `platform_data/__init__.py`
-- `platform_data/adapters/` （子包，`__init__.py` 做向后兼容 re-export）
+- `platform_data/adapters/` （子包，`__init__.py` re-export 适配器与工厂；2026-09-16 收敛后不再 re-export 契约类型/私有符号）
   - `handoff.py` — `HandoffExchangeAdapter` + `get_shared_handoff_exchange()`
   - `market.py` — `MarketReferenceDataAdapter`
   - `redis_handoff.py` — `RedisHandoffExchangeAdapter`

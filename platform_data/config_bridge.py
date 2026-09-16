@@ -34,12 +34,19 @@ def register_config_impl(config_class: type) -> None:
 def get_config() -> type:
     """Return the registered Config class.
 
-    Returns the concrete Config class (e.g., DataPipeline.config.Config)
-    registered via register_config_impl(). If no implementation is
-    registered, falls back to lazy-importing DataPipeline.config.Config.
+    Returns the concrete Config class (e.g., ``data_access.config.Config``)
+    registered via ``register_config_impl()``.
+
+    本函数**不做** lazy-import fallback：未注册即抛 RuntimeError。配置真相源
+    必须由启动期显式注入，隐式导入配置类会让 platform_data 反向依赖具体实现
+    （违反模块边界 AP-01）—— 文档曾按计划描述 fallback，属文档与实现漂移，
+    2026-09-16 修正。
 
     Returns:
         A class with ConfigProtocol-compatible static attributes.
+
+    Raises:
+        RuntimeError: 未注册配置类时。
     """
     if "default" in _config_registry:
         return _config_registry["default"]

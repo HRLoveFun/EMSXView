@@ -222,9 +222,12 @@
 >
 > 2026-09-15 收敛：`CostView/src/tca_query_service.py` 中的兼容 re-export
 > （`from platform_data.contracts import TcaOrderSummary, TcaRouteDetail`）已移除 ——
-> 双仓库（本仓库 + EMSXDataPipeline）AST 核查确认零消费者。两个类型本身仍在
-> `platform_data/contracts/tca_contracts.py` 定义并经 `platform_data.contracts` 导出，
-> 需要时从契约包直接导入。
+> 双仓库（本仓库 + EMSXDataPipeline）AST 核查确认零消费者。
+>
+> 2026-09-16 收敛：`platform_data/contracts/__init__.py` 的包入口 re-export 亦已移除。
+> 两个类型的**定义仍保留**在 `platform_data/contracts/tca_contracts.py`（观察一个周期后再评估
+> 删除），需要时按显式子模块路径导入：
+> `from platform_data.contracts.tca_contracts import TcaOrderSummary, TcaRouteDetail`。
 
 ### 执行历史（已移除）
 
@@ -303,6 +306,11 @@
 
 **规则**：跨模块数据类型**只**从 `platform_data.contracts` 导入。
 
+> 2026-09-16 收敛：`platform_data/adapters/__init__.py` 曾以「向后兼容」为名 re-export
+> 27 个契约类型与 8 个下划线私有符号，与本规则及 `.codebuddy/rules/module-boundary.md` §2.3
+> 冲突，现已移除（实现全部保留）。受影响的两处违规消费者
+> （`MarketView/routers/marketview.py`、`CostView/api/routers/costview.py`）已迁至本包导入。
+
 ---
 
 ## 平台适配器入口（`platform_data/`）
@@ -318,6 +326,13 @@
 | `MarketReferenceDataAdapter` | 市场快照与日内特征 |
 | `get_tca_query_service()` | TCA 查询服务工厂 |
 | `register_tca_service_impl(impl)` | TCA 实现注入（避免直接 import CostView 内部） |
+
+> 2026-09-16 复核：上表 6 个符号由 `platform_data/__init__.py` **顶层 re-export** 提供，
+> 属文档化公开入口，**保留不动**。其中 `get_tca_query_service()` /
+> `register_tca_service_impl()` 静态零消费者（DI 注册表由 `register_costview_bridge_dependencies()`
+> 驱动），按「零调用方的公开 API 依然是 API」保留；同批仅移除
+> `platform_data/adapters/__init__.py` 侧对**契约类型与私有符号**的 re-export
+> （见上文「跨域数据契约」规则）。
 
 详细公开/私有方法分界见 `.codebuddy/rules/module-boundary.md` §2.3。
 

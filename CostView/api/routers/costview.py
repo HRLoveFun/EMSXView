@@ -20,7 +20,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from data_access.config import Config as DataAccessConfig
-from platform_data.adapters import (
+# 2026-09-16：契约类型统一从 platform_data.contracts 导入（此前经
+# platform_data.adapters 的兼容 re-export，与「跨域数据类型只从契约包导入」规则冲突）。
+from platform_data.contracts import (
+    SCORECARD_COHORTS,
     ScorecardFilters,
     ScorecardReport,
     TcaFilters,
@@ -28,7 +31,6 @@ from platform_data.adapters import (
     TcaReport,
     TcaRouteSummary,
 )
-from platform_data.contracts import SCORECARD_COHORTS
 from platform_data.regime_query import get_regime_distribution
 from CostView.api.concurrency import QueryTimeoutError, run_bounded
 from CostView.src.tca_query_service import TcaQueryService

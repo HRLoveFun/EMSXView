@@ -7,7 +7,10 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from platform_data.adapters import (
+from platform_data.adapters import MarketReferenceDataAdapter
+# 2026-09-16：契约类型统一从 platform_data.contracts 导入（此前经
+# platform_data.adapters 的兼容 re-export，与「跨域数据类型只从契约包导入」规则冲突）。
+from platform_data.contracts import (
     INTRADAY_BUCKET_OPTIONS,
     INTRADAY_DEFAULT_BUCKET_MINUTES,
     INTRADAY_MAX_TICKERS,
@@ -17,7 +20,6 @@ from platform_data.adapters import (
     MarketAlert,
     MarketCandidatePayload,
     MarketCandidateRow,
-    MarketReferenceDataAdapter,
     MarketSnapshot,
     MarketSnapshotFilters,
     MarketSnapshotSort,
