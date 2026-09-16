@@ -131,7 +131,8 @@ EMSXView/
 │   ├── scripts/                      # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
 │   ├── tests/                        # 7 个测试文件，213 个测试函数（含 golden 基线回归）
 │   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 删除（ADR-0014，见 §6.1）
-│   #     data.migrated.<ts>/ 为本地数据迁移留证目录，已被 .gitignore 忽略，从不入版本库
+│   #     data.migrated.202609022339/（2026-09-02 迁移留证，约 145GB）已于 2026-09-16
+│   #     确认数据根稳定后删除；.gitignore 的 CostView/data.migrated.*/ 规则保留
 ├── platform_data/
 │   ├── __init__.py
 │   ├── adapters/                      # Cross-module adapters (subpackage)

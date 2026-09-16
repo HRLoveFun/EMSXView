@@ -41,8 +41,9 @@ CostView/                          # CostView domain
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/
 │                                   #   test_golden_samples 1）
 ├── scripts/                        # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
-# 注：data.migrated.<ts>/ 为 2026-09-02 数据迁移的本地留证目录，已被 .gitignore 忽略
-#     （匹配规则 `CostView/data.migrated.*/`），从不入版本库；释放磁盘需人工确认后再删除
+# 注：原 data.migrated.202609022339/（2026-09-02 数据迁移留证，约 145GB，从未入版本库）
+#     已于 2026-09-16 确认数据根稳定指向 ${EMSXVIEW_DATA_DIR}（D:\db）后经用户确认删除；
+#     `.gitignore` 的 `CostView/data.migrated.*/` 规则保留以防迁移脚本再次产生归档目录
 ```
 
 > **数据根（唯一来源）**：`${EMSXVIEW_DATA_DIR}` 环境变量 > 默认 `D:\db`（`data_access/config.Config.DEFAULT_DATA_DIR`）。库/表常量唯一来源 `data_access/config.py`，禁止在本模块硬编码。
