@@ -1,7 +1,7 @@
 # CostView HTML 报告 — 交接文档（下一会话）
 
 > 用途：供"优化 HTML 报告"的下一会话快速接手。
-> 关联：`specs/006-costview-html-report/plan.md`（本次实施记录）、
+> 关联：`docs/archive/2026-09-16/006-costview-html-report/plan.md`（本次实施记录，已于 2026-09-16 归档）、
 > `docs/report-tca-known-limitations.md`（口径缺陷清单）、提交 `5c9d9ba`。
 
 ## 现状一句话

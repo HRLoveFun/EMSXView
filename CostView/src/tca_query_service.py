@@ -229,7 +229,7 @@ class TcaQueryService:
     def build_order_report(self, filters: TcaFilters) -> list[TcaOrderAggregate]:
         """将路由级 TCA 结果聚合为 order 级汇总（003-tca-core-benchmarks）。
 
-        聚合规则（见 specs/003-tca-core-benchmarks/plan.md §3.2）:
+        聚合规则（见 docs/archive/2026-09-16/003-tca-core-benchmarks/plan.md §3.2）:
         - 货币成本: SUM
         - 价格基准: 最早 route（按 order_as_of_date + RouteId 排序稳定取首）
         - bps 绩效: 成交额加权平均 (权重 = fill × p_avg)

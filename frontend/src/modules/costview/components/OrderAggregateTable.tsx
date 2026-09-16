@@ -34,7 +34,7 @@ function fmtDurationSec(value: number | null | undefined): string {
 /**
  * Order 级 TCA 聚合视图（003-tca-core-benchmarks Phase 2）。
  * 通过 POST /api/tca/analyze-orders 获取按订单聚合的指标，
- * 聚合规则见 specs/003-tca-core-benchmarks/plan.md §3.2。
+ * 聚合规则见 docs/archive/2026-09-16/003-tca-core-benchmarks/plan.md §3.2。
  */
 export function OrderAggregateTable({ report, error, isLoading }: OrderAggregateTableProps) {
   if (isLoading) {

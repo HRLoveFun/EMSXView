@@ -1141,19 +1141,6 @@ def _svg_frame(max_val: float, ylabel: str) -> str:
     )
 
 
-def _line_points(values: list[Optional[float]], count: int) -> str:
-    """折线 points 字符串，自动按非 None 值域缩放。"""
-    valid = [v for v in values if v is not None]
-    if not valid:
-        return ""
-    pts = []
-    for i, v in enumerate(values):
-        x, y = _point_xy(i, v, values, count)
-        if x is not None:
-            pts.append(f"{x:.1f},{y:.1f}")
-    return " ".join(pts)
-
-
 def _point_xy(
     i: int, value: Optional[float], values: list[Optional[float]], count: int,
 ) -> tuple[Optional[float], Optional[float]]:

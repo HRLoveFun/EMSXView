@@ -108,7 +108,3 @@ class BrokerAlgorithmStorageService:
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         return last_update_day < today
-
-    def clear_cache(self):
-        """Clear in-memory cache"""
-        self._cache = None
