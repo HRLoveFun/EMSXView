@@ -585,7 +585,7 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 
 | 2026-09-15 | CostView 冗余清理（第一刀）：删除 FillFetch/Bloomberg 遗产文件（`.env.example`、`requirements.txt`、`src/secure_config.py`、`examples/`、`tests/test_secure_config.py`），并将 `pandas` 补入 `pyproject.toml` 运行时依赖（此前靠已删除的 requirements.txt 隐式提供）；同时移除 `api/routers/costview.py` 中 trigger-update 端点的死模型（`TriggerUpdateResponse` / `StageInfo` / `UpdateStatusResponse` / `_LOCALHOST_HOSTS`）与失效 docstring | CostView、README、docs/spec | 全仓 grep 零引用 + `python -m pytest CostView/tests/` 实测（清理前 234 → 清理后 217 passed，差值即被删的 17 个 secure_config 测试） |
 | 2026-09-15 | 文档去漂移：CostView 成熟度论据与测试计数刷新（7 文件 / 211 函数 / 217 用例 / 13 端点），端点表补齐 `data-freshness` 与 `capabilities`，修正 `api/main.py` 失效的 `--host 0.0.0.0` 示例（与安全整改的默认回环绑定矛盾），全仓 CostView 端点行号按源码重锚 | CostView/README.md、README、docs/spec/{project-structure,data-domain}.md | Select-String 端点行号 + pytest 实测计数 |
-| 2026-09-16 | 删除本地留证目录 `CostView/data.migrated.202609022339/`（约 145 GB，git 从未跟踪），释放磁盘；确认双仓数据根均指向 `D:\db` 后执行，完成 [specs/010](./specs/010-extract-pipeline/plan.md) TODO-1 | CostView、specs/010、docs/spec/project-structure.md | `Config.DATA_DIR` 与 `EMSXVIEW_DATA_DIR` 实测一致（`D:\db` 且目录存在）+ 目录体量实测 145.36 GB |
+| 2026-09-16 | 删除本地留证目录 `CostView/data.migrated.202609022339/`（约 145 GB，git 从未跟踪），释放磁盘；确认双仓数据根均指向 `D:\db` 后执行，完成 [specs/010](./specs/010-extract-pipeline/plan.md) TODO-1。迁移路径提示：按旧 `CostView/requirements.txt` 建的环境重装时改用 `pip install -e CostView` + `pip install -r CostView/api/requirements.txt`（pandas 已由 pyproject.toml 声明） | CostView、specs/010、docs/spec/project-structure.md | `Config.DATA_DIR` 与 `EMSXVIEW_DATA_DIR` 实测一致（`D:\db` 且目录存在）+ 目录体量实测 145.36 GB |
 
 ---
 
