@@ -124,6 +124,12 @@ CostView/data.migrated.*/
 # agent-workflow.md 是全体 Agent 的作业节奏约定（等待 / 轮询一律每 5 秒），
 # 需随仓库分发给所有会话才会生效 —— 同样纳入版本控制
 !.codebuddy/rules/agent-workflow.md
+# coding-style.md / project-context.md 是 AGENTS.md「文档阅读顺序」中的必读规范（第 2、3 份）。
+# 此前仅存于各机器本地：新克隆 / CI / 其他 Agent 看不到，且仓库结构演进后无人能同步它们
+# （2026-09-16 实测：文件放置映射与模块清单均已漂移）—— 纳入版本控制
+# （specs/014-specs-into-repo/plan.md）
+!.codebuddy/rules/coding-style.md
+!.codebuddy/rules/project-context.md
 # code-review / code-cleanup skill 随仓库分发，团队成员克隆后即可使用
 !.codebuddy/skills/
 .codebuddy/skills/*
