@@ -115,7 +115,7 @@ export function AnomalyTable({ anomaly }: { anomaly?: TcaAnomaly | null }) {
             可缩小时间范围或收紧阈值查看明细
             {anomaly.export_ref ? (
               <>
-                　
+                {" "}
                 <a className="underline" href={anomaly.export_ref} download>下载全量明细 CSV</a>
               </>
             ) : null}
