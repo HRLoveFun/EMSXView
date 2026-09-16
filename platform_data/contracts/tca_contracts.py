@@ -176,7 +176,7 @@ class TcaOrderSummary:
 class TcaOrderAggregate:
     """Order 级 TCA 汇总（由 route 值按聚合策略合并，003-tca-core-benchmarks）。
 
-    聚合规则（详见 specs/003-tca-core-benchmarks/plan.md §3.2）:
+    聚合规则（详见 docs/archive/2026-09-16/003-tca-core-benchmarks/plan.md §3.2）:
     - 货币成本 (delay/trading/opportunity/wagner_is): SUM
     - 价格基准 (p_arrival/p_decision/p_close): 最早 route 取值
     - bps 绩效 (arrival/close/temp/perm_impact): 成交额加权平均
