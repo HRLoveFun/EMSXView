@@ -91,6 +91,10 @@
   禁止在 `useEffect` 内同步 `setState` 回填；同理「某 prop 变化 ⇒ 同步本地 state」应改为派生值或 key。
   反例与修法见 `specs/021-t10-form-reset-refactor/plan.md`；`react-hooks/set-state-in-effect` 已在
   CI 硬阻断（`npm run lint` + `npm run lint:modules`），新增即失败
+- **取数一律走 `@shared/hooks/use-async-data`**（`useAsyncData(key, loader, onData?)`）：
+  loading 由 key 派生、setState 只发生在 Promise 回调内。禁止在 `useEffect` 内手写
+  `setIsLoading(true) + void load()`；loader 必须是**纯取数**（内部不得 setState）。
+  示例与迁移记录见 `specs/022-t11-async-data-layer/plan.md`
 
 ### Python / FastAPI 专项
 

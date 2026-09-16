@@ -11,7 +11,8 @@
  *   `ModifyRouteRequest.strategyParams` (see route_service.build_strategy_elements).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useAsyncData } from '@shared/hooks/use-async-data';
 import { Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -58,43 +59,41 @@ export function useStrategyFields(
   assetClass: string,
 ): UseStrategyFieldsResult {
   const [fields, setFields] = useState<StrategyFieldState[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // refresh() 需要绕过 cachedApiService 缓存（原 load(true)）；用 ref 传递一次性强制标记
+  const forceRef = useRef(false);
 
-  const load = useCallback(async (force: boolean) => {
-    if (!broker || !strategy) {
-      setFields([]);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const res = await cachedApiService.getBrokerStrategyInfo(broker, strategy, assetClass, force);
-      if (res.success && res.data) {
-        setFields(res.data.fields.map((f: BrokerStrategyField) => {
-          const value = f.stringValue || '';
-          const disabled = f.disable === '1';
-          return {
-            fieldName: f.fieldName,
-            value,
-            disabled,
-            defaultValue: value,
-            originalValue: value,
-            originalDisabled: disabled,
-          };
-        }));
-      } else {
-        setFields([]);
-      }
-    } finally {
-      setIsLoading(false);
-    }
+  const loadFields = useCallback(async () => {
+    if (!broker || !strategy) return [];          // 无标的组合：字段清空（由 onData 落 state）
+    const force = forceRef.current;
+    forceRef.current = false;
+    const res = await cachedApiService.getBrokerStrategyInfo(broker, strategy, assetClass, force);
+    if (!res.success || !res.data) return [];
+    return res.data.fields.map((f: BrokerStrategyField) => {
+      const value = f.stringValue || '';
+      const disabled = f.disable === '1';
+      return {
+        fieldName: f.fieldName,
+        value,
+        disabled,
+        defaultValue: value,
+        originalValue: value,
+        originalDisabled: disabled,
+      };
+    });
   }, [broker, strategy, assetClass]);
 
-  // 豁免理由：broker/strategy/assetClass 变化时拉取策略字段，属「与外部系统同步」的必要副作用；
-  // load 内同步置 loading/清空态用于立刻反馈，改写成派生值不可行（数据源不在 React 内）。
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(false); }, [load]);
+  // broker / strategy / assetClass 任一变化即重新拉取（key 变化 ⇒ 重取）；
+  // 字段值是可编辑 state，由 onData 在数据回调内落定（loading 由 hook 派生）
+  const { isLoading, reload } = useAsyncData(
+    `${broker}|${strategy}|${assetClass}`,
+    loadFields,
+    setFields,
+  );
 
-  const refresh = useCallback(() => load(true), [load]);
+  const refresh = useCallback(async () => {
+    forceRef.current = true;
+    reload();
+  }, [reload]);
 
   const dirty = fields.some(f => f.value !== f.originalValue || f.disabled !== f.originalDisabled);
 

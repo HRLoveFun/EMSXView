@@ -25,7 +25,8 @@
  *   editable. There is no per-row password gate.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
+import { useAsyncData } from '@shared/hooks/use-async-data';
 import { Pencil, Check, Save, RefreshCw, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -83,7 +84,6 @@ function mergeWithDefaults(
 export function MarketBrokerMappingSection() {
   const [state, setState] = useState<MappingState | null>(null);
   const [defaults, setDefaults] = useState<SelectionMap>({});
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -93,33 +93,46 @@ export function MarketBrokerMappingSection() {
   // doesn't try to push the same payload twice.
   const lastAutoSaveRef = useRef<string>('');
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // 取数走 useAsyncData：loading 由 key 派生、setState 只在数据回调链内（含 best-effort 自动落库）。
+  // 纯取数（异常也在内部收敛为 errorMessage，避免双错误通道）。
+  const loadMapping = useCallback(async () => {
     try {
       const mapResp = await apiService.getMarketBrokerMapping();
+      return {
+        baseSelection: ((mapResp.success && mapResp.data?.selection) || {}) as SelectionMap,
+        updatedAt: ((mapResp.success && mapResp.data?.updatedAt) || null) as string | null,
+        errorMessage: mapResp.success
+          ? null
+          : (mapResp.error || mapResp.message || 'Failed to load mapping'),
+      };
+    } catch (e) {
+      return {
+        baseSelection: {} as SelectionMap,
+        updatedAt: null as string | null,
+        errorMessage: (e as Error).message || 'Network error',
+      };
+    }
+  }, []);
 
-      const baseSelection: SelectionMap =
-        (mapResp.success && mapResp.data?.selection) || {};
-      const updatedAt = (mapResp.success && mapResp.data?.updatedAt) || null;
+  const applyMapping = useCallback((payload: {
+    baseSelection: SelectionMap;
+    updatedAt: string | null;
+    errorMessage: string | null;
+  }) => {
+    if (payload.errorMessage) setError(payload.errorMessage);
+    const defaultMapping = getBrokerExchangeMapping();
+    setDefaults(defaultMapping);
+    const merged = mergeWithDefaults(payload.baseSelection, defaultMapping);
+    setState({ updatedAt: payload.updatedAt, selection: merged });
 
-      if (!mapResp.success) {
-        setError(mapResp.error || mapResp.message || 'Failed to load mapping');
-      }
-
-      const defaultMapping = getBrokerExchangeMapping();
-      setDefaults(defaultMapping);
-      const merged = mergeWithDefaults(baseSelection, defaultMapping);
-
-      setState({ updatedAt, selection: merged });
-
-      // Auto-persist if backend has no data yet so the mapping survives reloads
-      if (Object.keys(baseSelection).length === 0) {
-        const payload = JSON.stringify(merged);
-        if (payload !== lastAutoSaveRef.current) {
-          lastAutoSaveRef.current = payload;
-          try {
-            const resp = await apiService.updateMarketBrokerSelection(merged);
+    // Auto-persist if backend has no data yet so the mapping survives reloads
+    // （写在 Promise 回调链里 —— 规则允许「外部系统回调内 setState」）
+    if (Object.keys(payload.baseSelection).length === 0) {
+      const body = JSON.stringify(merged);
+      if (body !== lastAutoSaveRef.current) {
+        lastAutoSaveRef.current = body;
+        apiService.updateMarketBrokerSelection(merged)
+          .then(resp => {
             if (resp.success && resp.data) {
               const data = resp.data as { updatedAt?: string | null };
               setState(prev =>
@@ -127,22 +140,15 @@ export function MarketBrokerMappingSection() {
               );
             }
             notifyMarketBrokerMappingUpdated(merged);
-          } catch {
+          })
+          .catch(() => {
             // Non-fatal: persistence is best-effort here.
-          }
-        }
+          });
       }
-    } catch (e) {
-      setError((e as Error).message || 'Network error');
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  // 豁免理由：挂载时拉取市场-券商映射，属「与外部系统同步」的必要副作用；
-  // loadAll 同步置 loading/清空态用于立刻反馈，无法改写成派生值（数据源不在 React 内）。
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadAll(); }, [loadAll]);
+  const { isLoading: loading, reload } = useAsyncData('market-broker-mapping', loadMapping, applyMapping);
 
   // ── Derived: rows / cols ─────────────────────────────────────────────────
   // Universe is strictly defined by EXCHANGE_FOR_BROKER; users can only
@@ -248,7 +254,7 @@ export function MarketBrokerMappingSection() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={loadAll} disabled={loading}>
+            <Button size="sm" variant="outline" onClick={reload} disabled={loading}>
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>

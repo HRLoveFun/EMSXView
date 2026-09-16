@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useAsyncData } from '@shared/hooks/use-async-data';
 import { FileBarChart, FileDown, RefreshCw } from 'lucide-react';
 import {
   Bar,
@@ -465,63 +466,56 @@ export function ReportView() {
     return base;
   }, []);
 
-  // 筛选选项：持久化维度列表（时间无关，daily_update 每日刷新）
-  const loadMeta = useCallback(async (current: ReportFormState) => {
-    try {
-      const query = buildQuery(current);
-      delete (query as { exchange?: string | string[] }).exchange;
-      const data = await fetchTcaReportSummary(query);
-      const next = data.filter_options ?? { brokers: [], algos: [], symbols: [], exchanges: [] };
-      setOptions({ ...next, exchanges: next.exchanges ?? (data.markets ?? []).map((m) => m.exchange) });
-    } catch {
-      // 元数据加载失败不阻断报告主体，保持上次清单
-    }
+  // 首屏三件事（筛选选项 / 报告 / BDIB 健康度）收敛为一个**纯取数**函数（不 setState，只返回数据），
+  // 供首屏（useAsyncData）与「生成报告」按钮（事件回调）复用。
+  const fetchReportPayload = useCallback(async (current: ReportFormState) => {
+    const query = buildQuery(current);
+    const metaQuery: Parameters<typeof fetchTcaReportSummary>[0] = { ...query };
+    delete (metaQuery as { exchange?: string | string[] }).exchange;
+
+    const [reportData, metaData, healthData] = await Promise.all([
+      fetchTcaReportSummary(query),                        // 主报告：失败即整体失败
+      fetchTcaReportSummary(metaQuery).catch(() => null),  // 选项：失败不阻断，保持上次清单
+      (query.startDate && query.endDate)
+        ? fetchBdibHealth({ startDate: query.startDate, endDate: query.endDate }).catch(() => null)
+        : Promise.resolve(null),                           // 健康度：同时间范围，失败不阻断主报告
+    ]);
+    return { reportData, metaData, healthData, appliedPreset: current.preset };
   }, [buildQuery]);
 
-  const loadReport = useCallback(async (current: ReportFormState) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await fetchTcaReportSummary(buildQuery(current));
-      setReport(data);
-      // 预设模式下回填解析后的实际日期区间（如"上周"→ 周一~周日），
-      // 使日期填充框常驻展示；custom 模式下保留用户手输日期不覆盖。
-      if (current.preset !== 'custom') {
-        setForm((prev) => ({
-          ...prev,
-          startDate: formatReportDate(data.filters.start_date),
-          endDate: formatReportDate(data.filters.end_date),
-        }));
-      }
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '报告加载失败');
-      setReport(null);
-    } finally {
-      setIsLoading(false);
+  // 落到 state（首屏在 hook 的数据回调内、按钮路径在 .then 内，均为规则允许的形态）
+  const applyReportPayload = useCallback((payload: Awaited<ReturnType<typeof fetchReportPayload>>) => {
+    setReport(payload.reportData);
+    if (payload.metaData) {
+      const next = payload.metaData.filter_options
+        ?? { brokers: [], algos: [], symbols: [], exchanges: [] };
+      setOptions({
+        ...next,
+        exchanges: next.exchanges ?? (payload.metaData.markets ?? []).map((m) => m.exchange),
+      });
     }
-  }, [buildQuery]);
-
-  // BDIB 缺口附录：与报告同时间范围，失败不阻断主报告
-  const loadHealth = useCallback(async (current: ReportFormState) => {
-    try {
-      const range = buildQuery(current);
-      if (!range.startDate || !range.endDate) return;
-      const data = await fetchBdibHealth({ startDate: range.startDate, endDate: range.endDate });
-      setHealth(data);
-    } catch {
-      setHealth(null);
+    setHealth(payload.healthData ?? null);
+    // 预设模式下回填解析后的实际日期区间（如"上周"→ 周一~周日），
+    // 使日期填充框常驻展示；custom 模式下保留用户手输日期不覆盖。
+    if (payload.appliedPreset !== 'custom') {
+      setForm((prev) => ({
+        ...prev,
+        startDate: formatReportDate(payload.reportData.filters.start_date),
+        endDate: formatReportDate(payload.reportData.filters.end_date),
+      }));
     }
-  }, [buildQuery]);
+  }, []);
 
-  useEffect(() => {
-    const initial = initialForm;
-    // 豁免理由：挂载时首屏拉取报表/选项/健康度，属「与外部系统同步」的必要副作用；
-    // setState（loading 态）位于异步回调整体之前的同步置位，用于立即显示加载态。
-    /* eslint-disable-next-line react-hooks/set-state-in-effect */
-    void loadReport(initial);
-    void loadMeta(initial);
-    void loadHealth(initial);
-  }, [loadReport, loadMeta, loadHealth, initialForm]);
+  // 首屏：loading 由 key 派生、setState 只在 Promise 回调内
+  const { isLoading: isInitialLoading, error: initialError } = useAsyncData(
+    'report-initial',
+    () => fetchReportPayload(initialForm),
+    applyReportPayload,
+  );
+  const initialLoadError = initialError ? (initialError.message || '报告加载失败') : null;
+  // 首屏取数与「生成报告」共用同一忙碌态/错误位（首屏由 hook 派生，按钮路径由本地 state 承载）
+  const busy = isLoading || isInitialLoading;
+  const loadError = error ?? initialLoadError;
 
   const updatePreset = (value: string) =>
     setForm((prev) => ({ ...prev, preset: value as ReportFormState['preset'] }));
@@ -530,12 +524,19 @@ export function ReportView() {
   const updateField = (key: 'startDate' | 'endDate') => (event: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, preset: 'custom', [key]: event.target.value }));
 
-  // 生成报告：重新加载筛选选项（随 broker/algo/symbol 变化）与报告
+  // 生成报告：重新加载筛选选项（随 broker/algo/symbol 变化）与报告。
+  // 事件回调内 setState 属规则允许形态；loading/error 仍由本组件 state 承载（与导出路径共用）。
   const handleGenerate = useCallback(() => {
-    void loadMeta(form);
-    void loadReport(form);
-    void loadHealth(form);
-  }, [form, loadMeta, loadReport, loadHealth]);
+    setError(null);
+    setIsLoading(true);
+    fetchReportPayload(form)
+      .then(applyReportPayload)
+      .catch((nextError: unknown) => {
+        setError(nextError instanceof Error ? nextError.message : '报告加载失败');
+        setReport(null);
+      })
+      .finally(() => setIsLoading(false));
+  }, [form, fetchReportPayload, applyReportPayload]);
 
   // 006: 阈值/填充笔数/金额下限统一由 buildQuery 携带（与页面报告同源判定口径）
   const handleExportHtml = useCallback(async () => {
@@ -603,8 +604,8 @@ export function ReportView() {
           />
           {/* 操作按钮另起一行：占满整行，与上方筛选控件分隔 */}
           <div className="flex w-full items-center gap-3 border-t border-muted pt-3">
-            <Button onClick={() => void handleGenerate()} disabled={isLoading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <Button onClick={() => void handleGenerate()} disabled={busy}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
               生成报告
             </Button>
             <Button variant="outline" onClick={() => void handleExportHtml()} disabled={isExporting}>
@@ -615,10 +616,10 @@ export function ReportView() {
         </CardContent>
       </Card>
 
-      {error && (
+      {loadError && (
         <Alert variant="destructive">
           <AlertTitle>报告加载失败</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{loadError}</AlertDescription>
         </Alert>
       )}
 
