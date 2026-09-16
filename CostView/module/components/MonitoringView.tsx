@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAsyncData } from '@shared/hooks/use-async-data';
 import { DatabaseZap, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -185,42 +186,32 @@ const GapDetail = ({ entry }: { entry: BdibHealthDateEntry }) => (
 
 export function MonitoringView() {
   const [viewState, setViewState] = useState<MonitoringViewState>(loadCostViewMonitoringState);
-  const [health, setHealth] = useState<BdibHealthReport | null>(null);
-  const [coverage, setCoverage] = useState<MetricCoverageReport | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     saveCostViewMonitoringState(viewState);
   }, [viewState]);
 
-  const loadData = useCallback(async (state: MonitoringViewState) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [healthData, coverageData] = await Promise.all([
-        fetchBdibHealth({ last: state.lastPreset }),
-        fetchMetricCoverage({ last: state.lastPreset }, state.selectedMetrics),
-      ]);
-      setHealth(healthData);
-      setCoverage(coverageData);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '监控数据加载失败');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  // 取数走 useAsyncData：以 lastPreset 为 key（仅预设变化触发重新拉取；
+  // 指标勾选变化由热力图客户端过滤），loading 由 key 派生、setState 只在 Promise 回调内
+  const loadMonitoring = useCallback(async () => {
+    const [healthData, coverageData] = await Promise.all([
+      fetchBdibHealth({ last: viewState.lastPreset }),
+      fetchMetricCoverage({ last: viewState.lastPreset }, viewState.selectedMetrics),
+    ]);
+    return { health: healthData, coverage: coverageData };
+  }, [viewState.lastPreset, viewState.selectedMetrics]);
 
-  useEffect(() => {
-    // 豁免理由：挂载 / 预设变更时拉取远端监控数据，属「与外部系统同步」的必要副作用；
-    // setState（loading 态）同步置位是为了立刻显示加载态，级联渲染一次可接受，
-    // 无法改写成派生值或事件回调（数据源不在 React 内）。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadData(viewState);
-    // 仅在预设变化时重新拉取；指标勾选变化由热力图客户端过滤
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewState.lastPreset, loadData]);
+  const {
+    data: monitoringData,
+    error: monitoringError,
+    isLoading,
+    reload,
+  } = useAsyncData(viewState.lastPreset, loadMonitoring);
+
+  const health = monitoringData?.health ?? null;
+  const coverage = monitoringData?.coverage ?? null;
+  const error = monitoringError ? (monitoringError.message || '监控数据加载失败') : null;
 
   const bdibStatusByDate = useMemo(
     () => new Map((health?.dates ?? []).map((d) => [d.date, d.status])),
@@ -251,7 +242,7 @@ export function MonitoringView() {
               </SelectContent>
             </Select>
           </div>
-          <Button variant="outline" onClick={() => void loadData(viewState)} disabled={isLoading}>
+          <Button variant="outline" onClick={reload} disabled={isLoading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             刷新
           </Button>
