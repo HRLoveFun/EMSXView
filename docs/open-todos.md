@@ -21,7 +21,7 @@
 | T9 | 重算 20260901 的 temp_impact/perm_impact（next_day_close 结构性延迟：需等 9/3 日更产出 9/2 daily_summary 后执行 `recompute_all_tca_route_metrics.py --dates 20260901`） | `008-costview-report-enhancement` | ⏳ | 8/31 已于 9/2 补重算回填（temp5 20.6→60.0%、perm 0→54.2%）；9/1 同理待次日数据 |
 | T10 | 「打开/切换目标时回填表单 state」类重构（4 处）：`route-plan-manager.tsx`、`unified-modify-route-dialog.tsx` | `specs/020-react-hooks-set-state-debt/plan.md` | ✅ | 2026-09-16 完成（`specs/021-t10-form-reset-refactor`）：改「state 初值取自 props + 调用方 key 重挂载」，删除 69 行回填 effect；新增 5 条契约测试；CI 已接入 `npm run lint` + `npm run lint:modules`（硬阻断） |
 | T11 | 复核 6 处「与外部系统同步」类 `set-state-in-effect` 豁免 | `specs/020-react-hooks-set-state-debt/plan.md` | ✅ | 2026-09-16（`specs/022-t11-async-data-layer`）：新增仓库内取数层 `@shared/hooks/use-async-data`（loading 由 key 派生、setState 只在回调内，7 条契约测试），**5 处 fetch 豁免全部删除**；第 6 处（对账）转 T12 |
-| T12 | `use-batch-route-state.ts` 对账逻辑派生化：`rows = buildRows(orders, rowPatch)`，用户编辑只写 `rowPatch`（涉及 ~10 处 updater 需改为读派生值） | `specs/022-t11-async-data-layer/plan.md` §4 | ⏳ | **前置条件**：该 hook 现零测试覆盖（`BatchOperationPanel.test.tsx` 不涉及 batch-route）——先补 hook 级测试再做状态所有权重构，否则违背「行为保全优先」 |
+| T12 | `use-batch-route-state.ts` 对账逻辑派生化：`rows = buildRows(orders, rowPatch)`，用户编辑只写 `rowPatch`（涉及 ~10 处 updater 需改为读派生值） | `specs/022-t11-async-data-layer/plan.md` §4 | 🟡 | **第一步已完成（2026-09-16，`specs/023`）**：新增 6 条 hook 级测试锁定对账语义（打开时全选 / 后来者不选 / 剔除消失行 / 用户改动保留 / 分配槽增删 / 关闭不对账）。**第二步**：改 `rows` 为派生，注意「打开时存在 ⇒ 默认选中」这一事实需保留；并需把混在 `setRows` updater 内的 `paramsBuildersRef` 副作用移出（StrictMode 下会执行两次） |
 
 ## 已完成
 
