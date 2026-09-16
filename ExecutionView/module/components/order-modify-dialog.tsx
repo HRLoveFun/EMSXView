@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Edit3, AlertTriangle, Loader2 } from 'lucide-react';
 import {
   Dialog,
@@ -60,23 +60,17 @@ export function OrderModifyDialog({
   onOpenChange,
   onConfirm,
 }: OrderModifyDialogProps) {
-  const [updates, setUpdates] = useState<OrderUpdates>({});
+  // 表单重置：由调用方以 key（订单 id + 打开态）重挂载实现，取代原先在 effect 内同步 setState。
+  // 初值即「当前订单的原值」，故重挂载等价于原 effect 的 setUpdates(…)
+  const [updates, setUpdates] = useState<OrderUpdates>(() => ({
+    orderType: order?.orderType,
+    price: order?.price,
+    quantity: order?.quantity,
+    timeInForce: order?.timeInForce,
+    stopPrice: order?.stopPrice ?? null,
+  }));
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Reset form when order changes
-  useEffect(() => {
-    if (order) {
-      setUpdates({
-        orderType: order.orderType,
-        price: order.price,
-        quantity: order.quantity,
-        timeInForce: order.timeInForce,
-        stopPrice: order.stopPrice ?? null,
-      });
-      setError('');
-    }
-  }, [order, open]);
 
   const handleConfirm = async () => {
     if (!order) return;

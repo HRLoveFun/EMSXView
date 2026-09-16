@@ -703,7 +703,9 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
         </div>
       </div>
 
+      {/* key 使每次针对某订单打开都重挂载 → 修改表单回到该订单的原值 */}
       <OrderModifyDialog
+        key={`${modifyOrder?.id ?? 'none'}:${isModifyDialogOpen}`}
         order={modifyOrder}
         open={isModifyDialogOpen}
         onOpenChange={setIsModifyDialogOpen}

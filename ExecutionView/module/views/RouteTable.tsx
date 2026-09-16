@@ -54,6 +54,11 @@ interface GroupConfig {
 
 const TOTAL_COLS = 26; // 1 selection + 22 data columns + Slice + Slice Status + Schedule columns
 
+// 路由「已收敛」状态集合：乐观替换标记在此类状态下视为可清除（读侧派生 + 定时器清理共用）
+const STABLE_ROUTE_STATUSES = new Set([
+  'WORKING', 'PARTFILL', 'PARTFILLED', 'FILLED', 'DONE', 'CANCEL', 'REJECTED', 'CXLREJ', 'CXLRPRJ',
+]);
+
 export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, onModifyRoute, onRefresh }: RouteTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'sequence', direction: 'desc' });
   // Default: group by exchange, subgroup by ticker
@@ -71,7 +76,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
   // UI does not appear silently disabled during the brief window before Bloomberg pushes
   // the CXLRPRQ/CXLREP transition. Entries are cleared automatically once the route
   // reaches a stable status, or after a 6s safety timeout.
-  const [replacingRouteIds, setReplacingRouteIds] = useState<Set<string>>(new Set());
+  const [rawReplacingRouteIds, setReplacingRouteIds] = useState<Set<string>>(new Set());
   // Pending poll timers keyed by route id so we can cancel remaining polls once a
   // stable status has been observed. Avoids redundant REST calls after the route
   // is already settled.
@@ -118,22 +123,27 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
     pollTimersRef.current.set(routeId, timers);
   }, [onRefresh, cancelPollsFor]);
 
+  // 「已收敛」的乐观标记在读侧派生（route 达到稳定态即视为清除），
+  // 取代原先在 effect 内同步 setState 修剪 —— 避免级联渲染，语义等价
+  const replacingRouteIds = useMemo(
+    () => new Set([...rawReplacingRouteIds].filter((id) => {
+      const r = routes.find((x) => x.id === id);
+      return !r || !STABLE_ROUTE_STATUSES.has(r.status);
+    })),
+    [rawReplacingRouteIds, routes],
+  );
+
   // Auto-clear the optimistic flag once a route reaches a stable (non-transient)
-  // status, AND cancel any remaining polls for that route.
+  // status, AND cancel any remaining polls for that route。
+  // 本 effect 只做「定时器清理」这类外部副作用（不 setState，避免级联渲染）。
   useEffect(() => {
     if (replacingRouteIds.size === 0) return;
-    const stable = new Set(['WORKING', 'PARTFILL', 'PARTFILLED', 'FILLED', 'DONE', 'CANCEL', 'REJECTED', 'CXLREJ', 'CXLRPRJ']);
     const toClear: string[] = [];
     for (const r of routes) {
-      if (replacingRouteIds.has(r.id) && stable.has(r.status)) toClear.push(r.id);
+      if (replacingRouteIds.has(r.id) && STABLE_ROUTE_STATUSES.has(r.status)) toClear.push(r.id);
     }
     if (toClear.length === 0) return;
     toClear.forEach(id => cancelPollsFor(id));
-    setReplacingRouteIds(prev => {
-      const next = new Set(prev);
-      toClear.forEach(id => next.delete(id));
-      return next;
-    });
   }, [routes, replacingRouteIds, cancelPollsFor]);
 
   // Cleanup timers on unmount to avoid leaks

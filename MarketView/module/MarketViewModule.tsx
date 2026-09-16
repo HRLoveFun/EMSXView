@@ -92,11 +92,18 @@ export default function MarketViewModule() {
       setError(null);
       try {
         const nextSnapshot = await fetchMarketSnapshot(query);
-        if (!cancelled) setSnapshot(nextSnapshot);
+        if (!cancelled) {
+          setSnapshot(nextSnapshot);
+          // 快照刷新后修剪已不存在的选中项（放在异步回调内，而非 effect 同步体内）
+          setSelectedTickers((current) =>
+            current.filter((ticker) => nextSnapshot.rows.some((row) => row.equ_ticker === ticker)),
+          );
+        }
       } catch (nextError) {
         if (!cancelled) {
           setError(nextError instanceof Error ? nextError.message : 'Failed to load MarketView workstation');
           setSnapshot(null);
+          setSelectedTickers([]);
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -108,18 +115,6 @@ export default function MarketViewModule() {
       cancelled = true;
     };
   }, [query]);
-
-  // 快照刷新后修剪已不存在的选中项
-  useEffect(() => {
-    if (!snapshot) {
-      setSelectedTickers([]);
-      return;
-    }
-
-    setSelectedTickers((current) =>
-      current.filter((ticker) => snapshot.rows.some((row) => row.equ_ticker === ticker)),
-    );
-  }, [snapshot]);
 
   const { drillSnapshot, drillLoading, drillError } = useIntradayDrill(
     drillTicker,

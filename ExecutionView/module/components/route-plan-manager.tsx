@@ -267,6 +267,9 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
   useEffect(() => {
     if (!open) return;
     if (editPlan) {
+      // 待重构（specs/020）：此效果为「编辑态回填 15 个字段」，理想修法是调用方以 key 重挂载 +
+      // 各 state 初值取自 editPlan；因改动面较大，本 PR 保留现状并登记待办。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName(editPlan.name);
       setDescription(editPlan.description || '');
       setMatchMarket(editPlan.matchMarket || '');
@@ -316,6 +319,8 @@ function RoutePlanDialog({ open, onOpenChange, editPlan, onSaved }: RoutePlanDia
   }, [open, matchMarket]);
 
   useEffect(() => {
+    // 待重构（specs/020）：空市场时应清空券商列表，理想修法是在读侧派生（matchMarket 为空 ⇒ 选项为空）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!matchMarket) { setAvailableBrokers([]); return; }
     // Re-fetch brokers when market changes (the promise above may not have settled yet)
     apiService.getMarketBrokerMapping().then(result => {

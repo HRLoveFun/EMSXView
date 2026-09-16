@@ -359,6 +359,10 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   // ── Reconcile rows when parent order list refreshes ────────────────────
   useEffect(() => {
     if (!open) return;
+    // 豁免理由：父级订单列表刷新后需与行状态对账（新增行补默认值、消失行剔除），
+    // 属「外部输入变化」而非可派生值；且 reducer 在无变化时返回同一引用，
+    // React 会跳过重渲染，不存在级联渲染开销。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRows(prev => {
       let changed = false;
       const next: Record<string, RowState> = {};

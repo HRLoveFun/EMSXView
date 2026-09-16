@@ -103,6 +103,9 @@ export function RateDiagnosticDialog({ open, onOpenChange }: RateDiagnosticDialo
   };
 
   useEffect(() => {
+    // 豁免理由：打开时按需拉取诊断结果，属「与外部系统同步」的必要副作用；
+    // 守卫条件（!data && !loading）保证同一 open 周期只发起一次，无级联渲染风险。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open && !data && !loading) void runDiagnostic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);

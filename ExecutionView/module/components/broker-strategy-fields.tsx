@@ -89,6 +89,9 @@ export function useStrategyFields(
     }
   }, [broker, strategy, assetClass]);
 
+  // 豁免理由：broker/strategy/assetClass 变化时拉取策略字段，属「与外部系统同步」的必要副作用；
+  // load 内同步置 loading/清空态用于立刻反馈，改写成派生值不可行（数据源不在 React 内）。
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(false); }, [load]);
 
   const refresh = useCallback(() => load(true), [load]);

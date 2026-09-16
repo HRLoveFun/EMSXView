@@ -430,7 +430,9 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
 
         <TabsContent value="configure" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading configuration panel…</div>}>
-            <LazyConfigureView config={config} onSave={setConfig} />
+            {/* key: config 变更（保存/重新加载）时重挂载，使 ConfigureView 的草稿重置——
+                替代原先在组件内用 effect 同步 state 的写法（React 推荐用 key 重置 state） */}
+            <LazyConfigureView key={config.updatedAt} config={config} onSave={setConfig} />
           </Suspense>
         </TabsContent>
       </Tabs>

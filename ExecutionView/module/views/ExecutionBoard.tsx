@@ -226,8 +226,9 @@ export function ExecutionBoard({
         </section>
       )}
 
-      {/* Algo Launch Dialog */}
+      {/* Algo Launch Dialog：key 使每次针对某订单打开都重挂载 → 表单回到初始态 */}
       <AlgoLaunchDialog
+        key={`${algoLaunchOrder?.id ?? 'none'}:${isAlgoDialogOpen}`}
         order={algoLaunchOrder}
         open={isAlgoDialogOpen}
         onOpenChange={setIsAlgoDialogOpen}
