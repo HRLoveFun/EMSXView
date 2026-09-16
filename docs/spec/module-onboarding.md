@@ -67,11 +67,15 @@ import '../modules/<new-module-id>/module.registry';
 ### A.5 验证
 
 ```bash
+# 依赖在仓库根安装（npm workspaces，ADR-0020）
+npm ci
+
 cd frontend
 npm run build         # 验证模块能被正确打包
-npm run test          # 跑模块测试
-npx vitest run src/modules/<new-module-id>/
+npm test -- src/modules/<new-module-id>/   # 只跑该模块测试
 ```
+
+> 勿用裸 `npx vitest`：依赖已提升到仓库根，`frontend/node_modules/.bin` 为空，走 `npm run/npm test` 才会带上正确的 PATH。
 
 并跑边界测试：
 

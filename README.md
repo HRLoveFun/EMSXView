@@ -412,7 +412,7 @@ scripts\check-status.bat
 Service URLs (`<host>` defaults to `localhost`):
 | Service | URL | Default | Override env var |
 |---------|-----|---------|------------------|
-| Frontend (dev) | `http://<host>:<FRONTEND_PORT>` | `http://localhost:5173` | `npx vite --port <FRONTEND_PORT>` |
+| Frontend (dev) | `http://<host>:<FRONTEND_PORT>` | `http://localhost:5173` | `npm run dev -- --port <FRONTEND_PORT>` |
 | Core Backend | `<API_BASE_URL>` | `http://localhost:3000` | `API_PORT` |
 | API Docs (Swagger) | `<API_BASE_URL>/docs` | `http://localhost:3000/docs` | `API_PORT` |
 | MarketView | `<MARKETVIEW_BASE_URL>/docs` | `http://localhost:8001/docs` | `MARKETVIEW_PORT` |
@@ -429,20 +429,26 @@ Service URLs (`<host>` defaults to `localhost`):
 ### Frontend Development
 
 ```bash
-cd <repo-root>/frontend
-npm install
+cd <repo-root>                  # npm workspaces 根（frontend + ExecutionView 共用一份依赖树）
+npm install                     # 依赖只需在仓库根安装一次
+
+cd frontend
 npm run dev                     # Dev server on http://<host>:<FRONTEND_PORT> (default 5173)
                                 # Mock mode if VITE_API_URL is empty
 
-npm run build                   # Production build → dist/
-npm run lint                    # ESLint
-npm test                        # vitest run
+npm run build                   # Production build → frontend/dist/
+npm run typecheck               # tsc -b
+npm run lint                    # ESLint（frontend/）
+npm run lint:modules            # ESLint（frontend 之外的根级模块源码，如 ExecutionView）
+npm test                        # vitest run（含 ExecutionView 用例）
 
-# Standalone module builds
-npm run build:execution         # → dist/execution/
-npm run build:costview          # → dist/costview/
+# Standalone module builds（产物在 frontend/dist-modules/，与主应用 frontend/dist/ 分离，互不覆盖）
+npm run build:execution         # → frontend/dist-modules/execution/
+npm run build:costview          # → frontend/dist-modules/costview/
 npm run build:all-modules       # 全部模块 SPA
 ```
+
+> 仓库根也提供同名委派脚本：`npm run dev|build|typecheck|test|lint`（等价于在 `frontend/` 执行）。
 
 Environment variables (`frontend/.env`):
 
