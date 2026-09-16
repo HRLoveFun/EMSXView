@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
     "build:execution": "vite build --config vite.base.ts -- --module=execution",
     "build:costview": "vite build --config vite.base.ts -- --module=costview",
     "build:marketview": "vite build --config vite.base.ts -- --module=marketview",
@@ -13,7 +14,6 @@
     "lint": "eslint .",
     "lint:modules": "cd .. && eslint --config frontend/eslint.config.js ExecutionView/module",
     "preview": "vite preview",
-    "postinstall": "node ../scripts/devtools/link-module-deps.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

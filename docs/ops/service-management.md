@@ -204,9 +204,8 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
 **Symptoms**: Port 5173 not responding
 
 **Solutions**:
-1. Install Node dependencies:
+1. Install Node dependencies（npm workspaces：在**仓库根**执行；依赖提升到根 `node_modules`，frontend 与 ExecutionView 共用）:
    ```bash
-   cd frontend
    npm install
    ```
 

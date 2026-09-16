@@ -396,7 +396,7 @@ $frontendReady = Wait-PortReady `
 
 if (-not $frontendReady) {
     $causes = @(
-        'node_modules not installed (run npm install under frontend/)',
+        'node_modules not installed (run npm install at the repository root — npm workspaces)',
         'Port 5173 occupied by another process (previous run not closed properly)',
         'Node.js / npm not installed or not in PATH',
         'npm SSL certificate issue (run npm config set strict-ssl false)'

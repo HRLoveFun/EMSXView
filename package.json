@@ -1,0 +1,22 @@
+{
+  "name": "emsxview",
+  "private": true,
+  "version": "1.0.0",
+  "description": "EMSXView workspace root —— npm workspaces 统一依赖树（frontend + ExecutionView）",
+  "workspaces": [
+    "frontend",
+    "ExecutionView"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "build:execution": "npm run build:execution --workspace frontend",
+    "build:costview": "npm run build:costview --workspace frontend",
+    "build:marketview": "npm run build:marketview --workspace frontend",
+    "build:all-modules": "npm run build:all-modules --workspace frontend",
+    "typecheck": "npm run typecheck --workspace frontend",
+    "test": "npm run test --workspace frontend",
+    "lint": "npm run lint --workspace frontend",
+    "lint:modules": "npm run lint:modules --workspace frontend"
+  }
+}

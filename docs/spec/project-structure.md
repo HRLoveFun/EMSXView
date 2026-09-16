@@ -76,8 +76,11 @@ EMSXView/
 ├── README.md
 ├── QUICKSTART.md
 ├── relaunch_service.bat
+├── package.json                      # npm workspaces 根（frontend + ExecutionView；lockfile 唯一在仓库根，ADR-0020）
 ├── frontend/                         # Canonical React frontend shell
 │   ├── package.json
+│   ├── dist/                         # 主应用构建产物（npm run build）
+│   ├── dist-modules/                 # 独立模块构建产物（npm run build:<module>，与 dist/ 分离互不覆盖）
 │   └── src/
 │       ├── app/
 │       │   ├── App.tsx               # Module registry side-effect imports
@@ -89,6 +92,7 @@ EMSXView/
 │       └── shared/                   # Cross-module shared layer
 ├── ExecutionView/                    # ExecutionView 模块（根级独立目录；012-executionview-root-extract）
 │   ├── README.md                     # 职责边界 / 接口契约 / 运行与构建
+│   ├── package.json                  # 自带依赖声明（npm workspaces 成员，ADR-0020）
 │   ├── module/                       # 模块实现（components/ hooks/ views/ services/ stores/ types/ lib/ data/）
 │   │   ├── module.registry.ts        # 自注册描述符（shell 经 moduleRegistry 发现）
 │   │   └── module.contract.ts        # ★ 对外接口契约（ExecutionModuleProps / ExecutionModuleContribution）

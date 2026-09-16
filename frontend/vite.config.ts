@@ -22,6 +22,9 @@ export default defineConfig(({ mode }) => {
         "@costview": path.resolve(__dirname, "./src/modules/costview"),
         "@marketview": path.resolve(__dirname, "./src/modules/marketview"),
       },
+      // npm workspaces 下依赖被提升到仓库根 node_modules；dedupe 确保
+      // 无论从哪条路径解析，react / react-dom 都只取同一份实例
+      dedupe: ['react', 'react-dom'],
     },
     test: {
       globals: true,

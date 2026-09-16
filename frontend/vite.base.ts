@@ -9,7 +9,7 @@ import type { UserConfig } from 'vite';
 export interface ModuleBuildOptions {
   /** Module name, used to resolve layout / output dir. */
   moduleName: string;
-  /** Optional: override output directory (defaults to frontend/dist/<moduleName>). */
+  /** Optional: override output directory (defaults to frontend/dist-modules/<moduleName>). */
   outDir?: string;
 }
 
@@ -60,7 +60,10 @@ export function createModuleConfig(opts: ModuleBuildOptions): UserConfig {
   // 入口不在 frontend/ 内时（如 ExecutionView/standalone）需把 vite root 指向入口所在目录，
   // 否则 rollup 会因「HTML 入口位于 root 之外」报 fileName must not be a relative path
   const moduleRoot = layout.root ? path.resolve(__dirname, layout.root) : __dirname;
-  const outDir = opts.outDir ?? path.resolve(__dirname, 'dist', moduleName);
+  // 模块产物刻意与主应用 dist/ **分离**：主应用构建会清空自己的 outDir
+  // （`npm run build` → frontend/dist），若模块产物落在 dist/<module>，
+  // 先后执行两种构建时会被整体清掉（迁移前既有缺陷）
+  const outDir = opts.outDir ?? path.resolve(__dirname, 'dist-modules', moduleName);
 
   return {
     root: moduleRoot,
@@ -81,6 +84,9 @@ export function createModuleConfig(opts: ModuleBuildOptions): UserConfig {
         '@costview': path.resolve(__dirname, './src/modules/costview'),
         '@marketview': path.resolve(__dirname, './src/modules/marketview'),
       },
+      // npm workspaces 下依赖被提升到仓库根 node_modules；dedupe 确保
+      // 无论从哪条路径解析，react / react-dom 都只取同一份实例
+      dedupe: ['react', 'react-dom'],
     },
     server: {
       port: 5173,

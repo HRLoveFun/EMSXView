@@ -49,6 +49,7 @@
 | [ADR-0017](adr/0017-cleanup-and-perf-hotspot-mechanism.md) | 代码清理与性能热点机制（CL-xx 清理 + PF-xx 性能，复用 quality_gate 基础设施）；类方法零引用判定由 ADR-0019 扩展 | Accepted |
 | [ADR-0018](adr/0018-tca-report-metrics-conventions.md) | TCA 报告指标口径与异常严重度语义（成交额加权 / 两档严重度 / 截断与导出 / REPORT_SPEC / 规则键 pnl_vwap_bps 重命名）；§10 P0 修订：口径层收敛为 `report_measure.py` 单一实现（作用域统一 / 加权覆盖披露 / 零成交可见 / 多值过滤） | Accepted |
 | [ADR-0019](adr/0019-cl12-dead-class-method-detection.md) | CL-12 类方法零引用检测（词边界匹配 + 同名实体区分）；扩展 ADR-0017 的规则集 | Accepted |
+| [ADR-0020](adr/0020-frontend-npm-workspaces.md) | 前端依赖树收敛为 npm workspaces（frontend + ExecutionView）+ 模块产物目录隔离 | Accepted |
 | [ADR-0700](adr/0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | Accepted |
 
 ---

@@ -25,7 +25,7 @@ scripts\restart-all.bat
 
 | Service | URL | Default | Port env var |
 |---------|-----|---------|--------------|
-| Frontend | `http://<host>:<FRONTEND_PORT>` | http://localhost:5173 | `npx vite --port` |
+| Frontend | `http://<host>:<FRONTEND_PORT>` | http://localhost:5173 | `npm run dev -- --port` |
 | Backend API | `<API_BASE_URL>` | http://localhost:3000 | `API_PORT` |
 | Health Check | `<API_BASE_URL>/api/health` | http://localhost:3000/api/health | `API_PORT` |
 
@@ -59,7 +59,9 @@ scripts\ops\service-manager.ps1 logs
 ```
 EMSXView/
 ├── relaunch_service.bat     # One-click restart
-├── frontend/               # React frontend
+├── package.json            # npm workspaces 根（frontend + ExecutionView 共用依赖树，lockfile 在仓库根）
+├── ExecutionView/          # ExecutionView 模块（根级独立目录：module/ + standalone/）
+├── frontend/               # React frontend（Shell + 共享层 + costview/marketview 模块）
 ├── backend/                # Python backend
 │   └── api/                # FastAPI application
 ├── scripts/

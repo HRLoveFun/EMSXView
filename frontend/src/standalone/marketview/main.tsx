@@ -1,8 +1,8 @@
 /**
  * MarketView — standalone build entry point.
  *
- * Build: npx vite build --config vite.config.marketview.ts
- * Output: dist/marketview/
+ * Build: npm run build:marketview（vite.base.ts --module=marketview）
+ * Output: frontend/dist-modules/marketview/
  */
 /* eslint-disable react-refresh/only-export-components -- 独立构建入口，不适用 fast refresh */
 import { StrictMode, Suspense, lazy } from 'react';

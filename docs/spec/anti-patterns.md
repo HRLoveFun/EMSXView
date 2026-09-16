@@ -174,8 +174,8 @@ rg "include_router|app\.include" backend/api/main.py | rg -v "_register_optional
 **为什么坏**: 重构安全网缺失；IDE 提示失效
 **检测**:
 ```bash
-# 前端
-npx tsc --noEmit
+# 前端（在仓库根执行；npm workspaces 下子目录无 .bin）
+npm run typecheck
 # 后端
 pyright backend/ CostView/src/ data_access/ platform_data/
 ```

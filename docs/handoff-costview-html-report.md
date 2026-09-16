@@ -114,7 +114,7 @@ CostView Report 页已有"导出 HTML 报告"按钮 → `GET /api/tca/monitoring
 # 后端
 python -m pytest CostView/tests/test_monitoring.py -q
 # 前端
-cd frontend && npx vitest run src/modules/costview/
+cd frontend && npm test -- src/modules/costview/
 # CLI 真实生成
 python scripts/reports/generate_tca_report.py --last day
 # 端点直测
