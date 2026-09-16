@@ -128,6 +128,12 @@ class TcaRouteDetail:
 
     Deprecated: 新 /api/tca/analyze 返回扁平 TcaRouteSummary，本类型保留仅用于
     兼容旧归档代码与历史序列化数据。
+
+    2026-09-16 收敛：本类型**已不再**由 ``platform_data.contracts`` 包顶层 re-export
+    （双仓库 AST 核查 + 数据根归档取证确认零消费者）；定义保留，观察期结束后再评估删除。
+    需要时按显式子模块路径导入::
+
+        from platform_data.contracts.tca_contracts import TcaRouteDetail
     """
     order_id: str
     route_id: str
@@ -150,6 +156,12 @@ class TcaOrderSummary:
 
     Deprecated: 新 /api/tca/analyze 返回扁平路由列表 (TcaRouteSummary)，本类型保留仅
     用于兼容旧归档代码与历史序列化数据。
+
+    2026-09-16 收敛：本类型**已不再**由 ``platform_data.contracts`` 包顶层 re-export
+    （双仓库 AST 核查 + 数据根归档取证确认零消费者）；定义保留，观察期结束后再评估删除。
+    需要时按显式子模块路径导入::
+
+        from platform_data.contracts.tca_contracts import TcaOrderSummary
     """
     order_id: str
     order_as_of_date: str
