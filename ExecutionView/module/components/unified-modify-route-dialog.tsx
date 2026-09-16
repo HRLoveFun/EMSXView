@@ -109,25 +109,40 @@ export function UnifiedModifyRouteDialog({
   onOpenChange,
   onSubmit,
 }: UnifiedModifyRouteDialogProps) {
+  // 表单初值即「当前路由的值」；打开 / 切换路由由调用方以 key 重挂载保证重置，
+  // 取代原先在 effect 内同步 setState 回填（React 官方「用 key 重置 state」）
+  const initial = {
+    amount: route ? route.amount.toString() : '',
+    orderType: route?.orderType || '',
+    limitPrice: route?.limitPrice != null ? route.limitPrice.toString() : '',
+    stopPrice: route?.stopPrice != null ? route.stopPrice.toString() : '',
+    tif: route?.tif || 'DAY',
+    broker: route?.broker || '',
+    strategy: route?.strategyType || '',
+    notes: route?.notes || '',
+  };
+
   // ----- Original baseline captured when opened -----
-  const [origAmount, setOrigAmount] = useState('');
-  const [origOrderType, setOrigOrderType] = useState('');
-  const [origLimitPrice, setOrigLimitPrice] = useState('');
-  const [origStopPrice, setOrigStopPrice] = useState('');
-  const [origTif, setOrigTif] = useState('DAY');
-  const [origBroker, setOrigBroker] = useState('');
-  const [origStrategy, setOrigStrategy] = useState('');
-  const [origNotes, setOrigNotes] = useState('');
+  // 基线即「路由原值」，组件生命周期内不变（打开/切换由 key 重挂载），故为常量而非 state
+  const origAmount = initial.amount;
+  const origOrderType = initial.orderType;
+  const origLimitPrice = initial.limitPrice;
+  const origStopPrice = initial.stopPrice;
+  const origTif = initial.tif;
+  const origBroker = initial.broker;
+  const origStrategy = initial.strategy;
+  const origNotes = initial.notes;
 
   // ----- Live editable state -----
-  const [amount, setAmount] = useState('');
-  const [orderType, setOrderType] = useState('');
-  const [limitPrice, setLimitPrice] = useState('');
-  const [stopPrice, setStopPrice] = useState('');
-  const [tif, setTif] = useState('DAY');
-  const [broker, setBroker] = useState('');
-  const [strategy, setStrategy] = useState('');
-  const [notes, setNotes] = useState('');
+  const [amount, setAmount] = useState(initial.amount);
+  const [orderType, setOrderType] = useState(initial.orderType);
+  const [limitPrice, setLimitPrice] = useState(initial.limitPrice);
+  const [stopPrice, setStopPrice] = useState(initial.stopPrice);
+  const [tif, setTif] = useState(initial.tif);
+  // broker 只读（由路由决定，界面不提供编辑）—— 常量而非 state
+  const broker = initial.broker;
+  const [strategy, setStrategy] = useState(initial.strategy);
+  const [notes, setNotes] = useState(initial.notes);
 
   // Strategy metadata
   const [strategies, setStrategies] = useState<string[]>([]);
@@ -161,41 +176,13 @@ export function UnifiedModifyRouteDialog({
   // Derived: which order-type is currently selected and whether it needs limit / stop
   const currentOrderType = orderTypes.find(o => o.value === orderType);
 
-  // Reset on open
-  useEffect(() => {
-    if (open && route) {
-      const a = route.amount.toString();
-      const ot = route.orderType || '';
-      const lp = route.limitPrice != null ? route.limitPrice.toString() : '';
-      const sp = route.stopPrice != null ? route.stopPrice.toString() : '';
-      const t = route.tif || 'DAY';
-      const b = route.broker || '';
-      const s = route.strategyType || '';
-      const n = route.notes || '';
-
-      // 待重构（specs/020）：打开时回填 8 组字段（orig* + 可编辑态），理想修法是调用方以 key 重挂载 +
-      // 各 state 初值取自 route；因改动面较大，本 PR 保留现状并登记待办。
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setOrigAmount(a); setAmount(a);
-      setOrigOrderType(ot); setOrderType(ot);
-      setOrigLimitPrice(lp); setLimitPrice(lp);
-      setOrigStopPrice(sp); setStopPrice(sp);
-      setOrigTif(t); setTif(t);
-      setOrigBroker(b); setBroker(b);
-      setOrigStrategy(s); setStrategy(s);
-      setOrigNotes(n); setNotes(n);
-
-      setStrategies([]);
-      setError('');
-    }
-  }, [open, route]);
+  // 表单回填已改为「state 初值取自 route + 调用方 key 重挂载」，无需 effect
 
   // Resolve asset class
   useEffect(() => {
     let cancelled = false;
-    // 待重构（specs/020）：无 ticker 时回落默认资产类别；理想修法是 key 重挂载后由初值承担该回落
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!open || !route?.ticker) { setAssetClass('EQTY'); return; }
+    // 无 ticker 时保持默认资产类别（初值 'EQTY'，由调用方 key 重挂载保证重置）
+    if (!open || !route?.ticker) return;
     cachedApiService.resolveAssetClass(route.ticker, 'EQTY')
       .then(ac => { if (!cancelled) setAssetClass(ac || 'EQTY'); })
       .catch(() => { if (!cancelled) setAssetClass('EQTY'); });

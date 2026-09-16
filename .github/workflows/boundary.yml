@@ -107,6 +107,16 @@ jobs:
       - name: "类型检查 (硬阻断)"
         run: |
           npm run typecheck
+      # 前端 lint 接入（021 起）：壳层/共享层（frontend/src）与三个业务模块
+      # （ExecutionView / CostView / MarketView）分两条命令 —— 模块代码不在 frontend/ 内，
+      # 默认的 `eslint .` 扫不到。存量债务（18 + 2 条）已于 020/021 清零，
+      # 此后红灯即「新增违规」，防止债务再次无声累积。
+      - name: "壳层 lint (硬阻断)"
+        run: |
+          npm run lint
+      - name: "模块 lint (硬阻断)"
+        run: |
+          npm run lint:modules
       - name: 单元测试
         run: |
           npm run test

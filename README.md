@@ -294,7 +294,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 - **Technology:** React 19.2, TypeScript 5.9, Vite 7.2, Tailwind CSS 3.4, shadcn/ui, Recharts 2.15
 - **Architecture:** Module Registry 模式——各模块经 `moduleRegistry.register()` 自注册（id / label / order / lazy component），壳动态发现，不硬编码模块路径。
 - **模块注册**：`execution`（order 0，默认，WS `/ws/orders`）、`marketview`（order 10）、`costview`（order 20）。
-- **验证**：`npm test`（17 个测试文件）；`npm run lint`。
+- **验证**：`npm test`（23 个测试文件）；`npm run lint`（壳层/共享层）+ `npm run lint:modules`（三业务模块）—— 两者自 2026-09-16 起均为 CI 硬阻断。
 
 ### 4.5 data_access/（只读数据访问层）— Beta
 

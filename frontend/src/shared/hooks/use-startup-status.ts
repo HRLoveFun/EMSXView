@@ -69,7 +69,8 @@ export function useStartupStatus({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isChecking, setIsChecking] = useState(false);
   const [probeId, setProbeId] = useState(0);
-  const startedAtRef = useRef(Date.now());
+  // 起始时刻在 effect 内落定：Date.now() 是不纯函数，不得在渲染期调用（react-hooks/purity）
+  const startedAtRef = useRef(0);
   // Holds a callback that, when invoked, cancels the pending poll timer and
   // runs poll() immediately. Repopulated on every poll cycle.
   const wakeupRef = useRef<(() => void) | null>(null);
@@ -81,12 +82,14 @@ export function useStartupStatus({
     setProbeId(prev => prev + 1);
   }, []);
 
+  // 起始时刻落定（置于轮询 effect 之前，保证同一挂载周期内先于 poll 生效）
   useEffect(() => {
-    if (!enabled) {
-      setStartupStatus(null);
-      setElapsedSeconds(0);
-      return;
-    }
+    startedAtRef.current = Date.now();
+  }, []);
+
+  useEffect(() => {
+    // 未启用时的「空状态」由下方返回值派生，避免在 effect 内同步 setState
+    if (!enabled) return;
 
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -161,12 +164,13 @@ export function useStartupStatus({
 
   const connectionStatus = useMemo(() => deriveConnectionStatus(startupStatus), [startupStatus]);
 
+  // 未启用（enabled=false）时对外表现为「无状态」：在返回值处派生
   return {
-    startupStatus,
-    connectionStatus,
-    elapsedSeconds,
-    isChecking,
+    startupStatus: enabled ? startupStatus : null,
+    connectionStatus: enabled ? connectionStatus : 'pending',
+    elapsedSeconds: enabled ? elapsedSeconds : 0,
+    isChecking: enabled ? isChecking : false,
     retry,
-    isReady: startupStatus?.ready ?? false,
+    isReady: enabled ? (startupStatus?.ready ?? false) : false,
   };
 }
