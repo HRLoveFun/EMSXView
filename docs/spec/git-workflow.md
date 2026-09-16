@@ -119,6 +119,14 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 
 脚本会拒绝移除分支尚未合并进 origin/main 的 worktree（`-Force` 可强行移除，未提交改动将丢失，慎用）。
 
+> **Windows 下的「注册表已注销、目录删不掉」**（2026-09-16 加固，`specs/016-wt-finish-robustness`）：
+> 若 worktree 目录内文件被进程占用（dev server / 测试进程 / `node_modules`、`.vite` 句柄未释放），
+> `git worktree remove` 会先注销注册表再在递归删除时报
+> `error: failed to delete '<path>': Invalid argument`（exit 255）。
+> 加固后脚本不再抛裸异常，而是：打印 git 的真实报错 → `worktree prune` → **照常删除本地分支** →
+> 打印人工清理命令（`Remove-Item -Recurse -Force '<dir>'`）→ 以退出码 1 结束。
+> 处置：结束占用进程后执行打印出的清理命令；目录删除属破坏性动作，脚本不自动执行。
+
 `-DeleteBranch` 的合并判定复用 `Test-BranchMerged`（`git merge-base --is-ancestor` 或 squash 后 `git cherry` 无 `+` 行），判定通过后以 `git branch -D` 删除——本仓库约定 squash merge，分支内容虽已进 `origin/main` 但不是它的祖先，直接用 `git branch -d` 必然误报 `not fully merged` 而失败；`-DeleteBranch` 因此必须复用上面的判定结果而非再交给 `-d` 自行判断（2026-09-15 修复）。
 
 原生等价：`git worktree remove ../EMSXView-wt-xxx` → `git worktree prune` → `git branch -D <分支>`（squash merge 后祖先校验不成立，故用 `-D`）

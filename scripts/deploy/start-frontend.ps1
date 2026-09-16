@@ -1,4 +1,4 @@
-# EMSXView Frontend Launcher - No Docker, no admin required
+﻿# EMSXView Frontend Launcher - No Docker, no admin required
 # Usage: powershell -File .\start-frontend.ps1
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

@@ -1,4 +1,4 @@
-# wt-install-schedule.ps1 — 注册/卸载 Windows 计划任务：工作日 09:00 自动执行 wt-sync.ps1 每日同步
+﻿# wt-install-schedule.ps1 — 注册/卸载 Windows 计划任务：工作日 09:00 自动执行 wt-sync.ps1 每日同步
 # 用法: .\scripts\devtools\wt-install-schedule.ps1 [-Uninstall]
 # 任务名: EMSXView-DailyWorktreeSync；日志: logs/wt-sync-daily.log（logs/ 已被 .gitignore 覆盖）
 [CmdletBinding()]

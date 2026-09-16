@@ -1,4 +1,4 @@
-# wt-common.ps1 — worktree 辅助脚本共享函数库（被 wt-*.ps1 dot-source，勿直接执行）
+﻿# wt-common.ps1 — worktree 辅助脚本共享函数库（被 wt-*.ps1 dot-source，勿直接执行）
 
 # 定位仓库根：从脚本所在目录向上查找 .emsxview-root marker（禁止硬编码层数，见 AP-16）
 function Find-EmsxviewRoot {
@@ -24,6 +24,18 @@ function Invoke-Git {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$GitArgs)
     & git @GitArgs
     if ($LASTEXITCODE -ne 0) { throw "git $($GitArgs -join ' ') 执行失败 (exit=$LASTEXITCODE)" }
+}
+
+# 执行 git 命令并返回结果（**不抛异常**）：ExitCode + 合并后的 stdout/stderr 文本。
+# 用于「失败可预期、需按退出码与输出分支处理」的场景（如 worktree remove 的句柄占用失败）——
+# Invoke-Git 会在非零时抛异常，导致 git 自身的错误文本被异常信息淹没，根因不可见。
+function Invoke-GitSoft {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$GitArgs)
+    $output = & git @GitArgs 2>&1
+    return [pscustomobject]@{
+        ExitCode = $LASTEXITCODE
+        Output   = (($output | Out-String).Trim())
+    }
 }
 
 # 校验引用（本地或远程）是否存在
