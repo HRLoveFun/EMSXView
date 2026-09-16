@@ -138,6 +138,11 @@ CostView/data.migrated.*/
 !.codebuddy/skills/readme-guidelines/
 !.codebuddy/skills/repo-page-tree/
 
+# --- Spec Kit 本地会话状态（当前 feature 指针；随 speckit 命令改写，属本机状态，
+#     跨机器 / 升级会漂移并制造无意义 diff，不入库。2026-09-16 实测该指针已陈旧，
+#     指向已归档的 002-pipeline-guardrail）---
+.specify/feature.json
+
 # --- Notebooks (with outputs) ---
 *.ipynb
 
