@@ -192,7 +192,8 @@ Responsibilities:
 Current module split inside the shell:
 
 - `modules/marketview/` — pre-trade shell anchor
-- `modules/execution/` — Execution workspace
+- `modules/execution/` — Execution workspace；对外接口契约收敛于 `modules/execution/module.contract.ts`
+  （`ExecutionModuleProps` → `ExecutionModuleContribution`），模块禁止反向 import `@app/*`，宿主能力经 `@shared/lib/shell-context`
 - `modules/costview/` — active post-trade UI
 
 > `modules/databaseview/` 已随 010-extract-pipeline 移除（数据库维护归独立仓库 EMSXDataPipeline 的 Runner）。
