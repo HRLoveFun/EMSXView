@@ -103,12 +103,12 @@ def resolve_date(s: str) -> float:
 
 
 def repo_tree_urls(with_files: bool = False, branch: str | None = None,
-                   root: str | None = None, subdir: str | None = None,
+                   root: str | None = None, subdirs: list[str] | None = None,
                    since: str | None = None,
                    until: str | None = None) -> list[str]:
     """生成仓库所有目录（tree 页面）的网页 URL。
 
-    subdir 非空时仅输出该子目录子树的页面；
+    subdirs 非空时仅输出这些子目录子树的页面（多目录取并集）；
     since/until 非空时仅保留最后提交时间在时间区间内的文件。
     """
     base = normalize_web_base(get_remote_url())
@@ -128,14 +128,20 @@ def repo_tree_urls(with_files: bool = False, branch: str | None = None,
             and (until_ts is None or mtimes.get(f, 0.0) <= until_ts)
         ]
 
-    # 指定子目录时先过滤文件，并把起点设为该子目录的 tree 页面
-    if subdir:
-        subdir = subdir.strip("/")
-        prefix = subdir + "/"
-        files = [f for f in files if f == subdir or f.startswith(prefix)]
-        urls: set[str] = {f"{base}/tree/{branch}/{quote(subdir)}"}
+    # 指定子目录时先过滤文件，并把起点设为对应子目录的 tree 页面（多目录取并集）
+    urls: set[str] = set()
+    if subdirs:
+        matched_files: set[str] = set()
+        for raw in subdirs:
+            subdir = raw.strip("/")
+            prefix = subdir + "/"
+            urls.add(f"{base}/tree/{branch}/{quote(subdir)}")
+            for f in files:
+                if f == subdir or f.startswith(prefix):
+                    matched_files.add(f)
+        files = list(matched_files)
     else:
-        urls: set[str] = {f"{base}/tree/{branch}"}
+        urls.add(f"{base}/tree/{branch}")
 
     for f in files:
         if with_files:
@@ -164,8 +170,8 @@ def main() -> None:
                         help="指定分支/标签，默认当前分支")
     parser.add_argument("--output", default=None,
                         help="写入文件而非打印到对话")
-    parser.add_argument("--subdir", default=None,
-                        help="仅输出指定子目录子树的页面，如 CostView")
+    parser.add_argument("--subdir", default=None, nargs="+",
+                        help="仅输出指定子目录子树的页面，可指定多个（取并集），如 CostView 或 plans scripts specs")
     parser.add_argument("--since", default=None,
                         help="仅保留最后提交时间 >= 该日期的文件，如 2026-01-01 或 '3 months ago'")
     parser.add_argument("--until", default=None,
@@ -173,7 +179,7 @@ def main() -> None:
     args = parser.parse_args()
 
     urls = repo_tree_urls(with_files=args.with_files, branch=args.branch,
-                          subdir=args.subdir, since=args.since, until=args.until)
+                          subdirs=args.subdir, since=args.since, until=args.until)
     text = "\n".join(urls)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
