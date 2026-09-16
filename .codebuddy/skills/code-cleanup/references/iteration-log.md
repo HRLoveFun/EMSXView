@@ -49,6 +49,8 @@
 | OE-06 | 别名导入 `import { X as Y }` 记为消费 `Y`（绑定名）→ 源名 `X` 被判无消费者 | 拆 `_parse_source_names`（取 `as` 前）/ `_parse_binding_names`（取 `as` 后）；import 与 re-export 的**来源侧**一律用源名 |
 | OE-06 | 导出仅在本文件内使用 → 不是死代码，原 fix_hint「删除该导出及其实现」会删掉活符号 | fix_hint 改为「去掉多余 export 关键字……切勿删除实现」；同文件使用型待单列子类（见遗漏候选段） |
 | PF-01 | `for r in cursor.fetchall():` 的迭代表达式只求值一次，却被 whole-loop walk 算作循环内 IO | `_io_calls_in_executed`：只统计 body/orelse，`While.test` 保留（条件每轮求值） |
+| 消费者统计（CL-02 同源口径） | 包顶层 `__init__.py` re-export 的 **DI 工厂**（`get_tca_query_service` / `register_tca_service_impl`）静态零消费者 → 会被反复提为删除候选；但它们是 `module-api-contracts.md` §平台适配器入口 与 `data-domain.md` §使用示例 逐字写明的**文档化公开入口** | 按「**零调用方的公开 API 依然是 API**」一律豁免；已在 `module-api-contracts.md` 该节写明 2026-09-16 复核结论，避免后续会话重复提议 |
+| CL-xx（能力边界） | 对 `__init__.py` 的 re-export 面**零命中**（检测器视为有意兼容面）→ 「兼容 re-export 面与契约规则冲突」这类冗余**不会被工具报出** | 只能靠人工「契约一致性」审查（本次即由 `module-api-contracts.md:304` 的导入规则反查出 27 个违规 re-export）；建议后续为包入口 re-export 增设「与文档化导入规则一致性」提示项 |
 
 ---
 
@@ -672,4 +674,49 @@ cleanup 复扫清理项 0。**
 - **兄弟仓库可直接取证**：跨仓库质询过去依赖一次性人工检索记录；本轮确认管道仓库就在
   兄弟目录且可只读扫描后，把「跨仓库安全」从历史结论升级为**当轮可复现的取证步骤**；
   同时「同名副本」与「真实引用」必须区分 —— 前者恰恰是**删除安全**的证据。
+
+### 2026-09-16 · platform_data 冗余审查与 re-export 面收敛（范围：platform_data；授权执行）
+
+- **模式与规模**：全库基线 + 定点（`platform_data/`）；强度 = 清单 → 用户裁定 → 执行。
+  CL 命中 **0** / PF 216 存量；`quality_gate --ruleset oe` 命中 16 项**全为 OE-05 复杂度**
+  （`market.py::get_intraday_features` CC 66、`get_market_snapshot` CC 48）→ 转重构专项，不混入本批。
+- **消费者取证口径**：AST 三节点扫描（`Name` / `Attribute` / `Constant`）覆盖全仓，
+  排除 `docs/`、`scripts/reports`；**不用可能被截断的文本 grep**（沿用 2026-09-10 教训）；
+  跨仓库第三轮质询直扫兄弟目录 `../EMSXDataPipeline`（233 文件，`platform_data` 侧唯一命中为
+  悬空引用 `platform_data.database_diagnostics`）。
+- **实际收敛（PR #50 / `9e524db`，10 文件 / +73 −69）**：
+  - `platform_data/adapters/__init__.py` 公开面 **42 → 7**：移除 **8 个下划线私有符号** +
+    **27 个契约类型** re-export（实现全部保留）。私有符号除「零消费者」外，另有更强的依据 ——
+    `module-boundary.md` §2.3 把其中 7 个**逐字列为「内部私有（禁止跨域调用）」**，
+    在包入口 re-export 与契约直接矛盾，移除即**强化**边界。
+  - 两处违规消费者迁移（`module-api-contracts.md:304`「跨域数据类型只从 `platform_data.contracts` 导入」）：
+    `MarketView/routers/marketview.py`（13 个契约类型）、`CostView/api/routers/costview.py`（6 个）。
+  - `platform_data/contracts/__init__.py`：移除 `TcaOrderSummary` / `TcaRouteDetail` 包入口
+    re-export —— 用户裁定「**只去 export、留定义**」（定义保留在 `tca_contracts.py`，
+    观察一个周期后再评估删除），避免与 2026-09-15 的保留决策正面冲突。
+  - `tca_bridge.get_tca_query_service()` / `config_bridge.get_config()` **docstring 漂移**修正：
+    两者均声称「未注册时 fallback 到 lazy-import CostView / DataPipeline」，实现实为
+    `raise RuntimeError`（该 fallback 从未实现，且会使 platform_data 反向依赖业务模块，违反 AP-01）。
+- **判定反转（本轮最重要产出）**：
+  - `platform_data/__init__.py` 顶层 re-export 的 8 个符号中 **7 个静态零消费者**，
+    其中 `get_tca_query_service()` / `register_tca_service_impl()` 更是**零调用方**。
+    但第三轮质询（**契约文档核查**）命中：`module-api-contracts.md` §平台适配器入口 与
+    `data-domain.md` §使用示例把这 6 个符号逐字写成 `from platform_data import ...` 的
+    **文档化公开入口** → **原 B3（顶层 re-export 收敛）整体撤销并改判 C 类**。
+  - 教训强化：**「消费者计数」只能筛候选，不能定结论**；最终裁决必须过第三轮质询
+    （契约文档 / 跨仓库 / 框架反射）。本次是 2026-09-15 lesson #8「零调用方的公开 API
+    依然是 API」的**第二次独立验证**，且这次是**在动手过程中被自己的检查拦下**的。
+  - 工具侧缺口：CL 检测器对 `__init__.py` re-export 面**零命中**（视为有意兼容面），
+    该类冗余只能靠「与文档化导入规则的一致性」人工反查（本次即由 `:304` 规则反查出 27 项）。
+- **保留（C 类，逐条写明理由）**：`config_bridge` / `tca_bridge` 的 DI 注册表（启动期防护）、
+  `protocols.AccessTier`（DataPipeline 同名枚举镜像，duck-typing 解耦）、
+  `contracts/data_access.py`（ADR-0013 规划契约，既有 `DEAD_FILE_EXEMPT`）、
+  `contracts/boundary_registry.py`、`config.py::_validated_handoff_backend`（环境变量白名单校验）、
+  `HANDOFF_MAX_STRATEGY_PARAMS_BYTES` 等数值真相源（契约测试锁定）。
+- **未执行**：`market.py` 两处复杂度（CC 66 / 48）属 OE-05 重构专项；
+  `market.py:403/417`、`tca_bridge.py:127`、`regime_query.py:62` 4 处无界读取属性能实测专项。
+- **验证**：`compileall` exit 0；backend **191 passed**（边界 15 passed / 1 skipped）；
+  CostView **219**；MarketView **12**；门禁自测 **91**；
+  `audit_cross_imports` / `audit_underscore_access` / `audit_db_paths` / `audit_doc_drift` 全通过；
+  `cleanup --ruleset cl` 清理项 **0**；CI 4 项检查全绿后 squash 合并、worktree 与分支已清理。
 
