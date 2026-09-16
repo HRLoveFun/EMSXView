@@ -25,6 +25,7 @@ from typing import Any, Optional
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
+from . import _common
 from . import report_measure as rm
 from .metric_coverage import MetricCoverageService, validate_metrics
 from .anomaly_query import (
@@ -312,19 +313,12 @@ class TcaReportAggregator:
         self._fbfx_ready = bool(has_fb)
 
     def _fbfx_cte(self) -> str:
-        """fill_bdib 汇率回填 CTE（替代临时表，READ 事务可用）。
+        """fill_bdib 汇率回填 CTE（列名约定 fxf_oad/fb_fx）。
 
-        按 OrderId/RouteId/交易日 fill_volume 加权聚合 fx_rate，与 ``_fx_join``
-        的主键约定一致（列名 OrderId/RouteId/fxf_oad/fb_fx）。
+        2026-09-15：实现收敛至 ``report_measure.fbfx_cte``（口径唯一来源），
+        此处仅保留方法契约以承接 ``_apply_fx`` 的注入流程。
         """
-        return (
-            "WITH _fbfx AS ("
-            "SELECT OrderId, RouteId, order_as_of_date AS fxf_oad, "
-            "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
-            "FROM fill_bdib WHERE fx_rate IS NOT NULL "
-            "AND order_as_of_date BETWEEN ? AND ? "
-            "GROUP BY OrderId, RouteId, order_as_of_date) "
-        )
+        return rm.fbfx_cte()
 
     def _apply_fx(self, sql: str, params: list[Any]) -> tuple[str, list[Any]]:
         """若 fill_bdib 回填可用，将 CTE 前缀注入 SQL 并把日期参数前置。
@@ -937,22 +931,13 @@ class TcaReportAggregator:
 
     @staticmethod
     def _table_exists(conn) -> bool:
-        cursor = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ? LIMIT 1",
-            [Config.TCA_ROUTE_SUMMARY_TABLE],
-        )
-        return cursor.fetchone() is not None
+        """tca_route_summary 表/视图是否存在（实现见 monitoring/_common.py）。"""
+        return _common.tca_summary_exists(conn)
 
     @staticmethod
     def _table_columns(conn) -> set[str]:
-        """tca_route_summary 现有列名集合（小写；PRAGMA 失败 → 空集）。"""
-        try:
-            rows = conn.execute(
-                f"PRAGMA table_info({Config.TCA_ROUTE_SUMMARY_TABLE})"
-            ).fetchall()
-        except Exception:
-            return set()
-        return {str(r[1]).lower() for r in rows}
+        """tca_route_summary 现有列名集合（小写；实现见 monitoring/_common.py）。"""
+        return _common.tca_summary_columns(conn)
 
     @classmethod
     def _has_column(cls, conn, column: str) -> bool:
@@ -961,21 +946,13 @@ class TcaReportAggregator:
 
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
-        """数值安全转换，None/NaN → None。"""
-        if value is None:
-            return None
-        result = float(value)
-        return result if result == result else None
+        """数值安全转换，None/NaN/不可解析 → None（统一实现，不再抛异常）。"""
+        return _common.to_float(value)
 
     @staticmethod
     def _to_int(value: Any) -> Optional[int]:
         """整数安全转换（计数类列），None/非法值 → None。"""
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
+        return _common.to_int(value)
 
     @staticmethod
     def _filters_dict(

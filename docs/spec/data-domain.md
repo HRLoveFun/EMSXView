@@ -141,7 +141,7 @@ Primary code surfaces (actual, 2026-08):
 - `CostView/src/tca_cache.py` / `tca_utils.py` — 查询缓存（Redis，连接失败降级直查）/ 工具
   （注：原 `tca_fallback.py` 已删除，降级逻辑内置于各查询层，见主 README §8）
 - `CostView/src/monitoring/` — BDIB 健康度、指标覆盖率、报告聚合（`bdib_health.py`, `metric_coverage.py`, `report_aggregator.py`, `report_dims.py`, `anomaly_query.py`, `tca_report_html.py`, `time_range.py`）
-- `CostView/src/query_cli.py` / `secure_config.py` — QueryEngine 编程接口（⚠ `__main__.py` 缺失，`python -m CostView.src` 命令行入口失效）/ 加密配置
+- `CostView/src/query_cli.py` / `__main__.py` — QueryEngine 编程接口 / CLI 命令行入口（`python -m CostView.src`，退出码 0/2/3）
 - `CostView/api/routers/costview.py` + `monitoring.py` — 独立服务 API surface（6 + 5 端点）
 - `backend/api/routers/costview.py` — 数据管道 Runner 鉴权代理（`/api/tca/runner/run` / `status`）
 

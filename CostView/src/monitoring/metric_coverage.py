@@ -17,6 +17,7 @@ from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
 from . import report_measure as rm
+from . import _common
 
 logger = logging.getLogger(__name__)
 
@@ -430,11 +431,8 @@ class MetricCoverageService:
 
     @staticmethod
     def _table_exists(conn) -> bool:
-        cursor = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ? LIMIT 1",
-            [Config.TCA_ROUTE_SUMMARY_TABLE],
-        )
-        return cursor.fetchone() is not None
+        """tca_route_summary 表/视图是否存在（实现见 monitoring/_common.py）。"""
+        return _common.tca_summary_exists(conn)
 
     @staticmethod
     def _empty_result(

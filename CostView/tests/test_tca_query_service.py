@@ -265,16 +265,22 @@ def _make_raw_fills_db(path: str) -> None:
 
 @pytest.fixture
 def tmp_dbs(tmp_path: Path):
-    """Create all four test databases and return their paths."""
+    """创建 TCA 查询主路径实际用到的测试库，并返回全部路径。
+
+    010-extract-pipeline 后现行主路径只读 ``tca_route_summary``（随
+    ``processed_fills.db`` 建入）与 ``fill_bdib.db``；``raw_bdib.db`` /
+    ``raw_fills.db`` 在本文件的用例上已无消费点，故不再建库——仅保留路径占位
+    以维持 ``TcaQueryService`` 的构造参数契约（缺库 / 空库行为由另行自建完整
+    夹具的用例显式覆盖）。``processed_fills.db`` 仍保留 ``route_registry`` 表：
+    SQL 注入用例正是断言注入串未能破坏它。
+    """
     proc = str(tmp_path / "processed_fills.db")
     bdib = str(tmp_path / "fill_bdib.db")
-    raw_bdib = str(tmp_path / "raw_bdib.db")
-    raw_fills = str(tmp_path / "raw_fills.db")
+    raw_bdib = str(tmp_path / "raw_bdib.db")     # 不建库：主路径无消费方
+    raw_fills = str(tmp_path / "raw_fills.db")   # 同上
 
     _make_proc_fills_db(proc)
     _make_fill_bdib_db(bdib)
-    _make_raw_bdib_db(raw_bdib)
-    _make_raw_fills_db(raw_fills)
 
     return proc, bdib, raw_bdib, raw_fills
 

@@ -25,6 +25,9 @@ from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
 
 from . import report_measure as rm
+from ._common import has_column as _has_column
+from ._common import to_float as _to_float
+from ._common import to_int as _to_int
 
 logger = logging.getLogger(__name__)
 
@@ -651,46 +654,14 @@ def _empty_throttle() -> dict[str, Any]:
     }
 
 
-def _to_float(value: Any) -> Optional[float]:
-    """数值安全转换，None/NaN → None。"""
-    if value is None:
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if result == result else None
-
-
-def _to_int(value: Any) -> Optional[int]:
-    """整数安全转换（fill_count 等），None/NaN → None。"""
-    if value is None:
-        return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError):
-        return None
-    return result if result == result else None
-
-
-def _has_column(conn: Any, table: str, column: str) -> bool:
-    """判断表是否含指定列（向后兼容旧库缺列场景）。"""
-    cursor = conn.execute(f"PRAGMA table_info({table})")
-    return any(row[1] == column for row in cursor.fetchall())
-
+# ── 类型安全转换与 schema 探测：统一实现见 monitoring/_common.py ──────────────
 
 # ── fx 汇率回填（异常明细成交金额 USD 补全，与 report_aggregator 同源）────────
 
-#: fill_bdib 汇率回填 CTE（替代临时表，兼容 READ 只读事务）。列名加 fxf_ 前缀避免与主表
-#: OrderId/RouteId/order_as_of_date 列名冲突（主查询 SELECT 列表未加表别名限定）。
-_ANOMALY_FX_CTE = (
-    "WITH _fbfx AS ("
-    "SELECT OrderId AS fxf_oid, RouteId AS fxf_rid, order_as_of_date AS fxf_oad, "
-    "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
-    "FROM fill_bdib WHERE fx_rate IS NOT NULL "
-    "AND order_as_of_date BETWEEN ? AND ? "
-    "GROUP BY OrderId, RouteId, order_as_of_date) "
-)
+#: fill_bdib 汇率回填 CTE（替代临时表，兼容 READ 只读事务）。实现收敛至
+#: ``report_measure.fbfx_cte``；id 列加 fxf_ 前缀避免与主表同名列冲突
+#: （异常查询的 SELECT 列表未加表别名限定）。
+_ANOMALY_FX_CTE = rm.fbfx_cte(prefix_id_columns=True)
 
 
 def _prepare_anomaly_fx(conn) -> bool:
