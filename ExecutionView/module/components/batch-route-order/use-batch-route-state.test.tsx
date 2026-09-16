@@ -116,9 +116,16 @@ describe('useBatchRouteState —— 行状态对账', () => {
     act(() => result.current.toggleBroker(broker));
     expect(result.current.rows['o1'].allocations[broker]).toBeUndefined();
 
-    // 换一批订单后，新行也按当前 selectedBrokers 补槽
+    // 换一批订单后：新行 allocations 默认为空 —— 当前实现下，槽位只在
+    // selectedBrokers 变化（而非 orders 变化）时补齐（派生化重构时可一并修正）
     act(() => result.current.toggleBroker(broker));
     rerender({ orders: [makeOrder('o1'), makeOrder('o2')], open: true });
+    expect(result.current.rows['o2'].allocations).toEqual({});
+
+    // 再次切换 broker 触发补槽：此时新、旧行都应拿到该 broker 的槽
+    act(() => result.current.toggleBroker(broker));
+    act(() => result.current.toggleBroker(broker));
+    expect(result.current.rows['o1'].allocations[broker]).toMatchObject({ qty: '0' });
     expect(result.current.rows['o2'].allocations[broker]).toMatchObject({ qty: '0' });
   });
 
