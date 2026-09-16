@@ -128,7 +128,7 @@ ${EMSXVIEW_DATA_DIR}\  9 个 sqlite + market/parquet + *.json   （数据资产 
 
 | # | 事项 | 触发条件 | 说明 |
 |---|------|---------|------|
-| TODO-1 | **清理留证目录** `EMSXView\CostView\data.migrated.202609022339`（约 145 GB） | 确认 `D:\db` 运行稳定后（建议观察 1–2 个日更周期） | P4 数据迁移的源目录留证；删除即释放 145GB，删除前确认双仓读取均指向 `D:\db` |
+| TODO-1 | ~~**清理留证目录** `EMSXView\CostView\data.migrated.202609022339`（约 145 GB）~~ | ✅ 已完成（2026-09-16） | 确认双仓读取均指向 `D:\db`（`EMSXVIEW_DATA_DIR` 与 `Config.DATA_DIR` 实测一致且目录存在）后经用户确认删除，释放 145.36 GB；`.gitignore` 的 `CostView/data.migrated.*/` 规则保留 |
 | TODO-2 | 配置 `PIPELINE_REPORT_CMD`（每日/每周 TCA 报告钩子） | Runner 常驻部署时 | 报告生成属 EMSXView 读侧（依赖 CostView 读侧聚合），未配置时管道跳过报告步骤并打印提示 |
 | TODO-3 | 独立仓库 Runner 常驻化部署 | 运维接入 | `emsx-runner`（:8100）；可配合 Windows 计划任务做每日兜底 |
 | TODO-4 | 独立仓库 CI（管道回归测试） | 独立仓库推送后 | 原 EMSXView `pipeline-tests` job 已移除，管道回归需在 EMSXDataPipeline 重建 |
