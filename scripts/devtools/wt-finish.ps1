@@ -1,4 +1,4 @@
-# wt-finish.ps1 — 完成任务：校验分支已合并 → 移除 worktree → prune → 可选删除本地分支
+﻿# wt-finish.ps1 — 完成任务：校验分支已合并 → 移除 worktree → prune → 可选删除本地分支
 # 用法: ./scripts/devtools/wt-finish.ps1 <task> [-DeleteBranch] [-Force]
 # 注意: 本仓库约定 squash merge —— 分支内容已进 origin/main，但分支不是 main 的祖先，
 #       故 -DeleteBranch 复用上面已通过的 Test-BranchMerged 判定后用 git branch -D；
@@ -6,6 +6,9 @@
 # 另注: git cherry 的 squash 识别是**逐 commit 比对 patch-id** —— 多提交分支被 squash 后每个
 #       commit 的 patch-id 都不等于合并出的那一个，会被判为未合并而保守拒绝，需确认 PR 已
 #       MERGED 后加 -Force；避免之道是「一分支一提交」（docs/spec/git-workflow.md §4）。
+# 加固 (2026-09-16, specs/016-wt-finish-robustness)：Windows 上 git worktree remove 可能
+#       「注册表已注销、目录删不掉」（目录内文件被进程占用：dev server / 测试 / 终端 cwd /
+#       node_modules 句柄）。此时不再抛裸异常中断，而是 prune + 继续删分支 + 打印人工清理命令。
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)][string]$Task,
@@ -14,6 +17,39 @@ param(
 )
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "wt-common.ps1")
+
+# 移除 worktree：返回 $true 表示目录已删除；$false 表示注册表已注销但目录残留（或拒绝移除）
+# 失败原因与处置指引直接打印到控制台（git 自身输出不再被异常淹没）
+function Remove-WorktreeDir {
+    param([string]$Root, [string]$Dir, [switch]$ForceRemove)
+
+    $removeArgs = @("worktree", "remove", $Dir)
+    if ($ForceRemove) { $removeArgs += "--force" }
+
+    $result = Invoke-GitSoft -C $Root @removeArgs
+    if ($result.ExitCode -eq 0) { return $true }
+
+    Write-Host "[warn] git worktree remove 失败 (exit=$($result.ExitCode))" -ForegroundColor Yellow
+    if ($result.Output) { Write-Host "       $($result.Output)" -ForegroundColor Yellow }
+
+    $stillRegistered = @(
+        Get-WtEntries -Root $Root | Where-Object { $_.Path -eq $Dir }
+    ).Count -gt 0
+
+    if ($stillRegistered) {
+        Write-Host "[fail] worktree 仍在注册表中，未做进一步处理（保护：可能存在未提交改动）" -ForegroundColor Red
+        Write-Host "       确认可丢弃后重试：wt-finish.ps1 <task> -Force" -ForegroundColor Red
+        return $false
+    }
+
+    # 注册表已注销、目录残留：prune 收尾后给出人工清理指引（递归删除属破坏性动作，不自动执行）
+    Invoke-GitSoft -C $Root worktree prune | Out-Null
+    Write-Host "[warn] worktree 已从注册表注销，但目录未删除：$Dir" -ForegroundColor Yellow
+    Write-Host "       常见原因：目录内文件被进程占用（dev server / 测试进程 / 终端 cwd 指向该目录、" -ForegroundColor Yellow
+    Write-Host "       node_modules 或 .vite 句柄未释放）。请结束占用进程后手动删除：" -ForegroundColor Yellow
+    Write-Host "       Remove-Item -Recurse -Force '$Dir'" -ForegroundColor Yellow
+    return $false
+}
 
 $root = Find-EmsxviewRoot
 Assert-ProjectRootValid -Root $root
@@ -36,16 +72,23 @@ if ($branch -and -not $Force) {
     }
 }
 
-$removeArgs = @("worktree", "remove", $dir)
-if ($Force) { $removeArgs += "--force" }
-Invoke-Git -C $root @removeArgs
-Invoke-Git -C $root worktree prune
+$removed = Remove-WorktreeDir -Root $root -Dir $dir -ForceRemove:$Force
+if ($removed) {
+    Invoke-Git -C $root worktree prune
+}
 
 if ($DeleteBranch -and $branch) {
-    # 合并判定已通过（或显式 -Force）时用 -D：squash merge 下分支非 main 祖先，-d 的祖先校验必然失败
+    # 合并判定已通过（或显式 -Force）时用 -D：squash merge 下分支非 main 祖先，-d 的祖先校验必然失败。
+    # 目录残留不影响分支删除 —— 分支已确认合并，残留的只是文件。
     $flag = if ($merged -or $Force) { "-D" } else { "-d" }
     Invoke-Git -C $root branch $flag $branch
     Write-Host "[ok] 已删除本地分支 $branch（$flag）" -ForegroundColor Green
 }
 
-Write-Host "[ok] 已移除 worktree $dir" -ForegroundColor Green
+if ($removed) {
+    Write-Host "[ok] 已移除 worktree $dir" -ForegroundColor Green
+    exit 0
+}
+
+Write-Host "[warn] worktree 目录仍残留：$dir（按上方指引手动清理）" -ForegroundColor Yellow
+exit 1

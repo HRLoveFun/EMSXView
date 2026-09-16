@@ -1,4 +1,4 @@
-# wt-new.ps1 — 新任务：fetch + 创建 worktree + 独立分支（基于 origin/main）+ 复制 .env
+﻿# wt-new.ps1 — 新任务：fetch + 创建 worktree + 独立分支（基于 origin/main）+ 复制 .env
 # 用法: ./scripts/devtools/wt-new.ps1 <task> [-Branch <分支名>] [-Base origin/main] [-Detach]
 [CmdletBinding()]
 param(

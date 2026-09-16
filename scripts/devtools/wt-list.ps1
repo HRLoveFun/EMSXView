@@ -1,4 +1,4 @@
-# wt-list.ps1 — 列出全部 worktree 及各分支相对 origin/main 的领先/落后/未提交状态
+﻿# wt-list.ps1 — 列出全部 worktree 及各分支相对 origin/main 的领先/落后/未提交状态
 # 用法: ./scripts/devtools/wt-list.ps1
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "wt-common.ps1")
