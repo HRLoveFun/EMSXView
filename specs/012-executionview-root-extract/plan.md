@@ -59,7 +59,7 @@ ExecutionView/                # 根级独立模块目录（与 frontend/、CostV
 ### 4.3 门禁与审计（防「路径变了、守卫失效」）
 | # | 文件 | 改动 |
 |---|---|---|
-| 11 | `scripts/quality_gate/config.py` | `FRONTEND_SCAN_ROOT` → `FRONTEND_SCAN_ROOTS`（多根）+ `FRONTEND_ALIASES` 语义改为**仓库根相对** |
+| 11 | `scripts/quality_gate/config.py` | `FRONTEND_SCAN_ROOT` → `FRONTEND_SCAN_ROOTS`（多根）+ `FRONTEND_ALIASES` 语义改为**仓库根相对**（**017 已把该表收敛为唯一真相源 `scripts/module_layout.py`**） |
 | 12 | `scripts/quality_gate/context.py` | `collect_frontend_files` 覆盖多根 |
 | 13 | `scripts/quality_gate/detectors/frontend_light.py` | `_resolve_path` 按仓库根相对解析别名 |
 | 14 | `scripts/cleanup/config.py`、`scripts/cleanup/detectors/frontend.py` | 同上（清理门禁与质量门禁共用别名表） |

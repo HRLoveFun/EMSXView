@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scripts.module_layout import FRONTEND_ALIASES, FRONTEND_SCAN_ROOTS  # noqa: F401  (再导出)
+
 from .ast_utils import find_project_root
 
 # 项目根（.emsxview-root marker，AP-16 单一信息源）
@@ -22,11 +24,10 @@ PYTHON_SCAN_ROOTS: list[str] = [
     "platform_data",
     "MarketView",
 ]
-# 前端源码扫描根（可多根）：模块可独立为仓库根级目录（如 ExecutionView/）
-FRONTEND_SCAN_ROOTS: list[str] = [
-    "frontend/src",
-    "ExecutionView/module",
-]
+# 前端源码扫描根 / 路径别名：**不在本文件维护**
+# 唯一真相源 = scripts/module_layout.py（模块可独立为仓库根级目录，见 specs/017/018）；
+# 此处按既有名字再导出，供检测器与清理门禁继续以 ``config.FRONTEND_*`` 读取。
+# 漂移由 backend/api/tests/boundaries/test_frontend_module_layout.py 守护。
 
 # 全库收集时排除的目录名（import 图 / 调用计数仍覆盖业务目录）
 GLOBAL_EXCLUDE_DIRS: set[str] = {
@@ -71,16 +72,6 @@ FRONTEND_EXEMPT_FILES: set[str] = {
     "src/module.registry.ts",
     "src/main.tsx",
     "src/vite-env.d.ts",
-}
-# 前端路径别名映射（来源 vite.config.ts / vite.base.ts resolve.alias；漂移需同步此表）
-# 值为**仓库根相对**的 posix 路径（模块可独立为根级目录，故不再统一挂在 frontend/src 下）
-FRONTEND_ALIASES: dict[str, str] = {
-    "@": "frontend/src",
-    "@app": "frontend/src/app",
-    "@shared": "frontend/src/shared",
-    "@execution": "ExecutionView/module",
-    "@costview": "frontend/src/modules/costview",
-    "@marketview": "frontend/src/modules/marketview",
 }
 
 # ── 门禁模式 ──────────────────────────────────────────────────────
