@@ -8,11 +8,21 @@
 执行: pytest backend/api/tests/boundaries/test_cross_module_imports.py -v
 """
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+# 模块源码根来自唯一真相源（scripts/module_layout.py）—— 迁移模块只改那一处。
+# 此前本文件硬编码绝对路径，与 gate/audit 的同名表共存 4 份，漂移会让规则静默失效。
+from scripts.module_layout import MODULE_ROOTS  # noqa: E402
+
+_FRONTEND_EXECUTION = REPO_ROOT / MODULE_ROOTS["frontend_execution"]
+_FRONTEND_COSTVIEW = REPO_ROOT / MODULE_ROOTS["frontend_costview"]
 
 # ── 检测规则: (扫描根, 适配后缀, 禁止的 import 前缀, 规则 ID, 描述, 修复建议, 豁免清单) ──
 # 豁免清单为 REPO_ROOT 相对路径（posix 风格）；列入豁免的文件允许命中前缀。
@@ -57,7 +67,7 @@ PYTHON_RULES = [
 
 TS_RULES = [
     (
-        REPO_ROOT / "ExecutionView" / "module",
+        _FRONTEND_EXECUTION,
         "*.tsx",
         "@costview",
         "AP-01",
@@ -66,7 +76,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "ExecutionView" / "module",
+        _FRONTEND_EXECUTION,
         "*.ts",
         "@costview",
         "AP-01",
@@ -75,7 +85,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "frontend" / "src" / "modules" / "costview",
+        _FRONTEND_COSTVIEW,
         "*.tsx",
         "@execution",
         "AP-01",
@@ -84,7 +94,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "frontend" / "src" / "modules" / "costview",
+        _FRONTEND_COSTVIEW,
         "*.ts",
         "@execution",
         "AP-01",
@@ -93,7 +103,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "ExecutionView" / "module",
+        _FRONTEND_EXECUTION,
         "*.tsx",
         "@app",
         "AP-01",
@@ -102,7 +112,7 @@ TS_RULES = [
         set(),
     ),
     (
-        REPO_ROOT / "ExecutionView" / "module",
+        _FRONTEND_EXECUTION,
         "*.ts",
         "@app",
         "AP-01",

@@ -55,7 +55,7 @@ moduleRegistry.register(descriptor);
 import '../modules/<new-module-id>/module.registry';
 ```
 
-### A.4 更新规范文档
+### A.4 更新规范文档与模块拓扑登记
 
 按顺序同步：
 
@@ -63,6 +63,11 @@ import '../modules/<new-module-id>/module.registry';
 2. `.codebuddy/rules/project-context.md` 业务模块表：添加新行
 3. `docs/spec/anti-patterns.md`：如识别新反模式
 4. `docs/spec/module-api-contracts.md`：添加新模块的对外 API
+5. `scripts/module_layout.py`：在 `MODULE_LAYOUTS` 追加一行（模块 id / 源码根 / 语言 / 前端别名）。
+   **前端扫描根、审计扫描根、边界测试扫描根全部由它派生** —— 漏改会让本模块在 import 图里不可达
+   （OE-01 / CL-10 误报），且边界规则匹配不到任何文件而 CI 仍然全绿
+6. 别名同步：`frontend/vite.config.ts`、`frontend/vite.base.ts`、`frontend/tsconfig.app.json`
+   （`backend/api/tests/boundaries/test_frontend_module_layout.py`，规则 ID `TOPO-DRIFT`，会拦下不一致）
 
 ### A.5 验证
 

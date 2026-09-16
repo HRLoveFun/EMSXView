@@ -29,20 +29,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from platform_data.contracts.boundary_registry import boundary_registry  # noqa: E402
+from scripts.module_layout import MODULE_GLOBS, MODULE_ROOTS  # noqa: E402
 
-# 模块 id → (扫描根, 文件后缀) 映射; 新增模块时在此追加一行
+# 模块 id → [(扫描根, 文件后缀)]：源码布局来自 scripts/module_layout.py（唯一真相源），
+# 新增 / 迁移模块只改那一处 —— 本脚本不再硬编码路径。
+# （漏改会让该模块的 forbidden_imports 规则匹配不到任何文件，守卫静默失效；
+#   漂移由 backend/api/tests/boundaries/test_frontend_module_layout.py 拦截。）
 MODULE_SCAN_ROOTS: dict[str, list[tuple[Path, str]]] = {
-    # ExecutionView 已独立为仓库根级目录（specs/012-executionview-root-extract）
-    "frontend_execution": [(REPO_ROOT / "ExecutionView" / "module", "*.tsx"),
-                            (REPO_ROOT / "ExecutionView" / "module", "*.ts")],
-    "frontend_costview": [(REPO_ROOT / "frontend" / "src" / "modules" / "costview", "*.tsx"),
-                           (REPO_ROOT / "frontend" / "src" / "modules" / "costview", "*.ts")],
-    "frontend_marketview": [(REPO_ROOT / "frontend" / "src" / "modules" / "marketview", "*.tsx"),
-                             (REPO_ROOT / "frontend" / "src" / "modules" / "marketview", "*.ts")],
-    # 010-extract-pipeline: frontend_databaseview 扫描根已移除（模块迁独立项目）
-    "backend_api": [(REPO_ROOT / "backend" / "api", "*.py")],
-    "costview_src": [(REPO_ROOT / "CostView" / "src", "*.py")],
-    "datapipeline": [(REPO_ROOT / "DataPipeline", "*.py")],
+    module_id: [(REPO_ROOT / root, glob) for glob in MODULE_GLOBS.get(module_id, ())]
+    for module_id, root in MODULE_ROOTS.items()
 }
 
 # 豁免清单 (posix 相对路径): 设计内受许可的深导入 (DI 注册/桥接入口)
@@ -56,6 +51,20 @@ EXEMPTIONS: dict[str, set[str]] = {
     "frontend_costview": set(),
     "frontend_marketview": set(),
 }
+
+
+def modules_requiring_scan() -> set[str]:
+    """声明了 ``forbidden_imports`` 的模块 id。
+
+    这些模块**必须**在 ``scripts/module_layout.py`` 登记源码根，否则其规则匹配不到任何文件
+    —— 守卫静默失效而 CI 依旧全绿。供边界测试断言。
+
+    放在本文件（而非测试里）的原因：注册表在全仓库只应被这里与少量工具导入；
+    测试直接写模块全路径会被 AP-08（``platform_data.<包>.<带下划线模块>``）规则命中。
+    """
+    return {
+        c.module_id for c in boundary_registry.all_contracts() if c.forbidden_imports
+    }
 
 
 def _scan_python_imports(text: str) -> list[str]:
