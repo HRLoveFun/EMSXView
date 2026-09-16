@@ -65,7 +65,7 @@
 
 ### 模块架构
 - 前端壳 `frontend/src/app/AppShell.tsx` — 根布局编排器，包含工具栏、模块标签页和 Toast 容器
-- 懒加载 React 模块：`frontend/src/modules/costview/`、`frontend/src/modules/marketview/`；**ExecutionView 已独立为仓库根级 `ExecutionView/module/`**（与 `frontend/` 平级）
+- 懒加载 React 模块（均为**仓库根级目录**，与 `frontend/` 平级）：`ExecutionView/module/`、`CostView/module/`、`MarketView/module/`；`frontend/src/` 仅保留壳层（`app/`）与共享层（`shared/`、`components/`）
 - 包管理：npm workspaces（根 `package.json` 成员 `frontend` + `ExecutionView`），lockfile 唯一在仓库根，安装入口为仓库根 `npm ci`；依赖提升到根 `node_modules`，`resolve.dedupe` 保证单实例 React（ADR-0020）
 - Vite 手工分块确保各模块独立打包（`module-costview`、`module-marketview`、`module-execution` 等）
 - 构建产物：主应用 `frontend/dist/`；独立模块 `frontend/dist-modules/<module>/`（两者分离，互不覆盖）

@@ -21,10 +21,14 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Windows 控制台 (cp1252) 下强制 UTF-8 stdout, 避免中文报告触发 UnicodeEncodeError
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+from scripts.module_layout import FRONTEND_MODULES  # noqa: E402
 
 
 def get_adr_files() -> set[str]:
@@ -32,6 +36,21 @@ def get_adr_files() -> set[str]:
     if not adr_dir.exists():
         return set()
     return {f.stem.split("-")[0] for f in adr_dir.glob("[0-9]*.md")}
+
+
+def _missing_registry_issues(reg_ids: set[str]) -> list[str]:
+    """模块发现失效时的 CORE 漂移项。
+
+    「登记了前端模块、却一个 `module.registry.ts` 都找不到」= 发现逻辑失效
+    （item 2「注册模块 ↔ 边界文档」会因空集合而静默通过）。specs/018 实测踩到过：
+    模块迁到仓库根级后此前的硬编码路径取到空集合，输出从 "3 modules" 变 "0 modules" 却仍报 OK。
+    """
+    if FRONTEND_MODULES and not reg_ids:
+        return [
+            "前端模块登记非空但未发现任何 module.registry.ts"
+            "（检查 scripts/module_layout.py 的 root 是否指向真实目录）"
+        ]
+    return []
 
 
 def get_memory_adr_refs() -> set[str]:
@@ -42,11 +61,17 @@ def get_memory_adr_refs() -> set[str]:
 
 
 def get_module_registry_ids() -> set[str]:
-    modules_dir = REPO_ROOT / "frontend" / "src" / "modules"
-    if not modules_dir.exists():
-        return set()
-    ids = set()
-    for registry in modules_dir.glob("*/module.registry.ts"):
+    """前端各模块 `module.registry.ts` 声明的模块 id。
+
+    模块源码根来自 scripts/module_layout.py（唯一真相源）—— 三个业务模块均已独立为
+    仓库根级目录（specs/012、specs/018），此前硬编码 `frontend/src/modules/*` 会静默
+    取到空集合，使「注册模块 ↔ 边界文档」这项 CORE 检查形同关闭。
+    """
+    ids: set[str] = set()
+    for module in FRONTEND_MODULES:
+        registry = REPO_ROOT / module.root / "module.registry.ts"
+        if not registry.exists():
+            continue
         text = registry.read_text(encoding="utf-8")
         m = re.search(r"id:\s*['\"]([^'\"]+)['\"]", text)
         if m:
@@ -130,6 +155,7 @@ def main() -> int:
 
     # 2. 模块注册 vs 边界文档 [CORE]
     reg_ids = get_module_registry_ids()
+    core_issues += _missing_registry_issues(reg_ids)
     doc_ids = get_boundary_doc_ids()
     missing_rules = reg_ids - doc_ids
     if missing_rules:

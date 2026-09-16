@@ -90,7 +90,7 @@
   | 数据管道写入方（仓库外） | 独立仓库 EMSXDataPipeline（唯一写入方）——本仓库**禁止 import**，文档中**不写其磁盘路径**，需引用时用本仓库 `data_access/*` 路径 |
   | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
   | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
-  | 前端模块代码 | `frontend/src/modules/<module>/`（`components/` `hooks/` `services/`）；ExecutionView 已独立为根级 `ExecutionView/module/`（结构与迁移见 [specs/012-executionview-root-extract/plan.md](specs/012-executionview-root-extract/plan.md)） |
+  | 前端模块代码 | 一律仓库根级：`ExecutionView/module/`、`CostView/module/`、`MarketView/module/`（与 `frontend/` 平级，各带 `standalone/` 独立构建入口）；`frontend/src/` 只放壳层与共享层（见 [specs/018-costview-marketview-root-extract/plan.md](specs/018-costview-marketview-root-extract/plan.md)） |
   | 前端共享 UI | `frontend/src/components/`、`frontend/src/components/ui/` |
   | 测试 | 各模块自身 `tests/`（Python）或 `__tests__/`（前端） |
   | 运维/诊断脚本 | `scripts/`（部署启动器归 `scripts/deploy/`） |

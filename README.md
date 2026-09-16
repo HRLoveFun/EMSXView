@@ -25,7 +25,7 @@
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
 | **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.3 GB、`execution_history.db` 6.3 GB，实测 2026-09-11）；后端约 180 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
-| **CostView**（`CostView/` + `frontend/src/modules/costview/`） | **Beta** | 213 个测试函数（`CostView/tests/`，7 个测试文件，pytest 收集 219 个用例，含 CLI 入口与黄金样本回归）；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)；13 个 API 端点全部可追溯到代码 | 测试覆盖率未量化；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA）；黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip） |
+| **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 213 个测试函数（`CostView/tests/`，7 个测试文件，pytest 收集 219 个用例，含 CLI 入口与黄金样本回归）；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)；13 个 API 端点全部可追溯到代码 | 测试覆盖率未量化；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA）；黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip） |
 | **MarketView**（`MarketView/`） | **Scaffold** | 仅 3 个端点（快照 / 盘中特征 / handoff 发布），无自身测试目录 | 见 §4.3 未实现清单 |
 | **frontend/**（React 壳） | **Beta** | 17 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |

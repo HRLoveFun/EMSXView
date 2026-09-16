@@ -50,14 +50,18 @@ class ModuleLayout:
     language: str       # "ts"（前端）| "py"（Python）
     alias: str = ""     # 前端路径别名（含 @）；非前端模块留空
     optional: bool = False  # True = 源码已迁出本仓库，目录缺失属预期（扫描器跳过）
+    standalone_root: str = ""  # 独立构建入口根（index.html + main.tsx），需纳入扫描以保持 import 图完整
 
 
 # ── 全部模块（前端 + Python 侧）─────────────────────────────────────
 MODULE_LAYOUTS: tuple[ModuleLayout, ...] = (
-    # 前端模块：execution 已独立为仓库根级目录（specs/012-executionview-root-extract）
-    ModuleLayout("frontend_execution", "ExecutionView/module", "ts", "@execution"),
-    ModuleLayout("frontend_costview", "frontend/src/modules/costview", "ts", "@costview"),
-    ModuleLayout("frontend_marketview", "frontend/src/modules/marketview", "ts", "@marketview"),
+    # 前端模块：三个业务模块均已独立为仓库根级目录（specs/012、specs/018）
+    ModuleLayout("frontend_execution", "ExecutionView/module", "ts", "@execution",
+                 standalone_root="ExecutionView/standalone"),
+    ModuleLayout("frontend_costview", "CostView/module", "ts", "@costview",
+                 standalone_root="CostView/standalone"),
+    ModuleLayout("frontend_marketview", "MarketView/module", "ts", "@marketview",
+                 standalone_root="MarketView/standalone"),
     # Python 侧模块
     ModuleLayout("backend_api", "backend/api", "py"),
     ModuleLayout("costview_src", "CostView/src", "py"),
@@ -109,10 +113,16 @@ def minimal_roots(roots: list[str]) -> list[str]:
     ]
 
 
-# 前端扫描根 = 壳层根 + 全部前端模块源码根。
-# costview / marketview 位于 frontend/src 之下，会被 minimal_roots 自动去重；
-# 根级模块（ExecutionView/module）则独立保留 —— 这正是多根设计要覆盖的场景。
+# 前端扫描根 = 壳层根 + 全部前端模块源码根 + 各自 standalone 入口根。
+#
+# standalone 入口必须纳入：它们 import 模块注册表与 `@/standalone/shell-less`；
+# 漏扫会让**被它们消费的文件**在 import 图里失去消费者 —— 实测（specs/018）漏扫两个
+# standalone 入口后 `frontend/src/standalone/shell-less.tsx` 被误判为「未使用导出」（OE-06 +1）。
 FRONTEND_SCAN_ROOTS: list[str] = [FRONTEND_SHELL_ROOT] + [
-    r for r in minimal_roots([FRONTEND_SHELL_ROOT] + [m.root for m in FRONTEND_MODULES])
+    r for r in minimal_roots(
+        [FRONTEND_SHELL_ROOT]
+        + [m.root for m in FRONTEND_MODULES]
+        + [m.standalone_root for m in FRONTEND_MODULES if m.standalone_root]
+    )
     if r != FRONTEND_SHELL_ROOT
 ]

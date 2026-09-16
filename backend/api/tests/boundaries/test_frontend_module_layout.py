@@ -122,9 +122,11 @@ def test_tsconfig_paths_match_single_source(violations_recorder, enforcement_mod
 def test_module_roots_exist(violations_recorder, enforcement_mode):
     """已登记的模块源码根必须真实存在（optional 模块除外）。"""
     missing = [
-        f"{m.module_id} → {m.root}"
+        f"{m.module_id} → {rel}"
         for m in MODULE_LAYOUTS
-        if not m.optional and not (REPO_ROOT / m.root).is_dir()
+        if not m.optional
+        for rel in ([m.root] + ([m.standalone_root] if m.standalone_root else []))
+        if not (REPO_ROOT / rel).is_dir()
     ]
     if not missing:
         return

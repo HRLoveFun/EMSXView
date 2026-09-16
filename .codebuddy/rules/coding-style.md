@@ -199,7 +199,7 @@ async def get_order(order_id: str):
 | 只读数据访问层 | `data_access/`（写入侧 ETL 已迁独立仓库 EMSXDataPipeline，本仓库不承载） |
 | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
 | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
-| 前端模块代码 | ① `frontend/src/modules/<module>/`（`components/` `hooks/` `services/` 等）；② **根级独立模块** `ExecutionView/module/`（自带 `package.json` 依赖声明 + `standalone/` 独立构建入口，见 `specs/012-executionview-root-extract/plan.md`、`specs/013-frontend-workspaces/plan.md`） |
+| 前端模块代码 | **仓库根级独立模块**（与 `frontend/` 平级）：`ExecutionView/module/`、`CostView/module/`、`MarketView/module/`，各带 `standalone/` 独立构建入口（见 `specs/012-executionview-root-extract/plan.md`、`specs/018-costview-marketview-root-extract/plan.md`）。`frontend/src/` **只保留壳层与共享层**（`app/`、`shared/`、`components/`），不再存放业务模块 |
 | 前端包管理 | npm workspaces 根 `package.json`（成员 `frontend` + `ExecutionView`）；lockfile **唯一在仓库根**，安装入口为仓库根 `npm install` / `npm ci`（ADR-0020） |
 | 前端共享 UI 组件 | `frontend/src/components/`、`frontend/src/components/ui/` |
 | 测试 | 各模块自身 `tests/`（Python）或 `__tests__/`（前端） |

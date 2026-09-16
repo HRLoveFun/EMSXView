@@ -13,8 +13,8 @@
       "@app/*": ["./src/app/*"],
       "@shared/*": ["./src/shared/*"],
       "@execution/*": ["./../ExecutionView/module/*"],
-      "@costview/*": ["./src/modules/costview/*"],
-      "@marketview/*": ["./src/modules/marketview/*"]
+      "@costview/*": ["./../CostView/module/*"],
+      "@marketview/*": ["./../MarketView/module/*"]
     },
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -32,5 +32,13 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "../ExecutionView/module", "../ExecutionView/standalone"]
+  "include": [
+    "src",
+    "../ExecutionView/module",
+    "../ExecutionView/standalone",
+    "../CostView/module",
+    "../CostView/standalone",
+    "../MarketView/module",
+    "../MarketView/standalone"
+  ]
 }

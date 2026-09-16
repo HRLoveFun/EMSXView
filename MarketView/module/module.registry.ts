@@ -8,7 +8,7 @@ const descriptor: ModuleDescriptor = {
   id: 'marketview',
   label: 'Market View',
   order: 10,
-  loader: () => import('@/modules/marketview/MarketViewModule'),
+  loader: () => import('@marketview/MarketViewModule'),
 };
 
 moduleRegistry.register(descriptor);
