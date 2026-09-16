@@ -92,6 +92,24 @@ TS_RULES = [
         "改走 navigateTo / useHandoffContracts / @shared/types",
         set(),
     ),
+    (
+        REPO_ROOT / "frontend" / "src" / "modules" / "execution",
+        "*.tsx",
+        "@app",
+        "AP-01",
+        "execution → Shell 层（@app）反向依赖",
+        "宿主能力经 @shared/lib/shell-context 获取；跨层共享代码上移至 @shared/*",
+        set(),
+    ),
+    (
+        REPO_ROOT / "frontend" / "src" / "modules" / "execution",
+        "*.ts",
+        "@app",
+        "AP-01",
+        "execution → Shell 层（@app）反向依赖",
+        "宿主能力经 @shared/lib/shell-context 获取；跨层共享代码上移至 @shared/*",
+        set(),
+    ),
 ]
 
 

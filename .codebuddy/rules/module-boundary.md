@@ -104,6 +104,38 @@ rg "from ['\"]@marketview" frontend/src/modules/execution/
 
 ---
 
+### 1.7 execution 模块 ↔ Shell（对外接口契约）
+
+**CAN**:
+- 经 `@shared/lib/module-registry` 契约与 Shell 交互：
+  - `module.registry.ts` 注册描述符（`id` / `label` / `order` / `loader` / `realtimeWsPath` / `showHandoffBadge`）
+  - 入口组件接收 `ModuleShellProps`（`onContribute` 上报通道）
+- 经 `@shared/lib/shell-context` 的 `useShellContext()` 获取宿主能力（导航 / toast / 实时连接状态 / logout）
+- 经 `@shared/hooks/use-handoff-contracts` + `@shared/services/handoff-api` 收发交接合约
+- 经 `@shared/services/*`、`@shared/types`、`@shared/lib/format-utils` 复用共享能力
+- 模块对外接口定义收敛在 `frontend/src/modules/execution/module.contract.ts`
+
+**CANNOT**:
+- 反向 `import` Shell 层 `@app/*`（模块依赖壳层属分层倒置，会引入循环依赖并使独立构建失效）
+- 模块外代码 `import '@execution/*'` 深层路径（hooks / services / stores / views 均为模块内部实现）
+- 业务模块读取/修改其他模块的 Zustand store
+
+**DETECT**:
+```bash
+rg "from ['\"]@app" frontend/src/modules/execution/
+rg "from ['\"]@execution" frontend/src/ -g '!modules/execution/**'
+python scripts/audit_cross_imports.py --module frontend_execution
+```
+
+**TEST**: `backend/api/tests/boundaries/test_cross_module_imports.py::test_no_forbidden_imports[AP-01:execution:@app]`
+
+**RATIONALE**: 壳层只依赖注册描述符与契约类型，模块只依赖 `@shared/*` 契约层，双向皆不越界，
+ExecutionView 才能在「Shell 内嵌」与「独立构建（`frontend/src/standalone/execution/`）」两种宿主下行为一致。
+接口契约落文件（`module.contract.ts`）而非散落在组件签名中，可直接被编译器与测试校验。
+[ADR-0008](../docs/spec/adr/0008-frontend-module-registry-pattern.md)
+
+---
+
 ## 2. 后端模块间边界
 
 ### 2.1 backend/api (Core :3000) ↔ CostView/src (Analytics :8002)

@@ -8,7 +8,7 @@ import { WorkspaceModuleTabs } from '@app/WorkspaceModuleTabs';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { useModuleNavigation } from '@app/hooks/use-module-navigation';
-import { useStartupStatus } from '@app/hooks/use-startup-status';
+import { useStartupStatus } from '@shared/hooks/use-startup-status';
 import { createRealtimeClient, type RealtimeClient } from '@shared/services/realtime';
 import { tokenService, getToken } from '@shared/services/token-service';
 import { HandoffContractsProvider } from '@shared/hooks/use-handoff-contracts';

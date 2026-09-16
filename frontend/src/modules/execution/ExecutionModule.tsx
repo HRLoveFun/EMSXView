@@ -10,22 +10,15 @@ import { useExecutionViewData } from '@execution/hooks/use-execution-view-data';
 import { useOrdersStream } from '@execution/hooks/use-orders-stream';
 import { useRoutesStream } from '@execution/hooks/use-routes-stream';
 import { useExecutionState } from '@execution/hooks/use-execution-state';
-import { useStartupStatus } from '@app/hooks/use-startup-status';
+import type {
+  ExecutionModuleContribution,
+  ExecutionModuleProps,
+} from '@execution/module.contract';
+import { useStartupStatus } from '@shared/hooks/use-startup-status';
 import { useShellContext } from '@shared/lib/shell-context';
-import type { ModuleShellProps } from '@shared/lib/module-registry';
 import type { RealtimeClient } from '@shared/services/realtime';
 
-/** Info that ExecutionModule exposes to the shell for toolbar integration. */
-export interface ExecutionModuleInfo {
-  orderCount: number;
-  routeCount: number;
-  isLoading: boolean;
-  lastUpdatedAt: number | null;
-  refresh: () => void;
-  clearCache: () => void;
-}
-
-export default function ExecutionModule({ onContribute }: ModuleShellProps) {
+export default function ExecutionModule({ onContribute }: ExecutionModuleProps) {
   const shell = useShellContext();
 
   // Bloomberg Terminal is already authenticated locally
@@ -119,9 +112,9 @@ export default function ExecutionModule({ onContribute }: ModuleShellProps) {
     }
   }, [activeTab, effectiveOrders.length, filteredOrders.length, monitorCount]);
 
-  // Contribute info to shell for toolbar — generic contribution pattern
+  // 向 Shell 上报工具栏信息 —— 严格按模块契约 ExecutionModuleContribution 构造
   useEffect(() => {
-    onContribute?.({
+    const contribution: ExecutionModuleContribution = {
       counts: {
         orders: toolbarOrderCount,
         routes: effectiveRoutes.length,
@@ -130,7 +123,8 @@ export default function ExecutionModule({ onContribute }: ModuleShellProps) {
       lastUpdatedAt: lastUpdatedAtRef.current,
       refresh: handleRefresh,
       clearCache: handleClearCache,
-    });
+    };
+    onContribute?.(contribution);
   }, [toolbarOrderCount, effectiveRoutes.length, isLoading, effectiveOrders, effectiveRoutes, handleRefresh, handleClearCache, onContribute]);
 
   return (
