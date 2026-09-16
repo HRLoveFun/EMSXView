@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Play, AlertTriangle, Loader2, Clock } from 'lucide-react';
 import {
   Dialog,
@@ -78,19 +78,8 @@ export function AlgoLaunchDialog({
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Reset form when order changes
-  useEffect(() => {
-    if (order) {
-      setTargetQuantity(order.remainingQuantity);
-      setScheduleType('TWAP');
-      setNumSlices(Math.min(Math.max(Math.ceil(order.remainingQuantity / 1000), 4), 100));
-      setStartTime(defaultStartTime());
-      setEndTime(defaultEndTime());
-      setParticipationRate(10);
-      setUrgency('MEDIUM');
-      setError('');
-    }
-  }, [order, open]);
+  // 表单重置：由调用方以 key（订单 id + 打开态）重挂载实现，取代原先在 effect 内同步 setState
+  // （React 推荐「用 key 重置 state」；行为等价：每次针对某订单打开即回到初始表单）
 
   const handleConfirm = async () => {
     if (!order) return;

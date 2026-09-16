@@ -213,6 +213,10 @@ export function MonitoringView() {
   }, []);
 
   useEffect(() => {
+    // 豁免理由：挂载 / 预设变更时拉取远端监控数据，属「与外部系统同步」的必要副作用；
+    // setState（loading 态）同步置位是为了立刻显示加载态，级联渲染一次可接受，
+    // 无法改写成派生值或事件回调（数据源不在 React 内）。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData(viewState);
     // 仅在预设变化时重新拉取；指标勾选变化由热力图客户端过滤
     // eslint-disable-next-line react-hooks/exhaustive-deps

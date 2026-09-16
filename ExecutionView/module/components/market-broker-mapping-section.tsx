@@ -139,6 +139,9 @@ export function MarketBrokerMappingSection() {
     }
   }, []);
 
+  // 豁免理由：挂载时拉取市场-券商映射，属「与外部系统同步」的必要副作用；
+  // loadAll 同步置 loading/清空态用于立刻反馈，无法改写成派生值（数据源不在 React 内）。
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadAll(); }, [loadAll]);
 
   // ── Derived: rows / cols ─────────────────────────────────────────────────

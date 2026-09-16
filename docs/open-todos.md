@@ -19,6 +19,8 @@
 | T7 | 异常明细完成率计算经核实正确（`fill/RouteShares`，0% NULL）；无需改动 | `docs/archive/2026-09-16/008-costview-anomaly-detail/plan.md` 调查结论 | ✅ | — |
 | T8 | CostView 指标覆盖率修复：① 计划任务 CostView_DailyUpdate 被禁用致日更断流 8/27-8/31（已 re-enable + 回补）；② bar 时间戳区间语义对齐（纯竞价路由末 bar fallback，修复 par_rate/pnl_vwap/par_rate_close 大面积 NULL）；③ 覆盖率分母剔除白名单外交易所 + SLA 豁免口径 | `008-costview-report-enhancement` 分支 | ✅ | 2026-09-02 终验：全量 180 日重算完成，par_rate 全量 NULL 60%→20%，SLA 口径下 continuous 类 52→81%；调度恢复后日更已自动产出 9/1 数据 |
 | T9 | 重算 20260901 的 temp_impact/perm_impact（next_day_close 结构性延迟：需等 9/3 日更产出 9/2 daily_summary 后执行 `recompute_all_tca_route_metrics.py --dates 20260901`） | `008-costview-report-enhancement` | ⏳ | 8/31 已于 9/2 补重算回填（temp5 20.6→60.0%、perm 0→54.2%）；9/1 同理待次日数据 |
+| T10 | 「打开/切换目标时回填表单 state」类重构（4 处，020 已加 `TODO(specs/020)` 标记 + 局部豁免）：`route-plan-manager.tsx:270/319`、`unified-modify-route-dialog.tsx:176/193` | `specs/020-react-hooks-set-state-debt/plan.md` | ⏳ | 理想修法：调用方以 `key` 重挂载 + 各 state 初值取自 props（前两处另有 15/8 个字段需一并改写）；建议与相关组件测试一起做 |
+| T11 | 复核 6 处「与外部系统同步」类 `set-state-in-effect` 豁免（`MonitoringView` / `ReportView` 首屏加载 / `broker-strategy-fields` / `market-broker-mapping-section` / `rate-diagnostic-dialog` / `use-batch-route-state`） | `specs/020-react-hooks-set-state-debt/plan.md` | ⏳ | 若后续引入数据层（如 react-query），可把这些手写 fetch+loading 收敛掉，豁免随之消失 |
 
 ## 已完成
 

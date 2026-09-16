@@ -204,6 +204,7 @@ export default function ExecutionModule({ onContribute }: ExecutionModuleProps) 
         }
         settingsView={
           <SettingsBoard
+            key={settingsInitialSection}
             monitorConditions={monitorConditions}
             onMonitorConditionsChange={setMonitorConditions}
             initialSection={settingsInitialSection}

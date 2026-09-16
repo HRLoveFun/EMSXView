@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Building2, GitBranch, Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GlobalSection } from './GlobalSection';
@@ -22,8 +22,8 @@ export function SettingsBoard({
   onMonitorConditionsChange,
   initialSection = 'global',
 }: SettingsBoardProps = {}) {
+  // initialSection 变化时的重置由调用方以 key 重挂载实现（取代原先 effect 内同步 setState）
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection);
-  useEffect(() => { setActiveSection(initialSection); }, [initialSection]);
 
   const renderSection = () => {
     switch (activeSection) {
