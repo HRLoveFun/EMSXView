@@ -39,14 +39,20 @@ def register_tca_service_impl(impl: TcaQueryServiceProtocol, key: str = "default
 def get_tca_query_service(key: str = "default") -> TcaQueryServiceProtocol:
     """Return the registered TCA query service instance.
 
-    If no implementation has been registered, falls back to lazy-importing
-    CostView.src.tca_query_service.TcaQueryService (backward compatibility).
+    本函数**不做** lazy-import fallback：未注册即抛 RuntimeError。历史上这里
+    曾计划「回退到 `CostView.src.tca_query_service.TcaQueryService`」，该退化路径
+    会使 platform_data 反向依赖业务模块（违反模块边界 AP-01），故从未实现
+    —— 文档曾按计划描述，属文档与实现漂移，2026-09-16 修正。
 
     Args:
         key: Registry key (default "default").
 
     Returns:
         A TcaQueryServiceProtocol-compatible instance.
+
+    Raises:
+        RuntimeError: 未注册实现时（须在应用启动时调用
+            ``register_tca_service_impl()``）。
     """
     if key in _tca_service_registry:
         return _tca_service_registry[key]

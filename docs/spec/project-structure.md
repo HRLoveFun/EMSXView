@@ -136,7 +136,7 @@ EMSXView/
 ├── platform_data/
 │   ├── __init__.py
 │   ├── adapters/                      # Cross-module adapters (subpackage)
-│   │   ├── __init__.py                # Backward-compat re-export entry point
+│   │   ├── __init__.py                # 适配器 re-export 入口（2026-09-16 收敛：仅适配器与工厂）
 │   │   ├── handoff.py                 # HandoffExchangeAdapter（内存交换器：TTL 7 天 + 容量上限）
 │   │   ├── redis_handoff.py           # RedisHandoffExchangeAdapter
 │   │   ├── market.py                  # MarketReferenceDataAdapter

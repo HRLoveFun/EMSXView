@@ -12,6 +12,9 @@ Ownership rule:
 """
 
 # TCA / Scorecard contracts
+# 2026-09-16 收敛：TcaOrderSummary / TcaRouteDetail 为 deprecated 类型，双仓库 AST 核查
+# 确认零消费者 → 从包入口移除 re-export，**定义仍保留**在 tca_contracts.py，需要时按
+# 显式子模块路径导入（from platform_data.contracts.tca_contracts import TcaOrderSummary）。
 from .tca_contracts import (
     SCORECARD_COHORTS,
     ScorecardCohortMetrics,
@@ -19,9 +22,7 @@ from .tca_contracts import (
     ScorecardReport,
     TcaFilters,
     TcaOrderAggregate,
-    TcaOrderSummary,
     TcaReport,
-    TcaRouteDetail,
     TcaRouteSummary,
 )
 
