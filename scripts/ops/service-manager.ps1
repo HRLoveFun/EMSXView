@@ -1,4 +1,4 @@
-#!/usr/bin/env powershell
+﻿#!/usr/bin/env powershell
 <#
 .SYNOPSIS
     EMSXView Trading Tool - Service Manager

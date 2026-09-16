@@ -1,4 +1,4 @@
-# wt-clean.ps1 — 清理 worktree 残留与 _tmp 临时目录（默认仅预演，-Apply 才真正删除）
+﻿# wt-clean.ps1 — 清理 worktree 残留与 _tmp 临时目录（默认仅预演，-Apply 才真正删除）
 # 用法: ./scripts/devtools/wt-clean.ps1 [[-Task] <任务名...>] [-Apply] [-Force] [-SkipTmp] [-TmpMinAgeMinutes 30]
 # 定位: 把「移除 worktree + prune + 清 _tmp + 打印状态」收敛为单条命令，供 Agent 免逐次审批执行；
 #       破坏性边界全部由本脚本内的硬校验承担（对齐 docs/spec/git-workflow.md §9/§10 与 ADR-0700）。

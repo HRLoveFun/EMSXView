@@ -96,6 +96,16 @@
 - 可选路由器使用 `_register_optional` 模式，不得影响核心 ExecutionView
 - 数据配置统一从 `data_access/config.Config` 导入（`Config.DATA_DIR` 由环境变量 `EMSXVIEW_DATA_DIR` 覆盖），禁止硬编码路径/表名
 
+### PowerShell / 运维脚本专项
+
+- `scripts/**/*.ps1` 若含非 ASCII 内容，**必须保存为 UTF-8 with BOM**
+- 原因：Windows PowerShell 5.1 对**无 BOM** 文件按 ANSI(cp1252) 解码，中文会被误解析
+  （字节 `0x93`/`0x94` → 智能引号，被当作字符串定界符 ⇒ `ParserError`）。仓库内每日同步计划任务
+  （`wt-sync.ps1`）与 `.bat` 启动器（`service-manager.ps1`）都以 `powershell`（5.1）调用；
+  PowerShell Core 下正常，故该问题不会在开发机上自发暴露
+- 守卫：`backend/api/tests/boundaries/test_ps1_encoding.py`（CI 边界测试内执行，规则 ID `PS1-ENC`）
+- 参考：[`docs/spec/adr/`]，实测记录见 `specs/016-wt-finish-robustness/plan.md`
+
 ---
 
 ## 类型定义

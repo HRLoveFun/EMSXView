@@ -1,4 +1,4 @@
-# wt-sync.ps1 — 每日同步：对指定（或全部）worktree 执行 fetch + rebase origin/main
+﻿# wt-sync.ps1 — 每日同步：对指定（或全部）worktree 执行 fetch + rebase origin/main
 # 用法: ./scripts/devtools/wt-sync.ps1 [task]    （task 省略则同步全部 worktree）
 [CmdletBinding()]
 param([Parameter(Position = 0)][string]$Task = "")

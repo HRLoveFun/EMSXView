@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BaseUrl = 'http://localhost:3000',
     [string]$Username = 'trader1',
     [string]$Password = 'password',

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     EMSXView Log Cleanup and Maintenance Script
     Cleans up log files across all subdirectories with independent retention policies.
