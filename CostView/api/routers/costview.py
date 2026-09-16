@@ -3,12 +3,10 @@ CostView TCA router — /api/tca/* endpoints.
 
 Provides:
   POST /api/tca/analyze          — run TCA analysis with optional filters
-  POST /api/tca/trigger-update   — manually start the daily update pipeline
-  GET  /api/tca/update-status/{job_id}  — poll a triggered update job
 
-Data constraint: ALL metrics are derived exclusively from
-processed_fills.db, fill_bdib.db, raw_bdib.db, and raw_fills.db.
-No external API calls are made during analysis.
+Data constraint: CostView 为只读消费方——全部指标经 `data_access`（`mode=ro`
+连接）从 TCA 预计算表 `tca_route_summary` 派生，分析过程中不做任何外部
+API 调用，也不写任何数据库。
 """
 
 from __future__ import annotations
@@ -129,34 +127,7 @@ class ScorecardResponse(BaseModel):
     message: str = ""
 
 
-class TriggerUpdateResponse(BaseModel):
-    job_id: str
-    status: str
-    message: str
-
-
-class StageInfo(BaseModel):
-    name: str        # "initialization" | "fill_fetch" | "processing" | "completion"
-    label: str       # human-readable label
-    progress: int = 0  # 0-100 within this stage
-    detail: Optional[str] = None  # freeform detail (e.g. "Day 3/7: 2026-04-29 — 1245 rows, upserted 1245")
-
-
-class UpdateStatusResponse(BaseModel):
-    job_id: str
-    status: str      # "started" | "running" | "completed" | "failed"
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    error: Optional[str] = None
-    stage: Optional[StageInfo] = None
-    overall_progress: int = 0  # 0-100 across all stages
-    last_activity_at: Optional[str] = None
-
-
 # ── Endpoints ─────────────────────────────────────────────────────────────────
-
-_LOCALHOST_HOSTS = ("127.0.0.1", "::1", "localhost")
-
 
 def _default_query_date(f: TcaFilterPayload) -> Optional[str]:
     """仅当请求未显式指定日期/订单时，返回默认目标日期（上一工作日）。

@@ -28,6 +28,7 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 from data_access.storage.market_store import MarketStoreReader
 
 from . import report_measure as rm
+from . import _common
 
 logger = logging.getLogger(__name__)
 
@@ -170,12 +171,8 @@ class BdibHealthService:
 
     @staticmethod
     def _table_has_column(conn, table: str, column: str) -> bool:
-        """判断 processed_fills 等表是否含指定列（幂等兼容旧 schema / 测试 fixture）。"""
-        try:
-            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-        except Exception:
-            return False
-        return any(str(r[1]).lower() == column.lower() for r in rows)
+        """判断表是否含指定列（幂等兼容旧 schema / 测试 fixture；实现见 _common.py）。"""
+        return _common.has_column(conn, table, column)
 
     def _scan_sqlite(
         self, start_date: str, end_date: str,
@@ -442,15 +439,8 @@ class BdibHealthService:
 
     @staticmethod
     def _fbfx_cte() -> str:
-        """fill_bdib 汇率回填 CTE（列名约定与 report_aggregator._fbfx_cte 同源）。"""
-        return (
-            "WITH _fbfx AS ("
-            "SELECT OrderId, RouteId, order_as_of_date AS fxf_oad, "
-            "SUM(fill_volume * fx_rate) / NULLIF(SUM(fill_volume), 0) AS fb_fx "
-            "FROM fill_bdib WHERE fx_rate IS NOT NULL "
-            "AND order_as_of_date BETWEEN ? AND ? "
-            "GROUP BY OrderId, RouteId, order_as_of_date) "
-        )
+        """fill_bdib 汇率回填 CTE（实现见 report_measure.fbfx_cte）。"""
+        return rm.fbfx_cte()
 
     @staticmethod
     def _fbfx_join() -> str:
@@ -496,16 +486,8 @@ class BdibHealthService:
 
     @staticmethod
     def _table_exists(conn) -> bool:
-        """tca_route_summary 表/视图是否存在于当前库。"""
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') "
-                "AND name = ? LIMIT 1",
-                [Config.TCA_ROUTE_SUMMARY_TABLE],
-            ).fetchone()
-        except Exception:
-            return False
-        return row is not None
+        """tca_route_summary 表/视图是否存在于当前库（实现见 _common.py）。"""
+        return _common.tca_summary_exists(conn)
 
     @staticmethod
     def _sum_missing_weight(
