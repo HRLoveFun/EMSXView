@@ -20,8 +20,9 @@
 ## Architecture
 
 ```
-ExecutionView/                    # 仓库根级独立模块目录
+ExecutionView/                    # 仓库根级独立模块目录（npm workspaces 成员）
 ├── README.md                     # 本文件：职责边界 / 接口 / 运行方式
+├── package.json                  # ★ 自带依赖声明（react / react-dom / lucide-react + 测试期依赖）
 ├── module/                       # 模块实现（原 frontend/src/modules/execution/）
 │   ├── module.registry.ts        # 自注册描述符（id/label/order/loader/realtimeWsPath/showHandoffBadge）
 │   ├── module.contract.ts        # ★ 对外接口契约（输入 ExecutionModuleProps / 输出 ExecutionModuleContribution）
@@ -69,46 +70,50 @@ ExecutionView/                    # 仓库根级独立模块目录
 
 ## Running & Building
 
-本模块源码位于仓库根，但**依赖 `frontend/` 提供工具链与共享契约层**（`@shared/*`、`@/components/ui/*`、React 运行时）：
+本模块**自带依赖声明**（`ExecutionView/package.json`），工具链与共享契约层（`@shared/*`、`@/components/ui/*`）仍由 `frontend/` 提供；依赖树由 npm workspaces 统一提升到仓库根，全仓库只有一份 React：
 
 ```bash
-# 1) 依赖只需在 frontend/ 安装一次（模块不再自带 node_modules，避免出现第二份 React）
-cd frontend
-npm install
-# ↑ postinstall 会自动执行 scripts/devtools/link-module-deps.mjs，
-#   在仓库根建立 node_modules → frontend/node_modules 的链接。
-#   原因：Node / TS / Vite 解析裸包（react、lucide-react…）是从引用方所在目录逐级向上查找
-#   node_modules；本模块位于仓库根级目录，仓库根没有该链接时裸包解析会失败。
+# 1) 依赖在**仓库根**安装一次（npm workspaces: frontend + ExecutionView 共用依赖树与 lockfile）
+cd <repo-root>
+npm ci            # 或 npm install
 
 # 2) 随 Shell 一起开发（Vite dev server，端口 <FRONTEND_PORT> 默认 5173）
+cd frontend
 npm run dev
 
 # 3) 随 Shell 一起构建（同一产物、同一套部署）
 npm run build
 
-# 4) 仅构建 ExecutionView 独立产物（输出 frontend/dist/execution/）
+# 4) 仅构建 ExecutionView 独立产物（输出 frontend/dist-modules/execution/）
 npm run build:execution
 ```
+
+> 不要在 `frontend/` 内单独 `npm install`——那会在子目录建出第二份依赖树（第二份 React）。
 
 独立产物启动后为「无 Shell 桩」模式：`navigateTo` / `logout` 为空实现，toast 打到控制台。
 
 ## Testing
 
 ```bash
-cd frontend
-npx vitest run ../ExecutionView/module/ExecutionModule.test.tsx   # 仅本模块
-npx vitest run                                                    # 全量（已含本模块）
-npx tsc -b                                                        # 类型检查（含 ../ExecutionView）
-npm run lint:modules                                              # ESLint（frontend 之外的模块源码）
+# 在仓库根（workspaces 根）执行
+npm test                        # 全量 vitest（含本模块）
+npm run typecheck               # tsc -b（含 ../ExecutionView）
+npm run lint:modules            # ESLint（frontend 之外的模块源码）
+
+# 只跑本模块（在 frontend/ 下用 npm 脚本；不要用裸 npx —— 依赖已提升到仓库根，子目录没有 .bin）
+cd frontend && npm test -- ../ExecutionView/module/ExecutionModule.test.tsx
 ```
 
 > `npm run lint`（`eslint .`）只覆盖 `frontend/`；本模块源码在 `frontend/` 之外，
 > ESLint 需从仓库根以显式配置运行，故另设 `lint:modules`。
+> 注意：`lint:modules` 目前会报出 14 条 `react-hooks/*` 存量问题（`npm run lint` 在 `frontend/src` 同样报 6 条，
+> 同源且均属既有债务，ESLint 不在 CI 门禁内）。跑测试不受影响；若要以 lint 作为门禁，需先清偿这批存量问题。
 
 ## Dependencies
 
-- `frontend/` 的工具链与运行时依赖（React 19 / Vite / Vitest / Tailwind / shadcn-ui）
-- `@shared/*` 契约层：`module-registry`、`shell-context`、`services/*`、`types`
+- 自身声明：`ExecutionView/package.json` —— `react` / `react-dom` / `lucide-react`（运行时）+ `vitest` / `@testing-library/*`（测试期）
+- `frontend/` 的工具链与共享契约层：`@shared/*`（`module-registry` / `shell-context` / `services/*` / `types`）、`@/components/ui/*`、Vite / Vitest / Tailwind / shadcn-ui
+- 依赖树与唯一 lockfile 由仓库根 npm workspaces 统一管理（[ADR-0020](../docs/spec/adr/0020-frontend-npm-workspaces.md)），并显式配置 `resolve.dedupe: ['react','react-dom']`
 - 后端 Core `<API_BASE_URL>`（默认 `http://<host>:3000`）与 `/ws/orders`
 - 不使用 Bloomberg 直连（由后端 EMSX 服务承担）
 
@@ -128,4 +133,4 @@ ExecutionView/module/services + hooks/use-*-stream → stores/*-stream-store
 ---
 
 *Status: 仓库根级独立模块（源码与独立构建入口均已迁出 `frontend/`）。*
-*Last verified: 2026-09-16（迁移见 [specs/012-executionview-root-extract/plan.md](../specs/012-executionview-root-extract/plan.md)；`ExecutionView` 不携带自有 `package.json`，工具链与依赖统一由 `frontend/` 提供。）*
+*Last verified: 2026-09-16（迁出 frontend 见 [specs/012-executionview-root-extract/plan.md](../specs/012-executionview-root-extract/plan.md)；自带依赖声明与 workspaces 收敛见 [specs/013-frontend-workspaces/plan.md](../specs/013-frontend-workspaces/plan.md) / ADR-0020。工具链与共享契约层仍由 `frontend/` 提供。）*

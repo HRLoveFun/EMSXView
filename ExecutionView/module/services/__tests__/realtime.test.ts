@@ -1,7 +1,7 @@
 /**
  * Tests for the realtime WebSocket client, order-stream-store, and route-stream-store.
  *
- * Run: npx vitest run src/services/realtime.test.ts
+ * Run: npm test -- ../ExecutionView/module/services/__tests__/realtime.test.ts（在 frontend/ 下）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

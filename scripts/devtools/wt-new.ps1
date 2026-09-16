@@ -40,6 +40,6 @@ Write-Host "[ok] worktree 已创建: $dir" -ForegroundColor Green
 if (-not $Detach) { Write-Host "     分支: $branch（基于 $Base）" }
 Write-Host "后续步骤："
 Write-Host "  1. cd $dir"
-Write-Host "  2. 安装依赖：frontend -> npm install；backend -> pip install -r backend/api/requirements.txt"
-Write-Host "  3. 并行运行请错开端口：API_PORT=3100、前端 npx vite --port 5273、VITE_API_URL=http://localhost:3100"
+Write-Host "  2. 安装依赖：仓库根 npm install（npm workspaces: frontend + ExecutionView）；backend -> pip install -r backend/api/requirements.txt"
+Write-Host "  3. 并行运行请错开端口：API_PORT=3100、前端在 frontend/ 下 npm run dev -- --port 5273、VITE_API_URL=http://localhost:3100"
 Write-Host "  4. 在该目录打开独立 IDE/Agent 窗口；完整规范见 docs/spec/git-workflow.md"

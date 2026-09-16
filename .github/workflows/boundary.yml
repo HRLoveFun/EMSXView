@@ -101,15 +101,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: 安装依赖
+      - name: 安装依赖（npm workspaces：仓库根统一 lockfile 与依赖树）
         run: |
-          cd frontend
           npm ci
       - name: "类型检查 (硬阻断)"
         run: |
-          cd frontend
-          npx tsc -b --noEmit
+          npm run typecheck
       - name: 单元测试
         run: |
-          cd frontend
-          npx vitest run
+          npm run test

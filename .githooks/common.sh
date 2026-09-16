@@ -3,7 +3,8 @@
 
 # 依赖清单文件：内容变更时需重装对应依赖
 DEPENDENCY_FILES=(
-    "frontend/package-lock.json"
+    # npm workspaces：lockfile 收敛到仓库根（frontend 与 ExecutionView 共用）
+    "package-lock.json"
     "backend/api/requirements.txt"
     "CostView/requirements.txt"
     "MarketView/requirements.txt"

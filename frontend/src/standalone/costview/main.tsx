@@ -1,8 +1,8 @@
 /**
  * CostView — standalone build entry point.
  *
- * Build: npx vite build --config vite.config.costview.ts
- * Output: dist/costview/
+ * Build: npm run build:costview（vite.base.ts --module=costview）
+ * Output: frontend/dist-modules/costview/
  */
 /* eslint-disable react-refresh/only-export-components -- 独立构建入口，不适用 fast refresh */
 import { StrictMode, Suspense, lazy } from 'react';

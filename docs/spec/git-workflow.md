@@ -202,15 +202,18 @@ API_PORT=3100                                   # 后端
 VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 ```
 
-前端启动：`npx vite --port 5273`（或写入 `.env` 的前端端口变量，按 vite 配置为准）。后端：`API_PORT=3100 python main.py`。
+前端启动：在 `frontend/` 下 `npm run dev -- --port 5273`（或写入 `.env` 的前端端口变量，按 vite 配置为准）。后端：`API_PORT=3100 python main.py`。
 
 ### 6.3 依赖与忽略文件
 
 - 每个 worktree 的 `node_modules` / Python 虚拟环境**互不共享**，新建后需安装：
   ```bash
-  cd frontend && npm install        # 或 npm ci
+  npm install                       # 或 npm ci —— 在**仓库根**执行
   pip install -r backend/api/requirements.txt    # 含 -e ../../platform_data
   ```
+  > npm workspaces（ADR-0020）：lockfile 唯一在仓库根（`package-lock.json`），依赖提升到根 `node_modules`，
+  > `frontend` 与根级模块 `ExecutionView` 共用同一份依赖树。**不要再** `cd frontend && npm install`——
+  > 那会在子目录建出第二份依赖树。
 - 需要手动复制的忽略文件：根 `.env`（脚本已自动复制）、`backend/api/.env`、任何子目录级环境文件、本机密钥。
 - `.githooks`（pre-commit：AGENTS.md↔CODEBUDDY.md 同步 + 质量门禁快检）依赖 `core.hookspath=.githooks`——该配置存于共享的 `.git/config`，**新 worktree 自动生效**，无需重新配置。
 

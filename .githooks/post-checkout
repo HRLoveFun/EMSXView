@@ -15,7 +15,7 @@ fi
 # 新 worktree 创建：输出就绪清单
 if is_zero_sha "$old"; then
     hook_info "新 worktree 已创建，就绪清单："
-    hook_info "  1. 安装依赖: frontend -> npm install；backend -> pip install -r backend/api/requirements.txt"
+    hook_info "  1. 安装依赖: 仓库根 npm install（npm workspaces: frontend + ExecutionView）；backend -> pip install -r backend/api/requirements.txt"
     hook_info "  2. 并行运行请错开端口: API_PORT / VITE_API_URL / MARKETVIEW_PORT / COSTVIEW_PORT（见 docs/spec/git-workflow.md §6.2）"
     hook_info "  3. 完整工作流规范: docs/spec/git-workflow.md"
     exit 0

@@ -1,8 +1,8 @@
 /**
  * ExecutionView — standalone build entry point.
  *
- * Build: npx vite build --config vite.config.execution.ts
- * Output: dist/execution/
+ * Build: npm run build:execution（vite.base.ts --module=execution）
+ * Output: frontend/dist-modules/execution/
  */
 /* eslint-disable react-refresh/only-export-components -- 独立构建入口，不适用 fast refresh */
 import { StrictMode, Suspense, lazy } from 'react';

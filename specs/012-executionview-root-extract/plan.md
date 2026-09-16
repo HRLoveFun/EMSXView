@@ -54,7 +54,7 @@ ExecutionView/                # 根级独立模块目录（与 frontend/、CostV
 | 7 | `ExecutionView/standalone/main.tsx` | 相对路径改为别名（`@/index.css`、`@execution/module.registry`） |
 | 8 | `scripts/devtools/link-module-deps.mjs` + `frontend/package.json`(`postinstall`) | 自动建立「仓库根 `node_modules` → `frontend/node_modules`」链接。**原因**：Node/TS/Vite 解析裸包（`react` 等）从引用方目录逐级向上找 `node_modules`，根级模块否则解析失败；链接保证全仓库仍只有一份物理依赖（避免第二份 React） |
 | 9 | `frontend/tailwind.config.js` | `content` 增 `../ExecutionView/module/**`、`../ExecutionView/standalone/**`。**原因**：类名扫描不到时 ExecutionView 独占的 utility 会被 purge，UI 静默失去样式 |
-| 10 | `frontend/package.json`(`lint:modules`) | ESLint 的 base path 是 cwd，`eslint .` 无法覆盖 `frontend/` 之外的源码，故新增从仓库根以显式配置运行的 lint 脚本（实测覆盖 94 文件 / 0 error） |
+| 10 | `frontend/package.json`(`lint:modules`) | ESLint 的 base path 是 cwd，`eslint .` 无法覆盖 `frontend/` 之外的源码，故新增从仓库根以显式配置运行的 lint 脚本（覆盖 94 文件）。**修正（2026-09-16）**：原记录「0 error」有误——该脚本会报出 14 条 `react-hooks/*` 存量问题（与 `npm run lint` 在 `frontend/src` 报 6 条同源，均属既有债务、非 CI 门禁项），详见 `specs/013-frontend-workspaces/plan.md` §5 |
 
 ### 4.3 门禁与审计（防「路径变了、守卫失效」）
 | # | 文件 | 改动 |
@@ -96,11 +96,11 @@ ExecutionView/                # 根级独立模块目录（与 frontend/、CostV
 - **风险 4：Tailwind purge 静默丢样式**（最隐蔽）。`content` 未覆盖根级模块时，ExecutionView 独占的 utility 会被 purge，UI 无样式但类型检查与测试全绿。缓解：补 `content` globs，并用「仅 ExecutionView 使用的类」（`min-w-[16px]`）在产物 CSS 中做存在性断言。
 - **风险 5：standalone 构建的 root 语义**。入口 HTML 位于 vite root 之外时 rollup 直接报错；root 移出 `frontend/` 又会让 postcss 配置查找与 outDir 清空语义失效。缓解：`MODULE_LAYOUTS.root` + 显式 `css.postcss` + `emptyOutDir: true`，并实测 costview 产物路径与迁移前一致。
 - **风险 6：ESLint 覆盖面缩水**。ESLint 的 base path 是 cwd，`eslint .` 无法覆盖 `frontend/` 之外的源码。缓解：新增 `lint:modules` 从仓库根以显式配置运行。
-- **已知遗留**：`npm run build`（outDir `frontend/dist`）与 `npm run build:<module>`（outDir `frontend/dist/<module>`）先后执行时，前者会清空后者产物——迁移前既有行为，不在本轮范围。
+- **已知遗留**：`npm run build`（outDir `frontend/dist`）与 `npm run build:<module>` 先后执行时前者会清空后者产物——已由 [`specs/013-frontend-workspaces`](../013-frontend-workspaces/plan.md) 修复（模块产物改到 `frontend/dist-modules/<module>/`）。
 - **回退**：整轮迁移为单一提交，`git revert` 即可回到 011 之后的形态。
 
 ## 7. 后续（不在本轮）
 
-1. **npm workspaces**：`ExecutionView/` 自带 `package.json` + vite 配置，`shared` 提升为根级包，根 `package.json` 统一 lockfile —— 需 ADR 与 CI 工作流改造。
-2. **costview / marketview 同构迁移**：按本轮 SOP 平移，保持三模块形态一致。
-3. **独立部署**：若确需单独发布，再评估 iframe / Module Federation 与认证、handoff 通道。
+1. ~~**npm workspaces**~~：已由 [`specs/013-frontend-workspaces`](../013-frontend-workspaces/plan.md)（ADR-0020）落实——根 `package.json` 统一 lockfile 与依赖树，`ExecutionView/package.json` 自带依赖声明，`resolve.dedupe` 保证单实例 React。差异：`shared` **未**提升为独立根级包（仍在 `frontend/src/shared`）。
+2. **costview / marketview 同构迁移**：按本轮 SOP 平移，保持三模块形态一致。**（尚未实施）**
+3. **独立部署**：若确需单独发布，再评估 iframe / Module Federation 与认证、handoff 通道。**（尚未实施）**

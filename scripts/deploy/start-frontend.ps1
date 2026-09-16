@@ -28,6 +28,8 @@ Write-Host "Vite output log: $logFile" -ForegroundColor Gray
 Set-Location (Join-Path $ProjectRoot "frontend")
 
 # Clear Vite pre-built cache to prevent stale/corrupted cache from blocking startup
+# npm workspaces 下依赖提升到仓库根，vite 缓存位于根 node_modules；两处都清（幂等）
+Remove-Item "$ProjectRoot\node_modules\.vite" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "$ProjectRoot\frontend\node_modules\.vite" -Recurse -Force -ErrorAction SilentlyContinue
 
 # Use PowerShell native *> redirection to capture all streams to log file

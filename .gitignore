@@ -47,6 +47,8 @@ vitest_out.txt
 # --- Build outputs ---
 app/dist/
 dist-ssr/
+# 独立模块构建产物（与主应用 dist/ 分离，避免互删；见 specs/013-frontend-workspaces/plan.md）
+dist-modules/
 .vite/
 *.local
 
