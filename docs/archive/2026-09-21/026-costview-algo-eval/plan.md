@@ -1,6 +1,6 @@
 # 实施计划: CostView 券商算法执行质量评估体系
 
-**Branch**: `026-costview-algo-eval`　**Date**: 2026-09-21　**状态**: 计划中（未开工）
+**Branch**: `026-costview-algo-eval`（阶段一 / 二 / 三 / 三收尾分四个 PR，后三个分支为 `-phase2` / `-phase3` / `-phase3b`）　**Date**: 2026-09-21　**状态**: ✅ 已完成并归档（2026-09-21）
 
 **定位**: 把 CostView 从「描述性 TCA 报告系统」推进为「推断性算法评估系统」，分三阶段交付：周度聚合与分市场深化 → 执行环境变量精确化 → 科学方法评估层。
 
@@ -671,9 +671,9 @@ CostView/src/evaluation/          # [NEW] 推断层（ADR-0004 规划位置）
 
 | 文件 | 性质 |
 |---|---|
-| `specs/026-costview-algo-eval/plan.md` | 新增（本文件） |
-| `specs/026-costview-algo-eval/research.md` | 新增（证据基线） |
-| `specs/026-costview-algo-eval/checklists/progress.md` | 新增（阶段检查点与遗留登记） |
+| `docs/archive/2026-09-21/026-costview-algo-eval/plan.md` | 新增（本文件；原落位 `specs/026-costview-algo-eval/`，完成后按归档约定 `git mv`，保留编号与目录名） |
+| `docs/archive/2026-09-21/026-costview-algo-eval/research.md` | 新增（证据基线） |
+| `docs/archive/2026-09-21/026-costview-algo-eval/checklists/progress.md` | 新增（阶段检查点与遗留登记） |
 | `docs/open-todos.md` | 修改（一处行式登记） |
 
 **本次不改动任何 `CostView/` 代码** —— 代码改动属本计划各阶段的实施执行（§3 / §4 / §5）。
@@ -703,7 +703,7 @@ CostView/src/evaluation/          # [NEW] 推断层（ADR-0004 规划位置）
 - 证据基线：[`research.md`](research.md)
 - 阶段进度：[`checklists/progress.md`](checklists/progress.md)
 - 计划设计原则：`docs/spec/plan-design-principles.md`
-- Git 并行工作流：`docs/spec/git-workflow.md`、[ADR-0700](../../docs/spec/adr/0700-git-worktree-parallel-workflow.md)
+- Git 并行工作流：`docs/spec/git-workflow.md`、[ADR-0700](../../../spec/adr/0700-git-worktree-parallel-workflow.md)
 - 口径治理：`docs/report-tca-known-limitations.md`、`docs/spec/adr/0018-tca-report-metrics-conventions.md`
-- 评估层定位：[ADR-0004](../../docs/spec/adr/0004-costview-focused-on-evaluation.md)
+- 评估层定位：[ADR-0004](../../../spec/adr/0004-costview-focused-on-evaluation.md)
 - 方法论文档：`docs/textbook/Algo_TCA.md`、`docs/textbook/股票交易执行质量与交易成本分析（TCA）：跨时期学术研究综述与方法框架.md`
