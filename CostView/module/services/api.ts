@@ -1,7 +1,7 @@
 import type {
   BdibHealthReport,
-  EvaluationCompareRequest,
-  EvaluationComparisonReport,
+  EvaluationReport,
+  EvaluationReportRequest,
   Granularity,
   LastPreset,
   MetricCoverageReport,
@@ -219,17 +219,16 @@ export async function fetchScorecard(payload: ScorecardRequestPayload): Promise<
   return json.data as ScorecardReport;
 }
 
-/** 026 阶段三：评估层可比性比较（POST /api/tca/evaluation/compare）。
+/** 027：综合评估报告（POST /api/tca/evaluation/report）。
  *
- *  三条约束都在**服务端**执行，前端只做呈现、不承担约束责任：
- *  1. 可比性判定在服务端 —— 不可比时 `comparisons` 为空数组，后端不返回数值；
- *  2. `benchmark` 必填（D1 基准冻结），缺失即 422；
- *  3. 每对比较同时返回未校正与校正后的 p 值。
+ *  唯一输入是时间范围与作用域过滤 —— 比较维度、基准、检验方法均**不由调用方选择**
+ *  （026 的「选维度 / 选基准 / 选方法」形态已按需求修正移除，其端点一并废弃）。
+ *  服务端返回覆盖七个比较维度与六个内容领域的完整报告。
  */
-export async function fetchEvaluationComparison(
-  payload: EvaluationCompareRequest,
-): Promise<EvaluationComparisonReport> {
-  const response = await fetch(`${API_BASE_URL}/api/tca/evaluation/compare`, {
+export async function fetchEvaluationReport(
+  payload: EvaluationReportRequest,
+): Promise<EvaluationReport> {
+  const response = await fetch(`${API_BASE_URL}/api/tca/evaluation/report`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
@@ -240,7 +239,7 @@ export async function fetchEvaluationComparison(
   }
 
   const json = await response.json();
-  return json.data as EvaluationComparisonReport;
+  return json.data as EvaluationReport;
 }
 
 // -- Monitoring（BDIB 健康 / 指标覆盖率 / 报告聚合）----------------------------

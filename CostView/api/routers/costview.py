@@ -372,90 +372,75 @@ async def analyze_scorecard(request: ScorecardRequest):
 
 
 
-# ── 026 阶段三：评估层（科学方法）─────────────────────────────────────────────
+# ── 027：算法执行质量综合评估报告 ─────────────────────────────────────────────
 
-class EvaluationCompareRequest(BaseModel):
-    """券商 / 算法可比性评估请求。
+class EvaluationReportRequest(BaseModel):
+    """综合评估报告请求。
 
-    ``benchmark`` **无默认值**：基准必须显式给出（D1 基准冻结，避免事后挑选最有利
-    基准），缺失即 422 —— 该约束不通过默认值削弱。
+    **只有时间范围与作用域过滤** —— 比较维度、基准、检验方法均不由调用方选择：
+    维度遍历全部、基准与方法并列呈现。这是 027 对 026「选维度 / 选基准 / 选方法」
+    形态的修正（026 的 `/api/tca/evaluation/compare` 已随之移除）。
     """
 
-    cohort: str = Field(
-        default="broker",
-        description=f"比较维度；one of {list(SCORECARD_COHORTS)}",
-    )
-    benchmark: str = Field(
-        description="基准；one of vwap / arrival / close / is（不可默认）",
-    )
     filters: TcaFilterPayload = Field(default_factory=TcaFilterPayload)
-    method: str = Field(default="t-test", description="检验方法：t-test / ks / chi2")
-    alpha: float = Field(default=0.05, gt=0, lt=1)
-    correction: str = Field(default="bh", description="多重比较校正：bh / bonferroni")
-    min_group_sample: int = Field(default=10, ge=2, le=1000)
-    max_orders: int = Field(default=2000, ge=1, le=10000)
-
-    @field_validator("cohort")
-    @classmethod
-    def validate_cohort(cls, v: str) -> str:
-        value = (v or "").strip().lower()
-        if value not in SCORECARD_COHORTS:
-            raise ValueError(f"cohort must be one of {list(SCORECARD_COHORTS)}")
-        return value
+    granularity: str = Field(
+        default="day",
+        description="趋势与稳定性小节的聚合粒度：day / week（ISO 周）/ month",
+    )
 
 
-class EvaluationCompareResponse(BaseModel):
+class EvaluationReportResponse(BaseModel):
     success: bool
     data: Optional[dict] = None
     message: str = ""
 
 
-@router.post("/api/tca/evaluation/compare", response_model=EvaluationCompareResponse)
-async def evaluation_compare(request: EvaluationCompareRequest):
-    """券商 / 算法可比性评估（026 阶段三；B3 可比性条件 / D1 基准冻结 / DP-3-2）。
+@router.post("/api/tca/evaluation/report", response_model=EvaluationReportResponse)
+async def evaluation_report(request: EvaluationReportRequest):
+    """算法执行质量综合评估报告（027）。
 
-    三条结构性约束（实现见 `CostView/src/evaluation/`）：
+    输出覆盖六个内容领域：
 
-    1. **可比性由服务端强制** —— 不可比时 ``verdict.comparable=False`` 且
-       ``comparisons`` 为空数组，**不返回任何比较数值**。该约束若只放 UI 层，
-       直接调 API 仍可取原始均值比较，等于形同虚设；
-    2. **基准不可默认** —— ``benchmark`` 缺失 / 不受支持即 422；
-    3. **多重比较校正** —— 未校正与校正后的 p 值同时返回。
+    - ``dimensions``：7 个比较维度逐一的「各组 vs 其余」，含层内加权差异、可信区间、
+      t / KS / χ² 三方法 p 值与 BH 校正后 p、置信度与层覆盖率；
+    - ``trend``：按粒度的成本趋势与稳定性；
+    - ``risk``：各基准的波动、CVaR、p95 与尾部占比；
+    - ``market``：分市场执行质量；
+    - ``credibility``：覆盖率、环境可得率、校正方式等披露。
 
-    门控关闭（``TCA_EVAL_ENABLED=0``）时返回**显式不可用**，**不**回退到
-    「未校验的均值比较」—— 那等于放弃可比性约束，与关闭意图相反。
+    与 026 的两处关键差别：
+
+    1. **无「不可比」终止态** —— 组间比较在控制维度的**共同层内**进行、按层样本量
+       加权合并，可信度以 ``confidence`` / ``coverage`` 披露，而不是拒绝输出结论
+       （026 的整体分布门禁在真实数据上恒为拒绝，见 `evaluation/comparability.py`）；
+    2. **无可选择项** —— 唯一输入是时间范围（+ 作用域过滤与粒度）。
+
+    门控关闭（``TCA_EVAL_ENABLED=0``）时返回**显式不可用**，不回退到未校验的均值比较。
     """
     if not DataAccessConfig.TCA_EVAL_ENABLED:
-        return EvaluationCompareResponse(
+        return EvaluationReportResponse(
             success=True,
-            data={"enabled": False, "verdict": None, "comparisons": []},
+            data={"enabled": False, "sections": None},
             message=(
-                "评估层未启用 (TCA_EVAL_ENABLED=0)；comparisons 为空不代表无可比数据，"
+                "评估层未启用 (TCA_EVAL_ENABLED=0)；sections 为空不代表无数据，"
                 "且不提供未校验的均值比较作为回退。"
             ),
         )
 
     f = request.filters
     filters = ScorecardFilters(
-        cohort=request.cohort,
         order_ids=f.order_ids,
         algo=f.algo,
         start_date=f.start_date,
         end_date=f.end_date,
         broker=f.broker,
         symbol=f.symbol,
-        min_sample_size=request.min_group_sample,
-        max_orders=request.max_orders,
     )
     try:
         data = await run_bounded(
-            _analytics.build_evaluation_comparison,
+            _analytics.build_evaluation_report,
             filters,
-            benchmark=request.benchmark,
-            method=request.method,
-            alpha=request.alpha,
-            correction=request.correction,
-            min_group_sample=request.min_group_sample,
+            granularity=request.granularity,
         )
     except QueryTimeoutError as exc:
         raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
@@ -470,17 +455,20 @@ async def evaluation_compare(request: EvaluationCompareRequest):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:  # pragma: no cover - defensive
-        logger.error(f"Evaluation comparison failed: {exc}", exc_info=True)
+        logger.error(f"Evaluation report failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Evaluation error: {exc}")
 
-    verdict = data.get("verdict") or {}
     data["enabled"] = True
-    message = (
-        f"Comparable across {len(data.get('groups') or [])} {request.cohort} group(s)"
-        if verdict.get("comparable")
-        else "Not comparable — " + "; ".join(verdict.get("reasons") or ["原因未知"])
+    blocks = (data.get("sections") or {}).get("dimensions") or []
+    return EvaluationReportResponse(
+        success=True,
+        data=data,
+        message=(
+            f"评估完成：{len(blocks)} 个比较维度，"
+            f"{data.get('total_routes_considered', 0)} 条路由"
+            f"（主基准 {data.get('primary_benchmark')}）"
+        ),
     )
-    return EvaluationCompareResponse(success=True, data=data, message=message)
 
 
 # ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
@@ -667,7 +655,7 @@ async def capabilities():
             "order_level_tca": DataAccessConfig.TCA_ORDER_AGG_ENABLED,
             "core_benchmarks": DataAccessConfig.TCA_CORE_BENCHMARKS_ENABLED,
             "risk_impact": DataAccessConfig.TCA_RISK_IMPACT_ENABLED,
-            # 026 阶段三：评估层（可比性判定 + 检验 + 功效 + 治理）
+            # 027：综合评估报告（分层内比较 + 多基准 / 多方法并列 + 治理）
             "evaluation": DataAccessConfig.TCA_EVAL_ENABLED,
         },
     )

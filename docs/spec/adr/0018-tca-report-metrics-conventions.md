@@ -398,6 +398,39 @@ bootstrap 区间 + 多重比较校正）、`power`（正态近似闭式，不引
 **护栏**：`CostView/tests/test_evaluation.py`（`TestEvaluationComparisonOrchestration` 8 条 +
 `TestEvaluationRequestModel` 3 条）。
 
+### 10.10 综合评估报告（027：形态与可比性修正，2026-09-21）
+
+**背景**：§10.8 / §10.9 的评估形态是「用户选择维度 / 基准 / 方法」，与「按时间范围自动
+产出的综合评估」需求不符；且可比性门禁在真实数据上恒为拒绝（`Exchange` TVD 恒等于 1.0，
+5 维交叉后 `common_strata = 0`）。
+
+**决策**：
+
+1. **无可选项**：遍历 `SCORECARD_COHORTS` 全部七个维度；基准（`arrival` / `vwap` /
+   `close` / `is`）与方法（t / KS / χ²）**全部并列**；检验固定在主基准 `arrival`
+   （三个基准各做一遍会使结果膨胀 3 倍，无益于可读性）。
+2. **比较形态**：每组 vs 其余（**层内加权合并**），而非 C(n,2) 全组合 ——
+   26 个券商的 325 对检验对报告无可读性。
+3. **控制维度**：`Exchange` + `time_of_day` / `liquidity_adv20` / `volatility`；
+   **不含 `asset_class`**（与 Exchange 共线，纳入只使层更稀疏）；分层键**排除当前
+   分组维度**（必须正交，否则层内取值恒定、分层退化为 1 层）。
+4. **可比性**：TVD 降为**描述性提示**（`imbalance_alert_threshold = 0.2`），**不阻断**
+   输出；可信度以 `confidence` / `coverage` 披露。026 的
+   `comparability_enforced_server_side = True` 改为 `False`。
+5. **端点**：`POST /api/tca/evaluation/report`（仅接受 `filters` + `granularity`）；
+   `POST /api/tca/evaluation/compare` **移除**（该形态的载体）。
+6. **报告内嵌**：`report["evaluation"]` 与独立端点消费**同一编排函数**的同一份
+   payload；评估失败不阻断报告生成。
+
+**版本**：`SPEC_VERSION` `2026.09.9`。
+
+**影响面**：评估层为纯新增 + 形态重写；既有 Report / Monitoring 数值口径不变
+（`granularity=day` 产出仍与改动前逐字节等价）。
+
+**护栏**：`CostView/tests/test_evaluation.py`（`TestStrataDescription` / `TestStratified` /
+`TestEvaluationReportOrchestration` / `TestEvaluationEndpoint` / `TestEvaluationReportSection`）；
+`TestSpecBinding` 断言 `report_spec` 声明与实现常量一致。
+
 ## 后果 (Consequences)
 
 ### 正面

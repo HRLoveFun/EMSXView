@@ -26,10 +26,12 @@
 | T12 | `use-batch-route-state.ts` 对账逻辑派生化：`rows` 改为由 `orders × rowState × selectedBrokers` 派生，对账 effect 删除 | `docs/archive/2026-09-21/022-t11-async-data-layer/plan.md` §4 | ✅ | 2026-09-21 完成（`docs/archive/2026-09-21/023-t12-batch-route-derive` 测试网 + `docs/archive/2026-09-21/024-t12-rows-derive` 派生化）：两个对账 effect 删除，写入口改为以派生视图为基准；`paramsBuildersRef` 副作用移出 updater（StrictMode 二次执行隐患同时消除）。顺带修正「新增行不补槽」的不对称与 023 用例拿 `undefined` 当券商的问题 |
 | T13 | 归档 spec 的未收尾事项：① EMSXDataPipeline 侧 Runner 常驻部署（`emsx-runner` :8100）/ 独立仓 CI 回归 / `PIPELINE_REPORT_CMD` 报告钩子；② `.codebuddy/rules/module-boundary.md` 双仓边界条目（`data_access` 只读层 + 禁 import DataPipeline）；③ 三模块独立部署评估（iframe / Module Federation） | `docs/archive/2026-09-21/010-extract-pipeline/plan.md` TODO-2~5；`docs/archive/2026-09-21/012-executionview-root-extract/plan.md` §7.3 | ⏳ | 2026-09-21 随 spec 归档由计划末尾转记于此（此前的 TODO-1 已完成、TODO-6 已失效）；三项均属本仓库之外的后续/可选演进 |
 | T15 | 归档 spec 的未收尾事项（026）：**可选上游物化需求** —— 请上游将 `adv_20d` / `daily_volatility` 物化到 `tca_route_summary` 列（触发条件：跨库读取覆盖率不足或报告耗时不可接受） | `docs/archive/2026-09-21/026-costview-algo-eval/plan.md` §6 U-1 | ⏳ | 2026-09-21 随 spec 归档由计划 §6 转记于此；属**可选性能优化型、非正确性前置**（阶段二实测本侧可经 `bdib_daily_summary` 自给：`adv_20d` 99.39% / `daily_volatility` 99.94%，未触发）。原同批的 U-2（`fill_bdib` 与 `raw_bdib` 两表 `mkt_timestamp` 口径统一）经 Q2-4 实测**两表同格式**（均 8 字符纯时间），**不触发**，故不计入本条 |
-| T16 | 评估端点 `POST /api/tca/evaluation/compare` 的**门控降级分支缺自动化用例**：`TCA_EVAL_ENABLED=0` 的早返回分支（`CostView/api/routers/costview.py` 的 `evaluation_compare`）无端点级测试覆盖；「无 scipy」场景依赖 import 期失败，亦无用例 | `docs/archive/2026-09-21/026-costview-algo-eval/checklists/progress.md` Checkpoint 3-C（遗留 026-L3） | ⏳ | 2026-09-21 归档后回写进度时**如实标注为未覆盖**（未补勾）。分支本身为直读早返回、风险低，但按「降级必须可见」的既有约定应予覆盖；补测需在 `CostView/tests/` 增加端点级用例（含 `TCA_EVAL_ENABLED` 开关切换） |
+
+
 
 ## 已完成
 
 | # | 事项 | 来源 | 状态 | 备注 |
 |---|------|------|------|------|
-| T14 | CostView 券商算法执行质量评估体系三阶段计划（周度频率 / 分市场 / 控制执行环境变量 / 科学方法） | `docs/archive/2026-09-21/026-costview-algo-eval/plan.md` | ✅ | 2026-09-21 全部交付：计划与阶段一（#68）、阶段二（#69）、阶段三模块与口径（#70）、阶段三收尾（#71）；spec 同日归档。含 ISO 周聚合维度、真实环境变量分层（探测-自给-跨仓三级降级链）、`CostView/src/evaluation/` 推断层与 `POST /api/tca/evaluation/compare`（服务端强制可比性）。K1 费用口径按计划不纳入；未收尾的上游可选项转 T15 |
+| T14 | CostView 券商算法执行质量评估体系三阶段计划（周度频率 / 分市场 / 控制执行环境变量 / 科学方法） | `docs/archive/2026-09-21/026-costview-algo-eval/plan.md` | ✅ | 2026-09-21 全部交付：计划与阶段一（#68）、阶段二（#69）、阶段三模块与口径（#70）、阶段三收尾（#71）；spec 同日归档。含 ISO 周聚合维度、真实环境变量分层（探测-自给-跨仓三级降级链）、`CostView/src/evaluation/` 推断层与 `POST /api/tca/evaluation/compare`（服务端强制可比性）。K1 费用口径按计划不纳入；未收尾的上游可选项转 T15。**注**：其评估形态（用户选维度 / 基准 / 方法）经用户反馈判定与需求不符，已由 027 重写为综合评估报告 |
+| T16 | 评估端点门控降级分支缺自动化用例（`TCA_EVAL_ENABLED=0` 的端点级覆盖） | `docs/archive/2026-09-21/026-costview-algo-eval/checklists/progress.md` Checkpoint 3-C（遗留 026-L3） | ✅ | 2026-09-21 由 027 补齐：`CostView/tests/test_evaluation.py::TestEvaluationEndpoint::test_gate_disabled_is_explicit`（monkeypatch 门控开关 → 断言 `enabled=False` / `sections=None` / 消息含开关名） |

@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
-import { AlertTriangle, RefreshCw, ShieldCheck, ShieldX } from 'lucide-react';
+import { useAsyncData } from '@shared/hooks/use-async-data';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -12,109 +12,134 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { fetchEvaluationComparison } from '../services/api';
+import { fetchEvaluationReport } from '../services/api';
 import { analysisFiltersToPayload } from '../lib/filters';
 import type {
   CostViewFilterFormState,
-  EvaluationBenchmark,
-  EvaluationComparisonReport,
-  EvaluationCorrection,
-  EvaluationMethod,
-  ScorecardCohort,
+  EvaluationDimensionBlock,
+  EvaluationGroupRow,
+  EvaluationReport,
+  EvaluationReportRequest,
+  Granularity,
 } from '../types';
 
-/** 026 阶段三：评估层视图（可比性判定 / 统计检验 / 功效指引）。
+/** 算法执行质量综合评估（027）。
  *
- *  三条约束都在**服务端**执行，本组件只做呈现、不承担约束责任：
- *  - 不可比时后端不返回比较数值，故此处渲染「不可比」判定而非空表；
- *  - 基准必填（D1 基准冻结，服务端无默认值）；
- *  - 未校正与校正后的 p 值**并列**展示，不掩盖多重比较代价。
+ *  **唯一输入是时间范围**（与 Report 同一筛选状态）—— 比较维度、基准、检验方法
+ *  均不由用户选择：维度遍历七个、基准与方法全部并列。026 的「选维度 / 选基准 /
+ *  选方法」形态已按需求修正移除。
+ *
+ *  「不可比」不再是终止态：组间比较在控制维度的**共同层内**进行并按层样本量加权
+ *  合并，层覆盖率与置信度随行披露。
  */
 
-const COHORT_OPTIONS: Array<{ value: ScorecardCohort; label: string }> = [
-  { value: 'broker', label: 'Broker' },
-  { value: 'strategy', label: 'Strategy (algo)' },
-  { value: 'broker_strategy', label: 'Broker × Strategy' },
-  { value: 'asset_class', label: 'Asset class' },
-  { value: 'time_of_day', label: 'Time of day' },
-  { value: 'liquidity_adv20', label: 'Liquidity (ADV20)' },
-  { value: 'volatility', label: 'Volatility' },
+/** 趋势与稳定性的聚合粒度（与后端 report_measure.GRANULARITIES 同契约） */
+const GRANULARITY_OPTIONS: Array<{ value: Granularity; label: string }> = [
+  { value: 'day', label: '按日' },
+  { value: 'week', label: '按周（ISO 周）' },
+  { value: 'month', label: '按月' },
 ];
 
-const BENCHMARK_OPTIONS: Array<{ value: EvaluationBenchmark; label: string }> = [
-  { value: 'vwap', label: 'VWAP' },
-  { value: 'arrival', label: 'Arrival' },
-  { value: 'close', label: 'Close' },
-  { value: 'is', label: 'Implementation shortfall' },
-];
+const DIMENSION_LABELS: Record<string, string> = {
+  broker: '券商',
+  strategy: '算法',
+  broker_strategy: '券商 × 算法',
+  asset_class: '资产类别',
+  time_of_day: '交易时段',
+  liquidity_adv20: '流动性（ADV20）',
+  volatility: '波动率',
+};
 
-const METHOD_OPTIONS: Array<{ value: EvaluationMethod; label: string; hint: string }> = [
-  { value: 't-test', label: 't 检验 (Welch)', hint: '比较均值，对尾部不敏感' },
-  { value: 'ks', label: 'Kolmogorov-Smirnov', hint: '比较整条分布，不假设正态' },
-  { value: 'chi2', label: 'χ²（分桶）', hint: '看分布形状迁移' },
-];
+const CONFIDENCE_LABELS: Record<string, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+};
 
-const CORRECTION_OPTIONS: Array<{ value: EvaluationCorrection; label: string }> = [
-  { value: 'bh', label: 'Benjamini-Hochberg（FDR）' },
-  { value: 'bonferroni', label: 'Bonferroni（FWER）' },
-];
+const fmt = (value: number | null | undefined, digits = 2, suffix = ''): string =>
+  value == null || !Number.isFinite(value) ? '—' : `${value.toFixed(digits)}${suffix}`;
 
-/** 单次取数的路由上限（与后端 ``max_orders`` 默认值一致） */
-const MAX_ORDERS = 2000;
+const signed = (value: number | null | undefined, digits = 2): string =>
+  value == null || !Number.isFinite(value)
+    ? '—'
+    : `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
 
 interface EvaluationViewProps {
   analysisFilters: CostViewFilterFormState;
 }
 
-const fmt = (value: number | null | undefined, digits = 3): string =>
-  value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
-
 export function EvaluationView({ analysisFilters }: EvaluationViewProps) {
-  const [cohort, setCohort] = useState<ScorecardCohort>('broker');
-  const [benchmark, setBenchmark] = useState<EvaluationBenchmark>('vwap');
-  const [method, setMethod] = useState<EvaluationMethod>('t-test');
-  const [correction, setCorrection] = useState<EvaluationCorrection>('bh');
-  const [minGroupSample, setMinGroupSample] = useState(10);
-  const [report, setReport] = useState<EvaluationComparisonReport | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [granularity, setGranularity] = useState<Granularity>('week');
+  const [report, setReport] = useState<EvaluationReport | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  const buildRequest = useCallback(
+    (): EvaluationReportRequest => ({
+      filters: analysisFiltersToPayload(analysisFilters),
+      granularity,
+    }),
+    [analysisFilters, granularity],
+  );
+
+  const applyReport = useCallback((data: EvaluationReport) => setReport(data), []);
+
+  // 进入视图即按当前时间范围自动评估（无需先做任何选择）
+  const { isLoading: isInitialLoading, error: initialError } = useAsyncData(
+    'evaluation-initial',
+    () => fetchEvaluationReport(buildRequest()),
+    applyReport,
+  );
 
   const runEvaluation = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+    setIsRunning(true);
+    setRunError(null);
     try {
-      const next = await fetchEvaluationComparison({
-        cohort,
-        benchmark,
-        filters: analysisFiltersToPayload(analysisFilters),
-        method,
-        correction,
-        min_group_sample: minGroupSample,
-        max_orders: MAX_ORDERS,
-      });
-      setReport(next);
+      setReport(await fetchEvaluationReport(buildRequest()));
     } catch (cause) {
-      setReport(null);
-      setError(cause instanceof Error ? cause.message : '评估请求失败');
+      setRunError(cause instanceof Error ? cause.message : '评估失败');
     } finally {
-      setIsLoading(false);
+      setIsRunning(false);
     }
-  }, [cohort, benchmark, method, correction, minGroupSample, analysisFilters]);
+  }, [buildRequest]);
+
+  const busy = isRunning || isInitialLoading;
+  const error = runError ?? (initialError ? initialError.message || '评估加载失败' : null);
+  const disabled = report != null && !report.enabled;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-xl border bg-card p-5 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 rounded-xl border bg-card p-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-xl font-semibold">算法执行质量评估</h2>
+          <h2 className="text-xl font-semibold">算法执行质量综合评估</h2>
           <p className="text-sm text-muted-foreground">
-            可比性判定 + 统计检验 + 样本功效。推断在**服务端**执行：不满足可比性条件时后端
-            不返回比较数值，因此页面不会出现「未经校验的均值排序」。
+            按当前时间范围自动评估全部比较维度与基准。组间比较在控制维度（市场 / 时段 /
+            流动性 / 波动率）的<b>共同层内</b>进行并按层样本量加权合并，层覆盖率与置信度
+            随行披露 —— 构成差异为披露项，不阻断结论。
           </p>
         </div>
-        <Button variant="outline" onClick={() => void runEvaluation()} disabled={isLoading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          {report ? '重新评估' : '开始评估'}
-        </Button>
+        <div className="flex items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">趋势粒度</Label>
+            <Select
+              value={granularity}
+              onValueChange={(value) => setGranularity(value as Granularity)}
+            >
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {GRANULARITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button variant="outline" onClick={() => void runEvaluation()} disabled={busy}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
+            重新评估
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -125,232 +150,277 @@ export function EvaluationView({ analysisFilters }: EvaluationViewProps) {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">评估设置</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-4">
-          <div className="space-y-1">
-            <Label className="text-xs">比较维度</Label>
-            <Select value={cohort} onValueChange={(value) => setCohort(value as ScorecardCohort)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {COHORT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">基准（必填）</Label>
-            <Select
-              value={benchmark}
-              onValueChange={(value) => setBenchmark(value as EvaluationBenchmark)}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {BENCHMARK_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              基准冻结：服务端不设默认值，避免事后挑选最有利基准。
-            </p>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">检验方法</Label>
-            <Select value={method} onValueChange={(value) => setMethod(value as EvaluationMethod)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {METHOD_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {METHOD_OPTIONS.find((option) => option.value === method)?.hint}
-            </p>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">多重比较校正</Label>
-            <Select
-              value={correction}
-              onValueChange={(value) => setCorrection(value as EvaluationCorrection)}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {CORRECTION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="pt-1">
-              <Label className="text-xs">最小分组样本</Label>
-              <Input
-                type="number"
-                min={2}
-                max={1000}
-                value={minGroupSample}
-                onChange={(event) =>
-                  setMinGroupSample(Math.max(2, Math.min(1000, Number(event.target.value) || 2)))
-                }
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {disabled ? (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>评估层未启用</AlertTitle>
+          <AlertDescription>
+            TCA_EVAL_ENABLED=0；sections 为空<b>不代表</b>无数据，且不提供未校验的均值比较作为回退。
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
-      {report ? <EvaluationResult report={report} /> : null}
+      {report?.enabled && report.sections ? (
+        <>
+          <ReportOverview report={report} />
+          {report.sections.dimensions.map((block) => (
+            <DimensionPanel key={block.dimension} block={block} />
+          ))}
+          <TrendPanel report={report} />
+          <RiskAndMarketPanel report={report} />
+        </>
+      ) : null}
     </div>
   );
 }
 
-function EvaluationResult({ report }: { report: EvaluationComparisonReport }) {
-  if (!report.enabled) {
-    return (
-      <Alert>
-        <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>评估层未启用</AlertTitle>
-        <AlertDescription>
-          TCA_EVAL_ENABLED=0；comparisons 为空**不代表**无可比数据，
-          且不提供未校验的均值比较作为回退。
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
-  const verdict = report.verdict;
-  const comparable = Boolean(verdict?.comparable);
-
+function ReportOverview({ report }: { report: EvaluationReport }) {
+  const credibility = report.sections?.credibility as
+    | { total_routes?: number; correction?: string; alpha?: number }
+    | undefined;
   return (
-    <>
-      {comparable ? (
-        <Alert>
-          <ShieldCheck className="h-4 w-4" />
-          <AlertTitle>可比性判定通过</AlertTitle>
-          <AlertDescription>
-            共有分层 {verdict?.common_strata ?? 0} 个；分层分布失衡度均在阈值内，比较结论具备解释力。
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <Alert variant="destructive">
-          <ShieldX className="h-4 w-4" />
-          <AlertTitle>样本不可比 —— 不输出比较结论</AlertTitle>
-          <AlertDescription>
-            <ul className="mt-1 list-disc pl-5">
-              {(verdict?.reasons ?? ['原因未知']).map((reason) => (
-                <li key={reason}>{reason}</li>
-              ))}
-            </ul>
-            <p className="mt-2 text-xs">
-              失衡维度：{(verdict?.unmet_dimensions ?? []).join('、') || '—'}；
-              共有分层 {verdict?.common_strata ?? 0} 个。
-              按 B3，跨经纪商 / 跨策略比较只有在执行环境足够相似时才具有解释力。
-            </p>
-          </AlertDescription>
-        </Alert>
-      )}
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">评估概要</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-2 text-sm md:grid-cols-4">
+        <div>
+          <span className="text-muted-foreground">区间：</span>
+          {report.period.start_date} ~ {report.period.end_date}
+        </div>
+        <div>
+          <span className="text-muted-foreground">样本路由：</span>
+          {report.total_routes_considered ?? credibility?.total_routes ?? 0}
+          {report.total_routes_capped ? '（已截断）' : ''}
+        </div>
+        <div>
+          <span className="text-muted-foreground">比较维度：</span>
+          {report.dimensions_covered.length} 个
+        </div>
+        <div>
+          <span className="text-muted-foreground">主基准 / 校正：</span>
+          {report.primary_benchmark} / {credibility?.correction ?? '—'}
+        </div>
+        <div className="md:col-span-4 text-xs text-muted-foreground">
+          基准全部并列：{report.benchmarks.join(' / ')}；检验方法全部并列：t / KS / χ²（校正后 p 值为准）。
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">分组样本量（{report.dimension}）</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
+function DimensionPanel({ block }: { block: EvaluationDimensionBlock }) {
+  const label = DIMENSION_LABELS[block.dimension] ?? block.dimension;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          {label}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {block.groups_reported} / {block.group_count} 组
+            {block.truncated ? '（按样本量截断）' : ''} · 主基准 {block.primary_benchmark}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="px-2 py-1">分组</th>
                 <th className="px-2 py-1 text-right">样本量</th>
+                <th className="px-2 py-1 text-right">相对其余（层内加权）</th>
+                <th className="px-2 py-1 text-right">可信区间</th>
+                <th className="px-2 py-1 text-right">层数 / 覆盖</th>
+                <th className="px-2 py-1">置信度</th>
+                <th className="px-2 py-1 text-right">校正后 p</th>
               </tr>
             </thead>
             <tbody>
-              {report.groups.map((group) => (
-                <tr key={group.label} className="border-b border-border/60">
-                  <td className="px-2 py-1">{group.label}</td>
-                  <td className="px-2 py-1 text-right font-mono">{group.sample_size}</td>
+              {block.rows.map((row) => (
+                <GroupRow key={row.label} row={row} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <DimensionNotes block={block} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function GroupRow({ row }: { row: EvaluationGroupRow }) {
+  const stratified = row.vs_others;
+  const primary = row.tests['t-test'];
+  return (
+    <tr className="border-b border-border/60">
+      <td className="px-2 py-1">
+        {row.label}
+        {row.undersized ? <span className="ml-1 text-xs text-amber-600">样本不足</span> : null}
+      </td>
+      <td className="px-2 py-1 text-right font-mono">{row.sample_size}</td>
+      <td className="px-2 py-1 text-right font-mono">{signed(stratified.difference)}</td>
+      <td className="px-2 py-1 text-right font-mono">
+        [{signed(row.ci[0])}, {signed(row.ci[1])}]
+      </td>
+      <td className="px-2 py-1 text-right font-mono">
+        {stratified.strata_used} / {fmt(stratified.coverage * 100, 0, '%')}
+        {stratified.stratified ? '' : '（未分层）'}
+      </td>
+      <td className="px-2 py-1">{CONFIDENCE_LABELS[stratified.confidence] ?? stratified.confidence}</td>
+      <td className="px-2 py-1 text-right font-mono">{fmt(primary?.p_value_adjusted, 4)}</td>
+    </tr>
+  );
+}
+
+function DimensionNotes({ block }: { block: EvaluationDimensionBlock }) {
+  const { stratification, highlights } = block;
+  const alerts = [...(highlights.alerts ?? []), ...(stratification.alerts ?? [])];
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      <div>
+        控制维度：{stratification.dimensions.join(' / ')}；构成失衡（最差两两 TVD）：
+        {stratification.dimensions
+          .map((dim) => `${dim} ${fmt(stratification.imbalance[dim], 2)}`)
+          .join('，')}
+      </div>
+      {highlights.best || highlights.worst ? (
+        <div>
+          最优 {highlights.best?.label ?? '—'}（{signed(highlights.best?.difference)}）；
+          最差 {highlights.worst?.label ?? '—'}（{signed(highlights.worst?.difference)}）；
+          可检测效应 ≈ {fmt(highlights.minimum_detectable_effect)}
+        </div>
+      ) : null}
+      {alerts.length ? (
+        <ul className="list-disc pl-5">
+          {alerts.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function TrendPanel({ report }: { report: EvaluationReport }) {
+  const trend = report.sections?.trend;
+  if (!trend || !trend.series.length) {
+    return null;
+  }
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          时间趋势与稳定性
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {trend.granularity} · {trend.periods} 个期间
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-muted-foreground">
+              <th className="px-2 py-1">期间</th>
+              <th className="px-2 py-1 text-right">样本量</th>
+              <th className="px-2 py-1 text-right">均值</th>
+              <th className="px-2 py-1 text-right">中位数</th>
+              <th className="px-2 py-1 text-right">p95</th>
+              <th className="px-2 py-1 text-right">CVaR</th>
+              <th className="px-2 py-1 text-right">标准差</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trend.series.map((point) => (
+              <tr key={point.period} className="border-b border-border/60">
+                <td className="px-2 py-1">{point.period}</td>
+                <td className="px-2 py-1 text-right font-mono">{point.n}</td>
+                <td className="px-2 py-1 text-right font-mono">{signed(point.mean)}</td>
+                <td className="px-2 py-1 text-right font-mono">{signed(point.median)}</td>
+                <td className="px-2 py-1 text-right font-mono">{signed(point.p95)}</td>
+                <td className="px-2 py-1 text-right font-mono">{signed(point.cvar)}</td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(point.stddev)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RiskAndMarketPanel({ report }: { report: EvaluationReport }) {
+  const risk = report.sections?.risk ?? {};
+  const market = report.sections?.market;
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">风险与尾部（各基准并列）</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="px-2 py-1">基准</th>
+                <th className="px-2 py-1 text-right">样本量</th>
+                <th className="px-2 py-1 text-right">均值</th>
+                <th className="px-2 py-1 text-right">p95</th>
+                <th className="px-2 py-1 text-right">CVaR</th>
+                <th className="px-2 py-1 text-right">尾部占比</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(risk).map(([name, stats]) => (
+                <tr key={name} className="border-b border-border/60">
+                  <td className="px-2 py-1">{name}</td>
+                  <td className="px-2 py-1 text-right font-mono">{stats.n}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(stats.mean)}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(stats.p95)}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(stats.cvar)}</td>
+                  <td className="px-2 py-1 text-right font-mono">
+                    {fmt(stats.tail_share == null ? null : stats.tail_share * 100, 1, '%')}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </CardContent>
       </Card>
-
-      {report.comparisons.length ? (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">
-              两两比较（基准 {report.benchmark} · 指标 {report.benchmark_metric}）
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="px-2 py-1">组 A</th>
-                  <th className="px-2 py-1">组 B</th>
-                  <th className="px-2 py-1 text-right">n</th>
-                  <th className="px-2 py-1 text-right">均值差</th>
-                  <th className="px-2 py-1 text-right">区间</th>
-                  <th className="px-2 py-1 text-right">p</th>
-                  <th className="px-2 py-1 text-right">p（校正）</th>
-                  <th className="px-2 py-1">结论</th>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">
+            市场维度
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {market?.rows.length ?? 0} 个市场 · 主基准 {market?.primary_benchmark ?? '—'}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="max-h-80 overflow-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="px-2 py-1">市场</th>
+                <th className="px-2 py-1 text-right">样本量</th>
+                <th className="px-2 py-1 text-right">均值</th>
+                <th className="px-2 py-1 text-right">中位数</th>
+                <th className="px-2 py-1 text-right">p95</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(market?.rows ?? []).map((row) => (
+                <tr key={row.exchange} className="border-b border-border/60">
+                  <td className="px-2 py-1">{row.exchange}</td>
+                  <td className="px-2 py-1 text-right font-mono">{row.sample_size}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(row.mean)}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(row.median)}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(row.p95)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {report.comparisons.map((pair) => (
-                  <tr
-                    key={`${pair.left}|${pair.right}`}
-                    className="border-b border-border/60"
-                  >
-                    <td className="px-2 py-1">{pair.left}</td>
-                    <td className="px-2 py-1">{pair.right}</td>
-                    <td className="px-2 py-1 text-right font-mono">
-                      {pair.n_left}/{pair.n_right}
-                    </td>
-                    <td className="px-2 py-1 text-right font-mono">{fmt(pair.difference)}</td>
-                    <td className="px-2 py-1 text-right font-mono">
-                      [{fmt(pair.ci_low)}, {fmt(pair.ci_high)}]
-                    </td>
-                    <td className="px-2 py-1 text-right font-mono">{fmt(pair.p_value, 4)}</td>
-                    <td className="px-2 py-1 text-right font-mono">
-                      {fmt(pair.p_value_adjusted, 4)}
-                    </td>
-                    <td className="px-2 py-1">
-                      {pair.note
-                        ? pair.note
-                        : pair.significant
-                          ? '差异显著'
-                          : '未检出显著差异'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-2 text-xs text-muted-foreground">
-              结论以**校正后** p 值为准；未校正值一并列出，以便看到多重比较的代价。
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {report.power ? (
-        <p className="text-xs text-muted-foreground">
-          样本功效：最小分组 {report.power.smallest_group_size} 条（门槛 {report.power.min_group_sample}，
-          {report.power.sufficient ? '达标' : '未达标'}）；当前样本量下可检测的最小效应 ≈{' '}
-          {fmt(report.power.minimum_detectable_effect)} —— 低于该幅度的差异即使真实存在也无法被检出。
-        </p>
-      ) : null}
-
-      {report.total_routes_capped ? (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>样本已截断</AlertTitle>
-          <AlertDescription>
-            本次仅取前 {report.total_routes_considered ?? 0} 条路由参与评估，结论覆盖范围有限。
-          </AlertDescription>
-        </Alert>
-      ) : null}
-    </>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

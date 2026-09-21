@@ -48,6 +48,7 @@ import { SymbolSearchInput } from './SymbolSearchInput';
 import { AnomalyTable } from './report/AnomalyTable';
 import { BdibHealthAppendix } from './report/BdibHealthAppendix';
 import { CoverageTable } from './report/CoverageTable';
+import { EvaluationSummary } from './report/EvaluationSummary';
 import { ImpactBreakdownTable } from './report/ImpactBreakdownTable';
 import { MarketOverviewTable } from './report/MarketOverviewTable';
 import type {
@@ -705,9 +706,11 @@ export function ReportView() {
             <RankingBarChart title="Algo 排行（加权 pnl_vwap）" rows={report.rankings.by_algo} />
           </div>
           <PwpCurveChart data={report.pwp_curve} />
-          {/* 与 HTML 报告对齐：市场冲击分解 / 异常路由明细 / 指标覆盖率 / BDIB 缺口附录 */}
+          {/* 与 HTML 报告对齐：市场冲击分解 / 异常路由明细 / 综合评估 / 指标覆盖率 / BDIB 缺口附录 */}
           <ImpactBreakdownTable impact={report.impact_breakdown} coverage={report.weight_coverage} />
           <AnomalyTable anomaly={report.anomaly} />
+          {/* 027：综合评估摘要（与 HTML 章节同位置、同数据源） */}
+          <EvaluationSummary evaluation={report.evaluation} />
           <CoverageTable coverage={report.metric_coverage} />
           <BdibHealthAppendix health={health} />
 
