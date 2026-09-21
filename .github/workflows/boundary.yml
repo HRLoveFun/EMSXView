@@ -68,11 +68,12 @@ jobs:
           # 读取侧配置常量由仓库根 data_access/ 提供（PYTHONPATH 覆盖）
           pip install -e ../../platform_data --no-deps
           pip install -e ../../CostView --no-deps
-          pip install numpy pandas duckdb pyarrow python-dateutil pydantic psutil
+          pip install numpy pandas duckdb pyarrow python-dateutil pydantic psutil scipy
           pip install pytest-asyncio
-          # CostView 运行依赖：包级依赖（含 pandas）已在 pyproject.toml 声明，
+          # CostView 运行依赖：包级依赖（含 pandas / scipy）已在 pyproject.toml 声明，
           # 因采用 --no-deps 安装故此处显式补装；旧 CostView/requirements.txt
           # （含 blpapi 等 Bloomberg 遗留项）已于 2026-09-15 删除，故不再逐项补装其条目
+          # 026 阶段三：scipy 为评估层（src/evaluation）的统计检验 / 功效 / 成本回归依赖
           # 依赖内部包: 仓库根(platform_data/CostView/data_access) + blpapi stub
           echo "PYTHONPATH=$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/scripts/ci/blpapi_stub:$PYTHONPATH" >> "$GITHUB_ENV"
       - name: "边界测试 (硬阻断: 真正的边界违规)"

@@ -418,8 +418,12 @@ CostView/src/evaluation/          # [NEW] 推断层（ADR-0004 规划位置）
 
 **选 A**。理由：检验是核心交付物，**正确性不可妥协**；自实现需额外写大量对照测试，成本更高且风险更大。
 
-**约束**：
-- 依赖须**显式声明**于 `CostView/pyproject.toml` 与 `CostView/api/requirements.txt` 两处；
+**约束**（**修正**：原计划写「两处」有误 —— CI 用 `pip install -e ../../CostView --no-deps`
+加显式补装清单，**`pyproject.toml` 的声明在 CI 不生效**，必须三处协同）：
+- `CostView/pyproject.toml`：包级依赖声明（开发 / 部署路径生效）；
+- `CostView/api/requirements.txt`：注释指向 `pyproject.toml`（避免两处重复声明漂移）；
+- `.github/workflows/boundary.yml` 的 pip 补装清单：**CI 实际生效处** —— 首次提交漏改该处，
+  已由后端测试失败暴露并修正；
 - **不引入 `statsmodels`**：样本功效改用正态近似闭式公式自实现（见 §5.5），仅复用 `scipy.stats` 的分位数；
 - 引入前须核实本机可安装（Checkpoint 3-A）。
 

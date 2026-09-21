@@ -14,6 +14,11 @@ dependencies = [
     # CostView/requirements.txt 隐式提供；补此声明以保持全新环境可安装（python-dateutil
     # 由 pandas 传递依赖带入，无需独立声明）。
     "pandas>=2.0.0",
+    # scipy 是评估层（026 阶段三）的统计检验 / 样本功效 / 成本回归依赖。DP-3-1 裁定引入：
+    # 检验正确性不可妥协，不自行实现 t / KS / χ²；不引入 statsmodels —— 样本功效由
+    # src/evaluation/power.py 以正态近似闭式公式自实现（仅复用 scipy 分位数）。
+    # numpy 由 scipy / pandas 传递带入（既有代码 data_access/config.py 已在用）。
+    "scipy>=1.11",
     "emsxview-platform-data",
     # 注：emsxview-datapipeline 已于 2026-09-16 移除——010-extract-pipeline 后管道
     # 迁至独立仓库 EMSXDataPipeline，CostView 为只读消费者且禁止 import

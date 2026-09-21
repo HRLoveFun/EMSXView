@@ -11,7 +11,7 @@
 | 计划编制 | `plan.md` + `research.md` + 本文件 | ⏳ 进行中 | — | — |
 | 阶段一 | 周度聚合与分市场深化 | 🟡 实施完成，待合入 | 无 | — |
 | 阶段二 | 执行环境变量精确化 | 🟡 后端完成，前端待补 | 无硬依赖（与阶段一可并行） | — |
-| 阶段三 | 科学方法评估层 | ⏳ 未开工 | **硬依赖阶段二 L1 真实环境变量** | — |
+| 阶段三 | 科学方法评估层 | 🟡 评估模块完成，端点 / 前端待补 | 阶段二 L1（**已具备**） | — |
 
 ---
 
@@ -102,25 +102,25 @@
 
 ### 开工前（Checkpoint 3-A，阻塞）
 
-- [ ] `scipy` 可安装性验证（不引入 `statsmodels`）
-- [ ] DP-3-1 依赖决策确认 + 两处显式声明位置确认
-- [ ] DP-3-2 可比性判定强制位置确认（服务端）
-- [ ] DP-3-3 基准参数不可默认确认
+- [x] `scipy` 可安装性验证 —— 结论：**scipy 1.15.3 / numpy 2.3.0 可用**，`ttest_ind` / `ks_2samp` / `chi2_contingency` / `linregress` 齐备（2026-09-21）
+- [x] DP-3-1 依赖决策确认 + 两处显式声明位置确认 —— 选定 A（引入 `scipy>=1.11`）；`pyproject.toml` 声明，`api/requirements.txt` 加注释指向（避免两处漂移）；**不引入 statsmodels**（2026-09-21）
+- [x] DP-3-2 可比性判定强制位置确认（服务端）—— `assess_comparability` 返回结构化判定，不可比时不输出比较数值（2026-09-21）
+- [x] DP-3-3 基准参数不可默认确认 —— `evaluation_metadata(benchmark=…)` 无默认值，缺失即 `ValueError`（2026-09-21）
 
 ### 实施
 
-- [ ] `evaluation/__init__.py`（`__all__` + 导出护栏测试，对齐 `monitoring` 包约定）
-- [ ] `evaluation/comparability.py`（分层 / 配对 + 可比性判定）
-- [ ] `evaluation/stats_tests.py`（t / KS / χ² + 可信区间 + 多重比较校正）
-- [ ] `evaluation/power.py`（正态近似功效，不引入 statsmodels）
-- [ ] `evaluation/cost_model.py`（成本回归 + 冲击函数估计，域外不外推）
-- [ ] `evaluation/governance.py`（版本锁定 / 基准冻结 / 漂移监测元数据）
-- [ ] 新端点 `POST /api/tca/evaluation/compare` + `TCA_EVAL_ENABLED` 门控
-- [ ] `/api/tca/capabilities` 增列 `evaluation`
-- [ ] `scipy` 两处依赖声明
-- [ ] 前端评估视图
-- [ ] `report_spec.py` 评估口径声明 + `SPEC_VERSION` bump
-- [ ] 三处口径文档同步（含是否新增 ADR 的判断）
+- [x] `evaluation/__init__.py`（`__all__` + 导出护栏测试，对齐 `monitoring` 包约定）（2026-09-21）
+- [x] `evaluation/comparability.py`（分层 + 可比性判定；TVD 失衡度量；环境维度复用 `tca_utils` 分桶单点）（2026-09-21）
+- [x] `evaluation/stats_tests.py`（t / KS / χ² + bootstrap 可信区间 + 多重比较校正）（2026-09-21）
+- [x] `evaluation/power.py`（正态近似功效 / MDE，不引入 statsmodels）（2026-09-21）
+- [x] `evaluation/cost_model.py`（幂律冲击函数估计，域外不外推、不作事前预测）（2026-09-21）
+- [x] `evaluation/governance.py`（版本锁定 / 基准冻结 / 数据血缘 / 降级披露；基准不可默认）（2026-09-21）
+- [ ] 新端点 `POST /api/tca/evaluation/compare` + `TCA_EVAL_ENABLED` 门控 —— **待补**
+- [ ] `/api/tca/capabilities` 增列 `evaluation` —— **待补**
+- [x] `scipy` 依赖声明 **三处协同**（2026-09-21）：`pyproject.toml` 包级声明 + `api/requirements.txt` 注释指向 + **`.github/workflows/boundary.yml` 补装清单** —— CI 以 `--no-deps` 安装 CostView，pyproject 声明在 CI **不生效**；首次提交漏改该处，由后端测试 `ModuleNotFoundError: scipy` 暴露并修正
+- [ ] 前端评估视图 —— **待补**
+- [x] `report_spec.py` 评估口径声明 + `SPEC_VERSION` bump（`2026.09.7` → `2026.09.8`）（2026-09-21）
+- [x] 三处口径文档同步（`report_spec` / `report-tca-known-limitations` 第十四轮 / ADR-0018 §10.8；**不需新建 ADR** —— 归入既有 0018 口径治理线）（2026-09-21）
 
 ### 合入前（Checkpoint 3-B / 3-C）
 

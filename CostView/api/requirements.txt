@@ -24,3 +24,7 @@ sqlalchemy==2.0.37
 python-dotenv==1.0.0
 python-dateutil==2.8.2
 orjson==3.9.10
+
+# 评估层统计依赖（scipy，026 阶段三 DP-3-1）随 CostView 域依赖声明
+# —— 见 ../pyproject.toml 的 [project].dependencies（此处不重复声明，避免两处漂移）
+
