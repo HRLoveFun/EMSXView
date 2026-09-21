@@ -61,6 +61,9 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 - 仍在引用 app/、emsxview-backend/ 等旧路径
 - 已被新的 source-of-truth 文档替代
 
+归档后计划**保留原编号与目录名**：`docs/archive/YYYY-MM-DD/<feature-id>/`。`specs/` 只承载在途计划，
+活文档与代码注释引用已归档计划时一律指向归档路径（2026-09-16、2026-09-21 两批归档即此约定）。
+
 ---
 
 ## 6. Maintenance Rule Of Thumb

@@ -14,7 +14,8 @@
 
 "某个模块的源码在哪个目录"此前散落 4 处（gate 配置 / cleanup 配置 / audit 脚本 / 边界测试），
 迁移模块时漏改的后果是**静默的**：模块在 import 图里不可达 ⇒ OE-01、CL-10 批量误报；
-边界规则匹配不到任何文件 ⇒ 守卫形同关闭而 CI 依然全绿。specs/017 将事实收敛为一份，
+边界规则匹配不到任何文件 ⇒ 守卫形同关闭而 CI 依然全绿。
+docs/archive/2026-09-21/017-frontend-topology-single-source 将事实收敛为一份，
 本文件负责让"收敛后不再漂移"这件事可被机器验证。
 
 执行: pytest backend/api/tests/boundaries/test_frontend_module_layout.py -v

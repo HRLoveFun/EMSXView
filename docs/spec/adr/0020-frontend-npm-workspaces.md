@@ -6,7 +6,7 @@
 
 ## 背景 (Context)
 
-ADR-0019 之后，ExecutionView 已独立为仓库根级目录 `ExecutionView/`（见 `specs/012-executionview-root-extract/plan.md`）。
+ADR-0019 之后，ExecutionView 已独立为仓库根级目录 `ExecutionView/`（见 `docs/archive/2026-09-21/012-executionview-root-extract/plan.md`）。
 这带来两个与依赖解析相关的问题：
 
 1. **裸包解析断裂**：Node / TypeScript / Vite 解析裸包说明符（`react`、`lucide-react` …）时是从**引用方文件所在目录逐级向上**查找 `node_modules`。源码离开 `frontend/` 后，仓库根没有 `node_modules`，`ExecutionView/**` 下所有裸包导入都会解析失败（实测 `TS2307: Cannot find module 'react'`）。
@@ -47,7 +47,7 @@ ADR-0019 之后，ExecutionView 已独立为仓库根级目录 `ExecutionView/`�
 ### 对其他 ADR 的影响
 
 - 被引用: ADR-0008（前端模块自注册模式）——本决策不改模块发现机制，只改依赖拓扑。
-- 关联: `specs/012-executionview-root-extract/plan.md`（本 ADR 落实其 §7「后续」第 1 项）。
+- 关联: `docs/archive/2026-09-21/012-executionview-root-extract/plan.md`（本 ADR 落实其 §7「后续」第 1 项）。
 
 ## 备选方案 (Considered Alternatives)
 

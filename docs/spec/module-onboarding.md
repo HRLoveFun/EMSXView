@@ -13,7 +13,7 @@
 ### A.1 创建目录结构
 
 ```
-<NewModule>/                     # 仓库根级目录（与 frontend/ 平级；specs/012、018 已把三模块迁至此形态）
+<NewModule>/                     # 仓库根级目录（与 frontend/ 平级；docs/archive/2026-09-21/012-executionview-root-extract、018-costview-marketview-root-extract 已把三模块迁至此形态）
 ├── module/                    # 模块实现
 │   ├── components/            # 模块内组件
 │   ├── hooks/                 # 模块内 Hook

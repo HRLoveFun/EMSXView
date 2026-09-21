@@ -3,7 +3,7 @@
 > 状态: Accepted（**默认值已随 010-extract-pipeline 变更**）
 > 日期: 2026-09-02
 > 标签: data, storage, sqlite, configuration, refactoring
-> 特性: specs/009-external-data-store（分支 `009-external-data-store`）
+> 特性: docs/archive/2026-09-21/009-external-data-store（分支 `009-external-data-store`）
 >
 > **修订说明（010-extract-pipeline）**：本文中的 `DataPipeline/*` 路径现已迁至独立仓库 EMSXDataPipeline；本仓库对应物为 `data_access/*`（`data_access/config.py`、`data_access/storage/connection.py`）。数据根默认值由 `~/EMSXViewData/data` 改为 `Config.DEFAULT_DATA_DIR`（见 `data_access/config.py`），`EMSXVIEW_DATA_DIR` 仍可显式覆盖。文档引用一律使用仓库相对路径，不写具体磁盘路径。
 

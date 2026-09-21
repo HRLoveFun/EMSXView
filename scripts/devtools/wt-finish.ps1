@@ -6,10 +6,10 @@
 # 另注: git cherry 的 squash 识别是**逐 commit 比对 patch-id** —— 多提交分支被 squash 后每个
 #       commit 的 patch-id 都不等于合并出的那一个，会被判为未合并而保守拒绝，需确认 PR 已
 #       MERGED 后加 -Force；避免之道是「一分支一提交」（docs/spec/git-workflow.md §4）。
-# 加固 (2026-09-16, specs/016-wt-finish-robustness)：Windows 上 git worktree remove 可能
+# 加固 (2026-09-16, docs/archive/2026-09-21/016-wt-finish-robustness)：Windows 上 git worktree remove 可能
 #       「注册表已注销、目录删不掉」（目录内文件被进程占用：dev server / 测试 / 终端 cwd /
 #       node_modules 句柄）。此时不再抛裸异常中断，而是 prune + 继续删分支 + 打印清理指引。
-# 指引收敛 (2026-09-21, specs/025-wt-residual-cleanup-guidance)：残留目录的清理指引由「裸
+# 指引收敛 (2026-09-21, docs/archive/2026-09-21/025-wt-residual-cleanup-guidance)：残留目录的清理指引由「裸
 #       Remove-Item」改为仓库工具 wt-clean.ps1（它带锁保护 / 强制须指名 / _tmp 在途保护）——
 #       实测该形态残留会反复出现（020/022/023/024 各一次），而裸递归删除会绕过上述保护。
 [CmdletBinding()]
