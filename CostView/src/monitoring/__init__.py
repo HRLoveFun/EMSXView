@@ -4,7 +4,7 @@
     time_range        — 互斥时间范围解析（--start/--end vs --last 预设）
     bdib_health       — BDIB 数据健康扫描（SQLite 热数据 + Parquet 分区双源）
     metric_coverage   — tca_route_summary 38 项计算指标覆盖率聚合
-    report_measure    — 报告口径实现唯一来源（作用域/加权与覆盖/订单级聚合/金额回退）
+    report_measure    — 报告口径实现唯一来源（作用域/加权与覆盖/订单级聚合/金额回退/粒度与期间键）
     report_spec       — 报告口径声明唯一来源（脚注、版本号与测试断言的事实源）
     report_aggregator — TCA 可视化报告聚合（KPI/分布/走势/排行/PWP/冲击/异常明细）
     tca_report_html   — 自包含 HTML 报告渲染器（内联 CSS + SVG 图表，零外部依赖）
@@ -44,6 +44,8 @@ from .anomaly_query import (
     query_anomaly_routes_page_ex,
 )
 from .report_measure import (
+    DEFAULT_GRANULARITY,
+    GRANULARITIES,
     ReportScope,
     resolve_scope,
 )
@@ -78,6 +80,8 @@ __all__ = [
     "export_anomaly_rows_csv",
     "ReportScope",
     "resolve_scope",
+    "GRANULARITIES",
+    "DEFAULT_GRANULARITY",
     "get_filter_options",
     "REPORT_SPEC",
     "SPEC_VERSION",

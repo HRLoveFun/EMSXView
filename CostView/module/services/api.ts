@@ -1,5 +1,6 @@
 import type {
   BdibHealthReport,
+  Granularity,
   LastPreset,
   MetricCoverageReport,
   ScorecardReport,
@@ -260,10 +261,12 @@ export async function fetchMetricCoverage(
   query: MonitoringQuery,
   metrics?: string[],
   groupByExchange = false,
+  granularity?: Granularity,
 ): Promise<MetricCoverageReport> {
   const extra: Record<string, string> = {};
   if (metrics?.length) extra.metrics = metrics.join(',');
   if (groupByExchange) extra.group_by_exchange = 'true';
+  if (granularity) extra.granularity = granularity;
   return fetchMonitoringJson<MetricCoverageReport>(
     buildMonitoringUrl('/api/tca/monitoring/metric-coverage', query, extra),
   );
@@ -279,6 +282,8 @@ interface ReportSummaryQuery extends MonitoringQuery {
   thresholds?: Record<string, ExportHtmlThresholdPayload>;
   minFillCount?: number;
   minNotionalUsd?: number;
+  /** 026: 聚合粒度（day/week/month；不传则由后端按 day 取默认） */
+  granularity?: Granularity;
 }
 
 /** 将单值/数组筛选参数序列化为逗号分隔串 */
@@ -301,6 +306,7 @@ export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<
   if (query.metrics?.length) extra.metrics = query.metrics.join(',');
   if (query.minFillCount != null) extra.min_fill_count = String(query.minFillCount);
   if (query.minNotionalUsd != null) extra.min_notional_usd = String(query.minNotionalUsd);
+  if (query.granularity) extra.granularity = query.granularity;
   // 008: 阈值覆盖随查询下发（JSON 串，与 export-html 端点同契约）
   if (query.thresholds && Object.keys(query.thresholds).length) {
     extra.thresholds = JSON.stringify(query.thresholds);
@@ -341,6 +347,8 @@ interface ExportHtmlQuery extends MonitoringQuery {
   thresholds?: Record<string, ExportHtmlThresholdPayload>;
   minFillCount?: number;
   minNotionalUsd?: number;
+  /** 026: 聚合粒度（与页面视图同参数，导出报告与页面口径一致） */
+  granularity?: Granularity;
 }
 
 /** 006: 一键导出 HTML 报告（附件下载）。返回下载文件名。 */
@@ -366,6 +374,9 @@ export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
   }
   if (query.minNotionalUsd != null) {
     params.set('min_notional_usd', String(query.minNotionalUsd));
+  }
+  if (query.granularity) {
+    params.set('granularity', query.granularity);
   }
 
   const response = await fetch(

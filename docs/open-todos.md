@@ -25,6 +25,7 @@
 | T11 | 复核 6 处「与外部系统同步」类 `set-state-in-effect` 豁免 | `docs/archive/2026-09-21/020-react-hooks-set-state-debt/plan.md` | ✅ | 2026-09-16（`docs/archive/2026-09-21/022-t11-async-data-layer`）：新增仓库内取数层 `@shared/hooks/use-async-data`（loading 由 key 派生、setState 只在回调内，7 条契约测试），**5 处 fetch 豁免全部删除**；第 6 处（对账）转 T12 |
 | T12 | `use-batch-route-state.ts` 对账逻辑派生化：`rows` 改为由 `orders × rowState × selectedBrokers` 派生，对账 effect 删除 | `docs/archive/2026-09-21/022-t11-async-data-layer/plan.md` §4 | ✅ | 2026-09-21 完成（`docs/archive/2026-09-21/023-t12-batch-route-derive` 测试网 + `docs/archive/2026-09-21/024-t12-rows-derive` 派生化）：两个对账 effect 删除，写入口改为以派生视图为基准；`paramsBuildersRef` 副作用移出 updater（StrictMode 二次执行隐患同时消除）。顺带修正「新增行不补槽」的不对称与 023 用例拿 `undefined` 当券商的问题 |
 | T13 | 归档 spec 的未收尾事项：① EMSXDataPipeline 侧 Runner 常驻部署（`emsx-runner` :8100）/ 独立仓 CI 回归 / `PIPELINE_REPORT_CMD` 报告钩子；② `.codebuddy/rules/module-boundary.md` 双仓边界条目（`data_access` 只读层 + 禁 import DataPipeline）；③ 三模块独立部署评估（iframe / Module Federation） | `docs/archive/2026-09-21/010-extract-pipeline/plan.md` TODO-2~5；`docs/archive/2026-09-21/012-executionview-root-extract/plan.md` §7.3 | ⏳ | 2026-09-21 随 spec 归档由计划末尾转记于此（此前的 TODO-1 已完成、TODO-6 已失效）；三项均属本仓库之外的后续/可选演进 |
+| T14 | CostView 券商算法执行质量评估体系三阶段计划在途（周度频率 / 分市场 / 控制执行环境变量 / 科学方法）；含**可选上游物化需求**：`adv_20d` / `daily_volatility` 落 `tca_route_summary` 列，与两表 `mkt_timestamp` 格式口径统一 | `specs/026-costview-algo-eval/plan.md` §6 | ⏳ | 2026-09-21 建计划（分支 `026-costview-algo-eval`）；阶段一 / 二可立即开工，阶段三硬依赖阶段二 L1 真实环境变量；上游两项均为可选性能优化型、非正确性前置；K1 费用口径不纳入 |
 
 ## 已完成
 

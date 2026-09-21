@@ -168,8 +168,14 @@ class MetricCoverageService:
         metrics: Optional[list[str]] = None,
         group_by_exchange: bool = False,
         scope: Optional[rm.ReportScope] = None,
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> dict[str, Any]:
-        """按日期（可选 ×Exchange）统计各指标非 NULL 率。
+        """按期间（可选 ×Exchange）统计各指标非 NULL 率。
+
+        granularity：聚合粒度（day / week / month，默认 day）。day 粒度下分组键值
+        保持为原始 ``YYYYMMDD``，产出与引入粒度参数前逐字节一致；week / month 的
+        分组键为 ``YYYY-Www`` / ``YYYY-MM``，跨年周按 ISO 8601 归属（期间键为
+        report_measure 单点实现，见 plan §3.1.0）。
 
         scope 为报告作用域（None → 默认 BDIB 白名单口径），与 KPI / 异常 / 健康扫描
         共用同一分母：白名单外市场本就不拉 BDIB、指标必然 NULL；用户按市场过滤时
@@ -189,6 +195,7 @@ class MetricCoverageService:
         """
         selected = validate_metrics(metrics)
         resolved = scope or rm.resolve_scope(None)
+        resolved_granularity = rm.validate_granularity(granularity)
         conn = None
         consistency: Optional[dict[str, Any]] = None
         try:
@@ -196,16 +203,19 @@ class MetricCoverageService:
             if not self._table_exists(conn):
                 return self._empty_result(
                     start_date, end_date, selected, group_by_exchange, resolved,
+                    resolved_granularity,
                     warning="tca_route_summary 不存在 — 请先运行管道 S5.5",
                 )
             rows = self._query_coverage(
                 conn, start_date, end_date, selected, group_by_exchange, resolved,
+                resolved_granularity,
             )
             consistency = self._query_consistency(conn, start_date, end_date, resolved)
         except FileNotFoundError:
             # 只读模式下 fill_bdib.db 缺失 → 空覆盖率（与表缺失同语义, 009）
             return self._empty_result(
                 start_date, end_date, selected, group_by_exchange, resolved,
+                resolved_granularity,
                 warning="tca_route_summary 不存在 — 请先运行管道 S5.5",
             )
         finally:
@@ -223,6 +233,7 @@ class MetricCoverageService:
             "null_reasons": metric_null_reasons(selected),
             "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
+            "granularity": resolved_granularity,
             "scope": resolved.to_payload(),
             "overall": overall,
             "consistency": consistency,
@@ -237,8 +248,12 @@ class MetricCoverageService:
         selected: list[str],
         group_by_exchange: bool,
         scope: rm.ReportScope,
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> list[dict[str, Any]]:
         """单条聚合 SQL 完成全部指标的覆盖率统计。
+
+        分组键由 ``granularity`` 决定（day / week / month），SELECT 侧统一保留
+        ``order_as_of_date`` 别名以维持下游字段名与解析路径不变。
 
         分母口径与 bdib_health / KPI / 异常明细一致（report_measure 作用域唯一实现）：
         白名单外交易所本就不拉 BDIB、指标必然 NULL，计入分母会虚降覆盖率观感
@@ -254,10 +269,21 @@ class MetricCoverageService:
         probe_all_null = " AND ".join(
             f"{m} IS NULL" for m in BDIB_GAP_PROBE_METRICS
         )
-        group_cols = "order_as_of_date, Exchange" if group_by_exchange else "order_as_of_date"
+        # 期间键：day 粒度直接返回原始列（值不变），week / month 返回 ISO 周 / 月键。
+        # SELECT 侧保留 order_as_of_date 别名以维持下游字段名与解析路径不变；
+        # GROUP BY 必须用表达式本身（SQLite 不接受带 AS 的别名）；ORDER BY 用输出
+        # 别名 —— ISO 周 / 月键为定宽零填充，字典序与时间序一致。
+        period_expr = rm.period_key_expr(granularity)
+        select_cols = f"{period_expr} AS order_as_of_date"
+        group_exprs = period_expr
+        order_cols = "order_as_of_date"
+        if group_by_exchange:
+            select_cols = f"{select_cols}, Exchange"
+            group_exprs = f"{group_exprs}, Exchange"
+            order_cols = f"{order_cols}, Exchange"
         where, params = self._scope_where(start_date, end_date, scope)
         sql = f"""
-            SELECT {group_cols}, COUNT(*) AS total_routes,
+            SELECT {select_cols}, COUNT(*) AS total_routes,
                 SUM(CASE WHEN COALESCE(fill, 0) = 0 OR fill_close >= fill
                          THEN 1 ELSE 0 END) AS pure_auction,
                 SUM(CASE WHEN fill_count >= 2 THEN 1 ELSE 0 END) AS multi_fill,
@@ -266,8 +292,8 @@ class MetricCoverageService:
                 {metric_aggs}
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             WHERE {where}
-            GROUP BY {group_cols}
-            ORDER BY {group_cols}
+            GROUP BY {group_exprs}
+            ORDER BY {order_cols}
         """
         cursor = conn.execute(sql, params)
         columns = [desc[0] for desc in cursor.description]
@@ -441,6 +467,7 @@ class MetricCoverageService:
         selected: list[str],
         group_by_exchange: bool,
         scope: rm.ReportScope,
+        granularity: str,
         warning: str,
     ) -> dict[str, Any]:
         return {
@@ -451,6 +478,7 @@ class MetricCoverageService:
             "null_reasons": metric_null_reasons(selected),
             "expected_null_metrics": sorted(EXPECTED_NULL_METRICS),
             "group_by_exchange": group_by_exchange,
+            "granularity": granularity,
             "scope": scope.to_payload(),
             "overall": None,
             "consistency": None,

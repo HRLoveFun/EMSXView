@@ -189,6 +189,27 @@ describe('MonitoringView', () => {
     await waitFor(() => expect(screen.getByText('MSFT US Equity')).toBeInTheDocument());
   });
 
+  it('026: 切换聚合粒度后按新粒度重新取数', async () => {
+    const user = userEvent.setup();
+    render(<MonitoringView />);
+    await waitFor(() => expect(screen.getByText('监控交易日')).toBeInTheDocument());
+    // 默认按日（与引入粒度前的覆盖率口径一致）
+    expect(mockFetchMetricCoverage).toHaveBeenLastCalledWith(
+      { last: 'month' }, expect.anything(), false, 'day',
+    );
+
+    // 监控范围 / 聚合粒度两个 combobox，聚合粒度在后 → 取末个
+    const combos = screen.getAllByRole('combobox');
+    await user.click(combos[combos.length - 1]);
+    await user.click(screen.getByText('按周'));
+
+    await waitFor(() => {
+      expect(mockFetchMetricCoverage).toHaveBeenLastCalledWith(
+        { last: 'month' }, expect.anything(), false, 'week',
+      );
+    });
+  });
+
   it('指标开关清空后热力图显示空态', async () => {
     const user = userEvent.setup();
     render(<MonitoringView />);
@@ -413,7 +434,8 @@ describe('ReportView', () => {
     await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
 
     // 切换到"上周"并生成
-    await user.click(screen.getByRole('combobox'));
+    // 026 起 ReportView 有两个 combobox（时间范围 / 聚合粒度），时间范围在前 → 取首个
+    await user.click(screen.getAllByRole('combobox')[0]);
     await user.click(screen.getByText('上周'));
     await user.click(screen.getByRole('button', { name: '生成报告' }));
     await waitFor(() => {
