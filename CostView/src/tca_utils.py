@@ -353,15 +353,27 @@ def bucket_liquidity(volume_pct_adv20: Optional[float]) -> tuple[str, str]:
     return ("high", "High (>=5% ADV20)")
 
 
-def bucket_volatility(daily_volatility: Optional[float]) -> tuple[str, str]:
-    """Bucket daily volatility in percent space."""
-    if daily_volatility is None:
+def bucket_volatility(annual_volatility: Optional[float]) -> tuple[str, str]:
+    """Bucket **annualised** volatility (percent space) —— 028 口径修正。
+
+    026 起本函数接收 `bdib_daily_summary.daily_volatility` 的**原值**，但阈值仍沿用
+    日波动率空间（1.5% / 3.5%），而该列实为**年化百分比**（实测中位 26.075，
+    见 `specs/028-volatility-scale-fix/research.md`）—— 二者相差 ≈ √252 ≈ 16 倍，
+    实测导致 82.9% 样本落 `stressed`、`typical` 仅 0.61%，该维度**失去区分度**。
+
+    028 起阈值对齐到年化空间，并与 `platform_data/adapters/market.py:50-51`
+    解读同一列的既有口径（25 / 40）保持一致。
+
+    入参须为**年化百分比**（小数写法由 `env_context.normalize_volatility_to_percent`
+    在数据入口统一，不在本函数兜底 —— 分桶保持纯函数、单一职责）。
+    """
+    if annual_volatility is None:
         return ("unknown", "Unknown")
-    if daily_volatility < 1.5:
-        return ("calm", "Calm (<1.5%)")
-    if daily_volatility < 3.5:
-        return ("typical", "Typical (1.5%-3.5%)")
-    return ("stressed", "Stressed (>=3.5%)")
+    if annual_volatility < 25.0:
+        return ("calm", "Calm (<25% ann.)")
+    if annual_volatility < 40.0:
+        return ("typical", "Typical (25%-40% ann.)")
+    return ("stressed", "Stressed (>=40% ann.)")
 
 
 def asset_class_from_ticker(equ_ticker: Optional[str]) -> tuple[str, str]:

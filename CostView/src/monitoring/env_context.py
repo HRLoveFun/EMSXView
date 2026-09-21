@@ -38,6 +38,8 @@
 
 from __future__ import annotations
 
+import math
+
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
@@ -62,8 +64,10 @@ class RouteEnvContext:
     start_time: Optional[str] = None
     #: 订单规模 / 20 日均量（fill ÷ adv_20d，小数非百分比）；adv_20d 缺失或为 0 时为 None
     adv20_ratio: Optional[float] = None
-    #: 交易日波动率（bdib_daily_summary.daily_volatility）
+    #: 交易日波动率，**已统一为年化百分比**（028；小数写法在数据入口归一化）
     daily_volatility: Optional[float] = None
+    #: 该值是否命中「小数写法」归一化（028）—— 命中必须可见，不得静默修数
+    volatility_normalized: bool = False
 
 
 def env_route_key(
@@ -156,6 +160,37 @@ def _ratio_or_none(fill: Any, adv20: Any) -> Optional[float]:
     return float(fill) / float(adv20)
 
 
+#: 年化波动率的「小数写法」判定界值（028）。
+#:
+#: `bdib_daily_summary.daily_volatility` 在 2026-03~04 区间被上游写成了**年化小数**
+#: （`0.8175` 表示 `81.75%`），其余时段是**年化百分比**（`81.75`）。
+#: 分布上两者间存在天然空档：正常年化百分比 ≥ 5，正常年化小数 ≤ 2 ——
+#: 股票年化波动率不可能低于 3%，故以 3.0 为界安全（实测证据见
+#: `specs/028-volatility-scale-fix/research.md` §3）。
+VOLATILITY_SCALE_CUT: float = 3.0
+
+#: 归一化后的波动率口径（唯一真相源，供 report_spec 护栏断言）
+VOLATILITY_UNIT = "annualized-percent"
+
+
+def normalize_volatility_to_percent(value: Optional[float]) -> Optional[float]:
+    """把 `daily_volatility` 统一到**年化百分比**单位（028）。
+
+    仅处理上游在特定区间的**小数写法**（`< VOLATILITY_SCALE_CUT` → ×100）；
+    其余原值返回。命中与否由 `build_route_env_context` 统计并随 payload 披露 ——
+    归一化**必须可见**，不得静默修数（与「降级必须可见」同一约定）。
+    """
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isfinite(numeric) and 0 < numeric < VOLATILITY_SCALE_CUT:
+        return numeric * 100.0
+    return numeric if math.isfinite(numeric) else None
+
+
 def build_route_env_context(
     mgr: ConnectionManager,
     routes: Sequence[Any],
@@ -182,10 +217,18 @@ def build_route_env_context(
             str(getattr(route, "order_as_of_date", None) or ""),
         )
         adv20, volatility = daily.get(ticker_key, (None, None))
+        normalized = normalize_volatility_to_percent(volatility)
         result[key] = RouteEnvContext(
             start_time=start_times.get(key),
             adv20_ratio=_ratio_or_none(getattr(route, "fill", None), adv20),
-            daily_volatility=volatility,
+            # 028：统一到年化百分比（上游 202603/202604 的小数写法在此归一化）
+            daily_volatility=normalized,
+            # 归一化命中必须可见：命中数经 env_coverage 随 payload 披露
+            volatility_normalized=(
+                volatility is not None
+                and normalized is not None
+                and normalized != volatility
+            ),
         )
     return result
 
@@ -201,6 +244,7 @@ def env_coverage(
     """
     total = len(routes)
     usable = {dim: 0 for dim in ENV_DIMENSIONS}
+    scale_fixed = 0
     for route in routes:
         key = env_route_key(
             getattr(route, "OrderId", None),
@@ -216,6 +260,9 @@ def env_coverage(
             usable["liquidity_adv20"] += 1
         if env.daily_volatility is not None:
             usable["volatility"] += 1
+        if getattr(env, "volatility_normalized", False):
+            # 028：命中「年化小数」写法并已归一化 —— 必须可见，不得静默修数
+            scale_fixed += 1
 
     return {
         "total_routes": total,
@@ -224,4 +271,6 @@ def env_coverage(
             dim: (round(count / total * 100.0, 2) if total else None)
             for dim, count in usable.items()
         },
+        # 028：量纲归一化披露（上游 202603/202604 区间写的是年化小数）
+        "volatility_scale_fixed": scale_fixed,
     }
