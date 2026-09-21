@@ -430,7 +430,7 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 分层，应配套**日内阈值**（1.5/3.5 恰好适用于它），而非年化阈值。
 
 **版本**：`SPEC_VERSION` `2026.09.9` → `2026.09.10`。证据全文：
-`specs/028-volatility-scale-fix/research.md`（含 8 个探测脚本清单与两次误判的修正记录）。
+`docs/archive/2026-09-21/028-volatility-scale-fix/research.md`（含 8 个探测脚本清单与两次误判的修正记录）。
 
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。

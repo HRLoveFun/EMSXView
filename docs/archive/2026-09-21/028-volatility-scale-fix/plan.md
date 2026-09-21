@@ -1,6 +1,6 @@
 # 028 波动率量纲统一与分桶阈值修正
 
-**Feature**: `028-volatility-scale-fix`　**Branch**: `028-volatility-scale-fix`　**Date**: 2026-09-21　**状态**: 已实施
+**Feature**: `028-volatility-scale-fix`　**Branch**: `028-volatility-scale-fix`　**Date**: 2026-09-21　**状态**: ✅ 已完成并归档（PR #76；2026-09-21 归档）
 
 **定位**：修复 `volatility` 环境维度的两处口径问题 —— 单位统一与分桶阈值错配。
 证据全文见 [`research.md`](research.md)（只读实测，8 个探测脚本）。
@@ -59,6 +59,6 @@
 ## 5. 关联
 
 - 前序：`docs/archive/2026-09-21/026-costview-algo-eval/`（阶段二引入该列）、
-  `specs/027-algo-eval-report/`（实测暴露该维度退化）
+  `docs/archive/2026-09-21/027-algo-eval-report/`（实测暴露该维度退化）
 - 口径治理：`docs/report-tca-known-limitations.md` 第十七轮、ADR-0018 §10.11
 - 待办：progress L1~L3（跨仓确认与上游修正）

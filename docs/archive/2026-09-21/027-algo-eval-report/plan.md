@@ -1,6 +1,6 @@
 # 027 算法执行质量综合评估报告
 
-**Feature**: `027-algo-eval-report`　**Branch**: `027-algo-eval-report`　**Date**: 2026-09-21　**状态**: 实施中
+**Feature**: `027-algo-eval-report`　**Branch**: `027-algo-eval-report`　**Date**: 2026-09-21　**状态**: ✅ 已完成并归档（PR #74；2026-09-21 归档）
 
 **定位**：改造 026 阶段三交付的评估层 —— 从「交互式比较工具」改为「按时间范围自动产出的综合评估报告」。
 
@@ -292,5 +292,5 @@ CostView/src/evaluation/
 - 前序计划：`docs/archive/2026-09-21/026-costview-algo-eval/plan.md`（阶段三评估层；本计划改造其形态与可比性设计）
 - 方法论：`docs/textbook/Algo_TCA.md`、`docs/textbook/股票交易执行质量与交易成本分析（TCA）：跨时期学术研究综述与方法框架.md`（B3 分层归因 / B4 评价矩阵 / D1 基准冻结）
 - 口径治理：`docs/report-tca-known-limitations.md`、`docs/spec/adr/0018-tca-report-metrics-conventions.md`
-- 评估层定位：[ADR-0004](../../../docs/spec/adr/0004-costview-focused-on-evaluation.md)
+- 评估层定位：[ADR-0004](../../../spec/adr/0004-costview-focused-on-evaluation.md)
 - 待办：`docs/open-todos.md` T16（门控降级用例，本计划一并解决）
