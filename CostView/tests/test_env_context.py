@@ -66,9 +66,15 @@ def env_dbs(tmp_path: Path) -> ConnectionManager:
         "CREATE TABLE bdib_daily_summary (equ_ticker TEXT, trade_date TEXT, "
         "adv_20d REAL, daily_volatility REAL)"
     )
-    conn.execute(
+    conn.executemany(
         "INSERT INTO bdib_daily_summary VALUES (?, ?, ?, ?)",
-        ("AAPL US Equity", "20260418", 1000000.0, 2.0),
+        [
+            # 028：夹具值改为真实的**年化百分比**量级（26.075 是实测中位数；
+            # 旧值 2.0 会被归一化判为「年化小数」→ ×100，那正是 028 要修的错配）
+            ("AAPL US Equity", "20260418", 1000000.0, 30.0),
+            # 028：一行**年化小数**写法（上游 202603/202604 区间的形态），供归一化用例
+            ("ORCL US Equity", "20260418", 2000000.0, 0.8),
+        ],
     )
     conn.commit()
     conn.close()
@@ -93,6 +99,54 @@ class TestNormalizeStartTime:
     def test_empty_and_none(self) -> None:
         assert env_context.normalize_start_time("") is None
         assert env_context.normalize_start_time(None) is None
+
+
+class TestVolatilityScaleNormalization:
+    """028：上游 202603/202604 把年化小数写入同一列 —— 数据入口统一为百分比。"""
+
+    def test_decimal_writing_is_scaled_up(self) -> None:
+        assert env_context.normalize_volatility_to_percent(0.8) == pytest.approx(80.0)
+        assert env_context.normalize_volatility_to_percent(2.0) == pytest.approx(200.0)
+
+    def test_percent_writing_passes_through(self) -> None:
+        assert env_context.normalize_volatility_to_percent(26.075) == pytest.approx(26.075)
+        assert env_context.normalize_volatility_to_percent(80.0) == pytest.approx(80.0)
+
+    def test_none_and_non_finite_untouched(self) -> None:
+        assert env_context.normalize_volatility_to_percent(None) is None
+        assert env_context.normalize_volatility_to_percent(float("nan")) is None
+
+    def test_scale_constants_match_spec(self) -> None:
+        from CostView.src.monitoring import report_spec
+
+        assert env_context.VOLATILITY_SCALE_CUT == (
+            report_spec.REPORT_SPEC["volatility_scale_cut"]
+        )
+        assert env_context.VOLATILITY_UNIT == report_spec.REPORT_SPEC["volatility_unit"]
+
+    def test_normalized_flag_is_disclosed(self, env_dbs: ConnectionManager) -> None:
+        """归一化命中必须可见（env_coverage.volatility_scale_fixed），不得静默修数。
+
+        夹具含两行：AAPL 是年化百分比（30.0，不触发），ORCL 是年化小数
+        （0.8 → 80.0，触发）—— 两种写法混在同一列正是 028 要修的上游问题。
+        """
+        routes = [
+            _route(OrderId="O1", RouteId="R1", fill=5000.0),                     # AAPL
+            _route(OrderId="O2", RouteId="R1", fill=5000.0,
+                   equ_ticker="ORCL US Equity"),                                # ORCL
+        ]
+        env_by_route = build_route_env_context(env_dbs, routes, "20260418", "20260418")
+
+        aapl = env_by_route[("O1", "R1", "20260418")]
+        orcl = env_by_route[("O2", "R1", "20260418")]
+
+        assert aapl.daily_volatility == pytest.approx(30.0)
+        assert aapl.volatility_normalized is False
+        assert orcl.daily_volatility == pytest.approx(80.0)
+        assert orcl.volatility_normalized is True
+
+        coverage = env_coverage(routes, env_by_route)
+        assert coverage["volatility_scale_fixed"] == 1
 
 
 class TestRealEnvCohorts:
@@ -169,7 +223,8 @@ class TestBuildRouteEnvContext:
         first = result[("O1", "R1", "20260418")]
         assert first.start_time == "09:35:00"          # 路由内最早成交时刻
         assert first.adv20_ratio == pytest.approx(0.005)
-        assert first.daily_volatility == 2.0
+        assert first.daily_volatility == 30.0
+        assert first.volatility_normalized is False     # 百分比写法不触发归一化
 
         second = result[("O2", "R1", "20260418")]
         assert second.start_time == "14:45:10"
