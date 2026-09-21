@@ -338,6 +338,39 @@ payload 为**追加式**变更（`filters.granularity`、`daily_series_meta.gran
 代理回退 / 真实路径不引用成本量 / 三维度独立降级 / 来源缺失不抛错 / 聚合接线 /
 可得率披露 / SPEC 绑定）。
 
+### 10.8 科学方法评估层（2026-09-21，026 阶段三）
+
+**背景**：报告口径层直到 §10.7 都在做「描述得更准确」，但**比较本身**仍是原始均值排序 ——
+没有统计推断、没有可比性控制。ADR-0004 规划的 `CostView/src/evaluation/` 目录从未落地。
+
+**决策**：新建 `CostView/src/evaluation/`（5 个模块），并把两条方法学约束做成**结构性不可绕过**：
+
+1. **可比性由服务端强制**（DP-3-2）：`assess_comparability` 输出 `ComparabilityVerdict`；
+   不可比时调用方**不得**输出比较数值。分层键取 `(Exchange, asset_class, time_of_day,
+   liquidity_adv20, volatility)` —— 后三者来自 §10.7 的真实环境变量；**禁止**用成本量作分层键。
+   失衡度量用**总变差距离**（TVD）而非卡方：TVD 对期望频数无下限要求（小样本稳定），
+   且可直接解读为「概率质量不重叠比例」。环境维度取值**复用 `tca_utils` 分桶单点**，不重复实现。
+2. **基准不可默认**（DP-3-3，依据 D1）：`evaluation_metadata(benchmark=…)` 无默认值，缺失即报错。
+
+**模块与依据**：`comparability`（B3）、`stats_tests`（`Algo_TCA.md:726-793` 的 χ²/KS 规格 +
+bootstrap 区间 + 多重比较校正）、`power`（正态近似闭式，不引入 statsmodels）、
+`cost_model`（`Algo_TCA.md:116` 幂律非线性回归估计；域外不外推、不作事前预测）、
+`governance`（B4 治理层）。
+
+**依赖**：新增 `scipy>=1.11`（DP-3-1）；`CostView/api/requirements.txt` 只加注释指向
+`pyproject.toml`，避免两处漂移。
+
+**包依赖方向**：`evaluation → monitoring.env_context / tca_utils`（单向）。
+`report_spec` **刻意不 import** `evaluation`（否则构成
+`evaluation → monitoring.env_context → monitoring/__init__ → report_spec` 的包级循环），
+故 `REPORT_SPEC["evaluation"]` 为字面量，由 `tests/test_evaluation.py::TestSpecBinding` 断言一致。
+
+**版本**：`SPEC_VERSION` `2026.09.7` → `2026.09.8`。
+
+**影响面**：纯新增模块，既有报告 / 监控 / 记分卡产出**零变化**（端点接入见后续批次）。
+
+**护栏**：`CostView/tests/test_evaluation.py`（34 条）。
+
 ## 后果 (Consequences)
 
 ### 正面
