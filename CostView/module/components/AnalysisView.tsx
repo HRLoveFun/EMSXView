@@ -121,6 +121,17 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, ord
         </Alert>
       ) : null}
 
+      {/* 零匹配（200 + total_orders=0）不是故障：显式提示，避免用户把空表格
+          当成"数据未生成"（后者由后端 503 data_not_ready 表达） */}
+      {!error && report && report.total_orders === 0 ? (
+        <Alert>
+          <AlertTitle>No matching routes</AlertTitle>
+          <AlertDescription>
+            当前筛选条件未命中任何路由。库内数据可用——请放宽日期范围或清除筛选后重试。
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {viewMode === 'orders' && orderReport && orderReport.order_agg_enabled === false ? (
         <Alert>
           <AlertTitle>订单级 TCA 未启用</AlertTitle>

@@ -12,53 +12,16 @@ import type {
   TcaReport,
   TcaReportSummary,
   ThresholdRule,
-  UpdateStatusResponse,
 } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
 
 // 010-extract-pipeline: 数据更新维护已迁独立项目 EMSXDataPipeline Runner。
-// P2-4 整改：触发/状态查询不再直连 Runner（:8100），统一走 :3000 鉴权代理
-// /api/tca/runner/*（后端 backend/api/routers/costview.py 转发）。
-
-interface RunnerStatus {
-  id: string;
-  state: 'idle' | 'running' | 'success' | 'failed';
-  started_at: number | null;
-  finished_at: number | null;
-  duration_sec: number | null;
-  returncode: number | null;
-  log_tail: string[];
-}
-
-function isoOrNull(epoch: number | null): string | null {
-  return epoch === null ? null : new Date(epoch * 1000).toISOString();
-}
-
-function mapRunnerStatus(s: RunnerStatus): UpdateStatusResponse {
-  const status: UpdateStatusResponse['status'] =
-    s.state === 'running'
-      ? 'running'
-      : s.state === 'success'
-        ? 'completed'
-        : s.state === 'failed'
-          ? 'failed'
-          : 'completed';
-  return {
-    job_id: s.id,
-    status,
-    started_at: isoOrNull(s.started_at),
-    completed_at: isoOrNull(s.finished_at),
-    error:
-      s.state === 'failed'
-        ? `pipeline exited with code ${s.returncode ?? 'unknown'}`
-        : null,
-    stage: null,
-    overall_progress: s.state === 'success' ? 1 : 0,
-    last_activity_at: isoOrNull(s.finished_at ?? s.started_at),
-  };
-}
+// 跑数触发是**运维显式动作**（POST /api/tca/runner/run，或独立仓库的 Runner），
+// 前端不自动触发：自动跑数会消耗 Bloomberg 配额，且与「数据更新由独立仓库
+// 独占写入」的架构决定冲突。数据未生成时后端返回结构化 503 data_not_ready，
+// 前端按可操作文案展示（见 readError）。
 
 function getAuthHeaders(): HeadersInit {
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
@@ -69,29 +32,32 @@ function getAuthHeaders(): HeadersInit {
   return headers;
 }
 
-async function readError(response: Response): Promise<string> {
-  const body = await response.json().catch(() => ({}));
-  // B4 整改：detail 支持结构化 {code, message}（503 数据新鲜度/降级语义），
-  // 字符串 detail 向后兼容
-  const d = body?.detail;
-  if (typeof d === 'string') return d;
-  if (d && typeof d === 'object' && d.message) {
-    return `[${d.code ?? 'error'}] ${d.message}`;
+/** 把错误载荷渲染为可读文案：支持字符串与结构化 `{code, message}`。
+ *
+ *  后端错误载荷有两种形态（同一份端点代码、两种部署方式）：
+ *   · 合并模式 :3000 —— ApiResponse 信封，错误在 `error` 字段；
+ *   · CostView standalone :8002 —— 原始 FastAPI，错误在 `detail` 字段。
+ *  业务降级（data_not_ready / query_timeout / ...）统一渲染为
+ *  `[<code>] <message>`，与后端 backend/api/errors.py 的放行格式一致。 */
+function formatErrorPayload(payload: unknown): string | null {
+  if (typeof payload === 'string') return payload.trim() ? payload : null;
+  if (payload && typeof payload === 'object') {
+    const { code, message } = payload as { code?: unknown; message?: unknown };
+    if (typeof message === 'string' && message.trim()) {
+      return typeof code === 'string' && code ? `[${code}] ${message}` : message;
+    }
   }
-  return body?.error ?? `Request failed: ${response.status}`;
+  return null;
 }
 
-/** analyze 返回 202 时抛出：默认日期数据未生成，数据管道已自动触发 */
-export class PipelineTriggeredError extends Error {
-  readonly jobId: string;
-  readonly targetDate: string;
-
-  constructor(jobId: string, targetDate: string, message: string) {
-    super(message);
-    this.name = 'PipelineTriggeredError';
-    this.jobId = jobId;
-    this.targetDate = targetDate;
-  }
+async function readError(response: Response): Promise<string> {
+  const body = await response.json().catch(() => ({}));
+  // error 优先于 detail：合并模式下自定义异常处理器把 detail 写入 ApiResponse.error，
+  // `detail` 恒为 undefined —— 此前先读 detail 导致结构化降级文案全部丢失，
+  // 只剩兜底的 "Internal server error"。
+  return formatErrorPayload(body?.error)
+    ?? formatErrorPayload(body?.detail)
+    ?? `Request failed: ${response.status}`;
 }
 
 export async function analyzeTca(request: TcaAnalyzeRequest): Promise<TcaReport> {
@@ -100,17 +66,6 @@ export async function analyzeTca(request: TcaAnalyzeRequest): Promise<TcaReport>
     headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
-
-  // 202：默认日期数据未生成，后端已自动触发数据管道
-  if (response.status === 202) {
-    const json = await response.json();
-    const data = json.data ?? {};
-    throw new PipelineTriggeredError(
-      data.job_id ?? '',
-      data.target_date ?? '',
-      json.message ?? '数据管道已触发',
-    );
-  }
 
   if (!response.ok) {
     throw new Error(await readError(response));
@@ -146,19 +101,6 @@ export async function analyzeTcaOrders(request: TcaAnalyzeRequest): Promise<TcaO
 
   const json = await response.json();
   return json.data as TcaOrderReport;
-}
-
-export async function getUpdateStatus(_jobId: string): Promise<UpdateStatusResponse> {
-  // Runner 为单任务模型，jobId 仅作前端一致性占位（下划线前缀表示有意不使用）；
-  // 状态查询经 :3000 鉴权代理（后端解包 ApiResponse.data 后按原映射转换）
-  const response = await fetch(`${API_BASE_URL}/api/tca/runner/status`, {
-    headers: getAuthHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(await readError(response));
-  }
-  const json = await response.json();
-  return mapRunnerStatus(json.data as RunnerStatus);
 }
 
 export async function fetchAllFilteredOrders(

@@ -215,6 +215,12 @@
 | `pwp_5` ... `pwp_25` | `string \| float \| null` | 5/10/15/20/25 分钟 PWP |
 | `time_series` | `list[dict]` | 时序数据，供前端图表使用 |
 
+> **空结果语义（2026-09-21 整改）**：`total_orders=0` 有两种成因，端点严格区分——
+> **筛选零匹配**（库内有数据、本次条件未命中）返回 **200** + 空 `orders`；
+> **数据未就绪**（库内完全无数据 / 默认日期未生成）返回 **503**，`error` 为
+> 业务降级文案 `[data_not_ready] ...`（见 `backend/api/errors.py` 白名单）。
+> 调用方须据状态码区分，不得把 200 空结果读作"数据缺失"，反之亦然。
+
 > **Schema 变更说明**：2026-07-15 重构后，`/api/tca/analyze` 从嵌套订单结构
 > (`TcaOrderSummary` → `TcaRouteDetail`) 迁移为扁平路由结构 (`TcaRouteSummary`)，
 > 34 个字段严格对应数据库 `tca_route_summary` 表列。`TcaOrderSummary` 与

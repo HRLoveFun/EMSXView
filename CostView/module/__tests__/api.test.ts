@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { analyzeTca, PipelineTriggeredError } from '../services/api';
+import { analyzeTca } from '../services/api';
 
 // 全局 fetch mock
 const mockFetch = vi.fn();
@@ -26,21 +26,55 @@ describe('analyzeTca', () => {
     expect(result.total_orders).toBe(2);
   });
 
-  it('202 抛 PipelineTriggeredError 并携带 job_id/target_date', async () => {
-    mockFetch.mockResolvedValue(jsonResponse(202, {
-      success: false,
-      data: { pipeline_triggered: true, job_id: 'job-abc', target_date: '20260804', status: 'started' },
-      message: '20260804 数据尚未生成，已自动触发数据管道',
+  it('零匹配 200 空报告正常返回（空结果不再当异常）', async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, {
+      success: true,
+      data: { total_orders: 0, orders: [], filters: {} },
+      message: '该筛选条件下无匹配路由',
     }));
 
-    const error = await analyzeTca({ filters: {}, limit: 5 }).catch((e) => e);
-    expect(error).toBeInstanceOf(PipelineTriggeredError);
-    expect(error.jobId).toBe('job-abc');
-    expect(error.targetDate).toBe('20260804');
-    expect(error.message).toContain('已自动触发数据管道');
+    const result = await analyzeTca({ filters: { broker: 'NOSUCH' }, limit: 5 });
+    expect(result.total_orders).toBe(0);
   });
 
-  it('503 抛普通 Error（detail 文案）', async () => {
+  it('503 结构化 error（合并模式 ApiResponse 信封）渲染为 [code] message', async () => {
+    mockFetch.mockResolvedValue(jsonResponse(503, {
+      success: false,
+      error: { code: 'data_not_ready', message: '20260921 数据尚未生成' },
+    }));
+
+    await expect(analyzeTca({ filters: {}, limit: 5 }))
+      .rejects.toThrow('[data_not_ready] 20260921 数据尚未生成');
+  });
+
+  it('503 字符串 error 原样展示（不再被兜底文案吞掉）', async () => {
+    mockFetch.mockResolvedValue(jsonResponse(503, {
+      success: false,
+      error: '[query_timeout] 查询超时 (>120s)，请缩小时间范围或稍后重试',
+    }));
+
+    await expect(analyzeTca({ filters: {}, limit: 5 }))
+      .rejects.toThrow('[query_timeout] 查询超时 (>120s)');
+  });
+
+  it('standalone :8002 的 detail 形态同样支持结构化降级', async () => {
+    mockFetch.mockResolvedValue(jsonResponse(503, {
+      detail: { code: 'data_source_unavailable', message: 'CostView database not found' },
+    }));
+
+    await expect(analyzeTca({ filters: {}, limit: 5 }))
+      .rejects.toThrow('[data_source_unavailable] CostView database not found');
+  });
+
+  it('无法解析的载荷回落到状态码文案', async () => {
+    mockFetch.mockResolvedValue(jsonResponse(422, {
+      detail: [{ loc: ['body', 'filters'], msg: 'invalid' }],
+    }));
+
+    await expect(analyzeTca({ filters: {}, limit: 5 })).rejects.toThrow('Request failed: 422');
+  });
+
+  it('503 字符串 detail（standalone 形态）原样展示', async () => {
     mockFetch.mockResolvedValue(jsonResponse(503, { detail: 'tca_route_summary is empty' }));
 
     await expect(analyzeTca({ filters: {}, limit: 5 })).rejects.toThrow('tca_route_summary is empty');

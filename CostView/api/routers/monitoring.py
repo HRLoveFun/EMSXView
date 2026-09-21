@@ -186,9 +186,24 @@ async def get_bdib_health(
     except Exception as exc:
         logger.error("BDIB 健康扫描失败: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"BDIB 健康扫描错误: {exc}")
-    if data is None:
+    # get_health_safe 为**三态**返回（bdib_health.py）：正常 dict，或
+    # {"status": "skipped", "reason": "timeout"|"error"} 的降级态（25s 超时护栏）。
+    # 降级态没有 summary 键，此前直接取 data["summary"] 触发 KeyError → 500，
+    # 经全局 5xx 遮蔽后调用方只看到 "Internal server error"。
+    # 现显式映射为 503 + 稳定错误码；降级结果不入缓存（否则后续请求会命中缓存
+    # 并把它当作成功结果返回）。
+    if data.get("status") == "skipped":
+        timed_out = data.get("reason") == "timeout"
         raise HTTPException(
-            status_code=503, detail="BDIB 健康扫描超时，请稍后重试或缩小时间范围",
+            status_code=503,
+            detail={
+                "code": "bdib_scan_timeout" if timed_out else "bdib_scan_failed",
+                "message": (
+                    "BDIB 健康扫描超时（25s），请缩小时间范围或稍后重试"
+                    if timed_out
+                    else "BDIB 健康扫描失败，请稍后重试或查看服务日志"
+                ),
+            },
         )
 
     await _cache.set(cache_key, data)
