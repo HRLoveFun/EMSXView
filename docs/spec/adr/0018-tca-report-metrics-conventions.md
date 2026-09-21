@@ -431,6 +431,30 @@ bootstrap 区间 + 多重比较校正）、`power`（正态近似闭式，不引
 `TestEvaluationReportOrchestration` / `TestEvaluationEndpoint` / `TestEvaluationReportSection`）；
 `TestSpecBinding` 断言 `report_spec` 声明与实现常量一致。
 
+### 10.11 波动率量纲统一与分桶阈值修正（028，2026-09-21）
+
+**背景**：`tca_utils.bucket_volatility` 的阈值（1.5/3.5）是日波动率空间，而
+`bdib_daily_summary.daily_volatility` 实为**年化百分比**（反推公式 =
+std(日对数收益率) × √252 × 100，实测中位 26.075）→ 82.9% 落 `stressed`、`typical`
+仅 0.61%，维度失效。且上游在 202603/202604 区间写入**年化小数**（同标的跨时段跳变
+≈ 100 倍后恢复），列内量纲不统一。
+
+**决策**：
+
+1. `bucket_volatility` 阈值对齐**年化空间**（25 / 40，与 `market.py:50-51` 解读同一列的
+   既有口径一致），标签同步（`<25% ann.` 等）；
+2. 量纲统一在**数据入口单点**：`env_context.normalize_volatility_to_percent`
+   （界值 `VOLATILITY_SCALE_CUT = 3.0` —— 正常年化百分比 ≥ 5、正常年化小数 ≤ 2，
+   中间为空档）；命中数经 `env_coverage.volatility_scale_fixed` 披露，**不得静默修数**；
+3. `RouteEnvContext` 新增 `volatility_normalized` 标志；
+4. 上游 202603/202604 的量纲不一致登记为**跨仓项**，本侧归一化为过渡措施。
+
+**版本**：`2026.09.10`。
+
+**护栏**：`test_env_context.TestVolatilityScaleNormalization`（归一化判别 / 界值与 spec 一致 /
+命中披露）与 `TestSpecBinding`（`volatility_scale_cut` / `volatility_unit` 与实现常量一致）。
+证据全文见 `specs/028-volatility-scale-fix/research.md`。
+
 ## 后果 (Consequences)
 
 ### 正面

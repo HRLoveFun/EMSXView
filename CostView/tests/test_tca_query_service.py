@@ -487,9 +487,11 @@ class TestScorecardBucketing:
         assert bucket_liquidity(None)[0] == "unknown"
 
     def test_volatility_buckets(self):
-        assert bucket_volatility(1.0)[0] == "calm"
-        assert bucket_volatility(2.5)[0] == "typical"
-        assert bucket_volatility(5.0)[0] == "stressed"
+        # 028：入参为**年化百分比**（阈值 25/40，与 market.py 解读同一列的口径一致）
+        assert bucket_volatility(20.0)[0] == "calm"
+        assert bucket_volatility(30.0)[0] == "typical"
+        assert bucket_volatility(50.0)[0] == "stressed"
+        assert bucket_volatility(None)[0] == "unknown"
 
     def test_asset_class_derivation(self):
         assert asset_class_from_ticker("AAPL US Equity")[0] == "equity"

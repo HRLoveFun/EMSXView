@@ -421,7 +421,7 @@ class TestSpecBinding:
     def test_spec_version_reflects_phase3(self) -> None:
         from CostView.src.monitoring import report_spec
 
-        assert report_spec.SPEC_VERSION == "2026.09.9"
+        assert report_spec.SPEC_VERSION == "2026.09.10"
 
 
 def _stub_routes(broker: str, exchange: str, pnl: float, count: int) -> list[Any]:

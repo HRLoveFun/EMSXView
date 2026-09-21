@@ -1,0 +1,29 @@
+# 028 进度与检查点
+
+> **特性**：`028-volatility-scale-fix`
+> **计划**：[`plan.md`](../plan.md)　**核实记录**：[`research.md`](../research.md)
+
+## 状态总览
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| P0 | 只读实测核实（8 个探测脚本，证据落盘 `research.md`） | ✅ |
+| P1 | 单位统一（`env_context.normalize_volatility_to_percent` + 命中披露） | ✅ |
+| P2 | 阈值对齐年化空间（`bucket_volatility` 25/40 + 标签） | ✅ |
+| P3 | 口径声明（`report_spec` + `SPEC_VERSION`）与三处同步 | ✅ |
+| P4 | 跨仓项登记（权威定义确认 + 202603/202604 修正） | ⏳ 待登记 |
+
+## 关键验证
+
+- [x] 反推公式：`daily_volatility = std(日对数收益率) × √252 × 100`（12/12 个月比值 ≈ √252）
+- [x] 修复后全量分桶：calm 30.82% / typical 35.65% / stressed 33.53%（修复前 16.47% / 0.61% / 82.92%）
+- [x] 归一化命中 16.79%（36,480 行）且经 `env_coverage.volatility_scale_fixed` 披露
+- [x] 全量测试 **310 passed**（新增 `TestVolatilityScaleNormalization` 5 条 + 桶断言更新）
+
+## 遗留项
+
+| # | 事项 | 状态 |
+|---|---|---|
+| L1 | 请上游确认 `daily_volatility` 权威定义（年化百分比） | ⏳ 跨仓 |
+| L2 | 请上游修正 202603/202604 区间的量纲（年化小数 → 百分比） | ⏳ 跨仓 |
+| L3 | 上游修正回填后，本侧归一化命中数应趋近 0 —— 可作为验证信号 | ⏳ 待 L2 |
