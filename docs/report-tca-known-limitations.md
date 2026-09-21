@@ -358,6 +358,26 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 **尚未接入端点**：评估层的 API 端点（`POST /api/tca/evaluation/compare` + `TCA_EVAL_ENABLED` 门控）
 与前端评估视图属后续批次；本批交付的模块与测试已可独立使用与审计。
 
+### 2026-09-21 — 第十五轮（026 阶段三收尾：评估端点与门控）
+
+第十四轮交付了评估层模块，但**没有可调用入口** —— 模块只能被测试调用，用户侧仍只能看
+原始均值排序，DP-3-2 的「服务端强制」因此**没有落点**。本轮补齐端点、门控与能力位。
+
+| # | 事项 | 处理 |
+|---|---|---|
+| I1 | 评估层无可调用入口 → 可比性约束无落点 | ✅ 已修：新增 `POST /api/tca/evaluation/compare`；可比性判定在**服务端**执行，不可比时 `verdict.comparable=False` 且 `comparisons` 为空数组，**不返回任何比较数值** |
+| I2 | 基准可省略 → 留下「事后挑选最有利基准」的口子（D1） | ✅ 已修：`EvaluationCompareRequest.benchmark` 为**必填**字段（pydantic 校验 → 422），服务端不设默认值 |
+| I3 | 关闭评估时若回退到未校验的均值比较，等于放弃可比性约束 | ✅ 已修：`TCA_EVAL_ENABLED=0` 时返回**显式不可用**（`enabled=False` + 说明），**不提供**未校验比较作为回退 |
+| I4 | 前端 / 运维无法感知评估能力是否启用 | ✅ 已修：`GET /api/tca/capabilities` 新增 `evaluation` 能力位（对齐 `order_level_tca` 既有范式） |
+| I5 | 多重比较的校正代价不可见 | ✅ 已修：每对比较同时返回 `p_value` 与 `p_value_adjusted`（BH / Bonferroni 可选） |
+| I6 | 样本不足时只给「不可比」判词，无行动指引 | ✅ 已修：`power` 块给出 `smallest_group_size` / `sufficient` / `minimum_detectable_effect`（「多大差异才可能被检出」） |
+
+护栏：`CostView/tests/test_evaluation.py` 的 `TestEvaluationComparisonOrchestration`（8 条：
+基准必填 / 未知基准 / 未知维度 / 不可比不含数值 / 可比含校正后 p / 功效指引 / 治理随结果 /
+基准映射封闭）与 `TestEvaluationRequestModel`（3 条）。
+
+**未 bump `SPEC_VERSION`**：本轮为**接入**（把已声明的口径接到端点上），口径本身未变。
+
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。

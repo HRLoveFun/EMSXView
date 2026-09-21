@@ -371,6 +371,33 @@ bootstrap 区间 + 多重比较校正）、`power`（正态近似闭式，不引
 
 **护栏**：`CostView/tests/test_evaluation.py`（34 条）。
 
+### 10.9 评估层端点接入与门控（2026-09-21，026 阶段三收尾）
+
+**背景**：§10.8 交付了评估层模块，但**没有可调用入口** —— DP-3-2「可比性由服务端强制」
+因此没有落点（模块只能被测试调用，用户侧仍只能看原始均值排序）。
+
+**决策**：
+
+1. **新端点** `POST /api/tca/evaluation/compare`：服务端执行可比性判定，
+   不可比时 `verdict.comparable=False` 且 `comparisons` 为空数组，**不返回比较数值**。
+2. **基准必填**（DP-3-3 / D1）：`benchmark` 为 pydantic 必填字段，缺失即 422；
+   基准 → 指标列映射为封闭集合 `BENCHMARK_METRICS`（`vwap` / `arrival` / `close` / `is`），
+   新增基准必须显式登记。
+3. **门控 `TCA_EVAL_ENABLED`**（默认开启，形态对齐 `TCA_ORDER_AGG_ENABLED`）：
+   关闭时返回**显式不可用**，**不**回退到未校验的均值比较 —— 回退到未校验比较等于
+   放弃可比性约束，与关闭意图相反。
+4. **能力位**：`GET /api/tca/capabilities` 新增 `evaluation`。
+5. **取数复用**：抽出 `TcaQueryService._collect_routes`，scorecard 与评估层共用同一取数范式
+   （原先内联在 `build_scorecard`，避免两处分页循环漂移）。
+
+**版本**：`SPEC_VERSION` **不变**（`2026.09.8`）—— 本轮是**接入**，口径本身未变。
+
+**影响面**：纯新增端点与新增模块；既有 Report / Monitoring / Scorecard 产出与行为零变化
+（`_collect_routes` 抽取为等价重构，由既有 291 条测试守护）。
+
+**护栏**：`CostView/tests/test_evaluation.py`（`TestEvaluationComparisonOrchestration` 8 条 +
+`TestEvaluationRequestModel` 3 条）。
+
 ## 后果 (Consequences)
 
 ### 正面
