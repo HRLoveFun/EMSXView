@@ -8,7 +8,10 @@
 #       MERGED 后加 -Force；避免之道是「一分支一提交」（docs/spec/git-workflow.md §4）。
 # 加固 (2026-09-16, specs/016-wt-finish-robustness)：Windows 上 git worktree remove 可能
 #       「注册表已注销、目录删不掉」（目录内文件被进程占用：dev server / 测试 / 终端 cwd /
-#       node_modules 句柄）。此时不再抛裸异常中断，而是 prune + 继续删分支 + 打印人工清理命令。
+#       node_modules 句柄）。此时不再抛裸异常中断，而是 prune + 继续删分支 + 打印清理指引。
+# 指引收敛 (2026-09-21, specs/025-wt-residual-cleanup-guidance)：残留目录的清理指引由「裸
+#       Remove-Item」改为仓库工具 wt-clean.ps1（它带锁保护 / 强制须指名 / _tmp 在途保护）——
+#       实测该形态残留会反复出现（020/022/023/024 各一次），而裸递归删除会绕过上述保护。
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)][string]$Task,
@@ -42,12 +45,13 @@ function Remove-WorktreeDir {
         return $false
     }
 
-    # 注册表已注销、目录残留：prune 收尾后给出人工清理指引（递归删除属破坏性动作，不自动执行）
+    # 注册表已注销、目录残留：prune 收尾后给出清理指引（递归删除属破坏性动作，不自动执行）
     Invoke-GitSoft -C $Root worktree prune | Out-Null
     Write-Host "[warn] worktree 已从注册表注销，但目录未删除：$Dir" -ForegroundColor Yellow
     Write-Host "       常见原因：目录内文件被进程占用（dev server / 测试进程 / 终端 cwd 指向该目录、" -ForegroundColor Yellow
-    Write-Host "       node_modules 或 .vite 句柄未释放）。请结束占用进程后手动删除：" -ForegroundColor Yellow
-    Write-Host "       Remove-Item -Recurse -Force '$Dir'" -ForegroundColor Yellow
+    Write-Host "       node_modules 或 .vite 句柄未释放）。推荐用仓库工具清理（自带锁保护与指名校验）：" -ForegroundColor Yellow
+    Write-Host "       ./scripts/devtools/wt-clean.ps1 $Task -Apply -Force" -ForegroundColor Yellow
+    Write-Host "       （只想清目录、不动 _tmp 时加 -SkipTmp；等价裸命令：Remove-Item -Recurse -Force '$Dir'）" -ForegroundColor Yellow
     return $false
 }
 
