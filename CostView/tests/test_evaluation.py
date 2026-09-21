@@ -30,6 +30,8 @@ from CostView.src.evaluation import (
     required_sample_per_group,
     total_variation_distance,
 )
+from CostView.src.tca_query_service import BENCHMARK_METRICS, TcaQueryService
+from platform_data.contracts import ScorecardFilters
 
 #: 正态近似闭式解的理论值（z_{0.975}=1.959964, z_{0.8}=0.841621）
 _Z_ALPHA = 1.959963984540054
@@ -339,3 +341,166 @@ class TestSpecBinding:
         from CostView.src.monitoring import report_spec
 
         assert report_spec.SPEC_VERSION == "2026.09.8"
+
+
+def _stub_routes(broker: str, exchange: str, pnl: float, count: int) -> list[Any]:
+    """构造一组同分布的替身路由（成本围绕 ``pnl`` 小幅抖动）。"""
+    return [
+        _route(
+            OrderId=f"{broker}{i}", RouteId="R1", Broker=broker, Exchange=exchange,
+            pnl_vwap=pnl + (i % 5 - 2) * 0.1, par_rate=0.01,
+        )
+        for i in range(count)
+    ]
+
+
+class TestEvaluationComparisonOrchestration:
+    """评估编排（``TcaQueryService.build_evaluation_comparison``）的行为契约。
+
+    取数与环境上下文经 monkeypatch 替换：本用例聚焦编排层的三条结构性约束
+    （DP-3-2 不可比不给数值 / DP-3-3 基准不可默认 / 多重比较校正可见），
+    取数层已由 `test_report_metrics` 与 `test_env_context` 覆盖。
+    """
+
+    @staticmethod
+    def _service(monkeypatch: pytest.MonkeyPatch, routes: list[Any]):
+        service = TcaQueryService()
+        monkeypatch.setattr(
+            service, "_collect_routes",
+            lambda filters, max_routes: (routes, False, None),
+        )
+        monkeypatch.setattr(service, "_build_env_context", lambda rts: {})
+        return service
+
+    @staticmethod
+    def _filters(cohort: str = "broker") -> ScorecardFilters:
+        return ScorecardFilters(
+            cohort=cohort, start_date="20260401", end_date="20260430",
+        )
+
+    def test_benchmark_is_mandatory(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DP-3-3：基准不可默认 —— 空基准直接报错。"""
+        service = self._service(monkeypatch, [])
+        with pytest.raises(ValueError, match="benchmark 必须显式指定"):
+            service.build_evaluation_comparison(self._filters(), benchmark="")
+
+    def test_unknown_benchmark_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        service = self._service(monkeypatch, [])
+        with pytest.raises(ValueError, match="benchmark 必须显式指定"):
+            service.build_evaluation_comparison(self._filters(), benchmark="twap")
+
+    def test_unknown_dimension_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        service = self._service(monkeypatch, [])
+        with pytest.raises(ValueError, match="不支持的比较维度"):
+            service.build_evaluation_comparison(
+                self._filters(cohort="not_a_cohort"), benchmark="vwap",
+            )
+
+    def test_incomparable_returns_no_numbers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DP-3-2：分组分布完全分离 → 判定不可比，且**不含**任何比较数值。"""
+        routes = (
+            _stub_routes("A", "US", -5.0, 30)
+            + _stub_routes("B", "LN", -3.0, 30)
+        )
+        service = self._service(monkeypatch, routes)
+        payload = service.build_evaluation_comparison(
+            self._filters(), benchmark="vwap", min_group_sample=10,
+        )
+
+        assert payload["verdict"]["comparable"] is False
+        assert "Exchange" in payload["verdict"]["unmet_dimensions"]
+        assert payload["comparisons"] == []
+        assert payload["power"] is None
+        # 分组样本量仍须可见（不可比的原因要能自证）
+        assert {g["label"] for g in payload["groups"]} == {"A", "B"}
+
+    def test_comparable_returns_tests_with_adjusted_p(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        routes = (
+            _stub_routes("A", "US", -5.0, 40)
+            + _stub_routes("B", "US", -9.0, 40)
+            + _stub_routes("C", "US", -7.0, 40)
+        )
+        service = self._service(monkeypatch, routes)
+        payload = service.build_evaluation_comparison(
+            self._filters(), benchmark="vwap", method="t-test",
+            correction="bh", min_group_sample=10,
+        )
+
+        assert payload["verdict"]["comparable"] is True
+        assert len(payload["comparisons"]) == 3          # 3 组 → 3 个两两比较
+        for pair in payload["comparisons"]:
+            assert 0.0 <= pair["p_value"] <= 1.0
+            # 未校正与校正后 p 值同时可见（不掩盖多重比较代价）
+            assert 0.0 <= pair["p_value_adjusted"] <= 1.0
+            assert pair["ci_low"] is not None and pair["ci_high"] is not None
+        assert payload["benchmark_metric"] == "pnl_vwap"
+
+    def test_power_guidance_answers_how_much_short(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """样本不足时给出可执行指引（最小可检测效应），而非仅判词。"""
+        routes = (
+            _stub_routes("A", "US", -5.0, 15)
+            + _stub_routes("B", "US", -9.0, 15)
+        )
+        service = self._service(monkeypatch, routes)
+        payload = service.build_evaluation_comparison(
+            self._filters(), benchmark="vwap", min_group_sample=10,
+        )
+
+        power = payload["power"]
+        assert power["smallest_group_size"] == 15
+        assert power["sufficient"] is True
+        assert power["minimum_detectable_effect"] > 0
+
+    def test_governance_attached_to_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """治理层随结果返回（版本锁定 / 基准冻结 / 数据血缘）。"""
+        routes = (
+            _stub_routes("A", "US", -5.0, 20)
+            + _stub_routes("B", "US", -6.0, 20)
+        )
+        service = self._service(monkeypatch, routes)
+        payload = service.build_evaluation_comparison(
+            self._filters(), benchmark="arrival", min_group_sample=10,
+        )
+
+        governance = payload["governance"]
+        assert governance["benchmark"] == "arrival"
+        assert governance["sample_sizes"] == {"A": 20, "B": 20}
+        assert governance["data_range"]["start_date"] == "20260401"
+
+    def test_benchmark_metric_mapping_is_closed(self) -> None:
+        """基准 → 指标列的映射是封闭集合（新增基准必须显式登记）。"""
+        assert set(BENCHMARK_METRICS) == {"vwap", "arrival", "close", "is"}
+        assert len(set(BENCHMARK_METRICS.values())) == len(BENCHMARK_METRICS)
+
+
+class TestEvaluationRequestModel:
+    """请求模型的校验契约（端点层 422 的来源）。"""
+
+    def test_benchmark_required_by_schema(self) -> None:
+        from pydantic import ValidationError
+
+        from CostView.api.routers.costview import EvaluationCompareRequest
+
+        with pytest.raises(ValidationError):
+            EvaluationCompareRequest()          # 缺 benchmark
+
+    def test_cohort_rejected_by_validator(self) -> None:
+        from pydantic import ValidationError
+
+        from CostView.api.routers.costview import EvaluationCompareRequest
+
+        with pytest.raises(ValidationError):
+            EvaluationCompareRequest(benchmark="vwap", cohort="not_a_cohort")
+
+    def test_defaults_are_conservative(self) -> None:
+        from CostView.api.routers.costview import EvaluationCompareRequest
+
+        request = EvaluationCompareRequest(benchmark="vwap")
+        assert request.method == "t-test"
+        assert request.alpha == 0.05
+        assert request.correction == "bh"
+        assert request.cohort == "broker"

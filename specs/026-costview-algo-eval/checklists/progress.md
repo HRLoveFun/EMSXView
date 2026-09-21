@@ -11,7 +11,7 @@
 | 计划编制 | `plan.md` + `research.md` + 本文件 | ⏳ 进行中 | — | — |
 | 阶段一 | 周度聚合与分市场深化 | 🟡 实施完成，待合入 | 无 | — |
 | 阶段二 | 执行环境变量精确化 | 🟡 后端完成，前端待补 | 无硬依赖（与阶段一可并行） | — |
-| 阶段三 | 科学方法评估层 | 🟡 评估模块完成，端点 / 前端待补 | 阶段二 L1（**已具备**） | — |
+| 阶段三 | 科学方法评估层 | 🟡 端点与门控完成，前端视图待补 | 阶段二 L1（**已具备**） | — |
 
 ---
 
@@ -115,10 +115,13 @@
 - [x] `evaluation/power.py`（正态近似功效 / MDE，不引入 statsmodels）（2026-09-21）
 - [x] `evaluation/cost_model.py`（幂律冲击函数估计，域外不外推、不作事前预测）（2026-09-21）
 - [x] `evaluation/governance.py`（版本锁定 / 基准冻结 / 数据血缘 / 降级披露；基准不可默认）（2026-09-21）
-- [ ] 新端点 `POST /api/tca/evaluation/compare` + `TCA_EVAL_ENABLED` 门控 —— **待补**
-- [ ] `/api/tca/capabilities` 增列 `evaluation` —— **待补**
+- [x] 新端点 `POST /api/tca/evaluation/compare` + `TCA_EVAL_ENABLED` 门控（2026-09-21）
+- [x] `/api/tca/capabilities` 增列 `evaluation` 能力位（对齐 `order_level_tca` 范式）（2026-09-21）
+- [x] 编排接入：`TcaQueryService.build_evaluation_comparison`；抽出 `_collect_routes` 与 scorecard 共用取数范式（避免两处分页循环漂移）（2026-09-21）
+- [x] `data_access/config.py` 新增 `TCA_EVAL_ENABLED`（默认开启；关闭即显式不可用，不回退未校验比较）（2026-09-21）
 - [x] `scipy` 依赖声明 **三处协同**（2026-09-21）：`pyproject.toml` 包级声明 + `api/requirements.txt` 注释指向 + **`.github/workflows/boundary.yml` 补装清单** —— CI 以 `--no-deps` 安装 CostView，pyproject 声明在 CI **不生效**；首次提交漏改该处，由后端测试 `ModuleNotFoundError: scipy` 暴露并修正
-- [ ] 前端评估视图 —— **待补**
+- [x] 前端评估视图（`EvaluationView.tsx` + `CostViewModule` 第 7 个 Tab）：不可比时渲染判定与原因而非空表；未校正与校正后 p 值并列；功效给出最小可检测效应（2026-09-21）
+- [x] 共享筛选转换抽到 `lib/filters.ts`（消除 `react-refresh/only-export-components` 警告）（2026-09-21）
 - [x] `report_spec.py` 评估口径声明 + `SPEC_VERSION` bump（`2026.09.7` → `2026.09.8`）（2026-09-21）
 - [x] 三处口径文档同步（`report_spec` / `report-tca-known-limitations` 第十四轮 / ADR-0018 §10.8；**不需新建 ADR** —— 归入既有 0018 口径治理线）（2026-09-21）
 

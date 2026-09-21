@@ -32,8 +32,8 @@ import type {
   ScorecardCohortMetrics,
   ScorecardFormState,
   ScorecardReport,
-  TcaFilterPayload,
 } from '../types';
+import { analysisFiltersToPayload } from '../lib/filters';
 
 interface ScorecardViewProps {
   config: CostViewConfig;
@@ -53,21 +53,6 @@ const COHORT_OPTIONS: Array<{ value: ScorecardCohort; label: string; hint: strin
 function formatNumber(value: number | null, decimals = 1, suffix = ''): string {
   if (value == null || !Number.isFinite(value)) return '—';
   return `${value.toFixed(decimals)}${suffix}`;
-}
-
-function analysisFiltersToPayload(form: CostViewFilterFormState): TcaFilterPayload {
-  const payload: TcaFilterPayload = {};
-  const orderIds = form.orderIds
-    .split(/[\n,]+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (orderIds.length) payload.order_ids = orderIds;
-  if (form.algo) payload.algo = form.algo;
-  if (form.startDate) payload.start_date = form.startDate.replace(/-/g, '');
-  if (form.endDate) payload.end_date = form.endDate.replace(/-/g, '');
-  if (form.broker) payload.broker = form.broker.trim();
-  if (form.symbol) payload.symbol = form.symbol.trim();
-  return payload;
 }
 
 function toCsv(report: ScorecardReport): string {

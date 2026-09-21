@@ -372,6 +372,117 @@ async def analyze_scorecard(request: ScorecardRequest):
 
 
 
+# ── 026 阶段三：评估层（科学方法）─────────────────────────────────────────────
+
+class EvaluationCompareRequest(BaseModel):
+    """券商 / 算法可比性评估请求。
+
+    ``benchmark`` **无默认值**：基准必须显式给出（D1 基准冻结，避免事后挑选最有利
+    基准），缺失即 422 —— 该约束不通过默认值削弱。
+    """
+
+    cohort: str = Field(
+        default="broker",
+        description=f"比较维度；one of {list(SCORECARD_COHORTS)}",
+    )
+    benchmark: str = Field(
+        description="基准；one of vwap / arrival / close / is（不可默认）",
+    )
+    filters: TcaFilterPayload = Field(default_factory=TcaFilterPayload)
+    method: str = Field(default="t-test", description="检验方法：t-test / ks / chi2")
+    alpha: float = Field(default=0.05, gt=0, lt=1)
+    correction: str = Field(default="bh", description="多重比较校正：bh / bonferroni")
+    min_group_sample: int = Field(default=10, ge=2, le=1000)
+    max_orders: int = Field(default=2000, ge=1, le=10000)
+
+    @field_validator("cohort")
+    @classmethod
+    def validate_cohort(cls, v: str) -> str:
+        value = (v or "").strip().lower()
+        if value not in SCORECARD_COHORTS:
+            raise ValueError(f"cohort must be one of {list(SCORECARD_COHORTS)}")
+        return value
+
+
+class EvaluationCompareResponse(BaseModel):
+    success: bool
+    data: Optional[dict] = None
+    message: str = ""
+
+
+@router.post("/api/tca/evaluation/compare", response_model=EvaluationCompareResponse)
+async def evaluation_compare(request: EvaluationCompareRequest):
+    """券商 / 算法可比性评估（026 阶段三；B3 可比性条件 / D1 基准冻结 / DP-3-2）。
+
+    三条结构性约束（实现见 `CostView/src/evaluation/`）：
+
+    1. **可比性由服务端强制** —— 不可比时 ``verdict.comparable=False`` 且
+       ``comparisons`` 为空数组，**不返回任何比较数值**。该约束若只放 UI 层，
+       直接调 API 仍可取原始均值比较，等于形同虚设；
+    2. **基准不可默认** —— ``benchmark`` 缺失 / 不受支持即 422；
+    3. **多重比较校正** —— 未校正与校正后的 p 值同时返回。
+
+    门控关闭（``TCA_EVAL_ENABLED=0``）时返回**显式不可用**，**不**回退到
+    「未校验的均值比较」—— 那等于放弃可比性约束，与关闭意图相反。
+    """
+    if not DataAccessConfig.TCA_EVAL_ENABLED:
+        return EvaluationCompareResponse(
+            success=True,
+            data={"enabled": False, "verdict": None, "comparisons": []},
+            message=(
+                "评估层未启用 (TCA_EVAL_ENABLED=0)；comparisons 为空不代表无可比数据，"
+                "且不提供未校验的均值比较作为回退。"
+            ),
+        )
+
+    f = request.filters
+    filters = ScorecardFilters(
+        cohort=request.cohort,
+        order_ids=f.order_ids,
+        algo=f.algo,
+        start_date=f.start_date,
+        end_date=f.end_date,
+        broker=f.broker,
+        symbol=f.symbol,
+        min_sample_size=request.min_group_sample,
+        max_orders=request.max_orders,
+    )
+    try:
+        data = await run_bounded(
+            _analytics.build_evaluation_comparison,
+            filters,
+            benchmark=request.benchmark,
+            method=request.method,
+            alpha=request.alpha,
+            correction=request.correction,
+            min_group_sample=request.min_group_sample,
+        )
+    except QueryTimeoutError as exc:
+        raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}. Run the data pipeline first.",
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error(f"Evaluation comparison failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Evaluation error: {exc}")
+
+    verdict = data.get("verdict") or {}
+    data["enabled"] = True
+    message = (
+        f"Comparable across {len(data.get('groups') or [])} {request.cohort} group(s)"
+        if verdict.get("comparable")
+        else "Not comparable — " + "; ".join(verdict.get("reasons") or ["原因未知"])
+    )
+    return EvaluationCompareResponse(success=True, data=data, message=message)
+
+
 # ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
 
 
@@ -556,6 +667,8 @@ async def capabilities():
             "order_level_tca": DataAccessConfig.TCA_ORDER_AGG_ENABLED,
             "core_benchmarks": DataAccessConfig.TCA_CORE_BENCHMARKS_ENABLED,
             "risk_impact": DataAccessConfig.TCA_RISK_IMPACT_ENABLED,
+            # 026 阶段三：评估层（可比性判定 + 检验 + 功效 + 治理）
+            "evaluation": DataAccessConfig.TCA_EVAL_ENABLED,
         },
     )
 

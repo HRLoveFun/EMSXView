@@ -1,5 +1,7 @@
 import type {
   BdibHealthReport,
+  EvaluationCompareRequest,
+  EvaluationComparisonReport,
   Granularity,
   LastPreset,
   MetricCoverageReport,
@@ -216,6 +218,31 @@ export async function fetchScorecard(payload: ScorecardRequestPayload): Promise<
   const json = await response.json();
   return json.data as ScorecardReport;
 }
+
+/** 026 阶段三：评估层可比性比较（POST /api/tca/evaluation/compare）。
+ *
+ *  三条约束都在**服务端**执行，前端只做呈现、不承担约束责任：
+ *  1. 可比性判定在服务端 —— 不可比时 `comparisons` 为空数组，后端不返回数值；
+ *  2. `benchmark` 必填（D1 基准冻结），缺失即 422；
+ *  3. 每对比较同时返回未校正与校正后的 p 值。
+ */
+export async function fetchEvaluationComparison(
+  payload: EvaluationCompareRequest,
+): Promise<EvaluationComparisonReport> {
+  const response = await fetch(`${API_BASE_URL}/api/tca/evaluation/compare`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as EvaluationComparisonReport;
+}
+
 // -- Monitoring（BDIB 健康 / 指标覆盖率 / 报告聚合）----------------------------
 
 /** 监控查询公共参数：last 预设与 start/end 显式区间二选一（YYYYMMDD） */
