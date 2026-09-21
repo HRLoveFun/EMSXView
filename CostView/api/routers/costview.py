@@ -150,8 +150,15 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     No Bloomberg or external API calls are made during this endpoint.
 
     Returns a structured report with flat per-route summaries (34 fields each).
-    未显式指定日期且默认日期（上一工作日）数据未生成时返回 503 提示：
-    数据更新维护已迁独立项目 EMSXDataPipeline，请通过其 Runner 触发。
+
+    两种「空结果」语义严格区分（2026-09-21 整改）：
+
+    - **数据未就绪** —— 未显式指定日期且默认日期（上一工作日）无数据，或库内
+      完全无数据（表缺失 / 整表为空）：返回 503 ``data_not_ready``；
+    - **筛选零匹配** —— 库内有数据、但本次过滤条件命中 0 行：返回 200 且
+      ``total_orders=0``，并随 payload 下发 ``data_source_warning`` 供前端提示。
+      此前两者共用 503，用户按自己的条件筛不出数据时会看到"数据未生成"，
+      经全局 5xx 遮蔽后更是只剩 "Internal server error"。
     """
 
     f = request.filters
@@ -199,7 +206,12 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
         logger.error(f"TCA analysis failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"TCA analysis error: {exc}")
 
-    if report.data_source_warning:
+    # 零匹配 ≠ 数据未就绪：build_tca_report 在「本次过滤条件命中 0 行」时同样置
+    # data_source_warning，此前一律当 503，用户按自己的条件筛不出数据时会被
+    # 误导为「数据未生成」。仅当库内确实无任何数据（表缺失 / 整表为空）才 503；
+    # 筛选零匹配走 200 + total_orders=0，warning 随 payload 显式下发。
+    latest_date = _analytics.get_latest_tca_date()
+    if report.data_source_warning and latest_date is None:
         raise HTTPException(
             status_code=503,
             detail={"code": "data_not_ready", "message": report.data_source_warning},
@@ -207,6 +219,15 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
 
     # Serialize dataclasses to dict
     report_dict = _serialize_report(report)
+    if report.data_source_warning:
+        return TcaAnalyzeResponse(
+            success=True,
+            data=report_dict,
+            message=(
+                f"该筛选条件下无匹配路由（库内最新数据日 {latest_date}）；"
+                "total_orders=0 仅表示本次条件未命中，不代表数据未生成。"
+            ),
+        )
     return TcaAnalyzeResponse(
         success=True,
         data=report_dict,

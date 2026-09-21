@@ -210,25 +210,6 @@ export interface TcaReport {
   orders: TcaRouteSummary[];
 }
 
-
-interface StageInfo {
-  name: 'initialization' | 'fill_fetch' | 'processing' | 'completion';
-  label: string;
-  progress: number;  // 0-100 within this stage
-  detail?: string | null;  // 阶段明细（如 "Day 3/7: 2026-04-29 — 1245 rows"）
-}
-
-export interface UpdateStatusResponse {
-  job_id: string;
-  status: 'started' | 'running' | 'completed' | 'failed';
-  started_at: string | null;
-  completed_at: string | null;
-  error: string | null;
-  stage: StageInfo | null;
-  overall_progress: number;  // 0-100 across all stages
-  last_activity_at: string | null;
-}
-
 // ── Scorecard contracts ────────────────────────────────────────────────────
 
 export type ScorecardCohort =

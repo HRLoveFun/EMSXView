@@ -63,7 +63,7 @@
 | 措施 | 实现方案 |
 |------|---------|
 | 认证覆盖 | database/orders_handoff/realtime WS 补 `verify_token`（P0 已实施）；`OverviewItem.path` 遮蔽为文件名（P0 已实施） |
-| 敏感信息遮蔽 | 统一异常映射：内部异常 detail 非 debug 模式替换为分类码；`raw_connection` 移入内部管理端点 |
+| 敏感信息遮蔽 | 统一异常映射：内部异常 detail 非 debug 模式遮蔽为固定文案；**业务降级 detail（`{code,message}` 且 code 在 `backend/api/errors.py` 白名单内）照常下发**，避免把"数据未生成"这类可操作提示一并抹掉；`raw_connection` 移入内部管理端点 |
 | 门控统一 | `HANDOFF_BACKEND`/`BDIB_QUERY_ENGINE` 白名单 + 启动校验；`tca_bridge` 重复注册检测 |
 | 配额限制 | handoff 内存后端总量上限，超限拒绝写入并返回明确错误码 |
 
@@ -121,7 +121,7 @@
 | M2 | 前端 handoff 无运行时校验 | 新增 `shared/lib/api-schema.ts`（zod schema + parseApiData/parseApiDataNullable），替换 handoff-api.ts 全部 `as` 断言 |
 | M3 | handoff 契约 `dict[str, Any]` 无 schema | `PostTradeHandoffRequest` 字段边界 + strategy_params 64KB 上限（API 层）；适配器 `_bounded_strategy_params()`（双保险） |
 | M4 | 订单核心 schema 无边界 | orders/routes/handoff schema 加 max_length/pattern/Literal/ge-le；date_limit Query 约束 |
-| M5 | HTTPException detail 泄漏内部异常 | 新增 `backend/api/errors.py`（ErrorCode + error_detail 遮蔽）；全局 5xx handler 遮蔽；broker/debug/route_plans 3 处泄漏点修复；config.py 加 DEBUG 开关 |
+| M5 | HTTPException detail 泄漏内部异常 | 新增 `backend/api/errors.py`（业务错误码白名单 + detail 规范化）；全局 5xx handler 遮蔽；broker/debug/route_plans 3 处泄漏点修复；config.py 加 DEBUG 开关。2026-09-21 精度收敛：原 `status_code >= 500` 一刀切会把 503 业务降级信号也抹成 "Internal server error"，现按 code 白名单放行（`visible_error_detail`），并把结构化 4xx detail 序列化以避免 Pydantic 校验把 400 变成无信息 500 |
 | M6 | HANDOFF_BACKEND 无白名单 | `platform_data/config.py` 白名单校验（非法值启动抛错）；`Config`（`data_access/config.py`，写入侧同名配置归独立仓库）加 `_validate_config()`（引擎/保留月数/策略白名单） |
 | M7 | MarketStoreReader 吞异常 | `last_query_error` 标记 + error 日志，区分"真无数据"与"查询失败" |
 | M8 | 熔断器 Error 阈值不可达 | `CircuitBreakerRegistry` 失败计数跨 run 持久；OPEN 在 run 结束时转 HALF_OPEN（下个 run 探测） |

@@ -75,6 +75,17 @@ export function OverviewView({ config, error, exportState, isLoading, report, on
         </Alert>
       ) : null}
 
+      {/* 零匹配（后端 200 + total_orders=0）与"数据未生成"（503）语义不同，
+          须显式区分，否则空结果会被读成"没有数据" */}
+      {!error && report && report.total_orders === 0 ? (
+        <Alert>
+          <AlertTitle>No matching routes</AlertTitle>
+          <AlertDescription>
+            当前筛选条件未命中任何路由。库内数据可用——请放宽日期范围或清除筛选后重试。
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
