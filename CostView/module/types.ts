@@ -305,77 +305,125 @@ export interface ScorecardFormState {
   maxOrders: number;
 }
 
-// ── 026 阶段三：评估层契约（POST /api/tca/evaluation/compare）────────────────
+// ── 027：综合评估报告契约（POST /api/tca/evaluation/report）──────────────────
 
-/** 基准（不可默认 —— D1 基准冻结，服务端不设默认值） */
-export type EvaluationBenchmark = 'vwap' | 'arrival' | 'close' | 'is';
+/** 基准 —— **全部并列呈现，不由用户选择**（决策基准 + 市场时间基准 + 收盘 + IS） */
+export type EvaluationBenchmark = 'arrival' | 'vwap' | 'close' | 'is';
 
-/** 检验方法：三者回答不同问题，不得只报最有利者 */
+/** 检验方法 —— **全部并列呈现**（三者回答不同问题，不得只报最有利者） */
 export type EvaluationMethod = 't-test' | 'ks' | 'chi2';
 
-export type EvaluationCorrection = 'bh' | 'bonferroni';
+export type EvaluationConfidence = 'low' | 'medium' | 'high';
 
-export interface EvaluationCompareRequest {
-  cohort: ScorecardCohort;
-  /** 必填：基准冻结，避免事后挑选最有利基准 */
-  benchmark: EvaluationBenchmark;
+/** 请求：**只有时间范围与作用域**（维度 / 基准 / 方法均不由调用方选择） */
+export interface EvaluationReportRequest {
   filters: TcaFilterPayload;
-  method?: EvaluationMethod;
-  alpha?: number;
-  correction?: EvaluationCorrection;
-  min_group_sample?: number;
-  max_orders?: number;
+  granularity?: Granularity;
 }
 
-/** 可比性判定：`comparable=false` 时后端**不返回**比较数值 */
-export interface EvaluationVerdict {
-  comparable: boolean;
-  reasons: string[];
-  unmet_dimensions: string[];
-  group_sizes: Record<string, number>;
-  /** 各分层维度的最差两两总变差距离 */
-  imbalance: Record<string, number>;
-  common_strata: number;
+/** 分组取值的水平描述（多基准并列时每个基准一份） */
+export interface EvaluationValueStats {
+  n: number;
+  mean: number | null;
+  median: number | null;
+  p95: number | null;
+  cvar: number | null;
+  stddev: number | null;
 }
 
-export interface EvaluationComparison {
-  left: string;
-  right: string;
+/** 分层内比较结果（控制维度共同层内、按层样本量加权合并） */
+export interface EvaluationStratified {
+  /** 层加权合并的均值差（该组 − 其余） */
+  difference: number | null;
+  /** false 表示层数不足、已退化为整体比较（结论仍给出，原因见 reason） */
+  stratified: boolean;
+  reason: string;
+  strata_used: number;
+  strata_skipped: number;
+  /** 纳入层的样本量占比（低于阈值置信度降档） */
+  coverage: number;
+  /** 层效应极差（结论是否依赖某一层） */
+  heterogeneity: number;
+  confidence: EvaluationConfidence;
+  n_left: number;
+  n_right: number;
+}
+
+export interface EvaluationTest {
   method: string;
   statistic: number;
   p_value: number;
-  /** 多重比较校正后的 p 值（与未校正值同时可见） */
-  p_value_adjusted: number;
+  /** 多重比较校正后的 p 值（与未校正值**同时**呈现，不掩盖校正代价） */
+  p_value_adjusted?: number;
   n_left: number;
   n_right: number;
-  /** 均值差（left − right） */
   difference: number | null;
-  ci_low: number | null;
-  ci_high: number | null;
   alpha: number;
-  significant: boolean;
   note: string;
 }
 
-export interface EvaluationPowerGuidance {
-  smallest_group_size: number;
-  min_group_sample: number;
-  sufficient: boolean;
-  /** 可检测的最小效应（「还差多少」的可执行指引） */
-  minimum_detectable_effect?: number;
+export interface EvaluationGroupRow {
+  label: string;
+  sample_size: number;
+  undersized: boolean;
+  benchmarks: Record<string, EvaluationValueStats>;
+  vs_others: EvaluationStratified;
+  ci: [number | null, number | null];
+  tests: Record<string, EvaluationTest>;
 }
 
-export interface EvaluationComparisonReport {
-  /** 门控位：false 表示评估层未启用（comparisons 为空**不代表**无可比数据） */
+export interface EvaluationDimensionBlock {
+  dimension: ScorecardCohort;
+  primary_benchmark: string;
+  primary_metric: string;
+  group_count: number;
+  groups_reported: number;
+  truncated: boolean;
+  rows: EvaluationGroupRow[];
+  stratification: {
+    dimensions: string[];
+    group_sizes: Record<string, number>;
+    /** 各控制维度的最差两两总变差距离（**描述性提示**，不阻断结论） */
+    imbalance: Record<string, number>;
+    cross_strata: { count: number; largest: number };
+    alerts: string[];
+  };
+  highlights: {
+    best?: { label: string; difference: number };
+    worst?: { label: string; difference: number };
+    minimum_detectable_effect?: number;
+    alerts: string[];
+  };
+}
+
+export interface EvaluationTrendPoint extends EvaluationValueStats {
+  period: string;
+}
+
+export interface EvaluationReport {
+  /** 门控位：false 表示未启用（sections 为空**不代表**无数据） */
   enabled: boolean;
-  dimension: string;
-  benchmark: string;
-  benchmark_metric: string;
-  verdict: EvaluationVerdict | null;
-  groups: Array<{ label: string; sample_size: number }>;
-  comparisons: EvaluationComparison[];
-  power: EvaluationPowerGuidance | null;
+  period: { start_date: string; end_date: string; granularity: string };
+  benchmarks: EvaluationBenchmark[];
+  primary_benchmark: EvaluationBenchmark;
+  dimensions_covered: ScorecardCohort[];
+  sections: {
+    credibility: Record<string, unknown>;
+    dimensions: EvaluationDimensionBlock[];
+    trend: {
+      granularity: string;
+      periods: number;
+      series: EvaluationTrendPoint[];
+      stability: Record<string, unknown>;
+    };
+    risk: Record<string, EvaluationValueStats & { tail_share: number | null }>;
+    market: {
+      primary_benchmark: string;
+      rows: Array<{ exchange: string; sample_size: number } & EvaluationValueStats>;
+    };
+  } | null;
   governance?: Record<string, unknown>;
+  filters?: Record<string, unknown>;
   total_routes_considered?: number;
   total_routes_capped?: boolean;
   data_source_warning?: string | null;
@@ -681,6 +729,8 @@ interface TcaReportFilterOptions {
 }
 
 export interface TcaReportSummary {
+  /** 027：报告内嵌的评估章节（与独立评估视图消费**同一份 payload**） */
+  evaluation?: EvaluationReport | null;
   filters: TcaReportSummaryFilters;
   markets: TcaReportMarket[];
   filter_options: TcaReportFilterOptions;

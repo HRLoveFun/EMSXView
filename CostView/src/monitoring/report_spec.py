@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.8"
+SPEC_VERSION = "2026.09.9"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -106,26 +106,40 @@ REPORT_SPEC: dict[str, Any] = {
     },
     #: 026 阶段二：环境变量可得率随 scorecard payload 披露（filters.env_coverage）
     "env_coverage_disclosure": "scorecard.filters.env_coverage",
-    #: 026 阶段三：评估层层级口径（实现见 `CostView/src/evaluation/`；本模块不 import 它，
+    #: 027：综合评估报告口径（实现见 `CostView/src/evaluation/`；本模块不 import 它，
     #: 避免 `evaluation → monitoring.env_context → monitoring/__init__ → report_spec` 的包级
     #: 循环，故此处写字面量并由 `tests/test_evaluation.py` 断言与实现常量一致）
     "evaluation": {
-        # 分层键：全部来自阶段二真实环境变量；禁止用成本量（循环论证）
+        # 控制维度（分层键）：全部来自阶段二真实环境变量；禁止用成本量（循环论证）。
+        # **不含 asset_class**：与 Exchange 高度共线，纳入只使层更稀疏而无控制力增益。
         "strata_dimensions": (
-            "Exchange", "asset_class", "time_of_day", "liquidity_adv20", "volatility",
+            "Exchange", "time_of_day", "liquidity_adv20", "volatility",
         ),
-        # 失衡度量与阈值：TVD 对期望频数无下限要求（小样本稳定），且可直接解读
+        # 027：控制维度与分组维度**正交** —— 按某维度分组时分层键自动排除该维度。
+        # （否则层内该维度取值恒定、分层退化为 1 层；实测曾使三个环境维度全部退化）
+        "strata_excludes_grouping_dimension": True,
+        # 构成失衡（TVD）为**描述性提示**，不再作为「不可比即拒绝」的门禁（027 修正；
+        # 026 的整体分布门禁在真实数据上恒为拒绝 —— Exchange TVD 恒等于 1.0）
         "imbalance_metric": "total-variation-distance",
-        "imbalance_threshold": 0.2,
-        # 检验方法：三种方法回答不同问题，不得只报最有利者（D1 同源要求）
+        "imbalance_alert_threshold": 0.2,
+        "imbalance_blocks_output": False,
+        # 检验方法：三种方法回答不同问题，不得只报最有利者（D1 同源要求）—— 全部并列
         "methods": ("t-test", "ks", "chi2"),
-        # 可信区间用 bootstrap：成本分布右偏厚尾，正态近似会系统性窄化区间
+        # 可信区间用 bootstrap：成本分布右偏厚尾，正态近似会系统性窄化区间。
+        # 每对样本只算一次（与检验方法无关）；重采样次数按报告可接受耗时取值
         "ci_method": "bootstrap-percentile",
-        # 多重比较校正：同一报告内比较多个 broker / 算法时必须校正
+        "ci_bootstrap": 200,
+        # 多重比较校正：同一维度内对多个分组各做一次检验，必须校正
         "multiple_comparison": "benjamini-hochberg",
-        # 基准不可默认（D1 基准冻结）；比较结论仅在可比性成立时输出（DP-3-2）
-        "benchmark_required": True,
-        "comparability_enforced_server_side": True,
+        # 027：比较形态为「每组 vs 其余（层内加权合并）」，而非 C(n,2) 全组合枚举
+        "comparison_shape": "group-vs-rest-stratified",
+        # 基准**全部并列**（决策基准 + 市场时间基准 + 收盘 + IS 分解），检验固定在主基准；
+        # 不再由用户选择（026 的 benchmark_required 语义随之废弃）
+        "benchmarks": ("arrival", "vwap", "close", "is"),
+        "primary_benchmark": "arrival",
+        # 027：无「不可比」终止态 —— 结论照出，可信度以 confidence / coverage 披露
+        "comparability_enforced_server_side": False,
+        "confidence_disclosed": True,
     },
 }
 

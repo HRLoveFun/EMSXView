@@ -1038,5 +1038,6 @@ class TcaReportAggregator:
                 "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
             },
             "metric_coverage": None,
+            "evaluation": None,
             "data_source_warning": "tca_route_summary 不存在 — 请先运行管道 S5.5",
         }

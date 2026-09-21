@@ -57,6 +57,8 @@ def render_report_html(
         _render_impact_breakdown(report.get("impact_breakdown"),
                                  report.get("weight_coverage")),
         _render_anomaly_table(report.get("anomaly")),
+        # 027：评估摘要章节置于覆盖率之前（结论在前、数据质量与缺口在后）
+        _render_evaluation_section(report.get("evaluation")),
         _render_coverage_table(report.get("metric_coverage"), _gap_dates(health),
                                _tca_gap_dates(health)),
         _render_health_appendix(health),
@@ -1012,6 +1014,78 @@ def _tca_gap_dates(health: Optional[dict[str, Any]]) -> set[str]:
     if not health or health.get("status") == "skipped":
         return set()
     return set(health.get("tca_gap_dates") or [])
+
+
+#: 评估章节展示的告警上限（报告是归档物，篇幅必须受控）
+_MAX_EVALUATION_ALERTS = 6
+
+
+def _signed(value: Optional[float], digits: int = 2) -> str:
+    """带符号数值（``None`` → ``—``）。"""
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):+,.{digits}f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _render_evaluation_section(evaluation: Optional[dict[str, Any]]) -> str:
+    """算法执行质量综合评估**摘要**（027）。
+
+    只渲染摘要（每维度最优 / 最差 + 置信度 + 可检测效应 + 告警）；完整分组与检验
+    明细由 `POST /api/tca/evaluation/report` 提供 —— 报告是归档物，篇幅必须受控。
+    两处消费**同一编排函数**的同一份 payload，不存在第二套口径。
+    """
+    if not evaluation:
+        return ""
+    blocks = (evaluation.get("sections") or {}).get("dimensions") or []
+    if not blocks:
+        return ""
+
+    from html import escape as _escape
+
+    primary = evaluation.get("primary_benchmark", "")
+    rows_html: list[str] = []
+    alerts: list[str] = []
+    for block in blocks:
+        highlights = block.get("highlights") or {}
+        best = highlights.get("best") or {}
+        worst = highlights.get("worst") or {}
+        confidence = sorted(
+            {row["vs_others"]["confidence"] for row in (block.get("rows") or [])}
+        )
+        rows_html.append(
+            "<tr>"
+            f"<td>{_escape(str(block.get('dimension', '')))}</td>"
+            f"<td>{block.get('group_count', 0)}</td>"
+            f"<td>{_escape(str(best.get('label', '—')))} "
+            f"({_signed(best.get('difference'))})</td>"
+            f"<td>{_escape(str(worst.get('label', '—')))} "
+            f"({_signed(worst.get('difference'))})</td>"
+            f"<td>{_escape('/'.join(confidence) or '—')}</td>"
+            f"<td>{_signed(highlights.get('minimum_detectable_effect'))}</td>"
+            "</tr>"
+        )
+        alerts.extend(
+            f"{block.get('dimension')}：{item}" for item in (highlights.get("alerts") or [])
+        )
+
+    alerts_html = "".join(
+        f"<li>{_escape(item)}</li>" for item in alerts[:_MAX_EVALUATION_ALERTS]
+    )
+    return f"""<div class="section">
+<h2>算法执行质量综合评估</h2>
+<p>主基准 {_escape(str(primary))}；组间比较在控制维度（Exchange / 时段 / 流动性 / 波动率）
+的<b>共同层内</b>进行并按层样本量加权合并，层覆盖率与置信度随行披露 —— 构成差异为
+披露项，不阻断结论。完整分组与检验明细见前端 Evaluation 视图。</p>
+<table>
+<thead><tr><th>比较维度</th><th>分组数</th><th>相对其余最优（差异 bps）</th>
+<th>相对其余最差（差异 bps）</th><th>置信度</th><th>可检测效应</th></tr></thead>
+<tbody>{''.join(rows_html)}</tbody>
+</table>
+<ul>{alerts_html}</ul>
+</div>"""
 
 
 def _render_coverage_table(
