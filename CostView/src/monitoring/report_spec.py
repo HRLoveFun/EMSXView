@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.6"
+SPEC_VERSION = "2026.09.7"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -91,6 +91,21 @@ REPORT_SPEC: dict[str, Any] = {
     "week_key_mode": "iso-8601-weekday-monday",
     #: 期间序列不补零（延续既有「仅含有数据交易日」约定），仅披露覆盖期间数
     "period_series_no_fill": True,
+    #: 026 阶段二：环境 cohort 的**真实字段来源**（实现单点见 monitoring.env_context，
+    #: 分桶分支见 tca_utils.cohort_key_and_label；由测试断言与 ENV_DIMENSIONS 一致）
+    "env_cohort_sources": {
+        "time_of_day": "fill_bdib.mkt_timestamp（路由内最早成交时刻）",
+        "liquidity_adv20": "fill / bdib_daily_summary.adv_20d",
+        "volatility": "bdib_daily_summary.daily_volatility",
+    },
+    #: 026 阶段二：环境字段不可得时**回退的既有代理口径**（L3 降级；不可得必须是可见事实）
+    "env_cohort_fallbacks": {
+        "time_of_day": "unknown",
+        "liquidity_adv20": "par_rate",
+        "volatility": "abs(pnl_vwap)",
+    },
+    #: 026 阶段二：环境变量可得率随 scorecard payload 披露（filters.env_coverage）
+    "env_coverage_disclosure": "scorecard.filters.env_coverage",
 }
 
 #: 排除项的中文展示文案（与 REPORT_SPEC["excluded"] 语义一一对应）

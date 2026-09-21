@@ -165,6 +165,22 @@ export function ScorecardView({ config, analysisFilters }: ScorecardViewProps) {
     [report],
   );
 
+  // 026 阶段二：环境变量可得率披露（仅环境 cohort 由后端返回）—— 降级必须可见
+  const envCoverageNote = useMemo(() => {
+    const coverage = report?.filters.env_coverage;
+    if (!coverage) return null;
+    const labelOf: Record<string, string> = {
+      time_of_day: '交易时段',
+      liquidity_adv20: 'ADV20 占比',
+      volatility: '日波动率',
+    };
+    const parts = Object.entries(coverage.pct).map(([dim, pct]) => {
+      const name = labelOf[dim] ?? dim;
+      return `${name} ${pct == null ? '—' : `${pct.toFixed(1)}%`}`;
+    });
+    return `环境变量可得率：${parts.join(' · ')}（不可得的维度回退既有代理口径）`;
+  }, [report]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-xl border bg-card p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -173,6 +189,9 @@ export function ScorecardView({ config, analysisFilters }: ScorecardViewProps) {
           <p className="text-sm text-muted-foreground">
             Aggregated TCA statistics by cohort. Inherits the Analysis tab filters (date range, broker, algo, symbol).
           </p>
+          {envCoverageNote ? (
+            <p className="mt-1 text-xs text-muted-foreground">{envCoverageNote}</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={runScorecard} disabled={isLoading}>

@@ -41,6 +41,12 @@ from .tca_query_builder import (
     get_time_series as _get_time_series,
 )
 
+from .monitoring.env_context import (
+    ENV_DIMENSIONS,
+    build_route_env_context,
+    env_coverage,
+)
+
 logger = logging.getLogger(__name__)
 
 # order 聚合的 route 分页拉取页大小（P1-1：流式分组，避免整表载入内存）
@@ -217,7 +223,17 @@ class TcaQueryService:
                 data_source_warning=warning,
             )
 
-        cohorts = _aggregate_cohorts(collected, cohort, min_sample)
+        # 026 阶段二：仅环境 cohort 才取环境数据（非环境 cohort 零额外查询）
+        env_by_route = None
+        if cohort in ENV_DIMENSIONS and collected:
+            env_by_route = self._build_env_context(collected)
+            # 降级必须可见：可得率随 scorecard payload 披露（plan §4.3 硬约束）
+            filters_dict = {
+                **filters_dict,
+                "env_coverage": env_coverage(collected, env_by_route),
+            }
+
+        cohorts = _aggregate_cohorts(collected, cohort, min_sample, env_by_route)
         return ScorecardReport(
             filters=filters_dict, cohort=cohort,
             min_sample_size=min_sample,
@@ -225,6 +241,24 @@ class TcaQueryService:
             total_orders_capped=capped, cohorts=cohorts,
             data_source_warning=warning,
         )
+
+    def _build_env_context(
+        self, routes: list[TcaRouteSummary],
+    ) -> dict[tuple[str, str, str], Any]:
+        """构建「路由键 → 环境上下文」（026 阶段二，仅环境 cohort 调用）。
+
+        取数范围取所选路由的**实际日期跨度**（而非全报告期），避免无谓扫描；任一来源
+        不可得都不阻断 scorecard —— 返回空映射即整体回退代理口径（L3）并记录警告，
+        与「静默丢样本比降级更有害」的取舍一致。
+        """
+        dates = sorted({r.order_as_of_date for r in routes if r.order_as_of_date})
+        if not dates:
+            return {}
+        try:
+            return build_route_env_context(self._mgr, routes, dates[0], dates[-1])
+        except Exception as exc:  # noqa: BLE001 - 环境数据不可得不应阻断 scorecard
+            logger.warning("环境上下文构建失败，回退代理口径: %s", exc)
+            return {}
 
     def build_order_report(self, filters: TcaFilters) -> list[TcaOrderAggregate]:
         """将路由级 TCA 结果聚合为 order 级汇总（003-tca-core-benchmarks）。

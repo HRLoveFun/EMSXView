@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from datetime import date
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 import pandas as pd
 
@@ -24,6 +24,9 @@ from platform_data.contracts import (
     TcaFilters,
     TcaRouteSummary,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - 仅类型检查，避免 monitoring 包级循环 import
+    from .monitoring.env_context import RouteEnvContext
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -176,11 +179,45 @@ def bucket_time_of_day(start_time: Optional[str]) -> tuple[str, str]:
 # Scorecard cohort aggregation
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _env_cohort_key(
+    route: TcaRouteSummary,
+    cohort: str,
+    env: Optional["RouteEnvContext"],
+) -> Optional[tuple[str, str]]:
+    """三个环境 cohort 的分桶（返回 None 表示该 cohort 不是环境维度）。
+
+    真实字段优先；该维度不可得时回退既有代理口径 —— 保留代理的理由是「静默丢样本比
+    降级更有害」，但降级必须可见（可得率经 ``env_context.env_coverage`` 随 payload 披露）。
+    """
+    if cohort == "time_of_day":
+        # 真实 start_time（路由内最早成交时刻；已在 env_context 归一化为 HH:MM:SS）
+        return bucket_time_of_day(env.start_time if env else None)
+    if cohort == "liquidity_adv20":
+        if env is not None and env.adv20_ratio is not None:
+            # 真实口径：订单规模 ÷ 20 日均量（bucket 需要百分比空间）
+            return bucket_liquidity(env.adv20_ratio * 100)
+        # L3 降级：par_rate（区间参与率）作代理（0-1 小数 → 百分比）
+        return bucket_liquidity(route.par_rate * 100 if route.par_rate is not None else None)
+    if cohort == "volatility":
+        if env is not None and env.daily_volatility is not None:
+            # 真实口径：bdib_daily_summary.daily_volatility（百分比空间）
+            return bucket_volatility(env.daily_volatility)
+        # L3 降级：|pnl_vwap|（成本）作波动率代理 —— 循环论证，仅作兜底
+        return bucket_volatility(abs(route.pnl_vwap) if route.pnl_vwap is not None else None)
+    return None
+
+
 def cohort_key_and_label(
     route: TcaRouteSummary,
     cohort: str,
+    env: Optional["RouteEnvContext"] = None,
 ) -> tuple[str, str]:
-    """计算 (machine_key, human_label) for the cohort of this route."""
+    """计算 (machine_key, human_label) for the cohort of this route。
+
+    ``env`` 为 026 阶段二引入的**可选**执行环境上下文（``monitoring.env_context``）：
+    给出时三个环境 cohort 使用真实字段；字段缺失或 ``env=None`` 时自动回退代理口径
+    —— 参数默认值天然构成降级路径（plan §4.2 DP-2-4），无需额外开关。非环境 cohort 忽略它。
+    """
     broker = route.Broker or "Unknown"
     algo = route.algo or "Unknown"
     equ_ticker = route.equ_ticker
@@ -193,15 +230,10 @@ def cohort_key_and_label(
         return (f"{broker}|{algo}", f"{broker} | {algo}")
     if cohort == "asset_class":
         return asset_class_from_ticker(equ_ticker)
-    if cohort == "time_of_day":
-        # TcaRouteSummary 未携带 start_time，默认 unknown
-        return ("unknown", "Unknown")
-    if cohort == "liquidity_adv20":
-        # 使用 par_rate 作为参与率代理（par_rate 为 0-1 小数，bucket 需要百分比）
-        return bucket_liquidity(route.par_rate * 100 if route.par_rate is not None else None)
-    if cohort == "volatility":
-        # TcaRouteSummary 未携带 daily_volatility，使用 pnl_vwap 绝对值代理（bps）
-        return bucket_volatility(abs(route.pnl_vwap) if route.pnl_vwap is not None else None)
+
+    env_key = _env_cohort_key(route, cohort, env)
+    if env_key is not None:
+        return env_key
     return ("unknown", "Unknown")
 
 
@@ -209,13 +241,26 @@ def aggregate_cohorts(
     routes: list[TcaRouteSummary],
     cohort: str,
     min_sample_size: int,
+    env_by_route: Optional[Mapping[tuple[str, str, str], "RouteEnvContext"]] = None,
 ) -> list[ScorecardCohortMetrics]:
-    """Group routes into cohorts and compute aggregate metrics."""
+    """Group routes into cohorts and compute aggregate metrics.
+
+    ``env_by_route`` 为可选的「路由键 → 执行环境上下文」映射（026 阶段二）：给出时
+    环境 cohort 使用真实字段，未覆盖的路由自动回退代理口径。路由键与
+    ``env_context.env_route_key`` 同源（局部 import，规避 monitoring 包级循环）。
+    """
+    from .monitoring.env_context import env_route_key
+
     buckets: dict[tuple[str, str], list[TcaRouteSummary]] = defaultdict(list)
     for route in routes:
         if route.pnl_vwap is None and route.par_rate is None:
             continue
-        key_label = cohort_key_and_label(route, cohort)
+        env = None
+        if env_by_route:
+            env = env_by_route.get(
+                env_route_key(route.OrderId, route.RouteId, route.order_as_of_date)
+            )
+        key_label = cohort_key_and_label(route, cohort, env)
         buckets[key_label].append(route)
 
     results: list[ScorecardCohortMetrics] = []

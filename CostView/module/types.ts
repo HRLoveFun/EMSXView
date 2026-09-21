@@ -267,6 +267,15 @@ export interface ScorecardCohortMetrics {
   anomaly_flags: string[];
 }
 
+/** 026 阶段二：环境变量可得率（仅环境 cohort 由后端返回） */
+export interface ScorecardEnvCoverage {
+  total_routes: number;
+  /** 每维度可用路由数（键为 time_of_day / liquidity_adv20 / volatility） */
+  usable: Record<string, number>;
+  /** 每维度可得率（%；键同上） */
+  pct: Record<string, number | null>;
+}
+
 export interface ScorecardReport {
   filters: {
     cohort: ScorecardCohort;
@@ -278,6 +287,8 @@ export interface ScorecardReport {
     symbol: string | null;
     min_sample_size: number;
     max_orders: number;
+    /** 026 阶段二：环境变量可得率（仅环境 cohort 返回；不可得是可见事实，非静默降级） */
+    env_coverage?: ScorecardEnvCoverage;
   };
   cohort: ScorecardCohort;
   min_sample_size: number;

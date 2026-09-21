@@ -10,6 +10,7 @@
     tca_report_html   — 自包含 HTML 报告渲染器（内联 CSS + SVG 图表，零外部依赖）
     anomaly_query     — 异常路由判定查询与阈值参数化（DEFAULT_THRESHOLDS）
     report_dims       — 报告筛选维度表读取（写侧刷新已随数据管道迁独立项目）
+    env_context       — 执行环境上下文派生（交易时段 / ADV20 占比 / 日波动率；026 阶段二）
 
 ``__all__`` 必须与上方 import 严格对应（由 test_monitoring 的导出清单护栏守住）：
 维度表写侧符号（DIM_COLUMNS / ensure_schema / refresh_dim_values）随 010-extract-pipeline
@@ -52,6 +53,12 @@ from .report_measure import (
 from .report_dims import (
     get_filter_options,
 )
+from .env_context import (
+    ENV_DIMENSIONS,
+    RouteEnvContext,
+    build_route_env_context,
+    env_coverage,
+)
 from .report_spec import REPORT_SPEC, SPEC_VERSION, footer_text
 
 __all__ = [
@@ -83,6 +90,10 @@ __all__ = [
     "GRANULARITIES",
     "DEFAULT_GRANULARITY",
     "get_filter_options",
+    "ENV_DIMENSIONS",
+    "RouteEnvContext",
+    "build_route_env_context",
+    "env_coverage",
     "REPORT_SPEC",
     "SPEC_VERSION",
     "footer_text",

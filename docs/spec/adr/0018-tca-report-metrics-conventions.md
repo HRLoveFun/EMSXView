@@ -298,6 +298,46 @@ payload 为**追加式**变更（`filters.granularity`、`daily_series_meta.gran
 跨年周归属 / 空周不补零 / 单日周 / 月键格式 / 分市场 × 周度金额守恒 / day 键恒等 /
 非法粒度报错 / 覆盖率粒度分组 / SPEC-实现绑定 / 脚注声明）。
 
+### 10.7 执行环境 cohort 精确化（2026-09-21，026 阶段二）
+
+**背景**：三个环境 cohort 此前均为**代理口径**（`tca_utils.cohort_key_and_label`）：
+`time_of_day` 恒 `unknown`（活跃表不带 `start_time`，该维度完全失效）、
+`liquidity_adv20` 用 `par_rate`（区间参与率）代 ADV 占比、`volatility` 用 `|pnl_vwap|`
+（**成本**）代日波动率 —— 最后一项用成本代理环境变量、再按它分层比较成本，属**循环论证**。
+
+**决策**：
+
+1. **新增环境上下文派生单点** `CostView/src/monitoring/env_context.py`：从
+   `fill_bdib.mkt_timestamp`（按路由取最早成交时刻）与 `raw_bdib` 的 `bdib_daily_summary`
+   （`adv_20d` / `daily_volatility`，**已内置无需计算**）取数，在应用层按
+   `(ticker, 交易日)` join。跨库**不使用 SQL `ATTACH`**（会引入第二数据文件依赖、
+   破坏连接单点）。
+2. **注入方式**（plan §4.2 DP-2-4）：`cohort_key_and_label(route, cohort, env=None)` 与
+   `aggregate_cohorts(..., env_by_route=None)` 增设**可选**参数 —— 不触碰
+   `TcaRouteSummary` 的「严格匹配 55 字段」契约，且 `env=None` 与「字段为 `None`」等价，
+   **参数默认值天然构成降级路径**，无需额外开关。
+3. **三级降级链**：L1 真实 / L2 自给 / L3 代理；任一维度不可得均为**可见事实** ——
+   可得率经 `scorecard.filters.env_coverage` 披露（延续「降级必须可见」的既有原则）。
+4. **仅环境 cohort 取数**：`build_scorecard` 按 cohort 判定，非环境 cohort **零额外查询**。
+5. **两处口径变更**：`liquidity_adv20` 由 `par_rate` 改为 `fill / adv_20d`（语义修正，
+   两者不可互换）；`volatility` 由 `|pnl_vwap|` 改为真实 `daily_volatility`。
+
+**版本**：`SPEC_VERSION` `2026.09.6` → `2026.09.7`；`report_spec` 新增 `env_cohort_sources` /
+`env_cohort_fallbacks` / `env_coverage_disclosure`（与 `env_context.ENV_DIMENSIONS`
+由测试断言一致）。
+
+**实测依据**（Checkpoint 2-A）：`fill_bdib.mkt_timestamp` 与 `raw_bdib.mkt_timestamp` 均为
+8 字符 `HH:MM:SS` 纯时间（原判「两套值域并存」**不成立**，`bucket_time_of_day` 现有解析
+可直接工作）；start_time 可得率 **100%**；`adv_20d` 覆盖 **99.39%**、`daily_volatility`
+**99.94%**（`intraday_volatility` 仅 38.7%，故不作主口径）。
+
+**影响面**：环境 cohort 的**分层结果会变化**（此前 `time_of_day` 全落 `unknown`），
+跨期比较该维度时需注意口径切换；非环境 cohort 与报告 HTML / 监控页**零影响**。
+
+**护栏**：`CostView/tests/test_env_context.py`（16 条：双形态归一化 / 真实分桶与边界 /
+代理回退 / 真实路径不引用成本量 / 三维度独立降级 / 来源缺失不抛错 / 聚合接线 /
+可得率披露 / SPEC 绑定）。
+
 ## 后果 (Consequences)
 
 ### 正面
