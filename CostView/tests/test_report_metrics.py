@@ -855,6 +855,15 @@ class TestReportSpec:
         assert "差集检测" in text
         assert spec["chart_axis"]["pnl_vwap"] in text
 
+    def test_footer_declares_granularity(self):
+        """026：脚注声明聚合粒度、周键口径与不补零约定（归档自证）。"""
+        spec = report_spec.REPORT_SPEC
+        text = report_spec.footer_text()
+
+        assert f"默认 {spec['default_granularity']}" in text
+        assert spec["week_key_mode"] in text
+        assert "不补零" in text
+
     def test_chart_axis_policy_binds_implementation(self):
         """D1 / DP-5：轴锚定规则的声明与渲染层常量绑定。"""
         from CostView.src.monitoring.tca_report_html import (
@@ -892,6 +901,9 @@ class TestReportSpec:
         assert spec["anomaly_floor_exempt"] == {
             "rule": rm.FLOOR_EXEMPT_RULE, "severity": rm.FLOOR_EXEMPT_SEVERITY,
         }
+        # 026：聚合粒度声明与 report_measure 实现单点一致
+        assert tuple(spec["granularities"]) == rm.GRANULARITIES
+        assert spec["default_granularity"] == rm.DEFAULT_GRANULARITY
 
     def test_header_shows_preset_and_as_of(self, tca_mgr_factory):
         """报告头自证报告期：preset + 数据截至日 + 口径版本。"""
@@ -1774,3 +1786,138 @@ class TestAnomalyThrottleDisclosure:
         assert "异常节流" in html
         assert "笔数下限剔除 1 条" in html
         assert "严重未完成豁免 1 条" in html
+
+
+# ── 026 阶段一：聚合粒度与期间键（周度 / 月度）─────────────────────────────
+
+
+class TestGranularityPeriodKeys:
+    """026 阶段一：粒度参数与期间键（口径单点 report_measure）。
+
+    覆盖 plan §3.3 要求的跨年周 / 空周 / 单日周 / 按日等价四类边界，
+    并锁死周键实现路线（SQLite 3.45.3 不支持 %G/%V，见 plan §3.1.0）。
+    """
+
+    def test_day_key_is_raw_column(self):
+        """day 粒度期间键直接返回原始列 —— 按日产出逐字节等价的实现基础。"""
+        assert rm.period_key_expr("day") == "order_as_of_date"
+        assert rm.period_key_expr(None) == "order_as_of_date"
+        assert rm.validate_granularity("") == rm.DEFAULT_GRANULARITY
+        assert rm.period_key_select("day") == "order_as_of_date AS period_key"
+
+    def test_invalid_granularity_raises(self):
+        """非法粒度显式报错，不静默降级为 day（口径必须显式）。"""
+        with pytest.raises(ValueError, match="不支持的粒度"):
+            rm.validate_granularity("quarter")
+
+    def test_week_series_merges_cross_year_week(self, tca_mgr_factory):
+        """跨年周按 ISO 8601 归属：2025-12-29 ~ 2026-01-04 同属 2026-W01。
+
+        这是 %Y-%W 路线的反例（它会把该周拆成 2025-52 / 2026-00），
+        故本用例同时锁死周键实现路线。
+        """
+        mgr = tca_mgr_factory([
+            {"OrderId": "A", "order_as_of_date": "20251229"},
+            {"OrderId": "B", "order_as_of_date": "20251231"},
+            {"OrderId": "C", "order_as_of_date": "20260101"},
+            {"OrderId": "D", "order_as_of_date": "20260104"},
+            {"OrderId": "E", "order_as_of_date": "20260105"},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20251229", "20260105", granularity="week",
+        )
+
+        counts = {p["date"]: p["route_count"] for p in report["daily_series"]}
+        assert counts == {"2026-W01": 4, "2026-W02": 1}
+
+    def test_week_series_omits_empty_periods(self, tca_mgr_factory):
+        """空周不补零（延续既有「仅含有数据交易日」约定），仅披露覆盖期间数。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A", "order_as_of_date": "20260106"},
+            {"OrderId": "B", "order_as_of_date": "20260127"},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260101", "20260131", granularity="week",
+        )
+
+        assert [p["date"] for p in report["daily_series"]] == ["2026-W02", "2026-W05"]
+        assert report["daily_series_meta"]["covered_days"] == 2
+        assert report["daily_series_meta"]["granularity"] == "week"
+
+    def test_single_day_week_is_kept(self, tca_mgr_factory):
+        """单日周（节假日）照常成组，数值等于该日。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "H", "order_as_of_date": "20251225", "pnl_vwap": -8.0},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20251222", "20251228", granularity="week",
+        )
+
+        assert [p["date"] for p in report["daily_series"]] == ["2025-W52"]
+        assert report["daily_series"][0]["weighted_pnl_vwap"] == pytest.approx(-8.0)
+
+    def test_month_key_format(self, tca_mgr_factory):
+        """月键为 YYYY-MM，且同月多日合并。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A", "order_as_of_date": "20260106"},
+            {"OrderId": "B", "order_as_of_date": "20260120"},
+            {"OrderId": "C", "order_as_of_date": "20260203"},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260101", "20260228", granularity="month",
+        )
+
+        assert [p["date"] for p in report["daily_series"]] == ["2026-01", "2026-02"]
+
+    def test_market_trend_crosses_period_and_exchange(self, tca_mgr_factory):
+        """分市场 × 周度交叉：按 (ISO 周, Exchange) 分组，金额守恒。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A", "order_as_of_date": "20260106", "Exchange": "US"},
+            {"OrderId": "B", "order_as_of_date": "20260107", "Exchange": "US"},
+            {"OrderId": "C", "order_as_of_date": "20260107", "Exchange": "LN"},
+            {"OrderId": "D", "order_as_of_date": "20260113", "Exchange": "US"},
+        ], with_fx=True)
+        report = TcaReportAggregator(mgr).build_report(
+            "20260101", "20260131", granularity="week",
+        )
+
+        trend = report["market_notional_trend"]
+        assert sorted((p["date"], p["exchange"]) for p in trend) == [
+            ("2026-W02", "LN"), ("2026-W02", "US"), ("2026-W03", "US"),
+        ]
+        total = sum(p["notional_usd"] or 0.0 for p in trend)
+        assert total == pytest.approx(4 * 900.0 * 150.0)
+
+    def test_day_granularity_keeps_raw_keys(self, tca_mgr_factory):
+        """day 粒度（默认）走势键仍为原始 YYYYMMDD —— 逐字节等价护栏。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A", "order_as_of_date": "20251229"},
+            {"OrderId": "B", "order_as_of_date": "20260105"},
+        ])
+        report = TcaReportAggregator(mgr).build_report("20251229", "20260105")
+
+        assert [p["date"] for p in report["daily_series"]] == ["20251229", "20260105"]
+        assert report["filters"]["granularity"] == "day"
+        assert report["daily_series_meta"]["granularity"] == "day"
+
+    def test_report_rejects_invalid_granularity(self, tca_mgr_factory):
+        """build_report 对非法粒度显式报错，不静默按日。"""
+        mgr = tca_mgr_factory([{"OrderId": "A"}])
+        with pytest.raises(ValueError, match="不支持的粒度"):
+            TcaReportAggregator(mgr).build_report(
+                "20260803", "20260803", granularity="hour",
+            )
+
+    def test_coverage_supports_period_granularity(self, tca_mgr_factory):
+        """覆盖率同样按粒度分组，并在 payload 回显粒度。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "A", "order_as_of_date": "20260106"},
+            {"OrderId": "B", "order_as_of_date": "20260107"},
+        ])
+        data = MetricCoverageService(mgr).get_coverage(
+            "20260101", "20260131", granularity="week",
+        )
+
+        assert data["granularity"] == "week"
+        assert [row["date"] for row in data["rows"]] == ["2026-W02"]
+        assert data["rows"][0]["total_routes"] == 2

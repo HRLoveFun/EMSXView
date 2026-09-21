@@ -53,6 +53,7 @@ import { MarketOverviewTable } from './report/MarketOverviewTable';
 import type {
   BdibHealthReport,
   CostViewConfig,
+  Granularity,
   LastPreset,
   TcaRankingRow,
   TcaReportSummary,
@@ -68,6 +69,13 @@ const PRESET_OPTIONS: Array<{ value: LastPreset | 'custom'; label: string }> = [
   { value: 'custom', label: '指定日期/范围' },
 ];
 
+/** 026: 聚合粒度选项（day 为默认，与后端 report_measure.GRANULARITIES 同契约） */
+const GRANULARITY_OPTIONS: Array<{ value: Granularity; label: string }> = [
+  { value: 'day', label: '按日' },
+  { value: 'week', label: '按周（ISO 周）' },
+  { value: 'month', label: '按月' },
+];
+
 interface ReportFormState {
   preset: LastPreset | 'custom';
   startDate: string;
@@ -76,6 +84,7 @@ interface ReportFormState {
   algos: string[];
   symbols: string[];
   markets: string[];
+  granularity: Granularity;
 }
 
 const DEFAULT_FORM: ReportFormState = {
@@ -86,6 +95,7 @@ const DEFAULT_FORM: ReportFormState = {
   algos: [],
   symbols: [],
   markets: [],
+  granularity: 'day',
 };
 
 /** 初始表单：Report 默认交易所来自 Configure 配置（reportExchanges，空数组 = 全部市场） */
@@ -455,6 +465,8 @@ export function ReportView() {
       minNotionalUsd: config.minNotionalUsd,
       // 异常路由判定阈值随查询下发（后端默认阈值仅作兜底）
       thresholds: buildThresholdsPayload(config.rules),
+      // 026: 聚合粒度（走势与分市场金额趋势的横轴；day 与既有按日口径一致）
+      granularity: current.granularity,
     };
     if (current.markets.length) base.exchange = current.markets;
     if (current.preset === 'custom' && current.startDate && current.endDate) {
@@ -520,6 +532,10 @@ export function ReportView() {
   const updatePreset = (value: string) =>
     setForm((prev) => ({ ...prev, preset: value as ReportFormState['preset'] }));
 
+  // 026: 粒度切换后需重新「生成报告」生效（与时间范围同一交互模型）
+  const updateGranularity = (value: string) =>
+    setForm((prev) => ({ ...prev, granularity: value as Granularity }));
+
   // 编辑日期框视为自定义范围：自动切换为"指定日期/范围"预设
   const updateField = (key: 'startDate' | 'endDate') => (event: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, preset: 'custom', [key]: event.target.value }));
@@ -562,6 +578,18 @@ export function ReportView() {
               <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {PRESET_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {/* 026: 聚合粒度（走势 / 分市场金额趋势 / 覆盖率分组的横轴语义） */}
+          <div className="space-y-1">
+            <Label className="text-xs">聚合粒度</Label>
+            <Select value={form.granularity} onValueChange={updateGranularity}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {GRANULARITY_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                 ))}
               </SelectContent>

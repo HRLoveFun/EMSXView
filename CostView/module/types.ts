@@ -298,6 +298,9 @@ export interface ScorecardFormState {
 
 export type LastPreset = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
+/** 026: 聚合粒度（与后端 report_measure.GRANULARITIES 同契约；day 为默认，与既有按日口径一致） */
+export type Granularity = 'day' | 'week' | 'month';
+
 export type BdibHealthStatus = 'ok' | 'partial' | 'missing' | 'unrecoverable';
 
 export interface BdibHealthDateEntry {
@@ -363,6 +366,8 @@ export interface MetricCoverageReport {
   /** 全区间整体覆盖率（原始 / SLA） */
   overall?: { coverage: number | null; sla_coverage: number | null };
   group_by_exchange: boolean;
+  /** 026: 聚合粒度（缺省视为 day） */
+  granularity?: Granularity;
   /** 统计范围（与报告主体同一作用域） */
   scope?: TcaReportScope;
   rows: MetricCoverageRow[];
@@ -431,6 +436,8 @@ interface TcaReportSummaryFilters {
   /** 报告期语义：数据截至日 / 预设，供报告头自证（014） */
   as_of_date?: string | null;
   preset?: string | null;
+  /** 026: 聚合粒度（走势与分市场金额趋势的横轴语义；缺省视为 day） */
+  granularity?: Granularity;
 }
 
 /** 报告统计范围：默认 BDIB 白名单内全量；用户指定 exchange 时为用户口径 */
@@ -606,8 +613,10 @@ export interface TcaReportSummary {
   data_source_warning?: string;
 }
 
-/** 监控页持久化状态（时间范围预设 + 指标勾选） */
+/** 监控页持久化状态（时间范围预设 + 指标勾选 + 聚合粒度） */
 export interface MonitoringViewState {
   lastPreset: LastPreset;
   selectedMetrics: string[];
+  /** 026: 覆盖率聚合粒度（缺省视为 day；历史 localStorage 无该字段时由加载层回退） */
+  granularity: Granularity;
 }

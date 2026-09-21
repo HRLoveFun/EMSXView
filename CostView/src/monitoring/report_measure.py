@@ -387,3 +387,99 @@ def zero_fill_notional_expr(price_expr: str, fx_expr: str, *, usd: bool) -> str:
         f"SUM(CASE WHEN COALESCE(fill, 0) = 0 AND RouteShares > 0 "
         f"THEN {amount} ELSE 0 END)"
     )
+
+
+# ── 5. 聚合粒度与期间键（周度 / 月度聚合的唯一实现）──────────────────────────
+
+#: 支持的聚合粒度；``day`` 为默认，保持既有按日产出不变
+GRANULARITIES: tuple[str, ...] = ("day", "week", "month")
+
+#: 默认粒度（既有全部报表口径均为按日）
+DEFAULT_GRANULARITY: str = "day"
+
+#: 期间键在聚合结果集中的统一别名（三种粒度共用同一列名，便于消费方统一引用）
+PERIOD_KEY_ALIAS: str = "period_key"
+
+
+def validate_granularity(granularity: Optional[str]) -> str:
+    """校验并归一化粒度；空值取默认 ``day``，非法值抛 ``ValueError``。
+
+    非法值**不静默降级**为 ``day``：静默降级会让调用方误以为拿到了周度结果，
+    与「口径必须显式」的既有约定冲突（同作用域越界须显式告警的处置方式）。
+    """
+    if granularity is None or not str(granularity).strip():
+        return DEFAULT_GRANULARITY
+    normalized = str(granularity).strip().lower()
+    if normalized not in GRANULARITIES:
+        raise ValueError(
+            f"不支持的粒度 {granularity!r}；可用值：{', '.join(GRANULARITIES)}"
+        )
+    return normalized
+
+
+def iso_date_expr(column: str = "order_as_of_date") -> str:
+    """``YYYYMMDD`` → ``YYYY-MM-DD``（SQLite 日期函数输入的唯一实现）。
+
+    库内 ``order_as_of_date`` 恒为 8 位 ``YYYYMMDD``、无 NULL / 空串
+    （实测 173,672 行全部 8 位，见 plan §3.1.0 Q1-2），故不做空值兜底。
+    """
+    return (
+        f"substr({column}, 1, 4) || '-' || substr({column}, 5, 2) "
+        f"|| '-' || substr({column}, 7, 2)"
+    )
+
+
+def iso_week_expr(column: str = "order_as_of_date") -> str:
+    """ISO 8601 周键表达式（``YYYY-Www``）—— 纯 SQL 算术实现。
+
+    为何不用 ``strftime('%G-%V')``：本环境 SQLite 3.45.3 不支持该格式符
+    （返回 NULL）；``%Y-%W`` 亦不可用——它把跨年周拆成两个键
+    （``2025-12-29`` → ``2025-52``、``2026-01-01`` → ``2026-00``），
+    违背跨年归属要求。实测过程与裁定见 plan §3.1.0。
+
+    实现原理（ISO 8601：W01 为含 1 月 4 日的那一周）：
+
+    - ``monday``：当周周一（ISO 周起点）= ``date(d, '-6 days', 'weekday 1')``。
+      先退 6 天保证落在上一周内，再推进到下一个周一；当天已是周一时
+      ``weekday 1`` 不动，退回 6 天正好落在「上上周一 ~ 本周日」区间内。
+    - ``iso_year``：该周周四所在年份 = ``strftime('%Y', monday, '+3 days')``。
+    - ``w01_monday``：该 ISO 年 W01 的周一 = ``date(iso_year || '-01-04', '-6 days', 'weekday 1')``。
+    - 周号 = ``(julianday(monday) − julianday(w01_monday)) / 7 + 1``；
+      两侧同为周一，差值必为 7 的整数倍，``round()`` 吸收浮点误差。
+
+    正确性验证：边界日期 73 个 + 真实库 194 个 distinct 交易日对照
+    ``date.isocalendar()``，零不一致（plan §3.1.0）。
+    """
+    monday = f"date({iso_date_expr(column)}, '-6 days', 'weekday 1')"
+    iso_year = f"strftime('%Y', {monday}, '+3 days')"
+    w01_monday = f"date({iso_year} || '-01-04', '-6 days', 'weekday 1')"
+    week_no = (
+        f"CAST(round((julianday({monday}) - julianday({w01_monday})) / 7.0) "
+        f"AS INTEGER) + 1"
+    )
+    return f"({iso_year} || '-W' || printf('%02d', {week_no}))"
+
+
+def month_expr(column: str = "order_as_of_date") -> str:
+    """自然月键表达式（``YYYY-MM``）。"""
+    return f"substr({column}, 1, 4) || '-' || substr({column}, 5, 2)"
+
+
+def period_key_expr(granularity: str, column: str = "order_as_of_date") -> str:
+    """粒度 → 期间键 SQL 表达式（唯一实现，禁止消费方各自重写）。
+
+    ``day`` 粒度**直接返回原始列名**（不做任何转换）：分组键的值与类型保持
+    逐字节不变，避免「引入粒度参数」对既有按日产出产生隐性变更
+    —— 这是 Checkpoint 1-B「按日产出等价」的实现基础。
+    """
+    normalized = validate_granularity(granularity)
+    if normalized == "day":
+        return column
+    if normalized == "week":
+        return iso_week_expr(column)
+    return month_expr(column)
+
+
+def period_key_select(granularity: str, column: str = "order_as_of_date") -> str:
+    """期间键 SELECT 片段（统一别名 ``period_key``，供三种粒度的消费方共用）。"""
+    return f"{period_key_expr(granularity, column)} AS {PERIOD_KEY_ALIAS}"

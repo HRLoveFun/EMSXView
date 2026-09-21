@@ -84,8 +84,14 @@ class TcaReportAggregator:
         anomaly_limit: Optional[int] = None,
         as_of_date: Optional[str] = None,
         preset: Optional[str] = None,
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> dict[str, Any]:
         """组装报告聚合数据。
+
+        granularity：聚合粒度（day / week / month，默认 day），作用于「走势」与
+        「分市场金额趋势」两个时间维度小节；day 粒度产出与引入该参数前逐字节一致，
+        week / month 使用 ``YYYY-Www`` / ``YYYY-MM`` 期间键（report_measure 单点
+        实现，week 按 ISO 8601 归属跨年周）。
 
         broker/algo/symbol/exchange 支持逗号分隔多值（IN 匹配，前端多选）。
         metrics 控制附加的覆盖率小节统计口径（默认全部 38 个指标）。
@@ -101,6 +107,7 @@ class TcaReportAggregator:
         市场，但受白名单约束）。表不存在时返回带 data_source_warning 的空报告。
         """
         selected = validate_metrics(metrics)
+        resolved_granularity = rm.validate_granularity(granularity)
         # 作用域一次性解析：KPI / 直方图 / 走势 / 排行 / 市场概览 / 异常 / 覆盖率
         # 全部共用同一 Exchange 条件（默认白名单；用户指定 exchange 时为用户口径）
         scope = rm.resolve_scope(exchange)
@@ -118,6 +125,7 @@ class TcaReportAggregator:
                 return self._empty_report(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
                     as_of_date=as_of_date, preset=preset, scope=scope,
+                    granularity=resolved_granularity,
                 )
             # 报告期一次性构建 fill_bdib 汇率回填临时表，供下方 4 个 fx 查询复用
             self._prepare_fx_enrichment(conn, start_date, end_date)
@@ -125,16 +133,19 @@ class TcaReportAggregator:
                 "filters": self._filters_dict(
                     start_date, end_date, broker, algo, symbol, exchange, selected,
                     as_of_date=as_of_date, preset=preset, scope=scope,
+                    granularity=resolved_granularity,
                 ),
             }
             report.update(self._query_sections(
                 conn, where, params, where_no_exchange, params_no_exchange,
+                resolved_granularity,
             ))
         except FileNotFoundError:
             # 只读模式下 fill_bdib.db 缺失 → 空报告（与表缺失同语义, 009）
             return self._empty_report(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
                 as_of_date=as_of_date, preset=preset, scope=scope,
+                granularity=resolved_granularity,
             )
         finally:
             if conn is not None:
@@ -143,6 +154,7 @@ class TcaReportAggregator:
         # 附加所选指标的覆盖率小节（同一作用域；口径与监控页一致）
         report["metric_coverage"] = MetricCoverageService(self._mgr).get_coverage(
             start_date, end_date, selected, scope=scope,
+            granularity=resolved_granularity,
         )
         # S6 异常路由明细（阈值可参数化，默认同前端；作用域与聚合各小节一致）；
         # D6：节流统计（阈值命中 / 门槛剔除量）经第二解包点透传进 payload
@@ -158,6 +170,7 @@ class TcaReportAggregator:
     def _query_sections(
         self, conn, where: str, params: list[Any],
         where_no_exchange: str, params_no_exchange: list[Any],
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> dict[str, Any]:
         """一次连接内完成全部小节聚合（KPI / 走势 / 排行 / 分布 / PWP / 附加 KPI）。
 
@@ -167,7 +180,7 @@ class TcaReportAggregator:
         「报告期总成交额」复用 weight_coverage 的 total_weight（同一表达式、
         同一作用域，非二次查询）。
         """
-        daily_series = self._query_daily_series(conn, where, params)
+        daily_series = self._query_daily_series(conn, where, params, granularity)
         weight_coverage = self._query_weight_coverage(conn, where, params)
         return {
             # 市场概览遵循 exchange 过滤：导出时按交易所整体过滤时，
@@ -180,13 +193,16 @@ class TcaReportAggregator:
                 conn, where, params,
             ),
             "market_notional_trend": self._query_market_notional_trend(
-                conn, where, params,
+                conn, where, params, granularity,
             ),
             "kpi": self._query_kpi(conn, where, params),
             "daily_series": daily_series,
             # 014: 走势覆盖度披露。不补零 —— 0 表示「成本为零」，把「无数据」
             # 补成 0 属数据失真；缺失定位交由覆盖率表与 BDIB 缺口附录。
-            "daily_series_meta": {"covered_days": len(daily_series)},
+            "daily_series_meta": {
+                "covered_days": len(daily_series),
+                "granularity": granularity,
+            },
             "rankings": self._query_rankings_set(conn, where, params, weight_coverage),
             "pnl_vwap_histogram": self._query_pnl_histogram(conn, where, params),
             "pwp_curve": self._query_pwp_curve(conn, where, params),
@@ -422,23 +438,26 @@ class TcaReportAggregator:
 
     def _query_market_notional_trend(
         self, conn, where: str, params: list[Any],
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> list[dict[str, Any]]:
-        """按市场的成交金额（美元）每日趋势（008）。
+        """按市场的成交金额（美元）期间趋势（008）。
 
-        返回 [{date, exchange, notional_usd}, ...] 按日期升序，供前端按市场拆线。
+        返回 [{date, exchange, notional_usd}, ...] 按期间升序，供前端按市场拆线。
         市场仅列排名中存在的（有成交额的市场），未配置中文名用代码回退。
+        ``granularity=week`` / ``month`` 时即「分市场 × 周度 / 月度」交叉视图。
         """
         has_fx = self._has_column(conn, "fx_rate")
         fx_sum = self._fx_usd_expr() if has_fx else "NULL"
         join = self._fx_join() if has_fx else ""
+        period_expr = rm.period_key_expr(granularity)
         sql = f"""
-            SELECT order_as_of_date AS date,
+            SELECT {period_expr} AS date,
                    COALESCE(Exchange, '(unknown)') AS exchange,
                    SUM(fill * p_avg * ({fx_sum})) AS notional_usd
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             {where}
-            GROUP BY order_as_of_date, Exchange
-            ORDER BY order_as_of_date ASC, exchange ASC
+            GROUP BY {period_expr}, Exchange
+            ORDER BY {period_expr} ASC, exchange ASC
         """
         sql, params = self._apply_fx(sql, params)
         return [
@@ -578,15 +597,21 @@ class TcaReportAggregator:
 
     def _query_daily_series(
         self, conn, where: str, params: list[Any],
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> list[dict[str, Any]]:
-        """按日加权 pnl_vwap / 加权 par_rate 走势。"""
+        """按期间（day / week / month）加权 pnl_vwap / 加权 par_rate 走势。
+
+        day 粒度下分组键为原始 ``YYYYMMDD``，产出与引入粒度参数前逐字节等价；
+        week / month 为 ``YYYY-Www`` / ``YYYY-MM`` 期间键（report_measure 单点）。
+        """
+        period_expr = rm.period_key_expr(granularity)
         sql = f"""
-            SELECT order_as_of_date, COUNT(*) AS route_count,
+            SELECT {period_expr} AS order_as_of_date, COUNT(*) AS route_count,
                    {self._weighted_avg_sql("pnl_vwap")} AS weighted_pnl_vwap,
                    {self._weighted_avg_sql("par_rate")} AS avg_par_rate
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             {where}
-            GROUP BY order_as_of_date ORDER BY order_as_of_date
+            GROUP BY {period_expr} ORDER BY {period_expr}
         """
         return [
             {
@@ -960,13 +985,15 @@ class TcaReportAggregator:
         symbol: Optional[str], exchange: Optional[str], metrics: list[str],
         as_of_date: Optional[str] = None, preset: Optional[str] = None,
         scope: Optional[rm.ReportScope] = None,
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> dict[str, Any]:
-        """过滤条件 + 报告期 + 作用域（作用域使报告可自证「统计了哪些市场」）。"""
+        """过滤条件 + 报告期 + 作用域 + 粒度（报告自证「统计了哪些市场、什么粒度」）。"""
         return {
             "start_date": start_date, "end_date": end_date,
             "broker": broker, "algo": algo, "symbol": symbol, "exchange": exchange,
             "metrics": metrics,
             "as_of_date": as_of_date, "preset": preset,
+            "granularity": granularity,
             "scope": scope.to_payload() if scope else None,
         }
 
@@ -975,11 +1002,13 @@ class TcaReportAggregator:
         algo: Optional[str], symbol: Optional[str], exchange: Optional[str],
         selected: list[str], as_of_date: Optional[str] = None,
         preset: Optional[str] = None, scope: Optional[rm.ReportScope] = None,
+        granularity: str = rm.DEFAULT_GRANULARITY,
     ) -> dict[str, Any]:
         return {
             "filters": self._filters_dict(
                 start_date, end_date, broker, algo, symbol, exchange, selected,
                 as_of_date=as_of_date, preset=preset, scope=scope,
+                granularity=granularity,
             ),
             "markets": [],
             "filter_options": {"brokers": [], "algos": [], "symbols": [], "exchanges": []},
@@ -987,7 +1016,7 @@ class TcaReportAggregator:
             "market_notional_trend": [],
             "kpi": None,
             "daily_series": [],
-            "daily_series_meta": {"covered_days": 0},
+            "daily_series_meta": {"covered_days": 0, "granularity": granularity},
             "rankings": {
                 "by_broker": [], "by_algo": [],
                 "by_broker_worst": [], "by_algo_worst": [],

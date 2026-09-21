@@ -234,7 +234,11 @@ export function saveCostViewScorecardForm(state: ScorecardFormState): void {
 const DEFAULT_MONITORING_STATE: MonitoringViewState = {
   lastPreset: 'month',
   selectedMetrics: [...ALL_TCA_METRICS],
+  granularity: 'day',
 };
+
+/** 026: 聚合粒度白名单（过滤历史 localStorage 脏值，与后端 GRANULARITIES 同契约） */
+const VALID_GRANULARITIES: readonly string[] = ['day', 'week', 'month'];
 
 export function loadCostViewMonitoringState(): MonitoringViewState {
   if (typeof window === 'undefined') return DEFAULT_MONITORING_STATE;
@@ -245,9 +249,15 @@ export function loadCostViewMonitoringState(): MonitoringViewState {
   // 指标勾选需过滤掉白名单外的历史脏数据
   const validMetrics = (parsed.selectedMetrics ?? DEFAULT_MONITORING_STATE.selectedMetrics)
     .filter((m) => (ALL_TCA_METRICS as readonly string[]).includes(m));
+  // 026: 粒度需过滤白名单外历史脏值（与指标勾选同一兜底策略）
+  const parsedGranularity = parsed.granularity;
+  const granularity = VALID_GRANULARITIES.includes(parsedGranularity ?? '')
+    ? (parsedGranularity as MonitoringViewState['granularity'])
+    : DEFAULT_MONITORING_STATE.granularity;
   return {
     lastPreset: parsed.lastPreset ?? DEFAULT_MONITORING_STATE.lastPreset,
     selectedMetrics: validMetrics.length ? validMetrics : [...ALL_TCA_METRICS],
+    granularity,
   };
 }
 

@@ -25,10 +25,18 @@ import type {
   BdibHealthDateEntry,
   BdibHealthReport,
   BdibHealthStatus,
+  Granularity,
   LastPreset,
   MetricCoverageReport,
   MonitoringViewState,
 } from '../types';
+
+/** 026: 覆盖率聚合粒度选项（与后端 report_measure.GRANULARITIES 同契约） */
+const GRANULARITY_OPTIONS: Array<{ value: Granularity; label: string }> = [
+  { value: 'day', label: '按日' },
+  { value: 'week', label: '按周' },
+  { value: 'month', label: '按月' },
+];
 
 const PRESET_OPTIONS: Array<{ value: LastPreset; label: string }> = [
   { value: 'day', label: '最近交易日' },
@@ -197,17 +205,22 @@ export function MonitoringView() {
   const loadMonitoring = useCallback(async () => {
     const [healthData, coverageData] = await Promise.all([
       fetchBdibHealth({ last: viewState.lastPreset }),
-      fetchMetricCoverage({ last: viewState.lastPreset }, viewState.selectedMetrics),
+      fetchMetricCoverage(
+        { last: viewState.lastPreset },
+        viewState.selectedMetrics,
+        false,
+        viewState.granularity,
+      ),
     ]);
     return { health: healthData, coverage: coverageData };
-  }, [viewState.lastPreset, viewState.selectedMetrics]);
+  }, [viewState.lastPreset, viewState.selectedMetrics, viewState.granularity]);
 
   const {
     data: monitoringData,
     error: monitoringError,
     isLoading,
     reload,
-  } = useAsyncData(viewState.lastPreset, loadMonitoring);
+  } = useAsyncData(`${viewState.lastPreset}|${viewState.granularity}`, loadMonitoring);
 
   const health = monitoringData?.health ?? null;
   const coverage = monitoringData?.coverage ?? null;
@@ -237,6 +250,21 @@ export function MonitoringView() {
               <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {PRESET_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {/* 026: 覆盖率聚合粒度（按周 / 月观察数据质量缺口） */}
+          <div className="space-y-1">
+            <Label className="text-xs">聚合粒度</Label>
+            <Select
+              value={viewState.granularity}
+              onValueChange={(v) => setViewState((prev) => ({ ...prev, granularity: v as Granularity }))}
+            >
+              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {GRANULARITY_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                 ))}
               </SelectContent>
