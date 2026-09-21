@@ -358,7 +358,7 @@ def bucket_volatility(annual_volatility: Optional[float]) -> tuple[str, str]:
 
     026 起本函数接收 `bdib_daily_summary.daily_volatility` 的**原值**，但阈值仍沿用
     日波动率空间（1.5% / 3.5%），而该列实为**年化百分比**（实测中位 26.075，
-    见 `specs/028-volatility-scale-fix/research.md`）—— 二者相差 ≈ √252 ≈ 16 倍，
+    见 `docs/archive/2026-09-21/028-volatility-scale-fix/research.md`）—— 二者相差 ≈ √252 ≈ 16 倍，
     实测导致 82.9% 样本落 `stressed`、`typical` 仅 0.61%，该维度**失去区分度**。
 
     028 起阈值对齐到年化空间，并与 `platform_data/adapters/market.py:50-51`
