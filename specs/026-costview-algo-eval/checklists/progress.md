@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | 计划编制 | `plan.md` + `research.md` + 本文件 | ⏳ 进行中 | — | — |
 | 阶段一 | 周度聚合与分市场深化 | 🟡 实施完成，待合入 | 无 | — |
-| 阶段二 | 执行环境变量精确化 | ⏳ 未开工 | 无硬依赖（与阶段一可并行） | — |
+| 阶段二 | 执行环境变量精确化 | 🟡 后端完成，前端待补 | 无硬依赖（与阶段一可并行） | — |
 | 阶段三 | 科学方法评估层 | ⏳ 未开工 | **硬依赖阶段二 L1 真实环境变量** | — |
 
 ---
@@ -65,26 +65,27 @@
 
 ### 开工前（Checkpoint 2-A）
 
-- [ ] Q2-1（**阻塞性**）：`fill_bdib.mkt_timestamp` 实际格式 —— 结论：____
-- [ ] Q2-2：`bdib_daily_summary` 的 `adv_20d` / `daily_volatility` 覆盖率 —— 结论：____
-- [ ] Q2-3：`fill_bdib` 按路由数据密度 —— 结论：____
-- [ ] Q2-4（**阻塞性**）：两表 `mkt_timestamp` 是否异格式 —— 结论：____
-- [ ] DP-2-1 跨库获取路径确认（选定 A，评估 B 是否需启用）
-- [ ] DP-2-2 `liquidity_adv20` 口径变更确认（`fill / adv_20d`）
-- [ ] DP-2-3 `volatility` 口径变更确认（真实 `daily_volatility`，消除循环论证）
+- [x] Q2-1（**阻塞性**）：`fill_bdib.mkt_timestamp` 实际格式 —— 结论：**全部 8 字符 `HH:MM:SS` 纯时间**（6,680,277 行、无 NULL）；计划担心的「全时间戳致静默取到年份前两位」**不成立**（2026-09-21）
+- [x] Q2-2：`bdib_daily_summary` 覆盖率 —— 结论：**`adv_20d` 99.39% / `daily_volatility` 99.94%**（217,406 行，`20250915`~`20260907`）；`intraday_volatility` 仅 38.7% → 不作主口径（2026-09-21）
+- [x] Q2-3：`fill_bdib` 按路由数据密度 —— 结论：**start_time 可得率 100%**（173,685/173,685）；时段分布 close 106,939 / open 35,909 / mid 30,837（2026-09-21）
+- [x] Q2-4（**阻塞性**）：两表 `mkt_timestamp` 是否异格式 —— 结论：**同格式**（均 8 字符纯时间）；跨仓项 **U-2 不触发**（2026-09-21）
+- [x] DP-2-1 跨库获取路径确认（选定 A：经 `ConnectionManager` 只读 + 应用层 join；不使用 SQL ATTACH）
+- [x] DP-2-2 `liquidity_adv20` 口径变更确认（`fill / adv_20d`）
+- [x] DP-2-3 `volatility` 口径变更确认（真实 `daily_volatility`，消除循环论证）
 
 ### 实施
 
-- [ ] `env_context.py` 新增（`RouteEnvContext` + 派生单点 + 降级链判定 + `metric_field` 标注）
-- [ ] `cohort_key_and_label` / `aggregate_cohorts` 增设可选 `env` / `env_by_route` 参数（DP-2-4，默认 `None` 回退代理）
-- [ ] `monitoring/__init__.py` 同步模块职责清单 docstring 与导出登记（`TestPackageExports` 护栏）
-- [ ] `cohort_key_and_label` 三分支改真实字段
-- [ ] `bucket_time_of_day` 时间戳形态归一化
-- [ ] `bucket_liquidity` 阈值按 ADV 比率重定
-- [ ] 记分卡装配注入环境上下文
-- [ ] 降级标注贯通 HTML / CSV / API / 前端
-- [ ] `report_spec.py` 口径声明 + `SPEC_VERSION` bump
-- [ ] 三处口径文档同步
+- [x] `env_context.py` 新增（`RouteEnvContext` + 派生单点 + 三级降级链 + 可得率披露）（2026-09-21）
+- [x] `cohort_key_and_label` / `aggregate_cohorts` 增设可选 `env` / `env_by_route` 参数（DP-2-4，默认 `None` 回退代理）（2026-09-21）
+- [x] `monitoring/__init__.py` 同步模块职责清单 docstring 与导出登记（`TestPackageExports` 护栏）（2026-09-21）
+- [x] `cohort_key_and_label` 三分支改真实字段（2026-09-21）
+- [x] `bucket_time_of_day` 时间戳形态归一化 —— 改由 `env_context.normalize_start_time` 承接，分桶函数保持纯净（2026-09-21）
+- [x] `bucket_liquidity` 阈值按 ADV 比率重定 —— **核查后无需改**：其参数名与标签本就是 `volume_pct_adv20`，现状传 `par_rate` 才是口径漂移；改用真实 ADV 占比后阈值语义自然正确（2026-09-21）
+- [x] 记分卡装配注入环境上下文（`tca_query_service._build_env_context`；**仅环境 cohort 取数**，非环境 cohort 零额外查询）（2026-09-21）
+- [x] 降级标注贯通 API / 前端 —— 后端 payload（`scorecard.filters.env_coverage`）+ 前端 ScorecardView 报告头展示可得率（2026-09-21）
+      ※ **无需 HTML 侧改动**：Scorecard 不进 HTML 报告渲染器（`tca_report_html.py` 只渲染 Report 聚合）；CSV 导出保留现状
+- [x] `report_spec.py` 口径声明 + `SPEC_VERSION` bump（`2026.09.6` → `2026.09.7`）（2026-09-21）
+- [x] 三处口径文档同步（`report_spec` / `report-tca-known-limitations` 第十三轮 / ADR-0018 §10.7）（2026-09-21）
 
 ### 合入前（Checkpoint 2-B）
 
