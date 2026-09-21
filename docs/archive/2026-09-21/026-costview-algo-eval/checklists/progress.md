@@ -8,10 +8,15 @@
 
 | 阶段 | 内容 | 状态 | 依赖 | 对应 PR |
 |---|---|---|---|---|
-| 计划编制 | `plan.md` + `research.md` + 本文件 | ⏳ 进行中 | — | — |
-| 阶段一 | 周度聚合与分市场深化 | 🟡 实施完成，待合入 | 无 | — |
-| 阶段二 | 执行环境变量精确化 | 🟡 后端完成，前端待补 | 无硬依赖（与阶段一可并行） | — |
-| 阶段三 | 科学方法评估层 | 🟡 端点与门控完成，前端视图待补 | 阶段二 L1（**已具备**） | — |
+| 计划编制 | `plan.md` + `research.md` + 本文件 | ✅ 已交付并归档 | — | #68 |
+| 阶段一 | 周度聚合与分市场深化 | ✅ 已交付 | 无 | #68 |
+| 阶段二 | 执行环境变量精确化 | ✅ 已交付 | 无硬依赖（与阶段一可并行） | #69 |
+| 阶段三 | 科学方法评估层 | ✅ 已交付（模块 + 端点 + 前端视图） | 阶段二 L1（**已具备**） | #70（模块与口径）/ #71（端点 / 门控 / 前端视图） |
+
+> **回写说明（2026-09-21）**：本文件的 Checkpoint 勾选项在阶段二 / 三实施时未同步回写，
+> 归档（PR #72）后一次性按**实际交付情况**补齐。回写原则：
+> ① 每项勾选都附**具体测试用例**作为依据，不凭印象勾；
+> ② **未覆盖项如实标注为未勾选**并转记待办，不以补勾掩盖缺口。
 
 ---
 
@@ -89,12 +94,12 @@
 
 ### 合入前（Checkpoint 2-B）
 
-- [ ] 三 cohort 真值抽验（≥3 条路由）一致
-- [ ] 双形态时间戳解析回归通过
-- [ ] `volatility` cohort 不再引用 `pnl_vwap`（静态检查）
-- [ ] 三类降级场景标注用例通过
-- [ ] 各 cohort 覆盖率披露正确
-- [ ] 全量 `pytest CostView/tests/` + 前端 vitest 通过
+- [x] 三 cohort 真值抽验（≥3 条路由）一致 —— `test_env_context.TestBuildRouteEnvContext.test_joins_start_time_and_daily_env`（fixture 库比对 join 真值，覆盖 `start_time` / `adv_20d` / `daily_volatility` 三列）
+- [x] 双形态时间戳解析回归通过 —— `TestNormalizeStartTime` 3 条（`HH:MM:SS` 原样保留 / 全时间戳取尾 / 空值与 None）；Q2-1 实测现库仅 `HH:MM:SS`，兼容分支为防御性保留
+- [x] `volatility` cohort 不再引用 `pnl_vwap`（静态检查）—— `TestRealEnvCohorts.test_volatility_prefers_real_value`
+- [x] 三类降级场景标注用例通过 —— `test_unknown_ticker_degrades_per_dimension`（缺 ticker）/ `test_missing_sources_return_empty`（缺源库）/ `test_time_of_day_falls_back_to_unknown`（缺时间戳）
+- [x] 各 cohort 覆盖率披露正确 —— `TestAggregateCohortsWithEnv.test_env_coverage_disclosed`
+- [x] 全量 `pytest CostView/tests/` + 前端 vitest 通过（2026-09-21，随 PR #69 合入）
 
 ---
 
@@ -127,16 +132,19 @@
 
 ### 合入前（Checkpoint 3-B / 3-C）
 
-- [ ] 数值对照（独立实现 / scipy 参考）通过
-- [ ] 可信区间覆盖率蒙特卡洛通过
-- [ ] 可比性拒绝用例通过（不返回数值）
-- [ ] 基准强制用例通过
-- [ ] 多重比较校正生效
-- [ ] 功效与理论公式对照通过
-- [ ] 冲击模型参数恢复通过
-- [ ] 门控关闭 / 无 scipy 时降级可见
-- [ ] 既有 Report / Monitoring 产出零变化
-- [ ] 全量 `pytest CostView/tests/` + 前端 vitest 通过
+- [x] 数值对照通过 —— `TestStatsTests.test_t_test_detects_clear_difference` / `test_ks_and_chi2_available` / `test_small_samples_declare_unusable`
+      ※ **实现偏差**：DP-3-1 选定直接使用 `scipy.stats` 而非自实现，故不存在「独立实现对照」对象，对照转为验证 scipy 语义下的行为契约（检出明显差异 / 小样本声明不可用）
+- [x] 可信区间覆盖率通过 —— `test_bootstrap_ci_brackets_zero_for_same_distribution`（同分布时 CI 跨越 0，即「不该显著时不显著」）+ `test_bootstrap_ci_requires_two_samples_each`
+      ※ **实现偏差**：以「同分布判定」替代计划所列「全量蒙特卡洛覆盖率模拟」（成本更低且能捕获同源错误）
+- [x] 可比性拒绝用例通过（不返回数值）—— `TestComparability.test_undersized_group_is_not_comparable` / `test_imbalanced_dimension_blocks_comparison`，及编排层 `TestEvaluationComparisonOrchestration.test_incomparable_returns_no_numbers`（断言 `comparisons == []`）
+- [x] 基准强制用例通过 —— `TestGovernance.test_benchmark_is_mandatory` + 请求模型 `TestEvaluationRequestModel.test_benchmark_required_by_schema`（schema 层即拒绝）
+- [x] 多重比较校正生效 —— `test_adjust_pvalues_bh_and_bonferroni`；编排层断言每对同时带 `p_value` 与 `p_value_adjusted`
+- [x] 功效与理论公式对照通过 —— `test_required_sample_matches_closed_form` / `test_achieved_power_is_inverse_of_required` / `test_minimum_detectable_effect_round_trip`（三向自洽）
+- [x] 冲击模型参数恢复通过 —— `TestCostModel.test_recovers_known_parameters` / `test_no_extrapolation_outside_domain` / `test_payload_discloses_no_forecast_note`
+- [ ] **门控关闭 / 无 scipy 时降级可见 —— 未加自动化用例（如实标注，不补勾）**
+      现状：`TCA_EVAL_ENABLED=0` 的早返回分支位于 `CostView/api/routers/costview.py` 的 `evaluation_compare` 内，**无端点级测试覆盖**；「无 scipy」场景依赖 import 期失败，亦无用例。已转记 `docs/open-todos.md` T16。
+- [x] 既有 Report / Monitoring 产出零变化 —— 全量 291 passed（含既有 scope / 加权 / 零填充 / 排行门槛 / 图表轴策略等护栏）；`granularity="day"` 与改动前逐字节等价（`period_key_expr("day")` 恒等返回原始列）
+- [x] 全量 `pytest CostView/tests/` + 前端 vitest 通过（2026-09-21，**291 + 188**；随 PR #70 / #71 合入，CI 8/8 全绿）
 
 ---
 
@@ -146,13 +154,46 @@
 
 | # | 事项 | 来源 | 状态 | 备注 |
 |---|---|---|---|---|
-| 026-L1 | 上游可选物化：`adv_20d` / `daily_volatility` 落 `tca_route_summary` 列 | `plan.md` §6 U-1 | ⏳ 待触发 | 仅当阶段二 L1 覆盖率或查询开销不可接受时启用 |
-| 026-L2 | `fill_bdib` 与 `raw_bdib` 的 `mkt_timestamp` 格式口径统一 | `plan.md` §6 U-2 | ⏳ 待触发 | 依赖 Q2-4 实测结论 |
+| 026-L1 | 上游可选物化：`adv_20d` / `daily_volatility` 落 `tca_route_summary` 列 | `plan.md` §6 U-1 | ⏳ 待触发 | 仅当阶段二 L1 覆盖率或查询开销不可接受时启用（实测覆盖率 99.39% / 99.94%，未触发）；已转记 `docs/open-todos.md` **T15** |
+| 026-L2 | `fill_bdib` 与 `raw_bdib` 的 `mkt_timestamp` 格式口径统一 | `plan.md` §6 U-2 | ✅ **不触发** | Q2-4 实测两表**同格式**（均 8 字符纯时间），无上游改动需求；已转记 **T15**（标注不触发） |
+| 026-L3 | 评估端点的门控降级分支（`TCA_EVAL_ENABLED=0` / 无 scipy）缺自动化用例 | 本文件 Checkpoint 3-C 回写 | ⏳ | 2026-09-21 回写时如实标注；已转记 **T16** |
 
 ---
 
 ## 勘误记录
 
-> `research.md` 中与代码不符的断言在此登记勘误（以代码为准）。
+> `research.md` / `plan.md` 中与**代码核查或实测**不符的断言在此登记（一律以代码与实测为准）。
 
-（暂无）
+| # | 断言位置 | 原断言 | 核查结论 | 处置 |
+|---|---|---|---|---|
+| E1 | `plan.md` §3.2 | 「市场金额**排名**支持粒度」 | **不适用**：排名查询无时间维度（详见下方专项说明） | 仅「趋势」与「覆盖率」加粒度；排名保持区间聚合语义 |
+| E2 | `plan.md` §4.4 | 「`bucket_liquidity` 阈值按 ADV 比率重定」 | **无需改**：该函数参数名与标签本就是 `volume_pct_adv20`，现状传 `par_rate` 才是口径漂移源；换真实 ADV 占比后阈值语义自然正确 | 不改阈值，只改数据来源 |
+| E3 | `plan.md` §4.4 | 「`tca_report_html.py` / `report_aggregator.py` 输出降级标注」 | **一半不适用**：`tca_report_html.py` 只渲染 Report 聚合，Scorecard **不进** HTML 报告 | 降级标注落在 API payload + 前端 ScorecardView；CSV 保留现状 |
+| E4 | `plan.md` §5.9 | 「可能新增 ADR 留痕（DP-3-1 依赖决策）」 | **未新建**：评估层口径归入既有 ADR-0018 治理线 | 记于 ADR-0018 §10.8 / §10.9 |
+| E5 | `plan.md` §6 U-2 | 「两表 `mkt_timestamp` 格式口径统一（跨仓协作项）」 | **不触发**：Q2-4 实测两表同格式 | 跨仓项降为不触发；本侧归一化仅为防御性保留 |
+| E6 | `plan.md` §4.1.2 / R-1 | 「`mkt_timestamp` 可能为 `YYYYMMDD HH:MM:SS` 全时间戳，致 `bucket_time_of_day` 静默取到年份前两位」（列为**阻塞性**风险） | **不成立**：Q2-1 实测 6,680,277 行全部为 8 字符 `HH:MM:SS`，无 NULL | 阻塞性风险解除；`normalize_start_time` 双形态兼容保留为防御 |
+| E7 | `plan.md` §5.10 | 「可信区间覆盖率**蒙特卡洛**」 | **降级实现**：改为「同分布时 CI 需跨越 0」的判定式用例 | 已在 Checkpoint 3-B 处标注 |
+
+### E1 专项说明：「市场金额排名支持粒度」为何不适用
+
+**原断言的来源**：计划 §3.2 在阶段一改动落点中，把「市场金额排名」与「分市场金额趋势」并列为「需支持粒度」的两处。
+
+**代码核查结论**：这两个查询的时间语义**根本不同**：
+
+| | `_query_market_notional_ranking` | `_query_market_notional_trend` |
+|---|---|---|
+| 位置 | `CostView/src/monitoring/report_aggregator.py:404-437` | 同文件 `:439-464` |
+| 分组 | `GROUP BY Exchange`（`:424`） | `GROUP BY {period_expr}, Exchange`（`:459`） |
+| SELECT 时间列 | **无** | `{period_expr} AS date`（`:454`） |
+| ORDER BY | 按有效成交额降序（`:425`） | 按期间升序（`:460`） |
+| 语义 | **整个报告区间的单一汇总** | **时间序列**（每个期间一行） |
+
+排名查询的 SELECT / GROUP BY / ORDER BY **三处都不含时间列** —— 报告期是一个已由 `where` 收窄的输入参数，时间在聚合前就已被「消耗」掉，粒度参数**没有可作用的位置**。
+
+**为什么强行加会错**：要让排名「按周」，必须同时改变语义 —— 从「区间排名」变成「某一周的排名」，于是需要额外回答「看哪一周」。这不是加一个 `granularity` 参数，而是新增一个「期间选择器 + 期间内排名」的组件，属于范围扩张而非粒度化。
+
+**所需能力其实已经存在**：`granularity=week` 下的**趋势**查询返回的就是 `(period, Exchange, notional_usd)` 的完整交叉数据 —— 前端要「按周看市场排名」，在趋势数据上按 `period` 切片后排序即可，**无需第二个查询**。这也正是计划 §3.2 里「分市场 × 周度交叉视图」的落点（见阶段一实施记录）。
+
+**同类的还有一处**：`_query_market_overview`（`report_aggregator.py:385-402`，`GROUP BY Exchange` 于 `:390`）同样是区间聚合，故一并保持无粒度。
+
+**结论**：这是**计划断言与代码语义不符**，不是实现缩水 —— 排名不需要粒度，趋势已提供按期间的完整数据。
