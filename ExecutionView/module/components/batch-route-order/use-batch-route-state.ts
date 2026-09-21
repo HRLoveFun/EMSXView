@@ -147,7 +147,9 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   const [notes, setNotes] = useState('');
 
   // ── Per-order state ─────────────────────────────────────────────────────
-  const [rows, setRows] = useState<Record<string, RowState>>({});
+  // 行的「可写来源」：打开时初始化 + 用户编辑 + 校验/提交结果回填。
+  // 对外读取一律走下方派生的 rows 视图（保证「每个订单都有一行」等不变量）。
+  const [rowState, setRows] = useState<Record<string, RowState>>({});
   const [phase, setPhase] = useState<Phase>('configure');
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
@@ -356,68 +358,51 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // ── Reconcile rows when parent order list refreshes ────────────────────
+  // ── 行/分配的对账改为**派生**（见下方 rows 视图），此处只保留与 React 无关的附带清理 ──
+  // 取消勾选券商时，把它已缓存的策略参数快照落盘、并移除其 builder。
   useEffect(() => {
     if (!open) return;
-    // 豁免理由：父级订单列表刷新后需与行状态对账（新增行补默认值、消失行剔除），
-    // 属「外部输入变化」而非可派生值；且 reducer 在无变化时返回同一引用，
-    // React 会跳过重渲染，不存在级联渲染开销。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRows(prev => {
-      let changed = false;
-      const next: Record<string, RowState> = {};
-      const seen = new Set<string>();
-      for (const o of orders) {
-        seen.add(o.id);
-        if (prev[o.id]) {
-          next[o.id] = prev[o.id];
-        } else {
-          next[o.id] = { selected: false, allocations: {} };
-          changed = true;
-        }
+    for (const b of Array.from(paramsBuildersRef.current.keys())) {
+      if (selectedBrokers.includes(b)) continue;
+      const builder = paramsBuildersRef.current.get(b);
+      const strat = brokerStrategies[b] || '';
+      if (builder && strat) {
+        try {
+          const snap = builder();
+          if (snap) paramsCacheRef.current.set(cacheKey(b, strat), snap);
+        } catch { /* swallow */ }
       }
-      for (const oid of Object.keys(prev)) {
-        if (!seen.has(oid)) changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [open, orders]);
-
-  // ── Reconcile allocations when selectedBrokers changes ──────────────────
-  useEffect(() => {
-    if (!open) return;
-    setRows(prev => {
-      const next: Record<string, RowState> = {};
-      for (const [oid, r] of Object.entries(prev)) {
-        const o = orders.find(x => x.id === oid);
-        if (!o) { next[oid] = r; continue; }
-        const allocs: Record<string, AllocState> = {};
-        selectedBrokers.forEach((b) => {
-          const existing = r.allocations[b];
-          allocs[b] = existing
-            ? existing
-            : { qty: '0', violations: [] };
-        });
-        next[oid] = { selected: r.selected, allocations: allocs };
-      }
-      for (const b of Array.from(paramsBuildersRef.current.keys())) {
-        if (selectedBrokers.includes(b)) continue;
-        const builder = paramsBuildersRef.current.get(b);
-        const strat = brokerStrategies[b] || '';
-        if (builder && strat) {
-          try {
-            const snap = builder();
-            if (snap) paramsCacheRef.current.set(cacheKey(b, strat), snap);
-          } catch { /* swallow */ }
-        }
-        paramsBuildersRef.current.delete(b);
-      }
-      return next;
-    });
+      paramsBuildersRef.current.delete(b);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBrokers, open]);
 
   // ── Selectors ───────────────────────────────────────────────────────────
+  /**
+   * rows 视图（由 orders / 可写 rowState / selectedBrokers 派生）—— T12 第二步。
+   *
+   * 不变量（此前由两个 effect 内的 setRows 对账维持，现改为读侧保证）：
+   * 1. **每个订单都有一行**：列表新增订单自动出现在视图里（默认 `selected:false`）；
+   *    消失的订单自动消失（rowState 中的残留不影响读取）。
+   * 2. **只含当前选中的 broker**：取消勾选即从视图移除（槽位在 rowState 中保留，
+   *    由 toggleBroker 在取消勾选时清除，行为与原先的剪枝一致）。
+   * 3. **缺省值补齐**：未编辑过的槽位为 `{ qty:'0', violations: [] }`。
+   *
+   * 「打开时存在的订单默认选中」由打开时写入的 rowState 承担（见 reset effect）。
+   */
+  const rows = useMemo(() => {
+    const next: Record<string, RowState> = {};
+    for (const o of orders) {
+      const r = rowState[o.id];
+      const allocations: Record<string, AllocState> = {};
+      for (const b of selectedBrokers) {
+        allocations[b] = r?.allocations[b] ?? { qty: '0', violations: [] };
+      }
+      next[o.id] = { selected: r?.selected ?? false, allocations };
+    }
+    return next;
+  }, [orders, rowState, selectedBrokers]);
+
   const selectedOrders = useMemo(
     () => orders.filter(o => rows[o.id]?.selected),
     [orders, rows],
@@ -455,10 +440,26 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
 
   // ── Mutations ───────────────────────────────────────────────────────────
   const toggleBroker = (b: string) => {
+    const removing = selectedBrokers.includes(b);
     setSelectedBrokers(prev => {
       if (prev.includes(b)) return prev.filter(x => x !== b);
       return [...prev, b];
     });
+    if (removing) {
+      // 取消勾选时清掉各行该券商的分配槽：与派生视图「只含已选券商」一致，
+      // 避免重新勾选时旧数量被复活（等价于原对账 effect 的剪枝）。
+      // 事件回调内 setState，规则允许。
+      setRows(prev => {
+        const next = { ...prev };
+        for (const [oid, r] of Object.entries(next)) {
+          if (!(b in r.allocations)) continue;
+          const rest = { ...r.allocations };
+          delete rest[b];
+          next[oid] = { ...r, allocations: rest };
+        }
+        return next;
+      });
+    }
     setBrokerStrategies(prev => {
       if (b in prev) return prev;
       const def = defaultStrategyFor(strategiesFor(b), b);
@@ -471,23 +472,23 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     paramsBuildersRef.current.delete(b);
   };
 
+  // 写入以**派生视图**为基准：新订单（尚未写入 rowState）也能被正确编辑
   const patchRow = (oid: string, patch: Partial<RowState>) =>
-    setRows(prev => ({ ...prev, [oid]: { ...prev[oid], ...patch } }));
+    setRows(prev => ({ ...prev, [oid]: { ...(prev[oid] ?? rows[oid]), ...patch } }));
 
-  const patchAlloc = (oid: string, broker: string, patch: Partial<AllocState>) =>
-    setRows(prev => {
-      const r = prev[oid];
-      if (!r) return prev;
-      const cur = r.allocations[broker];
-      if (!cur) return prev;
-      return {
-        ...prev,
-        [oid]: {
-          ...r,
-          allocations: { ...r.allocations, [broker]: { ...cur, ...patch } },
-        },
-      };
-    });
+  const patchAlloc = (oid: string, broker: string, patch: Partial<AllocState>) => {
+    const base = rows[oid];
+    if (!base) return;
+    const cur = base.allocations[broker];
+    if (!cur) return;
+    setRows(prev => ({
+      ...prev,
+      [oid]: {
+        ...base,
+        allocations: { ...base.allocations, [broker]: { ...cur, ...patch } },
+      },
+    }));
+  };
 
   // ── Quick-fill actions ──────────────────────────────────────────────────
   const applyPercentQty = (pct: number) => {
@@ -501,11 +502,12 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     }
     setError('');
     setRows(prev => {
-      const next: Record<string, RowState> = {};
-      for (const [oid, r] of Object.entries(prev)) {
-        if (!r.selected) { next[oid] = r; continue; }
+      const next: Record<string, RowState> = { ...prev };
+      // 以派生视图为迭代源：列表新增的订单也在批量填充范围内
+      for (const [oid, r] of Object.entries(rows)) {
+        if (!r.selected) continue;
         const o = orders.find(x => x.id === oid);
-        if (!o) { next[oid] = r; continue; }
+        if (!o) continue;
         const lot = lotSizeOf(o);
         const target = floorToLot((effectiveRemainingOf(o) * pct) / 100, lot);
         const splits = equalSplit(target, lot, selectedBrokers.length);
@@ -537,11 +539,12 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     }
     setError('');
     setRows(prev => {
-      const next: Record<string, RowState> = {};
-      for (const [oid, r] of Object.entries(prev)) {
-        if (!r.selected) { next[oid] = r; continue; }
+      const next: Record<string, RowState> = { ...prev };
+      // 以派生视图为迭代源：列表新增的订单也在批量填充范围内
+      for (const [oid, r] of Object.entries(rows)) {
+        if (!r.selected) continue;
         const o = orders.find(x => x.id === oid);
-        if (!o) { next[oid] = r; continue; }
+        if (!o) continue;
         const lot = lotSizeOf(o);
         const target = floorToLot((effectiveRemainingOf(o) * pct) / 100, lot);
         const cur = r.allocations[broker];
@@ -599,11 +602,12 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   const applyRatios = () => {
     if (selectedBrokers.length === 0 || selectedOrders.length === 0) return;
     setRows(prev => {
-      const next: Record<string, RowState> = {};
-      for (const [oid, r] of Object.entries(prev)) {
-        if (!r.selected) { next[oid] = r; continue; }
+      const next: Record<string, RowState> = { ...prev };
+      // 以派生视图为迭代源：列表新增的订单也在批量填充范围内
+      for (const [oid, r] of Object.entries(rows)) {
+        if (!r.selected) continue;
         const o = orders.find(x => x.id === oid);
-        if (!o) { next[oid] = r; continue; }
+        if (!o) continue;
         const remain = effectiveRemainingOf(o);
         const lot = lotSizeOf(o);
         const totalLots = Math.floor(remain / lot);
@@ -792,7 +796,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
         if (hashIdx < 0) continue;
         const oid = item.key.slice(0, hashIdx);
         const broker = item.key.slice(hashIdx + 1);
-        const r = next[oid];
+        const r = next[oid] ?? rows[oid];   // 派生视图兜底（未被编辑过的行不在 rowState 中）
         if (!r) continue;
         const cur = r.allocations[broker];
         if (!cur) continue;
