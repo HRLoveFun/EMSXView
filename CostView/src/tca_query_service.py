@@ -307,6 +307,33 @@ class TcaQueryService:
         payload["data_source_warning"] = warning
         return payload
 
+    def attach_evaluation_summary(
+        self, report: dict[str, Any], filters: TcaFilters,
+    ) -> None:
+        """为报告 dict 就地附加 027 评估章节（``report["evaluation"]``）。
+
+        与 `POST /api/tca/evaluation/report` 使用**同一编排函数** —— plan §2.2 硬约束：
+        报告内嵌与独立视图消费同一份 payload，禁止各自拼装（否则形成两套口径）。
+
+        评估不可得时置 ``None`` 且**不抛错**：评估是报告的附加章节，其失败不应使
+        整份报告不可用（与各小节可独立降级的既有约定一致）。
+        """
+        try:
+            report["evaluation"] = self.build_evaluation_report(
+                ScorecardFilters(
+                    start_date=getattr(filters, "start_date", None),
+                    end_date=getattr(filters, "end_date", None),
+                    broker=getattr(filters, "broker", None),
+                    algo=getattr(filters, "algo", None),
+                    symbol=getattr(filters, "symbol", None),
+                    order_ids=getattr(filters, "order_ids", None),
+                ),
+                granularity=(report.get("filters") or {}).get("granularity", "day"),
+            )
+        except Exception as exc:  # noqa: BLE001 - 评估章节不阻断报告生成
+            logger.warning("评估摘要构建失败，报告将不含评估章节: %s", exc)
+            report["evaluation"] = None
+
     def _build_env_context(
         self, routes: list[TcaRouteSummary],
     ) -> dict[tuple[str, str, str], Any]:

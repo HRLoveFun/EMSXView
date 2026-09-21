@@ -46,11 +46,14 @@ from CostView.src.monitoring import (
     resolve_time_range,
 )
 from CostView.src.tca_cache import TcaCacheManager
+# 027：报告内嵌评估章节的编排入口（与 /api/tca/evaluation/report 同一实现）
+from CostView.src.tca_query_service import TcaFilters, TcaQueryService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView Monitoring"])
 
 _cache = TcaCacheManager()
+_analytics = TcaQueryService()
 
 _DATE_PATTERN = r"^\d{8}$"
 
@@ -145,6 +148,16 @@ async def _build_report_cached(params: dict) -> tuple[dict, bool]:
         as_of_date=params.get("as_of_date"),
         preset=params.get("preset"),
         granularity=params.get("granularity", DEFAULT_GRANULARITY),
+    )
+    # 027：报告内嵌评估章节（与 /api/tca/evaluation/report **同一编排函数**）。
+    # 附加在此处而非聚合器内部的理由：评估需要**路由级样本**，而聚合器只做 SQL 聚合；
+    # 且 export-html 与 report-summary 共用本函数 → 两处口径与缓存天然一致。
+    _analytics.attach_evaluation_summary(
+        data,
+        TcaFilters(
+            start_date=params["start"], end_date=params["end"],
+            broker=params["broker"], algo=params["algo"], symbol=params["symbol"],
+        ),
     )
     await _cache.set(cache_key, data)
     return data, False

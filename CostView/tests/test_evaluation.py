@@ -617,3 +617,84 @@ class TestEvaluationEndpoint:
         paths = {route.path for route in router.routes}
         assert "/api/tca/evaluation/report" in paths
         assert "/api/tca/evaluation/compare" not in paths
+
+
+def _evaluation_block(alert_count: int = 1) -> dict[str, Any]:
+    """构造评估 payload 的最小骨架（渲染用例用）。"""
+    return {
+        "primary_benchmark": "arrival",
+        "period": {"start_date": "20260401", "end_date": "20260430", "granularity": "week"},
+        "sections": {
+            "dimensions": [
+                {
+                    "dimension": "broker",
+                    "group_count": 26,
+                    "rows": [
+                        {"vs_others": {"confidence": "medium"}},
+                        {"vs_others": {"confidence": "low"}},
+                    ],
+                    "highlights": {
+                        "best": {"label": "EQ-RBC", "difference": -29.58},
+                        "worst": {"label": "EQ-CLSA", "difference": 16.2},
+                        "minimum_detectable_effect": 71.88,
+                        "alerts": [f"告警 {index}" for index in range(alert_count)],
+                    },
+                }
+            ]
+        },
+    }
+
+
+class TestEvaluationReportSection:
+    """报告内嵌评估章节（027 P3）：渲染、限行与降级。"""
+
+    def test_renders_dimension_summary(self) -> None:
+        from CostView.src.monitoring.tca_report_html import _render_evaluation_section
+
+        html = _render_evaluation_section(_evaluation_block())
+        assert "算法执行质量综合评估" in html
+        assert "broker" in html
+        assert "EQ-RBC" in html and "EQ-CLSA" in html
+        # 口径解释必须随章节出现（读者需知道结论建立在层内比较之上）
+        assert "共同层内" in html
+
+    def test_absent_evaluation_renders_nothing(self) -> None:
+        from CostView.src.monitoring.tca_report_html import _render_evaluation_section
+
+        assert _render_evaluation_section(None) == ""
+        assert _render_evaluation_section({"sections": {"dimensions": []}}) == ""
+
+    def test_alerts_are_capped(self) -> None:
+        """报告是归档物：告警数量必须受控。"""
+        from CostView.src.monitoring.tca_report_html import (
+            _MAX_EVALUATION_ALERTS,
+            _render_evaluation_section,
+        )
+
+        html = _render_evaluation_section(_evaluation_block(alert_count=20))
+        assert html.count("<li>") == _MAX_EVALUATION_ALERTS
+
+    def test_empty_report_carries_evaluation_key(self) -> None:
+        """空报告也须带 ``evaluation`` 键（消费方统一处理，不必判 key 是否存在）。"""
+        from CostView.src.monitoring.report_aggregator import TcaReportAggregator
+
+        empty = TcaReportAggregator()._empty_report(
+            "20260401", "20260430", None, None, None, None, [],
+        )
+        assert empty["evaluation"] is None
+
+    def test_evaluation_failure_does_not_break_report(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """评估章节失败**不得**使整份报告不可用（与各小节可独立降级一致）。"""
+        service = TcaQueryService()
+
+        def _boom(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("simulated evaluation failure")
+
+        monkeypatch.setattr(service, "build_evaluation_report", _boom)
+        report: dict[str, Any] = {"filters": {"granularity": "day"}, "kpi": {"route_count": 1}}
+        service.attach_evaluation_summary(report, ScorecardFilters())
+
+        assert report["evaluation"] is None
+        assert report["kpi"] == {"route_count": 1}      # 其余内容不受影响

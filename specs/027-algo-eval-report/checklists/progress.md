@@ -11,9 +11,15 @@
 | P0 | 故障定位（「评估失败」） | 🟡 三层诊断完成，待用户提供错误文本 | — |
 | P1 | 分层内比较（`stratified.py` + `comparability` 改造） | ✅ 完成（含 3 项实测缺陷修复） | — |
 | P2 | 综合评估编排（`report.py` + 端点 + 门控用例 T16） | ✅ 完成 | — |
-| P3 | Report 内嵌章节（HTML + CSV） | ⏳ | — |
-| P4 | 前端重构（EvaluationView 去选择器 + ReportView 内嵌） | ⏳ | — |
-| P5 | 口径治理与文档（三处同步 + SPEC_VERSION） | 🟡 `report_spec` 已更（`2026.09.9`），三处文档待同步 | — |
+| P3 | Report 内嵌章节（HTML + CSV） | ✅ 完成 | — |
+| P4 | 前端重构（EvaluationView 去选择器 + ReportView 内嵌） | ✅ 完成 | — |
+| P5 | 口径治理与文档（三处同步 + SPEC_VERSION） | ✅ 完成（三处同步 + `2026.09.9`） | — |
+
+**验证**：后端 `pytest CostView/tests/` **301 passed**；前端 `tsc -b` 通过、vitest
+**188 passed**、`lint:modules` **0 problems**。
+
+**实测（真实库 `20260401`~`20260430`）**：7 个维度全部给出结论（026 会全部拒绝）；
+耗时 153s → 5.9s。
 
 ---
 
