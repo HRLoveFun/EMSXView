@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.7"
+SPEC_VERSION = "2026.09.8"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -106,6 +106,27 @@ REPORT_SPEC: dict[str, Any] = {
     },
     #: 026 阶段二：环境变量可得率随 scorecard payload 披露（filters.env_coverage）
     "env_coverage_disclosure": "scorecard.filters.env_coverage",
+    #: 026 阶段三：评估层层级口径（实现见 `CostView/src/evaluation/`；本模块不 import 它，
+    #: 避免 `evaluation → monitoring.env_context → monitoring/__init__ → report_spec` 的包级
+    #: 循环，故此处写字面量并由 `tests/test_evaluation.py` 断言与实现常量一致）
+    "evaluation": {
+        # 分层键：全部来自阶段二真实环境变量；禁止用成本量（循环论证）
+        "strata_dimensions": (
+            "Exchange", "asset_class", "time_of_day", "liquidity_adv20", "volatility",
+        ),
+        # 失衡度量与阈值：TVD 对期望频数无下限要求（小样本稳定），且可直接解读
+        "imbalance_metric": "total-variation-distance",
+        "imbalance_threshold": 0.2,
+        # 检验方法：三种方法回答不同问题，不得只报最有利者（D1 同源要求）
+        "methods": ("t-test", "ks", "chi2"),
+        # 可信区间用 bootstrap：成本分布右偏厚尾，正态近似会系统性窄化区间
+        "ci_method": "bootstrap-percentile",
+        # 多重比较校正：同一报告内比较多个 broker / 算法时必须校正
+        "multiple_comparison": "benjamini-hochberg",
+        # 基准不可默认（D1 基准冻结）；比较结论仅在可比性成立时输出（DP-3-2）
+        "benchmark_required": True,
+        "comparability_enforced_server_side": True,
+    },
 }
 
 #: 排除项的中文展示文案（与 REPORT_SPEC["excluded"] 语义一一对应）
