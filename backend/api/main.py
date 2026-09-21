@@ -123,6 +123,7 @@ repo_provider = RepositoryProvider(enabled=settings.ENABLE_DB_PERSISTENCE)
 from schemas import (
     ApiResponse,
 )
+from errors import MASKED_ERROR_MESSAGE, visible_error_detail
 
 
 # ============================================================================
@@ -329,15 +330,18 @@ for _mod_name, _mod_label in _parse_optional_modules(settings.OPTIONAL_MODULES):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
-    # 防护 (M5): 5xx 的 detail 不得泄漏内部异常 — 非 DEBUG 模式遮蔽为稳定错误码。
-    # 4xx (业务拒绝/校验) 保持原样, 便于前端展示具体原因。
-    detail = exc.detail
-    if exc.status_code >= 500 and not settings.DEBUG:
+    # 防护 (M5, 2026-09-21 精度收敛): 5xx 不得泄漏内部异常, 但端点为**业务降级**
+    # 主动抛出的结构化 detail (data_not_ready / query_timeout / ...) 属面向调用方的
+    # 可操作提示, 按 code 白名单放行 —— 一刀切按状态码遮蔽会把「数据未生成」
+    # 抹成 "Internal server error", 调用方无从区分故障性质 (详见 errors.py)。
+    error, masked = visible_error_detail(
+        exc.detail, status_code=exc.status_code, debug=settings.DEBUG,
+    )
+    if masked:
         logger.error("5xx detail 已遮蔽: %s", exc.detail)
-        detail = "Internal server error"
     return JSONResponse(
         status_code=exc.status_code,
-        content=ApiResponse(success=False, error=detail).model_dump()
+        content=ApiResponse(success=False, error=error).model_dump()
     )
 
 @app.exception_handler(Exception)
@@ -345,7 +349,7 @@ async def general_exception_handler(request, exc):
     logger.exception("Unhandled exception")
     return JSONResponse(
         status_code=500,
-        content=ApiResponse(success=False, error="Internal server error").model_dump()
+        content=ApiResponse(success=False, error=MASKED_ERROR_MESSAGE).model_dump()
     )
 
 # ============================================================================

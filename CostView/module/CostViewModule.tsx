@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, BarChart3, FileBarChart, HeartPulse, RefreshCw, Scale, Settings2, Trophy } from 'lucide-react';
+import { Activity, BarChart3, FileBarChart, HeartPulse, Scale, Settings2, Trophy } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_FILTER_FORM_STATE,
@@ -16,7 +16,7 @@ import {
 import { mergeBackendThresholds } from './lib/thresholds';
 import { fetchAnomalyThresholds } from './services/api';
 import { applyCostViewClientFilters, buildWarningOnlyPage } from './lib/report-state';
-import { analyzeTca, analyzeTcaOrders, fetchAllFilteredOrders, getUpdateStatus, PipelineTriggeredError, type TcaOrderReport } from './services/api';
+import { analyzeTca, analyzeTcaOrders, fetchAllFilteredOrders, type TcaOrderReport } from './services/api';
 import type {
   CostViewConfig,
   CostViewFilterFormState,
@@ -26,7 +26,6 @@ import type {
   TcaFilterPayload,
   TcaReport,
   TcaRouteSummary,
-  UpdateStatusResponse,
 } from './types';
 import { ExportDialog } from './components/ExportDialog';
 import { OverviewView } from './components/OverviewView';
@@ -92,11 +91,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   const [exportState, setExportState] = useState(() => loadCostViewExportState());
   const [selectedRoute, setSelectedRoute] = useState<TcaRouteSummary | null>(null);
   const [fullResultReport, setFullResultReport] = useState<TcaReport | null>(null);
-  // 数据管道状态：analyze 返回 202（默认日期无数据自动触发跑数）时设置
-  const [pipelineJob, setPipelineJob] = useState<{ jobId: string; targetDate: string; form: CostViewFilterFormState } | null>(null);
-  const [pipelineStatus, setPipelineStatus] = useState<UpdateStatusResponse | null>(null);
   const hasLoadedInitialRef = useRef(false);
-  const pipelineTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     saveCostViewActiveTab(activeTab);
@@ -179,14 +174,8 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         });
       }
     } catch (nextError) {
-      // 202：默认日期数据未生成，后端已自动触发管道 —— 进入跑数进度状态
-      if (nextError instanceof PipelineTriggeredError) {
-        setPipelineJob({ jobId: nextError.jobId, targetDate: nextError.targetDate, form });
-        setReport(null);
-        setFullResultReport(null);
-        setSelectedRoute(null);
-        return;
-      }
+      // 数据未生成 / 库不可用等降级原因由后端结构化下发（见 services/api.ts readError），
+      // 前端只负责原样呈现，不再自动触发跑数（触发已归独立仓库 Runner 的显式动作）。
       setError(nextError instanceof Error ? nextError.message : 'Unknown CostView error');
       setReport(null);
       setFullResultReport(null);
@@ -210,11 +199,6 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         setOrderReport(nextReport);
       });
     } catch (nextError) {
-      if (nextError instanceof PipelineTriggeredError) {
-        setPipelineJob({ jobId: nextError.jobId, targetDate: nextError.targetDate, form });
-        setOrderReport(null);
-        return;
-      }
       setError(nextError instanceof Error ? nextError.message : 'Unknown CostView order aggregation error');
       setOrderReport(null);
     } finally {
@@ -227,43 +211,6 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
     hasLoadedInitialRef.current = true;
     void fetchReport(filterForm, 0);
   }, [fetchReport, filterForm]);
-
-  // 管道轮询：job 进行中每 3s 查询状态，完成自动重新加载报告，失败展示错误
-  useEffect(() => {
-    if (!pipelineJob) return;
-
-    const poll = async () => {
-      try {
-        const status = await getUpdateStatus(pipelineJob.jobId);
-        setPipelineStatus(status);
-        if (status.status === 'completed' || status.status === 'failed') {
-          if (pipelineTimerRef.current !== null) {
-            window.clearInterval(pipelineTimerRef.current);
-            pipelineTimerRef.current = null;
-          }
-          const { form } = pipelineJob;
-          setPipelineJob(null);
-          setPipelineStatus(null);
-          if (status.status === 'completed') {
-            void fetchReport(form, 0);
-          } else {
-            setError(`数据管道执行失败: ${status.error ?? '未知错误'}`);
-          }
-        }
-      } catch {
-        // 单次轮询失败静默，下一周期重试
-      }
-    };
-
-    void poll();
-    pipelineTimerRef.current = window.setInterval(() => void poll(), 3000);
-    return () => {
-      if (pipelineTimerRef.current !== null) {
-        window.clearInterval(pipelineTimerRef.current);
-        pipelineTimerRef.current = null;
-      }
-    };
-  }, [pipelineJob, fetchReport]);
 
   const handleOpenAnalysis = useCallback(() => {
     setActiveTab('analysis');
@@ -340,29 +287,6 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
 
   return (
     <div className="space-y-4">
-      {pipelineJob && (
-        <div className="rounded-xl border border-primary/40 bg-primary/5 p-4">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <RefreshCw className="h-4 w-4 animate-spin text-primary" />
-            <span>正在生成 {pipelineJob.targetDate} 数据</span>
-            {pipelineStatus?.stage && (
-              <span className="text-muted-foreground">· {pipelineStatus.stage.label}</span>
-            )}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {pipelineStatus?.overall_progress ?? 0}%
-            </span>
-          </div>
-          <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
-            <div
-              className="h-full rounded bg-primary transition-all duration-500"
-              style={{ width: `${pipelineStatus?.overall_progress ?? 0}%` }}
-            />
-          </div>
-          {pipelineStatus?.stage?.detail && (
-            <p className="mt-1.5 text-xs text-muted-foreground">{pipelineStatus.stage.detail}</p>
-          )}
-        </div>
-      )}
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CostViewModuleTab)}>
         <TabsList className="grid h-auto w-full grid-cols-7 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
           <TabsTrigger value="overview"><Activity className="h-4 w-4" />Overview</TabsTrigger>
