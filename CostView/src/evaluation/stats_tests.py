@@ -108,8 +108,19 @@ def mean_difference_ci(
     return round(low, 6), round(high, 6)
 
 
-def _chi2_on_buckets(left: list[float], right: list[float]) -> tuple[float, float]:
-    """按**合并样本的分位切点**分桶后做卡方检验（`Algo_TCA.md:766` 口径）。"""
+def _chi2_on_buckets(left: list[float], right: list[float]) -> tuple[float, float, str]:
+    """按**合并样本的分位切点**分桶后做卡方检验（`Algo_TCA.md:766` 口径）。
+
+    返回 ``(statistic, p_value, note)``。两类退化情形在此处理并给出可用性说明：
+
+    - 取值大量重复时多个分位切点取到同一数值 → 出现**空桶**（整列计数为 0），
+      `scipy.stats.chi2_contingency` 会因期望频数为 0 直接抛 ``ValueError``
+      —— 026 的小样本用例未覆盖，真实库（`202604` 期 `broker` 维度）首次触发；
+    - 过滤空桶后有效桶 < 2 → 卡方检验无意义。
+
+    两类情形均置 ``p = 1.0``（保守：不声称显著），并由 ``note`` 显式披露，
+    而不是让异常穿透到调用方。
+    """
     combined = sorted(left + right)
     total = len(combined)
     breakpoints = [
@@ -123,9 +134,23 @@ def _chi2_on_buckets(left: list[float], right: list[float]) -> tuple[float, floa
             counts[min(CHI2_BUCKETS - 1, bisect.bisect_left(breakpoints, value))] += 1
         return counts
 
-    table = [bucketize(left), bucketize(right)]
-    statistic, p_value, _, _ = _stats.chi2_contingency(table)
-    return float(statistic), float(p_value)
+    rows = [bucketize(left), bucketize(right)]
+    # 剔除空桶（两侧计数都为 0 的列）：其期望频数为 0，卡方统计量在此无定义
+    non_empty = [
+        index for index in range(CHI2_BUCKETS)
+        if rows[0][index] + rows[1][index] > 0
+    ]
+    if len(non_empty) < 2:
+        return 0.0, 1.0, (
+            f"分桶后退化（有效桶 {len(non_empty)} 个 < 2），卡方检验不可用（p 值置 1）"
+        )
+
+    table = [[row[index] for index in non_empty] for row in rows]
+    try:
+        statistic, p_value, _, _ = _stats.chi2_contingency(table)
+    except ValueError as exc:  # 兜底：期望频数为 0 等退化情形
+        return 0.0, 1.0, f"卡方检验退化（{exc}），p 值置 1"
+    return float(statistic), float(p_value), ""
 
 
 def compare_groups(
@@ -136,6 +161,7 @@ def compare_groups(
     alpha: float = 0.05,
     bootstrap: int = DEFAULT_BOOTSTRAP,
     seed: int = 0,
+    with_ci: bool = True,
 ) -> TestResult:
     """两组成本的差异检验（含均值差的可信区间）。
 
@@ -166,11 +192,16 @@ def compare_groups(
     elif method == "ks":
         statistic, p_value = _stats.ks_2samp(values_l, values_r)
     else:
-        statistic, p_value = _chi2_on_buckets(values_l, values_r)
+        statistic, p_value, note = _chi2_on_buckets(values_l, values_r)
 
-    ci_low, ci_high = mean_difference_ci(
-        values_l, values_r, alpha=alpha, bootstrap=bootstrap, seed=seed,
-    )
+    if with_ci:
+        ci_low, ci_high = mean_difference_ci(
+            values_l, values_r, alpha=alpha, bootstrap=bootstrap, seed=seed,
+        )
+    else:
+        # 可信区间只依赖数据、不依赖检验方法：报告场景下同一对样本只算一次，
+        # 由调用方在方法循环外求得（026 曾在每个方法内各算一次，实测放大 3 倍耗时）
+        ci_low, ci_high = None, None
     return TestResult(
         method=method,
         statistic=float(statistic),

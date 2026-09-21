@@ -42,34 +42,23 @@ from .tca_query_builder import (
     get_time_series as _get_time_series,
 )
 
+from .monitoring import report_measure as rm
 from .monitoring.env_context import (
     ENV_DIMENSIONS,
     build_route_env_context,
     env_coverage,
-    env_route_key,
 )
 from .monitoring.report_spec import SPEC_VERSION as REPORT_SPEC_VERSION
-from .tca_utils import cohort_key_and_label
 
-# 026 阶段三：评估层（依赖方向 tca_query_service → evaluation，无环）
+# 027：评估层（依赖方向 tca_query_service → evaluation，无环）。
+# 评估形态为「按时间范围自动产出的综合评估报告」—— 不再有 dimension / benchmark /
+# method 等「用户选择」参数（这是 027 对 026 形态的修正）。
 from .evaluation import (
-    DEFAULT_IMBALANCE_TVD,
+    BENCHMARK_METRICS,
     DEFAULT_MIN_GROUP_SAMPLE,
-    DEFAULT_STRATA_DIMENSIONS,
-    adjust_pvalues,
-    assess_comparability,
-    compare_groups,
-    evaluation_metadata,
-    minimum_detectable_effect,
+    DEFAULT_REPORT_BOOTSTRAP,
+    build_evaluation_report,
 )
-
-#: 基准名 → 成本指标列（DP-3-3：基准必须显式传入，服务端不设默认值）
-BENCHMARK_METRICS: dict[str, str] = {
-    "vwap": "pnl_vwap",
-    "arrival": "arrival_cost_bps",
-    "close": "close_cost_bps",
-    "is": "wagner_is_bps",
-}
 
 logger = logging.getLogger(__name__)
 
@@ -78,43 +67,6 @@ _ROUTE_PAGE_SIZE = 500
 # order 聚合的订单数防御上限（与 scorecard max_orders 默认值同量级）；
 # 达到上限时在订单边界截断，绝不产生半截订单指标
 _ORDER_AGG_MAX_ORDERS = 10_000
-
-
-def _metric_values(routes: Sequence[Any], metric: str) -> list[Optional[float]]:
-    """提取某成本指标列的值（缺失保留 ``None``，由检验层统一剔除，不在此补 0）。"""
-    return [getattr(route, metric, None) for route in routes]
-
-
-def _power_guidance(
-    grouped: dict[str, list[Any]],
-    metric: str,
-    alpha: float,
-    target: int,
-) -> dict[str, Any]:
-    """样本功效指引：以最小分组样本量给出「可检测的最小效应」。
-
-    回答「还差多少 / 多大差异才可能被检出」，而非只给通过与否的判词 ——
-    样本不足是**数据条件**，不是功能缺陷（按 B3，返回「不可比」是正确行为）。
-    """
-    sizes = [len(rows) for rows in grouped.values()]
-    smallest = min(sizes) if sizes else 0
-    values = [
-        float(value)
-        for rows in grouped.values()
-        for value in _metric_values(rows, metric)
-        if value is not None
-    ]
-    stddev = statistics.pstdev(values) if len(values) > 1 else 0.0
-    guidance: dict[str, Any] = {
-        "smallest_group_size": smallest,
-        "min_group_sample": target,
-        "sufficient": smallest >= target,
-    }
-    if smallest > 0 and stddev > 0:
-        guidance["minimum_detectable_effect"] = round(
-            minimum_detectable_effect(smallest, alpha=alpha, stddev=stddev), 4,
-        )
-    return guidance
 
 
 class TcaQueryService:
@@ -314,130 +266,46 @@ class TcaQueryService:
             offset += page.limit
         return collected, capped, warning
 
-    @staticmethod
-    def _group_routes_by_dimension(
-        routes: list[TcaRouteSummary],
-        dimension: str,
-        env_by_route: dict[tuple[str, str, str], Any],
-    ) -> dict[str, list[TcaRouteSummary]]:
-        """按维度分组（分组口径复用 ``tca_utils.cohort_key_and_label`` 单点）。"""
-        grouped: dict[str, list[TcaRouteSummary]] = {}
-        for route in routes:
-            env = env_by_route.get(env_route_key(
-                route.OrderId, route.RouteId, route.order_as_of_date,
-            ))
-            _, label = cohort_key_and_label(route, dimension, env)
-            grouped.setdefault(label, []).append(route)
-        return grouped
-
-    def build_evaluation_comparison(
+    def build_evaluation_report(
         self,
         filters: ScorecardFilters,
         *,
-        benchmark: str,
-        method: str = "t-test",
-        alpha: float = 0.05,
+        granularity: str = "day",
         correction: str = "bh",
-        strata_dimensions: Optional[Sequence[str]] = None,
+        alpha: float = 0.05,
         min_group_sample: int = DEFAULT_MIN_GROUP_SAMPLE,
-        imbalance_threshold: float = DEFAULT_IMBALANCE_TVD,
         max_routes: int = 2000,
+        bootstrap: int = DEFAULT_REPORT_BOOTSTRAP,
     ) -> dict[str, Any]:
-        """券商 / 算法可比性评估（026 阶段三）。
+        """算法执行质量综合评估报告（027）。
 
-        三条硬约束：
+        **唯一输入是时间范围与作用域过滤** —— 比较维度、基准、检验方法均不由调用方
+        选择（遍历全部维度、并列全部基准与方法）。这是 027 相对 026 的核心形态修正：
+        026 的「用户选维度 / 基准 / 方法」形态与需求错位。
 
-        1. **可比性由服务端强制**（DP-3-2）：不可比时返回 ``comparable=False`` 与原因，
-           **不含**任何比较数值 —— 该约束若只放 UI 层，直接调 API 仍可取原始均值比较；
-        2. **基准不可默认**（DP-3-3，依据 D1）：``benchmark`` 缺失 / 不受支持即报错，
-           避免「事后挑选最有利基准」；
-        3. **多重比较必须校正**：未校正与校正后的 p 值**同时**可见，不掩盖校正代价。
+        第二处修正是可比性：不再有「不可比即拒绝输出」的终止态。组间比较改为在
+        **控制维度的共同层内**进行、按层样本量加权合并，可信度以 ``confidence`` /
+        ``coverage`` 显式披露（原因见 ``evaluation.comparability`` 模块说明）。
         """
-        dimension = (filters.cohort or "broker").strip().lower()
-        if dimension not in SCORECARD_COHORTS:
-            raise ValueError(
-                f"不支持的比较维度 {dimension!r}；可用：{', '.join(SCORECARD_COHORTS)}"
-            )
-        normalized_benchmark = str(benchmark or "").strip().lower()
-        if normalized_benchmark not in BENCHMARK_METRICS:
-            raise ValueError(
-                f"benchmark 必须显式指定且受支持（收到 {normalized_benchmark!r}）；"
-                f"可用：{', '.join(BENCHMARK_METRICS)}"
-            )
-
+        resolved_granularity = rm.validate_granularity(granularity)
         routes, capped, warning = self._collect_routes(filters, max_routes)
         env_by_route = self._build_env_context(routes)
-        grouped = self._group_routes_by_dimension(routes, dimension, env_by_route)
-        verdict = assess_comparability(
-            grouped, env_by_route,
-            dimensions=strata_dimensions or DEFAULT_STRATA_DIMENSIONS,
+
+        payload = build_evaluation_report(
+            routes, env_by_route,
+            start_date=filters.start_date or "",
+            end_date=filters.end_date or "",
+            granularity=resolved_granularity,
             min_group_sample=min_group_sample,
-            imbalance_threshold=imbalance_threshold,
+            correction=correction,
+            alpha=alpha,
+            bootstrap=bootstrap,
         )
-
-        metric = BENCHMARK_METRICS[normalized_benchmark]
-        payload: dict[str, Any] = {
-            "dimension": dimension,
-            "benchmark": normalized_benchmark,
-            "benchmark_metric": metric,
-            "filters": _scorecard_filters_to_dict(filters),
-            "verdict": verdict.to_payload(),
-            "groups": [
-                {"label": label, "sample_size": len(rows)}
-                for label, rows in sorted(grouped.items())
-            ],
-            "total_routes_considered": len(routes),
-            "total_routes_capped": capped,
-            "data_source_warning": warning,
-            "governance": evaluation_metadata(
-                benchmark=normalized_benchmark,
-                spec_version=REPORT_SPEC_VERSION,
-                data_range=(filters.start_date or "", filters.end_date or ""),
-                scope={"dimension": dimension},
-                sample_sizes={label: len(rows) for label, rows in grouped.items()},
-            ),
-        }
-        if not verdict.comparable:
-            # DP-3-2：不可比时不输出比较数值（结构性约束，调用方无法绕过）
-            payload["comparisons"] = []
-            payload["power"] = None
-            return payload
-
-        payload["comparisons"], payload["power"] = self._pairwise_comparisons(
-            grouped, metric=metric, method=method, alpha=alpha,
-            correction=correction, min_group_sample=min_group_sample,
-        )
+        payload["filters"] = _scorecard_filters_to_dict(filters)
+        payload["total_routes_considered"] = len(routes)
+        payload["total_routes_capped"] = capped
+        payload["data_source_warning"] = warning
         return payload
-
-    @staticmethod
-    def _pairwise_comparisons(
-        grouped: dict[str, list[TcaRouteSummary]],
-        *,
-        metric: str,
-        method: str,
-        alpha: float,
-        correction: str,
-        min_group_sample: int,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """两两检验（含多重比较校正）与样本功效指引。"""
-        labels = sorted(grouped)
-        pairs: list[dict[str, Any]] = []
-        raw_pvalues: list[float] = []
-        for i in range(len(labels)):
-            for j in range(i + 1, len(labels)):
-                result = compare_groups(
-                    _metric_values(grouped[labels[i]], metric),
-                    _metric_values(grouped[labels[j]], metric),
-                    method=method, alpha=alpha,
-                )
-                pairs.append({
-                    "left": labels[i], "right": labels[j], **result.to_payload(),
-                })
-                raw_pvalues.append(result.p_value)
-
-        for pair, adjusted_p in zip(pairs, adjust_pvalues(raw_pvalues, method=correction)):
-            pair["p_value_adjusted"] = adjusted_p
-        return pairs, _power_guidance(grouped, metric, alpha, min_group_sample)
 
     def _build_env_context(
         self, routes: list[TcaRouteSummary],
