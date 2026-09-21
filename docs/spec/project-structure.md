@@ -356,7 +356,7 @@ Cross-domain access should follow this order of preference:
 
 - `CostView/frontend/` prototype was first archived under `docs/archive/`, then **fully removed from the repository** in the 2026-08-26 dead-weight cleanup (recoverable from git history).
 - It is not the canonical CostView UI.
-- New production UI work should go to `CostView/module/`（仓库根级模块，与 `frontend/` 平级；2026-09-16 由 `frontend/src/modules/costview/` 平移，见 specs/018）。
+- New production UI work should go to `CostView/module/`（仓库根级模块，与 `frontend/` 平级；2026-09-16 由 `frontend/src/modules/costview/` 平移，见 docs/archive/2026-09-21/018-costview-marketview-root-extract）。
 
 ### 6.2 Empty placeholders
 

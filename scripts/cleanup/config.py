@@ -24,7 +24,8 @@ PYTHON_SCAN_ROOTS: list[str] = [
 # 前端扫描根 / 路径别名**不在本文件维护**：唯一真相源 = scripts/module_layout.py
 # （清理门禁的前端文件收集复用 scripts.quality_gate.context.collect_frontend_files，
 #   别名解析复用 scripts.quality_gate.config.FRONTEND_ALIASES；
-#   此前本文件有一份字面复制的扫描根常量，实际无人引用 —— specs/017 已删除）
+#   此前本文件有一份字面复制的扫描根常量，实际无人引用 ——
+#   docs/archive/2026-09-21/017-frontend-topology-single-source 已删除）
 
 # 「零引用」计数的语料排除目录（文档/历史记录不是消费者，计入会掩蔽真死代码）
 CORPUS_EXCLUDE_PARTS: set[str] = {"docs", "specs", "plans"} | GLOBAL_EXCLUDE_DIRS

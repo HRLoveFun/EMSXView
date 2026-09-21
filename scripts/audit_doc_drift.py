@@ -42,7 +42,8 @@ def _missing_registry_issues(reg_ids: set[str]) -> list[str]:
     """模块发现失效时的 CORE 漂移项。
 
     「登记了前端模块、却一个 `module.registry.ts` 都找不到」= 发现逻辑失效
-    （item 2「注册模块 ↔ 边界文档」会因空集合而静默通过）。specs/018 实测踩到过：
+    （item 2「注册模块 ↔ 边界文档」会因空集合而静默通过）。
+    docs/archive/2026-09-21/018-costview-marketview-root-extract 实测踩到过：
     模块迁到仓库根级后此前的硬编码路径取到空集合，输出从 "3 modules" 变 "0 modules" 却仍报 OK。
     """
     if FRONTEND_MODULES and not reg_ids:
@@ -64,7 +65,7 @@ def get_module_registry_ids() -> set[str]:
     """前端各模块 `module.registry.ts` 声明的模块 id。
 
     模块源码根来自 scripts/module_layout.py（唯一真相源）—— 三个业务模块均已独立为
-    仓库根级目录（specs/012、specs/018），此前硬编码 `frontend/src/modules/*` 会静默
+    仓库根级目录（docs/archive/2026-09-21/012-executionview-root-extract、018-costview-marketview-root-extract），此前硬编码 `frontend/src/modules/*` 会静默
     取到空集合，使「注册模块 ↔ 边界文档」这项 CORE 检查形同关闭。
     """
     ids: set[str] = set()

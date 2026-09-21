@@ -1,5 +1,5 @@
 /**
- * useAsyncData 契约测试（specs/022-t11-async-data-layer）。
+ * useAsyncData 契约测试（docs/archive/2026-09-21/022-t11-async-data-layer）。
  *
  * 关注点：loading 必须由 key 派生（而非 effect 内 setState）、key 变化重取、
  * key=null 跳过、reload 重取、错误暴露、onData 回调时机、旧请求结果被丢弃。

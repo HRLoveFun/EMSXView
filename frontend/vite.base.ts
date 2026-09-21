@@ -16,8 +16,8 @@ export interface ModuleBuildOptions {
 /**
  * 各 standalone 模块的目录布局（唯一真相源）。
  *
- * 三个业务模块均为仓库根级目录（与 `frontend/` 平级，见 specs/012-executionview-root-extract、
- * specs/018-costview-marketview-root-extract）：`ExecutionView/`、`CostView/`、`MarketView/`。
+ * 三个业务模块均为仓库根级目录（与 `frontend/` 平级，见 docs/archive/2026-09-21/012-executionview-root-extract、
+ * docs/archive/2026-09-21/018-costview-marketview-root-extract）：`ExecutionView/`、`CostView/`、`MarketView/`。
  * 故此处按模块登记「入口 HTML」与「模块 chunk 匹配串」，新增模块只需追加一行。
  */
 interface ModuleLayout {

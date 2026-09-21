@@ -1,5 +1,5 @@
 /**
- * useBatchRouteState 契约测试（specs/023 —— T12 前置：先补测试网，再做 rows 派生化重构）。
+ * useBatchRouteState 契约测试（docs/archive/2026-09-21/023-t12-batch-route-derive —— T12 前置：先补测试网，再做 rows 派生化重构）。
  *
  * 锁定「父级订单列表刷新后与行状态对账」的当前语义：
  *   1. 打开对话框 ⇒ 每个订单一行且默认 selected=true

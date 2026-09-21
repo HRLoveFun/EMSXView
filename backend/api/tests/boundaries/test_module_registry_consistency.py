@@ -18,7 +18,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 # 模块源码根来自唯一真相源（scripts/module_layout.py）；此前硬编码 frontend/src/modules/*，
-# 三个模块迁到仓库根级后本检查会静默取到空集合并 skip（specs/018 实测过）
+# 三个模块迁到仓库根级后本检查会静默取到空集合并 skip
+# （docs/archive/2026-09-21/018-costview-marketview-root-extract 实测过）
 from scripts.module_layout import FRONTEND_MODULES  # noqa: E402
 
 

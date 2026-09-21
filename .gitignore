@@ -47,7 +47,7 @@ vitest_out.txt
 # --- Build outputs ---
 app/dist/
 dist-ssr/
-# 独立模块构建产物（与主应用 dist/ 分离，避免互删；见 specs/013-frontend-workspaces/plan.md）
+# 独立模块构建产物（与主应用 dist/ 分离，避免互删；见 docs/archive/2026-09-21/013-frontend-workspaces/plan.md）
 dist-modules/
 .vite/
 *.local
@@ -128,7 +128,7 @@ CostView/data.migrated.*/
 # coding-style.md / project-context.md 是 AGENTS.md「文档阅读顺序」中的必读规范（第 2、3 份）。
 # 此前仅存于各机器本地：新克隆 / CI / 其他 Agent 看不到，且仓库结构演进后无人能同步它们
 # （2026-09-16 实测：文件放置映射与模块清单均已漂移）—— 纳入版本控制
-# （specs/014-specs-into-repo/plan.md）
+# （docs/archive/2026-09-21/014-specs-into-repo/plan.md）
 !.codebuddy/rules/coding-style.md
 !.codebuddy/rules/project-context.md
 # code-review / code-cleanup skill 随仓库分发，团队成员克隆后即可使用

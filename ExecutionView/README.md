@@ -133,4 +133,4 @@ ExecutionView/module/services + hooks/use-*-stream → stores/*-stream-store
 ---
 
 *Status: 仓库根级独立模块（源码与独立构建入口均已迁出 `frontend/`）。*
-*Last verified: 2026-09-16（迁出 frontend 见 [specs/012-executionview-root-extract/plan.md](../specs/012-executionview-root-extract/plan.md)；自带依赖声明与 workspaces 收敛见 [specs/013-frontend-workspaces/plan.md](../specs/013-frontend-workspaces/plan.md) / ADR-0020。工具链与共享契约层仍由 `frontend/` 提供。）*
+*Last verified: 2026-09-16（迁出 frontend 见 [docs/archive/2026-09-21/012-executionview-root-extract/plan.md](../docs/archive/2026-09-21/012-executionview-root-extract/plan.md)；自带依赖声明与 workspaces 收敛见 [docs/archive/2026-09-21/013-frontend-workspaces/plan.md](../docs/archive/2026-09-21/013-frontend-workspaces/plan.md) / ADR-0020。工具链与共享契约层仍由 `frontend/` 提供。）*
