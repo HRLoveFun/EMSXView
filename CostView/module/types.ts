@@ -1,4 +1,4 @@
-export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'report' | 'monitoring' | 'configure';
+export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'evaluation' | 'report' | 'monitoring' | 'configure';
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 export type ExportScope = 'current-page' | 'all-filtered' | 'selected-order';
@@ -303,6 +303,82 @@ export interface ScorecardFormState {
   cohort: ScorecardCohort;
   minSampleSize: number;
   maxOrders: number;
+}
+
+// ── 026 阶段三：评估层契约（POST /api/tca/evaluation/compare）────────────────
+
+/** 基准（不可默认 —— D1 基准冻结，服务端不设默认值） */
+export type EvaluationBenchmark = 'vwap' | 'arrival' | 'close' | 'is';
+
+/** 检验方法：三者回答不同问题，不得只报最有利者 */
+export type EvaluationMethod = 't-test' | 'ks' | 'chi2';
+
+export type EvaluationCorrection = 'bh' | 'bonferroni';
+
+export interface EvaluationCompareRequest {
+  cohort: ScorecardCohort;
+  /** 必填：基准冻结，避免事后挑选最有利基准 */
+  benchmark: EvaluationBenchmark;
+  filters: TcaFilterPayload;
+  method?: EvaluationMethod;
+  alpha?: number;
+  correction?: EvaluationCorrection;
+  min_group_sample?: number;
+  max_orders?: number;
+}
+
+/** 可比性判定：`comparable=false` 时后端**不返回**比较数值 */
+export interface EvaluationVerdict {
+  comparable: boolean;
+  reasons: string[];
+  unmet_dimensions: string[];
+  group_sizes: Record<string, number>;
+  /** 各分层维度的最差两两总变差距离 */
+  imbalance: Record<string, number>;
+  common_strata: number;
+}
+
+export interface EvaluationComparison {
+  left: string;
+  right: string;
+  method: string;
+  statistic: number;
+  p_value: number;
+  /** 多重比较校正后的 p 值（与未校正值同时可见） */
+  p_value_adjusted: number;
+  n_left: number;
+  n_right: number;
+  /** 均值差（left − right） */
+  difference: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  alpha: number;
+  significant: boolean;
+  note: string;
+}
+
+export interface EvaluationPowerGuidance {
+  smallest_group_size: number;
+  min_group_sample: number;
+  sufficient: boolean;
+  /** 可检测的最小效应（「还差多少」的可执行指引） */
+  minimum_detectable_effect?: number;
+}
+
+export interface EvaluationComparisonReport {
+  /** 门控位：false 表示评估层未启用（comparisons 为空**不代表**无可比数据） */
+  enabled: boolean;
+  dimension: string;
+  benchmark: string;
+  benchmark_metric: string;
+  verdict: EvaluationVerdict | null;
+  groups: Array<{ label: string; sample_size: number }>;
+  comparisons: EvaluationComparison[];
+  power: EvaluationPowerGuidance | null;
+  governance?: Record<string, unknown>;
+  total_routes_considered?: number;
+  total_routes_capped?: boolean;
+  data_source_warning?: string | null;
 }
 
 // ── Monitoring / Report contracts（对应 /api/tca/monitoring/* 响应）──────────

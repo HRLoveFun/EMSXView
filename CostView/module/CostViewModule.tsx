@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, BarChart3, FileBarChart, HeartPulse, RefreshCw, Settings2, Trophy } from 'lucide-react';
+import { Activity, BarChart3, FileBarChart, HeartPulse, RefreshCw, Scale, Settings2, Trophy } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_FILTER_FORM_STATE,
@@ -44,6 +44,11 @@ const LazyConfigureView = lazy(async () => {
 const LazyScorecardView = lazy(async () => {
   const module = await import('./components/ScorecardView');
   return { default: module.ScorecardView };
+});
+
+const LazyEvaluationView = lazy(async () => {
+  const module = await import('./components/EvaluationView');
+  return { default: module.EvaluationView };
 });
 
 const LazyReportView = lazy(async () => {
@@ -359,10 +364,11 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         </div>
       )}
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CostViewModuleTab)}>
-        <TabsList className="grid h-auto w-full grid-cols-6 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
+        <TabsList className="grid h-auto w-full grid-cols-7 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
           <TabsTrigger value="overview"><Activity className="h-4 w-4" />Overview</TabsTrigger>
           <TabsTrigger value="analysis"><BarChart3 className="h-4 w-4" />Analysis</TabsTrigger>
           <TabsTrigger value="scorecard"><Trophy className="h-4 w-4" />Scorecard</TabsTrigger>
+          <TabsTrigger value="evaluation"><Scale className="h-4 w-4" />Evaluation</TabsTrigger>
           <TabsTrigger value="report"><FileBarChart className="h-4 w-4" />Report</TabsTrigger>
           <TabsTrigger value="monitoring"><HeartPulse className="h-4 w-4" />Monitoring</TabsTrigger>
           <TabsTrigger value="configure"><Settings2 className="h-4 w-4" />Configure</TabsTrigger>
@@ -413,6 +419,12 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         <TabsContent value="scorecard" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading scorecard workspace…</div>}>
             <LazyScorecardView config={config} analysisFilters={filterForm} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="evaluation" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading evaluation workspace…</div>}>
+            <LazyEvaluationView analysisFilters={filterForm} />
           </Suspense>
         </TabsContent>
 
