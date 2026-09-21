@@ -26,6 +26,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from CostView.src.monitoring import (
+    DEFAULT_GRANULARITY,
+    GRANULARITIES,
     LAST_PRESETS,
     BdibHealthService,
     MetricCoverageService,
@@ -103,11 +105,13 @@ def _report_cache_params(
     rules: ThresholdRules,
     min_fill_count: int,
     min_notional_usd: float,
+    granularity: str = DEFAULT_GRANULARITY,
 ) -> dict:
     """report-summary 与 export-html 共用的缓存参数（P3-5：同 key 同口径）。"""
     return {
         "start": tr.start_date, "end": tr.end_date, "broker": broker,
         "algo": algo, "symbol": symbol, "exchange": exchange, "metrics": selected,
+        "granularity": granularity,
         # 缓存 key 纳入解析后的阈值（sort_keys 归一化；默认阈值与未传等价同 key）
         "thresholds": rules.rules,
         "min_fill_count": min_fill_count, "min_notional_usd": min_notional_usd,
@@ -140,6 +144,7 @@ async def _build_report_cached(params: dict) -> tuple[dict, bool]:
         anomaly_limit=params.get("anomaly_limit"),
         as_of_date=params.get("as_of_date"),
         preset=params.get("preset"),
+        granularity=params.get("granularity", DEFAULT_GRANULARITY),
     )
     await _cache.set(cache_key, data)
     return data, False
@@ -191,13 +196,16 @@ async def get_metric_coverage(
     last: Optional[str] = Query(None, description=f"预设: {', '.join(LAST_PRESETS)}"),
     metrics: Optional[str] = Query(None, description="逗号分隔指标子集，默认全部 38 个"),
     group_by_exchange: bool = Query(False, description="按 Exchange 分层"),
+    granularity: str = Query(
+        DEFAULT_GRANULARITY, description=f"聚合粒度: {', '.join(GRANULARITIES)}",
+    ),
 ):
-    """指标覆盖率：按日期（可选 ×Exchange）统计各指标非 NULL 率。"""
+    """指标覆盖率：按期间（可选 ×Exchange）统计各指标非 NULL 率。"""
     tr = _resolve_range(start_date, end_date, last)
     selected = _parse_metrics(metrics)
     params = {
         "start": tr.start_date, "end": tr.end_date,
-        "metrics": selected, "gbe": group_by_exchange,
+        "metrics": selected, "gbe": group_by_exchange, "granularity": granularity,
     }
     cache_key = TcaCacheManager.make_key("monitoring:metric-coverage", params)
 
@@ -208,6 +216,7 @@ async def get_metric_coverage(
     try:
         data = MetricCoverageService().get_coverage(
             tr.start_date, tr.end_date, selected, group_by_exchange,
+            granularity=granularity,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -235,8 +244,14 @@ async def get_report_summary(
     thresholds: Optional[str] = Query(None, description="JSON 阈值规则覆盖（异常路由明细判定，与 export-html 同契约）"),
     min_fill_count: int = Query(10, ge=0, description="异常路由填充笔数下限（仅对 algo<>close 生效）"),
     min_notional_usd: float = Query(10000.0, ge=0, description="异常路由成交金额(USD)下限（对全部路由生效）"),
+    granularity: str = Query(
+        DEFAULT_GRANULARITY, description=f"聚合粒度: {', '.join(GRANULARITIES)}",
+    ),
 ):
-    """TCA 报告聚合：KPI、分布直方图、按日走势、broker/algo 排行、PWP 曲线。"""
+    """TCA 报告聚合：KPI、分布直方图、期间走势、broker/algo 排行、PWP 曲线。
+
+    granularity 控制「走势」与「分市场金额趋势」的聚合粒度（day / week / month）。
+    """
     tr = _resolve_range(start_date, end_date, last)
     selected = _parse_metrics(metrics)
 
@@ -248,7 +263,7 @@ async def get_report_summary(
 
     params = _report_cache_params(
         tr, broker, algo, symbol, exchange, selected, rules,
-        min_fill_count, min_notional_usd,
+        min_fill_count, min_notional_usd, granularity,
     )
     try:
         data, from_cache = await _build_report_cached(params)
@@ -298,12 +313,17 @@ async def export_tca_html(
     thresholds: Optional[str] = Query(None, description="JSON 阈值规则覆盖（S6 明细判定）"),
     min_fill_count: int = Query(10, ge=0, description="异常路由填充笔数下限（仅对 algo<>close 生效）"),
     min_notional_usd: float = Query(10000.0, ge=0, description="异常路由成交金额(USD)下限（对全部路由生效）"),
+    granularity: str = Query(
+        DEFAULT_GRANULARITY, description=f"聚合粒度: {', '.join(GRANULARITIES)}",
+    ),
 ):
     """导出自包含 HTML 报告（附件下载，文件名 tca_report_<start>_<end>.html）。
 
     内容与 CLI ``generate_tca_report.py`` 同源（同一渲染器）：KPI（10 卡）、
     分布/走势/排行/PWP、市场冲击分解、异常路由明细、指标覆盖率、BDIB 缺口附录。
     含口径脚注（价格偏离，不含费用/L2/事前预测）。
+    granularity 控制走势与分市场金额趋势的聚合粒度（day / week / month）；粒度
+    已纳入缓存 key，不同粒度各自缓存互不串味。
     """
     tr = _resolve_range(start_date, end_date, last)
     selected = _parse_metrics(metrics)
@@ -318,7 +338,7 @@ async def export_tca_html(
         report, _ = await _build_report_cached(
             _report_cache_params(
                 tr, broker, algo, symbol, exchange, selected, rules,
-                min_fill_count, min_notional_usd,
+                min_fill_count, min_notional_usd, granularity,
             )
         )
         # D16 交付闭环：全量异常明细落盘为 CSV，与 HTML 打包（脚注承诺兑现）

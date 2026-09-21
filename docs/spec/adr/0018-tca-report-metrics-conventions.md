@@ -259,6 +259,45 @@ stale mode 一次性迁移三条用例）。
 `price_movement_pct` 仍为 `above`（含边界）—— 其阈值是「参与率 / 波动进入观察区间」的业务
 阈值，边界相等不构成数据矛盾，严格化只会无理由缩小清单。
 
+### 10.6 聚合粒度与期间键（2026-09-21，026 阶段一）
+
+**背景**：报告的时间维度此前只有「查询窗口」没有「聚合粒度」—— `TimeRange` 仅承载
+`start/end/preset`，所有按时间分组都锚在 `order_as_of_date` 日粒度
+（`report_aggregator` 的走势与分市场金额趋势、`metric_coverage` 的分组列），
+无法按周观察执行质量，也没有周度 rollup。
+
+**决策**：
+
+1. **粒度参数**：为报告装配与覆盖率服务引入 `granularity`（`day` / `week` / `month`，
+   默认 `day`），经 API Query 暴露（`report-summary` / `metric-coverage` / `export-html`），
+   并纳入报告 `filters.granularity` 与缓存 key（不同粒度各自缓存，互不串味）。
+2. **`day` 为恒等映射**：`day` 粒度下期间键**直接返回原始列**
+   （`report_measure.period_key_expr("day") == "order_as_of_date"`），不经任何日期函数转换，
+   保证既有按日产出逐字节不变。
+3. **周键为 ISO 8601 的纯 SQL 算术实现**：本环境 SQLite **3.45.3 不支持** `%G` / `%V`
+   （返回 NULL），而 `%Y-%W` 会把跨年周拆成 `2025-52` / `2026-00` 两个键 —— 故改用算术实现：
+   当周周一 = `date(d, '-6 days', 'weekday 1')`；ISO 周年份 = 该周周四所在年份
+   （`strftime('%Y', monday, '+3 days')`）；周号 = `(julianday(monday) − julianday(w01_monday))/7 + 1`。
+   实测：边界日期 73 个 + 真实库 194 个 distinct 交易日对照 `date.isocalendar()` **零不一致**。
+4. **期间序列不补零**：延续 §8「按日走势不补零」的既有理由（0 在成本指标上表示「成本为零」，
+   把无数据期间补 0 属数据失真），周 / 月粒度同样只含有数据的期间，并由 `daily_series_meta`
+   披露覆盖期间数与粒度。
+5. **口径单点**：期间键 SQL 与粒度映射只允许一处定义（`report_measure`），由走势 / 分市场金额
+   趋势 / 覆盖率共用；`granularity=week` 下的「分市场金额趋势」即「分市场 × 周度」交叉视图，
+   **不另造查询**。
+
+**版本**：`SPEC_VERSION` `2026.09.5` → `2026.09.6`；`report_spec` 新增 `granularities` /
+`default_granularity` / `week_key_mode` / `period_series_no_fill` 并由脚注展示
+（`_granularity_footer_clause`）。
+
+**影响面**：新增参数默认 `day`，既有调用方零改动，`day` 粒度下报告数值不变；
+payload 为**追加式**变更（`filters.granularity`、`daily_series_meta.granularity`、
+`metric_coverage.granularity`），旧消费者忽略未知键即可。
+
+**护栏**：`CostView/tests/test_report_metrics.py::TestGranularityPeriodKeys`（10 条：
+跨年周归属 / 空周不补零 / 单日周 / 月键格式 / 分市场 × 周度金额守恒 / day 键恒等 /
+非法粒度报错 / 覆盖率粒度分组 / SPEC-实现绑定 / 脚注声明）。
+
 ## 后果 (Consequences)
 
 ### 正面
@@ -306,17 +345,18 @@ stale mode 一次性迁移三条用例）。
 
 - 涉及的关键文件:
   - `CostView/src/monitoring/report_measure.py`（新增：口径实现唯一来源 —— 作用域 / 加权与覆盖 /
-    订单级聚合 / 金额回退与零成交；2026-09-15 P0）
-  - `CostView/src/monitoring/report_aggregator.py`（加权口径、组合完成率、未成交金额、样本量 meta、跨日披露、fx 质量、作用域与权重覆盖）
+    订单级聚合 / 金额回退与零成交；2026-09-15 P0。2026-09-21 增补：聚合粒度与期间键 ——
+    `GRANULARITIES` / `DEFAULT_GRANULARITY` / `period_key_expr` / `iso_week_expr` / `month_expr`）
+  - `CostView/src/monitoring/report_aggregator.py`（加权口径、组合完成率、未成交金额、样本量 meta、跨日披露、fx 质量、作用域与权重覆盖；2026-09-21 增：`granularity` 透传与走势 / 分市场趋势按期间分组）
   - `CostView/src/monitoring/anomaly_query.py`（两档阈值、severity、排序与 limit、overfill / order_par 规则、CSV 导出）
-  - `CostView/src/monitoring/metric_coverage.py`（SLA 双口径、整体覆盖率、一致性探针、NULL 原因一致性）
+  - `CostView/src/monitoring/metric_coverage.py`（SLA 双口径、整体覆盖率、一致性探针、NULL 原因一致性；2026-09-21 增：粒度分组与 payload 回显）
   - `CostView/src/monitoring/bdib_health.py`（精确分级、金额权重、三态降级）
   - `CostView/src/monitoring/tca_report_html.py`（严重度配色、截断与导出提示、覆盖率双口径、样本量、脚注）
   - `CostView/src/monitoring/time_range.py`（as_of_date）
   - `CostView/src/monitoring/report_spec.py`（新增：口径唯一真相源）
-  - `CostView/src/monitoring/__init__.py`（导出契约：清理幽灵导出、导出 scope API；2026-09-15）
+  - `CostView/src/monitoring/__init__.py`（导出契约：清理幽灵导出、导出 scope API；2026-09-15；2026-09-21 增：导出 `GRANULARITIES` / `DEFAULT_GRANULARITY`）
   - `scripts/reports/generate_tca_report.py`（as_of 透传、CSV 落盘、健康扫描作用域透传）
-  - `CostView/api/routers/monitoring.py`（export-html 端点向健康扫描透传作用域）
+  - `CostView/api/routers/monitoring.py`（export-html 端点向健康扫描透传作用域；2026-09-21 增：`granularity` Query 透传与缓存 key 纳入，覆盖 report-summary / metric-coverage / export-html 三端点）
   - `scripts/quality_gate/run.py`（补 `__main__` 守卫，使 `python -m` 形式不再空跑）
   - 前端 `frontend/src/modules/costview/`（两档阈值、严重度展示、口径与样本标注）
 - 配套测试:
@@ -352,6 +392,13 @@ stale mode 一次性迁移三条用例）。
   - 前端 `npx tsc --noEmit` → 通过
   - 后端 `CostView/tests` → 191 passed（未触碰）
   - 质量门 / 文档漂移审计 → AP 0 / OE 新增 0 / 存量持平；`[OK] No documentation drift detected.`
+- 验证记录（2026-09-21，026 阶段一：聚合粒度与期间键）:
+  - 后端 `CostView/tests/` → **230 passed**（+11：`TestGranularityPeriodKeys` 10 条 +
+    `TestReportSpec` 粒度声明-实现绑定断言）
+  - `day` 粒度等价：`period_key_expr("day")` 恒等返回原始列，既有 219 条用例零失败
+  - 周键正确性：边界日期 73 个 + 真实库 194 个 distinct 交易日对照 `date.isocalendar()` 零不一致
+  - golden 快照：订单级指标计算链路未触碰，零漂移
+  - 结论：新增参数默认 `day`，既有报告数值与 payload 语义不变（payload 为追加式）
 - CI 常态化: `.github/workflows/boundary.yml` 新增「Golden snapshot 回归」步骤（硬阻断）；
   快照随基线入库（`CostView/tests/golden/snapshot/`，`.gitignore` 显式例外），
   CI 无需生产数据即可执行

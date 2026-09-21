@@ -57,6 +57,7 @@
 - **SLA 覆盖率分母**对 `bdib_missing` 类指标剔除「BDIB 缺口路由」（有成交但核心 BDIB 依赖指标全 NULL）；纯竞价豁免分母含零成交路由 —— SLA 口径自此隔离管道缺口波动，与原始口径保持区分度
 - 按日走势为**双轴 + 零轴 + 真实刻度**（左轴 pnl_vwap 对称含零轴；右轴 par_rate 零锚定；市场金额趋势零锚定）—— 此前各自独立归一且无刻度，负成本区间会得出相反结论；仅含「有数据交易日」（**不补零**），并标注覆盖天数；缺失定位见覆盖率表与数据质量提示
 - 异常规则键为 `pnl_vwap_bps`（语义 = `|pnl_vwap|` 阈值；原名 `tracking_error_bps` 已弃用，旧键仍兼容读取）
+- 聚合粒度可选 **`day` / `week` / `month`**（默认 `day`）：**周键按 ISO 8601**（周一为首日；跨年周按「该周周四所在年份」归属，如 `2025-12-29`~`2026-01-04` 同属 `2026-W01`）；期间序列**不补零**，仅披露覆盖期间数；`day` 粒度期间键为原始 `order_as_of_date`（既有按日产出逐字节不变）
 
 ## 四、维护约定
 
@@ -281,6 +282,25 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 
 审计跟踪责任自本轮起正式移交哨兵机制：`SPEC_VERSION = 2026.09.5` 起归档报告可自证完整
 口径，开放验证项由 `scripts/ops/open_validation_sentinel.py` 周期守护。
+
+### 2026-09-21 — 第十二轮（026 阶段一：聚合粒度与期间键）
+
+| # | 事项 | 处理 |
+|---|---|---|
+| G1 | 报告时间维度只有「查询窗口」、无「聚合粒度」：走势与分市场金额趋势锚在日粒度，无法按周观察执行质量 | ✅ 已修：引入 `granularity`（`day`/`week`/`month`，默认 `day`）；`day` 为**恒等映射**（既有按日产出逐字节不变）；`week` 为 ISO 8601 周键且用**纯 SQL 算术**实现 —— 本环境 SQLite 3.45.3 不支持 `%G`/`%V`（返回 NULL），`%Y-%W` 会拆跨年周，故按「当周周一 → 该周周四所在年份 → julianday 差除以 7」计算；期间键单点落在 `report_measure`；`granularity=week` 下的分市场金额趋势即「分市场 × 周度」交叉视图，不另造查询 |
+| G2 | 粒度未进入报告自证链：归档 HTML 无法判断横轴是「日」还是「周」 | ✅ 已修：`filters.granularity` + `daily_series_meta.granularity` + `metric_coverage.granularity` 随 payload 披露；脚注由 SPEC 常量插值生成粒度声明（`_granularity_footer_clause`） |
+| G3 | 粒度参数缺校验时可能静默按日返回，调用方误以为拿到周度结果 | ✅ 已修：`validate_granularity` 非法值**显式报错**（不静默降级），API 层经 `ValueError` → 422 |
+
+护栏：`CostView/tests/test_report_metrics.py::TestGranularityPeriodKeys`（10 条：跨年周归属 /
+空周不补零 / 单日周 / 月键格式 / 分市场 × 周度金额守恒 / `day` 键恒等 / 非法粒度报错 /
+覆盖率粒度分组 / SPEC-实现绑定 / 脚注声明）。
+
+同批：`SPEC_VERSION` → **`2026.09.6`**；`REPORT_SPEC` 新增 `granularities` /
+`default_granularity` / `week_key_mode` / `period_series_no_fill`；`__init__.py` 导出
+`GRANULARITIES` / `DEFAULT_GRANULARITY`（`__all__` 护栏同步）。
+
+**正确性证据**：边界日期 73 个 + 真实库 194 个 distinct 交易日对照 Python `date.isocalendar()`
+**零不一致**；真实库聚出 51 个 ISO 周（`2025-W39` ~ `2026-W38`）。
 
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。

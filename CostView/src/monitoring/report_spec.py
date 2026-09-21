@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.5"
+SPEC_VERSION = "2026.09.6"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -82,6 +82,15 @@ REPORT_SPEC: dict[str, Any] = {
     },
     #: 已知限制清单文档（脚注引用，便于归档追溯）
     "known_limitations_doc": "docs/report-tca-known-limitations.md",
+    #: 026：聚合粒度与期间键（day 默认 = 既有按日产出逐字节不变；week 为 ISO 8601
+    #: 周键，跨年周按「当周周四所在年份」归属；month 为自然月）。实现单点见
+    #: report_measure.GRANULARITIES / DEFAULT_GRANULARITY / period_key_expr，
+    #: 由测试断言一致；受影响小节为走势 / 分市场金额趋势 / 指标覆盖率。
+    "granularities": ("day", "week", "month"),
+    "default_granularity": "day",
+    "week_key_mode": "iso-8601-weekday-monday",
+    #: 期间序列不补零（延续既有「仅含有数据交易日」约定），仅披露覆盖期间数
+    "period_series_no_fill": True,
 }
 
 #: 排除项的中文展示文案（与 REPORT_SPEC["excluded"] 语义一一对应）
@@ -114,6 +123,22 @@ def _p0_p1_footer_clauses() -> str:
     )
 
 
+def _granularity_footer_clause() -> str:
+    """026 新增：聚合粒度与期间键声明（由 SPEC 常量插值，不手写数值）。
+
+    归档 HTML 的口径自证载体是脚注 —— 粒度改变了走势与分市场趋势的横轴语义，
+    不写进脚注则归档读者无法判断「2026-W01 是周还是日」。
+    """
+    granularities = "/".join(REPORT_SPEC["granularities"])
+    no_fill = "不补零" if REPORT_SPEC["period_series_no_fill"] else "补零"
+    return (
+        f"聚合粒度可选 {granularities}"
+        f"（默认 {REPORT_SPEC['default_granularity']}）；"
+        f"周键为 {REPORT_SPEC['week_key_mode']}，跨年周按 ISO 周年份归属；"
+        f"期间序列{no_fill}，仅披露覆盖期间数；"
+    )
+
+
 def footer_text() -> str:
     """由口径常量生成报告脚注（含版本号与已知限制文档引用）。"""
     fallbacks = " → ".join(REPORT_SPEC["unfilled_price_fallbacks"])
@@ -130,5 +155,6 @@ def footer_text() -> str:
         f"{len(REPORT_SPEC['anomaly_severity_levels'])} 档，明细上限 "
         f"{REPORT_SPEC['anomaly_row_limit']} 条（全量见随附导出 CSV）；"
         f"{_p0_p1_footer_clauses()}"
+        f"{_granularity_footer_clause()}"
         f"已知限制见 {REPORT_SPEC['known_limitations_doc']}。"
     )
