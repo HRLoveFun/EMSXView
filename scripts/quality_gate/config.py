@@ -25,7 +25,8 @@ PYTHON_SCAN_ROOTS: list[str] = [
     "MarketView",
 ]
 # 前端源码扫描根 / 路径别名：**不在本文件维护**
-# 唯一真相源 = scripts/module_layout.py（模块可独立为仓库根级目录，见 specs/017/018）；
+# 唯一真相源 = scripts/module_layout.py（模块可独立为仓库根级目录，
+# 见 docs/archive/2026-09-21/017-frontend-topology-single-source、018-costview-marketview-root-extract）；
 # 此处按既有名字再导出，供检测器与清理门禁继续以 ``config.FRONTEND_*`` 读取。
 # 漂移由 backend/api/tests/boundaries/test_frontend_module_layout.py 守护。
 

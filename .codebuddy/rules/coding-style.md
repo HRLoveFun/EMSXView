@@ -89,12 +89,12 @@
 - 事件处理函数与 JSX 属性保持一致命名
 - **表单/对话框的「打开或切换目标时重置」一律用「调用方 `key` 重挂载 + state 初值取自 props」**，
   禁止在 `useEffect` 内同步 `setState` 回填；同理「某 prop 变化 ⇒ 同步本地 state」应改为派生值或 key。
-  反例与修法见 `specs/021-t10-form-reset-refactor/plan.md`；`react-hooks/set-state-in-effect` 已在
+  反例与修法见 `docs/archive/2026-09-21/021-t10-form-reset-refactor/plan.md`；`react-hooks/set-state-in-effect` 已在
   CI 硬阻断（`npm run lint` + `npm run lint:modules`），新增即失败
 - **取数一律走 `@shared/hooks/use-async-data`**（`useAsyncData(key, loader, onData?)`）：
   loading 由 key 派生、setState 只发生在 Promise 回调内。禁止在 `useEffect` 内手写
   `setIsLoading(true) + void load()`；loader 必须是**纯取数**（内部不得 setState）。
-  示例与迁移记录见 `specs/022-t11-async-data-layer/plan.md`
+  示例与迁移记录见 `docs/archive/2026-09-21/022-t11-async-data-layer/plan.md`
 
 ### Python / FastAPI 专项
 
@@ -112,7 +112,7 @@
   （`wt-sync.ps1`）与 `.bat` 启动器（`service-manager.ps1`）都以 `powershell`（5.1）调用；
   PowerShell Core 下正常，故该问题不会在开发机上自发暴露
 - 守卫：`backend/api/tests/boundaries/test_ps1_encoding.py`（CI 边界测试内执行，规则 ID `PS1-ENC`）
-- 参考：[`docs/spec/adr/`]，实测记录见 `specs/016-wt-finish-robustness/plan.md`
+- 参考：[`docs/spec/adr/`]，实测记录见 `docs/archive/2026-09-21/016-wt-finish-robustness/plan.md`
 
 ---
 
@@ -207,7 +207,7 @@ async def get_order(order_id: str):
 | 只读数据访问层 | `data_access/`（写入侧 ETL 已迁独立仓库 EMSXDataPipeline，本仓库不承载） |
 | 跨模块适配器 | `platform_data/adapters/`、`platform_data/contracts/` |
 | 前端共享代码 | `frontend/src/shared/`（`hooks/` `lib/` `services/` `types/`） |
-| 前端模块代码 | **仓库根级独立模块**（与 `frontend/` 平级）：`ExecutionView/module/`、`CostView/module/`、`MarketView/module/`，各带 `standalone/` 独立构建入口（见 `specs/012-executionview-root-extract/plan.md`、`specs/018-costview-marketview-root-extract/plan.md`）。`frontend/src/` **只保留壳层与共享层**（`app/`、`shared/`、`components/`），不再存放业务模块 |
+| 前端模块代码 | **仓库根级独立模块**（与 `frontend/` 平级）：`ExecutionView/module/`、`CostView/module/`、`MarketView/module/`，各带 `standalone/` 独立构建入口（见 `docs/archive/2026-09-21/012-executionview-root-extract/plan.md`、`docs/archive/2026-09-21/018-costview-marketview-root-extract/plan.md`）。`frontend/src/` **只保留壳层与共享层**（`app/`、`shared/`、`components/`），不再存放业务模块 |
 | 前端包管理 | npm workspaces 根 `package.json`（成员 `frontend` + `ExecutionView`）；lockfile **唯一在仓库根**，安装入口为仓库根 `npm install` / `npm ci`（ADR-0020） |
 | 前端共享 UI 组件 | `frontend/src/components/`、`frontend/src/components/ui/` |
 | 测试 | 各模块自身 `tests/`（Python）或 `__tests__/`（前端） |

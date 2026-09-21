@@ -119,7 +119,7 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 
 脚本会拒绝移除分支尚未合并进 origin/main 的 worktree（`-Force` 可强行移除，未提交改动将丢失，慎用）。
 
-> **Windows 下的「注册表已注销、目录删不掉」**（2026-09-16 加固，`specs/016-wt-finish-robustness`）：
+> **Windows 下的「注册表已注销、目录删不掉」**（2026-09-16 加固，`docs/archive/2026-09-21/016-wt-finish-robustness`）：
 > 若 worktree 目录内文件被进程占用（dev server / 测试进程 / `node_modules`、`.vite` 句柄未释放），
 > `git worktree remove` 会先注销注册表再在递归删除时报
 > `error: failed to delete '<path>': Invalid argument`（exit 255）。

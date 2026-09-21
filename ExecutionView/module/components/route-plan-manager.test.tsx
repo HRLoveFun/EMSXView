@@ -2,7 +2,7 @@
  * T10 契约测试：RoutePlanDialog 的表单初值取自 editPlan，
  * 「打开 / 切换编辑目标」的重置由调用方以 key 重挂载实现（不再用 effect 回填）。
  *
- * 对应 specs/021-t10-form-reset-refactor；若有人把回填改回 effect（或去掉调用方 key），
+ * 对应 docs/archive/2026-09-21/021-t10-form-reset-refactor；若有人把回填改回 effect（或去掉调用方 key），
  * 这两条会失败。
  */
 import { render, screen } from '@testing-library/react';

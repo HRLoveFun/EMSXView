@@ -1,6 +1,6 @@
 """PowerShell 脚本编码一致性检测（Windows PowerShell 5.1 兼容）。
 
-对应实测问题（2026-09-16，specs/016-wt-finish-robustness）：
+对应实测问题（2026-09-16，docs/archive/2026-09-21/016-wt-finish-robustness）：
 
 Windows PowerShell 5.1 读取**无 BOM** 的文件时按 ANSI(cp1252) 解码。脚本中的中文（UTF-8 多字节）
 会被误解析 —— 其中字节 0x93/0x94 在 cp1252 中对应智能引号 “ ”，而 PowerShell 把智能引号当字符串

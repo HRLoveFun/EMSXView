@@ -6,11 +6,12 @@
 「某个模块的源码在哪个目录」这一事实，此前散落在 4 处：
 
 1. ``scripts/quality_gate/config.py`` —— ``FRONTEND_SCAN_ROOTS`` + ``FRONTEND_ALIASES``
-2. ``scripts/cleanup/config.py`` —— 同名前端扫描根（字面复制，且**实际未被使用**，见 specs/017）
+2. ``scripts/cleanup/config.py`` —— 同名前端扫描根（字面复制，且**实际未被使用**，
+   见 docs/archive/2026-09-21/017-frontend-topology-single-source）
 3. ``scripts/audit_cross_imports.py`` —— ``MODULE_SCAN_ROOTS`` 硬编码绝对路径
 4. ``backend/api/tests/boundaries/test_cross_module_imports.py`` —— 硬编码扫描根
 
-模块迁目录时（如 specs/012 把 ExecutionView 提到仓库根级、specs/018 把 costview/marketview
+模块迁目录时（如 docs/archive/2026-09-21/012-executionview-root-extract 把 ExecutionView 提到仓库根级、docs/archive/2026-09-21/018-costview-marketview-root-extract 把 costview/marketview
 同构平移）四处都要改，而**漏改的后果是静默的**：
 
 - 该模块在 import 图里变成不可达 ⇒ OE-01「死模块」批量误报 / CL-10 误报；
@@ -55,7 +56,7 @@ class ModuleLayout:
 
 # ── 全部模块（前端 + Python 侧）─────────────────────────────────────
 MODULE_LAYOUTS: tuple[ModuleLayout, ...] = (
-    # 前端模块：三个业务模块均已独立为仓库根级目录（specs/012、specs/018）
+    # 前端模块：三个业务模块均已独立为仓库根级目录（docs/archive/2026-09-21/012-executionview-root-extract、018-costview-marketview-root-extract）
     ModuleLayout("frontend_execution", "ExecutionView/module", "ts", "@execution",
                  standalone_root="ExecutionView/standalone"),
     ModuleLayout("frontend_costview", "CostView/module", "ts", "@costview",
@@ -65,7 +66,7 @@ MODULE_LAYOUTS: tuple[ModuleLayout, ...] = (
     # Python 侧模块
     ModuleLayout("backend_api", "backend/api", "py"),
     ModuleLayout("costview_src", "CostView/src", "py"),
-    # DataPipeline 已迁独立仓库（specs/010-extract-pipeline）：登记保留（optional），
+    # DataPipeline 已迁独立仓库（docs/archive/2026-09-21/010-extract-pipeline）：登记保留（optional），
     # 目录缺失属预期；若目录恢复则自动重新纳入扫描
     ModuleLayout("datapipeline", "DataPipeline", "py", optional=True),
 )
@@ -116,7 +117,7 @@ def minimal_roots(roots: list[str]) -> list[str]:
 # 前端扫描根 = 壳层根 + 全部前端模块源码根 + 各自 standalone 入口根。
 #
 # standalone 入口必须纳入：它们 import 模块注册表与 `@/standalone/shell-less`；
-# 漏扫会让**被它们消费的文件**在 import 图里失去消费者 —— 实测（specs/018）漏扫两个
+# 漏扫会让**被它们消费的文件**在 import 图里失去消费者 —— 实测（docs/archive/2026-09-21/018-costview-marketview-root-extract）漏扫两个
 # standalone 入口后 `frontend/src/standalone/shell-less.tsx` 被误判为「未使用导出」（OE-06 +1）。
 FRONTEND_SCAN_ROOTS: list[str] = [FRONTEND_SHELL_ROOT] + [
     r for r in minimal_roots(
