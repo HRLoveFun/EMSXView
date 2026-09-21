@@ -302,6 +302,25 @@ rule labels」与 `storage.test.ts`（展示元数据刷新 / 部分字段兜底
 **正确性证据**：边界日期 73 个 + 真实库 194 个 distinct 交易日对照 Python `date.isocalendar()`
 **零不一致**；真实库聚出 51 个 ISO 周（`2025-W39` ~ `2026-W38`）。
 
+### 2026-09-21 — 第十三轮（026 阶段二：执行环境变量精确化）
+
+| # | 事项 | 处理 |
+|---|---|---|
+| H1 | `time_of_day` cohort **恒为 `unknown`**（活跃表不带 `start_time`），该维度完全失效 | ✅ 已修：新增 `CostView/src/monitoring/env_context.py`，从 `fill_bdib.mkt_timestamp` 按路由取最早成交时刻；实测可得率 **100%**（173,685 / 173,685），时段分布 close 106,939 / open 35,909 / mid 30,837 —— 分层已真正生效 |
+| H2 | `liquidity_adv20` 用 `par_rate`（区间参与率）代理 ADV20 占比 | ✅ 已修：改用 **`fill / bdib_daily_summary.adv_20d`**（`adv_20d` 实测覆盖 **99.39%**）；这是一次**口径变更**，新口径与降级口径均已写入 `report_spec` |
+| H3 | `volatility` 用 `\|pnl_vwap\|`（**成本**）代理日波动率 —— 用成本代理环境变量、再按它分层比较成本，构成**循环论证** | ✅ 已修：改用 `bdib_daily_summary.daily_volatility`（实测覆盖 **99.94%**）；成本代理仅保留为 L3 降级兜底 |
+| H4 | 环境变量不可得时无任何披露（静默使用代理） | ✅ 已修：三级降级链（L1 真实 / L2 自给 / L3 代理），可得率经 `scorecard.filters.env_coverage` 随 payload 披露；任一维度不可得均为**可见事实** |
+| H5 | 计划原判「`raw_bdib` 与 `fill_bdib` 的 `mkt_timestamp` 存在两套值域」为**最高风险** | ✅ 实测**不成立**：两表均为 8 字符 `HH:MM:SS` 纯时间，`bucket_time_of_day` 现有解析可直接工作。**但**测试夹具用全时间戳（`'20260418 10:10:00'`）与生产形态不一致 —— 已新增 `normalize_start_time` 兼容两种形态并加护栏 |
+
+护栏：`CostView/tests/test_env_context.py`（16 条：双形态归一化 / 真实分桶与边界 / 代理回退 /
+真实路径不引用成本量 / 三维度独立降级 / 来源缺失不抛错 / 聚合接线 / 可得率披露 / SPEC 绑定）。
+
+同批：`SPEC_VERSION` → **`2026.09.7`**；`REPORT_SPEC` 新增 `env_cohort_sources` /
+`env_cohort_fallbacks` / `env_coverage_disclosure`。
+
+**降级链语义**：`env=None` 与「字段为 `None`」等价 —— 参数默认值天然构成降级路径，
+无需额外开关（设计决策见 plan §4.2 DP-2-4）。
+
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
