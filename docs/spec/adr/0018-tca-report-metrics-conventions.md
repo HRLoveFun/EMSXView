@@ -453,7 +453,7 @@ std(日对数收益率) × √252 × 100，实测中位 26.075）→ 82.9% 落 `
 
 **护栏**：`test_env_context.TestVolatilityScaleNormalization`（归一化判别 / 界值与 spec 一致 /
 命中披露）与 `TestSpecBinding`（`volatility_scale_cut` / `volatility_unit` 与实现常量一致）。
-证据全文见 `specs/028-volatility-scale-fix/research.md`。
+证据全文见 `docs/archive/2026-09-21/028-volatility-scale-fix/research.md`。
 
 ## 后果 (Consequences)
 

@@ -166,7 +166,7 @@ def _ratio_or_none(fill: Any, adv20: Any) -> Optional[float]:
 #: （`0.8175` 表示 `81.75%`），其余时段是**年化百分比**（`81.75`）。
 #: 分布上两者间存在天然空档：正常年化百分比 ≥ 5，正常年化小数 ≤ 2 ——
 #: 股票年化波动率不可能低于 3%，故以 3.0 为界安全（实测证据见
-#: `specs/028-volatility-scale-fix/research.md` §3）。
+#: `docs/archive/2026-09-21/028-volatility-scale-fix/research.md` §3）。
 VOLATILITY_SCALE_CUT: float = 3.0
 
 #: 归一化后的波动率口径（唯一真相源，供 report_spec 护栏断言）

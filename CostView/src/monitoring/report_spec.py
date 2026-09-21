@@ -100,7 +100,7 @@ REPORT_SPEC: dict[str, Any] = {
         # 实测中位 26.075）；202603/202604 区间被上游写成**年化小数**，数据入口统一归一化
         "volatility": "bdib_daily_summary.daily_volatility（年化百分比）",
     },
-    #: 028：波动率量纲统一与披露（实测证据见 specs/028-volatility-scale-fix/research.md）
+    #: 028：波动率量纲统一与披露（实测证据见 docs/archive/2026-09-21/028-volatility-scale-fix/research.md）
     "volatility_unit": "annualized-percent",
     "volatility_scale_cut": 3.0,
     "volatility_scale_fixed_disclosure": "env_coverage.volatility_scale_fixed",
