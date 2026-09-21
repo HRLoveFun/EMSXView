@@ -124,8 +124,10 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 > `git worktree remove` 会先注销注册表再在递归删除时报
 > `error: failed to delete '<path>': Invalid argument`（exit 255）。
 > 加固后脚本不再抛裸异常，而是：打印 git 的真实报错 → `worktree prune` → **照常删除本地分支** →
-> 打印人工清理命令（`Remove-Item -Recurse -Force '<dir>'`）→ 以退出码 1 结束。
-> 处置：结束占用进程后执行打印出的清理命令；目录删除属破坏性动作，脚本不自动执行。
+> 打印清理指引 → 以退出码 1 结束。
+> 处置：结束占用进程后按指引清理——**推荐 `wt-clean.ps1 <task> -Apply -Force`**（2026-09-21 起指引
+> 由裸 `Remove-Item` 改为该工具：它带锁保护、强制须指名、`_tmp` 在途保护；只想清目录不动 `_tmp` 时加
+> `-SkipTmp`）。目录删除属破坏性动作，脚本不自动执行。
 
 `-DeleteBranch` 的合并判定复用 `Test-BranchMerged`（`git merge-base --is-ancestor` 或 squash 后 `git cherry` 无 `+` 行），判定通过后以 `git branch -D` 删除——本仓库约定 squash merge，分支内容虽已进 `origin/main` 但不是它的祖先，直接用 `git branch -d` 必然误报 `not fully merged` 而失败；`-DeleteBranch` 因此必须复用上面的判定结果而非再交给 `-d` 自行判断（2026-09-15 修复）。
 
@@ -146,6 +148,8 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 - **锁保护（任何模式都不移除）**：git `locked` 或存在会话独占锁（`<git-dir>/EMSXVIEW_SESSION_LOCK`）的 worktree 一律跳过，须人工先 `git worktree unlock` / 确认对方收工后再处理。
 - **强制须指名**：`-Force` 的强副作用（脏 worktree / 孤儿目录 / 在途 `_tmp`）只在**显式 `-Task` 指名**时生效；未指名时全量扫描一律跳过并告警。起因：全量 `-Force` 曾试图移除另一个会话含 674 项在途改动的 worktree，仅因对方恰好处于 `git worktree add` 的 `locked` 窗口才未酿成损失。
 - **`_tmp/` 在途保护**：最近 30 分钟内变更的子项视为在途任务产物，默认跳过（`-TmpMinAgeMinutes` 调整；`-Force` 且指名时覆盖；`-SkipTmp` 完全跳过）。
+- **`-Apply` 会连带处理 `_tmp`**：`-Apply` 同时删除「非在途」的 `_tmp` 子项（默认行为，非提示）；**若本意只清 worktree 目录，请显式加 `-SkipTmp`**——否则其他会话留在 `_tmp/` 的备份/产物会被一并删除（2026-09-21 实测踩到）。
+- **残留目录的推荐清理路径**：§3.4 的「注册表已注销、目录删不掉」残留也用本工具（`wt-clean.ps1 <task> -Apply -Force`）——它按 `EMSXView-wt-*` 兄弟目录识别为 `orphan` 并带上述全部保护；`git` 已不认的孤儿目录同样需要 `-Force` + 显式指名。
 - 原生等价：`git worktree remove ../EMSXView-wt-xxx --force` → `git worktree prune` → `Remove-Item -Recurse -Force _tmp/*`（无 dry-run 保护）。
 
 ---
