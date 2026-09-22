@@ -27,6 +27,7 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 | docs/spec/project-structure.md | 当前仓库结构与权威实现面 | 结构调整、模块边界变化时 |
 | docs/spec/data-domain.md | 逻辑数据域与适配层边界 | 数据所有权或适配层变化时 |
 | docs/spec/memory.md | 稳定架构记忆与长期约束 | 形成新的稳定规则时 |
+| docs/spec/attribution-pitfalls.md | 归因**推理层**红线（AT-01~03 自检清单：禁把观测顺序当契约 / 跨层配对须同一时点语义 / 反常追到底） | 形成新的归因经验时 |
 | docs/dev-guide.md | 开发指南与验证约束 | 开发流程或权威入口变化时 |
 | docs/schema-contract.md | 跨域类型契约（前端 TS ↔ 后端 Python） | 跨模块协议变更时 |
 | docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
