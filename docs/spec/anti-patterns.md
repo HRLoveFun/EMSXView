@@ -15,6 +15,12 @@
 > 提供工作流、规则集与删除安全协议），规则见
 > [`skill 规则集`](../../.codebuddy/skills/code-cleanup/references/ruleset-cl.md)，
 > 决策记录见 [ADR-0017](adr/0017-cleanup-and-perf-hotspot-mechanism.md)。
+>
+> **推理层归因陷阱（AT-xx）**：本文件管**代码契约**违规（有检测命令、可机器验证）；
+> 分析 / 归因过程中的**推理跳跃**（把观测顺序当契约、跨层配对未落到同一时点语义、
+> 反常信号未追到底）由 [`attribution-pitfalls.md`](attribution-pitfalls.md) 管理，
+> 该文件提供 `AT-01~03` 自检清单与「归因五步」。做数据归因 / 故障定位 / 跨层对照时
+> **两个文件都要过**。
 
 ---
 
