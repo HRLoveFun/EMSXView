@@ -64,10 +64,11 @@ class RouteEnvContext:
     start_time: Optional[str] = None
     #: 订单规模 / 20 日均量（fill ÷ adv_20d，小数非百分比）；adv_20d 缺失或为 0 时为 None
     adv20_ratio: Optional[float] = None
-    #: 交易日波动率，**已统一为年化百分比**（028；小数写法在数据入口归一化）
+    #: 交易日波动率，年化百分比（`bdib_daily_summary.daily_volatility` **原值**，
+    #: 028b 起不再做任何换算）
     daily_volatility: Optional[float] = None
-    #: 该值是否命中「小数写法」归一化（028）—— 命中必须可见，不得静默修数
-    volatility_normalized: bool = False
+    #: 该值是否**疑似**小数量纲（028b：只检测不修改，命中数随 payload 披露）
+    volatility_scale_suspect: bool = False
 
 
 def env_route_key(
@@ -173,22 +174,30 @@ VOLATILITY_SCALE_CUT: float = 3.0
 VOLATILITY_UNIT = "annualized-percent"
 
 
-def normalize_volatility_to_percent(value: Optional[float]) -> Optional[float]:
-    """把 `daily_volatility` 统一到**年化百分比**单位（028）。
+def volatility_scale_suspect(value: Optional[float]) -> bool:
+    """该值是否**疑似**小数量纲（028 → 028b 语义变更）。
 
-    仅处理上游在特定区间的**小数写法**（`< VOLATILITY_SCALE_CUT` → ×100）；
-    其余原值返回。命中与否由 `build_route_env_context` 统计并随 payload 披露 ——
-    归一化**必须可见**，不得静默修数（与「降级必须可见」同一约定）。
+    028 曾在此**修正**该值（`< 3` → ×100），理由是上游 2026-04-22 批次把
+    Bloomberg `VOLATILITY_30D` 的年化百分比写成了小数。
+
+    **028b 起改为只检测、不修改** —— 上游已完成根因修复：
+    - 权威定义确认：该列直取 Bloomberg `VOLATILITY_30D`（30 交易日年化历史波动率，
+      **百分比单位**），我们的反推结论成立；
+    - 上游已回填 36,372 行并加入**批次级守卫**（`GUARDRAIL_DAILY_VOLATILITY_SCALE_CHECK`）；
+    - 本侧复核（2026-09-22）：`< 3` 行由 36,480 降至 **112**，且这 112 行经核对为
+      **真实低波动标的**（如 `K US Equity` 1.16、`ITRK LN Equity` 1.43、
+      `6201 JP Equity` 1.23），其中 63 行来自完全正常的 `2026-08-19` 批次。
+
+    因此继续 ×100 会把真实低波动个股**误放大 100 倍** —— 这正是 028 风险评估中
+    预告的情形。现在仅登记可疑值并随 payload 披露，供人工核对，**不再修改数据**。
     """
     if value is None:
-        return None
+        return False
     try:
         numeric = float(value)
     except (TypeError, ValueError):
-        return None
-    if math.isfinite(numeric) and 0 < numeric < VOLATILITY_SCALE_CUT:
-        return numeric * 100.0
-    return numeric if math.isfinite(numeric) else None
+        return False
+    return math.isfinite(numeric) and 0 < numeric < VOLATILITY_SCALE_CUT
 
 
 def build_route_env_context(
@@ -217,18 +226,13 @@ def build_route_env_context(
             str(getattr(route, "order_as_of_date", None) or ""),
         )
         adv20, volatility = daily.get(ticker_key, (None, None))
-        normalized = normalize_volatility_to_percent(volatility)
         result[key] = RouteEnvContext(
             start_time=start_times.get(key),
             adv20_ratio=_ratio_or_none(getattr(route, "fill", None), adv20),
-            # 028：统一到年化百分比（上游 202603/202604 的小数写法在此归一化）
-            daily_volatility=normalized,
-            # 归一化命中必须可见：命中数经 env_coverage 随 payload 披露
-            volatility_normalized=(
-                volatility is not None
-                and normalized is not None
-                and normalized != volatility
-            ),
+            # 028b：原值直传（上游已修复根因；本侧不再做量纲换算）
+            daily_volatility=volatility,
+            # 疑似小数量纲仅登记不修改，命中数经 env_coverage 随 payload 披露
+            volatility_scale_suspect=volatility_scale_suspect(volatility),
         )
     return result
 
@@ -260,8 +264,8 @@ def env_coverage(
             usable["liquidity_adv20"] += 1
         if env.daily_volatility is not None:
             usable["volatility"] += 1
-        if getattr(env, "volatility_normalized", False):
-            # 028：命中「年化小数」写法并已归一化 —— 必须可见，不得静默修数
+        if getattr(env, "volatility_scale_suspect", False):
+            # 028b：疑似小数量纲 —— 只登记不修改（上游已修复根因，继续修数会误伤真实低波动）
             scale_fixed += 1
 
     return {
@@ -271,6 +275,6 @@ def env_coverage(
             dim: (round(count / total * 100.0, 2) if total else None)
             for dim, count in usable.items()
         },
-        # 028：量纲归一化披露（上游 202603/202604 区间写的是年化小数）
-        "volatility_scale_fixed": scale_fixed,
+        # 028b：疑似小数量纲的登记数（**不含**任何数据修改）
+        "volatility_scale_suspect": scale_fixed,
     }
