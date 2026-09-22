@@ -235,11 +235,12 @@ class Config:
     TCA_ORDER_AGG_ENABLED: bool = (
         os.getenv("TCA_ORDER_AGG_ENABLED", "1") == "1"
     )
-    # ── 科学方法评估层 (026 阶段三) ──
-    # 券商 / 算法可比性评估（POST /api/tca/evaluation/compare），默认开启。
+    # ── 综合评估报告 (027) ──
+    # 算法执行质量综合评估（POST /api/tca/evaluation/report），默认开启。
     # 关闭即降级：端点返回**显式不可用**（enabled=False + 原因），不回退到
     # 「未校验的均值比较」—— 回退到未校验比较等于放弃可比性约束，与关闭意图相反。
     # 回退方式：env TCA_EVAL_ENABLED=0，前端经 GET /api/tca/capabilities 感知。
+    # 注：026 的 POST /api/tca/evaluation/compare 已随 027 形态修正移除。
     TCA_EVAL_ENABLED: bool = (
         os.getenv("TCA_EVAL_ENABLED", "1") == "1"
     )
