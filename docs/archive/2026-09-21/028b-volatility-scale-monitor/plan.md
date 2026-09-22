@@ -1,6 +1,6 @@
 # 028b 波动率量纲：归一化下线，改为只检测不修改
 
-**Feature**: `028b-volatility-scale-monitor`　**Branch**: `028b-volatility-scale-monitor`　**Date**: 2026-09-22　**状态**: 实施中
+**Feature**: `028b-volatility-scale-monitor`　**Branch**: `028b-volatility-scale-monitor`　**Date**: 2026-09-22　**状态**: ✅ 已完成并归档（PR #78；2026-09-22 归档）
 
 **定位**：028 引入的「小数写法归一化」在上游修复根因后**必须下线** —— 继续修数会把
 **真实低波动标的误放大 100 倍**。本计划将其收敛为纯监测。
