@@ -101,20 +101,33 @@ class TestNormalizeStartTime:
         assert env_context.normalize_start_time(None) is None
 
 
-class TestVolatilityScaleNormalization:
-    """028：上游 202603/202604 把年化小数写入同一列 —— 数据入口统一为百分比。"""
+class TestVolatilityScaleSuspicion:
+    """028b：疑似小数量纲**只检测不修改**。
 
-    def test_decimal_writing_is_scaled_up(self) -> None:
-        assert env_context.normalize_volatility_to_percent(0.8) == pytest.approx(80.0)
-        assert env_context.normalize_volatility_to_percent(2.0) == pytest.approx(200.0)
+    上游已确认权威定义（直取 Bloomberg `VOLATILITY_30D`，百分比单位）并回填修复
+    36,372 行 + 加批次级守卫；本侧复核后 `<3` 仅剩 112 行，且经核对为**真实低波动标的**。
+    继续 ×100 会把它们误放大 100 倍，故改为只登记不修改。
+    """
 
-    def test_percent_writing_passes_through(self) -> None:
-        assert env_context.normalize_volatility_to_percent(26.075) == pytest.approx(26.075)
-        assert env_context.normalize_volatility_to_percent(80.0) == pytest.approx(80.0)
+    def test_decimal_value_is_flagged(self) -> None:
+        assert env_context.volatility_scale_suspect(0.8) is True
+        assert env_context.volatility_scale_suspect(2.0) is True
 
-    def test_none_and_non_finite_untouched(self) -> None:
-        assert env_context.normalize_volatility_to_percent(None) is None
-        assert env_context.normalize_volatility_to_percent(float("nan")) is None
+    def test_normal_value_is_not_flagged(self) -> None:
+        assert env_context.volatility_scale_suspect(26.075) is False
+        assert env_context.volatility_scale_suspect(80.0) is False
+
+    def test_real_low_volatility_is_flagged_not_corrected(self) -> None:
+        """真实低波动标的（实测 `K US Equity` 1.16 / `ITRK LN Equity` 1.43）会被登记。
+
+        这是 028b 的核心取舍：**宁可多登记也不误改** —— 上游修复后这些是真实值。
+        """
+        assert env_context.volatility_scale_suspect(1.16) is True
+        assert env_context.volatility_scale_suspect(1.43) is True
+
+    def test_none_and_non_finite(self) -> None:
+        assert env_context.volatility_scale_suspect(None) is False
+        assert env_context.volatility_scale_suspect(float("nan")) is False
 
     def test_scale_constants_match_spec(self) -> None:
         from CostView.src.monitoring import report_spec
@@ -124,16 +137,14 @@ class TestVolatilityScaleNormalization:
         )
         assert env_context.VOLATILITY_UNIT == report_spec.REPORT_SPEC["volatility_unit"]
 
-    def test_normalized_flag_is_disclosed(self, env_dbs: ConnectionManager) -> None:
-        """归一化命中必须可见（env_coverage.volatility_scale_fixed），不得静默修数。
-
-        夹具含两行：AAPL 是年化百分比（30.0，不触发），ORCL 是年化小数
-        （0.8 → 80.0，触发）—— 两种写法混在同一列正是 028 要修的上游问题。
-        """
+    def test_suspect_flag_disclosed_without_modifying_value(
+        self, env_dbs: ConnectionManager,
+    ) -> None:
+        """登记数可见，且 `daily_volatility` **原值保持不变**（0.8 不会被放大为 80）。"""
         routes = [
-            _route(OrderId="O1", RouteId="R1", fill=5000.0),                     # AAPL
+            _route(OrderId="O1", RouteId="R1", fill=5000.0),                     # AAPL 30.0
             _route(OrderId="O2", RouteId="R1", fill=5000.0,
-                   equ_ticker="ORCL US Equity"),                                # ORCL
+                   equ_ticker="ORCL US Equity"),                                # ORCL 0.8
         ]
         env_by_route = build_route_env_context(env_dbs, routes, "20260418", "20260418")
 
@@ -141,12 +152,12 @@ class TestVolatilityScaleNormalization:
         orcl = env_by_route[("O2", "R1", "20260418")]
 
         assert aapl.daily_volatility == pytest.approx(30.0)
-        assert aapl.volatility_normalized is False
-        assert orcl.daily_volatility == pytest.approx(80.0)
-        assert orcl.volatility_normalized is True
+        assert aapl.volatility_scale_suspect is False
+        assert orcl.daily_volatility == pytest.approx(0.8)      # 原值，未放大
+        assert orcl.volatility_scale_suspect is True
 
         coverage = env_coverage(routes, env_by_route)
-        assert coverage["volatility_scale_fixed"] == 1
+        assert coverage["volatility_scale_suspect"] == 1
 
 
 class TestRealEnvCohorts:
@@ -224,7 +235,7 @@ class TestBuildRouteEnvContext:
         assert first.start_time == "09:35:00"          # 路由内最早成交时刻
         assert first.adv20_ratio == pytest.approx(0.005)
         assert first.daily_volatility == 30.0
-        assert first.volatility_normalized is False     # 百分比写法不触发归一化
+        assert first.volatility_scale_suspect is False     # 正常年化百分比不登记
 
         second = result[("O2", "R1", "20260418")]
         assert second.start_time == "14:45:10"
