@@ -672,8 +672,38 @@ Bloomberg `VOLATILITY_30D` 口径不适配（停牌 / 货币单位 / 拆股 / �
    → 用户报告「点击开始评估提示评估失败」（**注意**：本侧复核时 `127.0.0.1:8002` 亦
    无响应，故也可能是服务未启动或运行在其它端口，需确认）。
 
-**本侧待办**：重启 backend 后核对 —— `GET /api/tca/capabilities` 的 `evaluation` 位为真、
-`POST /api/tca/evaluation/report` 返回 200（而非 404）、前端「重新评估」不再报错。
+**本侧待办（已于同轮完成核对，结论与上两段判断不同 —— 见下）**
+
+**⑤ 本侧实测更正：「评估失败」根因不在 backend（2026-09-22 实测）**
+
+上游提供了一条端口旁证（其同机观测到本侧 backend 监听 **3000**、PID 14944、启动于
+9/21 15:04:59）。据此刻本侧实测：
+
+| 项 | 实测结果 |
+|---|---|
+| `GET http://127.0.0.1:3000/api/tca/capabilities` | `{"order_level_tca":true,"core_benchmarks":true,"risk_impact":true,"evaluation":**true**}` |
+| `POST http://127.0.0.1:3000/api/tca/evaluation/report` | **HTTP 200**（端点存在且可用）|
+| `127.0.0.1:8002` / `:3100` | 均无响应（actively refused）|
+| `frontend/.env` | `VITE_API_URL=`（**空值**）→ 前端走相对路径 `/api/...` |
+| `frontend/vite.config.ts:9` | `env.VITE_API_URL \|\| 'http://localhost:3000'` → 空值回退 **3000** |
+
+**因此更正前文的两处判断**：
+
+1. ~~「8002 无响应」表示服务未启动~~ → 实为**端口不匹配**，服务实际监听 3000；
+2. ~~「backend 为长驻旧进程、新端点不存在导致 404」~~ → **不成立**：3000 上的 backend
+   **已是新代码**（`evaluation` 位为真、新端点返回 200）。
+
+**「评估失败」的真正嫌疑**：**前端侧** —— dev server 或浏览器仍加载改动前的前端 bundle
+（仍调用 027 已移除的 `/api/tca/evaluation/compare` → 404）。
+
+**验证步骤（本侧待办）**：
+1. 重启前端 dev server（必要时硬刷新浏览器）；
+2. 浏览器 DevTools → Network 确认请求路径是 `/api/tca/evaluation/report`（**而非** `/compare`）；
+3. 若仍失败，回传响应体（`readError` 提取的文本）以继续定位。
+
+> 教训补充：本次「评估失败」先后被误判为①backend 未重启、②端口不匹配、③backend 旧代码，
+> 三次都与实测不符。**先实测再归因** —— 上游那条「同机观测到进程与端口」的旁证才是
+> 决定性线索，值得记下。
 
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
