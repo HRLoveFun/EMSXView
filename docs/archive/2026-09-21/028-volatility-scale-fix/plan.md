@@ -14,10 +14,14 @@
 | P1 | `bucket_volatility` 阈值（1.5/3.5）是**日**波动率空间，而 `bdib_daily_summary.daily_volatility` 是**年化**百分比（中位 26.075）→ 82.9% 落 `stressed`、`typical` 仅 0.61%，维度失效 | 反推比值 ≈ √252（12/12 个月）；`market.py:50-51` 用 25/40 解读同一列 |
 | P2 | 上游在 **202603/202604** 区间把该列写成**年化小数**（同标的跳变 ≈ 100 倍后恢复，如 `1942 JP` 43.566 → 0.435 → 45.917） | 同标的跨月序列；`<1.5` 行占比 54.8% / 58.5% 集中于该区间 |
 
-另核实：`intraday_volatility`（`bdib_daily_summary`，非空 38.7%）与 `fill_bdib` 的
-`cum_interval_volatility` / `standard_cum_interval_volatility`（非空 31.8%）**均未年化**
-（intraday/daily 同日比值中位 0.0149 ≪ 1/√252）—— 现有 `bucket_volatility` 的旧阈值
-（1.5/3.5）恰好适用于它们，只是被误用在了年化列上。
+另核实（**结论经上游纠正，2026-09-22**）：`intraday_volatility`（`bdib_daily_summary`，
+非空 38.7%）**已年化，但为小数形态**（`std(10 秒对数收益率) × sqrt(BARS_PER_YEAR)`，
+`BARS_PER_YEAR ≈ 589,680`）。我最初按 `intraday / daily` 得到 0.0149 并判为「未年化」，
+**属单位未对齐**（daily 是百分比、intraday 是小数）；正确判据为
+`intraday / (daily / 100)`，实测中位 **1.25** ≈ 1.3，即两列同为年化。
+
+推论更正：旧阈值 1.5/3.5 对该列**不适用**（它按百分比空间定义）；若将来启用
+`intraday_volatility` 做分层，须先 ×100 转百分比。`fill_bdib` 两列的量纲本次未再核实。
 
 ---
 
