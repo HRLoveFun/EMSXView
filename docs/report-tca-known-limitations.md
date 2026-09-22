@@ -696,14 +696,41 @@ Bloomberg `VOLATILITY_30D` 口径不适配（停牌 / 货币单位 / 拆股 / �
 **「评估失败」的真正嫌疑**：**前端侧** —— dev server 或浏览器仍加载改动前的前端 bundle
 （仍调用 027 已移除的 `/api/tca/evaluation/compare` → 404）。
 
-**验证步骤（本侧待办）**：
-1. 重启前端 dev server（必要时硬刷新浏览器）；
-2. 浏览器 DevTools → Network 确认请求路径是 `/api/tca/evaluation/report`（**而非** `/compare`）；
-3. 若仍失败，回传响应体（`readError` 提取的文本）以继续定位。
+**验证步骤（T21，已执行完毕，2026-09-22）**
+
+**⑥ 前端 dev server 残留导致「评估失败」（T21 执行结果，已闭环）**
+
+静态确认：`CostView/module/` 中**已无任何 `/compare` 残留**（仅剩文档历史记录与
+`data_access/config.py` 的一处过期注释），源码侧正确。
+
+动态排查发现**两个残留 dev server**：
+
+| 来源 | 日志 | 状态 |
+|---|---|---|
+| 9/15 20:31 启动 | `logs/service/frontend-20260915-203143.log` | 曾正常（5173），最后一条为今日 16:52 `vite.config.ts changed, restarting server...` |
+| 9/22 13:58 启动 | `logs/service/frontend-20260922-135838.log` | 因 5173 被占用改起 **5174**，但**未成功监听** |
+
+两者均**未监听端口**（`Get-NetTCPConnection` 无 node LISTEN），浏览器因此连到异常实例。
+清理 9 个残留进程后单起一个 dev server，端到端验证**全部通过**：
+
+| 验证 | 结果 |
+|---|---|
+| `GET http://localhost:5173/` | **200** |
+| `POST /api/tca/evaluation/report`（**经前端代理**） | **200**，响应 5,383 字节 |
+| `POST /api/tca/evaluation/compare`（已移除） | **404**（符合预期） |
+| `GET /api/tca/capabilities` | `evaluation: true` |
+
+**一个容易误判的坑**：dev server 监听 `localhost`，在本机**只绑 IPv6 `::1`** ——
+用 `127.0.0.1:5173` 探测会得到「actively refused」而被误读为「服务未启动」。
+**探测须用 `localhost`**，这一点在本次排查中差点造成第四次误判。
+
+**剩余动作（需用户在浏览器侧完成）**：硬刷新浏览器以丢弃旧 bundle，然后确认
+「Evaluation」页不再报错。
 
 > 教训补充：本次「评估失败」先后被误判为①backend 未重启、②端口不匹配、③backend 旧代码，
-> 三次都与实测不符。**先实测再归因** —— 上游那条「同机观测到进程与端口」的旁证才是
-> 决定性线索，值得记下。
+> 三次都与实测不符，第四次（`127.0.0.1` 探测）亦差一步。**先实测再归因** ——
+> 上游那条「同机观测到进程与端口」的旁证是第一个决定性线索，而**检查服务日志与
+> 端口监听列表**才是最终定位手段。
 
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
