@@ -26,6 +26,8 @@
 | T12 | `use-batch-route-state.ts` 对账逻辑派生化：`rows` 改为由 `orders × rowState × selectedBrokers` 派生，对账 effect 删除 | `docs/archive/2026-09-21/022-t11-async-data-layer/plan.md` §4 | ✅ | 2026-09-21 完成（`docs/archive/2026-09-21/023-t12-batch-route-derive` 测试网 + `docs/archive/2026-09-21/024-t12-rows-derive` 派生化）：两个对账 effect 删除，写入口改为以派生视图为基准；`paramsBuildersRef` 副作用移出 updater（StrictMode 二次执行隐患同时消除）。顺带修正「新增行不补槽」的不对称与 023 用例拿 `undefined` 当券商的问题 |
 | T13 | 归档 spec 的未收尾事项：① EMSXDataPipeline 侧 Runner 常驻部署（`emsx-runner` :8100）/ 独立仓 CI 回归 / `PIPELINE_REPORT_CMD` 报告钩子；② `.codebuddy/rules/module-boundary.md` 双仓边界条目（`data_access` 只读层 + 禁 import DataPipeline）；③ 三模块独立部署评估（iframe / Module Federation） | `docs/archive/2026-09-21/010-extract-pipeline/plan.md` TODO-2~5；`docs/archive/2026-09-21/012-executionview-root-extract/plan.md` §7.3 | ⏳ | 2026-09-21 随 spec 归档由计划末尾转记于此（此前的 TODO-1 已完成、TODO-6 已失效）；三项均属本仓库之外的后续/可选演进 |
 | T15 | 归档 spec 的未收尾事项（026）：**可选上游物化需求** —— 请上游将 `adv_20d` / `daily_volatility` 物化到 `tca_route_summary` 列（触发条件：跨库读取覆盖率不足或报告耗时不可接受） | `docs/archive/2026-09-21/026-costview-algo-eval/plan.md` §6 U-1 | ⏳ | 2026-09-21 随 spec 归档由计划 §6 转记于此；属**可选性能优化型、非正确性前置**（阶段二实测本侧可经 `bdib_daily_summary` 自给：`adv_20d` 99.39% / `daily_volatility` 99.94%，未触发）。原同批的 U-2（`fill_bdib` 与 `raw_bdib` 两表 `mkt_timestamp` 口径统一）经 Q2-4 实测**两表同格式**（均 8 字符纯时间），**不触发**，故不计入本条 |
+| T17 | 上游 2026-04-22 批次中 **168 行 `daily_volatility ≥ 3`** 的边界清单核对（该批内异质/脏点，未纳入回填） | 上游闭环答复 2026-09-22（`docs/archive/2026-09-21/028-volatility-scale-fix/research.md` §7b） | ⏳ | 上游已提供清单（`..._ge3.0.csv`）；本侧按需抽查，不影响当前分层口径（阈值 25/40 下这 168 行的归属需人工确认） |
+| T18 | 上游下次管道运行后，复查 2026-09 之后批次确认批次级守卫未误触发 | 上游闭环答复 2026-09-22（上游建议） | ⏳ | 属**写入侧**观测项；本侧无从观测守卫日志，仅在 T15 物化/字段变动时被动感知 |
 
 
 

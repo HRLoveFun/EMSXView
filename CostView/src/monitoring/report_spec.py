@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.10"
+SPEC_VERSION = "2026.09.11"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -100,10 +100,12 @@ REPORT_SPEC: dict[str, Any] = {
         # 实测中位 26.075）；202603/202604 区间被上游写成**年化小数**，数据入口统一归一化
         "volatility": "bdib_daily_summary.daily_volatility（年化百分比）",
     },
-    #: 028：波动率量纲统一与披露（实测证据见 docs/archive/2026-09-21/028-volatility-scale-fix/research.md）
+    #: 028b：波动率量纲**监测**（只检测不修改）—— 上游已确认权威定义并修复根因；
+    #: 证据见 docs/archive/2026-09-21/028-volatility-scale-fix/research.md
     "volatility_unit": "annualized-percent",
+    "volatility_source": "Bloomberg VOLATILITY_30D（30 交易日年化历史波动率，百分比单位）",
     "volatility_scale_cut": 3.0,
-    "volatility_scale_fixed_disclosure": "env_coverage.volatility_scale_fixed",
+    "volatility_scale_suspect_disclosure": "env_coverage.volatility_scale_suspect",
     #: 026 阶段二：环境字段不可得时**回退的既有代理口径**（L3 降级；不可得必须是可见事实）
     "env_cohort_fallbacks": {
         "time_of_day": "unknown",

@@ -455,6 +455,34 @@ std(日对数收益率) × √252 × 100，实测中位 26.075）→ 82.9% 落 `
 命中披露）与 `TestSpecBinding`（`volatility_scale_cut` / `volatility_unit` 与实现常量一致）。
 证据全文见 `docs/archive/2026-09-21/028-volatility-scale-fix/research.md`。
 
+### 10.12 波动率量纲：归一化下线，改纯监测（028b，2026-09-22）
+
+**背景**：§10.11（028）引入了「小数写法归一化」（`< 3` → ×100）作为过渡措施。上游随后
+闭环：`daily_volatility` 直取 Bloomberg `VOLATILITY_30D`（年化百分比），异常源自
+**单次运行批次** `computed_at = 2026-04-22`（36,372 行 ÷100），已回填修复并加**批次级
+守卫**防复发。
+
+**本侧复核发现的关键事实**：`< 3` 行由 36,480 降至 **112**，且这 112 行经核对为
+**真实低波动标的**（`K US Equity` 1.16、`ITRK LN Equity` 1.43、`6201 JP Equity` 1.23），
+其中 **63 行来自正常的 `2026-08-19` 批次** → `< 3` 不再等价于「量纲错误」。
+
+**决策**：
+
+1. **下线归一化**：`normalize_volatility_to_percent`（修改值）→
+   `volatility_scale_suspect`（返回 `bool`，**不修改数据**）；
+2. `RouteEnvContext.volatility_normalized` → `volatility_scale_suspect`；
+   `daily_volatility` **原值直传**；
+3. 披露键 `env_coverage.volatility_scale_fixed` → `volatility_scale_suspect`（登记数）；
+4. `report_spec` 新增 `volatility_source`（记录权威来源）；
+5. **保持** `bucket_volatility` 阈值 25 / 40 —— 与权威定义（年化百分比）一致。
+
+**取舍**：宁可多登记也不误改 —— 误放大 100 倍（1.16% → 116%）是方向性错误，比多登记更严重。
+
+**版本**：`2026.09.11`。
+
+**护栏**：`test_env_context.TestVolatilityScaleSuspicion`（含「原值不被修改」断言）；
+`TestSpecBinding` 断言 `volatility_scale_cut` / `volatility_unit` 与实现一致。
+
 ## 后果 (Consequences)
 
 ### 正面
