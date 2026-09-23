@@ -1286,6 +1286,77 @@ ConnectionError: Cannot connect to Bloomberg
 自检核心是**反事实检验**：**如果这次执行什么都没做，我能否从输出中看出来？**
 本案例的答案是「不能」，故必须比对目标日期的产出（ticker 数 / 行数）本身。
 
+### 2026-09-23 — 第三十一轮（`--force` 静默失效已修：本侧实证复验 + 新增 AT-05）
+
+上游修正了 `--force` 的静默失败形态（提交 `0df3e67`）。本轮为**本侧实证复验**，并据此新增
+`AT-05`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）。
+
+**一、上游的根因自述（重要）：误导源自文案本身，而非转述**
+
+上游指出：他上轮写「增量模式会跳过**已有数据**的日期」，是**照抄 `--force` 的 help 文案**
+（`Re-fetch even if data already exists in raw_bdib.db`）。而他是在本侧指出判据差异后才发现
+**原始 help 与 docstring 本身就是错的**。
+
+> **误导不只存在于转述，原始文案就在误导，而它是下游。**
+
+故上游的处置不是「记住正确判据」，而是**修正文案本身**（help / docstring / 日志三处）——
+这才是正确形态：**文档的下游不止一个，只让自己知道等于让下一个读者继续踩。**
+
+**二、三处修改（本侧读代码确认）**
+
+| 位置 | 改动 |
+|---|---|
+| 跳过路径（`backfill_raw_bdib.py:563-575`） | `logger.debug` → **`logger.info`**，文案含三要素：判据（不晚于最新日期）+ 澄清（与「该日是否已有数据」无关）+ 逃生开关（如需强制重拉请加 `--force`）；并补了 7 行注释说明该判据不显式化时的隐蔽失败形态 |
+| 汇总输出 | `Skipped (exists)` → **`Skipped (<=latest)`** + 判据说明；`skipped_already_exists > 0` 且未加 `--force` 时**额外输出显式提示** |
+| help / docstring | `run_backfill` 的 `force` 参数、`backfill_raw_bdib.py --force`、`backfill_bdib_by_market.py --force` 共三处，由「即使已有数据」改为准确判据 |
+
+**三、本侧实证复验（实跑 dry-run，非读代码推断）**
+
+不加 `--force`（`backfill_raw_bdib.py --start 2026-04-20 --end 2026-04-21 --dry-run`）：
+
+```
+Incremental mode: raw_bdib has data through 20260918
+  SKIP 2026-04-20: 不晚于 raw_bdib 最新日期 (20260918) —— 增量判据与「该日是否已有数据」无关；如需强制重拉请加 --force
+  SKIP 2026-04-21: 不晚于 raw_bdib 最新日期 (20260918) —— ...
+  Skipped (<=latest): 2  # 判据：不晚于 raw_bdib 最新日期，与「该日是否已有数据」无关
+  Fetched: 0 | Total rows: 0
+  提示: 有 2 个日期因「不晚于 raw_bdib 最新日期 (20260918)」被跳过。该判据与「该日是否已有数据」无关
+        ——整天缺失的历史日期也会被跳过；如需强制重拉请加 --force。
+```
+
+加 `--force`：`[DRY-RUN] PROCESSING 2026-04-20/21`、`Skipped (<=latest): 0`、**`Fetched: 2`** ✅
+
+**四、`AT-04` 在该路径上现已成立（改动前是失效的）**
+
+| 层 | 改动前 | 改动后 |
+|---|---|---|
+| 逐日 | 静默（`debug`） | INFO，含判据与逃生开关 |
+| 汇总 | `Skipped (exists)`（语义歧义，像正常跳过） | `Skipped (<=latest)` + 判据说明 |
+| 末尾 | 无 | 有 `skipped > 0` 且未加 `--force` 时的显式提示 |
+
+即：**「如果这次执行什么都没做，能否从输出看出来」→ 现在能。**
+
+**五、一处本侧的测量修正（再次是自己错）**
+
+本侧首次复验时看到提示文案显示为 `\u4e0d\u665a\u4e8e...` 转义，一度疑为上游代码问题；
+用 `python -X utf8` 重跑后中文完全正常 —— **是本侧终端的输出编码问题**。
+（这是本侧在 T20/T22/T23 系列中的第 4 次「先怀疑上游、结果是自己测量错」，
+与 AT-03 同源。记录以备后续同类误判。）
+
+**六、上游附带产出的「同一坑入口表」（本侧登记）**
+
+上游把相关脚本都过了一遍，避免将来从别的入口踩到同一判据：
+
+| 入口 | 受 `latest_existing` 判据影响 | 补历史缺口的正确用法 |
+|---|---|---|
+| `backfill_raw_bdib.py` | ✅ **受影响**（判据在此） | 必须 `--force` |
+| `backfill_bdib_by_market.py` | ✅ **受影响**（转发给 `run_backfill`） | 必须 `--force`（= T23 命令） |
+| `backfill_bdib_gaps.py` | ❌ 不受影响 —— 自实现 **ticker 级**判据（`_already_has_bdib`，按 `(ticker, date)` 判 close 非空） | 默认即可 |
+| `backfill_bdib_history.py` | ❌ 不受影响 —— 自算 `missing_dates` **差集** | 默认即可 |
+
+**T23 之所以必须带 `--force`**，正是因为走的是 `backfill_bdib_by_market.py → run_backfill`
+这条受影响路径。本侧已将该表记入 `open-todos.md` 的 T23，避免将来误用。
+
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
