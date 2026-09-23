@@ -169,6 +169,45 @@ if not force and latest_existing and date_str <= latest_existing:
 **自检**：验证前先问 —— **如果被测的机制完全失效，我这次的输入还能通过吗？**
 若能通过，说明这个输入**没有触达被测路径**，验证无效。
 
+**误用形态二：「零结果」被当成「不存在」**
+
+**T20~T23 案例（本仓库真实，且代价最高）**：本侧用
+
+```powershell
+Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -eq 32840 }
+```
+
+返回 **0 条** → 据此断言「`bbcomm` 无任何监听端口 → API 网关僵死」→ 并**据此建议终止该进程**。
+
+用 `netstat -ano` 复核后事实完全相反：`127.0.0.1:8194` **LISTENING**、**8 个 ESTABLISHED**、
+另有到 Bloomberg 服务器的活动连接 —— **该进程完全健康**。
+而去掉 `-ErrorAction SilentlyContinue` 后被吞掉的错误是：
+
+```
+No MSFT_NetTCPConnection objects found with property 'State' equal to 'Listen'.
+Verify the value of the property and retry.
+```
+
+**即：该 cmdlet 在本环境恒返回 0 条，而 `-ErrorAction SilentlyContinue` 把「工具没工作」
+这个事实静默掉了。** 本侧把「我没看到」读成了「不存在」。
+
+**为什么这是本项目里代价最高的一次**：错误的诊断不止产生错误结论，还会**导向错误的动作**
+—— 基于该诊断，本侧建议**终止一个健康进程**，而该进程上挂着 5 个进程的活动连接
+（含正在跑的任务）。**终止既不解决问题，又造成副作用。**
+（本例被上游用第二种手段复核拦下。）
+
+**自检**：
+
+- [ ] 我的结论建立在**零结果**上吗？（0 条 / 空 / 未找到 / 无输出）
+- [ ] 我用的工具**如果坏了**，会返回什么？ —— 若同样返回零结果，则该结果**不能区分**
+      「不存在」与「工具失效」
+- [ ] 有没有 `-ErrorAction SilentlyContinue` / `2>/dev/null` / `|| true` 这类**吞错**写法？
+- [ ] **是否用第二种独立手段确认过？**（本例：`netstat -ano`）
+- [ ] 若结论会导向**有副作用的动作**（终止进程 / 删除数据 / 改配置），
+      是否已用第二手段交叉验证？
+
+**一条更硬的规则**：**「零结果」必须通过第二种独立手段确认，才能当作「不存在」。**
+
 ## AT-05 不要「照抄文档」当结论 —— 文档本身可能是漂移源
 
 **严重度**: high
