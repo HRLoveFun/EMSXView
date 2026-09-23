@@ -1436,6 +1436,71 @@ Incremental mode: raw_bdib has data through 20260918
 AT-06 说别把误报憋在手里（症状自下而上时也有价值）。**
 合起来即：**信息在两个方向上都不能因为「看起来没价值」而被截留。**
 
+### 2026-09-23 — 第三十三轮（更正：本侧第三十一轮的「误报」判断是错的）
+
+**一、必须更正第三十一轮的结论**
+
+第三十一轮本侧写道：中文转义「**是本侧终端的输出编码问题**，不是上游的代码」，并记入
+「本侧第 4 次自纠」。**这个判断是错的。**
+
+本侧事后复验（不设任何编码变量）：
+
+```
+stdout.encoding = cp1252      utf8_mode = 0
+PYTHONIOENCODING = None       PYTHONUTF8 = None
+print('中文')  →  UnicodeEncodeError (cp1252.py:19)
+```
+
+**本机默认就是 cp1252** —— 不是「本侧的终端特殊」，而是**真实运行条件本身**。
+本侧当时用 `python -X utf8` 重跑得到「正常」，**是自己补上了可见性条件**，
+然后据此把一个**真实缺陷**贴上了「误报」的标签。
+
+**后果的严重性**：若上游接受了「是你们终端的问题」，**编码保护修复就不会发生** ——
+而该缺陷的位置尤其糟糕：**它让「显式化静默跳过」的那条日志自己静默**，
+正是 T22/T23 一路在消除的失败模式。**本侧差点亲手关闭了自己发现的缺陷。**
+
+**修正后的账**：本侧「先怀疑对方、结果自己错」的自纠记录由 **4 次更正为 3 次**
+（`MAX(ABS(?))` 绑定参数 / 采样表当全序列 / 备份 CSV 行数当非空数）；
+编码那次**不是本侧错**，而是**本侧把一个真实缺陷归错了**。
+
+**二、上游同轮的对应发现（本侧复验一致）**
+
+上游由本侧「是否要对齐 `daily_update.py` 分支模式」的线索出发，实测三场景
+（`subprocess.PIPE` / 重定向文件 / `python -u` + DEVNULL）：
+
+- `reconfigure` 在管道/文件场景**本环境均可用** → `daily_update.py:36-37` 注释所述
+  `OSError: [Errno 22]` **未复现**，简单版够用（与本侧结论一致）；
+- **但该分支不是白写的**，只是理由不同：其 `TextIOWrapper(..., line_buffering=True)`
+  提供**行缓冲** —— 管道默认全缓冲，而不设行缓冲会让 `[STAGE]` 进度**延迟到缓冲区满才出现**。
+  **即：注释里的理由（OSError）与它实际承担的作用（行缓冲 + 防御）不是同一件事。**
+  （这与 AT-05 同源：**文档写的理由可能与代码实际的作用不同**。）
+
+**三、上游的核实结果（待核 → 已核，本侧登记）**
+
+| 分类 | 内容 |
+|---|---|
+| **已保护** | `backfill_raw_bdib.py`（本项触发点）、`ops/backfill_bdib_by_market.py`、`ops/backfill_bdib_gaps.py`、`daily_update.py`（isatty 双分支，且在 `_setup_logging()` **之前**执行，顺序正确）、`ops/fix_daily_volatility_scale.py`、`ops/verify_volatility_against_bloomberg.py`、`ops/backfill_fill_bdib_interval_vol.py` |
+| **生产主路径安全** | `runner/app.py` 用 `subprocess.Popen(..., text=True, encoding="utf-8")` 读子进程输出，而 `daily_update.py` 已重包装 stdout/stderr 为 UTF-8 → 两端匹配。**顺带暴露一处隐性契约**：被 runner 调用的任何脚本都必须输出 UTF-8，否则父进程拿到乱码 |
+| **对 T23 最相关** | T23 的两条命令（`backfill_bdib_by_market.py` / `backfill_bdib_gaps.py`）**都自保护** → 执行时**不需要任何环境变量** |
+| **未保护（已列明未改动）** | `scripts/ops/` 下约 20 个含中文日志的脚本、`daily_observation_check.py`、`fill_fetch.py` 的独立运行路径 |
+| **从待核划掉** | `backfill_bdib_history.py` 经核实**无中文日志** |
+
+**四、上游的处置建议（未执行，等定）**
+
+**不逐脚本打补丁**；优先在启动层设 `PYTHONUTF8=1`（一次覆盖，但三种入口都要覆盖），
+或抽一个共用 `ensure_utf8_stdio()` 供各入口调用，而非复制 `reconfigure` 代码块。
+本侧认同该方向：**逐点补丁会随脚本增长而失效，启动层/共用函数才能覆盖新入口。**
+
+**五、新增 `AT-07`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）**
+
+> 自纠必须基于**真实运行条件** —— 否则是另一种失实。
+
+「是否复现」是判断责任归属的**唯一事实依据**。AT-01~06 是「过早归因于对方」，
+AT-07 是「过早归因于自己」—— **方向相反，机制相同**。
+
+**与 AT-06 合起来的规则**：**「是谁的问题」必须由「真实条件下能否复现」决定，
+而不是由「谁更愿意认错」决定。**
+
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
