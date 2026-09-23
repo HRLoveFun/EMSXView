@@ -1676,6 +1676,129 @@ AT-07 是「过早归因于自己」—— **方向相反，机制相同**。
 测试将**显式失败**并报出「实验组的通过不能证明保护有效」，而非静默降级为
 「什么都没验证」。**这使测试本身具备了自我保护。**
 
+### 2026-09-23 — 第三十六轮（更正：bbcomm 未僵死；根因是 xbbg/blpapi 版本不兼容）
+
+**一、⚠️ 更正第三十五轮的诊断结论 —— 本侧错了，上游是对的**
+
+第三十五轮本侧判定「`bbcomm` 无任何监听端口 → API 网关僵死」，并据此建议终止该进程。
+**该结论错误。** 上游用 `netstat` 复核后指出：`bbcomm`（PID 32840）**正在监听 `127.0.0.1:8194`**，
+有 **8 个 ESTABLISHED** 本地连接，另有到 Bloomberg 服务器的外网连接（`192.168.17.109:8201 → 69.184.76.114:8194`）。
+
+**本侧用 `netstat -ano` 复核，完全确认上游的观察**：
+
+```
+TCP  127.0.0.1:8194   0.0.0.0:0        LISTENING    32840
+TCP  127.0.0.1:8194   127.0.0.1:57031  ESTABLISHED  32840
+...（8 个 ESTABLISHED）
+TCP  192.168.17.109:8201 → 69.184.76.114:8194 ESTABLISHED 32840
+```
+
+**连接 8194 的进程**：`bbcomm` + `wintrv` + `bplus64` + **2 个 python**（PID 46484 / 68580，均 9/22 启动）。
+
+**二、本侧诊断错在哪里 —— 又是 AT-04，而且是自己刚立下的判据**
+
+第三十五轮本侧用的探测是：
+
+```powershell
+Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -eq 32840 }
+```
+
+**返回 0 条** → 本侧据此下结论「无任何监听端口」。但当去掉 `-ErrorAction SilentlyContinue`
+后，被吞掉的错误是：
+
+```
+No MSFT_NetTCPConnection objects found with property 'State' equal to 'Listen'.
+Verify the value of the property and retry.
+```
+
+即：**该 cmdlet 在本环境返回 0 条（不管筛选条件），而 `-ErrorAction SilentlyContinue`
+把「工具没工作」这个事实静默掉了** —— 本侧把「我没看到」读成了「不存在」。
+
+**这是 AT-04 的教科书案例，而且是最难堪的一种**：本侧在第三十四轮**刚刚**用同一判据
+（「如果被测机制完全失效，我这次的输入还能通过吗？」）批评上游的 `--help` 验证，
+随后**自己立刻犯了同构错误**（探测工具恒返回空 → 我用它的空结果断言存在性）。
+已作为 AT-04 的核心案例记入清单，并补一条更硬的判据：
+**「零结果」必须通过第二种独立手段确认，才能当作「不存在」。**
+
+**三、⭐ 根因：`xbbg 0.10.3` 与 `blpapi 3.26.7.1` 版本不兼容（用户方向正确）**
+
+按用户要求调查 xbbg / blpapi 版本冲突，本侧做了**同进程对照**（这是决定性的一步）：
+
+| 路径 | 结果 |
+|---|---|
+| 裸 `blpapi.Session`（`localhost` 或 `127.0.0.1`） | **`start() = True`** ✅ |
+| `xbbg.blp.bdp(...)`（紧接其后，同进程） | **失败**：`ConnectionError: Cannot connect to Bloomberg` ❌ |
+
+底层错误（本侧捕获，与上游报的一致）：
+
+```
+ERROR btemt_tcptimereventmanager.cpp:2038 BTE event manager control channel open failed: rc = -5, errno = 10048
+WARN  blpapi_apicmadapter.cpp:172  Failed to start TcpTimerEventManager, error = -1
+ERROR blpapi_sessionimpl.cpp:2857  Failed to start session: PlatformController failed to start
+```
+
+**版本证据**：
+
+| 包 | 本机版本 | 安装时间 | PyPI 最新 |
+|---|---|---|---|
+| `xbbg` | **0.10.3** | **2026-04-09** | **1.4.12** |
+| `blpapi` | **3.26.7.1** | **2026-09-08** | — |
+
+**`xbbg` 从 0.10.3 到 1.4.12 是主版本跨越（0 → 1）**，而 `blpapi` 在 9/8 被单独升级过
+（xbbg 是 4 月的版本，未跟随）。**API 变更的直接证据**：本侧尝试注册 blpapi 日志回调时
+`blpapi.Logger.LEVEL_WARNING` **不存在**（blpapi 3.26 已移除该常量）。
+
+**隔离验证（`pip install --target` 到临时目录，不动现有环境）**：
+
+```
+xbbg 1.4.12 → blp.bdp(['AAPL US Equity','MSFT US Equity'], ['PX_LAST'])
+            → 成功，返回 AAPL=339.75 / MSFT=498
+```
+
+**结论：升级 `xbbg` 至 1.4.x 后连接恢复。** 根因确认为**版本不兼容**，与 `bbcomm`、
+终端、blpapi 本身、端口占用**均无关** —— 这些在对照实验中都被排除。
+
+**四、附带发现：新版 xbbg 是破坏性升级**
+
+`xbbg 1.4.12` 返回的是 **Narwhals DataFrame**（非 pandas）—— 故 `.iloc` 等 pandas 接口
+不可用，`AttributeError: 'DataFrame' object has no attribute 'iloc'`。
+
+**这意味着**：上游的 `bdib_fetcher.py` 等依赖 xbbg 的代码**需要适配新版 API**，
+不是「升级即可用」。**从 0.10.3 到 1.4.12 属破坏性升级，须由写入侧评估与改造。**
+
+**五、对用户指令的处理说明（重要）**
+
+用户基于本侧**错误**的第三十五轮诊断，指示「结束 `bbcomm`（PID 32840）让它重拉」。
+本侧在收到上游复核证据后**未执行该操作**，理由：
+
+1. `bbcomm` **健康**（LISTENING + 8 ESTABLISHED + 外网活动连接）；
+2. 其上挂着 **5 个进程**的活动连接（含 2 个 9/22 启动的 python，可能是上游在跑的任务），
+   终止会**中断**它们；
+3. **即使终止也不解决问题** —— 根因在 xbbg 客户端层，与网关无关。
+
+**本侧的处理**：先纠正自己的错误信息（而非执行基于错误信息的指令），再重新给出结论。
+（这是 AT-07 的一次正向应用：**纠正结论的依据是证据，不是「谁先说的」。**）
+
+**六、T23 现状与下一步**
+
+| 项 | 状态 |
+|---|---|
+| `bbcomm` / 终端 | **健康，无需处理** |
+| 根因 | `xbbg 0.10.3` × `blpapi 3.26.7.1` 不兼容 |
+| 修复方向 | ① 升级 `xbbg` 至 1.4.x（**破坏性**，须适配 `bdib_fetcher` 等）；② 或将 `blpapi` 回退至与 0.10.3 兼容的版本 |
+| T23 能否执行 | **暂不能** —— 上游的取数路径依赖 xbbg |
+| 剩余窗口 | `20260420` → **24 天**、`20260421` → **25 天** |
+
+**决策归属**：升级 xbbg 会改变上游的依赖版本并需要改造其代码 → 属**写入侧决策**；
+本侧可提供验证支持（如隔离环境验证、回归对照），但不代做。
+
+**七、本侧记录一处方法论自省**
+
+本轮的排查过程是：**本侧错误诊断（AT-04 复犯）→ 上游用第二种手段复核并推翻 → 本侧复核确认
+→ 重新定位真因**。其中值得记录的是：**若没有上游的复核，本侧会基于错误诊断执行一个
+有破坏性的操作（终止健康进程），且该操作不会解决问题** —— 错误的诊断会导向**错误的动作**，
+而不只是错误的结论。这是 AT-04 在本项目里代价最高的一次。
+
 ### 仍待处理（P2）
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
