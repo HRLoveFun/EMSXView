@@ -192,6 +192,10 @@ async def lifespan(app: FastAPI):
     # Start Bloomberg connection in background so the server is ready to accept
     # HTTP requests immediately (Bloomberg session.start() + openService() are
     # synchronous SDK calls that can take 30-120s during BPIPE initialisation).
+    # S4/034: 注入主事件循环引用——订阅线程的 DB 写/广播经
+    # run_coroutine_threadsafe 回主循环执行；此前逐次 get_event_loop()
+    # 在回调线程抛 RuntimeError 被静默吞掉，持久化与推送整体丢失。
+    bloomberg_service.set_main_loop(asyncio.get_running_loop())
     asyncio.create_task(bloomberg_service.connect())
     logger.info("Bloomberg connection started in background")
 
