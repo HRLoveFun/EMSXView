@@ -376,17 +376,19 @@ def test_send_request_filters_messages_by_correlation_id():
     assert [msg.getElementAsString("TOKEN") for msg in messages] == ["keep-partial", "keep-final"]
 
 
-def test_track_api_seq_num_warns_on_gap(monkeypatch):
+def test_track_api_seq_num_logs_error_on_gap(monkeypatch):
+    """S7/037 行为变更：跳号从 warning 升级为 ERROR 并触发重同步调度。"""
     service = BloombergEMSXService()
-    warnings: list[str] = []
+    errors: list[str] = []
 
-    monkeypatch.setattr(bloomberg_adapter.logger, "warning", lambda message: warnings.append(message))
+    monkeypatch.setattr(bloomberg_adapter.logger, "error", lambda message: errors.append(message))
 
     service._sub._track_api_seq_num(FakeMessage({"API_SEQ_NUM": 1}), "order")
     service._sub._track_api_seq_num(FakeMessage({"API_SEQ_NUM": 3}), "order")
 
     assert service._sub._last_order_api_seq_num == 3
-    assert any("ORDER API_SEQ_NUM gap detected" in message for message in warnings)
+    assert any("ORDER API_SEQ_NUM gap detected" in message for message in errors)
+    assert any("scheduling cache resync" in message for message in errors)
 
 
 def test_get_startup_status_infers_ready_from_populated_caches():

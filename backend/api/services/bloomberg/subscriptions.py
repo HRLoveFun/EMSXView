@@ -33,6 +33,15 @@ from .._bloomberg_parsing import (
 logger = logging.getLogger("main")
 
 
+def detect_seq_gap(last_seen: int, current: int) -> bool:
+    """检测 API_SEQ_NUM 跳号 (S7/037)。
+
+    跳号意味着订阅事件流可能漏事件——缓存与终端状态可能失配。
+    纯函数便于离线测试边界（相邻/重复/回退均不算跳号）。
+    """
+    return current > last_seen + 1
+
+
 class EMSXSubscriptionEngine:
     def __init__(
         self,
@@ -62,6 +71,10 @@ class EMSXSubscriptionEngine:
         # 主事件循环引用 (S4/034)：由 lifespan startup 注入，供订阅线程
         # 把持久化/广播协程调度回主循环；未注入时 dispatch 记 ERROR
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # 缓存重同步回调 (S7/037)：跳号时触发；真实重同步回调由 facade
+        # 在实盘连接建立后注册
+        self._resync_callbacks: list = []
 
     def set_main_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
         """注入主事件循环引用（main.py lifespan startup 中调用）。"""
@@ -867,8 +880,36 @@ class EMSXSubscriptionEngine:
 
         attr = "_last_order_api_seq_num" if stream == "order" else "_last_route_api_seq_num"
         last_seen = getattr(self, attr, 0)
-        if last_seen and api_seq_num > last_seen + 1:
-            logger.warning(
-                f"{stream.upper()} API_SEQ_NUM gap detected: expected {last_seen + 1}, got {api_seq_num}"
+        if last_seen and detect_seq_gap(last_seen, api_seq_num):
+            # 跳号 = 可能漏事件 (S7/037)：升级为 ERROR 并触发重同步回调。
+            # 此前仅 warning，无任何后续动作——缓存可能与终端失配而无人察觉。
+            logger.error(
+                f"{stream.upper()} API_SEQ_NUM gap detected: expected {last_seen + 1}, "
+                f"got {api_seq_num} — scheduling cache resync"
             )
+            self._schedule_resync(stream)
         setattr(self, attr, api_seq_num)
+
+    # ── Cache resync (S7/037) ──────────────────────────────────────────
+
+    def register_resync_callback(self, callback) -> None:
+        """注册缓存重同步回调（重发 REQUEST_ORDERS/ROUTES 初始快照）。
+
+        真实重同步依赖实盘会话（session open + subscription start），
+        由 facade 在连接建立后注册；离线/测试环境可注入任意可观测回调。
+        """
+        self._resync_callbacks.append(callback)
+
+    def _schedule_resync(self, stream: str) -> None:
+        """调度缓存重同步：逐个执行已注册回调，异常可见不中断。"""
+        if not self._resync_callbacks:
+            logger.error(
+                f"{stream.upper()} resync requested but no resync callback "
+                f"registered — cache may be stale until manual refresh"
+            )
+            return
+        for cb in self._resync_callbacks:
+            try:
+                cb(stream)
+            except Exception as exc:
+                logger.error("Resync callback failed: %s: %s", type(exc).__name__, exc)
