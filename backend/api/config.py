@@ -70,6 +70,10 @@ class Settings:
     ENABLE_REALTIME: bool = os.getenv("ENABLE_REALTIME", "true").lower() == "true"
     ENABLE_AUDIT_LOG: bool = os.getenv("ENABLE_AUDIT_LOG", "true").lower() == "true"
 
+    # 执行驱动循环 (S9/039)：默认关闭——开启后调度驱动会把到期切片
+    # 提交到市场（真实下单），须显式评估并接线 submit 函数后启用
+    EXECUTION_DRIVER_ENABLED: bool = os.getenv("EXECUTION_DRIVER_ENABLED", "false").lower() == "true"
+
     # Trader identity
     EMSXVIEW_TRADER_NAME: str = os.getenv("EMSXVIEW_TRADER_NAME", "")
 
