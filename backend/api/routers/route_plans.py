@@ -18,6 +18,7 @@ from schemas import (
 )
 from deps import verify_token, audit_log, get_bloomberg_service
 from models.route_plan import RoutePlan, RoutePlanAllocation
+from services import compliance_service
 from services.route_engine import RouteEngine
 
 logger = logging.getLogger(__name__)
@@ -437,6 +438,30 @@ async def confirm_proposal(
         raise HTTPException(404, f"Proposal {proposal_id} not found")
     if proposal.get("status") != "PENDING_CONFIRM":
         raise HTTPException(400, f"Proposal {proposal_id} has status '{proposal.get('status')}', not PENDING_CONFIRM")
+
+    # 统一风控入口 (S2/031)：建议确认是下单路径，与单笔路由入口
+    # （orders_crud.route_order）执行同一 compliance 口径，不得绕过。
+    # 置于 try 之外——HTTPException 必须原样传播，不得被通用异常处理吞掉。
+    parent_order = None
+    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+        with bloomberg._data_lock:
+            parent_order = bloomberg._orders.get(proposal["parent_order_id"])
+    if parent_order is not None:
+        violations = compliance_service.check_route(
+            parent_order,
+            route_qty=proposal.get("quantity", 0),
+            limit_price=proposal.get("limit_price"),
+            stop_price=None,
+            order_type=proposal.get("order_type") or "LIMIT",
+        )
+        if violations:
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Pre-trade compliance check failed",
+                    "violations": [v.model_dump() for v in violations],
+                },
+            )
     try:
         from schemas import RouteOrderRequest
         route_req = RouteOrderRequest(
