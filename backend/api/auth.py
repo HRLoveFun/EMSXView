@@ -4,6 +4,8 @@ EMSXView Trading API - Authentication Module
 Handles user authentication and authorization
 """
 
+import json
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -18,10 +20,52 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Configuration — 从 config.settings 读取，避免重复 os.getenv
 from config import settings as _settings
 
+logger = logging.getLogger(__name__)
+
 JWT_SECRET = _settings.JWT_SECRET
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = _settings.JWT_EXPIRE_MINUTES
 ALLOWED_TRADERS = [t.strip() for t in _settings.ALLOWED_TRADERS if t.strip()]
+
+
+def _load_config_users() -> Dict[str, Dict[str, str]]:
+    """解析 EMSXVIEW_USERS 配置用户源 (S10/040)。
+
+    环境变量为 JSON 数组：
+      [{"username": "...", "password_hash": "<bcrypt>", "full_name": "...", "role": "trader"}]
+    解析失败或未配置时返回空 dict（回落 DEMO_USERS 并告警可见）。
+    """
+    raw = getattr(_settings, "EMSXVIEW_USERS", "")
+    if not raw or not raw.strip():
+        return {}
+    try:
+        entries = json.loads(raw)
+        users: Dict[str, Dict[str, str]] = {}
+        for e in entries:
+            username = str(e.get("username", "")).strip()
+            password_hash = str(e.get("password_hash", "")).strip()
+            if not username or not password_hash:
+                logger.error("EMSXVIEW_USERS entry missing username/password_hash — skipped")
+                continue
+            users[username] = {
+                "password": password_hash,
+                "full_name": str(e.get("full_name", username)),
+                "role": str(e.get("role", "trader")),
+            }
+        logger.info("Loaded %d user(s) from EMSXVIEW_USERS config", len(users))
+        return users
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.error("EMSXVIEW_USERS parse failed (%s) — falling back to DEMO_USERS", exc)
+        return {}
+
+
+_CONFIG_USERS = _load_config_users()
+if not _CONFIG_USERS:
+    logger.warning(
+        "EMSXVIEW_USERS not configured — DEMO_USERS (trader1/trader2/admin, "
+        "password='password') remain in effect. Configure EMSXVIEW_USERS "
+        "before production use."
+    )
 
 class User:
     """User model"""
@@ -73,14 +117,19 @@ class AuthManager:
     
     @classmethod
     def authenticate_user(cls, username: str, password: str) -> Optional[User]:
-        """Authenticate user credentials"""
-        user_data = cls.DEMO_USERS.get(username)
+        """Authenticate user credentials (S10/040)。
+
+        用户源优先级：EMSXVIEW_USERS 配置 > DEMO_USERS 回退。
+        回退发生时启动告警已可见（_load_config_users / 模块导入期），
+        便于生产部署识别「仍在使用演示账号」。
+        """
+        user_data = _CONFIG_USERS.get(username) or cls.DEMO_USERS.get(username)
         if not user_data:
             return None
-        
+
         if not cls.verify_password(password, user_data["password"]):
             return None
-        
+
         return User(username, user_data["full_name"], user_data["role"])
     
     @classmethod

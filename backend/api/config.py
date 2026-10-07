@@ -77,6 +77,12 @@ class Settings:
     # Trader identity
     EMSXVIEW_TRADER_NAME: str = os.getenv("EMSXVIEW_TRADER_NAME", "")
 
+    # 用户源 (S10/040)：JSON 数组，替代硬编码 DEMO_USERS。
+    # 每项：{"username", "password_hash"(bcrypt), "full_name", "role"}
+    # 生成 bcrypt：python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('明文'))"
+    # 未配置时回落 DEMO_USERS 并启动告警（诚实可见）。
+    EMSXVIEW_USERS: str = os.getenv("EMSXVIEW_USERS", "")
+
     # Development mode
     BYPASS_AUTH: bool = os.getenv("BYPASS_AUTH", "false").lower() == "true"
     # DEBUG 模式下 API 响应透传内部异常 detail (默认遮蔽)
