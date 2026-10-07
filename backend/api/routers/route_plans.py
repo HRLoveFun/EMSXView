@@ -18,7 +18,7 @@ from schemas import (
     RoutePlanUpdate,
     TestMatchResponse,
 )
-from deps import verify_token, audit_log, audit_result, get_bloomberg_service
+from deps import verify_token, audit_log, audit_result, get_bloomberg_service, get_repo_provider
 from models.route_plan import RoutePlan, RoutePlanAllocation
 from services import compliance_service
 from services.route_engine import RouteEngine
@@ -100,24 +100,95 @@ class _EngineRepo:
         ]
 
     async def create_proposals_bulk(self, pds: list[dict]) -> list[dict]:
-        return _create_proposals(pds)
+        return await _create_proposals(pds)
 
 
 # 模块级单例：RouteEngine(_engine_repo) 调用点无需感知实例化
 _engine_repo = _EngineRepo()
 
 
-def _create_proposals(pds: list[dict]) -> list[dict]:
+async def _create_proposals(pds: list[dict]) -> list[dict]:
+    """注册新建议——持久化优先 (S8/038)。
+
+    幂等键 = SubOrderProposal 数据库主键：persist 成功时用 DB 分配的 id，
+    重启后可恢复、重复确认可识别；持久化不可用时回退内存自增 id
+    （此时建议重启即失，与 029-S9 前的既有行为一致）。
+    """
     global _next_proposal_id
     now = _now()
+
+    provider = get_repo_provider()
+    ids: list[int] = []
+    if provider and provider.is_active:
+        try:
+            ids = await provider.persist_proposals_bulk(pds)
+        except Exception as exc:
+            logger.warning("Proposal persist failed, falling back to in-memory ids: %s", exc)
+    if not (ids and len(ids) == len(pds)):
+        ids = []
+        logger.warning("Proposals persisted without DB ids — restart recovery unavailable for this batch")
+
     for p in pds:
-        pid = _next_proposal_id
-        _next_proposal_id += 1
-        p["id"] = pid
+        if ids:
+            pid = ids.pop(0)
+            p["id"] = pid
+            _next_proposal_id = max(_next_proposal_id, pid + 1)
+        else:
+            pid = _next_proposal_id
+            _next_proposal_id += 1
+            p["id"] = pid
         p["created_at"] = now
         p["updated_at"] = now
         _proposals[pid] = p
     return pds
+
+
+async def _persist_proposal_result(
+    proposal_id: int,
+    *,
+    status: str,
+    route_id=None,
+    confirmed_at=None,
+    submitted_at=None,
+) -> None:
+    """确认状态机状态迁移 write-through (S8/038)。
+
+    在返回响应前 await 完成——若响应成功但持久化失败，重启恢复后状态
+    回退将引入重复确认风险，因此失败必须告警可见。
+    """
+    provider = get_repo_provider()
+    if not (provider and provider.is_active):
+        return
+    try:
+        ok = await provider.update_proposal_result(
+            proposal_id,
+            status=status,
+            route_id=route_id,
+            confirmed_at=confirmed_at,
+            submitted_at=submitted_at,
+            updated_at=confirmed_at or submitted_at,
+        )
+        if not ok:
+            logger.warning("Proposal %d not found in DB for status update to %s", proposal_id, status)
+    except Exception as exc:
+        logger.error("Proposal %d status write-through failed (%s): %s", proposal_id, status, exc)
+
+
+async def init_proposals_from_db(provider) -> int:
+    """启动恢复 (S8/038)：从 DB 重建内存建议缓存。
+
+    以 DB 状态为真相源——重启后已 SUBMITTED 的建议仍会拒绝重复确认。
+    返回恢复的建议数量。
+    """
+    global _next_proposal_id
+    if not provider or not provider.is_active:
+        return 0
+    rows = await provider.load_proposals()
+    for p in rows:
+        _proposals[p["id"]] = p
+    if rows:
+        _next_proposal_id = max(_next_proposal_id, max(r["id"] for r in rows) + 1)
+    return len(rows)
 
 
 def _plan_to_response(plan: dict, allocations: list[dict] | None = None) -> dict:
@@ -508,6 +579,11 @@ async def confirm_proposal(
 
             now = _now()
             proposal.update(status="SUBMITTED", route_id=route_id, confirmed_at=now, submitted_at=now, updated_at=now)
+            # write-through (S8/038)：状态迁移先落库再应答，保证重启可恢复
+            await _persist_proposal_result(
+                proposal_id, status="SUBMITTED", route_id=route_id,
+                confirmed_at=now, submitted_at=now,
+            )
             audit_result(correlation_id, "ok")
             return ApiResponse(success=True, message=f"Proposal {proposal_id} submitted as route {route_id}")
         except HTTPException as exc:
@@ -620,4 +696,6 @@ async def reject_proposal(proposal_id: int, user: dict = Depends(verify_token)) 
         raise HTTPException(409, f"Proposal {proposal_id} is being confirmed; reject later")
     proposal["status"] = "REJECTED"
     proposal["updated_at"] = _now()
+    # write-through (S8/038)：拒绝状态落库
+    await _persist_proposal_result(proposal_id, status="REJECTED", confirmed_at=proposal["updated_at"])
     return ApiResponse(success=True, message=f"Proposal {proposal_id} rejected")

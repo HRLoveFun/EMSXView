@@ -59,6 +59,15 @@ def init_services(bloomberg_service, broker_storage, repo_provider) -> None:
     _repo_provider = repo_provider
 
 
+def get_repo_provider() -> Optional[RepositoryProvider]:
+    """访问 RepositoryProvider 单例 (S8/038)。
+
+    建议持久化等非 Depends 注入路径使用——模块级内存缓存（route_plans）
+    无法走 FastAPI Depends，须直接读取 provider。
+    """
+    return _repo_provider
+
+
 def audit_log(
     action: str,
     user: str,
