@@ -165,10 +165,11 @@ S5 (B5 切片)  ──┘   （独立，可与 S1 并行）
 
 | 子编号 | 分支 | 状态 | PR | 备注 |
 |---|---|---|---|---|
-| 030 | `030-fix-engine-await-mismatch` | ⏳ 待办 | — | S1 |
-| 031 | `031-confirm-proposal-compliance` | ⏳ 待办 | — | S2，依赖 S1 |
-| 032 | `032-confirm-proposal-idempotent` | ⏳ 待办 | — | S3，依赖 S2 |
-| 034 | `034-subscription-persist-loop-fix` | ⏳ 待办 | — | S4 |
-| 035 | `035-execution-slice-query-fix` | ⏳ 待办 | — | S5 |
+| 030 | `030-fix-engine-await-mismatch` | ✅ 完成 | #114 | S1，含 029 伞计划入库 |
+| 031 | `031-confirm-proposal-compliance` | ✅ 完成 | #115 | S2 |
+| 032 | `032-confirm-proposal-idempotent` | ✅ 完成 | #116 | S3 |
+| 034 | `034-subscription-persist-loop-fix` | ✅ 完成 | #117 | S4 |
+| 035 | `035-execution-slice-query-fix` | ✅ 完成 | #118 | S5，第一波收官 |
 
-第二波（S6–S9）、第三波（S10–S11）子编号待第一波收尾后分配。
+第一波全部完成（2026-10-07）：五处阻断项闭环，后端测试 226 → 247 全绿。
+第二波（S6–S9）、第三波（S10–S11）子编号待分配。
