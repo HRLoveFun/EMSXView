@@ -60,6 +60,26 @@ class EMSXRequestHandler:
         self._subscription_engine = subscription_engine
         self._settings = _settings if _settings is not None else _handler_settings
 
+        # EMSX_REQUEST_SEQ (S7/037)：交易请求单调序号——Bloomberg 文档明确
+        # 该字段用于防止故障期间重复请求。进程重启后须经 restore_request_seq
+        # 恢复（只升不降），确保重启后的请求序号不会与故障前重叠。
+        self._emsx_request_seq = 0
+
+    def _next_request_seq(self) -> int:
+        """取下一个交易请求序号（单调递增）。"""
+        self._emsx_request_seq += 1
+        return self._emsx_request_seq
+
+    def restore_request_seq(self, last_seq: int) -> None:
+        """进程重启后恢复请求序号（只升不降——防序号回退重放）。"""
+        if last_seq > self._emsx_request_seq:
+            self._emsx_request_seq = last_seq
+            logger.warning("EMSX_REQUEST_SEQ restored to %d after restart", last_seq)
+
+    @property
+    def emsx_request_seq(self) -> int:
+        return self._emsx_request_seq
+
     # ── Request helpers ────────────────────────────────────────────────
 
     @property
@@ -99,7 +119,17 @@ class EMSXRequestHandler:
                     if etype == Event.RESPONSE and matched_response:
                         break
                 elif etype == Event.TIMEOUT:
-                    raise HTTPException(504, "Bloomberg request timed out")
+                    # 结果未知 (S7/037)：请求可能已被券商接收，仅响应未返回。
+                    # detail 结构化携带 outcome 与 correlation 供核对，上层
+                    # （审计/调用方）据此归入 unknown 而非 fail。
+                    raise HTTPException(
+                        504,
+                        detail={
+                            "message": "Bloomberg request timed out",
+                            "outcome": "unknown",
+                            "correlation": str(cid.value()),
+                        },
+                    )
 
             return messages
 
@@ -415,6 +445,10 @@ class EMSXRequestHandler:
             request = self._req_service.createRequest("RouteEx")
 
             request.set("EMSX_SEQUENCE", int(request_data.orderId))
+            # 防重序号 (S7/037)：Bloomberg 文档建议交易请求携带
+            # EMSX_REQUEST_SEQ 防止故障期间重复请求——每次发送单调递增，
+            # 重启后经 restore_request_seq 恢复（只升不降）。
+            request.set("EMSX_REQUEST_SEQ", self._next_request_seq())
             request.set("EMSX_TICKER", parent_order.symbol)
             request.set("EMSX_BROKER", request_data.broker)
             request.set("EMSX_AMOUNT", request_data.quantity)
