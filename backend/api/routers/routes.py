@@ -13,7 +13,7 @@ from schemas import (
     CancelRouteRequest,
     ModifyRouteRequest,
 )
-from deps import verify_token, audit_log, get_bloomberg_service
+from deps import verify_token, require_permission, audit_log, get_bloomberg_service
 from services import batch_route_service, compliance_service
 
 router = APIRouter(tags=["Routes"])
@@ -32,7 +32,7 @@ async def get_routes(
 @router.post("/api/routes/cancel", response_model=ApiResponse)
 async def cancel_route(
     request: CancelRouteRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("modify")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Cancel a route via CancelRouteEx."""
@@ -46,7 +46,7 @@ async def cancel_route(
 @router.post("/api/routes/modify", response_model=ApiResponse)
 async def modify_route(
     request: ModifyRouteRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("modify")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Modify a route via ModifyRouteEx."""
@@ -88,7 +88,7 @@ async def modify_route(
 @router.post("/api/routes/batch-modify")
 async def batch_modify_routes(
     request: BatchModifyRouteRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("modify")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Batch-modify N existing routes.

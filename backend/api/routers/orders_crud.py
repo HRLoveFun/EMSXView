@@ -17,7 +17,7 @@ from schemas import (
     BatchUpdateRequest, ModifyOrderRequest, RouteOrderRequest,
     BatchRouteOrderRequest,
 )
-from deps import verify_token, audit_log, audit_result, get_bloomberg_service
+from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service
 from services import batch_route_service, compliance_service
 from fastapi.responses import StreamingResponse
 
@@ -69,7 +69,7 @@ async def get_orders(
 @router.post("/api/orders/modify", response_model=ApiResponse)
 async def modify_order(
     request: ModifyOrderRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("modify")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Modify a single order via ModifyOrderEx."""
@@ -103,7 +103,7 @@ async def modify_order(
 @router.post("/api/orders/route", response_model=ApiResponse)
 async def route_order(
     request: RouteOrderRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("trade")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Route an order to a broker via RouteEx."""
@@ -150,7 +150,7 @@ async def route_order(
 @router.post("/api/orders/batch-update", response_model=ApiResponse)
 async def batch_update(
     request: BatchUpdateRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("modify")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Batch update multiple orders."""
@@ -164,7 +164,7 @@ async def batch_update(
 @router.post("/api/orders/batch-route")
 async def batch_route(
     request: BatchRouteOrderRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("trade")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Batch-route N parent orders."""
@@ -208,7 +208,7 @@ async def refresh_orders(
 @router.post("/api/orders/{order_id}/cancel", response_model=ApiResponse)
 async def cancel_order(
     order_id: str,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("modify")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Cancel a single order."""
