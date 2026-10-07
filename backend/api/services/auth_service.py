@@ -26,7 +26,7 @@ logger = logging.getLogger("main")
 _BYPASS_IDENTITY = {
     "sub": "bloomberg_local",
     "name": "Bloomberg Terminal User",
-    "role": "trader",
+    "role": "admin",  # bypass = 本地终端操作者，动作级授权全权 (S11/041)
 }
 
 

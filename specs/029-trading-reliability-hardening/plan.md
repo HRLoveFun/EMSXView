@@ -174,8 +174,14 @@ S5 (B5 切片)  ──┘   （独立，可与 S1 并行）
 | 037 | `037-unknown-state-request-dedup` | ✅ 完成 | #120 | S7 |
 | 038 | `038-proposal-persistent-idempotency` | ✅ 完成 | #121 | S8 |
 | 039 | `039-execution-scheduler-persistence` | ✅ 完成 | #122 | S9，第二波收官 |
+| 040 | `040-auth-user-source-config` | ✅ 完成 | #123 | S10 |
+| 041 | `041-action-level-authz` | ✅ 完成 | #124 | S11，第三波收官 |
 
 第一波全部完成（2026-10-07）：五处阻断项闭环，后端测试 226 → 247 全绿。
 第二波全部完成（2026-10-07）：审计两阶段化、请求防重、建议持久化幂等、
 调度持久化+驱动循环+成交反馈+重启恢复，后端测试 247 → 269 全绿。
-第三波（S10–S11：DEMO_USERS 替换、授权粒度）待上游授权源确认后另行开工。
+第三波全部完成（2026-10-07）：可配置用户源 + 动作级授权（17 写路径端点
+接入 trade/modify/admin 矩阵，fail-closed），后端测试 269 → 280 全绿。
+后续演进（不在本计划）：上游授权源接入（LDAP/AD，换 _load_config_users
+实现）、账户/组合/市场维度授权（需 OMS 数据）、驱动循环实盘 submit 接线、
+EMSX_REQUEST_SEQ / lastShares 实盘验证。

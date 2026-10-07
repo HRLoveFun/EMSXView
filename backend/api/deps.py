@@ -16,9 +16,10 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+from auth import user_has_permission
 from config import settings
 from service_provider import RepositoryProvider
 from services.auth_service import authenticate as _authenticate
@@ -38,6 +39,27 @@ def verify_token(
     """Verify JWT token for API authentication — delegates to auth_service."""
     token = credentials.credentials if credentials else None
     return _authenticate(token)
+
+
+def require_permission(*required: str):
+    """动作级授权依赖工厂 (S11/041)。
+
+    用法：``user: dict = Depends(require_permission("trade"))``。
+    在 verify_token 认证之上检查角色权限矩阵（auth.ROLE_PERMISSIONS），
+    未知角色 fail-closed（无任何写权限）。
+    """
+    def checker(user: dict = Depends(verify_token)) -> dict:
+        for action in required:
+            if not user_has_permission(user, action):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"Action '{action}' not permitted for role "
+                        f"'{user.get('role', '')}'"
+                    ),
+                )
+        return user
+    return checker
 
 
 # ---------------------------------------------------------------------------
