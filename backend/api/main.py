@@ -182,6 +182,14 @@ async def lifespan(app: FastAPI):
         if db_ready:
             logger.info("Database schema bootstrap completed")
             repo_provider.mark_db_ready(True)
+            # S8/038: 从 DB 重建建议缓存——重启后已 SUBMITTED 的建议
+            # 仍拒绝重复确认（幂等键 = SubOrderProposal 主键）
+            try:
+                from routers.route_plans import init_proposals_from_db
+                restored = await init_proposals_from_db(repo_provider)
+                logger.info("Restored %d sub-order proposals from DB", restored)
+            except Exception as exc:
+                logger.warning("Sub-order proposal restore failed: %s", exc)
         else:
             logger.warning("Database schema bootstrap failed: %s", db_message)
             repo_provider.mark_db_ready(False)
