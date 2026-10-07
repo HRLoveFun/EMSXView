@@ -190,12 +190,35 @@ async def lifespan(app: FastAPI):
                 logger.info("Restored %d sub-order proposals from DB", restored)
             except Exception as exc:
                 logger.warning("Sub-order proposal restore failed: %s", exc)
+            # S9/039: 恢复 ACTIVE/PAUSED 父单与切片；驱动循环默认不提交
+            # （submit 未接线时仅告警），须显式设 EXECUTION_DRIVER_ENABLED
+            # 并在 facade 接线 submit 后才会真实下单
+            try:
+                from routers.orders_execution import restore_active_executions
+                restored_parents = await restore_active_executions()
+                logger.info("Restored %d active parent execution(s)", restored_parents)
+            except Exception as exc:
+                logger.warning("Parent execution restore failed: %s", exc)
         else:
             logger.warning("Database schema bootstrap failed: %s", db_message)
             repo_provider.mark_db_ready(False)
     else:
         logger.info("Database persistence disabled; skipping schema bootstrap")
         repo_provider.mark_db_ready(False)
+
+    # S9/039: 执行驱动循环——默认关闭（不自动真实下单）；开启后由
+    # ExecutionDriver 周期提交到期切片（submit 函数经 facade 接线）
+    if settings.EXECUTION_DRIVER_ENABLED:
+        from services.execution_driver import ExecutionDriver, ProviderParentChildRepo
+        from routers.orders_execution import _make_repo
+        driver = ExecutionDriver(
+            repo=ProviderParentChildRepo(repo_provider),
+            submit_slice=None,  # 实盘提交函数接线后填入——当前保守不自动下单
+        )
+        app.state.execution_driver = driver
+        asyncio.create_task(driver.run_forever())
+    else:
+        logger.info("Execution driver disabled (EXECUTION_DRIVER_ENABLED=false)")
 
     # Start Bloomberg connection in background so the server is ready to accept
     # HTTP requests immediately (Bloomberg session.start() + openService() are

@@ -76,6 +76,9 @@ class EMSXSubscriptionEngine:
         # 在实盘连接建立后注册
         self._resync_callbacks: list = []
 
+        # 成交反馈回调 (S9/039)：路由带成交量时触发调度驱动回填切片
+        self._fill_callbacks: list = []
+
     def set_main_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
         """注入主事件循环引用（main.py lifespan startup 中调用）。"""
         self._main_loop = loop
@@ -494,9 +497,30 @@ class EMSXSubscriptionEngine:
                 final_route = self._routes.get(route_key)
                 if final_route and self._repo_provider and self._repo_provider.is_active:
                     self._schedule_persist_route(final_route)
+                # 成交反馈接线 (S9/039)：路由带成交量时通知调度驱动回填切片
+                if final_route and getattr(final_route, "lastShares", 0):
+                    self._notify_fill_callbacks(final_route)
 
         except Exception as e:
             logger.warning(f"Error processing route message: {e}")
+
+    # ── Fill callbacks (S9/039) ────────────────────────────────────────
+
+    def register_fill_callback(self, callback) -> None:
+        """注册成交回调：callback(route_id, filled_qty) -> coroutine。
+
+        回调经主 loop 调度（订阅线程无 loop）；未命中切片的成交由
+        回调实现自行忽略。
+        """
+        self._fill_callbacks.append(callback)
+
+    def _notify_fill_callbacks(self, route) -> None:
+        qty = getattr(route, "lastShares", 0) or 0
+        route_id = getattr(route, "routeId", None)
+        if not route_id or qty <= 0:
+            return
+        for cb in self._fill_callbacks:
+            self._dispatch_to_main_loop(cb(route_id, qty))
 
     # ── Order parsing ──────────────────────────────────────────────────
 

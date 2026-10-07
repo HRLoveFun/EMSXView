@@ -17,17 +17,18 @@ from schemas import (
     ParentExecutionCommand,
 )
 from config import settings
-from deps import verify_token, audit_log
-from models.parent_child_orders import ParentExecution as ParentModel, ScheduleType
+from deps import verify_token, audit_log, get_repo_provider
+from models.parent_child_orders import ExecutionStatus, ParentExecution as ParentModel, ScheduleType
 from services.algo_scheduler import (
     cancel_execution,
     get_execution_state,
     list_active_parent_ids,
     pause_execution,
+    register_active_execution,
     resume_execution,
     start_execution,
 )
-from services.benchmark_engine import ScheduleRequest, VolumeProfile, compute_schedule
+from services.benchmark_engine import PlannedSlice, ScheduleRequest, VolumeProfile, compute_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,83 @@ class _MockParentChildRepo:
             p.filled_quantity = filled_quantity
 
 
+class _ProviderRepoAdapter:
+    """DB-backed repo (S9/039)：方法调用经 RepositoryProvider 会话转发。
+
+    与 _MockParentChildRepo 同 duck-type——调度器零改动即可切换实现。
+    """
+
+    def __init__(self, provider, parent: object):
+        self._provider = provider
+        self._parent = parent
+
+    def __getattr__(self, name: str):
+        async def _op(*args, **kwargs):
+            return await self._provider.run_parent_child_op(name, *args, **kwargs)
+        return _op
+
+
+def _make_repo(parent: object) -> object:
+    """按持久化可用性选择 repo 实现 (S9/039)。"""
+    provider = get_repo_provider()
+    if provider and provider.parent_child_available():
+        return _ProviderRepoAdapter(provider, parent)
+    return _MockParentChildRepo(parent)
+
+
+async def persist_parent(parent: ParentModel) -> bool:
+    """父单落库取 DB 主键 (S9/039)——恢复与幂等的锚点。"""
+    provider = get_repo_provider()
+    if not (provider and provider.parent_child_available()):
+        return False
+    db_parent = await provider.run_parent_child_op("create_parent", parent)
+    if db_parent is not None and getattr(db_parent, "id", None):
+        parent.id = db_parent.id
+        _parent_store[parent.id] = parent
+        return True
+    logger.warning("Parent execution persist failed — falling back to in-memory id")
+    return False
+
+
+async def restore_active_executions() -> int:
+    """重启恢复 (S9/039)：ACTIVE/PAUSED 父单与切片重建内存态与 registry。
+
+    DB 状态为真相源；调度器 registry 重建后驱动循环可继续提交剩余切片。
+    """
+    provider = get_repo_provider()
+    if not (provider and provider.parent_child_available()):
+        return 0
+    parents = await provider.run_parent_child_op("list_active_parents")
+    if not parents:
+        return 0
+    restored = 0
+    for p in parents:
+        _parent_store[p.id] = p
+        slices = await provider.run_parent_child_op("list_slices_for_parent", p.id) or []
+        bucket = _slices_store.setdefault(p.id, [])
+        bucket.extend(slices)
+        # 重建调度器 registry：提交进度 = 最大已建切片 index + 1
+        schedule = [
+            PlannedSlice(
+                slice_index=s.slice_index,
+                planned_quantity=s.planned_quantity,
+                scheduled_start=s.scheduled_start,
+                scheduled_end=s.scheduled_end,
+                weight=1.0,  # 恢复场景 weight 不参与驱动判断，占位
+            )
+            for s in slices
+        ]
+        next_index = (max((s.slice_index for s in slices), default=-1)) + 1
+        register_active_execution(
+            p.id, schedule,
+            next_slice_index=next_index,
+            is_paused=(p.status == ExecutionStatus.PAUSED.value),
+        )
+        restored += 1
+    logger.info("Restored %d active parent execution(s) from DB", restored)
+    return restored
+
+
 # ---------------------------------------------------------------------------
 # Execution endpoints
 # ---------------------------------------------------------------------------
@@ -177,16 +255,20 @@ async def create_parent_execution(
 
     _parent_store[parent.id] = parent
 
-    # S5/035：模拟仓库不可持久化——持久化已开启时告警，提示调度状态
-    # 重启即失、不能仅凭配置开启判断真实持久化能力（真实实现见 029-S9）
-    if settings.ENABLE_DB_PERSISTENCE:
-        logger.warning(
-            "Parent execution %d uses MOCK in-memory repo while "
-            "ENABLE_DB_PERSISTENCE=true — slices/state will be lost on restart",
-            parent.id,
-        )
+    # S9/039：持久化可用时父单先落库取 DB 主键（恢复/幂等锚点），
+    # 并切换 DB-backed repo；不可用时回退 MOCK（内存态，重启即失）
+    persisted = await persist_parent(parent)
+    if persisted:
+        repo = _ProviderRepoAdapter(get_repo_provider(), parent)
+    else:
+        repo = _MockParentChildRepo(parent)
+        if settings.ENABLE_DB_PERSISTENCE:
+            logger.warning(
+                "Parent execution %d uses MOCK in-memory repo while "
+                "ENABLE_DB_PERSISTENCE=true — slices/state will be lost on restart",
+                parent.id,
+            )
 
-    repo = _MockParentChildRepo(parent)
     state = await start_execution(parent, planned_slices, repo)
 
     return ApiResponse(
@@ -212,7 +294,7 @@ async def control_parent_execution(
     if parent is None:
         return ApiResponse(success=False, error=f"Parent execution {parent_id} not found")
 
-    repo = _MockParentChildRepo(parent)
+    repo = _make_repo(parent)
 
     try:
         cmd = request.command.upper()
@@ -240,7 +322,7 @@ async def get_parent_execution(
     if parent is None:
         return ApiResponse(success=False, error=f"Parent execution {parent_id} not found")
 
-    repo = _MockParentChildRepo(parent)
+    repo = _make_repo(parent)
 
     try:
         state = await get_execution_state(parent_id, repo)

@@ -170,6 +170,12 @@ S5 (B5 切片)  ──┘   （独立，可与 S1 并行）
 | 032 | `032-confirm-proposal-idempotent` | ✅ 完成 | #116 | S3 |
 | 034 | `034-subscription-persist-loop-fix` | ✅ 完成 | #117 | S4 |
 | 035 | `035-execution-slice-query-fix` | ✅ 完成 | #118 | S5，第一波收官 |
+| 036 | `036-audit-result-truthful` | ✅ 完成 | #119 | S6 |
+| 037 | `037-unknown-state-request-dedup` | ✅ 完成 | #120 | S7 |
+| 038 | `038-proposal-persistent-idempotency` | ✅ 完成 | #121 | S8 |
+| 039 | `039-execution-scheduler-persistence` | ✅ 完成 | #122 | S9，第二波收官 |
 
 第一波全部完成（2026-10-07）：五处阻断项闭环，后端测试 226 → 247 全绿。
-第二波（S6–S9）、第三波（S10–S11）子编号待分配。
+第二波全部完成（2026-10-07）：审计两阶段化、请求防重、建议持久化幂等、
+调度持久化+驱动循环+成交反馈+重启恢复，后端测试 247 → 269 全绿。
+第三波（S10–S11：DEMO_USERS 替换、授权粒度）待上游授权源确认后另行开工。
