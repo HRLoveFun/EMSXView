@@ -256,6 +256,30 @@ def list_active_parent_ids() -> list[int]:
     return list(_registry.keys())
 
 
+def register_active_execution(
+    parent_id: int,
+    schedule: list[PlannedSlice],
+    next_slice_index: int = 0,
+    is_paused: bool = False,
+) -> None:
+    """重启恢复 (S9/039)：重建 registry 条目（幂等——已存在则跳过）。
+
+    恢复后驱动循环可继续提交剩余切片；提交进度以 DB 中切片状态为准。
+    """
+    if parent_id in _registry:
+        return
+    _registry[parent_id] = _ActiveExecution(
+        parent_id=parent_id,
+        schedule=schedule,
+        next_slice_index=next_slice_index,
+        is_paused=is_paused,
+    )
+    logger.info(
+        "Registry restored for parent=%d slices=%d next_index=%d paused=%s",
+        parent_id, len(schedule), next_slice_index, is_paused,
+    )
+
+
 def reset_registry() -> None:
     """Clear the in-memory scheduler registry (for testing only)."""
     _registry.clear()

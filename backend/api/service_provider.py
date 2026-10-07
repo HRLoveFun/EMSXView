@@ -37,6 +37,7 @@ try:
     from repositories.routes import RouteProjectionRepository
     from repositories.audit import AuditEventRepository
     from repositories.proposal import SubOrderProposalRepository
+    from repositories.parent_child_repository import ParentChildRepository
     _DB_AVAILABLE = True
 except Exception:  # pragma: no cover
     pass
@@ -247,6 +248,28 @@ class RepositoryProvider:
             self._write_errors += 1
             logger.warning("update_proposal_result failed (err#%d): %s", self._write_errors, exc)
             return False
+
+    def parent_child_available(self) -> bool:
+        """父子单持久化是否可用 (S9/039)。"""
+        return self.is_active
+
+    async def run_parent_child_op(self, op_name: str, *args, **kwargs):
+        """在独立会话中执行 ParentChildRepository 方法 (S9/039)。
+
+        每次调用一个事务；DB 不可用时返回 None（调用方回退内存模式）。
+        """
+        if not self.is_active:
+            return None
+        try:
+            async with get_db_session() as session:
+                repo = ParentChildRepository(session)
+                result = await getattr(repo, op_name)(*args, **kwargs)
+                await session.commit()
+            return result
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("parent_child op %s failed (err#%d): %s", op_name, self._write_errors, exc)
+            return None
 
     async def load_proposals(self, limit: int = 2000) -> List[Dict[str, Any]]:
         """启动恢复：读取建议（模型 → 内存 dict 形态），供内存缓存重建。"""
