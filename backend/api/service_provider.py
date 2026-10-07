@@ -162,6 +162,29 @@ class RepositoryProvider:
             logger.warning("persist_audit_event failed (err#%d): %s", self._write_errors, exc)
             return False
 
+    async def update_audit_result(
+        self,
+        *,
+        correlation_id: str,
+        result: str,
+    ) -> bool:
+        """按 correlation_id 回填审计结果 (S6/036)。
+
+        两阶段审计的后半段：ok / fail / unknown（如请求超时）。
+        """
+        if not self.is_active:
+            return False
+        try:
+            async with get_db_session() as session:
+                repo = AuditEventRepository(session)
+                updated = await repo.update_result_by_correlation_id(correlation_id, result)
+                await session.commit()
+            return updated
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("update_audit_result failed (err#%d): %s", self._write_errors, exc)
+            return False
+
     # ------------------------------------------------------------------
     #  Read path: warm-start order cache from DB
     # ------------------------------------------------------------------

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -17,7 +18,7 @@ from schemas import (
     RoutePlanUpdate,
     TestMatchResponse,
 )
-from deps import verify_token, audit_log, get_bloomberg_service
+from deps import verify_token, audit_log, audit_result, get_bloomberg_service
 from models.route_plan import RoutePlan, RoutePlanAllocation
 from services import compliance_service
 from services.route_engine import RouteEngine
@@ -442,8 +443,6 @@ async def confirm_proposal(
     PENDING_CONFIRM 可重试。锁对象随 proposal 生命周期保留（不 pop），
     避免「pop 后第三者新建锁」竞态。
     """
-    audit_log("CONFIRM_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
-
     lock = _confirm_locks.setdefault(proposal_id, asyncio.Lock())
     async with lock:
         proposal = _proposals.get(proposal_id)
@@ -455,6 +454,13 @@ async def confirm_proposal(
             raise HTTPException(409, f"Proposal {proposal_id} is already being confirmed")
         if status != "PENDING_CONFIRM":
             raise HTTPException(400, f"Proposal {proposal_id} has status '{status}', not PENDING_CONFIRM")
+
+        # 两阶段审计 (S6/036)：发起记 PENDING，完成后回填真实结果
+        correlation_id = uuid4().hex
+        audit_log(
+            "CONFIRM_PROPOSAL", user.get("sub"), {"proposalId": proposal_id},
+            result="PENDING", correlation_id=correlation_id,
+        )
 
         # 中间态：跨 await 期间向其他协程/列表查询表明「确认进行中」
         proposal["status"] = "CONFIRMING"
@@ -477,6 +483,7 @@ async def confirm_proposal(
             if violations:
                 # 拦截 = 未提交，回退可重试态
                 proposal["status"] = "PENDING_CONFIRM"
+                audit_result(correlation_id, "fail")
                 raise HTTPException(
                     400,
                     detail={
@@ -501,15 +508,19 @@ async def confirm_proposal(
 
             now = _now()
             proposal.update(status="SUBMITTED", route_id=route_id, confirmed_at=now, submitted_at=now, updated_at=now)
+            audit_result(correlation_id, "ok")
             return ApiResponse(success=True, message=f"Proposal {proposal_id} submitted as route {route_id}")
-        except HTTPException:
+        except HTTPException as exc:
             proposal["status"] = "PENDING_CONFIRM"
+            # 超时（504）= 券商可能已收到订单但响应未返回 → 结果未知
+            audit_result(correlation_id, "unknown" if exc.status_code == 504 else "fail")
             raise
         except Exception:
             logger.exception("Failed to submit proposal %d", proposal_id)
             # 提交失败：回退可重试态。注：若失败源于响应丢失（实际可能已提交），
             # 完整「结果未知」态由 029 第二波 S7 处理，本处为第一波短期方案。
             proposal["status"] = "PENDING_CONFIRM"
+            audit_result(correlation_id, "fail")
             # 防护 (M5): 内部异常不原样返回
             return ApiResponse(success=False, error="Failed to submit proposal")
 
