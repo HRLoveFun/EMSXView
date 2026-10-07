@@ -72,6 +72,10 @@ class BloombergEMSXService:
         # Backward-compatible async lock (kept for connect())
         self._lock = asyncio.Lock()
 
+    def set_main_loop(self, loop) -> None:
+        """注入主事件循环 (S4/034)：订阅线程的持久化/广播依赖此引用。"""
+        self._sub.set_main_loop(loop)
+
     # ── Backward-compatible proxy properties (for tests) ──────────────
     # These attributes previously lived on BloombergEMSXService directly.
     # Now delegated to MarketDataEnrichmentService.
