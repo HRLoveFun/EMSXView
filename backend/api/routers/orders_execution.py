@@ -17,7 +17,7 @@ from schemas import (
     ParentExecutionCommand,
 )
 from config import settings
-from deps import verify_token, audit_log, get_repo_provider
+from deps import verify_token, require_permission, audit_log, get_repo_provider
 from models.parent_child_orders import ExecutionStatus, ParentExecution as ParentModel, ScheduleType
 from services.algo_scheduler import (
     cancel_execution,
@@ -192,7 +192,7 @@ async def restore_active_executions() -> int:
 @router.post("/api/executions", response_model=ApiResponse)
 async def create_parent_execution(
     request: CreateParentExecutionRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("trade")),
 ) -> ApiResponse:
     """Launch a new algorithmic parent execution."""
     audit_log("CREATE_PARENT_EXEC", user.get("sub"), {
@@ -282,7 +282,7 @@ async def create_parent_execution(
 async def control_parent_execution(
     parent_id: int,
     request: ParentExecutionCommand,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("trade")),
 ) -> ApiResponse:
     """Control a running parent execution (PAUSE/RESUME/CANCEL)."""
     audit_log("EXEC_COMMAND", user.get("sub"), {

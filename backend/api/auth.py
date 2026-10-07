@@ -67,6 +67,32 @@ if not _CONFIG_USERS:
         "before production use."
     )
 
+
+# ---------------------------------------------------------------------------
+# 动作级授权 (S11/041)：角色 → 允许动作集合
+#
+# 动作词汇表：
+#   trade  — 下单类（路由/建议确认/批量提交/父子单启动与控制/拒绝建议）
+#   modify — 修改类（订单/路由修改、撤单、批量更新）
+#   admin  — 管理类（路由计划 CRUD、计划应用）
+#   view   — 只读（本矩阵只约束写路径；GET 端点维持既有认证门槛）
+# ---------------------------------------------------------------------------
+
+ROLE_PERMISSIONS: Dict[str, set] = {
+    "admin": {"trade", "modify", "admin", "view"},
+    "trader": {"trade", "modify", "view"},
+    "viewer": {"view"},
+}
+
+DEFAULT_PERMISSIONS: set = set()  # 未知角色无任何写权限（fail-closed）
+
+
+def user_has_permission(user: dict, required: str) -> bool:
+    """检查用户角色是否拥有指定动作权限（fail-closed）。"""
+    role = str(user.get("role", ""))
+    allowed = ROLE_PERMISSIONS.get(role, DEFAULT_PERMISSIONS)
+    return required in allowed
+
 class User:
     """User model"""
     def __init__(self, username: str, full_name: str, role: str = "trader"):

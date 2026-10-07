@@ -10,12 +10,16 @@ class TestAuthenticate:
     """Test authenticate() across auth modes."""
 
     def test_bypass_mode_returns_fixed_identity(self):
-        """In bypass mode, authenticate returns a fixed trader identity."""
+        """In bypass mode, authenticate returns the local terminal operator.
+
+        S11/041 行为变更：bypass 身份 role 由 trader 升级为 admin——
+        本地终端操作者需对动作级授权全权（含计划管理等 admin 动作）。
+        """
         with patch("services.auth_service.settings") as mock_settings:
             mock_settings.BYPASS_AUTH = True
             result = authenticate(None)
             assert result["sub"] == "bloomberg_local"
-            assert result["role"] == "trader"
+            assert result["role"] == "admin"
 
     def test_bypass_mode_ignores_token(self):
         """In bypass mode, any token is ignored."""

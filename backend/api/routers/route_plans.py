@@ -18,7 +18,7 @@ from schemas import (
     RoutePlanUpdate,
     TestMatchResponse,
 )
-from deps import verify_token, audit_log, audit_result, get_bloomberg_service, get_repo_provider
+from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service, get_repo_provider
 from models.route_plan import RoutePlan, RoutePlanAllocation
 from services import compliance_service
 from services.route_engine import RouteEngine
@@ -287,7 +287,7 @@ async def list_route_plans(
 @router.post("/api/route-plans", response_model=ApiResponse)
 async def create_route_plan(
     request: RoutePlanCreate,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("admin")),
 ) -> ApiResponse:
     """Create a new route plan."""
     audit_log("CREATE_ROUTE_PLAN", user.get("sub"), {
@@ -349,7 +349,7 @@ async def get_route_plan(plan_id: int, user: dict = Depends(verify_token)) -> Ap
 
 @router.put("/api/route-plans/{plan_id}", response_model=ApiResponse)
 async def update_route_plan(
-    plan_id: int, request: RoutePlanUpdate, user: dict = Depends(verify_token),
+    plan_id: int, request: RoutePlanUpdate, user: dict = Depends(require_permission("admin")),
 ) -> ApiResponse:
     """Update an existing route plan (partial update)."""
     audit_log("UPDATE_ROUTE_PLAN", user.get("sub"), {"planId": plan_id})
@@ -379,7 +379,7 @@ async def update_route_plan(
 
 
 @router.delete("/api/route-plans/{plan_id}", response_model=ApiResponse)
-async def delete_route_plan(plan_id: int, user: dict = Depends(verify_token)) -> ApiResponse:
+async def delete_route_plan(plan_id: int, user: dict = Depends(require_permission("admin"))) -> ApiResponse:
     """Delete a route plan and its allocations."""
     audit_log("DELETE_ROUTE_PLAN", user.get("sub"), {"planId": plan_id})
     if plan_id not in _plans:
@@ -455,7 +455,7 @@ async def test_match_route_plan(
 async def apply_route_engine(
     order_id: str,
     plan_id: Optional[int] = Query(None, description="Specific plan ID (MANUAL mode); omit for AUTO matching"),
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("admin")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Apply RouteEngine to a specific order."""
@@ -504,7 +504,7 @@ async def list_sub_order_proposals(
 @router.post("/api/sub-order-proposals/{proposal_id}/confirm", response_model=ApiResponse)
 async def confirm_proposal(
     proposal_id: int,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("trade")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Confirm and submit a single sub-order proposal via RouteEx.
@@ -604,7 +604,7 @@ async def confirm_proposal(
 @router.post("/api/sub-order-proposals/batch-confirm")
 async def batch_confirm_proposals(
     request: BatchConfirmRequest,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("trade")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Batch confirm and submit multiple proposals.
@@ -684,7 +684,7 @@ async def batch_confirm_proposals(
 
 
 @router.post("/api/sub-order-proposals/{proposal_id}/reject", response_model=ApiResponse)
-async def reject_proposal(proposal_id: int, user: dict = Depends(verify_token)) -> ApiResponse:
+async def reject_proposal(proposal_id: int, user: dict = Depends(require_permission("trade"))) -> ApiResponse:
     """Reject a sub-order proposal."""
     audit_log("REJECT_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
 
