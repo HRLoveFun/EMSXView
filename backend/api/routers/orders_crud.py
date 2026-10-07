@@ -7,6 +7,7 @@ Phase 5: Separated CRUD operations from execution scheduling and handoff.
 from __future__ import annotations
 
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -16,7 +17,7 @@ from schemas import (
     BatchUpdateRequest, ModifyOrderRequest, RouteOrderRequest,
     BatchRouteOrderRequest,
 )
-from deps import verify_token, audit_log, get_bloomberg_service
+from deps import verify_token, audit_log, audit_result, get_bloomberg_service
 from services import batch_route_service, compliance_service
 from fastapi.responses import StreamingResponse
 
@@ -106,10 +107,12 @@ async def route_order(
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Route an order to a broker via RouteEx."""
+    # 两阶段审计 (S6/036)：发起记 PENDING，完成后回填真实结果
+    correlation_id = uuid4().hex
     audit_log("ROUTE_ORDER", user.get("sub"), {
         "orderId": request.orderId, "broker": request.broker,
         "quantity": request.quantity, "orderType": request.orderType,
-    })
+    }, result="PENDING", correlation_id=correlation_id)
     parent_order = None
     if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
         with bloomberg._data_lock:
@@ -123,6 +126,7 @@ async def route_order(
             order_type=request.orderType,
         )
         if violations:
+            audit_result(correlation_id, "fail")
             raise HTTPException(
                 400,
                 detail={
@@ -130,7 +134,16 @@ async def route_order(
                     "violations": [v.model_dump() for v in violations],
                 },
             )
-    result = await bloomberg.route_order(request)
+    try:
+        result = await bloomberg.route_order(request)
+    except HTTPException as exc:
+        # 超时（504）= 券商可能已收到订单但响应未返回 → 结果未知
+        audit_result(correlation_id, "unknown" if exc.status_code == 504 else "fail")
+        raise
+    except Exception:
+        audit_result(correlation_id, "fail")
+        raise
+    audit_result(correlation_id, "ok")
     return ApiResponse(success=True, data=result, message=f"Route created for order {request.orderId}")
 
 

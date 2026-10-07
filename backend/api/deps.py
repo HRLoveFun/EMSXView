@@ -59,8 +59,20 @@ def init_services(bloomberg_service, broker_storage, repo_provider) -> None:
     _repo_provider = repo_provider
 
 
-def audit_log(action: str, user: str, details: dict) -> None:
-    """Log trading action for audit — with optional DB persistence."""
+def audit_log(
+    action: str,
+    user: str,
+    details: dict,
+    result: str = "PENDING",
+    correlation_id: Optional[str] = None,
+) -> None:
+    """记录交易操作审计事件（操作发起时调用）— with optional DB persistence.
+
+    两阶段审计 (S6/036)：本函数只记录「有人发起操作」，result 固定为
+    PENDING（此前硬编码 "ok"，操作尚未执行就宣称成功——审计语义说谎）。
+    操作完成后由 ``audit_result`` 按 correlation_id 回填真实结果
+    （ok / fail / unknown，unknown 用于请求超时等结果未知场景）。
+    """
     if settings.ENABLE_AUDIT_LOG:
         logger.info(f"AUDIT: {action} | User: {user} | Details: {json.dumps(details)}")
     if _repo_provider and _repo_provider.is_active:
@@ -69,8 +81,24 @@ def audit_log(action: str, user: str, details: dict) -> None:
                 action=action,
                 actor=user,
                 endpoint=action,
-                result="ok",
+                result=result,
+                correlation_id=correlation_id,
                 payload_summary=json.dumps(details)[:500] if details else None,
+            )
+        )
+
+
+def audit_result(correlation_id: str, result: str) -> None:
+    """回填审计事件的真实结果 (S6/036) — ok / fail / unknown。
+
+    与 audit_log 的 correlation_id 关联；未持久化（无 provider / 未激活）
+    时静默跳过——与 audit_log 的降级语义一致。
+    """
+    if _repo_provider and _repo_provider.is_active:
+        asyncio.ensure_future(
+            _repo_provider.update_audit_result(
+                correlation_id=correlation_id,
+                result=result,
             )
         )
 
