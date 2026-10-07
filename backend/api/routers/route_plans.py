@@ -21,6 +21,7 @@ from schemas import (
 from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service, get_repo_provider
 from models.route_plan import RoutePlan, RoutePlanAllocation
 from services import compliance_service
+from services.authorization_service import enforce_for_order
 from services.route_engine import RouteEngine
 
 logger = logging.getLogger(__name__)
@@ -561,6 +562,26 @@ async def confirm_proposal(
                         "message": "Pre-trade compliance check failed",
                         "violations": [v.model_dump() for v in violations],
                     },
+                )
+
+        # PM 授权校验 (S13/043)：exceeded 硬拒绝（回退可重试态）；
+        # not_covered 放行并告警；持久化不可用跳过。
+        if parent_order is not None:
+            authz = await enforce_for_order(
+                get_repo_provider(),
+                symbol=parent_order.symbol,
+                side=parent_order.side,
+                portfolio=parent_order.portfolio,
+                additional_qty=proposal.get("quantity", 0),
+            )
+            if authz and authz["outcome"] == "exceeded":
+                proposal["status"] = "PENDING_CONFIRM"
+                audit_result(correlation_id, "fail")
+                raise HTTPException(403, detail={"message": "PM authorization limit exceeded", **authz})
+            if authz and authz["outcome"] == "not_covered":
+                logger.warning(
+                    "Proposal %d confirm has no matching PM authorization — proceeding",
+                    proposal_id,
                 )
 
         try:

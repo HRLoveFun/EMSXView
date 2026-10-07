@@ -133,3 +133,38 @@ def check_authorization(
         "remainingQuantity": best["remainingQuantity"],
         "authorizationId": best["id"],
     }
+
+
+async def enforce_for_order(
+    provider,
+    *,
+    symbol: str,
+    side: str,
+    portfolio: Optional[str],
+    additional_qty: int,
+) -> Optional[Dict[str, Any]]:
+    """下单入口授权检查的 async 包装 (S13/043)。
+
+    返回：
+    - None：持久化不可用（纯内存模式）——检查跳过；
+    - not_covered：无匹配授权——调用方放行并告警（未登记授权不阻断，
+      严格模式由部署策略决定，见 plan.md）；
+    - exceeded：剩余授权不足——调用方硬拒绝（403）；
+    - ok：放行。
+    """
+    if not (provider and provider.is_active):
+        return None
+    intents = await provider.load_authorizations(active_only=True)
+    if not intents:
+        return {"outcome": "not_covered", "symbol": symbol, "side": side}
+    parents = await provider.run_parent_child_op("list_active_parents") or []
+    payloads: Dict[str, Dict[str, Any]] = {}
+    for p in await provider.load_orders(limit=5000):
+        oid = str(p.get("id") or p.get("orderId") or "")
+        if oid:
+            payloads[oid] = p
+    return check_authorization(
+        intents, parents, payloads,
+        symbol=symbol, side=side, portfolio=portfolio,
+        additional_qty=additional_qty,
+    )

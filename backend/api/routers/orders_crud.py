@@ -6,6 +6,7 @@ Phase 5: Separated CRUD operations from execution scheduling and handoff.
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 from uuid import uuid4
 
@@ -17,9 +18,12 @@ from schemas import (
     BatchUpdateRequest, ModifyOrderRequest, RouteOrderRequest,
     BatchRouteOrderRequest,
 )
-from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service
+from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service, get_repo_provider
 from services import batch_route_service, compliance_service
+from services.authorization_service import enforce_for_order
 from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Orders"])
 
@@ -133,6 +137,31 @@ async def route_order(
                     "message": "Pre-trade compliance check failed",
                     "violations": [v.model_dump() for v in violations],
                 },
+            )
+
+    # PM 授权校验 (S13/043)：exceeded 硬拒绝；not_covered 放行并告警
+    # （未登记授权不阻断——严格模式由部署策略决定）；持久化不可用跳过。
+    if parent_order is not None:
+        authz = await enforce_for_order(
+            get_repo_provider(),
+            symbol=parent_order.symbol,
+            side=parent_order.side,
+            portfolio=parent_order.portfolio,
+            additional_qty=request.quantity,
+        )
+        if authz and authz["outcome"] == "exceeded":
+            audit_result(correlation_id, "fail")
+            raise HTTPException(
+                403,
+                detail={
+                    "message": "PM authorization limit exceeded",
+                    **authz,
+                },
+            )
+        if authz and authz["outcome"] == "not_covered":
+            logger.warning(
+                "Route order %s has no matching PM authorization — proceeding",
+                request.orderId,
             )
     try:
         result = await bloomberg.route_order(request)
