@@ -38,6 +38,7 @@ try:
     from repositories.audit import AuditEventRepository
     from repositories.proposal import SubOrderProposalRepository
     from repositories.parent_child_repository import ParentChildRepository
+    from repositories.authorization import AuthorizationRepository
     _DB_AVAILABLE = True
 except Exception:  # pragma: no cover
     pass
@@ -252,6 +253,52 @@ class RepositoryProvider:
     def parent_child_available(self) -> bool:
         """父子单持久化是否可用 (S9/039)。"""
         return self.is_active
+
+    # ------------------------------------------------------------------
+    #  Write-through: PM authorization intents (S12/042)
+    # ------------------------------------------------------------------
+
+    async def create_authorization(self, intent) -> Optional[int]:
+        """写入 PM 授权意图，返回数据库主键；失败返回 None。"""
+        if not self.is_active:
+            return None
+        try:
+            async with get_db_session() as session:
+                repo = AuthorizationRepository(session)
+                created = await repo.create(intent)
+                await session.commit()
+            return created.id
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("create_authorization failed (err#%d): %s", self._write_errors, exc)
+            return None
+
+    async def load_authorizations(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """读取授权意图（模型 → 内存 dict 形态）。"""
+        if not self.is_active:
+            return []
+        try:
+            async with get_db_session() as session:
+                repo = AuthorizationRepository(session)
+                rows = await repo.list_active() if active_only else await repo.list_all()
+            return [
+                {
+                    "id": r.id,
+                    "symbol": r.symbol,
+                    "side": r.side,
+                    "portfolio": r.portfolio,
+                    "target_quantity": r.target_quantity,
+                    "status": r.status,
+                    "created_by": r.created_by,
+                    "note": r.note,
+                    "created_at": _iso(r.created_at) or "",
+                    "updated_at": _iso(r.updated_at) or "",
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning("load_authorizations failed, falling back to empty: %s", exc)
+            return []
 
     async def run_parent_child_op(self, op_name: str, *args, **kwargs):
         """在独立会话中执行 ParentChildRepository 方法 (S9/039)。
