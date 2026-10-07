@@ -59,6 +59,40 @@ class EMSXSubscriptionEngine:
 
         self._data_lock = threading.RLock()
 
+        # 主事件循环引用 (S4/034)：由 lifespan startup 注入，供订阅线程
+        # 把持久化/广播协程调度回主循环；未注入时 dispatch 记 ERROR
+        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_main_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
+        """注入主事件循环引用（main.py lifespan startup 中调用）。"""
+        self._main_loop = loop
+
+    def _dispatch_to_main_loop(self, coro) -> None:
+        """把协程调度到主事件循环执行（订阅线程专用）。
+
+        修复 (S4/034)：原实现逐次调用 asyncio.get_event_loop()，在 blpapi
+        回调线程中抛 RuntimeError 后静默 return，DB 写与 WebSocket 广播
+        整体丢失且无任何日志。现改用注入的主 loop 引用；未注入或已关闭
+        时记 ERROR（不静默），并关闭未消费的协程避免 RuntimeWarning。
+        """
+        loop = self._main_loop
+        if loop is None or loop.is_closed():
+            logger.error(
+                "Main event loop unavailable — async dispatch skipped "
+                "(persistence/broadcast dropped)"
+            )
+            coro.close()
+            return
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        future.add_done_callback(self._log_dispatch_failure)
+
+    @staticmethod
+    def _log_dispatch_failure(fut) -> None:
+        """协程执行失败可见化：此前 persist/broadcast 异常完全静默。"""
+        exc = fut.exception()
+        if exc is not None:
+            logger.error("Async dispatch failed: %s: %s", type(exc).__name__, exc)
+
     # ── Public properties (read access for other components) ───────────
 
     @property
@@ -261,14 +295,9 @@ class EMSXSubscriptionEngine:
                         logger.debug(f"Deleted order {seq_key}")
                 # 向前端广播删除事件，避免 stream store 保留已删除订单
                 if deleted_order:
-                    try:
-                        loop = asyncio.get_event_loop()
-                        asyncio.run_coroutine_threadsafe(
-                            realtime_gw.broadcast_order(deleted_order.model_dump(), event_type="delete"),
-                            loop,
-                        )
-                    except RuntimeError:
-                        pass
+                    self._dispatch_to_main_loop(
+                        realtime_gw.broadcast_order(deleted_order.model_dump(), event_type="delete")
+                    )
                 return
 
             if event_status == 11:
@@ -389,14 +418,9 @@ class EMSXSubscriptionEngine:
                         logger.debug(f"Deleted route {route_key}")
                 # 向前端广播路由删除事件，保持订单/路由一致性
                 if deleted_route:
-                    try:
-                        loop = asyncio.get_event_loop()
-                        asyncio.run_coroutine_threadsafe(
-                            realtime_gw.broadcast_route(deleted_route.model_dump(), event_type="delete"),
-                            loop,
-                        )
-                    except RuntimeError:
-                        pass
+                    self._dispatch_to_main_loop(
+                        realtime_gw.broadcast_route(deleted_route.model_dump(), event_type="delete")
+                    )
                 return
 
             if event_status == 11:
@@ -798,43 +822,31 @@ class EMSXSubscriptionEngine:
     # ── DB write-through ───────────────────────────────────────────────
 
     def _schedule_persist_order(self, order: Order) -> None:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            return
-        asyncio.run_coroutine_threadsafe(
+        self._dispatch_to_main_loop(
             self._repo_provider.persist_order(
                 sequence=int(order.id),
                 order_id=order.id,
                 status=order.status,
                 trader=order.trader,
                 payload=order.model_dump(),
-            ),
-            loop,
+            )
         )
-        asyncio.run_coroutine_threadsafe(
-            realtime_gw.broadcast_order(order.model_dump(), event_type="update"),
-            loop,
+        self._dispatch_to_main_loop(
+            realtime_gw.broadcast_order(order.model_dump(), event_type="update")
         )
 
     def _schedule_persist_route(self, route: Route) -> None:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            return
-        asyncio.run_coroutine_threadsafe(
+        self._dispatch_to_main_loop(
             self._repo_provider.persist_route(
                 sequence=route.sequence,
                 route_id=route.routeId,
                 status=route.status,
                 broker=route.broker,
                 payload=route.model_dump(),
-            ),
-            loop,
+            )
         )
-        asyncio.run_coroutine_threadsafe(
-            realtime_gw.broadcast_route(route.model_dump(), event_type="update"),
-            loop,
+        self._dispatch_to_main_loop(
+            realtime_gw.broadcast_route(route.model_dump(), event_type="update")
         )
 
     # ── Utilities ──────────────────────────────────────────────────────
