@@ -6,6 +6,7 @@ Phase 5: Separated execution scheduling from CRUD and handoff operations.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -15,6 +16,7 @@ from schemas import (
     CreateParentExecutionRequest,
     ParentExecutionCommand,
 )
+from config import settings
 from deps import verify_token, audit_log
 from models.parent_child_orders import ParentExecution as ParentModel, ScheduleType
 from services.algo_scheduler import (
@@ -27,6 +29,8 @@ from services.algo_scheduler import (
 )
 from services.benchmark_engine import ScheduleRequest, VolumeProfile, compute_schedule
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["Executions"])
 
 
@@ -37,6 +41,12 @@ router = APIRouter(tags=["Executions"])
 _parent_id_counter = 0
 _parent_store: dict[int, object] = {}
 
+# 切片存储 (S5/035)：模块级、按 parent_id 分桶——此前切片存在
+# _MockParentChildRepo 实例本地列表中，查询端点每次新建 repo 实例，
+# 切片「丢失」，返回 0 切片但状态仍 RUNNING。
+_slices_store: dict[int, list[object]] = {}
+_slice_id_counter = 0
+
 
 def _next_parent_id() -> int:
     global _parent_id_counter
@@ -45,16 +55,15 @@ def _next_parent_id() -> int:
 
 
 class _MockParentChildRepo:
-    """Thin in-memory repo adapter for parent-child operations.
+    """MOCK — 内存仓库适配器（scheduler 生命周期调用的最小实现）。
 
-    Wraps around the parent object for scheduler lifecycle calls
-    without requiring a real database session.
+    ⚠️ 非生产实现 (S5/035)：切片存于模块级 ``_slices_store``，跨请求/实例
+    共享。生产环境须由 ``RepositoryProvider`` 提供真实持久化实现
+    （持久化调度器与驱动循环见 029 第二波 S9）。
     """
 
     def __init__(self, parent: object):
         self._parent = parent
-        self._slices: list[object] = []
-        self._slice_id_counter = 0
 
     async def get_parent(self, parent_id: int) -> object | None:
         if getattr(self._parent, "id", None) == parent_id:
@@ -67,23 +76,29 @@ class _MockParentChildRepo:
             p.status = status
 
     async def create_slices_bulk(self, slices: list[dict]) -> list[object]:
+        global _slice_id_counter
         from types import SimpleNamespace
+        bucket = _slices_store.setdefault(getattr(self._parent, "id", None), [])
         result = []
         for s in slices:
-            self._slice_id_counter += 1
-            obj = SimpleNamespace(id=self._slice_id_counter, **s)
+            _slice_id_counter += 1
+            obj = SimpleNamespace(id=_slice_id_counter, **s)
             result.append(obj)
-            self._slices.append(obj)
+            bucket.append(obj)
         return result
 
     async def list_slices_for_parent(self, parent_id: int) -> list[object]:
-        return [s for s in self._slices if getattr(s, "parent_id", None) == parent_id]
+        return [
+            s for s in _slices_store.get(parent_id, [])
+            if getattr(s, "parent_id", None) == parent_id
+        ]
 
     async def update_slice_status(self, slice_id: int, status: str) -> None:
-        for s in self._slices:
-            if getattr(s, "id", None) == slice_id:
-                s.status = status
-                break
+        for bucket in _slices_store.values():
+            for s in bucket:
+                if getattr(s, "id", None) == slice_id:
+                    s.status = status
+                    return
 
     async def update_parent_filled(self, parent_id: int, filled_quantity: int) -> None:
         p = _parent_store.get(parent_id)
@@ -161,6 +176,16 @@ async def create_parent_execution(
     )
 
     _parent_store[parent.id] = parent
+
+    # S5/035：模拟仓库不可持久化——持久化已开启时告警，提示调度状态
+    # 重启即失、不能仅凭配置开启判断真实持久化能力（真实实现见 029-S9）
+    if settings.ENABLE_DB_PERSISTENCE:
+        logger.warning(
+            "Parent execution %d uses MOCK in-memory repo while "
+            "ENABLE_DB_PERSISTENCE=true — slices/state will be lost on restart",
+            parent.id,
+        )
+
     repo = _MockParentChildRepo(parent)
     state = await start_execution(parent, planned_slices, repo)
 
