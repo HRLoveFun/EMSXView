@@ -17,6 +17,7 @@ from schemas import (
     TestMatchResponse,
 )
 from deps import verify_token, audit_log, get_bloomberg_service
+from models.route_plan import RoutePlan, RoutePlanAllocation
 from services.route_engine import RouteEngine
 
 logger = logging.getLogger(__name__)
@@ -38,22 +39,65 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Thin object providing the 5 methods RouteEngine needs.
-# Follows the existing orders.py pattern (duck-typed, no ABC).
-_engine_repo = type("_EngineRepo", (), {
-    "get_plan": staticmethod(lambda pid: _plans.get(pid)),
-    "list_active_auto_plans": staticmethod(lambda: [
-        p for p in _plans.values()
-        if p.get("enabled", True) and p.get("activation_mode") == "AUTO"
-    ]),
-    "get_allocations_for_plan": staticmethod(lambda pid: _allocations.get(pid, [])),
-    "delete_proposals_for_order": staticmethod(lambda oid: [
-        _proposals.pop(pid, None)
-        for pid, p in list(_proposals.items())
-        if p.get("parent_order_id") == oid and p.get("status") == "PENDING_CONFIRM"
-    ]),
-    "create_proposals_bulk": staticmethod(lambda pds: _create_proposals(pds)),
-})
+# ---------------------------------------------------------------------------
+# 内存 dict → SQLAlchemy 模型转换。
+# RouteEngine 按属性访问 plan/allocation，且 match_plans 会对 created_at 调
+# .timestamp()——必须传入 datetime 而非 ISO 字符串，故做显式模型转换。
+# ---------------------------------------------------------------------------
+
+_ALLOC_MODEL_KEYS = (
+    "id", "route_plan_id", "broker", "allocation_type", "allocation_value",
+    "order_type", "limit_price_offset", "strategy_params", "sort_order",
+)
+
+
+def _plan_dict_to_model(plan: dict) -> RoutePlan:
+    """内存 plan dict → RoutePlan 模型（ISO 时间解析为 datetime）。"""
+    data = dict(plan)
+    data["created_at"] = datetime.fromisoformat(plan["created_at"])
+    data["updated_at"] = datetime.fromisoformat(plan["updated_at"])
+    return RoutePlan(**data)
+
+
+def _alloc_dict_to_model(alloc: dict) -> RoutePlanAllocation:
+    """内存 allocation dict → RoutePlanAllocation 模型（过滤 camelCase 残键）。"""
+    return RoutePlanAllocation(**{k: alloc[k] for k in _ALLOC_MODEL_KEYS if k in alloc})
+
+
+class _EngineRepo:
+    """RouteEngine 的内存仓库适配器——异步接口，与 route_engine.py 契约一致。
+
+    修复 (S1/030)：原实现为同步 staticmethod，引擎侧 ``await repo.get_plan(...)``
+    对普通返回值执行 await 抛 TypeError，整条计划→建议链路不可用。
+    """
+
+    async def get_plan(self, plan_id: int) -> RoutePlan | None:
+        plan = _plans.get(plan_id)
+        return _plan_dict_to_model(plan) if plan else None
+
+    async def list_active_auto_plans(self) -> list[RoutePlan]:
+        return [
+            _plan_dict_to_model(p) for p in _plans.values()
+            if p.get("enabled", True) and p.get("activation_mode") == "AUTO"
+        ]
+
+    async def get_allocations_for_plan(self, plan_id: int) -> list[RoutePlanAllocation]:
+        return [_alloc_dict_to_model(a) for a in _allocations.get(plan_id, [])]
+
+    async def delete_proposals_for_order(self, parent_order_id: str) -> list[dict]:
+        return [
+            _proposals.pop(pid, None)
+            for pid, p in list(_proposals.items())
+            if p.get("parent_order_id") == parent_order_id
+            and p.get("status") == "PENDING_CONFIRM"
+        ]
+
+    async def create_proposals_bulk(self, pds: list[dict]) -> list[dict]:
+        return _create_proposals(pds)
+
+
+# 模块级单例：RouteEngine(_engine_repo) 调用点无需感知实例化
+_engine_repo = _EngineRepo()
 
 
 def _create_proposals(pds: list[dict]) -> list[dict]:
