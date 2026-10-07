@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -34,6 +35,10 @@ _allocations: dict[int, list[dict]] = {}
 _proposals: dict[int, dict] = {}
 _next_plan_id = 1
 _next_proposal_id = 1
+
+# per-proposal 确认锁 (S3/032)：保证 check→submit→update 的原子性；
+# 随 proposal 生命周期保留，不做 pop 清理（避免新建锁竞态）
+_confirm_locks: dict[int, asyncio.Lock] = {}
 
 
 def _now() -> str:
@@ -430,59 +435,83 @@ async def confirm_proposal(
     user: dict = Depends(verify_token),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
-    """Confirm and submit a single sub-order proposal via RouteEx."""
+    """Confirm and submit a single sub-order proposal via RouteEx.
+
+    并发幂等 (S3/032)：per-proposal asyncio.Lock + CONFIRMING 中间态，
+    保证同一建议并发确认只产生一次有效提交；风控拦截/提交失败回退
+    PENDING_CONFIRM 可重试。锁对象随 proposal 生命周期保留（不 pop），
+    避免「pop 后第三者新建锁」竞态。
+    """
     audit_log("CONFIRM_PROPOSAL", user.get("sub"), {"proposalId": proposal_id})
 
-    proposal = _proposals.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(404, f"Proposal {proposal_id} not found")
-    if proposal.get("status") != "PENDING_CONFIRM":
-        raise HTTPException(400, f"Proposal {proposal_id} has status '{proposal.get('status')}', not PENDING_CONFIRM")
+    lock = _confirm_locks.setdefault(proposal_id, asyncio.Lock())
+    async with lock:
+        proposal = _proposals.get(proposal_id)
+        if proposal is None:
+            raise HTTPException(404, f"Proposal {proposal_id} not found")
+        status = proposal.get("status")
+        if status == "CONFIRMING":
+            # 锁内不应到达（前一持锁者已离开）；防御崩溃遗留的中间态
+            raise HTTPException(409, f"Proposal {proposal_id} is already being confirmed")
+        if status != "PENDING_CONFIRM":
+            raise HTTPException(400, f"Proposal {proposal_id} has status '{status}', not PENDING_CONFIRM")
 
-    # 统一风控入口 (S2/031)：建议确认是下单路径，与单笔路由入口
-    # （orders_crud.route_order）执行同一 compliance 口径，不得绕过。
-    # 置于 try 之外——HTTPException 必须原样传播，不得被通用异常处理吞掉。
-    parent_order = None
-    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
-        with bloomberg._data_lock:
-            parent_order = bloomberg._orders.get(proposal["parent_order_id"])
-    if parent_order is not None:
-        violations = compliance_service.check_route(
-            parent_order,
-            route_qty=proposal.get("quantity", 0),
-            limit_price=proposal.get("limit_price"),
-            stop_price=None,
-            order_type=proposal.get("order_type") or "LIMIT",
-        )
-        if violations:
-            raise HTTPException(
-                400,
-                detail={
-                    "message": "Pre-trade compliance check failed",
-                    "violations": [v.model_dump() for v in violations],
-                },
+        # 中间态：跨 await 期间向其他协程/列表查询表明「确认进行中」
+        proposal["status"] = "CONFIRMING"
+        proposal["updated_at"] = _now()
+
+        # 统一风控入口 (S2/031)：与 orders_crud.route_order 同口径。
+        # HTTPException 原样传播，不得被通用异常处理吞掉。
+        parent_order = None
+        if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+            with bloomberg._data_lock:
+                parent_order = bloomberg._orders.get(proposal["parent_order_id"])
+        if parent_order is not None:
+            violations = compliance_service.check_route(
+                parent_order,
+                route_qty=proposal.get("quantity", 0),
+                limit_price=proposal.get("limit_price"),
+                stop_price=None,
+                order_type=proposal.get("order_type") or "LIMIT",
             )
-    try:
-        from schemas import RouteOrderRequest
-        route_req = RouteOrderRequest(
-            orderId=proposal["parent_order_id"],
-            broker=proposal["broker"],
-            quantity=proposal["quantity"],
-            orderType=proposal.get("order_type") or "LIMIT",
-            price=proposal.get("limit_price"),
-            timeInForce=proposal.get("tif") or "DAY",
-            strategyParams=proposal.get("strategy_params"),
-        )
-        result = await bloomberg.route_order(route_req)
-        route_id = result.get("routeId") if isinstance(result, dict) else None
+            if violations:
+                # 拦截 = 未提交，回退可重试态
+                proposal["status"] = "PENDING_CONFIRM"
+                raise HTTPException(
+                    400,
+                    detail={
+                        "message": "Pre-trade compliance check failed",
+                        "violations": [v.model_dump() for v in violations],
+                    },
+                )
 
-        now = _now()
-        proposal.update(status="SUBMITTED", route_id=route_id, confirmed_at=now, submitted_at=now, updated_at=now)
-        return ApiResponse(success=True, message=f"Proposal {proposal_id} submitted as route {route_id}")
-    except Exception as exc:
-        logger.exception("Failed to submit proposal %d", proposal_id)
-        # 防护 (M5): 内部异常不原样返回
-        return ApiResponse(success=False, error="Failed to submit proposal")
+        try:
+            from schemas import RouteOrderRequest
+            route_req = RouteOrderRequest(
+                orderId=proposal["parent_order_id"],
+                broker=proposal["broker"],
+                quantity=proposal["quantity"],
+                orderType=proposal.get("order_type") or "LIMIT",
+                price=proposal.get("limit_price"),
+                timeInForce=proposal.get("tif") or "DAY",
+                strategyParams=proposal.get("strategy_params"),
+            )
+            result = await bloomberg.route_order(route_req)
+            route_id = result.get("routeId") if isinstance(result, dict) else None
+
+            now = _now()
+            proposal.update(status="SUBMITTED", route_id=route_id, confirmed_at=now, submitted_at=now, updated_at=now)
+            return ApiResponse(success=True, message=f"Proposal {proposal_id} submitted as route {route_id}")
+        except HTTPException:
+            proposal["status"] = "PENDING_CONFIRM"
+            raise
+        except Exception:
+            logger.exception("Failed to submit proposal %d", proposal_id)
+            # 提交失败：回退可重试态。注：若失败源于响应丢失（实际可能已提交），
+            # 完整「结果未知」态由 029 第二波 S7 处理，本处为第一波短期方案。
+            proposal["status"] = "PENDING_CONFIRM"
+            # 防护 (M5): 内部异常不原样返回
+            return ApiResponse(success=False, error="Failed to submit proposal")
 
 
 @router.post("/api/sub-order-proposals/batch-confirm")
@@ -575,7 +604,9 @@ async def reject_proposal(proposal_id: int, user: dict = Depends(verify_token)) 
     proposal = _proposals.get(proposal_id)
     if proposal is None:
         raise HTTPException(404, f"Proposal {proposal_id} not found")
-
+    if proposal.get("status") == "CONFIRMING":
+        # 确认进行中 (S3/032)：禁止并发 reject 覆盖中间态
+        raise HTTPException(409, f"Proposal {proposal_id} is being confirmed; reject later")
     proposal["status"] = "REJECTED"
     proposal["updated_at"] = _now()
     return ApiResponse(success=True, message=f"Proposal {proposal_id} rejected")
