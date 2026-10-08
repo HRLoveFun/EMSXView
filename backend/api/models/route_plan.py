@@ -21,10 +21,10 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.execution_state import Base
+from models.execution_state import Base, BigIntPK
 
 
 def utc_now() -> datetime:
@@ -77,7 +77,7 @@ class MatchSide(str, Enum):
 class RoutePlan(Base):
     __tablename__ = "route_plans"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -112,7 +112,7 @@ class RoutePlan(Base):
     default_broker: Mapped[str | None] = mapped_column(String(64), nullable=True)
     default_order_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     default_tif: Mapped[str | None] = mapped_column(String(8), nullable=True)
-    default_strategy_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    default_strategy_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
@@ -130,7 +130,7 @@ class RoutePlan(Base):
 class RoutePlanAllocation(Base):
     __tablename__ = "route_plan_allocations"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     route_plan_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("route_plans.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -142,7 +142,7 @@ class RoutePlanAllocation(Base):
     # Per-broker route parameters (override plan defaults)
     order_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     limit_price_offset: Mapped[float | None] = mapped_column(Float, nullable=True)
-    strategy_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    strategy_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
@@ -159,7 +159,7 @@ class RoutePlanAllocation(Base):
 class SubOrderProposal(Base):
     __tablename__ = "sub_order_proposals"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     route_plan_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("route_plans.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -174,7 +174,7 @@ class SubOrderProposal(Base):
     order_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     tif: Mapped[str | None] = mapped_column(String(8), nullable=True)
-    strategy_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    strategy_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Time schedule info (for TIME_SCHEDULE / HYBRID)
     slice_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
