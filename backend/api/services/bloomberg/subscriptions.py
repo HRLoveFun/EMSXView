@@ -517,6 +517,13 @@ class EMSXSubscriptionEngine:
     def _notify_fill_callbacks(self, route) -> None:
         qty = getattr(route, "lastShares", 0) or 0
         route_id = getattr(route, "routeId", None)
+        # 实盘字段验证 (5.4)：INFO 级记录 lastShares 的实际形态——
+        # callbacks=0 且 qty>0 表示报文有成交量但调度侧未登记回调
+        if route_id:
+            logger.info(
+                f"Fill event observed: route={route_id} lastShares={qty!r} "
+                f"fill_callbacks={len(self._fill_callbacks)}"
+            )
         if not route_id or qty <= 0:
             return
         for cb in self._fill_callbacks:

@@ -483,7 +483,8 @@ class EMSXRequestHandler:
 
             logger.info(
                 f"Created route for order {request_data.orderId} to broker "
-                f"{request_data.broker}, route_id: {route_id}"
+                f"{request_data.broker}, route_id: {route_id}, "
+                f"emsx_request_seq: {self.emsx_request_seq}"
             )
             return {
                 "success": True,
