@@ -126,6 +126,20 @@ class BloombergEMSXService:
         return self._sub._routes
 
     @property
+    def _init_paint_done(self) -> bool:
+        """代理到 EMSXSubscriptionEngine.init_paint_done (045 实测修复)。
+
+        orders_crud.get_orders_status 直接访问 svc._init_paint_done——
+        facade 拆分重构后遗漏此代理，端点实测 500。
+        """
+        return self._sub.init_paint_done
+
+    @property
+    def _subscription_failed(self) -> bool:
+        """代理到 EMSXSubscriptionEngine.subscription_failed (045 实测修复)。"""
+        return self._sub.subscription_failed
+
+    @property
     def _data_lock(self):
         """代理到 EMSXSubscriptionEngine._data_lock（线程安全锁）。"""
         return self._sub._data_lock
