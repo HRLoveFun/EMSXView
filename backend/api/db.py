@@ -69,6 +69,14 @@ async def initialize_database() -> tuple[bool, str]:
     try:
         from models.execution_state import Base
 
+        # 048 实测修复：必须显式 import 全部模型模块——SQLAlchemy 只把
+        # 「已导入模块」中定义的表注册进 Base.metadata。此前仅导入
+        # execution_state，route_plans / sub_order_proposals /
+        # authorization_intents / parent_executions 等表从未被创建。
+        import models.authorization  # noqa: F401
+        import models.parent_child_orders  # noqa: F401
+        import models.route_plan  # noqa: F401
+
         engine = get_engine()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

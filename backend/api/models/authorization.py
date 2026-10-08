@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import BigInteger, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from models.execution_state import Base
+from models.execution_state import Base, BigIntPK
 
 
 def utc_now() -> datetime:
@@ -32,7 +32,7 @@ class AuthorizationIntent(Base):
 
     __tablename__ = "authorization_intents"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
 
     # 授权维度——symbol 精确匹配；side 为 BUY/SELL；portfolio 可空（不限组合）
     symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)

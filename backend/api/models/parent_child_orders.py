@@ -19,10 +19,10 @@ from sqlalchemy import (
     Integer,
     String,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.execution_state import Base
+from models.execution_state import Base, BigIntPK
 
 
 def utc_now() -> datetime:
@@ -66,7 +66,7 @@ class SliceStatus(str, Enum):
 class ParentExecution(Base):
     __tablename__ = "parent_executions"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     order_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     trader: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -89,7 +89,7 @@ class ParentExecution(Base):
 
     # Broker / strategy defaults for child slices
     broker: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    strategy_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    strategy_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=ExecutionStatus.PENDING.value, index=True)
 
@@ -107,7 +107,7 @@ class ParentExecution(Base):
 class ChildSlice(Base):
     __tablename__ = "child_slices"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     parent_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("parent_executions.id"), nullable=False, index=True)
 
     # Route identity (matches routes_projection keys)
@@ -125,7 +125,7 @@ class ChildSlice(Base):
 
     # Limit price / strategy override for this slice
     limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
-    strategy_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    strategy_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=SliceStatus.PENDING.value, index=True)
 
