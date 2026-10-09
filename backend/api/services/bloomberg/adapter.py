@@ -76,6 +76,21 @@ class BloombergEMSXService:
         """注入主事件循环 (S4/034)：订阅线程的持久化/广播依赖此引用。"""
         self._sub.set_main_loop(loop)
 
+    def restore_request_seq(self, last_seq: int) -> None:
+        """恢复交易请求序号 (S16/056)：代理到 request handler。"""
+        self._handler.restore_request_seq(last_seq)
+
+    def set_seq_persister(self, persister) -> None:
+        """注入序号持久化器 (S16/056)：代理到 request handler。"""
+        self._handler.set_seq_persister(persister)
+
+    def register_resync_callback(self, callback) -> None:
+        """注册跳号重同步回调 (S16/056)：代理到订阅引擎。
+
+        callback(stream) 应返回协程（经主 loop 调度执行）。
+        """
+        self._sub.register_resync_callback(callback)
+
     # ── Backward-compatible proxy properties (for tests) ──────────────
     # These attributes previously lived on BloombergEMSXService directly.
     # Now delegated to MarketDataEnrichmentService.
