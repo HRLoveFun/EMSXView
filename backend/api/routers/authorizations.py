@@ -30,10 +30,10 @@ class AuthorizationCreate(BaseModel):
     note: str | None = Field(None, max_length=256)
 
 
-def _load_order_payloads(provider: RepositoryProvider) -> dict[str, dict]:
+async def _load_order_payloads(provider: RepositoryProvider) -> dict[str, dict]:
     """order_id → {symbol, side, portfolio}（orders_projection payload）。"""
     payloads: dict[str, dict] = {}
-    for p in provider.load_orders(limit=5000):
+    for p in await provider.load_orders(limit=5000):
         oid = str(p.get("id") or p.get("orderId") or "")
         if oid:
             payloads[oid] = p
@@ -80,5 +80,5 @@ async def list_authorizations(
 
     intents = await provider.load_authorizations(active_only=True)
     parents = await provider.run_parent_child_op("list_active_parents") or []
-    remaining = compute_remaining(intents, parents, _load_order_payloads(provider))
+    remaining = compute_remaining(intents, parents, await _load_order_payloads(provider))
     return ApiResponse(success=True, data=remaining, message=f"{len(remaining)} authorization(s)")
