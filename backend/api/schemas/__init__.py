@@ -42,6 +42,7 @@ from .batch import (
     BatchRouteOrderItem,
     BatchRouteOrderRequest,
     BatchUpdateRequest,
+    ProposalResolveRequest,
     BatchUpdateResponse,
     Violation,
 )

@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from schemas import (
     ApiResponse,
     BatchConfirmRequest,
+    ProposalResolveRequest,
     RoutePlanCreate,
     RoutePlanUpdate,
     TestMatchResponse,
@@ -23,6 +24,7 @@ from models.route_plan import RoutePlan, RoutePlanAllocation
 from services import compliance_service
 from services.authorization_service import enforce_for_order
 from services.route_engine import RouteEngine
+from services.submission_service import submit_proposal_core
 
 logger = logging.getLogger(__name__)
 
@@ -510,22 +512,16 @@ async def confirm_proposal(
 ) -> ApiResponse:
     """Confirm and submit a single sub-order proposal via RouteEx.
 
-    并发幂等 (S3/032)：per-proposal asyncio.Lock + CONFIRMING 中间态，
-    保证同一建议并发确认只产生一次有效提交；风控拦截/提交失败回退
-    PENDING_CONFIRM 可重试。锁对象随 proposal 生命周期保留（不 pop），
-    避免「pop 后第三者新建锁」竞态。
+    S14/054：状态机统一走 submit_proposal_core（单笔与批量共用同一套
+    锁/风控/授权/持久化/审计）；结果未知（504）冻结为 NEEDS_REVIEW——
+    不可重发，人工核对后经 /resolve 解除。并发幂等由 per-proposal 锁
+    保证（随 proposal 生命周期保留，不 pop）。
     """
     lock = _confirm_locks.setdefault(proposal_id, asyncio.Lock())
     async with lock:
         proposal = _proposals.get(proposal_id)
         if proposal is None:
             raise HTTPException(404, f"Proposal {proposal_id} not found")
-        status = proposal.get("status")
-        if status == "CONFIRMING":
-            # 锁内不应到达（前一持锁者已离开）；防御崩溃遗留的中间态
-            raise HTTPException(409, f"Proposal {proposal_id} is already being confirmed")
-        if status != "PENDING_CONFIRM":
-            raise HTTPException(400, f"Proposal {proposal_id} has status '{status}', not PENDING_CONFIRM")
 
         # 两阶段审计 (S6/036)：发起记 PENDING，完成后回填真实结果
         correlation_id = uuid4().hex
@@ -534,92 +530,65 @@ async def confirm_proposal(
             result="PENDING", correlation_id=correlation_id,
         )
 
-        # 中间态：跨 await 期间向其他协程/列表查询表明「确认进行中」
-        proposal["status"] = "CONFIRMING"
-        proposal["updated_at"] = _now()
-
-        # 统一风控入口 (S2/031)：与 orders_crud.route_order 同口径。
-        # HTTPException 原样传播，不得被通用异常处理吞掉。
-        parent_order = None
-        if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
-            with bloomberg._data_lock:
-                parent_order = bloomberg._orders.get(proposal["parent_order_id"])
-        if parent_order is not None:
-            violations = compliance_service.check_route(
+        def _compliance_check(p: dict):
+            """与 orders_crud.route_order 同口径的 compliance 闭包。"""
+            parent_order = None
+            if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+                with bloomberg._data_lock:
+                    parent_order = bloomberg._orders.get(p["parent_order_id"])
+            if parent_order is None:
+                return []
+            return compliance_service.check_route(
                 parent_order,
-                route_qty=proposal.get("quantity", 0),
-                limit_price=proposal.get("limit_price"),
+                route_qty=p.get("quantity", 0),
+                limit_price=p.get("limit_price"),
                 stop_price=None,
-                order_type=proposal.get("order_type") or "LIMIT",
+                order_type=p.get("order_type") or "LIMIT",
             )
-            if violations:
-                # 拦截 = 未提交，回退可重试态
-                proposal["status"] = "PENDING_CONFIRM"
-                audit_result(correlation_id, "fail")
-                raise HTTPException(
-                    400,
-                    detail={
-                        "message": "Pre-trade compliance check failed",
-                        "violations": [v.model_dump() for v in violations],
-                    },
-                )
 
-        # PM 授权校验 (S13/043)：exceeded 硬拒绝（回退可重试态）；
-        # not_covered 放行并告警；持久化不可用跳过。
-        if parent_order is not None:
-            authz = await enforce_for_order(
+        async def _authorization_check(p: dict):
+            """PM 授权闭包 (S13/043 口径)：缓存缺失跳过、not_covered 放行。"""
+            parent_order = None
+            if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+                with bloomberg._data_lock:
+                    parent_order = bloomberg._orders.get(p["parent_order_id"])
+            if parent_order is None:
+                return None
+            return await enforce_for_order(
                 get_repo_provider(),
                 symbol=parent_order.symbol,
                 side=parent_order.side,
                 portfolio=parent_order.portfolio,
-                additional_qty=proposal.get("quantity", 0),
+                additional_qty=p.get("quantity", 0),
             )
-            if authz and authz["outcome"] == "exceeded":
-                proposal["status"] = "PENDING_CONFIRM"
-                audit_result(correlation_id, "fail")
-                raise HTTPException(403, detail={"message": "PM authorization limit exceeded", **authz})
-            if authz and authz["outcome"] == "not_covered":
-                logger.warning(
-                    "Proposal %d confirm has no matching PM authorization — proceeding",
-                    proposal_id,
-                )
 
-        try:
-            from schemas import RouteOrderRequest
-            route_req = RouteOrderRequest(
-                orderId=proposal["parent_order_id"],
-                broker=proposal["broker"],
-                quantity=proposal["quantity"],
-                orderType=proposal.get("order_type") or "LIMIT",
-                price=proposal.get("limit_price"),
-                timeInForce=proposal.get("tif") or "DAY",
-                strategyParams=proposal.get("strategy_params"),
-            )
-            result = await bloomberg.route_order(route_req)
-            route_id = result.get("routeId") if isinstance(result, dict) else None
+        result = await submit_proposal_core(
+            proposal_id, proposal, bloomberg,
+            correlation_id=correlation_id,
+            persist_result=_persist_proposal_result,
+            audit_result=audit_result,
+            compliance_check=_compliance_check,
+            authorization_check=_authorization_check,
+        )
 
-            now = _now()
-            proposal.update(status="SUBMITTED", route_id=route_id, confirmed_at=now, submitted_at=now, updated_at=now)
-            # write-through (S8/038)：状态迁移先落库再应答，保证重启可恢复
-            await _persist_proposal_result(
-                proposal_id, status="SUBMITTED", route_id=route_id,
-                confirmed_at=now, submitted_at=now,
+        if result.outcome == "SUBMITTED":
+            return ApiResponse(
+                success=True,
+                message=f"Proposal {proposal_id} submitted as route {result.route_id}",
             )
-            audit_result(correlation_id, "ok")
-            return ApiResponse(success=True, message=f"Proposal {proposal_id} submitted as route {route_id}")
-        except HTTPException as exc:
-            proposal["status"] = "PENDING_CONFIRM"
-            # 超时（504）= 券商可能已收到订单但响应未返回 → 结果未知
-            audit_result(correlation_id, "unknown" if exc.status_code == 504 else "fail")
-            raise
-        except Exception:
-            logger.exception("Failed to submit proposal %d", proposal_id)
-            # 提交失败：回退可重试态。注：若失败源于响应丢失（实际可能已提交），
-            # 完整「结果未知」态由 029 第二波 S7 处理，本处为第一波短期方案。
-            proposal["status"] = "PENDING_CONFIRM"
-            audit_result(correlation_id, "fail")
+        if result.outcome == "NEEDS_REVIEW":
+            return ApiResponse(
+                success=False,
+                error=(
+                    f"Proposal {proposal_id} submission outcome unknown "
+                    f"(timeout) — frozen for manual review, use /resolve"
+                ),
+            )
+        if result.outcome == "FAILED":
             # 防护 (M5): 内部异常不原样返回
             return ApiResponse(success=False, error="Failed to submit proposal")
+        # BLOCKED（状态冲突）：core 返回而非抛出（批量复用），此处转为 HTTPException
+        raise HTTPException(result.http_status or 400, result.detail)
 
 
 @router.post("/api/sub-order-proposals/batch-confirm")
@@ -630,78 +599,189 @@ async def batch_confirm_proposals(
 ) -> ApiResponse:
     """Batch confirm and submit multiple proposals.
 
-    - ``dryRun=true`` -> sync JSON BatchOperationResult (validation only).
-    - ``dryRun=false`` -> NDJSON stream via batch_route_service.
+    S14/054：逐建议走 submit_proposal_core（与单笔确认共用同一套
+    风控/授权/锁/持久化/审计/NEEDS_REVIEW 状态机），不再经
+    batch_route_service 的批量路由路径——修复「batch 未继承单笔保护」
+    与「流 bytes 序列化 TypeError」两个实测缺口。
     """
+    # 两阶段审计 (S6/050 模式)：发起记 PENDING，流结束后按汇总回填
+    correlation_id = uuid4().hex
     audit_log("BATCH_CONFIRM_PROPOSALS", user.get("sub"), {
         "proposalIds": request.proposalIds, "dryRun": request.dryRun,
-    })
+    }, result="PENDING", correlation_id=correlation_id)
 
-    # Validate all proposals exist and are PENDING_CONFIRM
-    route_items = []
+    # 预检：存在性 + 状态（不含提交；逐条提交在流内走 core）
+    proposals: dict[int, dict] = {}
     for pid in request.proposalIds:
         proposal = _proposals.get(pid)
         if proposal is None:
             raise HTTPException(404, f"Proposal {pid} not found")
         if proposal.get("status") != "PENDING_CONFIRM":
-            raise HTTPException(400, f"Proposal {pid} has status '{proposal.get('status')}', not PENDING_CONFIRM")
+            raise HTTPException(
+                400,
+                f"Proposal {pid} has status '{proposal.get('status')}', not PENDING_CONFIRM",
+            )
+        proposals[pid] = proposal
 
-        from schemas import BatchRouteOrderItem
-        route_items.append(BatchRouteOrderItem(
-            orderId=proposal["parent_order_id"], clientKey=str(pid),
-            override={
-                "broker": proposal["broker"], "quantity": proposal["quantity"],
-                "orderType": proposal.get("order_type") or "LIMIT",
-                "price": proposal.get("limit_price"),
-                "timeInForce": proposal.get("tif") or "DAY",
-                "strategyParams": proposal.get("strategy_params"),
-            },
-        ))
-
-    from schemas import BatchRouteOrderRequest
-    batch_req = BatchRouteOrderRequest(template={}, items=route_items, dryRun=request.dryRun)
-
-    from services import batch_route_service
-    terminal_trader = (
-        bloomberg.get_terminal_trader_name()
-        if hasattr(bloomberg, "get_terminal_trader_name") else None
-    )
-
-    if request.dryRun:
-        result = await batch_route_service.dry_run_batch_route(
-            bloomberg, batch_req, terminal_trader=terminal_trader,
+    # PM 授权预检 (S13/050 模式)：任一 exceeded → 整体 403（保守整体拒绝）
+    blocked_items: list[dict] = []
+    if not request.dryRun:
+        for pid, proposal in proposals.items():
+            parent_order = None
+            if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+                with bloomberg._data_lock:
+                    parent_order = bloomberg._orders.get(proposal["parent_order_id"])
+            if parent_order is None:
+                continue
+            authz = await enforce_for_order(
+                get_repo_provider(),
+                symbol=parent_order.symbol,
+                side=parent_order.side,
+                portfolio=parent_order.portfolio,
+                additional_qty=proposal.get("quantity", 0),
+            )
+            if authz and authz["outcome"] == "exceeded":
+                blocked_items.append({"proposalId": pid, **authz})
+            elif authz and authz["outcome"] == "not_covered":
+                logger.warning(
+                    "Batch proposal %d has no matching PM authorization — proceeding",
+                    pid,
+                )
+    if blocked_items:
+        audit_result(correlation_id, "fail")
+        raise HTTPException(
+            403,
+            detail={"message": "PM authorization limit exceeded (batch)", "blocked": blocked_items},
         )
-        return ApiResponse(success=True, data=result.model_dump(),
-                           message=f"Dry-run: {result.succeeded} ready, {result.blocked} blocked")
 
-    async def _stream_with_status_update():
-        now = _now()
-        submitted_ids: set[int] = set()
-        import json
+    async def _stream():
+        succeeded = failed = 0
+        for pid in request.proposalIds:
+            proposal = _proposals.get(pid)
+            if proposal is None:
+                yield _ndjson({"key": str(pid), "status": "BLOCKED", "message": "not found"})
+                failed += 1
+                continue
+            # 与单笔确认共用 per-proposal 锁，防止批量与单笔并发竞态
+            lock = _confirm_locks.setdefault(pid, asyncio.Lock())
+            async with lock:
+                item_cid = uuid4().hex
 
-        async for line in batch_route_service.stream_batch_route(
-            bloomberg, batch_req, terminal_trader=terminal_trader,
-        ):
-            try:
-                obj = json.loads(line) if isinstance(line, str) else line
-                if isinstance(obj, dict):
-                    if obj.get("status") == "SUCCESS":
-                        try:
-                            pid = int(obj.get("key", "0"))
-                            if pid > 0:
-                                submitted_ids.add(pid)
-                        except ValueError:
-                            pass
-                    elif "summary" in obj:
-                        for pid in submitted_ids:
-                            p = _proposals.get(pid)
-                            if p:
-                                p.update(status="SUBMITTED", confirmed_at=now, submitted_at=now, updated_at=now)
-            except Exception:
-                pass
-            yield line if isinstance(line, str) else json.dumps(line) + "\n"
+                def _compliance_check(p: dict):
+                    parent_order = None
+                    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+                        with bloomberg._data_lock:
+                            parent_order = bloomberg._orders.get(p["parent_order_id"])
+                    if parent_order is None:
+                        return []
+                    return compliance_service.check_route(
+                        parent_order,
+                        route_qty=p.get("quantity", 0),
+                        limit_price=p.get("limit_price"),
+                        stop_price=None,
+                        order_type=p.get("order_type") or "LIMIT",
+                    )
 
-    return StreamingResponse(_stream_with_status_update(), media_type="application/x-ndjson")
+                async def _authorization_check(p: dict):
+                    parent_order = None
+                    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+                        with bloomberg._data_lock:
+                            parent_order = bloomberg._orders.get(p["parent_order_id"])
+                    if parent_order is None:
+                        return None
+                    return await enforce_for_order(
+                        get_repo_provider(),
+                        symbol=parent_order.symbol,
+                        side=parent_order.side,
+                        portfolio=parent_order.portfolio,
+                        additional_qty=p.get("quantity", 0),
+                    )
+
+                result = await submit_proposal_core(
+                    pid, proposal, bloomberg,
+                    correlation_id=item_cid,
+                    persist_result=_persist_proposal_result,
+                    audit_result=audit_result,
+                    compliance_check=_compliance_check,
+                    authorization_check=_authorization_check,
+                )
+            if result.outcome == "SUBMITTED":
+                succeeded += 1
+                yield _ndjson({"key": str(pid), "status": "SUCCESS", "routeId": result.route_id})
+            elif result.outcome == "NEEDS_REVIEW":
+                failed += 1
+                yield _ndjson({
+                    "key": str(pid), "status": "NEEDS_REVIEW",
+                    "message": "outcome unknown — frozen for manual review",
+                })
+            elif result.outcome == "BLOCKED":
+                failed += 1
+                yield _ndjson({
+                    "key": str(pid), "status": "BLOCKED",
+                    "message": result.detail, "httpStatus": result.http_status,
+                })
+            else:
+                failed += 1
+                yield _ndjson({"key": str(pid), "status": "FAILED", "message": result.detail})
+        audit_result(
+            correlation_id,
+            "ok" if failed == 0 and succeeded > 0 else "fail",
+        )
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")
+
+
+def _ndjson(obj: dict) -> str:
+    """NDJSON 行序列化（统一 str 输出，消除 bytes 序列化缺陷）。"""
+    import json
+    return json.dumps(obj) + "\n"
+
+
+@router.post("/api/sub-order-proposals/{proposal_id}/resolve", response_model=ApiResponse)
+async def resolve_proposal(
+    proposal_id: int,
+    request: ProposalResolveRequest,
+    user: dict = Depends(require_permission("trade")),
+) -> ApiResponse:
+    """人工核对解除 NEEDS_REVIEW 建议 (S14/054)。
+
+    提交结果未知（504/响应丢失）的建议冻结后，交易员核对终端实际状态：
+    - CONFIRM_SUBMITTED：确认路由已成功 → SUBMITTED（可回填 routeId）；
+    - REJECT：确认未成功/放弃 → REJECTED。
+    非 NEEDS_REVIEW 状态一律拒绝（不可绕过冻结直接重发）。
+    """
+    audit_log("RESOLVE_PROPOSAL", user.get("sub"), {
+        "proposalId": proposal_id, "action": request.action, "note": request.note,
+    })
+    proposal = _proposals.get(proposal_id)
+    if proposal is None:
+        raise HTTPException(404, f"Proposal {proposal_id} not found")
+    if proposal.get("status") != "NEEDS_REVIEW":
+        raise HTTPException(
+            400,
+            f"Proposal {proposal_id} has status '{proposal.get('status')}' — "
+            "only NEEDS_REVIEW can be resolved",
+        )
+
+    now = _now()
+    if request.action == "CONFIRM_SUBMITTED":
+        proposal.update(
+            status="SUBMITTED", route_id=request.routeId or proposal.get("route_id"),
+            confirmed_at=now, submitted_at=now, updated_at=now,
+        )
+        await _persist_proposal_result(
+            proposal_id, status="SUBMITTED", route_id=proposal.get("route_id"),
+            confirmed_at=now, submitted_at=now,
+        )
+        return ApiResponse(
+            success=True,
+            message=f"Proposal {proposal_id} resolved as SUBMITTED (manual review)",
+        )
+
+    proposal["status"] = "REJECTED"
+    proposal["updated_at"] = now
+    await _persist_proposal_result(proposal_id, status="REJECTED", confirmed_at=now)
+    return ApiResponse(success=True, message=f"Proposal {proposal_id} resolved as REJECTED (manual review)")
 
 
 @router.post("/api/sub-order-proposals/{proposal_id}/reject", response_model=ApiResponse)
