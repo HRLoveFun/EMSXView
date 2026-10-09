@@ -31,23 +31,36 @@ python -m uvicorn main:app --host localhost --port 3000
 - 生产 PG 部署不受影响（既有 PG 表结构不变，新部署将补齐缺失表）；
 - `EXECUTION_DRIVER_ENABLED` 保持 **false**（5.3 已搁置）。
 
-## 3. 演练场景（D1–D10）
+## 3. 演练场景（D1–D11）
 
 操作者 = 用户（终端/界面/API）；观测与归因 = AI 会话（API 查询 + 日志 + DB 查询）。
 
-| # | 场景 | 操作 | 观测/判定 | 记录 |
-|---|---|---|---|---|
-| D1 | 开盘基线 | 启动后端 → 确认 INIT_PAINT | `GET /api/orders/status` 200 且 order_count 与终端一致；日志 `Restored ... proposals`、`schema initialized` | ☐ |
-| D2 | 登记授权 | `POST /api/authorizations`（某标的 BUY 小数量） | 返回 id；`GET /api/authorizations` remainingQuantity = target | ☐ |
-| D3 | 人工路由全链路 | route → modify → 部分成交 | 订单/路由与终端一致；审计 result=ok；授权 remaining 减少 | ☐ |
-| D4 | 授权硬校验 | 新增请求超剩余授权 | 403 + remainingQuantity；适配器零调用（audit fail） | ☐ |
-| D5 | 终端断线 | 停 bbcomm 1–2 分钟 | subscription_failed 可见；恢复后重同步无漂移 | ☐ |
-| D6 | 请求超时 | 阻断 EMSX 端口后发起请求 | 504 → 审计 result=**unknown**；恢复后人工核对实际状态 | ☐ |
-| D7 | 拒单 | 发起必被拒请求 | 400/明确错误；审计 fail；无假成功 | ☐ |
-| D8 | 撤单竞争 | 成交瞬间并发 cancel | 终态一致（FILLED 或 CANCELLED）；审计双留痕 | ☐ |
-| D9 | 进程重启 | kill → 重启（同 env） | warm-start：订单/路由/建议/父子单恢复；无重复确认（S8 幂等）；日志 `Restored ...` | ☐ |
-| D10 | 人工切回 EMSX | 终端直接改量/撤单 | EMSXView 订阅同步、不反向覆盖 | ☐ |
-| D11 | 日终对账 | 终端 vs EMSXView 全量核对 | 逐项一致；差异登记 open-todos | ☐ |
+> **场景调整（2026-10-09 用户决策）**：删除 D6（端口阻断模拟超时）、D7（实盘拒单）、
+> D8（真实撤单竞争）三个高风险操作场景——均需阻断 Bloomberg 连接或对真实委托
+> 施加竞争操作，风险/收益不成比例。其覆盖意图由离线测试与代码审计承接：
+> 超时 unknown 语义（test_audit_result_truthful + 504 结构化）、拒单审计 fail、
+> 撤单终态一致性（模型状态机）。D9 已于 2026-10-09 实测通过后保留记录。
+
+| # | 场景 | 状态 | 操作 | 观测/判定 | 记录 |
+|---|---|---|---|---|---|
+| D1 | 开盘基线 | ✅ 通过 | 启动后端 → INIT_PAINT | `orders/status` 200、order_count 对齐、schema initialized | 2026-10-09 |
+| D2 | 登记授权 | ✅ 通过 | `POST /api/authorizations` | id=1 持久化、remaining=target | 2026-10-09 |
+| D3 | 人工路由全链路 | ✅ 通过（含缺口修复 #133/#134） | 前端批量路由 PPH SJ 182,421 股 | 路由创建、真实成交流通（dayFill 3,195）、batch 三缺口热修 | 2026-10-09 |
+| D4 | 授权硬校验 | ✅ 通过 | 超授权请求 | 403 exceeded（requested=500/remaining=100）；not_covered 放行告警 + 安全网 | 2026-10-09 |
+| D5 | 终端断线 | ✅ 通过 | 杀 bbcomm（crashmon 4 秒自愈） | 全程 conn=True 零波动；长断线 failed 置位路径未触发（见 §6） | 2026-10-09 |
+| D6 | 请求超时 | 🗑️ 已删除 | ~~阻断 EMSX 端口~~ | 高风险（管理员操作 + 影响 Bloomberg 全部连接）；unknown 语义由离线测试承接 | 2026-10-09 |
+| D7 | 拒单 | 🗑️ 已删除 | ~~实盘拒单~~ | 高风险；fail 审计路径已由 D4 exceeded 实测覆盖 | 2026-10-09 |
+| D8 | 撤单竞争 | 🗑️ 已删除 | ~~真实撤单竞争~~ | 高风险（对真实委托施加竞争操作）；状态机终态一致性由测试承接 | 2026-10-09 |
+| D9 | 进程重启 | ✅ 通过 | kill → 重启（同 env） | 授权 2 条从 SQLite 恢复；S8/S12 持久化实测 | 2026-10-09 |
+| D10 | 人工切回 EMSX | ⏳ 待终端操作 | 终端直接改量/撤单 | EMSXView 订阅同步、不反向覆盖 | ☐ |
+| D11 | 日终对账 | ⏳ 待收盘 | 终端 vs EMSXView 全量核对 | 逐项一致；差异登记 open-todos | ☐ |
+
+### 6. 演练实测记录（2026-10-09）
+
+- **过程热修**：#133（授权端点 async 缺 await 500）、#134（batch 授权预检/审计回填/GET 噪音治理）、#132（bootstrap 缺表/BigIntPK/JSON 跨方言）——演练暴露真实缺陷并当日闭环，296 → 301 passed。
+- **实测语义确认**：`lastShares`=最后一笔增量、`dayFill`=累计（#129）；EMSX 存量订单不计授权占用（占用按父子单承诺量）。
+- **审计噪音**：GET 轮询 1,079 条 PENDING 已由 050 治理（只读端点不审计）。
+- **PPH SJ 大单**：182,421 股 SELL 无授权放行发生于 batch 校验上线前；050 后同请求将被 403 拒绝。该单 PARTFILL 工作中，处置由交易员决定。
 
 ## 4. 本次不做
 
