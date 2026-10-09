@@ -152,3 +152,17 @@ class BatchConfirmRequest(BaseModel):
         if len(v) > _BATCH_ROUTE_MAX_SIZE:
             raise ValueError(f"Batch size {len(v)} exceeds maximum of {_BATCH_ROUTE_MAX_SIZE}")
         return v
+
+
+class ProposalResolveRequest(BaseModel):
+    """人工核对解除 NEEDS_REVIEW 建议 (S14/054)。
+
+    提交结果未知（504/响应丢失）的建议冻结在 NEEDS_REVIEW，
+    交易员核对终端实际状态后据此解除：
+    - CONFIRM_SUBMITTED：确认路由已成功 → 建议 SUBMITTED（可选回填 routeId）
+    - REJECT：确认未成功/放弃 → 建议 REJECTED
+    """
+
+    action: Literal["CONFIRM_SUBMITTED", "REJECT"]
+    routeId: Optional[int] = Field(None, description="人工核对确认到的路由 id（CONFIRM_SUBMITTED 时可选回填）")
+    note: Optional[str] = Field(None, max_length=256)
