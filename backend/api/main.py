@@ -185,7 +185,9 @@ async def lifespan(app: FastAPI):
             # S8/038: 从 DB 重建建议缓存——重启后已 SUBMITTED 的建议
             # 仍拒绝重复确认（幂等键 = SubOrderProposal 主键）
             try:
-                from routers.route_plans import init_proposals_from_db
+                from routers.route_plans import init_route_plans_from_db, init_proposals_from_db
+                restored_plans = await init_route_plans_from_db(repo_provider)
+                logger.info("Restored %d route plans from DB", restored_plans)
                 restored = await init_proposals_from_db(repo_provider)
                 logger.info("Restored %d sub-order proposals from DB", restored)
             except Exception as exc:

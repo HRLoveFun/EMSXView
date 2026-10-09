@@ -143,13 +143,19 @@ class AuthManager:
     
     @classmethod
     def authenticate_user(cls, username: str, password: str) -> Optional[User]:
-        """Authenticate user credentials (S10/040)。
+        """Authenticate user credentials (S10/040, S15/055)。
 
-        用户源优先级：EMSXVIEW_USERS 配置 > DEMO_USERS 回退。
-        回退发生时启动告警已可见（_load_config_users / 模块导入期），
-        便于生产部署识别「仍在使用演示账号」。
+        用户源语义（第二份审计发现 5 的收紧）：
+        - EMSXVIEW_USERS 配置**非空且解析成功** → 配置即权威：未命中的
+          用户名一律拒绝（演示账号不再兜底——防止配置正式用户后
+          demo 管理员仍可登录）；
+        - 配置为空或解析失败 → 回落 DEMO_USERS + 启动 WARNING（开发友好，
+          生产部署会看到告警）。
         """
-        user_data = _CONFIG_USERS.get(username) or cls.DEMO_USERS.get(username)
+        if _CONFIG_USERS:
+            user_data = _CONFIG_USERS.get(username)
+        else:
+            user_data = cls.DEMO_USERS.get(username)
         if not user_data:
             return None
 
