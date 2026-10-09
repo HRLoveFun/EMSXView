@@ -39,6 +39,7 @@ try:
     from repositories.proposal import SubOrderProposalRepository
     from repositories.parent_child_repository import ParentChildRepository
     from repositories.authorization import AuthorizationRepository
+    from repositories.route_plan import RoutePlanRepository
     _DB_AVAILABLE = True
 except Exception:  # pragma: no cover
     pass
@@ -253,6 +254,97 @@ class RepositoryProvider:
     def parent_child_available(self) -> bool:
         """父子单持久化是否可用 (S9/039)。"""
         return self.is_active
+
+    # ------------------------------------------------------------------
+    #  Write-through: route plans (S15/055)
+    # ------------------------------------------------------------------
+
+    async def persist_route_plan(self, plan) -> Optional[int]:
+        """写入路由计划，返回数据库主键；失败返回 None（调用方回退内存 id）。"""
+        if not self.is_active:
+            return None
+        try:
+            async with get_db_session() as session:
+                repo = RoutePlanRepository(session)
+                created = await repo.create_from_dict(dict(plan))
+                await session.commit()
+            return created.id
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("persist_route_plan failed (err#%d): %s", self._write_errors, exc)
+            return None
+
+    async def update_route_plan_row(self, plan_id: int, values: Dict[str, Any]) -> bool:
+        """按主键回写路由计划字段（write-through）。"""
+        if not self.is_active:
+            return False
+        try:
+            async with get_db_session() as session:
+                repo = RoutePlanRepository(session)
+                updated = await repo.update(plan_id, values)
+                await session.commit()
+            return updated
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("update_route_plan_row failed (err#%d): %s", self._write_errors, exc)
+            return False
+
+    async def delete_route_plan_row(self, plan_id: int) -> bool:
+        if not self.is_active:
+            return False
+        try:
+            async with get_db_session() as session:
+                repo = RoutePlanRepository(session)
+                deleted = await repo.delete(plan_id)
+                await session.commit()
+            return deleted
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("delete_route_plan_row failed (err#%d): %s", self._write_errors, exc)
+            return False
+
+    async def load_route_plans(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """启动恢复：读取路由计划（模型 → 内存 dict 形态）。"""
+        if not self.is_active:
+            return []
+        try:
+            async with get_db_session() as session:
+                repo = RoutePlanRepository(session)
+                rows = await repo.list_all(limit)
+            return [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "description": r.description,
+                    "match_market": r.match_market,
+                    "match_symbol": r.match_symbol,
+                    "match_side": r.match_side,
+                    "match_portfolio": r.match_portfolio,
+                    "match_trader": r.match_trader,
+                    "match_exchange": r.match_exchange,
+                    "match_currency": r.match_currency,
+                    "activation_mode": r.activation_mode,
+                    "submission_mode": r.submission_mode,
+                    "split_type": r.split_type,
+                    "schedule_type": r.schedule_type,
+                    "num_slices": r.num_slices,
+                    "default_start_offset_min": r.default_start_offset_min,
+                    "default_end_time_local": r.default_end_time_local,
+                    "participation_rate": r.participation_rate,
+                    "default_broker": r.default_broker,
+                    "default_order_type": r.default_order_type,
+                    "default_tif": r.default_tif,
+                    "default_strategy_params": r.default_strategy_params,
+                    "enabled": r.enabled,
+                    "priority": r.priority,
+                    "created_at": _iso(r.created_at) or "",
+                    "updated_at": _iso(r.updated_at) or "",
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning("load_route_plans failed, falling back to empty: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     #  Write-through: PM authorization intents (S12/042)

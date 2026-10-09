@@ -194,6 +194,22 @@ async def init_proposals_from_db(provider) -> int:
     return len(rows)
 
 
+async def init_route_plans_from_db(provider) -> int:
+    """启动恢复 (S15/055)：从 DB 重建内存路由计划缓存。
+
+    计划是建议表 route_plan_id 外键的锚点——必须先于建议恢复。
+    """
+    global _next_plan_id
+    if not provider or not provider.is_active:
+        return 0
+    rows = await provider.load_route_plans()
+    for p in rows:
+        _plans[p["id"]] = p
+    if rows:
+        _next_plan_id = max(_next_plan_id, max(r["id"] for r in rows) + 1)
+    return len(rows)
+
+
 def _plan_to_response(plan: dict, allocations: list[dict] | None = None) -> dict:
     """Convert a plan dict to a RoutePlanResponse-compatible dict."""
     allocs = allocations or _allocations.get(plan["id"], [])
@@ -304,11 +320,9 @@ async def create_route_plan(
             return ApiResponse(success=False, error=f"Percentage allocations sum to {pct_total:.1f}%, expected 100%")
 
     global _next_plan_id
-    pid = _next_plan_id
-    _next_plan_id += 1
     now = _now()
     plan = {
-        "id": pid,
+        "id": None,
         "name": request.name, "description": request.description,
         "match_market": request.matchMarket, "match_symbol": request.matchSymbol,
         "match_side": request.matchSide, "match_portfolio": request.matchPortfolio,
@@ -325,6 +339,25 @@ async def create_route_plan(
         "enabled": request.enabled, "priority": request.priority,
         "created_at": now, "updated_at": now,
     }
+
+    # 持久化优先 (S15/055)：计划落库取 DB 主键（建议表 route_plan_id 外键的
+    # 锚点——计划不落库时建议写入必然 FK 失败回退内存，第二份审计发现 4）；
+    # 失败回退内存自增 id + 告警。
+    provider = get_repo_provider()
+    db_id: Optional[int] = None
+    if provider and provider.is_active:
+        db_plan = await provider.persist_route_plan(plan)
+        if db_plan is not None:
+            db_id = db_plan
+        else:
+            logger.warning("Route plan persist failed — falling back to in-memory id")
+    if db_id is not None:
+        pid = db_id
+        _next_plan_id = max(_next_plan_id, pid + 1)
+    else:
+        pid = _next_plan_id
+        _next_plan_id += 1
+    plan["id"] = pid
     _plans[pid] = plan
 
     if request.allocations:
@@ -363,6 +396,13 @@ async def update_route_plan(
 
     # Apply only non-None fields from request → snake_case
     _apply_updates(plan, request)
+    # write-through (S15/055)：变更落库（失败告警可见，不阻断内存态）
+    provider = get_repo_provider()
+    if provider and provider.is_active:
+        values = {k: v for k, v in plan.items() if k != "id" and v is not None}
+        ok = await provider.update_route_plan_row(plan_id, values)
+        if not ok:
+            logger.warning("Route plan %d update write-through failed", plan_id)
 
     if request.allocations is not None:
         if request.allocations:
@@ -389,6 +429,12 @@ async def delete_route_plan(plan_id: int, user: dict = Depends(require_permissio
         raise HTTPException(404, f"Route plan {plan_id} not found")
     _plans.pop(plan_id, None)
     _allocations.pop(plan_id, None)
+    # write-through (S15/055)：删除落库（建议表 FK CASCADE 由 DB 保证）
+    provider = get_repo_provider()
+    if provider and provider.is_active:
+        deleted = await provider.delete_route_plan_row(plan_id)
+        if not deleted:
+            logger.warning("Route plan %d delete write-through missed (not in DB?)", plan_id)
     return ApiResponse(success=True, message=f"Route plan {plan_id} deleted")
 
 

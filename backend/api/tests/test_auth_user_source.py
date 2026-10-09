@@ -50,17 +50,19 @@ def test_config_user_authenticates(monkeypatch):
     assert auth.AuthManager.authenticate_user("alice", "wrong") is None
 
 
-def test_fallback_to_demo_users_when_not_matched(monkeypatch):
-    """配置未命中的用户回落 DEMO_USERS（trader1/password）。"""
+def test_config_authoritative_rejects_demo_users(monkeypatch):
+    """S15/055 行为变更：配置存在即权威——demo 用户不再兜底（fail-closed）。"""
     users = json.dumps([{
         "username": "alice", "password_hash": _SECRET_HASH,
         "full_name": "Alice Trader", "role": "trader",
     }])
     auth = _reload_auth(monkeypatch, users)
 
-    user = auth.AuthManager.authenticate_user("trader1", "password")
-    assert user is not None
-    assert user.role == "trader"
+    # demo 账号在配置用户存在时被拒绝（防配置正式用户后 demo 管理员仍可登录）
+    assert auth.AuthManager.authenticate_user("trader1", "password") is None
+    assert auth.AuthManager.authenticate_user("admin", "password") is None
+    # 仅配置内用户可认证
+    assert auth.AuthManager.authenticate_user("alice", "s3cret") is not None
 
 
 def test_bad_json_falls_back_with_error(monkeypatch, caplog):
