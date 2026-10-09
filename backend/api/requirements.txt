@@ -28,6 +28,8 @@ pyjwt==2.10.1
 passlib[bcrypt]==1.7.4
 # 048：bcrypt 5.0 与 passlib 1.7.4 不兼容（CI 环境漂移实测：hash 抛 72-byte ValueError）
 bcrypt>=4.0.0,<5.0.0
+# 048：SQLite 演练持久化驱动（DATABASE_URL=sqlite+aiosqlite://，生产仍用 asyncpg）
+aiosqlite>=0.20.0
 python-dotenv==1.0.0
 
 # Data Validation
