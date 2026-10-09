@@ -66,7 +66,8 @@ async def get_orders(
         currency=currency, oddLot=oddLot,
     )
     orders = await bloomberg.get_orders(filters)
-    audit_log("GET_ORDERS", user.get("sub"), {"filters": filters.model_dump(exclude_none=True)})
+    # 050：只读端点不写审计——前端 5 秒轮询曾刷出 1079 条 PENDING 噪音，
+    # 淹没真实交易事件。审计范围收敛为写操作。
     return ApiResponse(success=True, data=orders, message=f"Retrieved {len(orders)} orders")
 
 
@@ -197,11 +198,51 @@ async def batch_route(
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Batch-route N parent orders."""
+    # 两阶段审计 (S6/050)：发起记 PENDING，流结束后按汇总回填
+    correlation_id = uuid4().hex
     audit_log("BATCH_ROUTE", user.get("sub"), {
         "itemCount": len(request.items),
         "templateKeys": sorted(request.template.keys()),
         "dryRun": request.dryRun,
-    })
+    }, result="PENDING", correlation_id=correlation_id)
+
+    # PM 授权预检 (S13/050)：逐 item 检查，任一 exceeded → 整体 403
+    # （批量中部分放行部分拒绝易引发部分成交误解，保守整体拒绝）；
+    # not_covered → warning 放行；缓存缺失的 item 交给 batch 内部 BLOCKED 语义。
+    blocked_items: list[dict] = []
+    for item in request.items:
+        parent_order = None
+        if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+            with bloomberg._data_lock:
+                parent_order = bloomberg._orders.get(item.orderId)
+        if parent_order is None:
+            continue
+        override = item.override or {}
+        qty = int(override.get("quantity") or getattr(parent_order, "remainingQuantity", 0) or 0)
+        authz = await enforce_for_order(
+            get_repo_provider(),
+            symbol=parent_order.symbol,
+            side=parent_order.side,
+            portfolio=parent_order.portfolio,
+            additional_qty=qty,
+        )
+        if authz and authz["outcome"] == "exceeded":
+            blocked_items.append({"orderId": item.orderId, **authz})
+        elif authz and authz["outcome"] == "not_covered":
+            logger.warning(
+                "Batch item %s has no matching PM authorization — proceeding",
+                item.orderId,
+            )
+    if blocked_items:
+        audit_result(correlation_id, "fail")
+        raise HTTPException(
+            403,
+            detail={
+                "message": "PM authorization limit exceeded (batch)",
+                "blocked": blocked_items,
+            },
+        )
+
     terminal_trader = (
         bloomberg.get_terminal_trader_name()
         if hasattr(bloomberg, "get_terminal_trader_name")
@@ -211,14 +252,34 @@ async def batch_route(
         result = await batch_route_service.dry_run_batch_route(
             bloomberg, request, terminal_trader=terminal_trader,
         )
+        audit_result(correlation_id, "ok")
         return ApiResponse(
             success=True, data=result.model_dump(),
             message=f"Dry-run: {result.succeeded} ready, {result.blocked} blocked",
         )
-    return StreamingResponse(
-        batch_route_service.stream_batch_route(
+
+    async def _stream_with_audit():
+        """流结束后按汇总回填审计结果 (S6/050)。"""
+        succeeded = failed = 0
+        import json as _json
+        async for line in batch_route_service.stream_batch_route(
             bloomberg, request, terminal_trader=terminal_trader,
-        ),
+        ):
+            yield line
+            try:
+                obj = _json.loads(line) if isinstance(line, str) else line
+                if isinstance(obj, dict):
+                    status = obj.get("status")
+                    if status == "SUCCESS":
+                        succeeded += 1
+                    elif status in ("FAILED", "BLOCKED"):
+                        failed += 1
+            except Exception:
+                pass
+        audit_result(correlation_id, "ok" if failed == 0 and succeeded > 0 else "fail")
+
+    return StreamingResponse(
+        _stream_with_audit(),
         media_type="application/x-ndjson",
     )
 
