@@ -40,6 +40,7 @@ try:
     from repositories.parent_child_repository import ParentChildRepository
     from repositories.authorization import AuthorizationRepository
     from repositories.route_plan import RoutePlanRepository
+    from repositories.watermark import WatermarkRepository
     _DB_AVAILABLE = True
 except Exception:  # pragma: no cover
     pass
@@ -254,6 +255,37 @@ class RepositoryProvider:
     def parent_child_available(self) -> bool:
         """父子单持久化是否可用 (S9/039)。"""
         return self.is_active
+
+    # ------------------------------------------------------------------
+    #  Watermark (S16/056) —— 交易请求序号持久化
+    # ------------------------------------------------------------------
+
+    async def upsert_watermark(self, stream_name: str, last_sequence: int) -> bool:
+        """持久化序号水位（只升不降）；失败返回 False（调用方告警）。"""
+        if not self.is_active:
+            return False
+        try:
+            async with get_db_session() as session:
+                repo = WatermarkRepository(session)
+                await repo.upsert(stream_name, last_sequence)
+                await session.commit()
+            return True
+        except Exception as exc:
+            self._write_errors += 1
+            logger.warning("upsert_watermark failed (err#%d): %s", self._write_errors, exc)
+            return False
+
+    async def load_watermark(self, stream_name: str) -> int:
+        """读取序号水位；无记录/不可用返回 0。"""
+        if not self.is_active:
+            return 0
+        try:
+            async with get_db_session() as session:
+                repo = WatermarkRepository(session)
+                return await repo.get(stream_name)
+        except Exception as exc:
+            logger.warning("load_watermark failed: %s", exc)
+            return 0
 
     # ------------------------------------------------------------------
     #  Write-through: route plans (S15/055)

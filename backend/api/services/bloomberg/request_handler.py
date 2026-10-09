@@ -64,11 +64,34 @@ class EMSXRequestHandler:
         # 该字段用于防止故障期间重复请求。进程重启后须经 restore_request_seq
         # 恢复（只升不降），确保重启后的请求序号不会与故障前重叠。
         self._emsx_request_seq = 0
+        self._seq_persister = None  # S16/056：序号持久化器（facade 接线）
 
     def _next_request_seq(self) -> int:
         """取下一个交易请求序号（单调递增）。"""
         self._emsx_request_seq += 1
         return self._emsx_request_seq
+
+    def set_seq_persister(self, persister) -> None:
+        """注入序号持久化器 (S16/056)：async (seq: int) -> None。
+
+        由 facade 在 lifespan 接线（写 subscription_watermarks 表）；
+        未注入时序号仅存内存（重启回零——S7 已知边界）。
+        """
+        self._seq_persister = persister
+
+    async def _persist_seq(self) -> None:
+        if self._seq_persister is None:
+            return
+        try:
+            ok = await self._seq_persister(self._emsx_request_seq)
+            if not ok:
+                logger.error(
+                    "EMSX_REQUEST_SEQ persist failed (seq=%d) — restart may "
+                    "reuse sequence numbers",
+                    self._emsx_request_seq,
+                )
+        except Exception as exc:
+            logger.error("EMSX_REQUEST_SEQ persist raised: %s", exc)
 
     def restore_request_seq(self, last_seq: int) -> None:
         """进程重启后恢复请求序号（只升不降——防序号回退重放）。"""
@@ -480,6 +503,9 @@ class EMSXRequestHandler:
                     )
                 if msg.hasElement("EMSX_ROUTE_ID"):
                     route_id = msg.getElementAsInteger("EMSX_ROUTE_ID")
+
+            # 序号持久化 (S16/056)：请求成功即持久化水位，重启恢复防重放
+            await self._persist_seq()
 
             logger.info(
                 f"Created route for order {request_data.orderId} to broker "

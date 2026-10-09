@@ -229,6 +229,20 @@ async def lifespan(app: FastAPI):
     # run_coroutine_threadsafe 回主循环执行；此前逐次 get_event_loop()
     # 在回调线程抛 RuntimeError 被静默吞掉，持久化与推送整体丢失。
     bloomberg_service.set_main_loop(asyncio.get_running_loop())
+    # S16/056: 交易请求序号持久化 + 启动恢复（跨重启防重放，watermark 表）
+    if repo_provider.is_active:
+        async def _persist_seq(seq: int) -> bool:
+            return await repo_provider.upsert_watermark("emsx_request_seq", seq)
+
+        bloomberg_service.set_seq_persister(_persist_seq)
+        last_seq = await repo_provider.load_watermark("emsx_request_seq")
+        if last_seq > 0:
+            bloomberg_service.restore_request_seq(last_seq)
+        # S16/056: 跳号重同步回调——重发 EMSX 订单快照（refresh_subscription）
+        bloomberg_service.register_resync_callback(
+            lambda stream: bloomberg_service.refresh_subscription()
+        )
+        logger.info("Seq persister wired; resync callback registered")
     asyncio.create_task(bloomberg_service.connect())
     logger.info("Bloomberg connection started in background")
 
