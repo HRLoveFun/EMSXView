@@ -31,6 +31,7 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 | docs/dev-guide.md | 开发指南与验证约束 | 开发流程或权威入口变化时 |
 | docs/schema-contract.md | 跨域类型契约（前端 TS ↔ 后端 Python） | 跨模块协议变更时 |
 | docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
+| docs/EMSXDataPipeline-TECHNICAL_GUIDE.md | 独立数据管道仓库 EMSXDataPipeline 技术说明的**同步副本**（供无该仓库权限的外部 Agent 了解其架构/数据链路/交易前供给；真相源在 EMSXDataPipeline 仓库，更新后整体覆盖同步，见副本头部说明） | 真相源（EMSXDataPipeline `docs/TECHNICAL_GUIDE.md`）更新时 |
 | docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
 | [`data_access/config.py`](../data_access/config.py)（`Config` 类） | 数据根、库/表常量等只读侧运行时参数（写入侧参数归独立仓库 EMSXDataPipeline） | 修改数据根/库表常量时 |
 
