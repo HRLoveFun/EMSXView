@@ -1,12 +1,14 @@
 ﻿# EMSXView 交易平台
 
 > 订单执行与交易成本分析（TCA）单体仓库：执行管理（ExecutionView）、盘前市场视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
+>
+> **Agent / 开发者作业规范见 [AGENTS.md](./AGENTS.md)**：文档阅读顺序、编码与文件放置约定、Git Worktree 并行工作流、构建与验证命令、已失效声明。原 `CODEBUDDY.md` 的内容已合并进 `AGENTS.md`（由 pre-commit hook 同步为副本）。
 
 ---
 
-> **占位符约定**：`<host>` 默认 `localhost`；`<API_BASE_URL>` / `<MARKETVIEW_BASE_URL>` / `<COSTVIEW_BASE_URL>` 为可配置基址，默认 `http://localhost:3000` / `:8001` / `:8002`；`<repo-root>` 指仓库根（由 `.emsxview-root` marker 定位）；`${EMSXVIEW_DATA_DIR}` 指数据根。完整约定见 [docs/index.md §7](./docs/index.md#7-占位符与可配置参数约定)。
+> **占位符约定**：`<host>` 默认 `localhost`；`<API_BASE_URL>` / `<MARKETVIEW_BASE_URL>` / `<COSTVIEW_BASE_URL>` 默认 `http://localhost:3000` / `:8001` / `:8002`；`<repo-root>` 指仓库根（由 `.emsxview-root` marker 定位）；`${EMSXVIEW_DATA_DIR}` 指数据根。完整约定见 [docs/index.md §7](./docs/index.md#7-占位符与可配置参数约定)。
 
-> **本 README 的可验证性原则**：本文件中每一项能力描述均标注"入口（文件/端点）+ 验证方式（测试/命令）"。标注「实测」的数据来自 2026-09-11 的静态代码审计与本机数据目录测量，未含运行时验证；过期的描述请在变更时同步更新 §变更摘要。
+> **本 README 的可验证性原则**：每项能力描述均标注「入口（文件/端点）+ 验证方式（测试/命令）」。标注「实测」的数据来自静态代码审计与本机数据目录测量，未含运行时验证；过期的描述请在变更时同步更新 §11。
 
 ---
 
@@ -20,14 +22,14 @@
 | **Beta** | 功能完整但未全量 | 单元/集成测试 + 已知限制清单（known limitations）公开发布 |
 | **Scaffold / 骨架** | 仅有接口与占位 | README 明确列出"未实现"清单 |
 
-### 当前分级总表
+### 当前分级总表（2026-10-20 复核）
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.3 GB、`execution_history.db` 6.3 GB，实测 2026-09-11）；后端约 180 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
-| **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 213 个测试函数（`CostView/tests/`，7 个测试文件，pytest 收集 219 个用例，含 CLI 入口与黄金样本回归）；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)；13 个 API 端点全部可追溯到代码 | 测试覆盖率未量化；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA）；黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip） |
-| **MarketView**（`MarketView/`） | **Scaffold** | 仅 3 个端点（快照 / 盘中特征 / handoff 发布），无自身测试目录 | 见 §4.3 未实现清单 |
-| **frontend/**（React 壳） | **Beta** | 17 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 47 个测试文件 / 239 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
+| **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但未设 `--cov-fail-under`）；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
+| **MarketView**（`MarketView/`） | **Scaffold** | 3 个端点（快照 / 盘中特征 / handoff 发布）；`MarketView/tests/` 已存在（1 个测试文件） | 策略分析、选券支持、SLA/运维文档未实现 |
+| **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](./docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
 
@@ -51,7 +53,7 @@
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
 │  │                      Shared Infrastructure                           │   │
 │  │  frontend/ [Beta] (React shell) · platform_data/ [Beta] (adapters)   │   │
-│  │  data_access/ [Beta] (read-only) · SQLite (只读, ~114GB) ·            │   │
+│  │  data_access/ [Beta] (read-only) · SQLite (只读, ~128GB) ·            │   │
 │  │  PostgreSQL (可选) · Redis (可选) · Nginx                              │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
@@ -60,7 +62,7 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 图中方框均携带成熟度标签（定义见 §0）。注意架构层级差异：MarketView 与 CostView 的能力完成度不对等，箭头仅表示数据流向，**不表示能力对等**。
+> 图中方框均携带成熟度标签（定义见 §0）。箭头仅表示数据流向，**不表示能力对等**（MarketView 与 CostView 完成度不对等）。
 
 ### Module Flow (Trade Lifecycle)
 
@@ -80,11 +82,9 @@ MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostV
 | **Microservice**（默认） | 无需配置 | Core `<API_PORT>`、CostView `<COSTVIEW_PORT>` 独立进程 |
 | **CostView 路由桥接**（可选） | `EMSXVIEW_OPTIONAL_MODULES`（默认 `costview:CostView`） | CostView 的 `/api/tca/*` 路由挂载进 core 进程（`backend/api/routers/costview.py`），前端经 `:3000` 单入口访问，无需启动 `:8002` |
 
-> ⚠ 旧文档中的 `EMSXVIEW_MERGE_MODULES` 环境变量**已失效**（`backend/api` 无消费点，2026-09-11 核实）；"所有模块合并进单进程"的描述过时——MarketView **没有**桥接路径，仅独立运行（`backend/api/routers/` 无 marketview router）。可选模块经 `EMSXVIEW_OPTIONAL_MODULES` 配置（`*`/`all` 加载全部，当前已知模块仅 `costview`，见 `backend/api/main.py:276`）。
-
-Cross-module handoff configurable via `EMSXVIEW_HANDOFF_BACKEND`:
-- `memory` (default): 进程内 dict + `threading.Lock`（单进程/开发模式）
-- `redis`: Redis 共享交换器（微服务/生产模式跨进程）
+- 可选模块由 `backend/api/main.py` 的 `_register_optional` 加载（`*`/`all` 加载全部，置空禁用）；MarketView **没有**桥接路径，仅独立运行。
+- 跨模块 handoff 后端由 `EMSXVIEW_HANDOFF_BACKEND` 选择：`memory`（默认，进程内 dict + 锁）或 `redis`（跨进程）；非法值启动即 `ValueError`。
+- 已失效的历史机制（`EMSXVIEW_MERGE_MODULES`、`VITE_USE_MOCK`、`CORS_ORIGINS` 等）汇总见 [AGENTS.md §14](./AGENTS.md#14-已失效声明勿再引用)。
 
 ---
 
@@ -92,90 +92,68 @@ Cross-module handoff configurable via `EMSXVIEW_HANDOFF_BACKEND`:
 
 ```
 EMSXView/
+├── AGENTS.md                         # Agent 入口 + 项目总览（规范源）
+├── CODEBUDDY.md                      # 由 pre-commit hook 同步的副本（勿单独编辑）
 ├── README.md                         # This file
 ├── QUICKSTART.md                     # One-command quick start guide
-├── CODEBUDDY.md                      # Agent guidance for code assistants
 ├── relaunch_service.bat              # One-click restart
 │
 ├── frontend/                         # ★ 规范 React 前端壳 [Beta]
 │   ├── package.json                  # npm: emsxview-trading-tool
 │   ├── vite.config.ts                # 主 Vite 配置（dev server <FRONTEND_PORT>, default 5173）
 │   ├── vite.base.ts                  # 独立模块构建基座（--module=<id> → dist-modules/<module>/）
-│   └── src/                          # 只放壳层与共享层（业务模块已迁至仓库根级，见 docs/archive/2026-09-21/012-executionview-root-extract、018-costview-marketview-root-extract）
+│   └── src/                          # 只放壳层与共享层（业务模块在仓库根级）
 │       ├── main.tsx                  # ReactDOM entry → <App />
 │       ├── app/                      # App.tsx · AppShell.tsx · WorkspaceModuleTabs.tsx · Toolbar.tsx
-│       ├── shared/                   # ModuleRegistry, ShellContext, http-client, WS, handoff-api
-│       ├── components/               # shadcn/ui shared components, error-boundary, startup-gate
-│       └── standalone/
-│           └── shell-less.tsx        # 独立构建共用的无 Shell 桩 Provider
+│       ├── shared/                   # ModuleRegistry · ShellContext · http-client · WS · handoff-api
+│       ├── components/               # shadcn/ui 共享组件、error-boundary、startup-gate
+│       └── standalone/shell-less.tsx # 独立构建共用的无 Shell 桩 Provider
 │
 ├── ExecutionView/                    # 订单/路由工作台 [GA]（仓库根级，与 frontend/ 平级）
-│   ├── module/
-│   │   ├── views/                    # OrderTable, RouteTable, ExecutionBoard, MonitorBoard, BatchOperationPanel
-│   │   ├── components/               # 24+ dialogs (cancel, modify, batch-route, algo-launch, etc.)
-│   │   ├── services/                 # orders-api, routes-api, broker-api, realtime, etc.
-│   │   ├── stores/                   # order-stream-store, route-stream-store (Zustand)
-│   │   ├── types/
-│   │   └── module.registry.ts        # + module.contract.ts（对外接口契约）
+│   ├── module/                       # views/ · components/ · services/ · stores/ · types/
+│   │                                 # module.registry.ts + module.contract.ts
 │   └── standalone/                   # 独立构建入口
-├── CostView/
-│   └── module/                       # Post-trade TCA UI [Beta]（CostView 前端唯一规范入口）
-├── MarketView/
-│   └── module/                       # Pre-trade shell anchor [Scaffold]
+├── CostView/module/                  # 盘后 TCA UI [Beta]（唯一规范入口）
+├── MarketView/module/                # 盘前壳锚点 [Scaffold]
 │
 ├── backend/                          # ★ Core backend [GA]
-│   ├── docker-compose.yml            # Production Docker (8 services)
-│   ├── docker-compose.host.yml       # Host-network mode for local Bloomberg
+│   ├── docker-compose.yml            # Docker Compose（6 服务）
+│   ├── docker-compose.host.yml       # Host-network 模式（本地 Bloomberg 终端）
 │   └── api/
-│       ├── main.py                   # FastAPI entry (<API_PORT>, default 3000)；可选路由经 _register_optional
-│       ├── auth.py                   # JWT auth manager
-│       ├── db.py                     # SQLAlchemy engine & session
-│       ├── service_provider.py       # RepositoryProvider（DB ↔ in-memory fallback，gate: ENABLE_DB_PERSISTENCE）
-│       ├── routers/                  # 核心 9 路由 + costview.py（Runner 代理）等可选路由
-│       ├── services/                 # 业务逻辑层（bloomberg/ 拆分包、compliance、route_engine、algo_scheduler 等）
+│       ├── main.py                   # FastAPI 装配入口（默认 :3000）；可选路由经 _register_optional
+│       ├── auth.py · db.py · service_provider.py · config.py
+│       ├── routers/                  # 核心 10 路由 + costview.py（可选桥接，含 Runner 代理）
+│       ├── services/                 # bloomberg/ 拆分包、compliance、route_engine、algo_scheduler 等
 │       ├── repositories/ · models/ · schemas/ · migrations/
-│       └── tests/                    # 20 个测试文件，约 180 个测试函数（含 boundaries/ 契约测试）
+│       └── tests/                    # 47 个测试文件 / 239 个测试函数（含 boundaries/ 契约测试）
 │
-├── MarketView/                       # Pre-trade microservice [Scaffold] (<MARKETVIEW_PORT>, default 8001)
-│   ├── main.py                       # FastAPI entry (无 Bloomberg 依赖)
-│   └── routers/marketview.py         # snapshot / intraday-features / handoff 端点
+├── MarketView/                       # 盘前微服务 [Scaffold]（默认 :8001）
+│   ├── main.py · config.py
+│   ├── routers/marketview.py         # snapshot / intraday-features / handoff 端点
+│   ├── module/ · standalone/
+│   └── tests/                        # 1 个测试文件（覆盖三个端点）
 │
-├── CostView/                         # Post-trade TCA microservice [Beta] (<COSTVIEW_PORT>, default 8002)
+├── CostView/                         # 盘后 TCA 微服务 [Beta]（默认 :8002）
 │   ├── pyproject.toml                # pip package: emsxview-costview
-│   ├── api/
-│   │   ├── main.py                   # FastAPI entry
-│   │   └── routers/
-│   │       ├── costview.py           # TCA analyze/analyze-orders/scorecard + recommendations pin + handoff peek + regime
-│   │       └── monitoring.py         # bdib-health / metric-coverage / report-summary / anomaly-thresholds / export-html
-│   ├── src/
-│   │   ├── tca_query_service.py      # 核心 TCA 查询编排（读 tca_route_summary 预计算表）
-│   │   ├── tca_query_builder.py      # SQL 查询构建器（库缺失 → 降级空结果）
-│   │   ├── tca_cache.py              # 查询缓存（Redis，连接失败 → 降级直查）
-│   │   ├── tca_utils.py              # 纯函数（日期/时间、cohort、scorecard）
-│   │   ├── __main__.py               # CLI 入口：python -m CostView.src（退出码 0/2/3，见 §4.2）
-│   │   ├── query_cli.py              # QueryEngine 类（CLI 命令分发目标）
-│   │   └── monitoring/               # bdib_health · metric_coverage · report_aggregator · report_html 等
-│   └── tests/                        # 7 个测试文件，213 个测试函数（含 golden 基线回归）
-│   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 清理（ADR-0014）；
-#   #     CostView/data/ 历史数据已于 2026-09-02 迁移至 ${EMSXVIEW_DATA_DIR}
+│   ├── api/routers/                  # costview.py（查询/推荐/交接/评估）· monitoring.py
+│   ├── src/                          # tca_query_service · tca_query_builder · tca_cache · tca_utils
+│   │                                 # monitoring/ · evaluation/（统计评估层）· __main__.py（CLI）
+│   └── tests/                        # 10 个测试文件 / 305 个测试函数；golden/ 内附冻结快照
 │
 ├── data_access/                      # ★ 只读数据访问层 [Beta]
-│   ├── config.py                     # Config：${EMSXVIEW_DATA_DIR}（默认 D:\db）+ 10 个库键 + 表常量
-│   ├── storage/                      # ConnectionManager（READ tier, sqlite mode=ro）、read repositories
-│   ├── processing/ · common/
-│   # 注：ETL 写入方（原 DataPipeline/）已迁独立仓库 EMSXDataPipeline；
-│   #     本仓库为只读消费者，禁止 import DataPipeline.*
+│   ├── config.py                     # Config：${EMSXVIEW_DATA_DIR} + 10 个库键 + 表常量
+│   ├── storage/                      # ConnectionManager（READ tier, sqlite mode=ro）
+│   └── processing/ · common/
 │
 ├── platform_data/                    # 跨模块共享适配层 [Beta，部分规划中]
 │   ├── adapters/                     # handoff.py（内存交换器）· redis_handoff.py · tca_bridge.py · market.py
-│   ├── contracts/                    # handoff/execution/tca/market/intraday 数据契约 + protocols.py
-│   ├── config_bridge.py · regime_query.py
-│   # 注：CostViewAnalyticsAdapter / CostViewDatabaseAdapter / ExecutionHistoryAdapter /
-#   #     DataPlatformIngestionAdapter / build_platform_data_access() 为规划中未实现（ADR-0013）
+│   ├── contracts/                    # handoff/execution/tca/market/intraday 契约 + protocols.py
+│   └── config.py · config_bridge.py · regime_query.py · pyproject.toml
 │
-├── docs/                             # 文档（引用锚点见 §10）
-├── scripts/                          # start-all.bat · stop-all.bat · ops/ · deploy/ · devtools/ · diagnose/
-├── plans/ · specs/ · data/ · logs/ · .github/
+├── docs/                             # spec/ · api/ · ops/ · textbook/ · archive/
+├── specs/                            # 在途特性计划 <feature-id>/（完成即归档至 docs/archive/YYYY-MM-DD/）
+└── scripts/                          # start/stop/restart/check-status · ops/ · deploy/ · devtools/
+                                      # diagnose/ · ci/ · cleanup/ · quality_gate/ · reports/ · hooks/
 ```
 
 ---
@@ -192,17 +170,17 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 | 通道 | 方向 | 写入端点 | 读取端点 | 容量/时序语义 |
 |------|------|----------|----------|----------------|
-| Market → Execution | 单槽（仅保留最新一份） | `POST /api/marketview/handoff/execution`（`MarketView/routers/marketview.py:457`） | ExecutionView 经 handoff API 读取 | 新写入覆盖旧值；无历史 |
-| Execution → Cost | 按 order_id 映射 | ExecutionView 成交后写入 | `GET /api/tca/handoff/post-trade/{order_id}`（`CostView/api/routers/costview.py:442`） | 上限 500 条，TTL 7 天惰性清理，超限淘汰最旧 |
-| Cost → Execution（recommendations） | 追加列表 | `POST /api/tca/recommendations/pin`（`CostView/api/routers/costview.py:396`） | `GET /api/broker-recommendations`（`backend/api/routers/broker.py`） | 上限 200 条，追加 + 截断，**last-write-wins** |
+| Market → Execution | 单槽（仅保留最新一份） | `POST /api/marketview/handoff/execution`（`MarketView/routers/marketview.py`） | ExecutionView 经 handoff API 读取 | 新写入覆盖旧值；无历史 |
+| Execution → Cost | 按 order_id 映射 | ExecutionView 成交后写入 | `GET /api/tca/handoff/post-trade/{order_id}`（`CostView/api/routers/costview.py`） | 上限 500 条，TTL 7 天惰性清理，超限淘汰最旧 |
+| Cost → Execution（recommendations） | 追加列表 | `POST /api/tca/recommendations/pin`（`costview.py`） | `GET /api/broker-recommendations`（`backend/api/routers/broker.py`） | 上限 200 条，追加 + 截断，**last-write-wins** |
 
 **时序与一致性保证（重要）**：
 - **同步性**：写入是请求内同步操作；读取是消费方在自身请求内**同步拉取**（无推送订阅）。前端经 `useHandoffContracts()` hook + `frontend/src/shared/services/handoff-api.ts` 按需读取。
 - **可能读到过期数据**：内存后端条目 TTL 7 天，TTL 内的旧 recommendation 不会被自动失效——ExecutionView 读到的是"最近一次 pin 的结论"，不保证反映 CostView 最新分析。
 - **冲突解决**：无合并逻辑，一律 last-write-wins；并发 pin 以后到达者为准。
 - **无跨模块事务**：handoff 写入与业务写库是两个独立操作，无原子性保证。
-- **Redis 后端差异**：3 个 key（`mv-to-ev` / `ev-to-cv` / `cv-to-ev`），`cv-to-ev` 列表上限 200（`rpush`+`ltrim`）；**Redis 后端未实现 TTL 过期**（过期语义仅内存后端具备），条目需人工关注新鲜度。
-- **载荷限制**：strategy_params ≤ 64 KB（`platform_data/adapters/handoff.py:34`）。
+- **Redis 后端**：3 个 key（`mv-to-ev` / `ev-to-cv` / `cv-to-ev`），`cv-to-ev` 列表上限 200（`rpush`+`ltrim`）；三通道均设 7 天 TTL（`pipeline` 内原子写入）。
+- **载荷限制**：`strategy_params` ≤ 64 KB，超限返回 422。
 
 契约定义：[docs/schema-contract.md](./docs/schema-contract.md)（Contract 1–4，含 MarketView→ExecutionView、ExecutionView→CostView、CostView→ExecutionView recommendation 的完整字段）。
 
@@ -214,7 +192,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 ```
 
 - **职责归属**：数据更新（ETL 写入）唯一写入方是独立仓库 EMSXDataPipeline；CostView 自身**没有任何写库路径**（`data_access` 全部 `mode=ro`）。
-- **入口**：`backend/api/routers/costview.py:73` / `:88`（JWT 鉴权代理，前端统一经 `:3000`，不直连 Runner `:8100`）。
+- **入口**：`backend/api/routers/costview.py`（JWT 鉴权代理，前端统一经 `:3000`，不直连 Runner）；Runner 地址由 `EMSXVIEW_RUNNER_URL` 配置。
 - **失败处理**：Runner 不可达 → `ApiResponse(success=False, "Runner unreachable: ...")`；Runner 返回非 2xx / 非 JSON → 失败响应。代理不会重试。
 - **幂等性**：Runner 为**单任务模型**——已在运行时再次触发返回 HTTP 409，代理转而返回当前 `GET /status` 结果 + `"pipeline already running"`，不会并发重复执行。
 
@@ -222,52 +200,53 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 ## 4. Module Descriptions（最小完整描述）
 
-每个模块给出：定位 / 入口 / 能力（**已实现 与 规划中 二分**，每条带入口+验证）/ 不做什么 / 验证命令。模块深入细节见各子 README（§10）。
+每个模块给出：定位 / 入口 / 能力（**已实现 与 规划中 二分**，每条带入口+验证）/ 不做什么。模块深入细节见各子 README（§10）。
 
 ### 4.1 ExecutionView（`backend/api/` + `ExecutionView/module/`）— GA
 
-**定位**：订单与路由执行管理核心服务，Bloomberg EMSX 集成。**入口**：`backend/api/main.py`（`<API_PORT>`，默认 3000）；核心路由 9 个始终加载（connection / auth / orders / routes / broker / realtime / debug / route_plans / market_broker_mapping），可选路由经 `_register_optional`（`main.py:314`）。
+**定位**：订单与路由执行管理核心服务，Bloomberg EMSX 集成。**入口**：`backend/api/main.py`（`<API_PORT>`，默认 3000）；核心路由 10 个始终加载（connection / authorizations / auth / orders / routes / broker / debug / realtime / market_broker_mapping / route_plans），可选路由经 `_register_optional`。
 
 **已实现能力**（能力 → 入口 → 验证）：
 
 | 能力 | 入口 | 验证 |
 |------|------|------|
-| 订单 CRUD + 父子执行调度 | `routers/orders.py`（聚合 orders_crud/execution/handoff） | `tests/test_parent_child_execution.py`（26 用例） |
-| 路由管理与批量操作 | `routers/routes.py`、`services/batch_route_service.py` | `tests/test_batch_route_endpoints.py`（9） |
-| WebSocket 实时推送（订单/路由流） | `routers/realtime.py`、`services/realtime_gateway.py` | `tests/test_realtime_gateway.py`（11）；前端 `services/__tests__/realtime.test.ts` |
-| JWT 认证 | `auth.py`、`routers/auth.py` | `tests/test_auth_policy.py`（12） |
-| 盘前合规检查（USD 名义额、odd lots） | `services/compliance_service.py` | `tests/test_compliance_service.py`（17） |
-| 算法调度 | `services/algo_scheduler.py` | `tests/test_algo_scheduler.py`（28） |
-| Bloomberg EMSX 集成（订阅缓存、行情增强） | `services/bloomberg/`（adapter/connection/subscriptions/enrichment/request_handler） | `tests/test_bloomberg_adapter_routing.py`（9）+ `test_bloomberg_adapter_refdata.py`（5） |
-| 基准计算 | `services/benchmark_engine.py` | `tests/test_benchmark_engine.py`（26） |
-| 健康检查 | `GET /api/health`（`routers/connection.py:36`，检查 Bloomberg + DB 状态） | 启动后 `curl <API_BASE_URL>/api/health` |
+| 订单 CRUD + 父子执行调度 | `routers/orders.py`（聚合 orders_crud/execution/handoff） | `tests/test_parent_child_execution.py` |
+| 路由管理与批量操作 | `routers/routes.py`、`services/batch_route_service.py` | `tests/test_batch_route_endpoints.py` |
+| 授权与合规（动作级鉴权、USD 名义额、odd lots） | `routers/authorizations.py`、`services/authorization_service.py`、`services/compliance_service.py` | `tests/test_compliance_service.py`、`tests/boundaries/` |
+| WebSocket 实时推送（订单/路由流） | `routers/realtime.py`、`services/realtime_gateway.py` | `tests/test_realtime_gateway.py`；前端 `services/__tests__/realtime.test.ts` |
+| JWT 认证 | `auth.py`、`routers/auth.py` | `tests/test_auth_policy.py` |
+| 算法调度 | `services/algo_scheduler.py` | `tests/test_algo_scheduler.py` |
+| Bloomberg EMSX 集成（订阅缓存、行情增强） | `services/bloomberg/`（adapter/connection/subscriptions/enrichment/request_handler） | `tests/test_bloomberg_adapter_routing.py` + `tests/test_bloomberg_adapter_refdata.py` |
+| 基准计算 | `services/benchmark_engine.py` | `tests/test_benchmark_engine.py` |
+| 健康检查 | `GET /api/health`（`routers/connection.py`，检查 Bloomberg + DB 状态） | 启动后 `curl <API_BASE_URL>/api/health` |
 
 **不做什么**：不写分析库（分析库由 EMSXDataPipeline 独占写入）；订单/路由持久化仅经 `ENABLE_DB_PERSISTENCE` 门控写入 PostgreSQL（未启用时内存 fallback）；不承担 TCA 计算（读取方是 CostView）。
 
 ### 4.2 CostView（`CostView/`）— Beta
 
-**定位**：盘后 TCA 分析与券商推荐（只读消费者）。**入口**：`CostView/api/main.py`（`<COSTVIEW_PORT>`，默认 8002）；单进程合并模式下经 backend `_register_optional` 加载。前端入口见 §6。
+**定位**：盘后 TCA 分析与券商推荐（只读消费者）。**入口**：`CostView/api/main.py`（`<COSTVIEW_PORT>`，默认 8002）；可选经 backend `_register_optional` 桥接进 core 进程。前端入口见 §6。
 
 **已实现能力**（能力 → 入口 → 验证）：
 
 | 能力 | 入口 | 验证 |
 |------|------|------|
-| TCA 分析查询（route 级，读 `tca_route_summary` 预计算表） | `POST /api/tca/analyze`（`CostView/api/routers/costview.py:143`） | `tests/test_tca_query_service.py`（27 用例） |
-| TCA 订单聚合查询（`TCA_ORDER_AGG_ENABLED` 默认关闭） | `POST /api/tca/analyze-orders`（`costview.py:215`） | `tests/test_order_aggregation.py`（9） |
-| 券商/策略 cohort scorecard | `POST /api/tca/scorecard`（`costview.py:314`） | `tests/test_tca_query_service.py` |
-| 券商推荐 pin（写入 handoff 供 ExecutionView 读取） | `POST /api/tca/recommendations/pin`（`costview.py:396`） | ExecutionView 侧 `GET /api/broker-recommendations` 消费 |
-| Post-trade handoff 查看 | `GET /api/tca/handoff/post-trade/{order_id}`（`costview.py:442`） | 契约见 docs/schema-contract.md Contract 3 |
-| Regime 分布查询 | `GET /api/costview/regime-distribution`（`costview.py:584`） | 运行时验证 |
-| TCA 数据新鲜度 | `GET /api/tca/data-freshness`（`costview.py:491`） | `tests/test_data_freshness.py`（11） |
-| 可见能力清单（区间 / 维度 / 指标） | `GET /api/tca/capabilities`（`costview.py:545`） | `tests/test_cli_entrypoint.py` 间接覆盖入口一致性 |
-| BDIB 数据健康扫描 / 指标覆盖率 / 报告聚合 / 异常阈值 | `GET /api/tca/monitoring/{bdib-health,metric-coverage,report-summary,anomaly-thresholds}`（`monitoring.py:151/187/225/269`） | `tests/test_monitoring.py`（57 用例） |
-| 自包含 HTML 报告导出（含降级逻辑，见 §8） | `GET /api/tca/monitoring/export-html`（`monitoring.py:288`） | `tests/test_monitoring.py` + `tests/test_report_metrics.py`（105 用例） |
+| TCA 分析查询（route 级，读 `tca_route_summary` 预计算表） | `POST /api/tca/analyze`（`CostView/api/routers/costview.py`） | `tests/test_tca_query_service.py` |
+| TCA 订单聚合查询（`TCA_ORDER_AGG_ENABLED` 默认开启，置 `0` 显式降级） | `POST /api/tca/analyze-orders` | `tests/test_order_aggregation.py` |
+| 券商/策略 cohort scorecard | `POST /api/tca/scorecard` | `tests/test_tca_query_service.py` |
+| 算法执行质量综合评估（分层比较 / 趋势 / 风险 / 可信度披露，`TCA_EVAL_ENABLED` 默认开启） | `POST /api/tca/evaluation/report` | `tests/`（评估层 `src/evaluation/`） |
+| 券商推荐 pin（写入 handoff 供 ExecutionView 读取） | `POST /api/tca/recommendations/pin` | ExecutionView 侧 `GET /api/broker-recommendations` 消费 |
+| Post-trade handoff 查看 | `GET /api/tca/handoff/post-trade/{order_id}` | 契约见 docs/schema-contract.md Contract 3 |
+| Regime 分布查询 | `GET /api/costview/regime-distribution` | 运行时验证 |
+| TCA 数据新鲜度 | `GET /api/tca/data-freshness` | `tests/test_data_freshness.py` |
+| 可见能力清单（区间 / 维度 / 指标） | `GET /api/tca/capabilities` | `tests/test_cli_entrypoint.py` 间接覆盖入口一致性 |
+| BDIB 健康扫描 / 指标覆盖率 / 报告聚合 / 异常阈值 | `GET /api/tca/monitoring/{bdib-health,metric-coverage,report-summary,anomaly-thresholds}`（`monitoring.py`） | `tests/test_monitoring.py` |
+| 自包含 HTML 报告导出（含降级逻辑，见 §8） | `GET /api/tca/monitoring/export-html` | `tests/test_monitoring.py` + `tests/test_report_metrics.py` |
 | 查询缓存（Redis，连接失败自动降级直查） | `src/tca_cache.py` | 降级行为见 §8 |
-| 只读查询 CLI（盘后巡检 / CI） | `python -m CostView.src --query <fills\|raw-fills\|log\|order-log\|orders\|tickers\|summary>`（`src/__main__.py`） | `tests/test_cli_entrypoint.py`（3 用例） |
+| 只读查询 CLI（盘后巡检 / CI） | `python -m CostView.src --query <fills\|raw-fills\|log\|order-log\|orders\|tickers\|summary>`（`src/__main__.py`） | `tests/test_cli_entrypoint.py` |
 
 **已知欠缺 / 规划中**：
-- **黄金样本回归需冻结快照**：基线由 `CostView/scripts/gen_golden.py` 生成（`tests/golden/*.json`），运行需 `EMSXVIEW_GOLDEN_DATA_DIR` 指向与基线同源的冻结数据快照目录（含 `fill_bdib.db`，只读）；缺基线或快照时整组自动 skip（不影响常规 CI）。
-- **覆盖率统计**：`CostView/pyproject.toml` 已配置 pytest + coverage（`--cov=CostView/src --cov=CostView/api` 可出 `term-missing` 报告），但**未设 `--cov-fail-under` 门槛**，故覆盖率仍属"未量化"。
+- **黄金样本回归**：基线 `CostView/tests/golden/*.json` 由 `CostView/scripts/gen_golden.py` 生成，冻结快照 `tests/golden/snapshot/fill_bdib.db` 随基线入库（CI 自包含）；`EMSXVIEW_GOLDEN_DATA_DIR` 可用于指向其他同源快照。缺基线时整组自动 skip。
+- **覆盖率统计**：`CostView/pyproject.toml` 已配置 pytest + coverage，但**未设 `--cov-fail-under` 门槛**，故覆盖率仍属"未量化"。
 
 **不做什么（职责边界）**：
 - **不触发 ETL**：数据更新唯一写入方是独立仓库 EMSXDataPipeline；触发链路见 §3.2。
@@ -283,54 +262,54 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 | 能力 | 入口 | 验证 |
 |------|------|------|
-| 市场快照 API（收盘价、波动率、成交量、ADV） | `GET /api/marketview/snapshot`（`routers/marketview.py:146`） | `backend/api/tests/test_marketview_router.py`（2 用例，合并模式挂载） |
-| 盘中特征数据 | `GET /api/marketview/intraday-features`（`marketview.py:341`） | 同上 |
-| Handoff 发布（Market → Execution） | `POST /api/marketview/handoff/execution`（`marketview.py:457`） | 同上 |
+| 市场快照 API（收盘价、波动率、成交量、ADV） | `GET /api/marketview/snapshot`（`routers/marketview.py`） | `MarketView/tests/test_marketview_router.py` |
+| 盘中特征数据 | `GET /api/marketview/intraday-features` | 同上 |
+| Handoff 发布（Market → Execution） | `POST /api/marketview/handoff/execution` | 同上 |
 
-**未实现清单**（Scaffold 定级依据）：策略分析、选券支持、独立测试目录（`MarketView/` 无自身 tests/）、SLA/运维文档。
+**未实现清单**（Scaffold 定级依据）：策略分析、选券支持、SLA/运维文档。
 
 ### 4.4 frontend/（React 壳）— Beta
 
-- **Technology:** React 19.2, TypeScript 5.9, Vite 7.2, Tailwind CSS 3.4, shadcn/ui, Recharts 2.15
-- **Architecture:** Module Registry 模式——各模块经 `moduleRegistry.register()` 自注册（id / label / order / lazy component），壳动态发现，不硬编码模块路径。
+- **Technology:** React 19.2, TypeScript 5.9, Vite 7, Tailwind CSS 3.4, shadcn/ui, Recharts 2.15
+- **Architecture:** Module Registry 模式——各模块经 `moduleRegistry.register()` 自注册（id / label / order / lazy component），壳动态发现，不硬编码模块路径（`frontend/src/shared/lib/module-registry.ts`）。
 - **模块注册**：`execution`（order 0，默认，WS `/ws/orders`）、`marketview`（order 10）、`costview`（order 20）。
-- **验证**：`npm test`（23 个测试文件）；`npm run lint`（壳层/共享层）+ `npm run lint:modules`（三业务模块）—— 两者自 2026-09-16 起均为 CI 硬阻断。
+- **验证**：`npm test`（25 个测试文件）；`npm run lint`（壳层/共享层）+ `npm run lint:modules`（三业务模块）—— 两者自 2026-09-16 起均为 CI 硬阻断。
 
 ### 4.5 data_access/（只读数据访问层）— Beta
 
 - **Entry Point:** `data_access.config.Config` + `data_access.ConnectionManager`（仅 READ tier；WRITE/admin 请求被拒绝）。
-- **配置唯一来源**：数据根解析优先级 `${EMSXVIEW_DATA_DIR}` 环境变量 > 默认 `D:\db`（`Config.DEFAULT_DATA_DIR`）；库/表常量全部在 `data_access/config.py`，与他仓共享的数据契约由契约测试锁定。
+- **配置唯一来源**：数据根解析优先级 `${EMSXVIEW_DATA_DIR}` 环境变量 > `Config.DEFAULT_DATA_DIR`；库/表常量全部在 `data_access/config.py`，与他仓共享的数据契约由契约测试锁定。
 - **验证**：`python -c "from data_access import ConnectionManager, Config; print(Config.DATA_DIR)"`。
 - **不做什么**：永不写入；禁止其余模块硬编码库路径/表名。
 
 ### 4.6 platform_data/（跨模块共享适配层）— Beta（部分规划中）
 
-- **已实现**：`HandoffAdapter`（内存/Redis 交换器，§3.1）、`TcaBridge`（TCA 服务注册路由）、`MarketReferenceDataAdapter`、7 个契约文件、`ConnectionManagerProtocol`/`ConfigProtocol`。
+- **已实现**：`HandoffAdapter`（内存/Redis 交换器，§3.1）、`TcaBridge`（TCA 服务注册路由）、`MarketReferenceDataAdapter`、契约文件、`ConnectionManagerProtocol`/`ConfigProtocol`。
 - **规划中（未实现，禁止按符号 import）**：`CostViewAnalyticsAdapter`、`CostViewDatabaseAdapter`、`ExecutionHistoryAdapter`、`DataPlatformIngestionAdapter`、`build_platform_data_access()`——现状与恢复计划见 [ADR-0013](./docs/spec/adr/0013-platform-data-adapter-current-state.md)。
 
 ---
 
 ## 5. 数据层（规模实测 · 选型理由 · 已知瓶颈）
 
-### 5.1 数据存储规模（实测 2026-09-11，数据根 `${EMSXVIEW_DATA_DIR}`）
+### 5.1 数据存储规模（实测 2026-10-20，数据根 `${EMSXVIEW_DATA_DIR}`）
 
 | 数据库 | 大小 | 用途 |
 |--------|------|------|
-| `raw_bdib.db` | 88.8 GB | 原始 BDIB 分钟 bars |
-| `raw_fills.db` | 7.3 GB | 原始成交 |
-| `execution_history.db` | 6.3 GB | 执行历史（orders/routes/route_events） |
-| `processed_fills.db` | 5.7 GB | 清洗后成交 |
-| `regime.db` | 4.7 GB | Regime 分类 + 归因 |
-| `fill_bdib.db` | 1.6 GB | 成交+BDIB 整合（含 `tca_route_summary` 预计算表） |
-| `ticker_registry.db` | 27 MB | Ticker 注册 |
+| `raw_bdib.db` | 101.80 GB | 原始 BDIB 分钟 bars |
+| `raw_fills.db` | 7.15 GB | 原始成交 |
+| `execution_history.db` | 6.54 GB | 执行历史（orders/routes/route_events） |
+| `processed_fills.db` | 5.98 GB | 清洗后成交 |
+| `regime.db` | 4.57 GB | Regime 分类 + 归因 |
+| `fill_bdib.db` | 1.78 GB | 成交+BDIB 整合（含 `tca_route_summary` 预计算表） |
+| `ticker_registry.db` | 0.03 GB | Ticker 注册 |
 | `fill_fetch_history.db` / `bdib_fetch_history.db` | <1 MB | 拉取审计 |
-| `processed_raw_bdib.db` | 已退役（`PROCESSED_RAW_BDIB_ENABLED=0`，观察期通过 2026-06-15） | — |
-| **合计** | **约 114 GB** | 10 个库键定义见 `data_access/config.py` |
+| `processed_raw_bdib.db` | 0 GB（已退役） | 仅保留空库文件，写入开关在管道侧 |
+| **合计** | **约 127.8 GB** | 10 个库键定义见 `data_access/config.py` |
 
 ### 5.2 选型理由与已知瓶颈
 
 - **选型**：SQLite（`mode=ro` URI + WAL + busy timeout 30s，`Config.SQLITE_BUSY_TIMEOUT_MS=30_000`）。理由：单一写入方（EMSXDataPipeline 串行日更）+ 本仓库纯读的分析负载，SQLite 免运维、零部署成本；TCA 路由级指标从 `tca_route_summary` **预计算表**读取（查询时禁止实时聚合），将热路径压到单表索引查询。
-- **已知瓶颈（如实标注）**：① SQLite 单写者模型——若未来多写入方并发则不适用；② `raw_bdib.db` 近 90 GB，全量扫描类查询（如报告导出的 BDIB 缺口附录）耗时长，已有超时降级保护（§8）；③ `MAX_PARALLEL_DATES/TICKERS=1`，管道吞吐为串行；④ 无并发用户数上限控制，多用户同时重查询未做排队。
+- **已知瓶颈（如实标注）**：① SQLite 单写者模型——若未来多写入方并发则不适用；② `raw_bdib.db` 超 100 GB，全量扫描类查询（如报告导出的 BDIB 缺口附录）耗时长，已有超时降级保护（§8）；③ `MAX_PARALLEL_DATES/TICKERS=1`，管道吞吐为串行；④ 无并发用户数上限控制，多用户同时重查询未做排队。
 - **写路径归属**：数据刷新/维护由独立仓库 EMSXDataPipeline Runner（`POST /run`、`GET /status`）执行；触发链见 §3.2。本仓库任何代码不得写入上述库。
 
 ---
@@ -350,7 +329,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend Shell** | React 19.2, TypeScript 5.9, Vite 7.2 |
+| **Frontend Shell** | React 19.2, TypeScript 5.9, Vite 7.x |
 | **UI Framework** | Tailwind CSS 3.4, shadcn/ui (Radix UI primitives) |
 | **Visualization** | Recharts 2.15 |
 | **State Management** | React Context + Zustand（stream stores） |
@@ -359,23 +338,22 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 | **ORM** | SQLAlchemy 2.x |
 | **Authentication** | JWT (PyJWT, passlib) |
 | **Real-time** | WebSocket (FastAPI + browser native) |
-| **Data Processing** | pandas, numpy |
+| **Data Processing** | pandas, numpy, scipy |
 | **Operational DB** | PostgreSQL（可选，订单/路由持久化，gate `ENABLE_DB_PERSISTENCE`） |
-| **Analytical DB** | SQLite（`${EMSXVIEW_DATA_DIR}` 下 10 库，实测合计约 114 GB，见 §5.1） |
+| **Analytical DB** | SQLite（`${EMSXVIEW_DATA_DIR}` 下 10 库，实测合计约 127.8 GB，见 §5.1） |
 | **Cache & Messaging** | Redis 7（可选：handoff 微服务模式 + CostView 查询缓存） |
 | **Reverse Proxy** | Nginx 1.27 |
-| **Monitoring** | Prometheus + Grafana (optional profile) |
-| **Containerization** | Docker Compose (8 services) |
+| **Monitoring** | Prometheus + Grafana（optional `monitoring` profile） |
+| **Containerization** | Docker Compose（6 服务） |
 
 ### Python Package Dependencies
 
 ```
 emsxview-platform-data   ← pydantic, python-dateutil
-emsxview-costview        ← pydantic, pandas, emsxview-platform-data
+emsxview-costview        ← pydantic, pandas, scipy, emsxview-platform-data
 ```
 
-> 2026-09-15 起 CostView 的运行依赖统一由 `CostView/pyproject.toml` 声明（`pandas` 已显式列出，此前依赖已删除的 `CostView/requirements.txt` 隐式提供；`emsxview-datapipeline` 残留声明已于 2026-09-16 移除）。
-> `data_access/` 是仓库内模块（非独立 pip 包）；原 `emsxview-datapipeline` 包已随 010-extract-pipeline 迁出至独立仓库 EMSXDataPipeline。
+> CostView 的运行依赖统一由 `CostView/pyproject.toml` 声明；`data_access/` 是仓库内模块（非独立 pip 包）；原 `emsxview-datapipeline` 包已随 010-extract-pipeline 迁出至独立仓库 EMSXDataPipeline。
 
 ---
 
@@ -385,15 +363,15 @@ emsxview-costview        ← pydantic, pandas, emsxview-platform-data
 
 | 触发条件 | 降级行为 | 用户感知方式 |
 |----------|----------|--------------|
-| `fill_bdib.db` 文件缺失 | TCA 查询/时序查询返回**空结果**（`tca_query_builder.py:62,133` 捕获 `FileNotFoundError`） | 响应为空页/空时序 + WARNING 日志 |
-| 分析库任一文件/表缺失 | 可用性探测降级为 `False`（`tca_query_service.py:86`） | API 返回空数据 + WARNING 日志 |
-| 报告导出时 BDIB 健康扫描超时/异常 | 附录降级为**跳过**，报告主体照常生成（`monitoring/bdib_health.py:327-357`，守护线程 + 超时控制） | 导出的 HTML 缺 BDIB 缺口附录 + WARNING 日志 `BDIB 健康查询超时…导出附录降级跳过` |
+| `fill_bdib.db` 文件缺失 | TCA 查询/时序查询返回**空结果**（`tca_query_builder.py` 捕获 `FileNotFoundError`） | 响应为空页/空时序 + WARNING 日志 |
+| 分析库任一文件/表缺失 | 可用性探测降级为 `False`（`tca_query_service.py`） | API 返回空数据 + WARNING 日志 |
+| 报告导出时 BDIB 健康扫描超时/异常 | 附录降级为**跳过**，报告主体照常生成（`monitoring/bdib_health.py`，守护线程 + 超时控制） | 导出的 HTML 缺 BDIB 缺口附录 + WARNING 日志 |
 | CostView 查询缓存 Redis 连接失败 | 降级为**直连查询**（`tca_cache.py` get/set 处 try/except） | 响应变慢，无数据差异 |
 | Bloomberg 会话未连接 / DB 断开 | `GET /api/health` 返回 `success=false` + 组件状态串 | 健康检查响应 + `bloomberg=..., database=...` 消息 |
 | `ENABLE_DB_PERSISTENCE=false` | RepositoryProvider 回退**内存存储**（重启即失） | 无持久化，重启数据丢失 |
 | 数据管道 Runner 不可达 / 已在运行 | 代理返回失败 / `pipeline already running`（§3.2） | `ApiResponse.error` 字段 |
-
-> 历史说明：`tca_fallback.py`（独立降级模块）**已删除**，其职责由上述各查询层内置的空结果降级取代；旧文档若仍引用该文件即为过时。
+| `TCA_ORDER_AGG_ENABLED=0` | `/api/tca/analyze-orders` 返回**空列表** | 订单聚合页无数据 + `capabilities` 端点可见开关状态 |
+| `TCA_EVAL_ENABLED=0` | `/api/tca/evaluation/report` 返回 `enabled=false` 的**显式不可用**（不回退到未校验的均值比较） | 评估页提示「评估层未启用」 |
 
 **精度损失声明**：上述降级均为"缺数据 → 空结果/缺附录"，**不存在静默的数值精度替换**；报告口径的固有缺口（非降级、属数据源硬缺口）见 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md)。
 
@@ -417,10 +395,10 @@ Service URLs (`<host>` defaults to `localhost`):
 | Service | URL | Default | Override env var |
 |---------|-----|---------|------------------|
 | Frontend (dev) | `http://<host>:<FRONTEND_PORT>` | `http://localhost:5173` | `npm run dev -- --port <FRONTEND_PORT>` |
-| Core Backend | `<API_BASE_URL>` | `http://localhost:3000` | `API_PORT` |
+| Core Backend | `<API_BASE_URL>` | `http://localhost:3000` | `API_HOST`、`API_PORT` |
 | API Docs (Swagger) | `<API_BASE_URL>/docs` | `http://localhost:3000/docs` | `API_PORT` |
-| MarketView | `<MARKETVIEW_BASE_URL>/docs` | `http://localhost:8001/docs` | `MARKETVIEW_PORT` |
-| CostView | `<COSTVIEW_BASE_URL>/docs` | `http://localhost:8002/docs` | `COSTVIEW_PORT` |
+| MarketView | `<MARKETVIEW_BASE_URL>/docs` | `http://localhost:8001/docs` | `MARKETVIEW_HOST`、`MARKETVIEW_PORT` |
+| CostView | `<COSTVIEW_BASE_URL>/docs` | `http://localhost:8002/docs` | `COSTVIEW_HOST`、`COSTVIEW_PORT` |
 | Health Check | `<API_BASE_URL>/api/health` | `http://localhost:3000/api/health` | `API_PORT` |
 
 ### Prerequisites
@@ -443,10 +421,10 @@ npm run dev                     # Dev server on http://<host>:<FRONTEND_PORT> (d
 npm run build                   # Production build → frontend/dist/
 npm run typecheck               # tsc -b
 npm run lint                    # ESLint（frontend/）
-npm run lint:modules            # ESLint（frontend 之外的根级模块源码，如 ExecutionView）
+npm run lint:modules            # ESLint（frontend 之外的根级模块源码）
 npm test                        # vitest run（含 ExecutionView 用例）
 
-# Standalone module builds（产物在 frontend/dist-modules/，与主应用 frontend/dist/ 分离，互不覆盖）
+# Standalone module builds（产物在 frontend/dist-modules/，与主应用 frontend/dist/ 分离）
 npm run build:execution         # → frontend/dist-modules/execution/
 npm run build:costview          # → frontend/dist-modules/costview/
 npm run build:all-modules       # 全部模块 SPA
@@ -460,8 +438,6 @@ Environment variables (`frontend/.env`):
 |------|------|--------|----------|
 | `VITE_API_URL` | Backend 基址（如 `http://<host>:<API_PORT>`）；**留空 = mock / 无后端模式** | 空 | 否（接真实后端时必设） |
 
-> 旧文档中的 `VITE_USE_MOCK` 已失效：`frontend/` 源码无任何消费点（2026-09-11 全仓 grep 核实），mock 行为实际由 `VITE_API_URL` 是否为空决定。
-
 ### Backend Development (Core)
 
 ```bash
@@ -472,7 +448,7 @@ pip install -r requirements.txt          # Includes -e ../../platform_data
 set EMSXVIEW_OPTIONAL_MODULES=costview:CostView
 python main.py                           # Starts on <API_PORT> (default 3000)
 
-# Run tests（约 180 个测试函数）
+# Run tests（47 个测试文件 / 239 个测试函数）
 pytest
 ```
 
@@ -481,13 +457,13 @@ Environment variables (`backend/.env`；默认值权威来源 `backend/api/confi
 | 名称 | 作用 | 默认值 | 是否必填 |
 |------|------|--------|----------|
 | `BLOOMBERG_HOST` / `BLOOMBERG_PORT` | Bloomberg SAPI 连接 | `localhost` / `8194` | 否（实盘需指向终端） |
-| `JWT_SECRET` | JWT 签名密钥 | 空 | **是**（未设 `BYPASS_AUTH=true` 时启动即报错，`config.py` `_validate_settings`） |
+| `JWT_SECRET` | JWT 签名密钥 | 空 | **是**（未设 `BYPASS_AUTH=true` 时启动即报错） |
 | `EMSXVIEW_OPTIONAL_MODULES` | 可选路由桥接清单（`*`/`all` 加载全部；置空禁用；§1 Deployment Modes） | `costview:CostView` | 否 |
 | `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory`/`redis`，语义见 §3.1） | `memory` | 否 |
+| `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 查询缓存） | `redis://localhost:6379/0` | 否 |
 | `ENABLE_DB_PERSISTENCE` | PostgreSQL 订单/路由持久化开关（`false` 时内存 fallback，§8） | `false` | 否 |
 | `ALLOWED_ORIGINS` | CORS 允许的前端来源（逗号分隔） | `http://localhost:5173,http://localhost:80` | 否 |
-
-> 旧文档中的 `CORS_ORIGINS` 为错误变量名——实际是 `ALLOWED_ORIGINS`（`backend/api/config.py:40`）；`EMSXVIEW_MERGE_MODULES` 无消费点（§1）。
+| `EMSXVIEW_RUNNER_URL` | 数据管道 Runner 地址（代理目标，§3.2） | `http://127.0.0.1:8100` | 否 |
 
 ### Microservice Backends
 
@@ -500,8 +476,8 @@ python main.py
 # CostView standalone (<COSTVIEW_PORT>, no Bloomberg)
 cd <repo-root>
 pip install -e CostView
+pip install -r CostView/api/requirements.txt
 cd CostView/api
-pip install -r requirements.txt
 python main.py
 ```
 
@@ -510,7 +486,7 @@ python main.py
 EMSXView 通过 `data_access/` 只读消费分析库；写入由独立仓库 EMSXDataPipeline 执行。
 
 ```bash
-# 数据根解析优先级：${EMSXVIEW_DATA_DIR} > data_access.config.Config.DEFAULT_DATA_DIR (默认 D:\db)
+# 数据根解析优先级：${EMSXVIEW_DATA_DIR} > data_access.config.Config.DEFAULT_DATA_DIR
 # Windows (cmd)
 set EMSXVIEW_DATA_DIR=<data-dir>
 # Windows (PowerShell)
@@ -521,7 +497,7 @@ export EMSXVIEW_DATA_DIR=<data-dir>
 # 只读连接自检（READ tier；任何写请求会被拒绝）
 python -c "from data_access import ConnectionManager, Config; print(Config.DATA_DIR)"
 
-# Run CostView tests（7 个测试文件 / 213 个测试函数；golden 回归无基线/快照时自动 skip）
+# Run CostView tests（10 个测试文件 / 305 个测试函数；golden 快照随基线入库）
 python -m pytest CostView/tests/
 
 # CostView 只读查询 CLI（盘后巡检 / CI）
@@ -544,7 +520,7 @@ docker compose -f docker-compose.host.yml up -d
 docker compose --profile monitoring up -d
 ```
 
-Docker Compose services (compose 内端口可通过 `.env` 覆盖宿主映射；容器内端口由对应服务配置决定):
+Docker Compose services (compose 内端口可通过 `.env` 覆盖宿主映射):
 | Service | Container port | Host mapping | Purpose | Override env var |
 |---------|----------------|--------------|---------|------------------|
 | backend | `<API_PORT>` (3000) | 未默认映射（经 Nginx 反代） | FastAPI core | `API_PORT` |
@@ -562,16 +538,17 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 
 | Document | Purpose |
 |----------|---------|
+| [AGENTS.md](./AGENTS.md) | **Agent 入口 + 项目总览**（工作流、编码约定、构建与验证、已失效声明） |
 | [QUICKSTART.md](./QUICKSTART.md) | One-command Windows service launcher |
-| [CODEBUDDY.md](./CODEBUDDY.md) | Agent guidance with build/test commands |
 | [docs/index.md](./docs/index.md) | 文档导航（§7 占位符约定） |
-| [docs/api-contracts.md](./docs/api-contracts.md) | 前后端 API 契约（§4 端点总览、§5.1–5.9 各 Router 详述、§8 错误码规范） |
-| [docs/schema-contract.md](./docs/schema-contract.md) | 跨模块 TS↔Python 类型契约（Contract 1 HandoffMetadata、Contract 2 MV→EV、Contract 3 EV→CV、Contract 4 CV→EV recommendation） |
+| [docs/api-contracts.md](./docs/api-contracts.md) | 前后端 API 契约（端点总览、各 Router 详述、错误码规范） |
+| [docs/schema-contract.md](./docs/schema-contract.md) | 跨模块 TS↔Python 类型契约（Contract 1–4） |
 | [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | TCA 报告口径缺陷清单（§一 硬缺口 / §三 口径脚注） |
 | [docs/spec/project-structure.md](./docs/spec/project-structure.md) | Canonical architecture reference |
 | [docs/spec/data-domain.md](./docs/spec/data-domain.md) | Logical data domain design |
 | [docs/spec/memory.md](./docs/spec/memory.md) | Architecture memory & constraints |
-| [docs/spec/adr/](./docs/spec/adr/) | ADR 0001–0017 + 0700（0013 platform_data 现状 / 0014 dead-code cleanup） |
+| [docs/spec/anti-patterns.md](./docs/spec/anti-patterns.md) | 禁止模式清单（AP-01~） |
+| [docs/spec/adr/](./docs/spec/adr/) | ADR 0001–0021 + 0700（0013 platform_data 现状 / 0014 dead-code cleanup） |
 | [docs/dev-guide.md](./docs/dev-guide.md) | Developer guide |
 | [docs/ops/service-management.md](./docs/ops/service-management.md) | Service operations & troubleshooting |
 | [backend/README.md](./backend/README.md) | Backend production deployment guide |
@@ -579,7 +556,7 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 | [MarketView/README.md](./MarketView/README.md) | MarketView 模块细节 |
 | [scripts/README.md](./scripts/README.md) | Automation scripts reference |
 
-> 文档主从关系（原则：主 README 可独立回答"模块是什么"）：§4 已给出各模块最小完整描述；上述子文档仅作深入补充。
+> 文档主从关系：`AGENTS.md` 为 Agent 视角的单一事实源；本 README 面向人类读者给出概览与可验证证据；上述子文档仅作深入补充。
 
 ---
 
@@ -587,17 +564,14 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 
 | 日期 | 变更 | 影响模块 | 依据 |
 |------|------|----------|------|
-| 2026-08-26 | 清理一次性历史件与 legacy 前端（handoff/migration-baseline/architecture-analysis-report、`CostView/frontend/` legacy-costview-frontend 等） | CostView（前端入口收敛至 `frontend/src/modules/costview/`，见 §6）、docs | [ADR-0014](./docs/spec/adr/0014-dead-code-cleanup.md) |
-| 2026-09-02 | `CostView/data/` 历史数据迁移至 `${EMSXVIEW_DATA_DIR}`（目录归档为 `CostView/data.migrated.202609022339/`） | CostView、data_access | 数据根唯一来源 `data_access/config.py` |
-| 2026-09-11 | 本 README 全面审计重写：成熟度分级、能力"已实现/规划中"二分、数据流时序语义、数据规模实测、降级路径、CLI 失效标注；删除 `tca_fallback.py` 引用（文件已不存在）、删除 "production-ready"/"enterprise-grade"/"canonical" 无判据标注 | 全部模块 | 静态代码审计 + 数据目录实测（验证方式见页脚） |
-| 2026-09-11 | 修正 Deployment Modes：`EMSXVIEW_MERGE_MODULES` 已失效（backend 无消费点），实际机制为 `EMSXVIEW_OPTIONAL_MODULES`（默认仅桥接 costview）；MarketView 无单进程合并路径 | backend、CostView、README 相关章节 | `backend/api/main.py:276` + `config.py:96` + 全仓 grep |
-| 2026-09-11 | CostView CLI 入口恢复（`src/__main__.py`，argparse 包装 `QueryEngine`，退出码 0/2/3）+ 黄金样本回归（`scripts/gen_golden.py` 基线 + `tests/test_golden_samples.py`）、数据新鲜度、CLI 入口测试落地；测试增至 118 个函数（7 文件）。README 同步：CLI 用法、成熟度表、环境变量表格化；修正 `CORS_ORIGINS`→`ALLOWED_ORIGINS`、标注 `VITE_USE_MOCK` 失效 | CostView、frontend 文档、README | `CostView/src/__main__.py` + `CostView/tests/`（工作区变更）+ `backend/api/config.py:40` + 全仓 grep |
-
-| 2026-09-15 | CostView 冗余清理（第一刀）：删除 FillFetch/Bloomberg 遗产文件（`.env.example`、`requirements.txt`、`src/secure_config.py`、`examples/`、`tests/test_secure_config.py`），并将 `pandas` 补入 `pyproject.toml` 运行时依赖（此前靠已删除的 requirements.txt 隐式提供）；同时移除 `api/routers/costview.py` 中 trigger-update 端点的死模型（`TriggerUpdateResponse` / `StageInfo` / `UpdateStatusResponse` / `_LOCALHOST_HOSTS`）与失效 docstring | CostView、README、docs/spec | 全仓 grep 零引用 + `python -m pytest CostView/tests/` 实测（清理前 234 → 清理后 217 passed，差值即被删的 17 个 secure_config 测试） |
-| 2026-09-15 | 文档去漂移：CostView 成熟度论据与测试计数刷新（7 文件 / 211 函数 / 217 用例 / 13 端点），端点表补齐 `data-freshness` 与 `capabilities`，修正 `api/main.py` 失效的 `--host 0.0.0.0` 示例（与安全整改的默认回环绑定矛盾），全仓 CostView 端点行号按源码重锚 | CostView/README.md、README、docs/spec/{project-structure,data-domain}.md | Select-String 端点行号 + pytest 实测计数 |
-| 2026-09-16 | 删除本地留证目录 `CostView/data.migrated.202609022339/`（约 145 GB，git 从未跟踪），释放磁盘；确认双仓数据根均指向 `D:\db` 后执行，完成 [docs/archive/2026-09-21/010-extract-pipeline](./docs/archive/2026-09-21/010-extract-pipeline/plan.md) TODO-1。迁移路径提示：按旧 `CostView/requirements.txt` 建的环境重装时改用 `pip install -e CostView` + `pip install -r CostView/api/requirements.txt`（pandas 已由 pyproject.toml 声明） | CostView、docs/archive/2026-09-21/010-extract-pipeline、docs/spec/project-structure.md | `Config.DATA_DIR` 与 `EMSXVIEW_DATA_DIR` 实测一致（`D:\db` 且目录存在）+ 目录体量实测 145.36 GB |
+| 2026-08-26 | 清理一次性历史件与 legacy 前端（handoff/migration-baseline/architecture-analysis-report、`CostView/frontend/` 等）；CostView 前端入口此后进一步迁至仓库根级 `CostView/module/` | CostView（前端入口收敛，见 §6）、docs | [ADR-0014](./docs/spec/adr/0014-dead-code-cleanup.md) |
+| 2026-09-02 | `CostView/data/` 历史数据迁移至 `${EMSXVIEW_DATA_DIR}` | CostView、data_access | 数据根唯一来源 `data_access/config.py` |
+| 2026-09-11 | README 全面审计重写：成熟度分级、能力"已实现/规划中"二分、数据流时序语义、数据规模实测、降级路径、CLI 失效标注 | 全部模块 | 静态代码审计 + 数据目录实测 |
+| 2026-09-15 | CostView 冗余清理（删除 FillFetch/Bloomberg 遗产文件与 `requirements.txt`，`pandas` 补入 `pyproject.toml`）；文档去漂移（测试计数、端点表、行号重锚） | CostView、README、docs/spec | 全仓 grep 零引用 + pytest 实测 |
+| 2026-09-16 | 删除本地留证目录 `CostView/data.migrated.202609022339/`（约 145 GB），完成 010-extract-pipeline TODO-1 | CostView、docs/spec | 数据根实测一致 |
+| 2026-10-20 | **文档合并**：`README.md` 的项目总览与 `CODEBUDDY.md` 的 Agent 规范合并进 `AGENTS.md`（`CODEBUDDY.md` 转为 hook 同步副本）；README 精简为人类首页并刷新事实（10 个核心路由、CostView 14 端点、`TCA_ORDER_AGG_ENABLED`/`TCA_EVAL_ENABLED` 默认开启、MarketView 已有测试目录、Redis handoff 三通道 7 天 TTL、golden 快照入库、数据合计 127.8 GB、Compose 6 服务、测试计数 239/305/25） | 全仓库文档 | 静态代码核对 + 端点枚举 + `${EMSXVIEW_DATA_DIR}` 实测 + 测试函数计数 |
 
 ---
 
-**Last updated**: 2026-09-15
-**Last verified**: 2026-09-11（验证人：AI 代码审计；验证方式：静态代码审计 + 端点清单提取 + `${EMSXVIEW_DATA_DIR}` 文件大小实测 + 测试函数计数。**未做运行时验证**——服务启动、端点实际响应与查询延迟未在本审计中测量。）
+**Last updated**: 2026-10-20
+**Last verified**: 2026-10-20（验证方式：静态代码审计 + 端点清单提取 + `${EMSXVIEW_DATA_DIR}` 文件大小实测 + 测试函数计数。**未做运行时验证**——服务启动、端点实际响应与查询延迟未在本审计中测量。）
