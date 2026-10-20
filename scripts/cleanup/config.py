@@ -61,7 +61,7 @@ RULE_TITLES: dict[str, str] = {
 DEAD_FILE_EXEMPT: set[str] = {
     # ADR-0013 声明的「规划中、尚未接线」的平台数据契约（5 个 ABC + DataAccessFactory）：
     # 其实现（CostViewAnalyticsAdapter / build_platform_data_access 等）尚未落地，
-    # 删除会与 ADR-0013 及 CODEBUDDY.md 的规划声明冲突 —— 待实现落地后重新评估。
+    # 删除会与 ADR-0013 及 AGENTS.md 的规划声明冲突 —— 待实现落地后重新评估。
     "platform_data/contracts/data_access.py",
 }
 

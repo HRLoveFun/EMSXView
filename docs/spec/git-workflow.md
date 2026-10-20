@@ -227,13 +227,13 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
   > `frontend` 与根级模块 `ExecutionView` 共用同一份依赖树。**不要再** `cd frontend && npm install`——
   > 那会在子目录建出第二份依赖树。
 - 需要手动复制的忽略文件：根 `.env`（脚本已自动复制）、`backend/api/.env`、任何子目录级环境文件、本机密钥。
-- `.githooks`（pre-commit：AGENTS.md↔CODEBUDDY.md 同步 + 质量门禁快检）依赖 `core.hookspath=.githooks`——该配置存于共享的 `.git/config`，**新 worktree 自动生效**，无需重新配置。
+- `.githooks`（pre-commit：会话独占锁校验 + 质量门禁快检）依赖 `core.hookspath=.githooks`——该配置存于共享的 `.git/config`，**新 worktree 自动生效**，无需重新配置。
 
 ### 6.4 与既有流程的关系
 
 - **specs 计划体系**：worktree 不替代 `specs/<feature-id>/plan.md` 与 G0–G3 门控；规格任务的 worktree 内应包含对应 specs 目录并在其中推进。
 - **质量门禁**：pre-commit 的 `quality_gate.py --staged`、CI 的 `boundary.yml` / `audit_doc_drift.py` 对每个 worktree 的提交同等生效；hook 自动化全景见 §10。
-- **文档同步门禁**：在 worktree 中编辑 `AGENTS.md` / `CODEBUDDY.md` 时，hook 同步机制照常工作；提交前确保两文件一致（规范源为 `AGENTS.md`）。
+- **规范文档**：`AGENTS.md` 为唯一 Agent 规范源（原 `CODEBUDDY.md` 副本已于 2026-10-20 删除，hook 不再做双份同步）；在 worktree 中直接编辑该文件即可。
 
 ---
 
@@ -289,7 +289,7 @@ VITE_API_URL=http://<host>:3100                 # 前端指向对应后端
 ### hooks 说明
 
 - `core.hookspath=.githooks` 存于共享的 `.git/config`，**所有 worktree 自动生效**，无需任何配置。
-- `pre-commit`（已有；2026-09-15 增加独占锁校验）：**会话独占锁校验**（见下「会话独占锁」）→ `AGENTS.md`↔`CODEBUDDY.md` 同步 → `quality_gate.py --staged` 增量快检（**阻断**）。锁校验置于所有 early return 之前，避免「仅改文档」时门禁被绕过。
+- `pre-commit`（已有；2026-09-15 增加独占锁校验；2026-10-20 移除 AGENTS/CODEBUDDY 同步）：**会话独占锁校验**（见下「会话独占锁」）→ `quality_gate.py --staged` 增量快检（**阻断**）。锁校验置于钩子最前，避免「仅改文档」时门禁被绕过。
 - `commit-msg`（2026-09-15 新增）：拦截 AI 共同作者尾注（`Co-Authored-By: Claude <noreply@anthropic.com>`、`Assisted-By: Copilot` 等，特征词表见 hook 内 `AI_KEYWORDS`）——`Co-Authored-By` 会把 AI 账号计入仓库 Contributors，而清除它必须重写已发布历史 + `push -f`（2026-09-15 已因该尾注改写 77 个提交、丢失 9 个 GitHub 签名）。命中即**阻断提交**并打印命中行号；仅匹配 `co-authored-by:` / `assisted-by:` 尾注行，正文提及 AI 名称不受影响；确需临时放行：`ALLOW_AI_COAUTHOR=true git commit ...`。
 - `post-checkout`：`git worktree add` 时输出新 worktree 就绪清单（依赖 / 端口 / 规范入口）；分支切换导致依赖清单（`package-lock.json` / 各 `requirements.txt`）变化时提示重装。非阻断。
 - `post-merge`：`git pull` / merge 更新依赖清单时提示重装。非阻断。

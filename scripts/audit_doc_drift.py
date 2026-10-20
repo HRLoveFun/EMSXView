@@ -2,8 +2,7 @@
 
 分级模型（2026-08-26 升级）:
 - CORE（退出码 1，CI 硬阻断）: 架构契约类漂移 ——
-  memory.md 的 ADR 索引 / module-boundary.md 边界规则与适配器表 /
-  AGENTS.md ↔ CODEBUDDY.md 同步
+  memory.md 的 ADR 索引 / module-boundary.md 边界规则与适配器表
 - WARN（退出码 0，PR 审查 + 周报跟进）: 非阻断类漂移 ——
   如文档先于代码的「待实现」适配器条目（ADR-0013 认可的合法状态）
 
@@ -11,7 +10,6 @@
 1. docs/spec/adr/ 实际文件 vs docs/spec/memory.md 索引           [CORE]
 2. module.registry.ts 模块 vs module-boundary.md 小节             [CORE]
 3. platform_data/adapters 实际类 vs module-boundary.md §2.3 表格  [CORE 缺失 / WARN 多余]
-4. AGENTS.md vs CODEBUDDY.md 内容一致性                           [CORE]
 
 执行:
   python scripts/audit_doc_drift.py           # 审计模式（CI / 周报共用）
@@ -121,25 +119,6 @@ def get_platform_adapter_doc_classes() -> set[str]:
     return set(re.findall(r"^\|\s*`(\w+Adapter)\s*`", text, flags=re.MULTILINE))
 
 
-def _normalized_text(path: Path) -> str:
-    """读取文本并归一化行尾 (CRLF/LF)。
-
-    pre-commit hook 以 `git show :AGENTS.md > CODEBUDDY.md` 方式写入,
-    工作区两文件可能存在行尾差异, 字节级比较会误报。
-    """
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-
-
-def is_agents_codebuddy_in_sync() -> bool:
-    """AGENTS.md 为规范源；两份内容不一致即核心漂移（hook 未生效时的 CI 兜底）"""
-    ag = REPO_ROOT / "AGENTS.md"
-    cb = REPO_ROOT / "CODEBUDDY.md"
-    if not ag.exists() or not cb.exists():
-        # 文件缺失属结构性问题，不在此判定
-        return True
-    return _normalized_text(ag) == _normalized_text(cb)
-
-
 def main() -> int:
     core_issues: list[str] = []
     warn_issues: list[str] = []
@@ -180,13 +159,6 @@ def main() -> int:
             f"{sorted(extra_adapters)}"
         )
 
-    # 4. AGENTS.md ↔ CODEBUDDY.md 同步 [CORE]
-    if not is_agents_codebuddy_in_sync():
-        core_issues.append(
-            "AGENTS.md 与 CODEBUDDY.md 内容不一致 (规范源为 AGENTS.md; "
-            "请以 AGENTS.md 覆盖 CODEBUDDY.md 或配置 core.hooksPath .githooks)"
-        )
-
     if core_issues:
         print("[FAIL] 核心文档漂移 (CI 硬阻断):")
         for i in core_issues:
@@ -200,7 +172,6 @@ def main() -> int:
         print(f"   - {len(adr_files)} ADRs indexed")
         print(f"   - {len(reg_ids)} modules registered with boundary rules")
         print(f"   - {len(code_adapters)} platform adapters documented")
-        print("   - AGENTS.md == CODEBUDDY.md")
         return 0
 
     return 1 if core_issues else 0

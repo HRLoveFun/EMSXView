@@ -1,6 +1,6 @@
 # EMSXView Trading Tool - Service Management Guide
 
-> Last updated: 2026-09-07 | 与 `CODEBUDDY.md` Build & Run Commands 章节对齐
+> Last updated: 2026-10-20 | 与 [`AGENTS.md` §11 Build & Run Commands](../../AGENTS.md#11-build--run-commands) 对齐
 >
 > **占位符约定**（详见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）：`<repo-root>` = 仓库根（由 `.emsxview-root` marker 定位）；`<host>` 默认 `localhost`；`<API_PORT>`=3000（`/api/health` 等端点基址记作 `<API_BASE_URL>`）、`<FRONTEND_PORT>`=5173（dev）/ 80（prod）。
 

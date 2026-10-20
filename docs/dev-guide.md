@@ -1,7 +1,7 @@
 ﻿# EMSXView 开发指南
 
 > Last updated: 2026-07-02 | Version: 2.2
-> 与 `CODEBUDDY.md` 的 Build & Run Commands 章节对齐
+> 与 [`AGENTS.md` §11 Build & Run Commands](../AGENTS.md#11-build--run-commands) 对齐
 
 ## 1. 快速启动
 
@@ -32,7 +32,7 @@ npm run dev
 - 健康检查：`<API_BASE_URL>/api/health`（默认 `http://localhost:3000/api/health`）
 - 市场快照基线：`<API_BASE_URL>/api/marketview/snapshot?limit=3`
 - 前端开发服务：`http://<host>:<FRONTEND_PORT>`（默认 `http://localhost:5173`）
-- 完整启动/模块清单见 [CODEBUDDY.md Build & Run Commands](../CODEBUDDY.md#build--run-commands)
+- 完整启动/模块清单见 [AGENTS.md §11 Build & Run Commands](../AGENTS.md#11-build--run-commands)
 - 占位符含义见 [docs/index.md §7](index.md#7-占位符与可配置参数约定)
 
 ## 2. 当前工程事实
@@ -113,7 +113,7 @@ npm run dev
 2. `docs/spec/project-structure.md`：当前仓库结构与权威实现面
 3. `docs/spec/data-domain.md`：逻辑数据域边界
 4. `docs/spec/memory.md`：稳定架构记忆与工作约束
-5. `CODEBUDDY.md` Build & Run Commands 章节：启动/运行/部署命令（与本文档 §1 等价）
+5. [`AGENTS.md` §11 Build & Run Commands](../AGENTS.md#11-build--run-commands)：启动/运行/部署命令（与本文档 §1 等价）
 
 知识库位置：
 
