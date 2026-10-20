@@ -2,7 +2,7 @@
 
 > **本文定位**：仓库唯一的 Agent 入口，同时承载项目总览（架构、模块、数据层）与作业规范（工作流、编码约定、构建与验证）。`README.md` 为面向人类读者的精简首页。
 >
-> **同步机制**：`AGENTS.md` 为规范源；`CODEBUDDY.md` 由 git pre-commit hook（`.githooks/pre-commit`）在提交时自动同步，CI 侧 `scripts/audit_doc_drift.py` 校验两者一致（不一致即硬阻断）。编辑本文件后**无需**手动同步 `CODEBUDDY.md`。
+> **单一来源**：`AGENTS.md` 是仓库唯一的 Agent 规范源。原 `CODEBUDDY.md` 副本已于 2026-10-20 删除——pre-commit hook 不再做双份同步，文档漂移审计也不再校验两份一致性；需要引用规范时一律指向本文件。
 
 ---
 
@@ -30,7 +30,7 @@
 
 进入本仓库的 AI 代理 **必须** 按以下顺序阅读文档，再开始任何代码改动：
 
-1. `AGENTS.md` / `CODEBUDDY.md`（本文件）— 工作流、安全规则与项目总览
+1. `AGENTS.md`（本文件）— 工作流、安全规则与项目总览
 2. `.codebuddy/rules/project-context.md` — 技术栈与模块清单
 3. `.codebuddy/rules/coding-style.md` — 命名/目录/状态管理
 4. `.codebuddy/rules/module-boundary.md` — ★ 模块边界契约
@@ -85,7 +85,7 @@
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB）；后端 47 个测试文件 / 239 个测试函数；运维手册 [docs/ops/service-management.md](docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB）；后端 45 个测试文件 / 295 个测试函数；运维手册 [docs/ops/service-management.md](docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但无 `--cov-fail-under` 门槛）；无模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
 | **MarketView**（`MarketView/`） | **Scaffold** | 3 个端点（快照 / 盘中特征 / handoff 发布）；`MarketView/tests/` 已存在（1 个测试文件，覆盖三个端点） | 策略分析、选券支持、SLA/运维文档均未实现 |
 | **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
@@ -179,8 +179,7 @@ MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostV
 
 ```
 EMSXView/
-├── AGENTS.md                        # 本文件（Agent 入口 + 项目总览，规范源）
-├── CODEBUDDY.md                     # 由 pre-commit hook 同步的副本（勿单独编辑）
+├── AGENTS.md                        # 本文件（Agent 入口 + 项目总览，唯一规范源）
 ├── README.md                        # 人类读者首页
 ├── QUICKSTART.md                    # 一键启动指南
 ├── relaunch_service.bat             # 一键重启
@@ -213,7 +212,7 @@ EMSXView/
 │       ├── routers/                 # 核心 10 路由 + costview.py（可选桥接，含 Runner 代理）
 │       ├── services/                # bloomberg/ 拆分包 · compliance · route_engine · algo_scheduler 等
 │       ├── repositories/ · models/ · schemas/ · migrations/
-│       └── tests/                   # 47 个测试文件 / 239 个测试函数（含 boundaries/ 契约测试）
+│       └── tests/                   # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
 │
 ├── MarketView/                      # 盘前微服务 [Scaffold]（默认 :8001）
 │   ├── main.py · config.py
@@ -291,7 +290,7 @@ EMSXView/
 ## 8. 文件放置规范（★ 必须遵守）
 
 - **禁止在仓库根目录随意创建文件**。创建任何新文件前，必须先确定其按功能归属的既有目录。
-- 根目录仅保留既有约定文件：`AGENTS.md`、`CODEBUDDY.md`、`README.md`、`QUICKSTART.md`、`.emsxview-root`、`.gitignore` 及既有模块目录/配置。
+- 根目录仅保留既有约定文件：`AGENTS.md`、`README.md`、`QUICKSTART.md`、`.emsxview-root`、`.gitignore` 及既有模块目录/配置。
 - 功能 → 目录映射：
 
   | 文件类别 | 归属目录 |
@@ -444,7 +443,7 @@ python -c "from data_access import ConnectionManager, Config; print(Config.DATA_
 
 | 范围 | 命令 | 规模/说明 |
 |------|------|-----------|
-| 后端全量 | `cd backend/api && python -m pytest tests/ -q` | 47 个测试文件 / 239 个测试函数 |
+| 后端全量 | `cd backend/api && python -m pytest tests/ -q` | 45 个测试文件 / 295 个测试函数 |
 | 后端边界 | `python -m pytest backend/api/tests/boundaries/ -q` | 跨模块 import、DB 路径等契约 |
 | CostView | `python -m pytest CostView/tests/ -q` | 10 个测试文件 / 305 个测试函数（含 golden 指标锁定） |
 | MarketView | `python -m pytest MarketView/tests/ -q` | 1 个测试文件 |
@@ -508,7 +507,7 @@ CI（`.github/workflows/boundary.yml`，job `boundary-protection`）三组：**a
 | 「黄金样本回归需外部冻结快照」 | 已修：`CostView/tests/golden/snapshot/fill_bdib.db` 随基线入库，`EMSXVIEW_GOLDEN_DATA_DIR` 仅为可选覆盖 |
 | 「CostView 13 个端点」/「`TCA_ORDER_AGG_ENABLED` 默认关闭」 | 现状为 14 个端点，`TCA_ORDER_AGG_ENABLED`、`TCA_EVAL_ENABLED` 默认开启（置 `0` 显式降级） |
 | 「MarketView 无自身测试目录」 | `MarketView/tests/` 已存在（1 个测试文件，覆盖三个端点） |
-| 「后端 9 个核心路由 / 约 180 个测试函数」 | 现状 10 个核心路由（含 `authorizations`）、239 个测试函数 |
+| 「后端 9 个核心路由 / 约 180 个测试函数」 | 现状 10 个核心路由（含 `authorizations`）、295 个测试函数 |
 
 ## 15. 文档地图
 

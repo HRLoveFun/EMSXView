@@ -2,7 +2,7 @@
 
 > 订单执行与交易成本分析（TCA）单体仓库：执行管理（ExecutionView）、盘前市场视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
 >
-> **Agent / 开发者作业规范见 [AGENTS.md](./AGENTS.md)**：文档阅读顺序、编码与文件放置约定、Git Worktree 并行工作流、构建与验证命令、已失效声明。原 `CODEBUDDY.md` 的内容已合并进 `AGENTS.md`（由 pre-commit hook 同步为副本）。
+> **Agent / 开发者作业规范见 [AGENTS.md](./AGENTS.md)**：文档阅读顺序、编码与文件放置约定、Git Worktree 并行工作流、构建与验证命令、已失效声明。原 `CODEBUDDY.md` 已合并进 `AGENTS.md` 并删除，`AGENTS.md` 为唯一规范源。
 
 ---
 
@@ -26,7 +26,7 @@
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 47 个测试文件 / 239 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 45 个测试文件 / 295 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但未设 `--cov-fail-under`）；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
 | **MarketView**（`MarketView/`） | **Scaffold** | 3 个端点（快照 / 盘中特征 / handoff 发布）；`MarketView/tests/` 已存在（1 个测试文件） | 策略分析、选券支持、SLA/运维文档未实现 |
 | **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
@@ -92,8 +92,7 @@ MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostV
 
 ```
 EMSXView/
-├── AGENTS.md                         # Agent 入口 + 项目总览（规范源）
-├── CODEBUDDY.md                      # 由 pre-commit hook 同步的副本（勿单独编辑）
+├── AGENTS.md                         # Agent 入口 + 项目总览（唯一规范源）
 ├── README.md                         # This file
 ├── QUICKSTART.md                     # One-command quick start guide
 ├── relaunch_service.bat              # One-click restart
@@ -125,7 +124,7 @@ EMSXView/
 │       ├── routers/                  # 核心 10 路由 + costview.py（可选桥接，含 Runner 代理）
 │       ├── services/                 # bloomberg/ 拆分包、compliance、route_engine、algo_scheduler 等
 │       ├── repositories/ · models/ · schemas/ · migrations/
-│       └── tests/                    # 47 个测试文件 / 239 个测试函数（含 boundaries/ 契约测试）
+│       └── tests/                    # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
 │
 ├── MarketView/                       # 盘前微服务 [Scaffold]（默认 :8001）
 │   ├── main.py · config.py
@@ -448,7 +447,7 @@ pip install -r requirements.txt          # Includes -e ../../platform_data
 set EMSXVIEW_OPTIONAL_MODULES=costview:CostView
 python main.py                           # Starts on <API_PORT> (default 3000)
 
-# Run tests（47 个测试文件 / 239 个测试函数）
+# Run tests（45 个测试文件 / 295 个测试函数）
 pytest
 ```
 
@@ -569,7 +568,7 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 | 2026-09-11 | README 全面审计重写：成熟度分级、能力"已实现/规划中"二分、数据流时序语义、数据规模实测、降级路径、CLI 失效标注 | 全部模块 | 静态代码审计 + 数据目录实测 |
 | 2026-09-15 | CostView 冗余清理（删除 FillFetch/Bloomberg 遗产文件与 `requirements.txt`，`pandas` 补入 `pyproject.toml`）；文档去漂移（测试计数、端点表、行号重锚） | CostView、README、docs/spec | 全仓 grep 零引用 + pytest 实测 |
 | 2026-09-16 | 删除本地留证目录 `CostView/data.migrated.202609022339/`（约 145 GB），完成 010-extract-pipeline TODO-1 | CostView、docs/spec | 数据根实测一致 |
-| 2026-10-20 | **文档合并**：`README.md` 的项目总览与 `CODEBUDDY.md` 的 Agent 规范合并进 `AGENTS.md`（`CODEBUDDY.md` 转为 hook 同步副本）；README 精简为人类首页并刷新事实（10 个核心路由、CostView 14 端点、`TCA_ORDER_AGG_ENABLED`/`TCA_EVAL_ENABLED` 默认开启、MarketView 已有测试目录、Redis handoff 三通道 7 天 TTL、golden 快照入库、数据合计 127.8 GB、Compose 6 服务、测试计数 239/305/25） | 全仓库文档 | 静态代码核对 + 端点枚举 + `${EMSXVIEW_DATA_DIR}` 实测 + 测试函数计数 |
+| 2026-10-20 | **文档合并**：`README.md` 的项目总览与 `CODEBUDDY.md` 的 Agent 规范合并进 `AGENTS.md`（`CODEBUDDY.md` 合并后删除，`AGENTS.md` 成为唯一规范源）；README 精简为人类首页并刷新事实（10 个核心路由、CostView 14 端点、`TCA_ORDER_AGG_ENABLED`/`TCA_EVAL_ENABLED` 默认开启、MarketView 已有测试目录、Redis handoff 三通道 7 天 TTL、golden 快照入库、数据合计 127.8 GB、Compose 6 服务、测试计数 295/305/25） | 全仓库文档 | 静态代码核对 + 端点枚举 + `${EMSXVIEW_DATA_DIR}` 实测 + 测试函数计数 |
 
 ---
 

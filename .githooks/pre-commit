@@ -1,6 +1,6 @@
 #!/bin/bash
-# Pre-commit hook: 自动同步 CODEBUDDY.md 与 AGENTS.md
-# 规范源为 AGENTS.md；若仅 CODEBUDDY.md 被编辑，则反向同步
+# Pre-commit hook: 会话独占锁校验 + 质量门禁增量快检
+# Agent 规范单一来源为 AGENTS.md（原 CODEBUDDY.md 副本已于 2026-10-20 删除，不再同步）
 # 设置方式: git config core.hooksPath .githooks
 . "$(dirname "$0")/common.sh"
 
@@ -8,51 +8,12 @@
 # 会话独占锁校验（阻断）
 # 同一工作目录若已被另一会话持有，则拒绝提交 —— 防止共享 index 被并发写入
 # 导致「他人改动混进我的提交 / 我的在制品被覆盖」。
-# 必须在下方任何 early return 之前执行，否则仅改文档时门禁会被绕过。
+# 必须置于钩子最前，早于任何门禁判定与跳过逻辑，否则仅改文档时门禁会被绕过。
 # 详见 docs/spec/git-workflow.md §10。
 # ═══════════════════════════════════════════════════════════════════════
 if ! lock_verify; then
     exit 1
 fi
-
-CB="CODEBUDDY.md"
-AG="AGENTS.md"
-
-# 检查是否有任一文件被暂存
-CB_STAGED=$(git diff --cached --name-only -- "$CB")
-AG_STAGED=$(git diff --cached --name-only -- "$AG")
-
-# 均未暂存则跳过
-if [ -z "$CB_STAGED" ] && [ -z "$AG_STAGED" ]; then
-    exit 0
-fi
-
-# 确定同步方向：优先 AGENTS.md，其次 CODEBUDDY.md
-SRC=""
-if [ -n "$AG_STAGED" ]; then
-    SRC="$AG"
-elif [ -n "$CB_STAGED" ]; then
-    SRC="$CB"
-fi
-
-sync_files() {
-    local src="$1"; shift
-    for f in "$@"; do
-        # 内容一致则无需写入
-        if git diff --no-index --quiet "$src" "$f" 2>/dev/null; then
-            continue
-        fi
-        git show :"$src" > "$f"
-        git add "$f"
-        echo "[pre-commit] 已同步 ${src} → ${f}"
-    done
-}
-
-# 规范源暂存 → 同步到另一份
-case "$SRC" in
-    "$AG") sync_files "$AG" "$CB" ;;
-    "$CB") sync_files "$CB" "$AG" ;;
-esac
 
 # ═══════════════════════════════════════════════════════════════════════
 # 质量门禁增量快检 (2026-08-21)
