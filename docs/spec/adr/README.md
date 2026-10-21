@@ -71,6 +71,7 @@ NNNN-<kebab-case-title>.md
 | [0019](0019-cl12-dead-class-method-detection.md) | CL-12 类方法零引用检测 — 词边界匹配 + 同名实体区分 | refactoring, cleanup, tooling, scripts |
 | [0020](0020-frontend-npm-workspaces.md) | 前端依赖树收敛为 npm workspaces（frontend + ExecutionView）+ 模块产物目录隔离 | frontend, build, tooling, process |
 | [0021](0021-gate-first-scan-baseline.md) | 质量门禁首次扫描自动建基线 — OE guard 的零基线豁免 | process, tooling, quality-gate |
+| [0022](0022-operational-db-sqlite.md) | 运营库采用 SQLite（057 DL-02 / D-4） | architecture, data, backend, deployment |
 | [0700](0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | process, workflow, documentation |
 
 ### Proposed
