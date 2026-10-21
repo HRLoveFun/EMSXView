@@ -24,6 +24,9 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env}
       - ALLOWED_ORIGINS=http://localhost,http://localhost:80
       - ENABLE_AUDIT_LOG=true
+      # DL-02/060：显式化运营库连接串兜底——未在 .env 覆盖时保持 PostgreSQL 默认，
+      # 防止 db.py 新的 SQLite 默认解析把容器部署悄悄切到 SQLite（行为零变化）
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://emsx:emsx@postgres:5432/emsx}
     volumes:
       - ./logs:/app/logs
       - /etc/localtime:/etc/localtime:ro

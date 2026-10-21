@@ -25,7 +25,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# 扫描根: 业务代码目录 (config.py / schemas.py / __init__.py 为豁免文件类型)
+# 扫描根: 业务代码目录 (配置层文件经 EXEMPT_FILES 豁免)
 SCAN_ROOTS: list[tuple[Path, str]] = [
     (REPO_ROOT / "backend" / "api", "*.py"),
     (REPO_ROOT / "DataPipeline", "*.py"),
@@ -36,6 +36,9 @@ SCAN_ROOTS: list[tuple[Path, str]] = [
 # 豁免文件 (相对 REPO_ROOT, posix 风格) — 配置层/DDL/常量定义允许引用 .db 名称
 EXEMPT_FILES = {
     "DataPipeline/config.py",
+    # 后端运营库配置层（DL-02/060, ADR-0022）：库文件名常量声明处，与
+    # DataPipeline/config.py 同性质；目录路径走 EMSXVIEW_OPS_DB_DIR 环境变量
+    "backend/api/config.py",
     "DataPipeline/storage/connection.py",   # DB 注册表 (从 Config 派生)
     "DataPipeline/storage/schema/inline_ddl.py",
     "DataPipeline/storage/schema/columns.py",

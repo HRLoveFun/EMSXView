@@ -113,7 +113,7 @@
 │  │                      Shared Infrastructure                            │   │
 │  │  frontend/ [Beta] (React shell) · platform_data/ [Beta] (adapters)    │   │
 │  │  data_access/ [Beta] (read-only) · SQLite (只读, ~128 GB) ·           │   │
-│  │  PostgreSQL (可选) · Redis (可选) · Nginx                              │   │
+│  │  SQLite 运营库 (可选, [ADR-0022]) · Redis (可选) · Nginx                │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 │  ┄┄┄ 仓库外（独立仓库 EMSXDataPipeline）┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄   │
@@ -418,7 +418,8 @@ Compose 服务（6 个）：`backend`、`postgres`、`frontend`（Nginx，SPA + 
 | `EMSXVIEW_OPTIONAL_MODULES` | 可选路由桥接清单（`*`/`all` 加载全部，置空禁用） | `costview:CostView` |
 | `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory` / `redis`） | `memory` |
 | `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 缓存） | `redis://localhost:6379/0` |
-| `ENABLE_DB_PERSISTENCE` | PostgreSQL 订单/路由持久化开关（关闭时内存 fallback） | `false` |
+| `ENABLE_DB_PERSISTENCE` | 运营库订单/路由持久化开关（关闭时内存 fallback；默认 SQLite，路径见 `EMSXVIEW_OPS_DB_DIR`，显式设 `DATABASE_URL` 可走 PostgreSQL，见 [ADR-0022](docs/spec/adr/0022-operational-db-sqlite.md)） | `false` |
+| `EMSXVIEW_OPS_DB_DIR` | 运营库目录（仓库外，未设取 `~/.emsxview/ops`，ADR-0022） | 空 |
 | `ALLOWED_ORIGINS` | CORS 允许来源（逗号分隔） | `http://localhost:5173,http://localhost:80` |
 | `EMSXVIEW_RUNNER_URL` | 数据管道 Runner 地址（代理目标） | `http://127.0.0.1:8100` |
 

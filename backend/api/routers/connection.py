@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends
 
 from schemas import ApiResponse
-from deps import verify_token, get_bloomberg_service
+from deps import verify_token, get_bloomberg_service, get_repo_provider
 from config import settings
 from db import check_database_connection
 
@@ -40,16 +40,28 @@ async def health_check(bloomberg=Depends(get_bloomberg_service)) -> ApiResponse:
     if settings.ENABLE_DB_PERSISTENCE:
         db_connected, db_message = await check_database_connection()
         db_status = "connected" if db_connected else "disconnected"
+        # DL-02/060：熔断状态与写入失败计数可见——连接正常 ≠ 写入健康，
+        # 熔断打开时数据已回退内存，必须可观测（healthy 判定不变：熔断是
+        # 降级保护而非连接故障，改判定会误报服务不健康）
+        provider = get_repo_provider()
+        db_payload = {
+            "status": db_status,
+            "message": db_message,
+            "write_errors": provider.write_error_count if provider else 0,
+            "max_write_errors": provider.max_write_errors if provider else 0,
+            "circuit_open": provider.circuit_open if provider else False,
+        }
     else:
         db_connected = True
         db_message = "DB persistence disabled"
         db_status = "disabled"
+        db_payload = {"status": db_status, "message": db_message}
     healthy = bb_status.status == "connected" and db_connected
     return ApiResponse(
         success=healthy,
         data={
             "bloomberg": bb_status.model_dump(),
-            "database": {"status": db_status, "message": db_message},
+            "database": db_payload,
         },
         message="Service is healthy" if healthy else f"bloomberg={bb_status.status}, database={db_status}",
     )
