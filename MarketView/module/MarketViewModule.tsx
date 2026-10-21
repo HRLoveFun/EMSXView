@@ -5,6 +5,7 @@ import { SummaryCards } from './components/summary-cards';
 import { FilterBar } from './components/filter-bar';
 import { SnapshotTable } from './components/snapshot-table';
 import { HandoffPanel } from './components/handoff-panel';
+import { ExportOrdersPanel } from './components/export-orders-panel';
 import { buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
 import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
 import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
@@ -262,6 +263,8 @@ export default function MarketViewModule() {
           onClose={() => setDrillTicker(null)}
         />
       ) : null}
+
+      <ExportOrdersPanel />
     </section>
   );
 }

@@ -160,3 +160,60 @@ export interface IntradayFeatureRequest {
   trade_date?: string;
   bucket_minutes?: IntradayBucketMinutes;
 }
+
+// ── EMSX 导出盘前单（057 DL-01） ──────────────────────────────
+
+export type OrderIntentBenchmark = 'VWAP' | 'CLOSE' | 'MIX' | 'SPECIAL' | 'UNMAPPED';
+
+export interface OrderIntent {
+  order_key: string;
+  benchmark: OrderIntentBenchmark;
+  close_pct: number | null;
+  raw_note: string;
+  intent_source: string;
+  valid_from: string;
+  export_ts: string;
+  unmatched_reason: string | null;
+}
+
+export interface ExportOrderRow {
+  code: string;
+  exch_code: string;
+  name: string;
+  side: string;
+  qty: number | null;
+  ccy: string;
+  status: string;
+  fill_qty: number | null;
+  pct_filled: number | null;
+  q_pct_5d_adv: number | null;
+  q_pct_tdy: number | null;
+  rem_bal_pct_avg_cls_auct_vol: number | null;
+  working_val_usd: number | null;
+  value_usd: number | null;
+  chg_pct_dtdy: number | null;
+  last_px_vs_vwap_bps: number | null;
+  earn_rpt_time: string | null;
+  ex_dvd_flag: string | null;
+  brkr_code: string;
+  create_time: string;
+  pm_note: string;
+  intent: OrderIntent;
+  extra_fields: Record<string, string>;
+}
+
+export interface UnmatchedOrder {
+  code: string;
+  pm_note: string;
+  reason: string;
+}
+
+export interface PreTradeOrdersPayload {
+  exported_at: string;
+  export_file_name: string;
+  order_count: number;
+  intent_coverage_pct: number;
+  intent_mapping_version: string;
+  orders: ExportOrderRow[];
+  unmatched: UnmatchedOrder[];
+}

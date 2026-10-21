@@ -5,8 +5,11 @@ import {
   fmtCompact,
   fmtNumber,
   fmtPercent,
+  getIntentLabel,
+  getIntentTone,
   getSeverityText,
   getSeverityTone,
+  getUnmatchedReasonText,
   renderSeverityBadge,
 } from './marketview-utils';
 
@@ -46,5 +49,30 @@ describe('MarketView severity helpers', () => {
   it('renders a labelled severity badge', () => {
     render(renderSeverityBadge('Liquidity', 'critical'));
     expect(screen.getByText('Liquidity: Critical')).toBeInTheDocument();
+  });
+});
+
+describe('MarketView intent helpers (057 DL-01)', () => {
+  it('labels MIX with its close ratio and other benchmarks verbatim', () => {
+    expect(getIntentLabel('MIX', 80)).toBe('MIX 80% @Close');
+    expect(getIntentLabel('MIX', null)).toBe('MIX');
+    expect(getIntentLabel('CLOSE', 100)).toBe('CLOSE');
+    expect(getIntentLabel('UNMAPPED', null)).toBe('UNMAPPED');
+  });
+
+  it('assigns distinct tones per benchmark, red for unmapped', () => {
+    expect(getIntentTone('VWAP')).toContain('sky');
+    expect(getIntentTone('CLOSE')).toContain('indigo');
+    expect(getIntentTone('MIX')).toContain('violet');
+    expect(getIntentTone('SPECIAL')).toContain('amber');
+    expect(getIntentTone('UNMAPPED')).toContain('red');
+  });
+
+  it('maps unmatched reason codes to readable text', () => {
+    expect(getUnmatchedReasonText('empty_pm_note')).toBe('Empty PM note');
+    expect(getUnmatchedReasonText('unknown_prefix')).toBe('Unknown instruction prefix');
+    expect(getUnmatchedReasonText('missing_order_key')).toBe('Missing order key (^ segment)');
+    // 未知原因码原样透出，不静默吞掉
+    expect(getUnmatchedReasonText('future_code')).toBe('future_code');
   });
 });

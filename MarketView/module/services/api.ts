@@ -1,5 +1,6 @@
 import type { MarketSnapshotPayload, MarketSnapshotRequest } from '../types';
 import type { IntradayFeatureRequest, IntradayFeatureSnapshot } from '../types';
+import type { PreTradeOrdersPayload } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -101,4 +102,18 @@ export async function fetchIntradayFeatures(
 
   const json = await response.json();
   return json.data as IntradayFeatureSnapshot;
+}
+
+// EMSX 导出盘前单（057 DL-01）：只读收件箱最新一份导出，无查询参数
+export async function fetchPreTradeOrders(): Promise<PreTradeOrdersPayload> {
+  const response = await fetch(`${API_BASE_URL}/api/marketview/pre-trade-orders`, {
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as PreTradeOrdersPayload;
 }
