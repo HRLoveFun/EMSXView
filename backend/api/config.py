@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import logging
+from pathlib import Path
 from typing import List
 
 logger = logging.getLogger("main")
@@ -30,6 +31,13 @@ class Settings:
     # Database Configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://emsx:emsx@postgres:5432/emsx")
     DATABASE_MIGRATION_URL: str = os.getenv("DATABASE_MIGRATION_URL", "postgresql+psycopg://emsx:emsx@postgres:5432/emsx")
+
+    # 运营库（ExecutionView 订单/路由/审计持久化，D-4：SQLite）——
+    # 库文件放仓库外固定目录，不与管道分析库（${EMSXVIEW_DATA_DIR}）混放。
+    # 未配置时取用户主目录下 .emsxview/ops/emsx_ops.db；显式设置 DATABASE_URL 时
+    # 以它为准（docker-compose 部署仍走 PostgreSQL，行为不变）。
+    EMSXVIEW_OPS_DB_DIR: str = os.getenv("EMSXVIEW_OPS_DB_DIR", "")
+    OPS_DB_FILE_NAME: str = "emsx_ops.db"
 
     # Security
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
@@ -109,6 +117,19 @@ class Settings:
     )
 
 
+def default_ops_db_dir() -> str:
+    """运营库默认目录（DL-02/060）：用户主目录下固定路径，仓库外、免安装。
+
+    单人单机场景（D-4）；显式设置 EMSXVIEW_OPS_DB_DIR 可改指任意仓库外路径。
+    """
+    return str(Path.home() / ".emsxview" / "ops")
+
+
+def resolve_ops_db_dir() -> str:
+    """运营库目录解析：EMSXVIEW_OPS_DB_DIR 显式值优先，否则取默认目录。"""
+    return settings.EMSXVIEW_OPS_DB_DIR or default_ops_db_dir()
+
+
 def _validate_settings(s: Settings) -> None:
     """Validate critical settings on startup."""
     if not s.BYPASS_AUTH and not s.JWT_SECRET:
@@ -126,6 +147,9 @@ def _validate_settings(s: Settings) -> None:
     logger.info(f"Settings validated: BYPASS_AUTH={s.BYPASS_AUTH}, JWT_SECRET set={bool(s.JWT_SECRET)}")
     logger.info(f"Odd lot detection enabled for markets: {s.ODD_LOT_MARKETS}")
     logger.info(f"DB persistence: ENABLE_DB_PERSISTENCE={s.ENABLE_DB_PERSISTENCE}")
+    # DL-02/060：运营库位置始终可见——未显式设 DATABASE_URL 时默认走 SQLite，
+    # 路径须可追溯（库文件在仓库外，备份与恢复演练以此为准）
+    logger.info(f"Operational DB: url_source={'env' if 'DATABASE_URL' in os.environ else 'default'}, sqlite_dir={resolve_ops_db_dir()}")
 
 
 settings = Settings()

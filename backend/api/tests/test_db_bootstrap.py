@@ -5,8 +5,10 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from db import DEFAULT_DATABASE_URL, create_engine, get_database_url
+from db import create_engine, get_database_url
 from models.execution_state import Base
+
+import config
 
 
 def test_get_database_url_from_env(monkeypatch):
@@ -15,9 +17,16 @@ def test_get_database_url_from_env(monkeypatch):
     assert get_database_url() == url
 
 
-def test_default_database_url(monkeypatch):
+def test_default_database_url(monkeypatch, tmp_path):
+    """DL-02/060：未显式设 DATABASE_URL 时默认运营库为 SQLite（D-4）。"""
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    assert get_database_url() == DEFAULT_DATABASE_URL
+    monkeypatch.setattr(config.settings, "EMSXVIEW_OPS_DB_DIR", str(tmp_path))
+
+    url = get_database_url()
+
+    assert url.startswith("sqlite+aiosqlite:///")
+    assert url.endswith("emsx_ops.db")
+    assert str(tmp_path).replace("\\", "/") in url
 
 
 def test_create_engine_uses_async_postgres_dialect():

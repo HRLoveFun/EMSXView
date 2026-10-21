@@ -77,6 +77,24 @@ class RepositoryProvider:
         """Return True when DB persistence is both enabled and healthy."""
         return self.enabled and self.db_ready and self._write_errors < self._max_write_errors
 
+    # DL-02/060：熔断状态公开只读——/api/health 增报，写入失败不再静默
+    # （数据不落盘但界面显示正常是 053 审计发现的风险面）
+
+    @property
+    def write_error_count(self) -> int:
+        """自进程启动（或上次 mark_db_ready）累计的写入失败次数。"""
+        return self._write_errors
+
+    @property
+    def max_write_errors(self) -> int:
+        """写入失败熔断阈值。"""
+        return self._max_write_errors
+
+    @property
+    def circuit_open(self) -> bool:
+        """写入熔断是否已打开（打开后 is_active 为 False，回退内存）。"""
+        return self._write_errors >= self._max_write_errors
+
     # ------------------------------------------------------------------
     #  Write-through: orders
     # ------------------------------------------------------------------
