@@ -40,3 +40,7 @@ from platform_data.adapters.tca_bridge import (
     register_tca_service_impl,
     register_costview_bridge_dependencies,
 )
+
+from platform_data.adapters.session import (
+    ExchangeSessionAdapter,
+)
