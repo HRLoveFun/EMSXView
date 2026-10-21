@@ -58,6 +58,17 @@ from .intraday_contracts import (
     IntradayTickerFeatures,
 )
 
+# Order-intent contracts（057 DL-01：EMSX 导出解析与 PM 意图映射）
+from .order_intent_contracts import (
+    INTENT_BENCHMARKS,
+    INTENT_MAPPING_VERSION,
+    INTENT_SOURCE_EMSX_EXPORT,
+    BlotterOrderRow,
+    OrderIntent,
+    PreTradeOrderBoard,
+    UnmatchedOrder,
+)
+
 # Execution-history contracts
 from .execution_contracts import (
     ExecutionHistoryFillRow,
