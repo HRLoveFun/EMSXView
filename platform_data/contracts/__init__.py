@@ -69,6 +69,18 @@ from .order_intent_contracts import (
     UnmatchedOrder,
 )
 
+# Exchange-session contracts（057 DL-03：交易所会话注册表）
+from .exchange_session_contracts import (
+    EARLY_CLOSE_AUCTION_EXCHANGES,
+    HALF_DAY_CLOSE_OVERRIDES,
+    MARKET_CODE_FOLDING,
+    PIPELINE_CLOSING_AUCTION_SAMPLES,
+    SESSION_REGISTRY,
+    SESSION_REGISTRY_VERSION,
+    TIME_BUCKET_MARKETS,
+    ExchangeSession,
+)
+
 # Execution-history contracts
 from .execution_contracts import (
     ExecutionHistoryFillRow,

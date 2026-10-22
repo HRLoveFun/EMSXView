@@ -201,6 +201,7 @@ rg "\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 | `HandoffExchangeAdapter` | `platform_data/adapters/handoff.py` | `publish_market_to_execution`, `get_market_to_execution`, `clear_market_to_execution`, `publish_execution_to_cost`, `get_execution_to_cost`, `list_execution_to_cost`, `publish_cost_to_execution`, `list_cost_to_execution`, `clear_cost_to_execution`, `describe` | `_lock`, `_market_to_execution`, `_execution_to_cost`, `_cost_to_execution` |
 | `RedisHandoffExchangeAdapter` | `platform_data/adapters/redis_handoff.py` | 同 HandoffExchangeAdapter 公开方法 | `_redis_pool` 等所有内部 |
 | `MarketReferenceDataAdapter` | `platform_data/adapters/market.py` | `get_market_snapshot`, `get_intraday_features` 等 | `_DEFAULT_STOCK_POOLS`, `_liquidity_severity`, `_round_or_none`, `_severity_at_least`, `_sort_market_rows`, `_to_optional_float`, `_volatility_severity` |
+| `ExchangeSessionAdapter` | `platform_data/adapters/session.py` | `get_session`, `session_bounds_for`, `closing_time_for`, `session_relative_minutes`, `is_early_close_auction`, `market_code_for`, `time_bucket_for`（057 DL-03 会话注册表查询，数据见 `platform_data/contracts/exchange_session_contracts.py`） | 无内部私有方法（纯查询，时区换算经 `data_access.common.exchange_tz`） |
 
 #### 平台级函数（适配器工厂）
 
