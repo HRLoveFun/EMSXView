@@ -44,3 +44,7 @@ from platform_data.adapters.tca_bridge import (
 from platform_data.adapters.session import (
     ExchangeSessionAdapter,
 )
+
+from platform_data.adapters.baseline import (
+    DailyBaselineAdapter,
+)

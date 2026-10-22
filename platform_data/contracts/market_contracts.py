@@ -96,3 +96,37 @@ class MarketSnapshot:
     sort: MarketSnapshotSort
     rows: list[MarketDailySnapshotRow]
     candidate_payload: MarketCandidatePayload
+
+
+# ── 057 DL-10：日度基线契约（个股 60 日稳健分布，替代全局常数阈值） ──────────
+
+# 契约版本：口径变更或 DL-09 快照源切换时升版
+BASELINE_SCHEMA_VERSION = "market-baseline-v1"
+
+# 基线窗口（交易日）；稳健统计最少天数（不足则回落并披露 n_days）
+BASELINE_WINDOW_DAYS = 60
+BASELINE_MIN_DAYS = 20
+
+
+@dataclass(frozen=True)
+class MarketBaseline:
+    """逐票日度基线（父计划 §4.1 A 层产出，MarketStateSnapshot 的日度部分）。
+
+    全部特征为个股自身 60 日分布的稳健口径；None = 数据不足或该特征不可得
+    （消费方据此回落，不静默填 0）。量纲：vol_percentile 为百分比空间
+    （daily_volatility 口径），intraday_vol_percentile 已由小数对齐为百分比。
+    """
+
+    equ_ticker: str
+    as_of: str  # 基线数据截止日（最近交易日 YYYYMMDD）
+    log_volume_z: float | None
+    vol_percentile: float | None
+    intraday_vol_percentile: float | None
+    overnight_gap_sigma: float | None
+    auction_open_pct: float | None
+    auction_close_pct: float | None
+    adv5_adv60_ratio: float | None
+    spread_proxy_bps: float | None
+    n_days: int
+    excluded_dates: tuple[str, ...] = ()
+    schema_version: str = BASELINE_SCHEMA_VERSION

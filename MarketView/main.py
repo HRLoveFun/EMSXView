@@ -20,6 +20,7 @@ import config  # noqa: F401
 
 from routers.marketview import router as marketview_router
 from routers.export_orders import router as export_orders_router
+from routers.baseline import router as baseline_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ app.add_middleware(
 
 app.include_router(marketview_router)
 app.include_router(export_orders_router)
+app.include_router(baseline_router)
 
 logger.info("MarketView service ready — listening on port %s", config.PORT)
 
