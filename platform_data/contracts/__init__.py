@@ -38,7 +38,11 @@ from .tca_service_protocol import (
 
 # Market-view contracts
 from .market_contracts import (
+    BASELINE_MIN_DAYS,
+    BASELINE_SCHEMA_VERSION,
+    BASELINE_WINDOW_DAYS,
     MarketAlert,
+    MarketBaseline,
     MarketCandidatePayload,
     MarketCandidateRow,
     MarketDailySnapshotRow,
