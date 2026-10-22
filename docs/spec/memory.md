@@ -52,6 +52,7 @@
 | [ADR-0020](adr/0020-frontend-npm-workspaces.md) | 前端依赖树收敛为 npm workspaces（frontend + ExecutionView）+ 模块产物目录隔离 | Accepted |
 | [ADR-0021](adr/0021-gate-first-scan-baseline.md) | 质量门禁首次扫描自动建基线（OE guard 的零基线豁免）；AP 不受影响 | Accepted |
 | [ADR-0022](adr/0022-operational-db-sqlite.md) | 运营库采用 SQLite（路径 EMSXVIEW_OPS_DB_DIR、WAL/busy_timeout/FK、熔断可见、备份演练） | Accepted |
+| [ADR-0023](adr/0023-intraday-store-contract.md) | 盘中库契约与双仓分工（分文件 6 表 + manifest + formal-first 读侧路由 + 管道唯一写入） | Accepted |
 | [ADR-0700](adr/0700-git-worktree-parallel-workflow.md) | Git Worktree 多任务并行工作流 | Accepted |
 
 ---

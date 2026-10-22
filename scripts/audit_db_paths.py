@@ -39,6 +39,9 @@ EXEMPT_FILES = {
     # 后端运营库配置层（DL-02/060, ADR-0022）：库文件名常量声明处，与
     # DataPipeline/config.py 同性质；目录路径走 EMSXVIEW_OPS_DB_DIR 环境变量
     "backend/api/config.py",
+    # 盘中库契约层（DL-06/065, ADR-0023）：分文件模板常量声明处；实际路径由
+    # data_access.config.Config.INTRADAY_DIR + intraday_db_path() 派生
+    "platform_data/contracts/intraday_store_contracts.py",
     "DataPipeline/storage/connection.py",   # DB 注册表 (从 Config 派生)
     "DataPipeline/storage/schema/inline_ddl.py",
     "DataPipeline/storage/schema/columns.py",

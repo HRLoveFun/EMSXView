@@ -97,6 +97,22 @@ from .algo_taxonomy import (
     normalize_strategy_type,
 )
 
+# Intraday store contracts（057 DL-06：盘中库契约，勿与 intraday_contracts 日内特征混淆）
+from .intraday_store_contracts import (
+    CONSERVATION_AUDIT_RULE,
+    INTRADAY_DB_FILE_TEMPLATE,
+    INTRADAY_DIR_NAME,
+    INTRADAY_MANIFEST_FILE_NAME,
+    INTRADAY_RETENTION_DAYS,
+    INTRADAY_STORE_VERSION,
+    INTRADAY_TABLES,
+    READ_ROUTE_RULE,
+    TABLE_COLUMNS,
+    DataFreshness,
+    IntradayDatasetStatus,
+    IntradayManifest,
+)
+
 # Execution-history contracts
 from .execution_contracts import (
     ExecutionHistoryFillRow,
