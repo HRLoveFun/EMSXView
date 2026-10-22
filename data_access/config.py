@@ -37,6 +37,8 @@ DB_FETCH_HISTORY = "fill_fetch_history"
 DB_BDIB_FETCH_HISTORY = "bdib_fetch_history"
 DB_EXECUTION_HISTORY = "execution_history"
 DB_TICKER_REGISTRY = "ticker_registry"
+# 057 DL-06：盘中库（管道唯一写入，按交易日分文件；本侧只读适配器 DL-07 就绪后接）
+DB_INTRADAY = "intraday"
 
 
 class Config:
@@ -57,6 +59,11 @@ class Config:
     FILL_BDIB_DB: Path = DATA_DIR / "fill_bdib.db"
     EXECUTION_HISTORY_DB: Path = DATA_DIR / "execution_history.db"
     TICKER_REGISTRY_DB: Path = DATA_DIR / "ticker_registry.db"
+
+    # ── 057 DL-06：盘中库（intraday store，管道唯一写入，本侧只读） ──
+    # 按交易日分文件 intraday_YYYYMMDD.db；保留期满整文件清理（库内不删行）。
+    INTRADAY_DIR: Path = DATA_DIR / "intraday"
+    INTRADAY_MANIFEST_FILE: Path = INTRADAY_DIR / "intraday_manifest.json"
 
     LOG_FILE: Path = LOGGING_DIR / "fillfetch.log"
     LOG_DEBUG_FILE: Path = LOGGING_DIR / "fillfetch_debug.log"
@@ -288,6 +295,15 @@ class Config:
     INGESTION_LOG_TABLE: str = "ingestion_log"
     FETCH_HISTORY_TABLE: str = "fill_fetch_history"
     BDIB_FETCH_HISTORY_TABLE: str = "bdib_fetch_history"
+
+
+def intraday_db_path(trade_date: str) -> Path:
+    """盘中库文件路径（057 DL-06；YYYYMMDD 原样，父计划 §4.0 分文件规则）。
+
+    盘中库由 EMSXDataPipeline 唯一写入（ADR-0016/0023）；本函数供读侧
+    （DL-07 就绪后的只读适配器）与测试构造路径，不创建文件。
+    """
+    return Config.INTRADAY_DIR / f"intraday_{trade_date}.db"
 
 
 def _validate_config() -> None:
