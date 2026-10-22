@@ -81,6 +81,22 @@ from .exchange_session_contracts import (
     ExchangeSession,
 )
 
+# Algo taxonomy contracts（057 DL-04：算法族与意图映射）
+from .algo_taxonomy import (
+    ALGO_FAMILIES,
+    ALGO_TAXONOMY_VERSION,
+    FAMILY_TO_COARSE,
+    INTENT_TO_FAMILIES,
+    KNOWN_PIPELINE_GAPS,
+    STRATEGY_TYPE_MAP,
+    STRATEGY_TYPE_RULES,
+    classify_algo,
+    coarse_group,
+    coverage_of,
+    intent_families,
+    normalize_strategy_type,
+)
+
 # Execution-history contracts
 from .execution_contracts import (
     ExecutionHistoryFillRow,
