@@ -35,7 +35,7 @@ _EXIT_DATA_UNAVAILABLE = 2
 _EXIT_EMPTY_WITH_FAIL_FLAG = 3
 
 _QUERIES = (
-    "fills", "raw-fills", "log", "order-log", "orders", "tickers", "summary",
+    "fills", "raw-fills", "log", "order-log", "orders", "tickers", "summary", "inventory",
 )
 
 
@@ -103,6 +103,15 @@ def _run_query(engine: QueryEngine, args: argparse.Namespace) -> Any:
         return engine.query_orders(date=args.date)
     if args.query == "tickers":
         return engine.query_tickers(ticker_type=args.ticker_type)
+    if args.query == "inventory":
+        # 057 DL-05 数据盘点：D1 配对候选 / 单元 MDE / BDIB 覆盖（只读）
+        from datetime import date, timedelta
+
+        from data_access.storage.connection import ConnectionManager
+        from CostView.src.monitoring.data_inventory import build_inventory
+
+        since = (date.today() - timedelta(days=180)).strftime("%Y%m%d")
+        return build_inventory(ConnectionManager(), since, args.date or None)
     return engine.query_summary(date=args.date)
 
 
