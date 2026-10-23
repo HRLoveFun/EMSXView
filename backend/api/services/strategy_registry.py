@@ -50,14 +50,21 @@ def validate_route_submission(
     if family == "unmapped":
         result.warnings.append(f"strategy {strategy!r} family unmapped (broker-specific algo?)")
 
-    # ③ 白名单合规（配置了才检查；未命中 v0 记 warning 不阻断）
+    # ③ 白名单合规（057 DL-17c/073 语义修订）
+    # 交易员意见第 11 项：「未命中不放行」——白名单已配置但查不到该 (broker, algo)
+    # 时 BLOCK（转人工）；白名单**未配置**（环境变量未设/文件缺失）属部署初期状态，
+    # 保留 WARN（与 071 的 configured 语义一致，避免漏配即全系统停摆）——
+    # 「未知算法」与「未知配置」是两件事，不可混同。
     if whitelist is None:
         whitelist = load_algo_whitelist()
     if whitelist is None:
-        result.warnings.append("algo whitelist not configured (compliance check skipped)")
+        result.warnings.append(
+            "algo whitelist not configured (ALGO_WHITELIST_UNKNOWN): set "
+            "EMSXVIEW_ALGO_WHITELIST to enforce manual-review-on-miss"
+        )
     else:
         result.whitelist_version = f"{whitelist.row_count} brokers @ {whitelist.loaded_at}"
         verdict = compliance_check(whitelist, broker, strategy)
         if not verdict.allowed:
-            result.warnings.append(f"algo whitelist: {verdict.reason}")
+            result.errors.append(f"algo whitelist: {verdict.reason}")
     return result

@@ -173,6 +173,7 @@ async def route_order(
             route_qty=int(request.quantity or 0),
             broker=request.broker or "",
             bloomberg=bloomberg,
+            strategy_params=getattr(request, "strategyParams", None) or {},
         )
         order_blocking = [v for v in order_compliance if v.get("severity") == "BLOCK"]
         for order_warning in order_compliance:
