@@ -577,20 +577,34 @@ async def confirm_proposal(
         )
 
         def _compliance_check(p: dict):
-            """与 orders_crud.route_order 同口径的 compliance 闭包。"""
+            """与 orders_crud.route_order 同口径的 compliance 闭包（含 057 DL-17a 准入）。"""
             parent_order = None
             if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
                 with bloomberg._data_lock:
                     parent_order = bloomberg._orders.get(p["parent_order_id"])
             if parent_order is None:
                 return []
-            return compliance_service.check_route(
+            from schemas import Violation
+            from services import access_policy_service
+
+            violations = compliance_service.check_route(
                 parent_order,
                 route_qty=p.get("quantity", 0),
                 limit_price=p.get("limit_price"),
                 stop_price=None,
                 order_type=p.get("order_type") or "LIMIT",
+                fractional_markets=access_policy_service.fractional_markets(),
             )
+            # 057 DL-17a/071：准入白名单——未准入 BLOCK；转人工项 WARN（不静默放行）
+            for policy_violation in access_policy_service.evaluate_access(parent_order, p):
+                violations.append(
+                    Violation(
+                        code=policy_violation.code,
+                        message=policy_violation.message,
+                        severity="WARN" if policy_violation.manual_review_required else "BLOCK",
+                    )
+                )
+            return violations
 
         async def _authorization_check(p: dict):
             """PM 授权闭包 (S13/043 口径)：缓存缺失跳过、not_covered 放行。"""

@@ -58,6 +58,13 @@ class Violation(BaseModel):
         "NOTIONAL_TOO_LARGE",
         "JP_ODD_LOT",
         "NOTIONAL_UNKNOWN",
+        # 057 DL-17a/071：整手与碎股（交易员口径——ticker 级 round lot，不猜 100）
+        "ROUND_LOT_UNKNOWN",
+        "ODD_LOT_MANUAL_REVIEW",
+        # 057 DL-17a/071：准入白名单（交易员市场/组合、券商市场）
+        "TRADER_MARKET_NOT_ALLOWED",
+        "TRADER_PORTFOLIO_NOT_ALLOWED",
+        "BROKER_MARKET_NOT_ALLOWED",
     ]
     message: str
     severity: Literal["BLOCK", "WARN"] = "BLOCK"

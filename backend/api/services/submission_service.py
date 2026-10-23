@@ -97,9 +97,20 @@ async def submit_proposal_core(
     proposal["updated_at"] = _now()
 
     # compliance（由调用方注入闭包，保持与单笔入口同口径）
+    # 057 DL-17a/071：按 severity 区分——仅 BLOCK 阻断；WARN 记录后放行
+    # （round lot 不可得等「转人工提示」不阻断自动路由）
     if compliance_check is not None:
         violations = compliance_check(proposal)
-        if violations:
+        blocking = [v for v in violations if getattr(v, "severity", "BLOCK") == "BLOCK"]
+        warned = [v for v in violations if getattr(v, "severity", "BLOCK") == "WARN"]
+        for warning_violation in warned:
+            logger.warning(
+                "submission %s compliance warning: %s %s",
+                correlation_id,
+                getattr(warning_violation, "code", ""),
+                getattr(warning_violation, "message", ""),
+            )
+        if blocking:
             proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
             if audit_result:
                 audit_result(correlation_id, "fail")
@@ -107,7 +118,7 @@ async def submit_proposal_core(
                 400,
                 detail={
                     "message": "Pre-trade compliance check failed",
-                    "violations": [v.model_dump() for v in violations],
+                    "violations": [v.model_dump() for v in blocking],
                 },
             )
 
