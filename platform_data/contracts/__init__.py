@@ -78,6 +78,21 @@ from .order_intent_contracts import (
     UnmatchedOrder,
 )
 
+# Access-policy contracts（057 DL-17a/071：准入白名单与整手检查）
+from .access_policy import (
+    ACCESS_POLICY_VERSION,
+    BrokerMarketPolicy,
+    FractionalSharePolicy,
+    PolicyBundle,
+    PolicyViolation,
+    TraderMarketPolicy,
+    TraderPortfolioPolicy,
+    check_broker_market,
+    check_odd_lot,
+    check_trader_market,
+    check_trader_portfolio,
+)
+
 # Exchange-session contracts（057 DL-03：交易所会话注册表）
 from .exchange_session_contracts import (
     EARLY_CLOSE_AUCTION_EXCHANGES,

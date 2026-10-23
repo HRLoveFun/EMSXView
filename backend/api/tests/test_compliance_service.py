@@ -80,12 +80,22 @@ def test_notional_above_max_blocks():
 
 
 def test_market_order_uses_last_price_fallback():
-    order = make_order(currency="USD", fxRate=1.0, lastPrice=200.0)
+    order = make_order(currency="USD", fxRate=1.0, lastPrice=200.0, roundLotSize=1)
     violations = compliance_service.check_route(
         order, route_qty=100, limit_price=None, stop_price=None, order_type="MKT",
     )
-    # 200 * 100 = 20,000 — within bounds
+    # 200 * 100 = 20,000 — within bounds；roundLotSize=1 → 100 为整手倍数，无整手违规
     assert violations == []
+
+
+def test_market_order_missing_round_lot_requires_manual_review():
+    """057 DL-17a/071：round lot 不可得不猜 100——US 在 ODD_LOT_MARKETS 内，转人工（WARN）。"""
+    order = make_order(currency="USD", fxRate=1.0, lastPrice=200.0)  # roundLotSize=None
+    violations = compliance_service.check_route(
+        order, route_qty=100, limit_price=None, stop_price=None, order_type="MKT",
+    )
+    assert any(v.code == "ROUND_LOT_UNKNOWN" and v.severity == "WARN" for v in violations)
+    assert all(v.code != "NOTIONAL_UNKNOWN" for v in violations)
 
 
 def test_market_order_without_last_price_blocks():
@@ -146,15 +156,25 @@ def test_non_usd_without_fx_rate_blocks_unknown():
 
 def test_jp_qty_99_blocks_odd_lot():
     # JPY 1000 * 99 * 0.0067 ~ 663 USD (also notional small) — assert odd lot still raised
-    order = make_order(currency="JPY", exchange="JP", fxRate=0.0067, lastPrice=1000.0)
+    order = make_order(currency="JPY", exchange="JP", fxRate=0.0067, lastPrice=1000.0, roundLotSize=100)
     violations = compliance_service.check_route(
         order, route_qty=99, limit_price=1000.0, stop_price=None, order_type="LMT",
     )
     assert any(v.code == "JP_ODD_LOT" for v in violations)
 
 
+def test_jp_missing_round_lot_requires_manual_review():
+    """057 DL-17a/071：JP 无 round lot 时不再按 100 猜，转人工（ROUND_LOT_UNKNOWN）。"""
+    order = make_order(currency="JPY", exchange="JP", fxRate=0.0067, lastPrice=1000.0)  # roundLotSize=None
+    violations = compliance_service.check_route(
+        order, route_qty=99, limit_price=1000.0, stop_price=None, order_type="LMT",
+    )
+    assert any(v.code == "ROUND_LOT_UNKNOWN" for v in violations)
+    assert all(v.code != "JP_ODD_LOT" for v in violations)
+
+
 def test_jp_qty_100_passes_odd_lot():
-    order = make_order(currency="JPY", exchange="JP", fxRate=0.01, lastPrice=20000.0)
+    order = make_order(currency="JPY", exchange="JP", fxRate=0.01, lastPrice=20000.0, roundLotSize=100)
     violations = compliance_service.check_route(
         order, route_qty=100, limit_price=20000.0, stop_price=None, order_type="LMT",
     )
@@ -200,7 +220,7 @@ def test_modify_uses_cached_amount_when_qty_omitted():
 def test_modify_overrides_use_new_values():
     cached = SimpleNamespace(amount=50, orderType="LMT", limitPrice=10.0, stopPrice=None,
                              currency="USD", exchange="US", lastPrice=10.0)
-    parent = make_order(currency="USD", fxRate=1.0)
+    parent = make_order(currency="USD", fxRate=1.0, roundLotSize=1)
     # New qty 100 * new price 200 = 20,000 USD -> passes
     violations = compliance_service.check_modify(
         cached, parent,
