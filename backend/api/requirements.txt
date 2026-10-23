@@ -54,6 +54,8 @@ sqlalchemy==2.0.37
 asyncpg==0.30.0
 alembic==1.14.1
 psycopg[binary]==3.2.3
+# 057 DL-16：算法白名单读取（Algo Checklist xlsx 样板格式）
+openpyxl>=3.1
 
 # Development (optional)
 pytest==7.4.4
