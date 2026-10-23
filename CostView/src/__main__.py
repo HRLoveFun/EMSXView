@@ -36,6 +36,7 @@ _EXIT_EMPTY_WITH_FAIL_FLAG = 3
 
 _QUERIES = (
     "fills", "raw-fills", "log", "order-log", "orders", "tickers", "summary", "inventory",
+    "fit-cost-model", "cost-calibration",
 )
 
 
@@ -112,6 +113,31 @@ def _run_query(engine: QueryEngine, args: argparse.Namespace) -> Any:
 
         since = (date.today() - timedelta(days=180)).strftime("%Y%m%d")
         return build_inventory(ConnectionManager(), since, args.date or None)
+    if args.query == "fit-cost-model":
+        # 057 DL-13：按市场组拟合预期成本模型并落盘（K3 边界：评估标准化分母）
+        from data_access.storage.connection import ConnectionManager
+        from CostView.src.evaluation.expected_cost import (
+            COST_MODEL_VERSION,
+            save_models,
+            fit_expected_cost_models,
+        )
+
+        models = fit_expected_cost_models(ConnectionManager(), end_date=args.date or None)
+        if not models:
+            return {"model_version": COST_MODEL_VERSION, "models": {}, "message": "样本不足或无数据"}
+        window = f"{args.date or 'latest'}"
+        written = save_models(models, window=window)
+        return {
+            "model_version": COST_MODEL_VERSION,
+            "models": {m: model.to_payload() for m, model in sorted(models.items())},
+            "written": [str(p.name) for p in written],
+        }
+    if args.query == "cost-calibration":
+        # 057 DL-13：时间切分样本外校准（前 4 个月拟合 → 后 2 个月验证 z 均值/std）
+        from data_access.storage.connection import ConnectionManager
+        from CostView.src.evaluation.expected_cost import calibrate_models
+
+        return calibrate_models(ConnectionManager())
     return engine.query_summary(date=args.date)
 
 

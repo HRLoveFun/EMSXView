@@ -1,0 +1,19 @@
+{
+  "model_version": "cost-model-v1",
+  "market": "GA",
+  "fit_window": "latest",
+  "intercept": 6.395058,
+  "slope_participation": -1.462796,
+  "slope_volatility": -4.391641,
+  "n_observations": 39,
+  "r_squared": 0.0409,
+  "participation_domain": [
+    0.00037711859710523767,
+    0.26360445181316505
+  ],
+  "volatility_domain": [
+    17.254,
+    53.301
+  ],
+  "note": "对数空间 OLS 拟合；域外不外推，且不作为事前成本预测（K3 不在本计划范围）"
+}

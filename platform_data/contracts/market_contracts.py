@@ -171,3 +171,28 @@ class MarketRegimeState:
     macro_events: tuple[EventFlag, ...] = ()
     config_version: str | None = None
     schema_version: str = REGIME_SCHEMA_VERSION
+
+
+# ── 057 DL-13：预期成本模型契约（评估标准化分母 + 盘前算账；K3 边界内） ──────
+
+# 模型版本：与 CostView/src/evaluation/expected_cost.py::COST_MODEL_VERSION
+# 同名互锁（契约测试断言两侧一致）；口径变更时两侧同步升版
+COST_MODEL_VERSION = "cost-model-v1"
+
+
+@dataclass(frozen=True)
+class OrderDifficulty:
+    """逐单执行难度（父计划 §4.1 B 层产出）。
+
+    expected_cost_bps / timing_risk_bps：模型域内值；域外（in_domain=False）
+    或数据不足时为 None——消费方据此回落，不静默填 0。
+    用途限定：评估标准化（z 分母）与盘前单内部展示；不对外作事前预测（K3）。
+    """
+
+    expected_cost_bps: float | None
+    timing_risk_bps: float | None
+    required_duration_min: float | None
+    close_capacity_pct: float | None
+    model_version: str
+    in_domain: bool
+    notes: str = ""
