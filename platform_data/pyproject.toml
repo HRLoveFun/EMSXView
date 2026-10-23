@@ -11,6 +11,8 @@ dependencies = [
     "pydantic>=2.5",
     "python-dateutil>=2.8",
     "emsxview-datapipeline",
+    # 057 DL-16：外部算法白名单读取（xlsx 样板格式）
+    "openpyxl>=3.1",
 ]
 
 [tool.setuptools.packages.find]
