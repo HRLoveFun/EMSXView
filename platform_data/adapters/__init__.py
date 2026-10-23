@@ -48,3 +48,7 @@ from platform_data.adapters.session import (
 from platform_data.adapters.baseline import (
     DailyBaselineAdapter,
 )
+
+from platform_data.adapters.events import (
+    EventRegimeAdapter,
+)
