@@ -165,6 +165,34 @@ async def route_order(
                 },
             )
 
+        # 057 DL-17b/072：数量守恒 + 同日同券商反向单（现金账户纪律）
+        from services.order_compliance_service import evaluate_order_compliance
+
+        order_compliance = await evaluate_order_compliance(
+            parent_order,
+            route_qty=int(request.quantity or 0),
+            broker=request.broker or "",
+            bloomberg=bloomberg,
+        )
+        order_blocking = [v for v in order_compliance if v.get("severity") == "BLOCK"]
+        for order_warning in order_compliance:
+            if order_warning.get("severity") == "WARN":
+                logger.warning(
+                    "route_order %s order compliance warning: %s %s",
+                    correlation_id,
+                    order_warning.get("code", ""),
+                    order_warning.get("message", ""),
+                )
+        if order_blocking:
+            audit_result(correlation_id, "fail")
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Order compliance check failed",
+                    "violations": order_blocking,
+                },
+            )
+
     # PM 授权校验 (S13/043)：exceeded 硬拒绝；not_covered 放行并告警
     # （未登记授权不阻断——严格模式由部署策略决定）；持久化不可用跳过。
     if parent_order is not None:

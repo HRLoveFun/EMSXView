@@ -160,6 +160,40 @@ async def submit_proposal_core(
                 "submission %s strategy registry warning: %s", correlation_id, warning
             )
 
+        # 057 DL-17b/072：数量守恒 + 同日同券商反向单（现金账户纪律：禁止造单/改量）
+        from services.order_compliance_service import evaluate_order_compliance
+
+        parent_order = None
+        if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+            with bloomberg._data_lock:
+                parent_order = bloomberg._orders.get(proposal.get("parent_order_id", ""))
+        order_compliance = await evaluate_order_compliance(
+            parent_order,
+            route_qty=int(proposal.get("quantity", 0) or 0),
+            broker=proposal.get("broker", ""),
+            bloomberg=bloomberg,
+        )
+        order_blocking = [v for v in order_compliance if v.get("severity") == "BLOCK"]
+        for order_warning in order_compliance:
+            if order_warning.get("severity") == "WARN":
+                logger.warning(
+                    "submission %s order compliance warning: %s %s",
+                    correlation_id,
+                    order_warning.get("code", ""),
+                    order_warning.get("message", ""),
+                )
+        if order_blocking:
+            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
+            if audit_result:
+                audit_result(correlation_id, "fail")
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Order compliance check failed",
+                    "violations": order_blocking,
+                },
+            )
+
         route_req = RouteOrderRequest(
             orderId=proposal["parent_order_id"],
             broker=proposal["broker"],

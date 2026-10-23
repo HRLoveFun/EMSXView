@@ -65,6 +65,10 @@ class Violation(BaseModel):
         "TRADER_MARKET_NOT_ALLOWED",
         "TRADER_PORTFOLIO_NOT_ALLOWED",
         "BROKER_MARKET_NOT_ALLOWED",
+        # 057 DL-17b/072：数量守恒与同日同券商反向单
+        "QUANTITY_EXCEEDS_REMAINING",
+        "REVERSE_ORDER_BROKER_BLOCKED",
+        "REVERSE_ORDER_MANUAL_REVIEW",
     ]
     message: str
     severity: Literal["BLOCK", "WARN"] = "BLOCK"
