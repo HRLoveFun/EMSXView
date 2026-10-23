@@ -42,6 +42,45 @@ SOURCE_MODULE_MATURITY: dict[str, str] = {
 # 禁止做成环境变量（可配会让前后端口径漂移）。
 HANDOFF_MAX_STRATEGY_PARAMS_BYTES: int = 64 * 1024
 
+# ── 057 DL-14：MV→EV handoff v2 载荷版本 ─────────────────────────────────────
+# v1 载荷（ExecutionCandidateHandoff）无版本字段；v2 在既有字段基础上扩展
+# pretrade_items（逐单装配产物）+ schema_version。消费方据 schema_version
+# 缺失判 v1、据本常量判 v2——v1 端点扩展而非替换，旧消费方不破。
+HANDOFF_SCHEMA_VERSION = "market-to-execution-v2"
+
+
+@dataclass(frozen=True)
+class PreTradeBoardItem:
+    """盘前单装配产物（057 DL-14：1a–1c 四路产物按单汇总）。
+
+    - benchmark/close_pct：DL-01 意图（PM Note 13 解析）；
+    - log_volume_z/vol_percentile/adv5_adv60_ratio：DL-10 日度基线摘要；
+    - market_code/liq_regime/vol_regime：DL-11 市场级状态摘要；
+    - expected_cost_bps/timing_risk_bps/in_domain/model_version：DL-13 难度；
+    - model_calibrated：DL-13 v1 校准未达标——False 时成本字段仅作内部参考
+      （系统性低估，见 docs/report-cost-model-calibration.md）；
+    - data_gaps：缺失的产物名列表（无意图/无基线/无模型等）——None 字段的
+      原因可见，不静默填 0（原则 4）。
+    """
+
+    equ_ticker: str
+    order_key: str
+    benchmark: str
+    close_pct: float | None
+    qty: float | None
+    log_volume_z: float | None = None
+    vol_percentile: float | None = None
+    adv5_adv60_ratio: float | None = None
+    market_code: str | None = None
+    liq_regime: str | None = None
+    vol_regime: str | None = None
+    expected_cost_bps: float | None = None
+    timing_risk_bps: float | None = None
+    in_domain: bool = False
+    model_version: str | None = None
+    model_calibrated: bool = False
+    data_gaps: tuple[str, ...] = ()
+
 
 @dataclass(frozen=True)
 class HandoffMetadata:

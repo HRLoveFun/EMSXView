@@ -135,6 +135,7 @@ from .execution_contracts import (
 # Handoff contracts
 from .handoff_contracts import (
     HANDOFF_MAX_STRATEGY_PARAMS_BYTES,
+    HANDOFF_SCHEMA_VERSION,
     MATURITY_BETA,
     MATURITY_GA,
     MATURITY_SCAFFOLD,
@@ -143,6 +144,7 @@ from .handoff_contracts import (
     ExecutionCandidateHandoff,
     ExecutionPostTradeHandoff,
     HandoffMetadata,
+    PreTradeBoardItem,
     _new_trace_id,
     _now_iso,
 )

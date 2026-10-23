@@ -217,3 +217,32 @@ export interface PreTradeOrdersPayload {
   orders: ExportOrderRow[];
   unmatched: UnmatchedOrder[];
 }
+
+// ── 057 DL-14：盘前单装配（四路产物） ──────────────────────
+
+export interface PreTradeBoardItem {
+  equ_ticker: string;
+  order_key: string;
+  benchmark: OrderIntentBenchmark;
+  close_pct: number | null;
+  qty: number | null;
+  log_volume_z: number | null;
+  vol_percentile: number | null;
+  adv5_adv60_ratio: number | null;
+  market_code: string | null;
+  liq_regime: string | null;
+  vol_regime: string | null;
+  expected_cost_bps: number | null;
+  timing_risk_bps: number | null;
+  in_domain: boolean;
+  model_version: string | null;
+  model_calibrated: boolean;
+  data_gaps: string[];
+}
+
+export interface PreTradeBoardPayload {
+  trade_date: string | null;
+  export_file_name: string;
+  schema_version: string;
+  items: PreTradeBoardItem[];
+}

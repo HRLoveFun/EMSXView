@@ -6,6 +6,7 @@ import { FilterBar } from './components/filter-bar';
 import { SnapshotTable } from './components/snapshot-table';
 import { HandoffPanel } from './components/handoff-panel';
 import { ExportOrdersPanel } from './components/export-orders-panel';
+import { PreTradeBoardPanel } from './components/pre-trade-board-panel';
 import { buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
 import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
 import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
@@ -265,6 +266,8 @@ export default function MarketViewModule() {
       ) : null}
 
       <ExportOrdersPanel />
+
+      <PreTradeBoardPanel />
     </section>
   );
 }

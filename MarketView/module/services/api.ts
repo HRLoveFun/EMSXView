@@ -1,6 +1,7 @@
 import type { MarketSnapshotPayload, MarketSnapshotRequest } from '../types';
 import type { IntradayFeatureRequest, IntradayFeatureSnapshot } from '../types';
 import type { PreTradeOrdersPayload } from '../types';
+import type { PreTradeBoardPayload } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -116,4 +117,18 @@ export async function fetchPreTradeOrders(): Promise<PreTradeOrdersPayload> {
 
   const json = await response.json();
   return json.data as PreTradeOrdersPayload;
+}
+
+// 057 DL-14：盘前单装配（四路产物汇总），只读
+export async function fetchPreTradeBoard(): Promise<PreTradeBoardPayload> {
+  const response = await fetch(`${API_BASE_URL}/api/marketview/pretrade-board`, {
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as PreTradeBoardPayload;
 }

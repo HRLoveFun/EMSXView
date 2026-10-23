@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 from platform_data.adapters import MarketReferenceDataAdapter
 # 2026-09-16：契约类型统一从 platform_data.contracts 导入（此前经
@@ -417,6 +420,10 @@ class MarketToExecutionHandoffPayload(BaseModel):
     pool_label: Optional[str] = None
     candidate_payload: MarketCandidatePayloadResponse
     execution_hint: dict = Field(default_factory=dict)
+    # 057 DL-14 v2 扩展：include_pretrade_items=true 时非空；schema_version
+    # 缺省为空串 = v1 载荷（消费方据缺失判 v1）
+    schema_version: str = ""
+    pretrade_items: Optional[list[dict]] = None
 
 
 class MarketToExecutionHandoffEnvelope(BaseModel):
@@ -431,6 +438,9 @@ class MarketToExecutionPublishRequest(BaseModel):
     tickers: Optional[list[str]] = None
     execution_hint: dict = Field(default_factory=dict)
     limit: int = Field(default=40, ge=1, le=100)
+    # 057 DL-14：true 时载荷带 v2 扩展（pretrade_items + schema_version）；
+    # 缺省 False 保持 v1 载荷（旧消费方不破）
+    include_pretrade_items: bool = False
 
 
 def _serialize_handoff_metadata(metadata) -> _HandoffMetadataResponse:
@@ -444,8 +454,8 @@ def _serialize_handoff_metadata(metadata) -> _HandoffMetadataResponse:
     )
 
 
-def _serialize_market_handoff(handoff) -> MarketToExecutionHandoffPayload:
-    return MarketToExecutionHandoffPayload(
+def _serialize_market_handoff(handoff, *, include_pretrade_items: bool = False) -> MarketToExecutionHandoffPayload:
+    payload = MarketToExecutionHandoffPayload(
         metadata=_serialize_handoff_metadata(handoff.metadata),
         trade_date=handoff.trade_date,
         pool_id=handoff.pool_id,
@@ -453,6 +463,28 @@ def _serialize_market_handoff(handoff) -> MarketToExecutionHandoffPayload:
         candidate_payload=_serialize_candidate_payload(handoff.candidate_payload),
         execution_hint=dict(handoff.execution_hint),
     )
+    if include_pretrade_items:
+        # 057 DL-14：装配四路产物为 v2 载荷（装配失败不阻断 v1 发布——
+        # handoff 主体是候选名单，pretrade_items 是增强）
+        from routers.pretrade import assemble_items
+        from platform_data.contracts import HANDOFF_SCHEMA_VERSION
+
+        try:
+            items = assemble_items()
+        except Exception:
+            logger.exception("pretrade items assembly failed; publishing v1 payload")
+            return payload
+        payload = payload.model_copy(
+            update={
+                "schema_version": HANDOFF_SCHEMA_VERSION,
+                "pretrade_items": [_serialize_pretrade_item(i) for i in items],
+            }
+        )
+    return payload
+
+
+def _serialize_pretrade_item(item) -> dict:
+    return dict(item.__dict__)
 
 
 @router.post(
@@ -503,7 +535,7 @@ async def publish_execution_handoff(request: MarketToExecutionPublishRequest):
     )
     return MarketToExecutionHandoffEnvelope(
         success=True,
-        data=_serialize_market_handoff(handoff),
+        data=_serialize_market_handoff(handoff, include_pretrade_items=request.include_pretrade_items),
         message=(
             f"Published {candidate_payload.row_count} candidate(s) to ExecutionView "
             f"(trace_id={handoff.metadata.trace_id})"
