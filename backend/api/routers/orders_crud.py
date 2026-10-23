@@ -123,20 +123,45 @@ async def route_order(
         with bloomberg._data_lock:
             parent_order = bloomberg._orders.get(request.orderId)
     if parent_order is not None:
+        from schemas import Violation
+        from services import access_policy_service
+
         violations = compliance_service.check_route(
             parent_order,
             route_qty=request.quantity,
             limit_price=request.price,
             stop_price=request.stopPrice,
             order_type=request.orderType,
+            fractional_markets=access_policy_service.fractional_markets(),
         )
-        if violations:
+        # 057 DL-17a/071：准入白名单——未准入 BLOCK；转人工项 WARN
+        for policy_violation in access_policy_service.evaluate_access(
+            parent_order, {"broker": request.broker, "quantity": request.quantity}
+        ):
+            violations.append(
+                Violation(
+                    code=policy_violation.code,
+                    message=policy_violation.message,
+                    severity="WARN" if policy_violation.manual_review_required else "BLOCK",
+                )
+            )
+        # 057 DL-17a/071：仅 BLOCK 阻断；WARN 记录后放行（转人工提示不拦自动路由）
+        blocking = [v for v in violations if getattr(v, "severity", "BLOCK") == "BLOCK"]
+        for warning_violation in violations:
+            if getattr(warning_violation, "severity", "BLOCK") == "WARN":
+                logger.warning(
+                    "route_order %s compliance warning: %s %s",
+                    correlation_id,
+                    getattr(warning_violation, "code", ""),
+                    getattr(warning_violation, "message", ""),
+                )
+        if blocking:
             audit_result(correlation_id, "fail")
             raise HTTPException(
                 400,
                 detail={
                     "message": "Pre-trade compliance check failed",
-                    "violations": [v.model_dump() for v in violations],
+                    "violations": [v.model_dump() for v in blocking],
                 },
             )
 

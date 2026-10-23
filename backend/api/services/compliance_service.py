@@ -31,7 +31,9 @@ _JP_EXCHANGE_CODES: frozenset[str] = frozenset({"JP", "JT", "JF", "JU", "JE", "J
 # Order types treated as "needs limit price" for $Value computation.
 _LIMIT_ORDER_TYPES: frozenset[str] = frozenset({"LMT", "LIMIT", "STP_LMT", "STOP_LIMIT"})
 
-_DEFAULT_JP_ROUND_LOT = 100
+# 057 DL-17a/071：不再用固定 100 兜底——整手以 ticker 级 round lot 为准
+# （彭博 PX_ROUND_LOT_SIZE，经投影注入 parent_order.roundLotSize 或调用方 lookup），
+# 不可得时转人工（ROUND_LOT_UNKNOWN），符合交易员「不猜」口径。
 
 
 def _is_jp_market(exchange: Optional[str], currency: Optional[str]) -> bool:
@@ -192,30 +194,88 @@ def _check_notional(
     return violations
 
 
-def _check_jp_odd_lot(
+def _market_in_scope(
+    exchange: Optional[str],
+    currency: Optional[str],
+    markets: frozenset[str] | set[str],
+) -> str | None:
+    """exchange/currency → 命中的市场码（未命中返回 None）。
+
+    与 _is_jp_market 同源逻辑的通用形式：exchange 码/首 token 直接命中，
+    或货币推断（JPY→JP）。
+    """
+    tokens: list[str] = []
+    if exchange:
+        text = exchange.strip().upper()
+        tokens.append(text)
+        tokens.append(text.split()[0])
+    if currency and currency.strip().upper() == "JPY":
+        tokens.append("JP")
+    for token in tokens:
+        if token and token in markets:
+            return token
+    return None
+
+
+def _check_odd_lot(
     *,
     qty: int,
     exchange: Optional[str],
     currency: Optional[str],
     round_lot_size: Optional[int],
+    odd_lot_markets: frozenset[str] | set[str] | None = None,
+    fractional_markets: frozenset[str] | None = None,
 ) -> List[Violation]:
+    """整手与碎股检查（057 DL-17a/071，交易员口径：ticker 级 round lot）。
+
+    - 市场不在 ODD_LOT_MARKETS → 不检查（无整手概念）；
+    - round lot 不可得 → ROUND_LOT_UNKNOWN（转人工，不猜 100）；
+    - qty 非整手倍数 → 碎股白名单内市场放行；JP 发 JP_ODD_LOT（兼容既有 code），
+      其他市场发 ODD_LOT_MANUAL_REVIEW（转人工）。
+    """
     if qty <= 0:
         return []
-    if not _is_jp_market(exchange, currency):
+    markets = odd_lot_markets if odd_lot_markets is not None else frozenset(settings.ODD_LOT_MARKETS)
+    market = _market_in_scope(exchange, currency, markets)
+    if market is None:
         return []
-    lot = int(round_lot_size) if round_lot_size and round_lot_size > 0 else _DEFAULT_JP_ROUND_LOT
-    if qty % lot != 0:
+    if round_lot_size is None or round_lot_size <= 0:
+        return [
+            Violation(
+                code="ROUND_LOT_UNKNOWN",
+                message=(
+                    f"Round lot unavailable for {market}: manual review required "
+                    f"(no fallback to a guessed lot size)."
+                ),
+                severity="WARN",  # 转人工可见，不静默放行
+                details={"qty": qty, "exchange": exchange, "market": market},
+            )
+        ]
+    lot = int(round_lot_size)
+    if qty % lot == 0:
+        return []
+    if fractional_markets and market in {m.upper() for m in fractional_markets}:
+        return []  # 碎股白名单内市场：允许常规路由
+    if market == "JP":
         return [
             Violation(
                 code="JP_ODD_LOT",
-                message=(
-                    f"Quantity {qty} is not a multiple of the JP round-lot "
-                    f"size {lot}."
-                ),
+                message=f"Quantity {qty} is not a multiple of the JP round-lot size {lot}.",
                 details={"qty": qty, "lotSize": lot, "exchange": exchange},
             )
         ]
-    return []
+    return [
+        Violation(
+            code="ODD_LOT_MANUAL_REVIEW",
+            # 碎股白名单外：不可自动路由到券商（交易员意见）——BLOCK，转人工处理
+            message=(
+                f"Quantity {qty} is not a multiple of round lot {lot} in {market} "
+                f"and market is not in fractional routing whitelist: manual review required."
+            ),
+            severity="BLOCK",
+            details={"qty": qty, "lotSize": lot, "exchange": exchange, "market": market},
+        )
+    ]
 
 
 def check_route(
@@ -225,6 +285,7 @@ def check_route(
     limit_price: Optional[float],
     stop_price: Optional[float],
     order_type: Optional[str],
+    fractional_markets: frozenset[str] | None = None,
 ) -> List[Violation]:
     """Run pre-trade compliance for a new RouteEx request.
 
@@ -265,11 +326,12 @@ def check_route(
         )
     )
     violations.extend(
-        _check_jp_odd_lot(
+        _check_odd_lot(
             qty=route_qty,
             exchange=exchange,
             currency=currency,
             round_lot_size=round_lot_size,
+            fractional_markets=fractional_markets,
         )
     )
     return violations
@@ -283,6 +345,7 @@ def check_modify(
     new_limit_price: Optional[float],
     new_stop_price: Optional[float],
     new_order_type: Optional[str],
+    fractional_markets: frozenset[str] | None = None,
 ) -> List[Violation]:
     """Run pre-trade compliance for a ModifyRouteEx request.
 
@@ -351,11 +414,12 @@ def check_modify(
         )
     )
     violations.extend(
-        _check_jp_odd_lot(
+        _check_odd_lot(
             qty=qty,
             exchange=exchange,
             currency=currency,
             round_lot_size=round_lot_size,
+            fractional_markets=fractional_markets,
         )
     )
     return violations

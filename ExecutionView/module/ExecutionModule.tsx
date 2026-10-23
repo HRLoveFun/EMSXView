@@ -6,6 +6,7 @@ import { ExecutionBoard } from '@execution/views/ExecutionBoard';
 import { ExecutionViewTabs } from '@execution/views/ExecutionViewTabs';
 import { SettingsBoard } from '@execution/views/settings/SettingsBoard';
 import { SubOrderReviewPanel } from '@execution/components/sub-order-review-panel';
+import { DailyBrokerPolicyConfirmModal } from '@execution/components/daily-broker-policy-confirm-modal';
 import { useExecutionViewData } from '@execution/hooks/use-execution-view-data';
 import { useOrdersStream } from '@execution/hooks/use-orders-stream';
 import { useRoutesStream } from '@execution/hooks/use-routes-stream';
@@ -129,6 +130,8 @@ export default function ExecutionModule({ onContribute }: ExecutionModuleProps) 
 
   return (
     <div className="space-y-3">
+      {/* 057 DL-17a/071：每日券商准入确认（当地 08:00 后首次打开） */}
+      <DailyBrokerPolicyConfirmModal />
       {shell.subscriptionsWarming ? (
         <div
           className={
