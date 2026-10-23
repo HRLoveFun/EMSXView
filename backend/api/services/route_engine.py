@@ -136,14 +136,38 @@ class RouteEngine:
             allocations = await self.repo.get_allocations_for_plan(plan.id)
 
         if plan.split_type == SplitType.BROKER_SPLIT.value:
-            return self._generate_broker_split(order, plan, allocations)
+            proposals = self._generate_broker_split(order, plan, allocations)
         elif plan.split_type == SplitType.TIME_SCHEDULE.value:
-            return self._generate_time_schedule(order, plan)
+            proposals = self._generate_time_schedule(order, plan)
         elif plan.split_type == SplitType.HYBRID.value:
-            return self._generate_hybrid(order, plan, allocations)
+            proposals = self._generate_hybrid(order, plan, allocations)
         else:
             logger.warning("Unknown split_type '%s' for plan %d", plan.split_type, plan.id)
-            return []
+            proposals = []
+
+        # 057 DL-21/075：影子决策记录（开关默认关闭；失败绝不阻断提案）
+        await self._record_shadow_decision(order, plan, proposals)
+        return proposals
+
+    async def _record_shadow_decision(
+        self, order: Order, plan: RoutePlan, proposals: list[dict]
+    ) -> None:
+        """旁路记录决策（影子方式；任何异常吞掉并记日志）。"""
+        from services.decision_log_service import (
+            build_shadow_decision,
+            decision_log_enabled,
+            record_decision,
+        )
+
+        if not proposals or not decision_log_enabled():
+            return
+        try:
+            decision = build_shadow_decision(order, plan, proposals)
+            await record_decision(decision)
+        except Exception:  # 影子记录不得影响路由主流程
+            logger.warning(
+                "shadow decision log failed for order %s", getattr(order, "id", ""), exc_info=True
+            )
 
     def _generate_broker_split(
         self, order: Order, plan: RoutePlan, allocations: list[RoutePlanAllocation]

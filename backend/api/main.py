@@ -302,9 +302,11 @@ from routers.realtime import router as realtime_router
 from routers.market_broker_mapping import router as market_broker_mapping_router
 from routers.route_plans import router as route_plans_router
 from routers.authorizations import router as authorizations_router  # S12/042
+from routers.routing_decisions import router as routing_decisions_router  # 057 DL-21
 
 app.include_router(connection_router)
 app.include_router(authorizations_router)
+app.include_router(routing_decisions_router)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)
