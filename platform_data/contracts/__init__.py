@@ -41,6 +41,7 @@ from .market_contracts import (
     BASELINE_MIN_DAYS,
     BASELINE_SCHEMA_VERSION,
     BASELINE_WINDOW_DAYS,
+    COST_MODEL_VERSION,
     REGIME_SCHEMA_VERSION,
     EventFlag,
     MarketAlert,
@@ -53,6 +54,7 @@ from .market_contracts import (
     MarketSnapshotFilters,
     MarketSnapshotSort,
     MarketStockPool,
+    OrderDifficulty,
 )
 
 # Intraday-feature contracts

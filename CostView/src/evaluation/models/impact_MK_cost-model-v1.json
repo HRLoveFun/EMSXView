@@ -1,0 +1,19 @@
+{
+  "model_version": "cost-model-v1",
+  "market": "MK",
+  "fit_window": "latest",
+  "intercept": 2.246028,
+  "slope_participation": 0.274448,
+  "slope_volatility": 0.859297,
+  "n_observations": 264,
+  "r_squared": 0.0983,
+  "participation_domain": [
+    0.0017477523751679783,
+    0.7306662106823635
+  ],
+  "volatility_domain": [
+    7.056,
+    74.101
+  ],
+  "note": "对数空间 OLS 拟合；域外不外推，且不作为事前成本预测（K3 不在本计划范围）"
+}
