@@ -203,6 +203,7 @@ rg "\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 | `MarketReferenceDataAdapter` | `platform_data/adapters/market.py` | `get_market_snapshot`, `get_intraday_features` 等 | `_DEFAULT_STOCK_POOLS`, `_liquidity_severity`, `_round_or_none`, `_severity_at_least`, `_sort_market_rows`, `_to_optional_float`, `_volatility_severity` |
 | `ExchangeSessionAdapter` | `platform_data/adapters/session.py` | `get_session`, `session_bounds_for`, `closing_time_for`, `session_relative_minutes`, `is_early_close_auction`, `market_code_for`, `time_bucket_for`（057 DL-03 会话注册表查询，数据见 `platform_data/contracts/exchange_session_contracts.py`） | 无内部私有方法（纯查询，时区换算经 `data_access.common.exchange_tz`） |
 | `DailyBaselineAdapter` | `platform_data/adapters/baseline.py` | `get_baseline`（057 DL-10 个股 60 日稳健分布基线：log 量 z / 波动分位 / 跳空 σ / 竞价占比 / ADV 比 / 价差代理；契约见 `market_contracts.py::MarketBaseline`） | `_baseline_for`, `_load_daily`, `_load_bars`, `_empty_baseline` 等取数与装配内部 |
+| `EventRegimeAdapter` | `platform_data/adapters/events.py` | `get_market_state`, `get_market_states`, `event_flags_for_ticker`（057 DL-11 市场级日级状态 + 宏观事件窗口 + 半日市 + 导出事件尽力而为；数据见 `regime.db` 与 DL-03 静态表） | `_load_regimes`, `_load_macro_events` 等取数内部 |
 
 #### 平台级函数（适配器工厂）
 
