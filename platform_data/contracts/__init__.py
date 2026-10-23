@@ -92,6 +92,16 @@ from .order_split import (
     reverse_order_decision,
 )
 
+# Routing-decision contracts（057 DL-21/075：决策日志，影子方式）
+from .routing_decision import (
+    CONSTRAINT_MATRIX_VERSION,
+    DECISION_SCHEMA_VERSION,
+    MODE_ASSIST,
+    MODE_SHADOW,
+    DecisionCandidate,
+    RoutingDecision,
+)
+
 # Param-strategy contracts（057 DL-18/074：意图驱动的参数规则）
 from .param_strategy import (
     DEFAULT_LIMIT_SIGMA,

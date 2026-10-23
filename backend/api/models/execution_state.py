@@ -71,3 +71,23 @@ class SubscriptionWatermark(Base):
     last_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class RoutingDecisionRecord(Base):
+    """路由决策日志（057 DL-21/075，影子方式；运营库）。
+
+    不可变记录：决策时点的候选集、参数摘要、四版本号。写入失败不阻断
+    提案生成（影子语义）；查询按 order_id / trace_id / as_of 索引。
+    """
+
+    __tablename__ = "routing_decisions"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    decision_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    order_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    as_of: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONPayload, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
