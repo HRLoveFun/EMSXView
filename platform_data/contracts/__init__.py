@@ -92,6 +92,20 @@ from .order_split import (
     reverse_order_decision,
 )
 
+# Param-strategy contracts（057 DL-18/074：意图驱动的参数规则）
+from .param_strategy import (
+    DEFAULT_LIMIT_SIGMA,
+    HIGH_VOL_SIGMA,
+    MIN_PARTICIPATION_PCT,
+    PARAM_TEMPLATE_VERSION,
+    THIN_PARTICIPATION_SCALE,
+    ParameterPlan,
+    build_parameter_plan,
+    limit_sigma_multiple,
+    participation_pct,
+    session_window_minutes,
+)
+
 # Algo-params contracts（057 DL-17c/073：volume cap 与 release time）
 from .algo_params import (
     ALGO_PARAMS_VERSION,

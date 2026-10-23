@@ -234,7 +234,9 @@ class RouteEngine:
         # Determine time window
         now = datetime.now(timezone.utc)
         start = now + timedelta(minutes=plan.default_start_offset_min or 5)
-        end = self._parse_end_time(plan.default_end_time_local, now)
+        end = self._parse_end_time(
+            plan.default_end_time_local, now, exchange_code=getattr(order, "exchange", "") or ""
+        )
 
         if end <= start:
             logger.warning("Plan %d end time %s <= start %s", plan.id, end, start)
@@ -290,7 +292,9 @@ class RouteEngine:
         # Step 2: Time-split each broker allocation
         now = datetime.now(timezone.utc)
         start = now + timedelta(minutes=plan.default_start_offset_min or 5)
-        end = self._parse_end_time(plan.default_end_time_local, now)
+        end = self._parse_end_time(
+            plan.default_end_time_local, now, exchange_code=getattr(order, "exchange", "") or ""
+        )
 
         if end <= start:
             end = start + timedelta(hours=1)
@@ -415,21 +419,45 @@ class RouteEngine:
         }
 
     @staticmethod
-    def _parse_end_time(time_str: str | None, now: datetime) -> datetime:
-        """Parse a local time string like '16:00' into a UTC datetime."""
+    def _parse_end_time(time_str: str | None, now: datetime, *, exchange_code: str = "") -> datetime:
+        """交易所本地 HH:MM → UTC datetime（057 DL-18：不再 assume UTC）。
+
+        修复前把交易所本地时间当作 UTC（JP 15:30 本地被当成 15:30 UTC，窗口
+        偏差 9 小时）。现按 `data_access.common.exchange_tz.EXCHANGE_TIMEZONE`
+        解释为交易所本地时区（zoneinfo 自动处理 DST）；未知交易所回落 UTC
+        并显式告警（可观测，不静默）。
+        """
         if not time_str:
             return now + timedelta(hours=6)
         try:
             parts = time_str.strip().split(":")
             hour = int(parts[0])
             minute = int(parts[1]) if len(parts) > 1 else 0
-            # Use naive local time and assume UTC for simplicity
+        except (ValueError, IndexError):
+            return now + timedelta(hours=6)
+
+        from data_access.common.exchange_tz import get_exchange_timezone
+
+        tz_name = get_exchange_timezone((exchange_code or "").strip().upper())
+        if not tz_name:
+            logger.warning(
+                "_parse_end_time: unknown exchange %r — assuming UTC for %s (inspect order.exchange)",
+                exchange_code,
+                time_str,
+            )
             end = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if end <= now:
                 end += timedelta(days=1)
             return end
-        except (ValueError, IndexError):
-            return now + timedelta(hours=6)
+
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_name)
+        local_now = now.astimezone(tz)
+        local_end = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if local_end <= local_now:
+            local_end += timedelta(days=1)
+        return local_end.astimezone(timezone.utc)
 
     @staticmethod
     def _uniform_time_split(
