@@ -124,6 +124,31 @@ async def submit_proposal_core(
             )
 
     try:
+        # 策略注册表校验（057 DL-16）：errors 阻断；warnings（unmapped 族/
+        # 白名单未知/白名单未命中）放行并记日志——v0 白名单不阻断，防误拦存量路由
+        from services.strategy_registry import validate_route_submission
+
+        strategy_name = (proposal.get("strategy_params") or {}).get("strategyName", "")
+        validation = validate_route_submission(
+            proposal["broker"], strategy_name, proposal.get("strategy_params")
+        )
+        if validation.errors:
+            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
+            if audit_result:
+                audit_result(correlation_id, "fail")
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Strategy parameter validation failed",
+                    "violations": validation.errors,
+                    "registry_version": validation.registry_version,
+                },
+            )
+        for warning in validation.warnings:
+            logger.warning(
+                "submission %s strategy registry warning: %s", correlation_id, warning
+            )
+
         route_req = RouteOrderRequest(
             orderId=proposal["parent_order_id"],
             broker=proposal["broker"],

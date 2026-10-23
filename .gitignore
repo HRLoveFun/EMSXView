@@ -154,3 +154,5 @@ Desktop.ini
 *.csv
 # 例外：MarketView 测试夹具（057 DL-01，虚构/脱敏数据；真实导出在仓库外收件箱，禁止入库）
 !MarketView/tests/fixtures/*.csv
+# 例外：算法白名单测试夹具（057 DL-16，虚拟 broker/策略的样板格式；真实白名单在仓库外，禁止入库）
+!backend/api/tests/fixtures/*.xlsx

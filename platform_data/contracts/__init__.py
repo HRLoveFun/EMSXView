@@ -106,6 +106,23 @@ from .algo_taxonomy import (
     normalize_strategy_type,
 )
 
+# Strategy registry + external algo whitelist（057 DL-16）
+from .strategy_registry import (
+    REGISTRY_VERSION,
+    STRATEGY_REGISTRY,
+    WHITELIST_PATH_ENV,
+    AlgoWhitelist,
+    ComplianceResult,
+    StrategySpec,
+    compliance_check,
+    default_params,
+    is_algo_whitelisted,
+    load_algo_whitelist,
+    normalize_algo_name,
+    resolve_family,
+    validate_strategy_params,
+)
+
 # Intraday store contracts（057 DL-06：盘中库契约，勿与 intraday_contracts 日内特征混淆）
 from .intraday_store_contracts import (
     CONSERVATION_AUDIT_RULE,
