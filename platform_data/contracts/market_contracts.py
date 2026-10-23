@@ -130,3 +130,44 @@ class MarketBaseline:
     n_days: int
     excluded_dates: tuple[str, ...] = ()
     schema_version: str = BASELINE_SCHEMA_VERSION
+
+
+# ── 057 DL-11：事件与市场级状态契约 ──────────────────────────────────────────
+
+# 契约版本：口径变更或数据源切换时升版
+REGIME_SCHEMA_VERSION = "market-regime-v1"
+
+
+@dataclass(frozen=True)
+class EventFlag:
+    """单个事件标记（宏观事件 / 财报除息 / 半日市）。
+
+    source：macro-calendar（regime.db 宏观日历）/ emsx-export（EMSX 导出字段，
+    填充率未经真实导出验证——尽力而为维度）/ half-day-table（DL-03 静态表）。
+    evidence：命中值或描述（如财报时间、半日市收盘时刻）。
+    """
+
+    code: str
+    severity: str
+    window_days: int
+    source: str
+    evidence: str | None = None
+
+
+@dataclass(frozen=True)
+class MarketRegimeState:
+    """市场级日级状态（父计划 §4.1 D 层日级部分；盘中截面叠加属 DL-15）。
+
+    liq/vol/trend 为管道 S8 regime 口径（regime.db，带 config_version 审计）；
+    macro_events 为当日事件窗口内的宏观事件；未知市场/无数据由适配器返回
+    None（消费方降级可见，不静默填常态）。
+    """
+
+    market_code: str
+    as_of: str
+    liq_regime: str | None
+    vol_regime: str | None
+    trend_regime: str | None
+    macro_events: tuple[EventFlag, ...] = ()
+    config_version: str | None = None
+    schema_version: str = REGIME_SCHEMA_VERSION
