@@ -78,6 +78,20 @@ from .order_intent_contracts import (
     UnmatchedOrder,
 )
 
+# Order-split contracts（057 DL-17b/072：金额拆分、反向单、精确剩余量）
+from .order_split import (
+    DEFAULT_MAX_NOTIONAL_USD,
+    ORDER_SPLIT_VERSION,
+    AccountType,
+    RemainingQuantity,
+    ReverseOrderDecision,
+    SplitLeg,
+    SplitPlan,
+    check_quantity_invariant,
+    plan_notional_split,
+    reverse_order_decision,
+)
+
 # Access-policy contracts（057 DL-17a/071：准入白名单与整手检查）
 from .access_policy import (
     ACCESS_POLICY_VERSION,
