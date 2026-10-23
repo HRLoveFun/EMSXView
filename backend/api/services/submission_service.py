@@ -172,6 +172,7 @@ async def submit_proposal_core(
             route_qty=int(proposal.get("quantity", 0) or 0),
             broker=proposal.get("broker", ""),
             bloomberg=bloomberg,
+            strategy_params=proposal.get("strategy_params") or {},
         )
         order_blocking = [v for v in order_compliance if v.get("severity") == "BLOCK"]
         for order_warning in order_compliance:
