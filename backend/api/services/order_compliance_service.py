@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -129,19 +130,75 @@ async def evaluate_reverse_order(
     )
 
 
+def load_volume_cap_mapping(path: str | None = None) -> dict[str, str]:
+    """券商 → volume cap 参数名映射（每券商 JSON 记录，hand_instruction 同款）。
+
+    读取优先级（057 DL-17c/073）：`broker_algorithms.json` 的
+    strategies[].parameters（EMSX 菜单刷新后填充，参数名含 vol/pct 即采用）
+    > `broker_volume_cap_params.json`（手工记录）> 缺省 PctVol（契约缺省）。
+    后者由 `param_name_for` 在检查时给出并标注来源。
+    """
+    from pathlib import Path
+
+    mapping: dict[str, str] = {}
+
+    # ① EMSX 策略菜单缓存（已填充才用）
+    algo_path = Path(__file__).resolve().parent.parent / "data" / "broker_algorithms.json"
+    if algo_path.exists():
+        try:
+            payload = json.loads(algo_path.read_text(encoding="utf-8"))
+            for config in payload.get("configs") or []:
+                broker = str(config.get("broker") or "").strip()
+                for strategy in config.get("strategies") or []:
+                    for param in strategy.get("parameters") or []:
+                        name = str(param.get("fieldName") or "")
+                        lowered = name.lower()
+                        if broker and ("vol" in lowered or "pct" in lowered):
+                            mapping.setdefault(broker, name)
+        except (OSError, json.JSONDecodeError):
+            logger.warning("broker_algorithms.json 解析失败，回落手工映射", exc_info=True)
+
+    # ② 手工记录（与 broker_hand_instruction.json 同款模式）
+    record_path = path or str(
+        Path(__file__).resolve().parent.parent / "data" / "broker_volume_cap_params.json"
+    )
+    if Path(record_path).exists():
+        try:
+            record = json.loads(Path(record_path).read_text(encoding="utf-8"))
+            for broker, name in record.items():
+                if broker.startswith("_") or broker == "EXAMPLE_BROKER":
+                    continue
+                if isinstance(name, str) and name:
+                    mapping.setdefault(broker.strip(), name)
+        except (OSError, json.JSONDecodeError):
+            logger.warning("broker_volume_cap_params.json 解析失败", exc_info=True)
+    return mapping
+
+
+def _market_of(parent_order: Any) -> str:
+    """订单市场码（exchange 经 DL-03 折叠）。"""
+    from platform_data.adapters import ExchangeSessionAdapter
+
+    exchange = getattr(parent_order, "exchange", "") or ""
+    return ExchangeSessionAdapter().market_code_for(exchange) if exchange else ""
+
+
 async def evaluate_order_compliance(
     parent_order: Any,
     *,
     route_qty: int,
     broker: str,
     bloomberg: Any = None,
+    strategy_params: dict | None = None,
 ) -> list[dict]:
     """订单合规检查（submission_service 与 orders_crud.route_order 共用）。
 
     返回违规字典列表（code/message/severity），空 = 通过：
     - QUANTITY_EXCEEDS_REMAINING（BLOCK）：路由量超过剩余订单量——引擎不得造单/改量；
     - REVERSE_ORDER_BROKER_BLOCKED（BLOCK）：同日同券商反向单命中——该券商不可再路由；
-    - REVERSE_ORDER_MANUAL_REVIEW（WARN）：已执行量或剩余量不可得——转人工。
+    - REVERSE_ORDER_MANUAL_REVIEW（WARN）：已执行量或剩余量不可得——转人工；
+    - VOLUME_CAP_MISSING（BLOCK，057 DL-17c）：每路由必带 volume cap（按券商命名）；
+    - RELEASE_TIME_MISSING（BLOCK）：收盘拍卖市场订单必带 release time。
     """
     if parent_order is None:
         return []
@@ -182,7 +239,27 @@ async def evaluate_order_compliance(
                 "severity": "WARN",
             }
         )
+
+    # 057 DL-17c/073：算法参数合规（volume cap 必带 + 收盘拍卖 release time）
+    # 特性开关默认关闭（G2 新能力默认关闭）：既有路由大多未带 volume cap，
+    # 直接 BLOCK 会使系统停摆；开启（EMSXVIEW_ALGO_PARAMS_ENFORCED=true）后阻断。
+    if algo_params_enforced():
+        from platform_data.contracts import check_release_time_present, check_volume_cap_present
+
+        mapping = load_volume_cap_mapping()
+        for error in check_volume_cap_present(strategy_params, broker, mapping=mapping):
+            violations.append({"code": "VOLUME_CAP_MISSING", "message": error, "severity": "BLOCK"})
+        market = _market_of(parent_order)
+        for error in check_release_time_present(strategy_params, market):
+            violations.append({"code": "RELEASE_TIME_MISSING", "message": error, "severity": "BLOCK"})
     return violations
+
+
+def algo_params_enforced() -> bool:
+    """算法参数合规是否阻断（默认关闭；EMSXVIEW_ALGO_PARAMS_ENFORCED=true 开启）。"""
+    import os
+
+    return os.getenv("EMSXVIEW_ALGO_PARAMS_ENFORCED", "").strip().lower() in {"1", "true", "yes"}
 
 
 def build_split_plan(

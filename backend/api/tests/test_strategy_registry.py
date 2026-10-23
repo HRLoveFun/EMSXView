@@ -97,26 +97,43 @@ class TestDefaults:
 
 
 class TestValidationService:
-    """④ 校验服务（白名单未配置 → warnings 不阻断）。"""
+    """④ 校验服务（057 DL-17c/073：未配置→WARN 部署初期例外；已配置未命中→BLOCK）。"""
 
     def test_no_whitelist_warns_not_blocks(self, monkeypatch):
+        """白名单未配置 = 部署初期状态 → WARN（与 071 configured 语义一致）。"""
         monkeypatch.delenv("EMSXVIEW_ALGO_WHITELIST", raising=False)
         result = validate_route_submission("EQ-MS", "VWAP", {"participation_rate": 0.18})
 
         assert result.errors == []
-        assert any("whitelist not configured" in w for w in result.warnings)
+        assert any("not configured" in w for w in result.warnings)
 
-    def test_registry_error_blocks(self):
+    def test_registry_error_blocks(self, monkeypatch):
+        monkeypatch.delenv("EMSXVIEW_ALGO_WHITELIST", raising=False)
         result = validate_route_submission("EQ-MS", "POV", {})
 
         assert result.errors  # 必填缺失 → 阻断
         assert result.registry_version == REGISTRY_VERSION
 
-    def test_unmapped_family_warns(self):
+    def test_unmapped_family_warns(self, monkeypatch):
+        monkeypatch.delenv("EMSXVIEW_ALGO_WHITELIST", raising=False)
         result = validate_route_submission("EQ-GS", "Hydra", {})
 
-        assert result.errors == []
         assert any("unmapped" in w for w in result.warnings)
+
+    def test_configured_whitelist_miss_blocks(self, monkeypatch, tmp_path):
+        """白名单已配置但查不到该 (broker, algo) → BLOCK（交易员意见第 11 项）。"""
+        fixture = Path(__file__).resolve().parent / "fixtures" / "algo_whitelist_sample.xlsx"
+        monkeypatch.setenv("EMSXVIEW_ALGO_WHITELIST", str(fixture))
+
+        # EQ-FAKE1 的名单只有 VWAP/TWAP/POV/CLOSE——IS 未命中 → BLOCK
+        result = validate_route_submission("EQ-FAKE1", "IS", {})
+
+        assert result.errors
+        assert any("algo whitelist" in error for error in result.errors)
+
+        # 命中 → 无白名单相关 error
+        allowed = validate_route_submission("EQ-FAKE1", "VWAP", {})
+        assert not any("algo whitelist" in error for error in allowed.errors)
 
 
 def test_version_constant():

@@ -69,6 +69,10 @@ class Violation(BaseModel):
         "QUANTITY_EXCEEDS_REMAINING",
         "REVERSE_ORDER_BROKER_BLOCKED",
         "REVERSE_ORDER_MANUAL_REVIEW",
+        # 057 DL-17c/073：算法参数合规
+        "VOLUME_CAP_MISSING",
+        "RELEASE_TIME_MISSING",
+        "ALGO_WHITELIST_UNKNOWN",
     ]
     message: str
     severity: Literal["BLOCK", "WARN"] = "BLOCK"
