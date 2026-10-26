@@ -73,6 +73,10 @@ class Violation(BaseModel):
         "VOLUME_CAP_MISSING",
         "RELEASE_TIME_MISSING",
         "ALGO_WHITELIST_UNKNOWN",
+        # 审计 A02（H2）：策略注册表层（四入口统一）
+        "STRATEGY_PARAM_INVALID",
+        "STRATEGY_NOT_ALLOWED",
+        "STRATEGY_WARNING",
     ]
     message: str
     severity: Literal["BLOCK", "WARN"] = "BLOCK"
