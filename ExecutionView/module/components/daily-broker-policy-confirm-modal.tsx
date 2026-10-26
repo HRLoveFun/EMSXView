@@ -10,6 +10,8 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 
+import { getTokenRole } from '@shared/services/token-service';
+
 import { routesApi } from '@execution/services/routes-api';
 
 type MappingData = {
@@ -47,6 +49,8 @@ export const DailyBrokerPolicyConfirmModal = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // A05：selection 写入已收成 admin-only；非 admin 不发起确认流程
+    if (getTokenRole() !== 'admin') return;
     let cancelled = false;
     routesApi
       .getMarketBrokerMapping()
@@ -70,7 +74,7 @@ export const DailyBrokerPolicyConfirmModal = () => {
     return Object.keys(data.rosters ?? {}).sort();
   }, [data]);
 
-  if (!visible || !data || markets.length === 0) {
+  if (getTokenRole() !== 'admin' || !visible || !data || markets.length === 0) {
     return null;
   }
 

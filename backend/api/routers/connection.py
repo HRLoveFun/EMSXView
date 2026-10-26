@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends
 
 from schemas import ApiResponse
-from deps import verify_token, get_bloomberg_service, get_repo_provider
+from deps import verify_token, require_permission, get_bloomberg_service, get_repo_provider
 from config import settings
 from db import check_database_connection
 
@@ -97,7 +97,7 @@ async def get_startup_status(
 
 @router.post("/api/connection/reconnect", response_model=ApiResponse)
 async def reconnect_bloomberg(
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("admin")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Force reconnection to Bloomberg."""

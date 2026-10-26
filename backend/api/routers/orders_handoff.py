@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from deps import verify_token
+from deps import verify_token, require_permission
 
 from schemas import ApiResponse
 from schemas.handoff import (
@@ -96,7 +96,7 @@ async def get_active_candidate_handoff(user: dict = Depends(verify_token)) -> Ap
     response_model=ApiResponse,
 )
 async def publish_post_trade_handoff(
-    request: PostTradeHandoffRequest, user: dict = Depends(verify_token),
+    request: PostTradeHandoffRequest, user: dict = Depends(require_permission("trade")),
 ) -> ApiResponse:
     """Publish an ExecutionView → CostView post-trade context handoff."""
     try:

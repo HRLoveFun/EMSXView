@@ -11,12 +11,24 @@ handoff 使用真实的内存 HandoffExchangeAdapter（无 Redis / 数据库依�
 
 from __future__ import annotations
 
+import jwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 # conftest 已设置 sys.path；import 顺序与 main.py 保持一致（config 先于 platform_data）
 import config  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _marketview_jwt(monkeypatch):
+    """A04：handoff 写端点需要 JWT；测试统一注入固定 secret。"""
+    monkeypatch.setattr(config, "JWT_SECRET", "testsecret")
+
+
+def _auth_headers() -> dict:
+    token = jwt.encode({"sub": "u1", "role": "trader"}, "testsecret", algorithm="HS256")
+    return {"Authorization": f"Bearer {token}"}
 from routers import marketview
 from platform_data.adapters import HandoffExchangeAdapter
 from platform_data.contracts.market_contracts import (
@@ -338,6 +350,7 @@ class TestHandoffEndpoint:
             response = client.post(
                 "/api/marketview/handoff/execution",
                 json={"pool_id": "all", "trade_date": TRADE_DATE, "limit": 40},
+                headers=_auth_headers(),
             )
         finally:
             platform_data.get_shared_handoff_exchange = original
@@ -365,6 +378,7 @@ class TestHandoffEndpoint:
             response = client.post(
                 "/api/marketview/handoff/execution",
                 json={"pool_id": "all", "tickers": ["TSLA US Equity"]},
+                headers=_auth_headers(),
             )
         finally:
             platform_data.get_shared_handoff_exchange = original
@@ -381,6 +395,7 @@ class TestHandoffEndpoint:
         response = client.post(
             "/api/marketview/handoff/execution",
             json={"pool_id": "nope"},
+            headers=_auth_headers(),
         )
 
         assert response.status_code == 400
