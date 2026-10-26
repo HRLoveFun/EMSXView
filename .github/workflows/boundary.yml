@@ -83,7 +83,7 @@ jobs:
       - name: "全量测试 (硬阻断)"
         run: |
           cd backend/api
-          python -m pytest tests/ -q --ignore=tests/boundaries
+          python -m pytest tests/ -vv --ignore=tests/boundaries
       # CostView 读取消费侧全量测试（含 golden snapshot 指标锁定回归）。
       # 平台无关：测试用 tmp_path + sqlite3 独立夹具，blpapi 由
       # scripts/ci/blpapi_stub 提供；冻结快照随基线入库
