@@ -1,6 +1,7 @@
 // Execution Domain State — tab, filters, monitor conditions
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { loadConditions, saveConditions, matchesAnyCondition, type MonitorConditions } from '@execution/lib/monitor-conditions';
+import { apiFetch } from '@shared/services/http-client';
+import { applyServerThresholds, hasSavedConditions, loadConditions, saveConditions, matchesAnyCondition, type MonitorConditions } from '@execution/lib/monitor-conditions';
 import type { Order, OrderFilters } from '@execution/types';
 
 export type ExecutionViewTab = 'monitor' | 'trade' | 'route-engine' | 'settings';
@@ -17,6 +18,25 @@ export function useExecutionState({ effectiveOrders }: UseExecutionStateParams) 
   useEffect(() => {
     saveConditions(monitorConditions);
   }, [monitorConditions]);
+
+  useEffect(() => {
+    // DL-15：阈值由服务端统一下发（版本化）；用户已自定义时以本地为准
+    if (hasSavedConditions()) return;
+    let cancelled = false;
+    apiFetch('/api/market-state/thresholds')
+      .then((resp) => {
+        if (cancelled || !resp.success || !resp.data) return;
+        const data = resp.data as { version?: string; monitor?: Record<string, number> };
+        if (!data.version) return;
+        setMonitorConditions((prev) => applyServerThresholds(prev, data));
+      })
+      .catch(() => {
+        /* 阈值服务不可用 → 保留本地默认 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredOrders = useMemo(() => {
     let result = effectiveOrders;

@@ -68,6 +68,8 @@ vi.mock('@execution/hooks/use-routes-stream', () => ({
 vi.mock('@execution/lib/monitor-conditions', () => ({
   loadConditions: () => ({}),
   saveConditions: vi.fn(),
+  hasSavedConditions: () => true,  // DL-15：跳过服务端阈值拉取（隔离外部依赖）
+  applyServerThresholds: (_c: unknown, _s: unknown) => (_c as object) ?? {},
   matchesAnyCondition: () => true,
 }));
 

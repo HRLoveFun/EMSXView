@@ -45,6 +45,12 @@ async def get_market_state_snapshot(
     return ApiResponse(success=True, data=mss.snapshot_payload(snapshot))
 
 
+@router.get("/api/market-state/thresholds", response_model=ApiResponse)
+async def get_monitor_thresholds(user: dict = Depends(verify_token)) -> ApiResponse:
+    """MonitorBoard 服务端默认阈值（版本化；用户本地自定义优先于本默认）。"""
+    return ApiResponse(success=True, data=mss.monitor_thresholds())
+
+
 @router.websocket("/ws/market-state")
 async def ws_market_state(ws: WebSocket):
     """每 5 秒推送一次快照；开关关闭时推送 `enabled:false` 心跳。"""

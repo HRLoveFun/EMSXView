@@ -24,6 +24,21 @@ logger = logging.getLogger(__name__)
 #: 服务端统一阈值（版本化；变更即升版并记审计）
 THRESHOLDS = MarketStateThresholds()
 
+#: MonitorBoard 服务端默认阈值（057 DL-15：替代前端 localStorage 全局常数）
+MONITOR_THRESHOLDS_VERSION = "monitor-thresholds-v1"
+MONITOR_THRESHOLDS_DEFAULTS: dict = {
+    "dollarValueLow": 10_000,
+    "dollarValueHigh": 49_000_000,
+    "pctChangeBuy": 4.5,
+    "pctChangeSell": 4.5,
+    "qtyAdvRatio": 5,
+}
+
+
+def monitor_thresholds() -> dict:
+    """MonitorBoard 默认阈值（版本化，供前端首次使用时取用）。"""
+    return {"version": MONITOR_THRESHOLDS_VERSION, "monitor": dict(MONITOR_THRESHOLDS_DEFAULTS)}
+
 #: 基线查询：tickers → {equ_ticker: MarketBaseline}（由路由层注入适配器）
 BaselineLookup = Callable[[list], dict]
 
