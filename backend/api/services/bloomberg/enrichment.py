@@ -24,6 +24,39 @@ from .subscriptions import EMSXSubscriptionEngine
 
 logger = logging.getLogger("main")
 
+# 057 DL-15：mktdata 基础字段（既有）与盘中状态字段（开关开启时追加）
+_MKTDATA_BASE_FIELDS = ["CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP", "PX_ROUND_LOT_SIZE"]
+_MKTDATA_INTRADAY_FIELDS = ["BID", "ASK", "LAST_PRICE", "VOLUME", "HIGH", "LOW"]
+
+
+def mktdata_fields(intraday_state_enabled: bool) -> list:
+    """mktdata 订阅字段清单（DL-15：开关开启时追加 BID/ASK/LAST_PRICE/VOLUME/HIGH/LOW）。"""
+    if intraday_state_enabled:
+        return _MKTDATA_BASE_FIELDS + _MKTDATA_INTRADAY_FIELDS
+    return list(_MKTDATA_BASE_FIELDS)
+
+
+def parse_intraday_quote(msg) -> dict:
+    """解析 DL-15 行情字段；缺失/NaN 字段跳过，单字段异常不影响其余字段。"""
+    quote: dict = {}
+    for field in ("BID", "ASK", "LAST_PRICE", "HIGH", "LOW"):
+        if msg.hasElement(field):
+            try:
+                value = msg.getElementAsFloat(field)
+            except Exception:
+                continue
+            if value != value:  # NaN（Bloomberg 对无数据字段可能回 NaN）
+                continue
+            quote[field] = value
+    if msg.hasElement("VOLUME"):
+        try:
+            value = msg.getElementAsInteger("VOLUME")
+        except Exception:
+            value = None
+        if value is not None and value == value:
+            quote["VOLUME"] = value
+    return quote
+
 
 class MarketDataEnrichmentService:
     def __init__(
@@ -37,6 +70,7 @@ class MarketDataEnrichmentService:
         self._settings = _settings
 
         self._price_changes: Dict[str, float] = {}
+        self._intraday_quotes: Dict[str, dict] = {}
         self._adv5d: Dict[str, float] = {}
         self._mkt_vwap: Dict[str, float] = {}
 
@@ -93,6 +127,11 @@ class MarketDataEnrichmentService:
         return self._adv5d
 
     @property
+    def intraday_quotes(self) -> Dict[str, dict]:
+        """DL-15：逐票盘中报价缓存（开关关闭时为空）。"""
+        return self._intraday_quotes
+
+    @property
     def mkt_vwap(self) -> Dict[str, float]:
         return self._mkt_vwap
 
@@ -131,6 +170,7 @@ class MarketDataEnrichmentService:
 
     def reset(self):
         self._price_changes = {}
+        self._intraday_quotes = {}
         self._adv5d = {}
         self._mkt_vwap = {}
         self._fx_rates = {}
@@ -392,7 +432,7 @@ class MarketDataEnrichmentService:
             cid = blpapi.CorrelationId(ticker)
             sub_list.add(
                 topic=f"//blp/mktdata/{ticker}",
-                fields=["CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP", "PX_ROUND_LOT_SIZE"],
+                fields=mktdata_fields(self._settings.EMSXVIEW_INTRADAY_STATE_ENABLED),
                 correlationId=cid,
             )
         logger.info(
@@ -442,6 +482,14 @@ class MarketDataEnrichmentService:
                     logger.info(f"[ROUND_LOT_MKTDATA] {ticker}: PX_ROUND_LOT_SIZE = {val}")
                 else:
                     logger.debug(f"[ROUND_LOT] {ticker}: PX_ROUND_LOT_SIZE = {val}")
+            if self._settings.EMSXVIEW_INTRADAY_STATE_ENABLED:
+                quote = parse_intraday_quote(msg)
+                if quote:
+                    quote["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                    self._intraday_quotes[ticker] = {
+                        **self._intraday_quotes.get(ticker, {}),
+                        **quote,
+                    }
         except Exception as e:
             logger.debug(f"Error parsing mktdata for {ticker}: {e}")
 

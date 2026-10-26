@@ -173,6 +173,65 @@ class MarketRegimeState:
     schema_version: str = REGIME_SCHEMA_VERSION
 
 
+# ── 057 DL-15：盘中市场状态契约（C 层实时特征；特性开关默认关闭） ─────────────
+
+# 契约版本：口径或字段变更时升版
+MARKET_STATE_SCHEMA_VERSION = "market-state-v1"
+# 服务端阈值版本：变更阈值即升版并记审计（替代前端 localStorage 全局常数）
+MARKET_STATE_THRESHOLDS_VERSION = "market-state-thresholds-v1"
+
+
+@dataclass(frozen=True)
+class MarketStateThresholds:
+    """服务端统一阈值（DL-15：MonitorBoard 改为服务端 z 值/阈值判定）。"""
+
+    version: str = MARKET_STATE_THRESHOLDS_VERSION
+    # 价差相对基线的放宽阈值（bps；超过即产生 SPREAD_VS_BASELINE_WIDE）
+    spread_vs_baseline_bps: float = 5.0
+    # 实际累计量 ÷ 预期曲线（DL-09 就绪前不判定，预留）
+    cumulative_volume_ratio: float = 2.0
+
+
+@dataclass(frozen=True)
+class MarketStateFlag:
+    """逐票盘中状态告警（仅 WARN 级提示，不阻断路由）。"""
+
+    code: str
+    severity: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class MarketStateTickerState:
+    """单票盘中实时状态（C 层；字段缺失为 None，不猜数）。"""
+
+    equ_ticker: str
+    as_of: str  # ISO 时间戳（该票最近一次行情更新）
+    bid: float | None = None
+    ask: float | None = None
+    last: float | None = None
+    high: float | None = None
+    low: float | None = None
+    volume: int | None = None
+    spread_bps: float | None = None
+    spread_vs_baseline_bps: float | None = None
+    # DL-09 预期量曲线就绪前 None；DL-12 到达价、参与率同理（预留）
+    cumulative_volume_ratio: float | None = None
+    flags: tuple[MarketStateFlag, ...] = ()
+    schema_version: str = MARKET_STATE_SCHEMA_VERSION
+
+
+@dataclass(frozen=True)
+class MarketStateSnapshot:
+    """逐票盘中状态快照（WS 推送与 REST 共用同一形状）。"""
+
+    as_of: str
+    enabled: bool
+    tickers: tuple[MarketStateTickerState, ...] = ()
+    thresholds: MarketStateThresholds = MarketStateThresholds()
+    schema_version: str = MARKET_STATE_SCHEMA_VERSION
+
+
 # ── 057 DL-13：预期成本模型契约（评估标准化分母 + 盘前算账；K3 边界内） ──────
 
 # 模型版本：与 CostView/src/evaluation/expected_cost.py::COST_MODEL_VERSION
