@@ -21,8 +21,8 @@ from schemas import (
 )
 from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service, get_repo_provider
 from models.route_plan import RoutePlan, RoutePlanAllocation
-from services import compliance_service
 from services.authorization_service import enforce_for_order
+from services.pre_trade_checks import pre_trade_checks
 from services.route_engine import RouteEngine
 from services.submission_service import submit_proposal_core
 
@@ -550,6 +550,33 @@ async def list_sub_order_proposals(
                        message=f"Retrieved {len(proposals)} proposals")
 
 
+def _cached_parent_order(bloomberg, order_id: str):
+    """订阅缓存中的父订单（无缓存/无锁时返回 None）。"""
+    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
+        with bloomberg._data_lock:
+            return bloomberg._orders.get(order_id)
+    return None
+
+
+def _proposal_check_payload(proposal: dict) -> dict:
+    """建议单 → pre_trade_checks 统一载荷。"""
+    return {
+        "parent_order_id": proposal.get("parent_order_id"),
+        "broker": proposal.get("broker", ""),
+        "quantity": int(proposal.get("quantity") or 0),
+        "limit_price": proposal.get("limit_price"),
+        "stop_price": None,
+        "order_type": proposal.get("order_type") or "LIMIT",
+        "strategy_params": proposal.get("strategy_params") or {},
+    }
+
+
+async def _proposal_pre_trade_checks(proposal: dict, bloomberg) -> list[dict]:
+    """建议单入口共用：解析父订单后调用统一检查（A02）。"""
+    parent_order = _cached_parent_order(bloomberg, proposal.get("parent_order_id", ""))
+    return await pre_trade_checks(parent_order, _proposal_check_payload(proposal), bloomberg)
+
+
 @router.post("/api/sub-order-proposals/{proposal_id}/confirm", response_model=ApiResponse)
 async def confirm_proposal(
     proposal_id: int,
@@ -576,36 +603,6 @@ async def confirm_proposal(
             result="PENDING", correlation_id=correlation_id,
         )
 
-        def _compliance_check(p: dict):
-            """与 orders_crud.route_order 同口径的 compliance 闭包（含 057 DL-17a 准入）。"""
-            parent_order = None
-            if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
-                with bloomberg._data_lock:
-                    parent_order = bloomberg._orders.get(p["parent_order_id"])
-            if parent_order is None:
-                return []
-            from schemas import Violation
-            from services import access_policy_service
-
-            violations = compliance_service.check_route(
-                parent_order,
-                route_qty=p.get("quantity", 0),
-                limit_price=p.get("limit_price"),
-                stop_price=None,
-                order_type=p.get("order_type") or "LIMIT",
-                fractional_markets=access_policy_service.fractional_markets(),
-            )
-            # 057 DL-17a/071：准入白名单——未准入 BLOCK；转人工项 WARN（不静默放行）
-            for policy_violation in access_policy_service.evaluate_access(parent_order, p):
-                violations.append(
-                    Violation(
-                        code=policy_violation.code,
-                        message=policy_violation.message,
-                        severity="WARN" if policy_violation.manual_review_required else "BLOCK",
-                    )
-                )
-            return violations
-
         async def _authorization_check(p: dict):
             """PM 授权闭包 (S13/043 口径)：缓存缺失跳过、not_covered 放行。"""
             parent_order = None
@@ -627,7 +624,7 @@ async def confirm_proposal(
             correlation_id=correlation_id,
             persist_result=_persist_proposal_result,
             audit_result=audit_result,
-            compliance_check=_compliance_check,
+            compliance_check=lambda p: _proposal_pre_trade_checks(p, bloomberg),
             authorization_check=_authorization_check,
         )
 
@@ -727,21 +724,6 @@ async def batch_confirm_proposals(
             async with lock:
                 item_cid = uuid4().hex
 
-                def _compliance_check(p: dict):
-                    parent_order = None
-                    if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
-                        with bloomberg._data_lock:
-                            parent_order = bloomberg._orders.get(p["parent_order_id"])
-                    if parent_order is None:
-                        return []
-                    return compliance_service.check_route(
-                        parent_order,
-                        route_qty=p.get("quantity", 0),
-                        limit_price=p.get("limit_price"),
-                        stop_price=None,
-                        order_type=p.get("order_type") or "LIMIT",
-                    )
-
                 async def _authorization_check(p: dict):
                     parent_order = None
                     if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
@@ -762,7 +744,7 @@ async def batch_confirm_proposals(
                     correlation_id=item_cid,
                     persist_result=_persist_proposal_result,
                     audit_result=audit_result,
-                    compliance_check=_compliance_check,
+                    compliance_check=lambda p: _proposal_pre_trade_checks(p, bloomberg),
                     authorization_check=_authorization_check,
                 )
             if result.outcome == "SUBMITTED":

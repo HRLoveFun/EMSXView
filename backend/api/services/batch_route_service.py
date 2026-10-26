@@ -43,6 +43,7 @@ from schemas import (
     Violation,
 )
 from services import compliance_service
+from services.pre_trade_checks import pre_trade_checks, split_by_severity
 from services.route_service import ROUTABLE_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ def _merge_modify_payload(
 # Per-item dry-run evaluation
 # ============================================================================
 
-def _evaluate_route_item(
+async def _evaluate_route_item(
     bloomberg: Any,
     item: BatchRouteOrderItem,
     *,
@@ -271,35 +272,38 @@ def _evaluate_route_item(
             None,
         )
 
-    violations = compliance_service.check_route(
+    # A02：与单笔入口同一套检查（准入 → 订单合规 → 策略 → 碎股白名单）
+    violations = await pre_trade_checks(
         parent_order,
-        route_qty=request.quantity,
-        limit_price=request.price,
-        stop_price=request.stopPrice,
-        order_type=request.orderType,
+        {
+            "parent_order_id": item.orderId,
+            "broker": request.broker,
+            "quantity": request.quantity,
+            "limit_price": request.price,
+            "stop_price": request.stopPrice,
+            "order_type": request.orderType,
+            "strategy_params": getattr(request, "strategyParams", None) or {},
+        },
+        bloomberg,
     )
-    # Separate hard-block from soft-warn violations. Only BLOCK severtiy
-    # prevents the route; WARN violations are carried on a SUCCESS result
-    # so the UI can surface the advisory message.
-    block_violations = [v for v in violations if v.severity == "BLOCK"]
-    warn_violations = [v for v in violations if v.severity == "WARN"]
-    if block_violations:
+    # 仅 BLOCK 阻断；WARN 挂在 SUCCESS 结果上供 UI 提示
+    blocking, warnings = split_by_severity(violations)
+    if blocking:
         return (
             BatchOperationItemResult(
                 key=rkey,
                 status="BLOCKED",
-                message="Compliance check failed",
-                violations=violations,  # all violations for full diagnostics
+                message="Pre-trade checks failed",
+                violations=[Violation(**violation) for violation in violations],
             ),
             None,
         )
-
     return (
         BatchOperationItemResult(
             key=rkey,
             status="SUCCESS",
             message="Validated",
-            violations=warn_violations,  # carry soft warnings
+            violations=[Violation(**violation) for violation in warnings],
         ),
         request,
     )
@@ -500,7 +504,7 @@ async def dry_run_batch_route(
 ) -> BatchOperationResult:
     """Pre-flight validation only; no blpapi calls."""
     eval_results = [
-        _evaluate_route_item(
+        await _evaluate_route_item(
             bloomberg, item, template=request.template, terminal_trader=terminal_trader,
         )
         for item in request.items
@@ -628,7 +632,7 @@ async def stream_batch_route(
     concurrency = max(1, int(settings.BATCH_CONCURRENCY))
     sem = asyncio.Semaphore(concurrency)
     eval_results = [
-        _evaluate_route_item(
+        await _evaluate_route_item(
             bloomberg, item, template=request.template, terminal_trader=terminal_trader,
         )
         for item in request.items
