@@ -100,6 +100,9 @@ class Settings:
     EMSXVIEW_INTRADAY_STATE_ENABLED: bool = (
         os.getenv("EMSXVIEW_INTRADAY_STATE_ENABLED", "false").lower() == "true"
     )
+    EMSXVIEW_MARKET_STATE_PUSH_INTERVAL: float = float(
+        os.getenv("EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", "5")
+    )
 
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"

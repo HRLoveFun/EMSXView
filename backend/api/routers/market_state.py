@@ -11,14 +11,13 @@ import json
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from config import settings
 from deps import get_bloomberg_service, verify_token
 from schemas import ApiResponse
 from services import market_state_service as mss
 from services.realtime_gateway import realtime_gw
 
 router = APIRouter(tags=["MarketState"])
-
-_WS_PUSH_INTERVAL_SECONDS = 5
 
 
 def _baseline_lookup(tickers: list) -> dict:
@@ -64,7 +63,7 @@ async def ws_market_state(ws: WebSocket):
                 await ws.send_text(
                     json.dumps({"type": "market_state", "data": {"enabled": False, "tickers": []}})
                 )
-            await asyncio.sleep(_WS_PUSH_INTERVAL_SECONDS)
+            await asyncio.sleep(max(0.05, float(settings.EMSXVIEW_MARKET_STATE_PUSH_INTERVAL)))
     except (WebSocketDisconnect, RuntimeError):
         realtime_gw.disconnect(ws)
     except Exception:

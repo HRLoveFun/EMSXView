@@ -72,6 +72,7 @@ def test_snapshot_enabled_returns_tickers(monkeypatch):
 def test_ws_pushes_disabled_heartbeat(monkeypatch):
     """开关关闭：WS 推送 enabled:false 心跳（不触发构建）。"""
     monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", False)
+    monkeypatch.setattr(settings, "EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", 0.05)
     with _client(bloomberg=None).websocket_connect("/ws/market-state") as ws:
         message = ws.receive_json()
     assert message["type"] == "market_state"
@@ -80,6 +81,7 @@ def test_ws_pushes_disabled_heartbeat(monkeypatch):
 
 def test_ws_pushes_snapshot_when_enabled(monkeypatch):
     monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", True)
+    monkeypatch.setattr(settings, "EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", 0.05)
     monkeypatch.setattr(market_state, "_baseline_lookup", lambda tickers: {})
     with _client().websocket_connect("/ws/market-state") as ws:
         message = ws.receive_json()
