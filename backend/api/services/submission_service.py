@@ -96,30 +96,33 @@ async def submit_proposal_core(
     proposal["status"] = ProposalStatus.CONFIRMING.value
     proposal["updated_at"] = _now()
 
-    # compliance（由调用方注入闭包，保持与单笔入口同口径）
-    # 057 DL-17a/071：按 severity 区分——仅 BLOCK 阻断；WARN 记录后放行
-    # （round lot 不可得等「转人工提示」不阻断自动路由）
+    # A02：compliance_check 为 async（调用方注入 pre_trade_checks 统一入口）。
+    # 仅 BLOCK 阻断；WARN 记录后放行（round lot 不可得等「转人工提示」不拦路由）。
     if compliance_check is not None:
-        violations = compliance_check(proposal)
-        blocking = [v for v in violations if getattr(v, "severity", "BLOCK") == "BLOCK"]
-        warned = [v for v in violations if getattr(v, "severity", "BLOCK") == "WARN"]
+        violations = await compliance_check(proposal)
+        blocking = [v for v in violations if v.get("severity") == "BLOCK"]
+        warned = [v for v in violations if v.get("severity") == "WARN"]
         for warning_violation in warned:
             logger.warning(
-                "submission %s compliance warning: %s %s",
+                "submission %s pre-trade warning: %s %s",
                 correlation_id,
-                getattr(warning_violation, "code", ""),
-                getattr(warning_violation, "message", ""),
+                warning_violation.get("code", ""),
+                warning_violation.get("message", ""),
             )
         if blocking:
+            # 返回 BLOCKED 而非抛出：单笔端点转 400，批量流按条输出 BLOCKED，
+            # 避免批量流在生成器内抛异常导致整批中断（A02 批量收敛）。
             proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
             if audit_result:
                 audit_result(correlation_id, "fail")
-            raise HTTPException(
-                400,
+            return SubmissionResult(
+                proposal_id=proposal_id,
+                outcome="BLOCKED",
                 detail={
                     "message": "Pre-trade compliance check failed",
-                    "violations": [v.model_dump() for v in blocking],
+                    "violations": blocking,
                 },
+                http_status=400,
             )
 
     # PM 授权（由调用方注入闭包）
@@ -135,66 +138,8 @@ async def submit_proposal_core(
             )
 
     try:
-        # 策略注册表校验（057 DL-16）：errors 阻断；warnings（unmapped 族/
-        # 白名单未知/白名单未命中）放行并记日志——v0 白名单不阻断，防误拦存量路由
-        from services.strategy_registry import validate_route_submission
-
-        strategy_name = (proposal.get("strategy_params") or {}).get("strategyName", "")
-        validation = validate_route_submission(
-            proposal["broker"], strategy_name, proposal.get("strategy_params")
-        )
-        if validation.errors:
-            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
-            if audit_result:
-                audit_result(correlation_id, "fail")
-            raise HTTPException(
-                400,
-                detail={
-                    "message": "Strategy parameter validation failed",
-                    "violations": validation.errors,
-                    "registry_version": validation.registry_version,
-                },
-            )
-        for warning in validation.warnings:
-            logger.warning(
-                "submission %s strategy registry warning: %s", correlation_id, warning
-            )
-
-        # 057 DL-17b/072：数量守恒 + 同日同券商反向单（现金账户纪律：禁止造单/改量）
-        from services.order_compliance_service import evaluate_order_compliance
-
-        parent_order = None
-        if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
-            with bloomberg._data_lock:
-                parent_order = bloomberg._orders.get(proposal.get("parent_order_id", ""))
-        order_compliance = await evaluate_order_compliance(
-            parent_order,
-            route_qty=int(proposal.get("quantity", 0) or 0),
-            broker=proposal.get("broker", ""),
-            bloomberg=bloomberg,
-            strategy_params=proposal.get("strategy_params") or {},
-        )
-        order_blocking = [v for v in order_compliance if v.get("severity") == "BLOCK"]
-        for order_warning in order_compliance:
-            if order_warning.get("severity") == "WARN":
-                logger.warning(
-                    "submission %s order compliance warning: %s %s",
-                    correlation_id,
-                    order_warning.get("code", ""),
-                    order_warning.get("message", ""),
-                )
-        if order_blocking:
-            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
-            if audit_result:
-                audit_result(correlation_id, "fail")
-            raise HTTPException(
-                400,
-                detail={
-                    "message": "Order compliance check failed",
-                    "violations": order_blocking,
-                },
-            )
-
+        # A02：策略注册表与订单合规已收敛到调用方注入的 pre_trade_checks，
+        # 此处不再重复执行（避免双层判定与「双份真相」）。
         route_req = RouteOrderRequest(
             orderId=proposal["parent_order_id"],
             broker=proposal["broker"],

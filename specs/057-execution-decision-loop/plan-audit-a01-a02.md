@@ -171,6 +171,7 @@ def split_by_severity(violations: list[dict]) -> tuple[list[dict], list[dict]]:
 - `compliance_check` 约定改为 **async 可调用**：`violations = await compliance_check(proposal)`；
 - 删除文件内 :140-162（`validate_route_submission`）与 :164-198（`evaluate_order_compliance`）两段直接调用 —— 这两层已由 `pre_trade_checks` 提供，避免重复执行与「双份真相」；
 - BLOCK 时仍按既有语义回滚 `PENDING_CONFIRM` 并 `audit_result(fail)`（**不改** A03 的状态机）；
+- BLOCK 由「抛 HTTPException」改为返回 `SubmissionResult(outcome="BLOCKED", http_status=400)`：单笔端点据此转 400（响应形状不变），批量流据此按条输出 `BLOCKED` 而不中断整批（A02 批量收敛的必要条件）；
 - `authorization_check` 保持原位置与语义（PM 授权不在本次收敛范围）。
 
 **顺序变化说明**：单笔确认原先顺序为「compliance → 授权 → 策略 → 订单合规」，收敛后为「准入 → 订单合规 → 策略 → 通用合规 → 授权」。多条违规同时命中时，先报出的那条可能变化；每条检查的阈值、文案、开关语义均不变。
