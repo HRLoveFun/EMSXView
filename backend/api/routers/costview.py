@@ -18,10 +18,11 @@ from __future__ import annotations
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from auth import user_has_permission
 from config import settings
-from deps import verify_token
+from deps import require_permission, verify_token
 from schemas import ApiResponse
 
 logger = logging.getLogger(__name__)
@@ -44,10 +45,21 @@ _setup_costview_dependencies()
 from CostView.api.routers.costview import router as _tca_router  # noqa: E402
 from CostView.api.routers.monitoring import router as _monitoring_router  # noqa: E402
 
+
+async def _bridge_guard(request: Request, user: dict = Depends(verify_token)) -> dict:
+    """桥接守卫（A04/M2）：全部端点要求有效 token；写方法额外要求 trade 权限。"""
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and not user_has_permission(user, "trade"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Action 'trade' not permitted for role '{user.get('role', '')}'",
+        )
+    return user
+
+
 #: 合并 CostView 全部路由（既有 /api/tca/* + 监控 /api/tca/monitoring/*）
 router = APIRouter()
-router.include_router(_tca_router)
-router.include_router(_monitoring_router)
+router.include_router(_tca_router, dependencies=[Depends(_bridge_guard)])
+router.include_router(_monitoring_router, dependencies=[Depends(_bridge_guard)])
 
 
 # ── 数据管道 Runner 代理（P2-4 整改）────────────────────────────────────────
@@ -71,7 +83,7 @@ async def _request_runner(method: str, path: str) -> tuple[int, dict | None, str
 
 
 @router.post("/api/tca/runner/run", response_model=ApiResponse)
-async def trigger_pipeline_run(user: dict = Depends(verify_token)) -> ApiResponse:
+async def trigger_pipeline_run(user: dict = Depends(require_permission("admin"))) -> ApiResponse:
     """代理 Runner POST /run —— 触发数据管道更新（409 视为已受理）。"""
     status_code, body, error = await _request_runner("POST", "/run")
     if status_code == 409:
@@ -86,7 +98,7 @@ async def trigger_pipeline_run(user: dict = Depends(verify_token)) -> ApiRespons
 
 
 @router.get("/api/tca/runner/status", response_model=ApiResponse)
-async def get_pipeline_run_status(user: dict = Depends(verify_token)) -> ApiResponse:
+async def get_pipeline_run_status(user: dict = Depends(_bridge_guard)) -> ApiResponse:
     """代理 Runner GET /status —— 查询当前数据管道任务状态。"""
     _, body, error = await _request_runner("GET", "/status")
     if error:

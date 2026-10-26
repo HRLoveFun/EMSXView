@@ -8,8 +8,22 @@ import os
 os.environ.setdefault("EMSXVIEW_HANDOFF_BACKEND", "redis")
 os.environ.setdefault("EMSXVIEW_REDIS_URL", "redis://localhost:6379/0")
 
-HOST: str = os.getenv("MARKETVIEW_HOST", "0.0.0.0")
+# A04（M2）：默认只监听回环地址（与 CostView 一致），需要对外暴露时显式覆盖。
+HOST: str = os.getenv("MARKETVIEW_HOST", "127.0.0.1")
 PORT: int = int(os.getenv("MARKETVIEW_PORT", "8001"))
+
+# A04（M2）：handoff 写端点 JWT 校验，与 core backend 共用同一 secret / 算法。
+JWT_SECRET: str = os.getenv("JWT_SECRET", "")
+JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+
+# A04（M2）：CORS 白名单（逗号分隔）；不再使用 "*" + credentials 组合。
+ALLOWED_ORIGINS: list[str] = [
+    origin.strip()
+    for origin in os.getenv(
+        "MARKETVIEW_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"
+    ).split(",")
+    if origin.strip()
+]
 
 # EMSX 订单导出收件箱（057 DL-01）：交易员盘中手工导出的 CSV 落盘目录。
 # 目录在仓库外、只增不删（留档）；未配置时盘前单端点返回空数据 + 说明，

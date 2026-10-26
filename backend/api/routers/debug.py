@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from schemas import ApiResponse
 from config import settings
-from deps import verify_token, get_bloomberg_service
+from deps import verify_token, require_permission, get_bloomberg_service
 
 logger = logging.getLogger("main")
 
@@ -65,7 +65,7 @@ async def get_round_lot_sizes(
 @router.post("/api/debug/query-round-lot", response_model=ApiResponse)
 async def query_round_lot(
     ticker: str,
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("admin")),
     bloomberg=Depends(get_bloomberg_service),
 ) -> ApiResponse:
     """Manually query PX_ROUND_LOT_SIZE for a specific ticker."""
