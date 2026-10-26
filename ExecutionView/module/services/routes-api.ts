@@ -56,6 +56,10 @@ export const routesApi = {
     return apiFetch('/api/routes/diagnose-strategy-rate');
   },
 
+  async getMarketStateThresholds(): Promise<ApiResponse<{ version: string; monitor: Record<string, number> }>> {
+    return apiFetch('/api/market-state/thresholds');
+  },
+
   async getRouteEnums(): Promise<ApiResponse<{
     orderTypes: Array<{ value: string; label: string; needsLimit: boolean; needsStop: boolean }>;
     tifOptions: Array<{ value: string; label: string }>;

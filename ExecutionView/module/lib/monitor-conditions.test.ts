@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   loadConditions,
   saveConditions,
+  hasSavedConditions,
+  applyServerThresholds,
   matchesAnyCondition,
   getOrderFlags,
   DEFAULT_CONDITIONS,
@@ -59,6 +61,47 @@ function createOrder(overrides?: Partial<Order>): Order {
     ...overrides,
   };
 }
+
+
+describe('hasSavedConditions（DL-15 服务端阈值下发）', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('无本地自定义 → false', () => {
+    expect(hasSavedConditions()).toBe(false);
+  });
+
+  it('saveConditions 后 → true', () => {
+    saveConditions(DEFAULT_CONDITIONS);
+    expect(hasSavedConditions()).toBe(true);
+  });
+});
+
+describe('applyServerThresholds（DL-15 服务端阈值下发）', () => {
+  it('以服务端数值覆盖数值型阈值，不动 enabled 开关', () => {
+    const server = { version: 'monitor-thresholds-v1', monitor: { dollarValueLow: 20_000, qtyAdvRatio: 8 } };
+    const next = applyServerThresholds(DEFAULT_CONDITIONS, server);
+    expect(next.dollarValueLow.threshold).toBe(20_000);
+    expect(next.dollarValueLow.enabled).toBe(true);
+    expect(next.qtyAdvRatio.threshold).toBe(8);
+    expect(next.pctChangeBuy.threshold).toBe(DEFAULT_CONDITIONS.pctChangeBuy.threshold);
+    expect(next.oddLot).toEqual(DEFAULT_CONDITIONS.oddLot);
+    expect(next.lazy).toEqual(DEFAULT_CONDITIONS.lazy);
+  });
+
+  it('忽略未知键与非数值（含 NaN）', () => {
+    const server = { version: 'monitor-thresholds-v1', monitor: { nope: 1, pctChangeBuy: NaN } };
+    const next = applyServerThresholds(DEFAULT_CONDITIONS, server);
+    expect(next.pctChangeBuy.threshold).toBe(DEFAULT_CONDITIONS.pctChangeBuy.threshold);
+  });
+
+  it('server 为空时原样返回（内容相等、引用不同）', () => {
+    const next = applyServerThresholds(DEFAULT_CONDITIONS, null);
+    expect(next).toEqual(DEFAULT_CONDITIONS);
+    expect(next).not.toBe(DEFAULT_CONDITIONS);
+  });
+});
 
 describe('loadConditions', () => {
   beforeEach(() => {
