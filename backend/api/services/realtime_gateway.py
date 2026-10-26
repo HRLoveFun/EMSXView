@@ -79,6 +79,10 @@ class RealtimeGateway:
         event = route_delta(event_type, route_dict)
         await self._publish(event)
 
+    async def broadcast_market_state(self, data: dict[str, Any]) -> None:
+        """广播盘中市场状态快照（057 DL-15；开关关闭时不调用）。"""
+        await self._publish({"type": "market_state", "data": data})
+
     async def _publish(self, event: dict[str, Any]) -> None:
         """Append to buffer and fan-out to all connected clients."""
         async with self._lock:

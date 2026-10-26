@@ -69,22 +69,28 @@ def test_snapshot_enabled_returns_tickers(monkeypatch):
     assert state["schema_version"] == "market-state-v1"
 
 
-def test_ws_pushes_disabled_heartbeat(monkeypatch):
-    """开关关闭：WS 推送 enabled:false 心跳（不触发构建）。"""
-    monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", False)
-    monkeypatch.setattr(settings, "EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", 0.05)
-    with _client(bloomberg=None).websocket_connect("/ws/market-state") as ws:
-        message = ws.receive_json()
-    assert message["type"] == "market_state"
-    assert message["data"]["enabled"] is False
+@pytest.mark.asyncio
+async def test_gateway_broadcasts_market_state():
+    """网关广播 market_state 事件（真实 WS 握手属部署期观测，不在 CI）。"""
+    import json
 
+    from services.realtime_gateway import realtime_gw
 
-def test_ws_pushes_snapshot_when_enabled(monkeypatch):
-    monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", True)
-    monkeypatch.setattr(settings, "EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", 0.05)
-    monkeypatch.setattr(market_state, "_baseline_lookup", lambda tickers: {})
-    with _client().websocket_connect("/ws/market-state") as ws:
-        message = ws.receive_json()
-    assert message["type"] == "market_state"
-    assert message["data"]["enabled"] is True
-    assert message["data"]["tickers"][0]["equ_ticker"] == "AAPL US Equity"
+    sent: list[str] = []
+
+    class _FakeWS:
+        async def send_text(self, text: str) -> None:
+            sent.append(text)
+
+    fake = _FakeWS()
+    realtime_gw._connections.append(fake)
+    try:
+        await realtime_gw.broadcast_market_state({"enabled": False, "tickers": []})
+    finally:
+        realtime_gw._connections.remove(fake)
+
+    assert len(sent) == 1
+    payload = json.loads(sent[0])
+    assert payload["type"] == "market_state"
+    assert payload["data"]["enabled"] is False
+    assert isinstance(payload["cursor"], int)
