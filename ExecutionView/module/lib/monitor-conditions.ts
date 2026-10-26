@@ -50,6 +50,44 @@ export const DEFAULT_CONDITIONS: MonitorConditions = {
 
 const STORAGE_KEY = 'emsx-monitor-conditions';
 
+/**
+ * DL-15：MonitorBoard 阈值改由服务端统一下发（版本化），localStorage 只保留
+ * 用户显式自定义。首次使用（无本地自定义）时以服务端数值为默认。
+ */
+export function hasSavedConditions(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export interface ServerThresholds {
+  version?: string;
+  monitor?: Partial<Record<ConditionId, number>>;
+}
+
+/** 以服务端数值覆盖数值型阈值（不动 enabled 开关；忽略未知键与非数值）。 */
+export function applyServerThresholds(
+  conditions: MonitorConditions,
+  server: ServerThresholds | null | undefined,
+): MonitorConditions {
+  const monitor = (server?.monitor ?? {}) as Record<string, unknown>;
+  const num = (key: string, fallback: number): number => {
+    const value = monitor[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  };
+  return {
+    dollarValueLow:  { ...conditions.dollarValueLow,  threshold: num('dollarValueLow',  conditions.dollarValueLow.threshold) },
+    dollarValueHigh: { ...conditions.dollarValueHigh, threshold: num('dollarValueHigh', conditions.dollarValueHigh.threshold) },
+    pctChangeBuy:    { ...conditions.pctChangeBuy,    threshold: num('pctChangeBuy',    conditions.pctChangeBuy.threshold) },
+    pctChangeSell:   { ...conditions.pctChangeSell,   threshold: num('pctChangeSell',   conditions.pctChangeSell.threshold) },
+    qtyAdvRatio:     { ...conditions.qtyAdvRatio,     threshold: num('qtyAdvRatio',     conditions.qtyAdvRatio.threshold) },
+    oddLot:          { ...conditions.oddLot },
+    lazy:            { ...conditions.lazy },
+  };
+}
+
 export function loadConditions(): MonitorConditions {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

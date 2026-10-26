@@ -45,6 +45,16 @@ def _client(bloomberg=None) -> TestClient:
     return TestClient(app)
 
 
+def test_monitor_thresholds_endpoint():
+    """MonitorBoard 服务端默认阈值（版本化，替代前端 localStorage 常数）。"""
+    response = _client().get("/api/market-state/thresholds")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["version"] == "monitor-thresholds-v1"
+    assert data["monitor"]["dollarValueLow"] == 10_000
+    assert data["monitor"]["dollarValueHigh"] == 49_000_000
+
+
 def test_snapshot_disabled_by_default(monkeypatch):
     """开关关闭：返回 enabled:false（不报错、不触发快照构建）。"""
     monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", False)
