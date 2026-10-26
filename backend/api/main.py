@@ -300,6 +300,7 @@ from routers.broker import router as broker_router
 from routers.debug import router as debug_router
 from routers.realtime import router as realtime_router
 from routers.market_broker_mapping import router as market_broker_mapping_router
+from routers.market_state import router as market_state_router  # 057 DL-15
 from routers.route_plans import router as route_plans_router
 from routers.authorizations import router as authorizations_router  # S12/042
 from routers.routing_decisions import router as routing_decisions_router  # 057 DL-21
@@ -316,6 +317,7 @@ if settings.DEBUG:
     app.include_router(debug_router)
 app.include_router(realtime_router)
 app.include_router(market_broker_mapping_router)
+app.include_router(market_state_router)
 app.include_router(route_plans_router)
 
 # ============================================================================

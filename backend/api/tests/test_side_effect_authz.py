@@ -16,6 +16,11 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+# platform_data 为 editable 安装（指向主树）；worktree 内必须优先本仓副本
+REPO_ROOT = API_ROOT.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 os.environ.setdefault("JWT_SECRET", "testsecret")
 os.environ.setdefault("BYPASS_AUTH", "true")
 
@@ -57,11 +62,13 @@ def test_debug_query_round_lot_requires_admin():
 
 def test_debug_routes_hidden_without_debug():
     """DEBUG 未设（默认）→ /api/debug/* 404（不注册路由）。"""
-    env = {
+    subprocess_env = {
         **os.environ,
         "DEBUG": "false",
         "JWT_SECRET": "testsecret",
         "BYPASS_AUTH": "true",
+        # 子进程内 import main → market_state_service → platform_data（本仓副本优先）
+        "PYTHONPATH": str(REPO_ROOT) + os.pathsep + os.environ.get("PYTHONPATH", ""),
     }
     code = (
         "import main;"
@@ -69,6 +76,6 @@ def test_debug_routes_hidden_without_debug():
         "print(TestClient(main.app).get('/api/debug/round-lot-sizes').status_code)"
     )
     output = subprocess.check_output(
-        [sys.executable, "-c", code], cwd=str(API_ROOT), env=env, timeout=90
+        [sys.executable, "-c", code], cwd=str(API_ROOT), env=subprocess_env, timeout=90
     )
     assert output.decode("utf-8", errors="replace").strip().splitlines()[-1] == "404"
