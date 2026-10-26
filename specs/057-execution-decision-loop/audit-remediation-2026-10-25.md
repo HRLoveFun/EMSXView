@@ -69,8 +69,8 @@
 
 ### A05（M3）副作用端点补权限 🟠
 
-- **整改**：`tca/runner/run`、`connection/reconnect`、`broker-algorithms/refresh`、`handoff/post-trade` → `require_permission("admin")`（handoff 可 `trade`）；`debug` 路由仅 `DEBUG=true` 时注册。
-- **验收**：5 个端点 viewer → 403；`DEBUG` 未设时 `/api/debug/*` 404。
+- **整改**：`tca/runner/run`、`connection/reconnect`、`broker-algorithms/refresh`、`handoff/post-trade` → `require_permission("admin")`（handoff 可 `trade`）；`debug` 路由仅 `DEBUG=true` 时注册。另（A01 回归）：`daily-broker-policy-confirm-modal` 按角色渲染——前端解码 JWT `role`，非 `admin` 不弹确认框（后端 admin 强制不变）。
+- **验收**：5 个端点 viewer → 403；`DEBUG` 未设时 `/api/debug/*` 404；非 admin 不渲染每日确认弹窗。
 
 ### A06（M4）审计字段修正 🟠
 

@@ -311,7 +311,9 @@ app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)
 app.include_router(broker_router)
-app.include_router(debug_router)
+if settings.DEBUG:
+    # A05（M3）：debug 路由仅 DEBUG=true 时注册，默认 404
+    app.include_router(debug_router)
 app.include_router(realtime_router)
 app.include_router(market_broker_mapping_router)
 app.include_router(route_plans_router)

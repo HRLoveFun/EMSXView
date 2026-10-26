@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+from auth import require_token
 from platform_data.adapters import MarketReferenceDataAdapter
 # 2026-09-16：契约类型统一从 platform_data.contracts 导入（此前经
 # platform_data.adapters 的兼容 re-export，与「跨域数据类型只从契约包导入」规则冲突）。
@@ -491,7 +492,10 @@ def _serialize_pretrade_item(item) -> dict:
     "/api/marketview/handoff/execution",
     response_model=MarketToExecutionHandoffEnvelope,
 )
-async def publish_execution_handoff(request: MarketToExecutionPublishRequest):
+async def publish_execution_handoff(
+    request: MarketToExecutionPublishRequest,
+    user: dict = Depends(require_token),
+):
     """Publish the current MarketView candidates as a handoff to ExecutionView.
 
     WBS-08 contract 1: MarketView → ExecutionView. The request specifies

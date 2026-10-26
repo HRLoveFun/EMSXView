@@ -16,3 +16,6 @@ redis==5.0.1
 
 # Utilities
 python-dotenv==1.0.0
+
+# A04: JWT 校验（与 core 共用 secret）
+pyjwt==2.10.1

@@ -75,10 +75,10 @@
 | A02 | H2 | 下单前检查收敛（`pre_trade_checks` 四入口共用；补批量路径四层） | R1 | A01（审计同批） | 已完成 | 077 |
 | A10 | E1 | `platform_data` 依赖修正（去 `emsxview-datapipeline`、补 `openpyxl`） | R1 | — | 待开始 | — |
 | A11 | E2 | `greenlet` 显式声明 | R1 | — | 待开始 | — |
-| A03 | M1 | 建议单状态回滚（CONFIRMING 不再永久卡死） | R2 | A02 | 待开始 | — |
-| A04 | M2 | CostView 桥接与 MarketView 鉴权（token + 角色 + 绑定地址 + CORS） | R2 | — | 待开始 | — |
-| A05 | M3 | 副作用端点补 `require_permission`（5 处）+ debug 仅 DEBUG 注册 | R2 | A04 | 待开始 | — |
-| A06 | M4 | 审计字段 `username` → `sub` + 断言测试 | R2 | — | 待开始 | — |
+| A03 | M1 | 建议单状态回滚（CONFIRMING 不再永久卡死） | R2 | A02 | 已完成 | 078 |
+| A04 | M2 | CostView 桥接与 MarketView 鉴权（token + 角色 + 绑定地址 + CORS） | R2 | — | 已完成 | 078 |
+| A05 | M3 | 副作用端点补 `require_permission`（5 处）+ debug 仅 DEBUG 注册 + 每日确认弹窗角色门控 | R2 | A04 | 已完成 | 078 |
+| A06 | M4 | 审计字段 `username` → `sub` + 断言测试 | R2 | — | 已完成（随 A01 交付） | 076 |
 | A12 | E3 | Node 版本固定（engines + `.nvmrc`，Node 22） | R3 | — | 待开始 | — |
 | A13 | E4 | AGENTS.md 数字更新 + 测试计数纳入 doc-drift | R3 | A12 | 待开始 | — |
 | A07 | L1 | 订单不在缓存时拒单 + 准入默认行为注释与实现统一 | R3 | A02 | 待开始 | — |

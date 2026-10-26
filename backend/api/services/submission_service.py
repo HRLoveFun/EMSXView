@@ -95,49 +95,51 @@ async def submit_proposal_core(
 
     proposal["status"] = ProposalStatus.CONFIRMING.value
     proposal["updated_at"] = _now()
-
-    # A02：compliance_check 为 async（调用方注入 pre_trade_checks 统一入口）。
-    # 仅 BLOCK 阻断；WARN 记录后放行（round lot 不可得等「转人工提示」不拦路由）。
-    if compliance_check is not None:
-        violations = await compliance_check(proposal)
-        blocking = [v for v in violations if v.get("severity") == "BLOCK"]
-        warned = [v for v in violations if v.get("severity") == "WARN"]
-        for warning_violation in warned:
-            logger.warning(
-                "submission %s pre-trade warning: %s %s",
-                correlation_id,
-                warning_violation.get("code", ""),
-                warning_violation.get("message", ""),
-            )
-        if blocking:
-            # 返回 BLOCKED 而非抛出：单笔端点转 400，批量流按条输出 BLOCKED，
-            # 避免批量流在生成器内抛异常导致整批中断（A02 批量收敛）。
-            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
-            if audit_result:
-                audit_result(correlation_id, "fail")
-            return SubmissionResult(
-                proposal_id=proposal_id,
-                outcome="BLOCKED",
-                detail={
-                    "message": "Pre-trade compliance check failed",
-                    "violations": blocking,
-                },
-                http_status=400,
-            )
-
-    # PM 授权（由调用方注入闭包）
-    if authorization_check is not None:
-        authz = await authorization_check(proposal)
-        if authz and authz.get("outcome") == "exceeded":
-            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
-            if audit_result:
-                audit_result(correlation_id, "fail")
-            raise HTTPException(
-                403,
-                detail={"message": "PM authorization limit exceeded", **authz},
-            )
+    # A03（M1）：未真正发出 route_order 前，任何异常/取消都必须回滚 PENDING_CONFIRM
+    route_attempted = False
 
     try:
+        # A02：compliance_check 为 async（调用方注入 pre_trade_checks 统一入口）。
+        # 仅 BLOCK 阻断；WARN 记录后放行（round lot 不可得等「转人工提示」不拦路由）。
+        if compliance_check is not None:
+            violations = await compliance_check(proposal)
+            blocking = [v for v in violations if v.get("severity") == "BLOCK"]
+            warned = [v for v in violations if v.get("severity") == "WARN"]
+            for warning_violation in warned:
+                logger.warning(
+                    "submission %s pre-trade warning: %s %s",
+                    correlation_id,
+                    warning_violation.get("code", ""),
+                    warning_violation.get("message", ""),
+                )
+            if blocking:
+                # 返回 BLOCKED 而非抛出：单笔端点转 400，批量流按条输出 BLOCKED，
+                # 避免批量流在生成器内抛异常导致整批中断（A02 批量收敛）。
+                proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
+                if audit_result:
+                    audit_result(correlation_id, "fail")
+                return SubmissionResult(
+                    proposal_id=proposal_id,
+                    outcome="BLOCKED",
+                    detail={
+                        "message": "Pre-trade compliance check failed",
+                        "violations": blocking,
+                    },
+                    http_status=400,
+                )
+
+        # PM 授权（由调用方注入闭包）
+        if authorization_check is not None:
+            authz = await authorization_check(proposal)
+            if authz and authz.get("outcome") == "exceeded":
+                proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
+                if audit_result:
+                    audit_result(correlation_id, "fail")
+                raise HTTPException(
+                    403,
+                    detail={"message": "PM authorization limit exceeded", **authz},
+                )
+
         # A02：策略注册表与订单合规已收敛到调用方注入的 pre_trade_checks，
         # 此处不再重复执行（避免双层判定与「双份真相」）。
         route_req = RouteOrderRequest(
@@ -149,6 +151,7 @@ async def submit_proposal_core(
             timeInForce=proposal.get("tif") or "DAY",
             strategyParams=proposal.get("strategy_params"),
         )
+        route_attempted = True
         result = await bloomberg.route_order(route_req)
         route_id = result.get("routeId") if isinstance(result, dict) else None
 
@@ -201,6 +204,15 @@ async def submit_proposal_core(
             outcome="FAILED",
             detail="Failed to submit proposal",
         )
+    finally:
+        # A03 兜底：检查阶段抛异常/被取消时状态仍停在 CONFIRMING → 回滚可重试
+        if not route_attempted and proposal.get("status") == ProposalStatus.CONFIRMING.value:
+            proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
+            if persist_result:
+                try:
+                    await persist_result(proposal_id, status=ProposalStatus.PENDING_CONFIRM.value)
+                except Exception:
+                    logger.error("Proposal %d rollback write-back failed", proposal_id)
 
 
 def _now() -> str:

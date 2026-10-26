@@ -6,7 +6,7 @@ EMSXView service via Redis handoff exchange (cross-process mode).
 
 Run:
     python main.py
-    uvicorn main:app --host 0.0.0.0 --port 8001
+    uvicorn main:app --host 127.0.0.1 --port 8001
 """
 from __future__ import annotations
 
@@ -35,8 +35,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # A04（M2）：显式来源白名单 + 关闭 credentials（不再使用 "*" 组合）
+    allow_origins=config.ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )

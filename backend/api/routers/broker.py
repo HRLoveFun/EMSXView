@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from schemas import (
     ApiResponse, BrokerAlgorithmConfig, StrategyConfig, StrategyParameter,
 )
-from deps import verify_token, audit_log, get_bloomberg_service, get_broker_storage_service
+from deps import verify_token, require_permission, audit_log, get_bloomberg_service, get_broker_storage_service
 from platform_data import get_shared_handoff_exchange
 
 logger = logging.getLogger("main")
@@ -119,7 +119,7 @@ async def get_stored_broker_algorithms(
 
 @router.post("/api/broker-algorithms/refresh", response_model=ApiResponse)
 async def refresh_broker_algorithms(
-    user: dict = Depends(verify_token),
+    user: dict = Depends(require_permission("admin")),
     bloomberg=Depends(get_bloomberg_service),
     storage=Depends(get_broker_storage_service),
 ) -> ApiResponse:
