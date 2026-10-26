@@ -96,6 +96,14 @@ class Settings:
     # DEBUG 模式下 API 响应透传内部异常 detail (默认遮蔽)
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
+    # 057 DL-15：盘中市场状态（C 层实时特征）；G2 特性开关，默认关闭
+    EMSXVIEW_INTRADAY_STATE_ENABLED: bool = (
+        os.getenv("EMSXVIEW_INTRADAY_STATE_ENABLED", "false").lower() == "true"
+    )
+    EMSXVIEW_MARKET_STATE_PUSH_INTERVAL: float = float(
+        os.getenv("EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", "5")
+    )
+
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"
 
