@@ -328,8 +328,8 @@ $causesHtml
   $logHint
   <h2>Quick Fix</h2>
   <ul>
-    <li>Open PowerShell, run <code>cd $ProjectRoot\scripts</code> then <code>.\stop-all.bat</code> to stop lingering processes</li>
-    <li>Run <code>scripts\restart-all.bat</code> in visible-window mode to see the actual error</li>
+    <li>Open PowerShell, run <code>cd $ProjectRoot</code> then <code>emsxview.bat stop</code> to stop lingering processes</li>
+    <li>Run <code>emsxview.bat restart</code> in a visible window to see the actual error</li>
   </ul>
   <div class='actions'>
     <a class='btn btn-primary' href='file:///$($errorPath -replace '\\','/')' onclick='location.reload()'>Retry</a>

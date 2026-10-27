@@ -34,11 +34,22 @@ function Invoke-JsonRequest {
     }
 
     $response = Invoke-WebRequest @requestParams
-    if ([string]::IsNullOrWhiteSpace($response.Content)) {
+
+    # PS 5.1 在响应头无 charset 时按 ISO-8859-1 解码 Content，FastAPI 的
+    # application/json 不带 charset → 中文变 mojibake（"BackendãBloomberg"）。
+    # 有 RawContentStream 时按 UTF-8 重解码，保证中文原样。
+    $text = if ($response.RawContentStream) {
+        [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
+    }
+    else {
+        $response.Content
+    }
+
+    if ([string]::IsNullOrWhiteSpace($text)) {
         return $null
     }
 
-    return $response.Content | ConvertFrom-Json
+    return $text | ConvertFrom-Json
 }
 
 function Get-StartupStatus {

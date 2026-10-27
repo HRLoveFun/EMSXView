@@ -95,7 +95,8 @@ EMSXView/
 ├── AGENTS.md                         # Agent 入口 + 项目总览（唯一规范源）
 ├── README.md                         # This file
 ├── QUICKSTART.md                     # One-command quick start guide
-├── relaunch_service.bat              # One-click restart
+├── emsxview.bat                      # Unified entry (start/stop/restart/status)
+├── relaunch_service.bat              # One-click restart (double-click)
 │
 ├── frontend/                         # ★ 规范 React 前端壳 [Beta]
 │   ├── package.json                  # npm: emsxview-trading-tool
@@ -151,7 +152,7 @@ EMSXView/
 │
 ├── docs/                             # spec/ · api/ · ops/ · textbook/ · archive/
 ├── specs/                            # 在途特性计划 <feature-id>/（完成即归档至 docs/archive/YYYY-MM-DD/）
-└── scripts/                          # start/stop/restart/check-status · ops/ · deploy/ · devtools/
+└── scripts/                          # ops/ · deploy/ · devtools/ · diagnose/
                                       # diagnose/ · ci/ · cleanup/ · quality_gate/ · reports/ · hooks/
 ```
 
@@ -388,10 +389,10 @@ emsxview-costview        ← pydantic, pandas, scipy, emsxview-platform-data
 
 ```bash
 # One-command launch (see QUICKSTART.md for details)
-scripts\start-all.bat
+emsxview.bat start
 
 # Check service health
-scripts\check-status.bat
+emsxview.bat status
 ```
 
 ### Ports & Hosts
