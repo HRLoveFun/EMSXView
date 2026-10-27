@@ -11,6 +11,8 @@ names used by adapters that read from DataPipeline-managed SQLite databases.
 
 RAW_BDIB_TABLE: str = "raw_bdib"
 BDIB_DAILY_SUMMARY_TABLE: str = "bdib_daily_summary"
+# 057 DL-09 交易前供给表（管道 S7.5 写入；本侧只读）
+BDIB_MARKET_SNAPSHOT_TABLE: str = "bdib_market_snapshot"
 
 # ── Computational constants ───────────────────────────────────────────────────
 

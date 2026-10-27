@@ -192,22 +192,27 @@ class DailyBaselineAdapter:
         intraday_vols = [r[4] for r in rows]
         adv5, adv20 = rows[-1][5], rows[-1][6]
 
-        bars = self._load_bars(mgr, Config, equ_ticker, dates[-1])
-        from platform_data.contracts.exchange_session_contracts import SESSION_REGISTRY
+        # DL-09 快照表优先：S7.5 已按交易所会话算出竞价占比与价差代理，
+        # 命中即免去当日 10 秒 bar 的全量扫描；表/行缺失回退明细路径（行为不变）。
+        snapshot = self._load_snapshot_features(mgr, equ_ticker, dates[-1])
+        if snapshot is not None:
+            open_share, close_share, spread = snapshot
+        else:
+            bars = self._load_bars(mgr, Config, equ_ticker, dates[-1])
+            from platform_data.contracts.exchange_session_contracts import SESSION_REGISTRY
 
-        exchange = _exchange_of(equ_ticker)
-        session = SESSION_REGISTRY.get(exchange)
-        bar_volumes = [(b[0], b[4]) for b in bars]  # (HH:MM:SS, volume)
-        open_share = auction_share(bar_volumes, session.opening_auction if session else None)
-        # 收盘竞价占比 bar 级近似：收盘前 5 分钟窗口（成交级口径见管道 is_closing_auction，
-        # DL-09 快照表就绪后替换为竞价量列）
-        close_share = None
-        if session:
-            end_minutes = _hhmm_to_minutes(session.market_close)
-            close_share = auction_share(
-                bar_volumes, (_minutes_to_hhmm(end_minutes - 5), session.market_close)
-            )
-        spread = spread_proxy([(b[1], b[2], b[3]) for b in bars])
+            exchange = _exchange_of(equ_ticker)
+            session = SESSION_REGISTRY.get(exchange)
+            bar_volumes = [(b[0], b[4]) for b in bars]  # (HH:MM:SS, volume)
+            open_share = auction_share(bar_volumes, session.opening_auction if session else None)
+            # 收盘竞价占比 bar 级近似：收盘前 5 分钟窗口
+            close_share = None
+            if session:
+                end_minutes = _hhmm_to_minutes(session.market_close)
+                close_share = auction_share(
+                    bar_volumes, (_minutes_to_hhmm(end_minutes - 5), session.market_close)
+                )
+            spread = spread_proxy([(b[1], b[2], b[3]) for b in bars])
 
         return MarketBaseline(
             equ_ticker=equ_ticker,
@@ -225,6 +230,31 @@ class DailyBaselineAdapter:
             n_days=len(dates),
             excluded_dates=tuple(sorted(excluded)),
         )
+
+    @staticmethod
+    def _load_snapshot_features(mgr, equ_ticker: str, trade_date: str | None):
+        """DL-09 快照表的当日 (auction_open_pct, auction_close_pct, spread_proxy_bps)。
+
+        表不存在（旧数据目录）或该票当日无行 → None，调用方回退 10 秒 bar 扫描；
+        三列本身均可为 NULL（无竞价窗口 / 有效 bar 不足），此情形原样返回。
+        """
+        if not trade_date:
+            return None
+        from platform_data.contracts.db_constants import BDIB_MARKET_SNAPSHOT_TABLE
+
+        conn = mgr.get_connection("raw_bdib")
+        try:
+            row = conn.execute(
+                "SELECT auction_open_pct, auction_close_pct, spread_proxy_bps "
+                f"FROM {BDIB_MARKET_SNAPSHOT_TABLE} WHERE equ_ticker = ? AND trade_date = ?",
+                (equ_ticker, trade_date),
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - 旧库无该表即回退，不阻断盘前单
+            logger.debug("market snapshot table unavailable; fallback to bars", exc_info=True)
+            return None
+        finally:
+            conn.close()
+        return tuple(row) if row else None
 
     @staticmethod
     def _load_daily(mgr, Config, table, equ_ticker, as_of, excluded):
