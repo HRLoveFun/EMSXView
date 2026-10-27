@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const apiTarget = env.VITE_API_URL || 'http://localhost:3000';
   const wsTarget = apiTarget.replace(/^http/, 'ws');
+  // MarketView 是独立微服务（默认 :8001）：core 后端不挂载 /api/marketview/*，
+  // 本地 dev 必须有独立代理，否则 MarketView 页面全部 404（生产由 Nginx 转发）。
+  const marketviewTarget = env.VITE_MARKETVIEW_URL || 'http://localhost:8001';
 
   return {
     base: '/',
@@ -47,6 +50,13 @@ export default defineConfig(({ mode }) => {
         allow: [path.resolve(__dirname, '..')],
       },
       proxy: {
+        // 必须排在 '/api' 之前：Vite 按定义顺序匹配，否则会被宽前缀吞掉
+        '/api/marketview': {
+          target: marketviewTarget,
+          changeOrigin: true,
+          timeout: 600000,
+          proxyTimeout: 600000,
+        },
         '/api': {
           target: apiTarget,
           changeOrigin: true,

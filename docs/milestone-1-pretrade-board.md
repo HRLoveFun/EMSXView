@@ -56,7 +56,40 @@
 
 > 用户备注：以上均可在后续实际使用中调整。第 6 项由 090 落地（含默认值测试）。
 
-## 5. 已知限制
+## 5. 前端验收步骤（本地）
+
+前提：MarketView 与前端壳同时启动；core 后端不挂载 `/api/marketview/*`，Vite dev 代理已指向 `:8001`。
+
+```powershell
+# 1) MarketView（默认 :8001）
+cd MarketView; python main.py
+
+# 2) core 后端（可选；实时列需要它）
+cd backend/api; python main.py
+
+# 3) 前端壳（默认 :5173；VITE_MARKETVIEW_URL 留空即 http://localhost:8001）
+cd frontend; npm run dev
+```
+
+数据前提：
+
+| 检查项 | 需要什么 | 缺失时表现 |
+|---|---|---|
+| 盘前单 | `EMSXVIEW_EXPORT_INBOX_DIR` 指向 EMSX 导出收件箱 | 面板提示 No pre-trade board，`intent_source=none` |
+| 意图覆盖率/未匹配 | 当日盘中库 `order_intent`（管道 J1 写入）或导出解析 | 回落导出：`intent_source=export` |
+| 新鲜度 chips | `intraday_manifest.json` | 无清单则不显示该行 |
+| 实时列 | core 后端 + `EMSXVIEW_INTRADAY_STATE_ENABLED`（默认 true）+ Bloomberg 会话 | 显示 `n/a` 与开启提示 |
+
+检查点（Market View 标签页底部的 Pre-trade board 面板）：
+
+1. 顶部 chip：`intent {intraday|export|none} · N%`、`snapshot {formal|intraday|none}`、`live off|N live`；
+2. 新鲜度行：逐数据集 `dataset · 5m`，滞后 >30 分钟或未知为琥珀色；
+3. 未匹配：有则显示 `N unmatched intent(s)`，可展开表（Code / Order key / PM note / Reason）；
+4. 表头四组：Order (static) / Daily baseline / Live intraday / Estimate，组间竖线；
+5. 实时列：Last / Spread bps / Vol vs base；关闭开关时列仍在、值为 `n/a`；
+6. 预期成本带 `*` 表示 v1 模型未校准。
+
+## 6. 已知限制
 
 - 实时列默认开启（D-6 定稿）；设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 时列仍在、值为 `n/a`，面板会给出开关提示。
 - 盘中库由管道 J1/J2 写入；本仓只读。当日无盘中库时，意图回落到收件箱导出（`intent_source=export`）。
