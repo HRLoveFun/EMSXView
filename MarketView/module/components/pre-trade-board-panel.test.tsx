@@ -128,6 +128,7 @@ describe('PreTradeBoardPanel', () => {
     expect(screen.getByText('snapshot intraday')).toBeInTheDocument();
     expect(screen.getByText('order_intent · 5m')).toBeInTheDocument();
     expect(screen.getByText('live off')).toBeInTheDocument();
+    expect(screen.getByText(/EMSXVIEW_INTRADAY_STATE_ENABLED=true/)).toBeInTheDocument();
   });
 
   it('lists unmatched intents with reasons', async () => {
@@ -156,6 +157,7 @@ describe('PreTradeBoardPanel', () => {
     render(<PreTradeBoardPanel />);
 
     expect(await screen.findByText('1 live')).toBeInTheDocument();
+    expect(screen.queryByText(/EMSXVIEW_INTRADAY_STATE_ENABLED=true/)).not.toBeInTheDocument();
     expect(screen.getByText('100.01')).toBeInTheDocument();
     expect(screen.getByText('2.0')).toBeInTheDocument();
     expect(screen.getByText('1.25x')).toBeInTheDocument();
