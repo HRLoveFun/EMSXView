@@ -234,13 +234,19 @@ function Get-ServiceStatus {
         ($_.Name -eq "python.exe" -and $_.CommandLine -like "*main:app*")
     } | Select-Object -First 1
 
-    $frontendProcess = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*\frontend*"
-    } | Select-Object -First 1
-
     $backendPortInUse = Test-PortActiveListen -Port $Config.Backend.Port
     $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
     $frontendPortInUse = Test-PortActiveListen -Port $frontendPort
+    # 前端进程识别：优先看端口监听者——npm 的 .bin shim 启动 vite 时命令行是
+    # node "...\node_modules\..\vite\bin\vite.js"，不含 \frontend，仅靠命令行会漏报/漏杀。
+    $frontendProcess = if ($frontendPortInUse) {
+        Get-ProcessUsingPortListening -Port $frontendPort
+    }
+    else {
+        Get-CimInstance Win32_Process | Where-Object {
+            $_.CommandLine -like "*vite*" -and ($_.CommandLine -like "*\frontend*" -or $_.CommandLine -like "*EMSXView*")
+        } | Select-Object -First 1
+    }
     $backendStartup = if ($backendPortInUse) { Get-BackendStartupSnapshot } else { $null }
 
     return @{
@@ -354,13 +360,33 @@ function Stop-BackendService {
 function Stop-FrontendService {
     Write-Status "Stopping frontend service..." "Info"
 
-    $processes = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -like "*vite*" -and $_.CommandLine -like "*\frontend*"
+    $frontendPort = if ($Environment -eq "dev") { $Config.Frontend.DevPort } else { $Config.Frontend.ProdPort }
+    $killed = @{}
+
+    # 1) 端口监听者优先：npm 的 .bin shim 启动 vite 时命令行是
+    #    node "...\node_modules\..\vite\bin\vite.js"，不含 \frontend，
+    #    只按命令行匹配会漏杀（2026-10-27 实测：端口被占用导致 restart 失败）。
+    $listener = Get-ProcessUsingPortListening -Port $frontendPort
+    if ($listener) {
+        try {
+            Stop-Process -Id $listener.Id -Force -ErrorAction Stop
+            $killed[[string]$listener.Id] = $true
+            Write-Status "Stopped frontend listener on port $frontendPort (PID: $($listener.Id), $($listener.ProcessName))" "Success"
+        }
+        catch {
+            Write-Status "Failed to stop process $($listener.Id): $($_.Exception.Message)" "Error"
+        }
     }
 
+    # 2) 命令行兜底：本项目目录下的 vite 残留（未监听端口的进程）
+    $processes = Get-CimInstance Win32_Process | Where-Object {
+        $_.CommandLine -like "*vite*" -and ($_.CommandLine -like "*\frontend*" -or $_.CommandLine -like "*EMSXView*")
+    }
     foreach ($proc in $processes) {
+        if ($killed.ContainsKey([string]$proc.ProcessId)) { continue }
         try {
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+            $killed[[string]$proc.ProcessId] = $true
             Write-Status "Stopped Node process (PID: $($proc.ProcessId))" "Success"
         }
         catch {
@@ -368,17 +394,10 @@ function Stop-FrontendService {
         }
     }
 
-    Get-Process | Where-Object { $_.ProcessName -eq "node" } | ForEach-Object {
-        try {
-            $procInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)"
-            if ($procInfo.CommandLine -like "*\frontend*") {
-                Stop-Process -Id $_.Id -Force
-                Write-Status "Stopped Node process (PID: $($_.Id))" "Success"
-            }
-        }
-        catch {
-            # Ignore errors
-        }
+    # 3) 等待端口释放（最多 10 秒），避免紧接着启动时仍报占用
+    for ($i = 0; $i -lt 20; $i++) {
+        if (-not (Test-PortActiveListen -Port $frontendPort)) { break }
+        Start-Sleep -Milliseconds 500
     }
 
     Write-Status "Frontend service stopped" "Success"
