@@ -189,6 +189,14 @@ export const PreTradeBoardPanel = () => {
             </Chip>
           </div>
 
+          {!live?.enabled && (
+            <p className="text-[11px] text-muted-foreground">
+              Live columns show n/a because the intraday quote subscription is off. Set{' '}
+              <code>EMSXVIEW_INTRADAY_STATE_ENABLED=true</code> on the backend and restart to stream
+              Last / Spread / Volume.
+            </p>
+          )}
+
           {data.freshness.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
               <span className="uppercase tracking-wide text-muted-foreground">freshness</span>
