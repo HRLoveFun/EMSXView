@@ -36,3 +36,18 @@ foreach ($wt in (Get-WtEntries -Root $root)) {
     }
 }
 $rows | Format-Table -AutoSize
+
+# 残留目录（git 已不认的孤儿）：与 wt-gc 同一识别口径，只报告不删除
+$gcScript = Join-Path $PSScriptRoot "wt-gc.ps1"
+if (Test-Path -LiteralPath $gcScript) {
+    $gcOutput = (& $gcScript -Quiet -Json 2>$null | Out-String)
+    if ($gcOutput -and $gcOutput.Trim() -and $gcOutput.Trim() -ne "[]") {
+        Write-Host ""
+        Write-Host "=== RESIDUAL (git 已不认的孤儿目录) ===" -ForegroundColor Yellow
+        Write-Host "清理：./scripts/devtools/wt-gc.ps1 -Apply -KillHolders（dirty 需 -Force + 指名）" -ForegroundColor Yellow
+        try {
+            $gcOutput | ConvertFrom-Json | Format-Table path, kind, action -AutoSize
+        }
+        catch { $gcOutput }
+    }
+}

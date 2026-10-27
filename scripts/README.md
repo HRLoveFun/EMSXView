@@ -16,7 +16,7 @@ scripts/
 │
 ├── devtools/               # Developer tooling
 │   ├── export-localstorage-cache.js  Browser storage cache export
-│   └── wt-*.ps1                Git worktree 多任务并行工具集（ADR-0700）
+│   └── wt-*.ps1                Git worktree 多任务并行工具集（ADR-0700；wt-gc 负责残留自动清理）
 │
 ├── deploy/                 # Deployment & environment setup
 ├── diagnose/               # Diagnostic / troubleshooting scripts

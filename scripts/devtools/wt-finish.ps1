@@ -45,13 +45,22 @@ function Remove-WorktreeDir {
         return $false
     }
 
-    # 注册表已注销、目录残留：prune 收尾后给出清理指引（递归删除属破坏性动作，不自动执行）
+    # 注册表已注销、目录残留：先用 wt-gc 自动清（单项、带句柄处置与重试），仍失败再给人工指引
     Invoke-GitSoft -C $Root worktree prune | Out-Null
     Write-Host "[warn] worktree 已从注册表注销，但目录未删除：$Dir" -ForegroundColor Yellow
+    $gcScript = Join-Path $PSScriptRoot "wt-gc.ps1"
+    if (Test-Path -LiteralPath $gcScript) {
+        Write-Host "[gc] 尝试自动清理残留目录（-KillHolders）..." -ForegroundColor Yellow
+        & $gcScript $Task -Apply -KillHolders -Quiet | Out-Null
+        if (-not (Test-Path -LiteralPath $Dir)) {
+            Write-Host "[ok] 残留目录已自动清理：$Dir" -ForegroundColor Green
+            return $true
+        }
+    }
     Write-Host "       常见原因：目录内文件被进程占用（dev server / 测试进程 / 终端 cwd 指向该目录、" -ForegroundColor Yellow
-    Write-Host "       node_modules 或 .vite 句柄未释放）。推荐用仓库工具清理（自带锁保护与指名校验）：" -ForegroundColor Yellow
-    Write-Host "       ./scripts/devtools/wt-clean.ps1 $Task -Apply -Force" -ForegroundColor Yellow
-    Write-Host "       （只想清目录、不动 _tmp 时加 -SkipTmp；等价裸命令：Remove-Item -Recurse -Force '$Dir'）" -ForegroundColor Yellow
+    Write-Host "       node_modules 或 .vite 句柄未释放）。" -ForegroundColor Yellow
+    Write-Host "       已登记到 logs/wt-gc-report.json，下次 wt-gc 运行会自动重试；也可手动：" -ForegroundColor Yellow
+    Write-Host "       ./scripts/devtools/wt-gc.ps1 $Task -Apply -Force -KillHolders" -ForegroundColor Yellow
     return $false
 }
 
