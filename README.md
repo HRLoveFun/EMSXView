@@ -271,7 +271,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 | 日度基线（60 日稳健分布） | `routers/baseline.py` | `test_baseline_router.py` |
 | 事件与市场状态 | `routers/regime.py` | `test_regime_router.py` |
 
-**已知限制**（Beta 定级依据）：见 [docs/milestone-1-pretrade-board.md §5](docs/milestone-1-pretrade-board.md)；策略分析、选券支持、SLA/运维文档未实现；实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED`（默认关闭）。
+**已知限制**（Beta 定级依据）：见 [docs/milestone-1-pretrade-board.md §5](docs/milestone-1-pretrade-board.md)；策略分析、选券支持、SLA/运维文档未实现；实时列默认开启（设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回退）。
 
 ### 4.4 frontend/（React 壳）— Beta
 

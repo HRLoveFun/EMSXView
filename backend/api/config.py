@@ -97,8 +97,9 @@ class Settings:
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     # 057 DL-15：盘中市场状态（C 层实时特征）；G2 特性开关，默认关闭
+    # 057 D-6 定稿（2026-10-27）：实时列默认开启；设 false 可回到仅四个基础字段
     EMSXVIEW_INTRADAY_STATE_ENABLED: bool = (
-        os.getenv("EMSXVIEW_INTRADAY_STATE_ENABLED", "false").lower() == "true"
+        os.getenv("EMSXVIEW_INTRADAY_STATE_ENABLED", "true").lower() == "true"
     )
     EMSXVIEW_MARKET_STATE_PUSH_INTERVAL: float = float(
         os.getenv("EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", "5")
