@@ -240,9 +240,63 @@ export interface PreTradeBoardItem {
   data_gaps: string[];
 }
 
+export type OrderIntentSource = 'intraday' | 'export' | 'none';
+export type SnapshotSource = 'formal' | 'intraday' | 'none';
+
+export interface UnmatchedIntent {
+  order_key: string;
+  equ_ticker: string;
+  pm_note: string;
+  reason: string;
+}
+
+export interface FreshnessEntry {
+  dataset: string;
+  as_of: string;
+  lag_minutes: number;
+}
+
 export interface PreTradeBoardPayload {
   trade_date: string | null;
   export_file_name: string;
   schema_version: string;
   items: PreTradeBoardItem[];
+  // 057 DL-07 读侧（081/082）：来源、覆盖率、未匹配清单、数据集新鲜度
+  intent_source: OrderIntentSource;
+  intent_coverage_pct: number;
+  unmatched: UnmatchedIntent[];
+  freshness: FreshnessEntry[];
+  snapshot_source: SnapshotSource;
+  generated_at: string;
+}
+
+// 057 DL-15：盘中市场状态（实时列数据源；开关关闭时 enabled=false）
+export interface MarketStateFlag {
+  code: string;
+  severity: string;
+  evidence: string;
+}
+
+export interface MarketStateTickerState {
+  equ_ticker: string;
+  as_of: string;
+  bid: number | null;
+  ask: number | null;
+  last: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number | null;
+  spread_bps: number | null;
+  spread_vs_baseline_bps: number | null;
+  cumulative_volume_ratio: number | null;
+  flags: MarketStateFlag[];
+  schema_version: string;
+}
+
+export interface MarketStateSnapshot {
+  as_of: string;
+  enabled: boolean;
+  tickers: MarketStateTickerState[];
+  thresholds: Record<string, unknown>;
+  schema_version: string;
 }
