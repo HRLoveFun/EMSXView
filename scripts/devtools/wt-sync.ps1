@@ -10,9 +10,22 @@ Assert-ProjectRootValid -Root $root
 
 Invoke-Git -C $root fetch origin --prune --quiet
 
+# 每日顺带清理残留目录（孤儿 + 缓存目录；含句柄处置），失败只告警不改变 sync 退出码
+$gcScript = Join-Path $PSScriptRoot "wt-gc.ps1"
+if (Test-Path -LiteralPath $gcScript) {
+    try {
+        & $gcScript -Apply -KillHolders -Quiet | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Host "[warn] wt-gc 仍有残留目录，详见 logs/wt-gc-report.json" -ForegroundColor Yellow }
+    }
+    catch { Write-Host "[warn] wt-gc 执行失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+}
+
 $targets = Get-WtSyncTargets -Root $root -Task $Task
 if (-not $targets -or $targets.Count -eq 0) {
-    throw "未找到匹配的 worktree（Task=$Task）。用 wt-list.ps1 查看现有 worktree"
+    if ($Task) { throw "未找到匹配的 worktree（Task=$Task）。用 wt-list.ps1 查看现有 worktree" }
+    # 全量模式且当前无活跃 worktree 属正常收尾状态：残留已在上面清理，直接成功退出
+    Write-Host "[info] 当前无活跃 worktree，跳过同步（已完成残留清理）"
+    exit 0
 }
 
 $failed = @()
