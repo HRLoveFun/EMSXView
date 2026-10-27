@@ -25,6 +25,33 @@ from services.bloomberg import enrichment as mde  # noqa: E402
 from services import market_state_service as mss  # noqa: E402
 
 
+def test_intraday_state_enabled_by_default():
+    """D-6 定稿（2026-10-27）：未显式关闭时实时列默认开启。
+
+    用子进程隔离读取：config 在导入时实例化 Settings 并校验 JWT_SECRET，
+    避免影响本进程的全局 settings 与其它测试。
+    """
+    import os
+    import subprocess
+
+    if os.getenv("EMSXVIEW_INTRADAY_STATE_ENABLED") is not None:
+        pytest.skip("env override present")
+    env = {k: v for k, v in os.environ.items() if k != "EMSXVIEW_INTRADAY_STATE_ENABLED"}
+    env.setdefault("JWT_SECRET", "test-secret-" + "x" * 40)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from config import settings; print(settings.EMSXVIEW_INTRADAY_STATE_ENABLED)",
+        ],
+        cwd=str(API_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip() == "True", result.stderr
+
+
 class _FakeMsg:
     def __init__(self, fields: dict):
         self._fields = fields

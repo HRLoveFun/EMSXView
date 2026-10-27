@@ -87,7 +87,7 @@
 |------|------|----------|----------|
 | **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB）；后端 45 个测试文件 / 295 个测试函数；运维手册 [docs/ops/service-management.md](docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但无 `--cov-fail-under` 门槛）；无模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
-| **MarketView**（`MarketView/`） | **Beta** | 7 个端点（快照 / 盘中特征 / handoff 发布 / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态）；8 个测试文件 / 71 例；已知限制清单 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md) §5 | 策略分析、选券支持、SLA/运维文档未实现；盘中实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED`（默认关闭） |
+| **MarketView**（`MarketView/`） | **Beta** | 7 个端点（快照 / 盘中特征 / handoff 发布 / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态）；8 个测试文件 / 71 例；已知限制清单 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md) §5 | 策略分析、选券支持、SLA/运维文档未实现；盘中实时列默认开启（设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回退） |
 | **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
