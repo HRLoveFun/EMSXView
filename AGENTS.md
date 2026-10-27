@@ -218,7 +218,7 @@ EMSXView/
 │   ├── main.py · config.py
 │   ├── routers/marketview.py        # snapshot / intraday-features / handoff 端点
 │   ├── module/ · standalone/
-│   └── tests/                       # 1 个测试文件（三个端点）
+│   └── tests/                       # 8 个测试文件 / 71 例
 │
 ├── CostView/                        # 盘后 TCA 微服务 [Beta]（默认 :8002）
 │   ├── pyproject.toml               # pip package: emsxview-costview
@@ -447,7 +447,7 @@ python -c "from data_access import ConnectionManager, Config; print(Config.DATA_
 | 后端全量 | `cd backend/api && python -m pytest tests/ -q` | 45 个测试文件 / 295 个测试函数 |
 | 后端边界 | `python -m pytest backend/api/tests/boundaries/ -q` | 跨模块 import、DB 路径等契约 |
 | CostView | `python -m pytest CostView/tests/ -q` | 10 个测试文件 / 305 个测试函数（含 golden 指标锁定） |
-| MarketView | `python -m pytest MarketView/tests/ -q` | 1 个测试文件 |
+| MarketView | `python -m pytest MarketView/tests/ -q` | 8 个测试文件 / 71 例 |
 | 前端 | `npm run typecheck && npm run lint && npm run lint:modules && npm test` | 25 个测试文件 |
 | 边界审计 | `python scripts/audit_cross_imports.py`、`audit_underscore_access.py`、`audit_db_paths.py`、`audit_doc_drift.py` | CI `boundary-protection` 硬阻断 |
 | 质量门禁 | `python scripts/quality_gate.py [--report|--staged]` | AP 契约 + OE 过度工程；规则见 [docs/spec/quality-gate.md](docs/spec/quality-gate.md) |

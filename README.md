@@ -130,7 +130,7 @@ EMSXView/
 │   ├── main.py · config.py
 │   ├── routers/marketview.py         # snapshot / intraday-features / handoff 端点
 │   ├── module/ · standalone/
-│   └── tests/                        # 1 个测试文件（覆盖三个端点）
+│   └── tests/                        # 8 个测试文件 / 71 例
 │
 ├── CostView/                         # 盘后 TCA 微服务 [Beta]（默认 :8002）
 │   ├── pyproject.toml                # pip package: emsxview-costview
