@@ -76,7 +76,8 @@ Key runtime truth:
 EMSXView/
 ├── README.md
 ├── QUICKSTART.md
-├── relaunch_service.bat
+├── emsxview.bat                      # 服务管理统一入口（start/stop/restart/status）
+├── relaunch_service.bat              # 双击重启（等待前端 + 打开页面）
 ├── package.json                      # npm workspaces 根（frontend + ExecutionView；lockfile 唯一在仓库根，ADR-0020）
 ├── frontend/                         # Canonical React frontend shell（壳层 + 共享层，不含业务模块）
 │   ├── package.json
