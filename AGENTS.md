@@ -87,7 +87,7 @@
 |------|------|----------|----------|
 | **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB）；后端 45 个测试文件 / 295 个测试函数；运维手册 [docs/ops/service-management.md](docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但无 `--cov-fail-under` 门槛）；无模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
-| **MarketView**（`MarketView/`） | **Scaffold** | 3 个端点（快照 / 盘中特征 / handoff 发布）；`MarketView/tests/` 已存在（1 个测试文件，覆盖三个端点） | 策略分析、选券支持、SLA/运维文档均未实现 |
+| **MarketView**（`MarketView/`） | **Beta** | 7 个端点（快照 / 盘中特征 / handoff 发布 / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态）；8 个测试文件 / 71 例；已知限制清单 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md) §5 | 策略分析、选券支持、SLA/运维文档未实现；盘中实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED`（默认关闭） |
 | **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
@@ -104,7 +104,7 @@
 │  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐          │
 │  │   MarketView     │──▶│  ExecutionView   │──▶│    CostView      │          │
 │  │   (Pre-Trade)    │   │  (Order Exec)    │   │  (Post-Trade)    │          │
-│  │  [Scaffold]      │   │  [GA]            │   │  [Beta]          │          │
+│  │  [Beta]          │   │  [GA]            │   │  [Beta]          │          │
 │  │ :<MARKETVIEW_PORT>│  │  :<API_PORT>     │   │ :<COSTVIEW_PORT> │          │
 │  └────────┬─────────┘   └───────┬──────────┘   └───────┬──────────┘          │
 │           │                     │                      │                     │
@@ -125,7 +125,7 @@
 
 ```
 MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostView (Post-Trade TCA)
-   [Scaffold]                   [GA]                              [Beta]
+   [Beta]                       [GA]                              [Beta]
         │                          │                                │
   Market Snapshot            Orders & Routes                   TCA Analysis
   Intraday Features          Bloomberg EMSX API                Scorecard / Monitoring
@@ -201,7 +201,7 @@ EMSXView/
 │   │                                # types/ · module.registry.ts · module.contract.ts · data/
 │   └── standalone/                  # 独立构建入口
 ├── CostView/module/                 # 盘后 TCA UI [Beta]（唯一规范入口）
-├── MarketView/module/               # 盘前壳锚点 [Scaffold]
+├── MarketView/module/               # 盘前壳锚点 [Beta]
 │
 ├── backend/                         # ★ Core backend [GA]
 │   ├── docker-compose.yml           # Docker Compose（6 服务，见 §11.4）
@@ -214,7 +214,7 @@ EMSXView/
 │       ├── repositories/ · models/ · schemas/ · migrations/
 │       └── tests/                   # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
 │
-├── MarketView/                      # 盘前微服务 [Scaffold]（默认 :8001）
+├── MarketView/                      # 盘前微服务 [Beta]（默认 :8001）
 │   ├── main.py · config.py
 │   ├── routers/marketview.py        # snapshot / intraday-features / handoff 端点
 │   ├── module/ · standalone/
@@ -507,7 +507,8 @@ CI（`.github/workflows/boundary.yml`，job `boundary-protection`）三组：**a
 | 「Redis handoff 后端未实现 TTL」 | 已修：三通道均设 7 天 TTL（与内存后端 `_HANDOFF_TTL` 对齐） |
 | 「黄金样本回归需外部冻结快照」 | 已修：`CostView/tests/golden/snapshot/fill_bdib.db` 随基线入库，`EMSXVIEW_GOLDEN_DATA_DIR` 仅为可选覆盖 |
 | 「CostView 13 个端点」/「`TCA_ORDER_AGG_ENABLED` 默认关闭」 | 现状为 14 个端点，`TCA_ORDER_AGG_ENABLED`、`TCA_EVAL_ENABLED` 默认开启（置 `0` 显式降级） |
-| 「MarketView 无自身测试目录」 | `MarketView/tests/` 已存在（1 个测试文件，覆盖三个端点） |
+| 「MarketView 无自身测试目录」 | `MarketView/tests/` 已存在（8 个测试文件 / 71 例） |
+| 「MarketView 3 个端点 / 1 个测试文件 / Scaffold」 | 现状 7 个端点、8 个测试文件，2026-10-27 节点一交付后升 **Beta**（证据与已知限制见 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md)） |
 | 「后端 9 个核心路由 / 约 180 个测试函数」 | 现状 10 个核心路由（含 `authorizations`）、295 个测试函数 |
 
 ## 15. 文档地图

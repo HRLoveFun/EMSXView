@@ -28,7 +28,7 @@
 |------|------|----------|----------|
 | **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 45 个测试文件 / 295 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但未设 `--cov-fail-under`）；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
-| **MarketView**（`MarketView/`） | **Scaffold** | 3 个端点（快照 / 盘中特征 / handoff 发布）；`MarketView/tests/` 已存在（1 个测试文件） | 策略分析、选券支持、SLA/运维文档未实现 |
+| **MarketView**（`MarketView/`） | **Beta** | 7 个端点（快照 / 盘中特征 / handoff / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态）；8 个测试文件 / 71 例；已知限制见 [节点一交付说明](docs/milestone-1-pretrade-board.md) | 策略分析、选券支持、SLA/运维文档未实现；实时列依赖开关 |
 | **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](./docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
@@ -45,7 +45,7 @@
 │  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐          │
 │  │   MarketView     │──▶│  ExecutionView   │──▶│    CostView      │          │
 │  │   (Pre-Trade)    │   │  (Order Exec)    │   │  (Post-Trade)    │          │
-│  │  [Scaffold]      │   │  [GA]            │   │  [Beta]          │          │
+│  │  [Beta]          │   │  [GA]            │   │  [Beta]          │          │
 │  │ :<MARKETVIEW_PORT>│  │  :<API_PORT>     │   │ :<COSTVIEW_PORT> │          │
 │  └────────┬─────────┘   └───────┬──────────┘   └───────┬──────────┘          │
 │           │                     │                      │                     │
@@ -68,7 +68,7 @@
 
 ```
 MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostView (Post-Trade TCA)
-   [Scaffold]                   [GA]                              [Beta]
+   [Beta]                       [GA]                              [Beta]
         │                          │                                │
   Market Snapshot            Orders & Routes                   TCA Analysis
   Intraday Features          Bloomberg EMSX API                Scorecard / Monitoring
@@ -113,7 +113,7 @@ EMSXView/
 │   │                                 # module.registry.ts + module.contract.ts
 │   └── standalone/                   # 独立构建入口
 ├── CostView/module/                  # 盘后 TCA UI [Beta]（唯一规范入口）
-├── MarketView/module/                # 盘前壳锚点 [Scaffold]
+├── MarketView/module/                # 盘前壳锚点 [Beta]
 │
 ├── backend/                          # ★ Core backend [GA]
 │   ├── docker-compose.yml            # Docker Compose（6 服务）
@@ -126,7 +126,7 @@ EMSXView/
 │       ├── repositories/ · models/ · schemas/ · migrations/
 │       └── tests/                    # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
 │
-├── MarketView/                       # 盘前微服务 [Scaffold]（默认 :8001）
+├── MarketView/                       # 盘前微服务 [Beta]（默认 :8001）
 │   ├── main.py · config.py
 │   ├── routers/marketview.py         # snapshot / intraday-features / handoff 端点
 │   ├── module/ · standalone/
@@ -253,19 +253,25 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 - **不直连 Bloomberg**：无 blpapi 依赖。
 - **报告口径有已知硬缺口**（无数据源、报告应明示而非伪装完整）：见 [docs/report-tca-known-limitations.md §一](./docs/report-tca-known-limitations.md#一硬缺口当前无数据源报告应明示而非伪装完整)。
 
-### 4.3 MarketView（`MarketView/`）— Scaffold
+### 4.3 MarketView（`MarketView/`）— Beta
 
-**定位**：盘前市场数据视图骨架。**入口**：`MarketView/main.py`（`<MARKETVIEW_PORT>`，默认 8001，无 Bloomberg 依赖）。
+**定位**：盘前市场视图——日度基线、事件与状态、EMSX 导出盘前单，以及节点一的交易前实时监控表。
+
+**入口**：`MarketView/main.py`（`<MARKETVIEW_PORT>`，默认 8001，无 Bloomberg 依赖）。
 
 **已实现能力**：
 
 | 能力 | 入口 | 验证 |
 |------|------|------|
-| 市场快照 API（收盘价、波动率、成交量、ADV） | `GET /api/marketview/snapshot`（`routers/marketview.py`） | `MarketView/tests/test_marketview_router.py` |
-| 盘中特征数据 | `GET /api/marketview/intraday-features` | 同上 |
+| 市场快照（收盘价、波动率、成交量、ADV） | `GET /api/marketview/snapshot`（`routers/marketview.py`） | `test_marketview_router.py` |
+| 盘中特征（交易所本地时段分桶） | `GET /api/marketview/intraday-features` | 同上 |
 | Handoff 发布（Market → Execution） | `POST /api/marketview/handoff/execution` | 同上 |
+| EMSX 导出解析与意图 | `GET /api/marketview/pre-trade-orders`（`routers/export_orders.py`） | `test_export_orders.py`、`test_export_parser.py` |
+| 盘前单四路装配（意图 + 基线 + 状态 + 预期成本） | `GET /api/marketview/pretrade-board`（`routers/pretrade.py`） | `test_pretrade_board.py`、`test_pretrade_board_intraday.py` |
+| 日度基线（60 日稳健分布） | `routers/baseline.py` | `test_baseline_router.py` |
+| 事件与市场状态 | `routers/regime.py` | `test_regime_router.py` |
 
-**未实现清单**（Scaffold 定级依据）：策略分析、选券支持、SLA/运维文档。
+**已知限制**（Beta 定级依据）：见 [docs/milestone-1-pretrade-board.md §5](docs/milestone-1-pretrade-board.md)；策略分析、选券支持、SLA/运维文档未实现；实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED`（默认关闭）。
 
 ### 4.4 frontend/（React 壳）— Beta
 
