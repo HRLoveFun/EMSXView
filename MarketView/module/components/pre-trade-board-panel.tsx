@@ -9,6 +9,8 @@ import { fmtCompact, getIntentLabel, getIntentTone } from '../marketview-utils';
 
 // 实时列刷新间隔：盘中行情由后端订阅提供，此处只做低频拉取（不新增订阅）
 const LIVE_REFRESH_MS = 30_000;
+// 盘前单刷新间隔：跟随管道盘中作业 J1 的约 5 分钟轮次（意图/订单状态/路由参数）
+const BOARD_REFRESH_MS = 5 * 60_000;
 
 const fmtNum = (value: number | null | undefined, digits = 1): string =>
   value == null ? 'n/a' : value.toFixed(digits);
@@ -107,16 +109,21 @@ const LiveCell = ({
 // 列分三组：静态订单要素 / 日度基线 / 实时盘中 / 预期成本估算——分界线清晰。
 // 呈现效果按原则 10 与用户反复沟通打磨确定——v2 先交付可讨论版本。
 export const PreTradeBoardPanel = () => {
-  const { data, error, isLoading } = useAsyncData('pretrade-board', fetchPreTradeBoard);
+  const { data, error, isLoading, reload } = useAsyncData('pretrade-board', fetchPreTradeBoard);
   const { data: live, reload: reloadLive } = useAsyncData(
     'market-state-snapshot',
     fetchMarketStateSnapshot,
   );
 
+  // 盘中随作业刷新：意图与订单状态跟随 J1 轮次，实时列跟随行情快照
   useEffect(() => {
-    const timer = setInterval(() => reloadLive(), LIVE_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [reloadLive]);
+    const boardTimer = setInterval(() => reload(), BOARD_REFRESH_MS);
+    const liveTimer = setInterval(() => reloadLive(), LIVE_REFRESH_MS);
+    return () => {
+      clearInterval(boardTimer);
+      clearInterval(liveTimer);
+    };
+  }, [reload, reloadLive]);
 
   const liveByTicker = new Map<string, MarketStateTickerState>(
     (live?.enabled ? live.tickers : []).map((state) => [state.equ_ticker, state]),
@@ -137,12 +144,15 @@ export const PreTradeBoardPanel = () => {
         </div>
         <button
           type="button"
-          onClick={reloadLive}
+          onClick={() => {
+            reload();
+            reloadLive();
+          }}
           className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted/40"
-          title="Refresh live snapshot"
+          title="Refresh board and live snapshot"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          live
+          refresh
         </button>
       </div>
 
