@@ -43,18 +43,22 @@
 - 真实产物：用管道 `D:\db\intraday\intraday_manifest.json` 实跑 `IntradayStoreReader`，6 个数据集全部解析、lag 计算正常（`intraday_fills` 18.4m、`bars_10s_t0` 2.6m、`route_params_snapshot` 1430.6m 为旧水位）。
 - CI：三个 PR 各 8 项检查全绿。
 
-## 4. 呈现打磨清单（D-6，待用户确认）
+## 4. 呈现定稿（D-6，2026-10-27 用户确认）
 
-1. **列取舍**：实时列现在只有 Last / Spread bps / Vol vs base；是否需要 High/Low/Bid/Ask、以及参与率（`cumulative_volume_ratio` 的口径说明）？
-2. **列顺序**：Order → Daily baseline → Live → Estimate 是否符合交易员扫视顺序？是否要把 Qty 移到 Code 前、把 Gaps 收进行尾折叠？
-3. **覆盖率口径**：按「订单数」计（当前），还是按「名义额 / 数量」加权？
-4. **未匹配清单位置**：现在在表格上方折叠区；是否改为右侧抽屉或独立标签页？
-5. **新鲜度阈值**：当前 >30 分钟标琥珀；是否按数据集分别设阈值（如 `order_intent` 15 分钟、`bars_10s_t0` 隔夜）？
-6. **实时开关**：`EMSXVIEW_INTRADAY_STATE_ENABLED` 默认关闭时实时列全 `n/a`；是否在面板上给出「如何开启」的提示，或改为按市场分开关？
+| # | 项 | 定稿 |
+|---|---|---|
+| 1 | 实时列取舍 | 保持三列 Last / Spread bps / Vol vs base（未显式要求增加 Bid/Ask、High/Low、参与率，按默认） |
+| 2 | 列顺序 | Order → Daily baseline → Live → Estimate，Qty 不前移、Gaps 保持行内 |
+| 3 | 覆盖率口径 | 按订单数（与 DL-01 定义一致） |
+| 4 | 未匹配清单 | 表格上方折叠区 |
+| 5 | 新鲜度阈值 | 统一 30 分钟（未知与超阈值标琥珀） |
+| 6 | 实时开关 | `EMSXVIEW_INTRADAY_STATE_ENABLED` **默认开启**；设 `false` 回到四字段 |
+
+> 用户备注：以上均可在后续实际使用中调整。第 6 项由 090 落地（含默认值测试）。
 
 ## 5. 已知限制
 
-- 实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED=true`（默认关闭，避免扩大行情订阅）；关闭时列仍在、值为 `n/a`。
+- 实时列默认开启（D-6 定稿）；设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 时列仍在、值为 `n/a`，面板会给出开关提示。
 - 盘中库由管道 J1/J2 写入；本仓只读。当日无盘中库时，意图回落到收件箱导出（`intent_source=export`）。
 - 日度基线的竞价占比/价差代理已切到 `bdib_market_snapshot`（086）；无表或无行时回退 `raw_bdib` 明细，行为不变。
 - `bdib_market_snapshot.adv_ratio` 覆盖有限（分母 `adv_20d` 只对当日有成交的票计算，实测 548/2143）；读取方不得把 NULL 当 0。

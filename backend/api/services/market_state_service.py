@@ -44,7 +44,7 @@ BaselineLookup = Callable[[list], dict]
 
 
 def intraday_state_enabled() -> bool:
-    """特性开关（G2：默认关闭；`EMSXVIEW_INTRADAY_STATE_ENABLED=true` 开启）。"""
+    """特性开关（057 D-6 定稿默认开启；`EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回到四字段）。"""
     from config import settings
 
     return settings.EMSXVIEW_INTRADAY_STATE_ENABLED
