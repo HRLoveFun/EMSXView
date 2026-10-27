@@ -27,6 +27,7 @@ from data_access.storage.connection import (
     ConnectionManager,
     resolve_access_tier,
 )
+from data_access.storage.intraday_store_reader import IntradayStoreReader
 from data_access.storage.market_store import MarketStoreReader
 from data_access.storage.repositories import (
     SqliteFillReadRepository,
@@ -39,6 +40,7 @@ __all__ = [
     "AccessTier",
     "resolve_access_tier",
     "MarketStoreReader",
+    "IntradayStoreReader",
     "SqliteFillReadRepository",
     "SqliteRawFillReadRepository",
     "convert_ny_to_local",
