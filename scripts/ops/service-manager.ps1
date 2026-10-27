@@ -251,7 +251,12 @@ function Get-ServiceStatus {
     # 前端进程识别：优先看端口监听者——npm 的 .bin shim 启动 vite 时命令行是
     # node "...\node_modules\..\vite\bin\vite.js"，不含 \frontend，仅靠命令行会漏报/漏杀。
     $frontendProcess = if ($frontendPortInUse) {
-        Get-ProcessUsingPortListening -Port $frontendPort
+        # 统一返回 CIM 对象（带 ProcessId），与命令行兜底分支及显示层一致；
+        # Get-Process 只有 Id，会让 "(PID: )" 为空。
+        $listener = Get-ProcessUsingPortListening -Port $frontendPort
+        if ($listener) {
+            Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.Id)" -ErrorAction SilentlyContinue
+        }
     }
     else {
         Get-CimInstance Win32_Process | Where-Object {
