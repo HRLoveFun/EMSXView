@@ -328,10 +328,8 @@ Main PowerShell script with comprehensive service management.
 ```
 
 ### Batch Files
-- `start-all.bat`: Quick start both services
-- `stop-all.bat`: Quick stop both services
-- `restart-all.bat`: Quick restart both services
-- `check-status.bat`: Quick status check
+- `emsxview.bat [start|stop|restart|status]`: unified entry in the repo root（默认 `status`；退出码透传自 `service-manager.ps1`）
+- `relaunch_service.bat`: double-click wrapper — restart + wait for frontend + open the page
 
 ### relaunch_service.bat
 One-click restart wrapper that delegates to `service-manager.ps1 restart` and waits for frontend readiness.
@@ -356,4 +354,4 @@ One-click restart wrapper that delegates to `service-manager.ps1 restart` and wa
 For issues or questions:
 1. Check logs in `logs/` directory
 2. Verify configuration in `.env` files
-3. Run status check: `scripts\check-status.bat`
+3. Run status check: `emsxview.bat status`

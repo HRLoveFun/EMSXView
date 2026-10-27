@@ -44,6 +44,17 @@ param(
     [switch]$VerboseOutput
 )
 
+# ── 控制台编码（2026-10-27）──────────────────────────────────────────────────
+# Windows PowerShell 5.1 在 `chcp 65001` 的窗口里仍可能按 OEM 代码页编码输出，
+# 中文变成 mojibake（实测 "å·²è¿æ¥"）。显式与 .bat 的 chcp 65001 对齐；
+# 非交互宿主（VBS 隐藏窗口）可能不允许改，失败时保持原状、不影响功能。
+try {
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+}
+catch {
+}
+
 # Configuration
 $Config = @{
     ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")

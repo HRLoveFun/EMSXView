@@ -8,18 +8,18 @@
 # Navigate to project root（替换为你的实际克隆路径）
 cd <repo-root>
 
-# Launch interactive service manager
-scripts\restart-all.bat
+# Launch the unified entry (restart + wait for frontend)
+relaunch_service.bat
 ```
 
 ## Common Commands
 
 | Action | Command |
 |--------|---------|
-| **Start** | `scripts\start-all.bat` or `relaunch_service.bat` |
-| **Stop** | `scripts\stop-all.bat` |
-| **Restart** | `scripts\restart-all.bat` or `relaunch_service.bat` |
-| **Status** | `scripts\check-status.bat` |
+| **Start** | `emsxview.bat start` |
+| **Stop** | `emsxview.bat stop` |
+| **Restart** | `emsxview.bat restart` or `relaunch_service.bat` |
+| **Status** | `emsxview.bat status` |
 
 ## Service URLs
 
@@ -34,16 +34,16 @@ scripts\restart-all.bat
 ### Port Already in Use
 ```batch
 # Stop all services first
-scripts\stop-all.bat
+emsxview.bat stop
 
-# Or force kill
-scripts\restart-all.bat
+# Or force kill and restart
+emsxview.bat restart
 ```
 
 ### Services Won't Start
 ```batch
 # Check status
-scripts\check-status.bat
+emsxview.bat status
 
 # View logs
 scripts\ops\service-manager.ps1 logs
@@ -58,15 +58,14 @@ scripts\ops\service-manager.ps1 logs
 
 ```
 EMSXView/
-├── relaunch_service.bat     # One-click restart
+├── emsxview.bat             # Unified entry (start/stop/restart/status)
+├── relaunch_service.bat     # One-click restart (double-click)
 ├── package.json            # npm workspaces 根（frontend + ExecutionView 共用依赖树，lockfile 在仓库根）
 ├── ExecutionView/          # ExecutionView 模块（根级独立目录：module/ + standalone/）
 ├── frontend/               # React frontend（Shell + 共享层 + costview/marketview 模块）
 ├── backend/                # Python backend
 │   └── api/                # FastAPI application
 ├── scripts/
-│   ├── start-all.bat       # Quick start
-│   ├── stop-all.bat        # Quick stop
 │   └── ops/
 │       └── service-manager.ps1 # PowerShell manager
 └── logs/                   # Service logs

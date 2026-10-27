@@ -1,4 +1,4 @@
-# EMSXView Scripts Directory
+﻿# EMSXView Scripts Directory
 
 Quick-launch batch files for local development workflows.
 
@@ -24,11 +24,6 @@ scripts/
 ├── mcp/                    # MCP knowledge server
 ├── reports/                # 报告生成器（generate_tca_report.py；输出受 .gitignore 管理）
 │
-├── *.bat                   # Root-level quick-launch shortcuts
-│   ├── start-all.bat            Start all services
-│   ├── stop-all.bat             Stop all services
-│   ├── restart-all.bat          Restart all services
-│   └── check-status.bat         Check service health
 │
 └── audit_*.py              # 契约/数据路径/文档漂移/下划线访问审计（CI 边界门禁调用）
 ```
@@ -37,7 +32,7 @@ scripts/
 
 | Use case                          | Command                                      |
 |-----------------------------------|----------------------------------------------|
-| Start all services                | `start-all.bat` or `ops\service-manager.ps1` |
+| Start / stop / restart / status   | 根目录 `emsxview.bat [start\|stop\|restart\|status]`（内部调 `ops\service-manager.ps1`） |
 | Clean log files                   | `ops\cleanup-logs.ps1`                       |
 | Create desktop shortcuts          | `deploy\create-desktop-shortcut.ps1`          |
 | Check startup status              | `diagnose\check-startup-status.ps1`          |

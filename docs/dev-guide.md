@@ -8,7 +8,7 @@
 推荐入口：
 
 - 双击 `relaunch_service.bat`（仓库根目录，一键重启 Windows 服务）
-- 或使用 `scripts/` 下的 `start-all.bat` / `restart-all.bat` / `check-status.bat`
+- 或使用根目录 `emsxview.bat [start|stop|restart|status]`（默认 `status`）
 
 按模块单独启动：
 

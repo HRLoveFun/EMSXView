@@ -1,4 +1,4 @@
-# EMSXView — 仓库总览与 AI 代理指南
+﻿# EMSXView — 仓库总览与 AI 代理指南
 
 > **本文定位**：仓库唯一的 Agent 入口，同时承载项目总览（架构、模块、数据层）与作业规范（工作流、编码约定、构建与验证）。`README.md` 为面向人类读者的精简首页。
 >
@@ -182,7 +182,8 @@ EMSXView/
 ├── AGENTS.md                        # 本文件（Agent 入口 + 项目总览，唯一规范源）
 ├── README.md                        # 人类读者首页
 ├── QUICKSTART.md                    # 一键启动指南
-├── relaunch_service.bat             # 一键重启
+├── emsxview.bat                     # 服务管理统一入口（start/stop/restart/status）
+├── relaunch_service.bat             # 双击重启（等待前端 + 打开页面）
 │
 ├── frontend/                        # ★ 规范 React 前端壳 [Beta]
 │   ├── package.json                 # npm: emsxview-trading-tool
@@ -239,7 +240,7 @@ EMSXView/
 │
 ├── docs/                            # spec/ · api/ · ops/ · textbook/ · archive/
 ├── specs/                           # 在途特性计划 <feature-id>/（已完成者归档至 docs/archive/）
-└── scripts/                         # start/stop/restart/check-status · ops/ · deploy/ · devtools/
+└── scripts/                         # ops/ · deploy/ · devtools/ · diagnose/
                                      # diagnose/ · ci/ · cleanup/ · quality_gate/ · reports/ · hooks/
 ```
 
@@ -335,10 +336,11 @@ EMSXView/
 ### 11.1 一键启动（Windows）
 
 ```batch
-scripts\start-all.bat        :: 启动
-scripts\check-status.bat     :: 健康检查
-scripts\stop-all.bat         :: 停止
-scripts\restart-all.bat      :: 重启（交互式服务管理器）
+emsxview.bat                 :: 状态（默认，等价 status）
+emsxview.bat start           :: 启动
+emsxview.bat stop            :: 停止
+emsxview.bat restart         :: 重启
+relaunch_service.bat         :: 双击重启（等待前端就绪 + 打开页面）
 ```
 
 ### 11.2 前端
