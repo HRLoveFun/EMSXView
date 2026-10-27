@@ -24,7 +24,9 @@
 | 082 | `assemble_board`：意图主来源切到 `order_intent`、导出回落；payload 扩 6 字段 | 已合并 #168 |
 | 083 | 盘前单表格重排：四组列、实时列、覆盖率/新鲜度/未匹配可见、5 分钟随作业刷新 | 已合并 #169 |
 
-管道侧：DL-07（#9/#10）、DL-08（#11 + cba5629）已合并；DL-09（日快照 + 量曲线 + Parquet）实施中。
+管道侧 DL-09 第一批（#12）交付：两表 DDL 与列清单登记、S7.5 阶段（S7 之后、manifest 之前，水位=表内已有日期、首次回填 60 日）、共享聚合函数（`snapshot_t0` 与正式表同口径）、`probe_parquet_channel` 与默认关闭的分区写入。独立复验：`pytest test_market_snapshot.py test_market_snapshot_parquet.py test_snapshot_job.py` → 18 passed。
+
+管道侧：DL-07（#9/#10）、DL-08（#11 + cba5629）、DL-09 第一批（#12：`bdib_market_snapshot` + `bdib_volume_profile` + S7.5 + Parquet 探测）已合并。
 
 ## 3. 验收证据
 
@@ -47,4 +49,5 @@
 
 - 实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED=true`（默认关闭，避免扩大行情订阅）；关闭时列仍在、值为 `n/a`。
 - 盘中库由管道 J1/J2 写入；本仓只读。当日无盘中库时，意图回落到收件箱导出（`intent_source=export`）。
-- DL-09 未合并前，日度基线仍按 `raw_bdib` 明细回退路径计算（`DailyBaselineAdapter` 既有行为）。
+- 日度基线仍走 `bdib_daily_summary` + `raw_bdib` 点查（`DailyBaselineAdapter`）：DL-09 的 `bdib_market_snapshot` 已建表，但竞价量与价差代理列在第二批才写入，切换读侧留到那时。
+- `bdib_market_snapshot.adv_ratio` 覆盖有限（分母 `adv_20d` 只对当日有成交的票计算，实测 548/2143）；读取方不得把 NULL 当 0。
