@@ -40,7 +40,28 @@ python main.py                    # Starts on :8001
 |----------|-------------|
 | `GET /api/marketview/snapshot` | Daily market snapshot with pool/filter/sort |
 | `GET /api/marketview/intraday-features` | Intraday BDIB bar features per ticker |
+| `GET /api/marketview/pre-trade-orders` | EMSX export parsing and PM intent mapping (DL-01) |
+| `GET /api/marketview/pretrade-board` | Pre-trade board assembly: intent + baseline + regime + expected cost (DL-14) |
+| `GET /api/marketview/daily-baseline` | 60-day robust per-ticker baseline (DL-10) |
+| `GET /api/marketview/market-regime` | Market-level regime and event flags (DL-11) |
 | `POST /api/marketview/handoff/execution` | Publish candidates to ExecutionView |
+
+## Local dev with the React shell
+
+The Vite dev server proxies `/api/marketview/*` to this service, so no Nginx is needed locally:
+
+- proxy target = `VITE_MARKETVIEW_URL`（默认 `http://localhost:8001`）
+- core backend（`:3000`）不挂载 `/api/marketview/*`——只启动 core 时该页会全部 404
+
+```bash
+# 终端 1：MarketView
+cd MarketView && python main.py
+
+# 终端 2：前端壳
+cd frontend && npm run dev
+```
+
+生产环境由 Nginx 把同一前缀转发到 `MARKETVIEW_BASE_URL`（见下）。
 
 ## Dependencies
 

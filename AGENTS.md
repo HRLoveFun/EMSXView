@@ -428,6 +428,7 @@ Compose 服务（6 个）：`backend`、`postgres`、`frontend`（Nginx，SPA + 
 | 名称 | 作用 | 默认值 |
 |------|------|--------|
 | `VITE_API_URL` | Backend 基址；**留空 = mock / 无后端模式** | 空 |
+| `VITE_MARKETVIEW_URL` | MarketView 微服务基址（dev 代理 `/api/marketview/*` 的目标） | `http://localhost:8001` |
 
 数据访问：
 
