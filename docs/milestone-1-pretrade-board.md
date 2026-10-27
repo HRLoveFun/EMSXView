@@ -23,10 +23,17 @@
 | 081 | `IntradayStoreReader`：六表只读 + manifest + freshness（mode=ro，降级为空） | 已合并 #167 |
 | 082 | `assemble_board`：意图主来源切到 `order_intent`、导出回落；payload 扩 6 字段 | 已合并 #168 |
 | 083 | 盘前单表格重排：四组列、实时列、覆盖率/新鲜度/未匹配可见、5 分钟随作业刷新 | 已合并 #169 |
+| 086 | 日度基线优先读 DL-09 快照表：竞价占比与价差代理由单行点查替代当日 bar 扫描 | 已合并 #172 |
 
-管道侧 DL-09 第一批（#12）交付：两表 DDL 与列清单登记、S7.5 阶段（S7 之后、manifest 之前，水位=表内已有日期、首次回填 60 日）、共享聚合函数（`snapshot_t0` 与正式表同口径）、`probe_parquet_channel` 与默认关闭的分区写入。独立复验：`pytest test_market_snapshot.py test_market_snapshot_parquet.py test_snapshot_job.py` → 18 passed。
+管道侧交付：
 
-管道侧：DL-07（#9/#10）、DL-08（#11 + cba5629）、DL-09 第一批（#12：`bdib_market_snapshot` + `bdib_volume_profile` + S7.5 + Parquet 探测）已合并。
+- DL-07（#9/#10）、DL-08（#11 + cba5629）与 DL-08 修复（#13）。
+- DL-09 第一批（#12）：两表 DDL 与列清单登记、S7.5 阶段（S7 之后、manifest 之前，水位=表内已有日期、首次回填 60 日）、共享聚合函数（`snapshot_t0` 与正式表同口径）、`probe_parquet_channel` 与默认关闭的分区写入。
+- DL-09 第二批（#14）：`auction_open_volume/pct`、`auction_close_volume/pct`、`spread_proxy_bps`、`bar_count` 六列；窗口按交易所（镜像本侧 26 项会话注册表，逐项核对一致）；旧库经 admin 连接幂等补列。
+- DL-08 修复（#13）：J2 就绪判定改用市场本地交易日——原用服务器日期拼水位键，日期差一天时已完成市场每轮重复拉取全市场 bar。
+
+独立复验：`pytest test_market_snapshot.py test_market_snapshot_auction.py test_market_snapshot_parquet.py DataPipeline/tests/intraday -q --ignore=.../test_jobs.py` → 43 passed。
+
 
 ## 3. 验收证据
 
@@ -49,5 +56,5 @@
 
 - 实时列依赖 `EMSXVIEW_INTRADAY_STATE_ENABLED=true`（默认关闭，避免扩大行情订阅）；关闭时列仍在、值为 `n/a`。
 - 盘中库由管道 J1/J2 写入；本仓只读。当日无盘中库时，意图回落到收件箱导出（`intent_source=export`）。
-- 日度基线仍走 `bdib_daily_summary` + `raw_bdib` 点查（`DailyBaselineAdapter`）：DL-09 的 `bdib_market_snapshot` 已建表，但竞价量与价差代理列在第二批才写入，切换读侧留到那时。
+- 日度基线的竞价占比/价差代理已切到 `bdib_market_snapshot`（086）；无表或无行时回退 `raw_bdib` 明细，行为不变。
 - `bdib_market_snapshot.adv_ratio` 覆盖有限（分母 `adv_20d` 只对当日有成交的票计算，实测 548/2143）；读取方不得把 NULL 当 0。
