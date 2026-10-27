@@ -2,6 +2,17 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+# 与 core backend 对齐：读取仓库根 .env（本地文件、已 gitignore）。
+# 无 python-dotenv 或文件不存在时静默跳过，不改变原有「只认进程环境变量」的行为。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+except ImportError:
+    pass
+
 
 # Handoff backend: "redis" (cross-process) or "memory" (single-process).
 # In standalone mode, always "redis" to communicate with the main EMSX service.
