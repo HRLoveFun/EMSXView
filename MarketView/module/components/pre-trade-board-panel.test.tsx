@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
 import { PreTradeBoardPanel } from './pre-trade-board-panel';
-import type { PreTradeBoardItem, PreTradeBoardPayload } from '../types';
+import type { MarketStateSnapshot, PreTradeBoardItem, PreTradeBoardPayload } from '../types';
 
 const makeItem = (overrides: Partial<PreTradeBoardItem> = {}): PreTradeBoardItem => ({
   equ_ticker: 'SEC_A US Equity',
@@ -31,19 +31,68 @@ const payload: PreTradeBoardPayload = {
   schema_version: 'market-to-execution-v2',
   items: [
     makeItem(),
-    makeItem({ equ_ticker: 'SEC_B US Equity', order_key: '^7000002^0', expected_cost_bps: null, data_gaps: ['baseline'] }),
+    makeItem({
+      equ_ticker: 'SEC_B US Equity',
+      order_key: '^7000002^0',
+      expected_cost_bps: null,
+      data_gaps: ['baseline'],
+    }),
   ],
+  intent_source: 'intraday',
+  intent_coverage_pct: 100,
+  unmatched: [],
+  freshness: [{ dataset: 'order_intent', as_of: '2026-10-27T01:00:00+00:00', lag_minutes: 5 }],
+  snapshot_source: 'intraday',
+  generated_at: '2026-10-27T01:05:00+00:00',
 };
 
-const stubFetch = (body: unknown, ok = true): void => {
+const LIVE_OFF: MarketStateSnapshot = {
+  as_of: '',
+  enabled: false,
+  tickers: [],
+  thresholds: {},
+  schema_version: 'market-state-v1',
+};
+
+const LIVE_ON: MarketStateSnapshot = {
+  as_of: '2026-10-27T01:00:00+00:00',
+  enabled: true,
+  tickers: [
+    {
+      equ_ticker: 'SEC_A US Equity',
+      as_of: '2026-10-27T01:00:00+00:00',
+      bid: 100,
+      ask: 100.02,
+      last: 100.01,
+      high: 101,
+      low: 99,
+      volume: 123456,
+      spread_bps: 2,
+      spread_vs_baseline_bps: 0.5,
+      cumulative_volume_ratio: 1.25,
+      flags: [],
+      schema_version: 'market-state-v1',
+    },
+  ],
+  thresholds: {},
+  schema_version: 'market-state-v1',
+};
+
+const stubFetch = (body: unknown, ok = true, live: MarketStateSnapshot = LIVE_OFF): void => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () =>
-      new Response(JSON.stringify(ok ? { success: true, data: body, message: '' } : body), {
-        status: ok ? 200 : 500,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    ),
+    vi.fn(async (input: RequestInfo | URL) => {
+      const isLive = String(input).includes('/api/market-state/snapshot');
+      const data = isLive ? live : body;
+      const success = isLive ? true : ok;
+      return new Response(
+        JSON.stringify(success ? { success: true, data, message: '' } : body),
+        {
+          status: success ? 200 : 500,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }),
   );
 };
 
@@ -68,6 +117,50 @@ describe('PreTradeBoardPanel', () => {
     expect(screen.getByText('gaps: baseline')).toBeInTheDocument();
     // 未达标脚注
     expect(screen.getByText(/not yet calibrated/)).toBeInTheDocument();
+  });
+
+  it('exposes intent source, coverage and dataset freshness', async () => {
+    stubFetch(payload);
+
+    render(<PreTradeBoardPanel />);
+
+    expect(await screen.findByText('intent intraday · 100%')).toBeInTheDocument();
+    expect(screen.getByText('snapshot intraday')).toBeInTheDocument();
+    expect(screen.getByText('order_intent · 5m')).toBeInTheDocument();
+    expect(screen.getByText('live off')).toBeInTheDocument();
+  });
+
+  it('lists unmatched intents with reasons', async () => {
+    stubFetch({
+      ...payload,
+      intent_coverage_pct: 50,
+      unmatched: [
+        {
+          order_key: '^7000003^0',
+          equ_ticker: 'SEC_C US Equity',
+          pm_note: '^7000003^0',
+          reason: 'unknown_prefix',
+        },
+      ],
+    });
+
+    render(<PreTradeBoardPanel />);
+
+    expect(await screen.findByText('1 unmatched intent(s)')).toBeInTheDocument();
+    expect(screen.getByText('unknown_prefix')).toBeInTheDocument();
+  });
+
+  it('renders live columns from market state snapshot', async () => {
+    stubFetch(payload, true, LIVE_ON);
+
+    render(<PreTradeBoardPanel />);
+
+    expect(await screen.findByText('1 live')).toBeInTheDocument();
+    expect(screen.getByText('100.01')).toBeInTheDocument();
+    expect(screen.getByText('2.0')).toBeInTheDocument();
+    expect(screen.getByText('1.25x')).toBeInTheDocument();
+    // 未覆盖的票保持 n/a
+    expect(screen.getAllByText('n/a').length).toBeGreaterThan(0);
   });
 
   it('shows guidance when board is empty', async () => {

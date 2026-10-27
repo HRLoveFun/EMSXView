@@ -1,7 +1,7 @@
 import type { MarketSnapshotPayload, MarketSnapshotRequest } from '../types';
 import type { IntradayFeatureRequest, IntradayFeatureSnapshot } from '../types';
 import type { PreTradeOrdersPayload } from '../types';
-import type { PreTradeBoardPayload } from '../types';
+import type { MarketStateSnapshot, PreTradeBoardPayload } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -131,4 +131,18 @@ export async function fetchPreTradeBoard(): Promise<PreTradeBoardPayload> {
 
   const json = await response.json();
   return json.data as PreTradeBoardPayload;
+}
+
+// 057 DL-15：盘中市场状态快照（实时列数据源；开关关闭时 enabled=false）
+export async function fetchMarketStateSnapshot(): Promise<MarketStateSnapshot> {
+  const response = await fetch(`${API_BASE_URL}/api/market-state/snapshot`, {
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as MarketStateSnapshot;
 }
