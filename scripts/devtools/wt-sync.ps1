@@ -36,4 +36,14 @@ foreach ($wt in $targets) {
     }
 }
 
+# 每日顺带清理残留目录（孤儿 + 缓存目录；含句柄处置），失败只告警不改变 sync 退出码
+$gcScript = Join-Path $PSScriptRoot "wt-gc.ps1"
+if (Test-Path -LiteralPath $gcScript) {
+    try {
+        & $gcScript -Apply -KillHolders -Quiet | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Host "[warn] wt-gc 仍有残留目录，详见 logs/wt-gc-report.json" -ForegroundColor Yellow }
+    }
+    catch { Write-Host "[warn] wt-gc 执行失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+}
+
 if ($failed.Count -gt 0) { exit 1 }

@@ -63,6 +63,7 @@ Documents/
 | `wt-sync.ps1` | 每日同步：对指定（或全部）worktree 执行 `fetch + rebase origin/main` |
 | `wt-finish.ps1` | 完成：校验分支已合并后移除 worktree、prune、可选删分支 |
 | `wt-clean.ps1` | 清理残留：预演/移除已合并 worktree、清孤儿目录、prune、清 `_tmp/`（默认 dry-run） |
+| `wt-gc.ps1` | 主动识别并自动清理孤儿残留目录：分级（空/缓存/临时/已合并）+ 句柄处置 + 失败登记；`wt-finish`/`wt-sync` 自动调用 |
 | `wt-common.ps1` | 共享函数库（勿直接执行） |
 
 ### 3.1 新任务
@@ -125,9 +126,9 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 > `error: failed to delete '<path>': Invalid argument`（exit 255）。
 > 加固后脚本不再抛裸异常，而是：打印 git 的真实报错 → `worktree prune` → **照常删除本地分支** →
 > 打印清理指引 → 以退出码 1 结束。
-> 处置：结束占用进程后按指引清理——**推荐 `wt-clean.ps1 <task> -Apply -Force`**（2026-09-21 起指引
-> 由裸 `Remove-Item` 改为该工具：它带锁保护、强制须指名、`_tmp` 在途保护；只想清目录不动 `_tmp` 时加
-> `-SkipTmp`）。目录删除属破坏性动作，脚本不自动执行。
+> 处置（2026-10-27 长效化）：`wt-finish.ps1` 在该分支自动调用 `wt-gc.ps1 <task> -Apply -KillHolders`
+> 清理（分级 + 句柄处置 + 3 次重试）；仍失败则登记 `logs/wt-gc-report.json`，由每日 `wt-sync.ps1`
+> 或手动 `wt-gc.ps1` 再次尝试。含源码的无 git 元数据残留一律不自动删，需 `-Force` 且显式指名。
 
 `-DeleteBranch` 的合并判定复用 `Test-BranchMerged`（`git merge-base --is-ancestor` 或 squash 后 `git cherry` 无 `+` 行），判定通过后以 `git branch -D` 删除——本仓库约定 squash merge，分支内容虽已进 `origin/main` 但不是它的祖先，直接用 `git branch -d` 必然误报 `not fully merged` 而失败；`-DeleteBranch` 因此必须复用上面的判定结果而非再交给 `-d` 自行判断（2026-09-15 修复）。
 
@@ -151,6 +152,33 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 - **`-Apply` 会连带处理 `_tmp`**：`-Apply` 同时删除「非在途」的 `_tmp` 子项（默认行为，非提示）；**若本意只清 worktree 目录，请显式加 `-SkipTmp`**——否则其他会话留在 `_tmp/` 的备份/产物会被一并删除（2026-09-21 实测踩到）。
 - **残留目录的推荐清理路径**：§3.4 的「注册表已注销、目录删不掉」残留也用本工具（`wt-clean.ps1 <task> -Apply -Force`）——它按 `EMSXView-wt-*` 兄弟目录识别为 `orphan` 并带上述全部保护；`git` 已不认的孤儿目录同样需要 `-Force` + 显式指名。
 - 原生等价：`git worktree remove ../EMSXView-wt-xxx --force` → `git worktree prune` → `Remove-Item -Recurse -Force _tmp/*`（无 dry-run 保护）。
+
+#### 3.5.1 主动识别与自动清理（wt-gc，2026-10-27）
+
+`wt-clean` 解决「怎么安全地清」，`wt-gc` 解决「谁来发现、失败怎么办、如何不再复发」。
+
+```powershell
+./scripts/devtools/wt-gc.ps1                          # 预演：列出所有孤儿残留与分级（不做任何删除）
+./scripts/devtools/wt-gc.ps1 -Apply -KillHolders      # 自动清理可清项，含占用进程处置与 3 次重试
+./scripts/devtools/wt-gc.ps1 071 -Apply -Force        # 指名强清含源码/无 git 元数据的残留
+```
+
+分级与默认动作：
+
+| 分级 | 判定 | 默认动作 |
+|---|---|---|
+| `empty` | 目录为空 | 自动清 |
+| `cache-only` | 顶层仅 `node_modules` / `__pycache__` / `.vite` / `dist` / `logs` 等 | 自动清 |
+| `temp-only` | 顶层仅 `_tmp` 且静置超过 `-TmpMinAgeMinutes`（默认 30） | 自动清 |
+| `git-merged-clean` | 含 `.git`、无未提交改动、分支已并入 `origin/main` | 自动清 |
+| `dirty` | 含其他内容，或无 git 元数据（无法判定来源） | 需 `-Force` + 显式指名 |
+
+安全边界：
+
+- 主工作树与 git 仍注册的 worktree 一律不处理；
+- `-KillHolders` 只终止白名单解释器（`bash` / `sh` / `node` / `python` / `powershell`）且命令行含目标绝对路径；GUI/IDE 与未暴露路径的进程**不触碰**，改为登记待下次重试；
+- 每次 `-Apply` 写 `logs/wt-gc-report.json`（已 gitignore），仍有残留时退出码 1；
+- 触发点：`wt-finish.ps1` 在「注册表已注销、目录删不掉」分支自动调用；`wt-sync.ps1`（每日计划任务）末尾全量 GC；`wt-list.ps1` 末尾报告残留清单。
 
 ---
 
