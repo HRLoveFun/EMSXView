@@ -214,7 +214,7 @@ class TestEndpoint:
         def _boom():
             raise RuntimeError("inbox missing")
 
-        monkeypatch.setattr(pretrade, "assemble_items", _boom)
+        monkeypatch.setattr(pretrade, "assemble_board", _boom)
         response = _client().get("/api/marketview/pretrade-board")
 
         assert response.status_code == 500
