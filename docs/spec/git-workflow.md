@@ -151,6 +151,8 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 - **`_tmp/` 在途保护**：最近 30 分钟内变更的子项视为在途任务产物，默认跳过（`-TmpMinAgeMinutes` 调整；`-Force` 且指名时覆盖；`-SkipTmp` 完全跳过）。
 - **`-Apply` 会连带处理 `_tmp`**：`-Apply` 同时删除「非在途」的 `_tmp` 子项（默认行为，非提示）；**若本意只清 worktree 目录，请显式加 `-SkipTmp`**——否则其他会话留在 `_tmp/` 的备份/产物会被一并删除（2026-09-21 实测踩到）。
 - **残留目录的推荐清理路径**：§3.4 的「注册表已注销、目录删不掉」残留也用本工具（`wt-clean.ps1 <task> -Apply -Force`）——它按 `EMSXView-wt-*` 兄弟目录识别为 `orphan` 并带上述全部保护；`git` 已不认的孤儿目录同样需要 `-Force` + 显式指名。
+- **孤儿目录识别不再中断（2026-10-28 修复）**：`Test-WtSessionLock` 先看 `.git` 标记再调 `git -C`——此前对孤儿目录执行 `git -C` 会写 stderr，在 `$ErrorActionPreference=Stop` 下抛 `NativeCommandError`，使整个清理在**识别阶段**就退出（日志形如 `fatal: not a git repository`）。
+- **删除报「被占用」时改用 wt-gc**：残留目录的句柄常来自「CWD 停在其中的后台进程」（实测：`python -m pytest` 跑完不退出，其工作目录锁住 `backend/api`）。此时 `wt-clean` 只把错误透出并提示，处置与重试交给 `wt-gc.ps1 <task> -Apply -Force -KillHolders`（仅终止白名单解释器，且 CommandLine 必须含目标绝对路径）。
 - 原生等价：`git worktree remove ../EMSXView-wt-xxx --force` → `git worktree prune` → `Remove-Item -Recurse -Force _tmp/*`（无 dry-run 保护）。
 
 #### 3.5.1 主动识别与自动清理（wt-gc，2026-10-27）
