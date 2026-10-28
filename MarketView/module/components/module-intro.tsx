@@ -1,21 +1,24 @@
-import { Activity, ArrowUpDown, Gauge } from 'lucide-react';
+import { Activity, Gauge, LineChart } from 'lucide-react';
 
 // 模块能力说明卡片配置（纯展示，无外部依赖）
 const capabilityCards = [
   {
-    title: 'Stock Pools',
-    description: 'Stock pool definitions are centralized on the MarketView contract, driven by a single daily snapshot path rather than scattered across local page state.',
+    title: 'Pool-driven scope',
+    description:
+      'The board reports exactly the pool it was built from: index constituents once the constituent table lands, the 8-ticker dev-validation list until then. Pool id, source and as_of travel with every response.',
     icon: Activity,
   },
   {
-    title: 'Risk Filters',
-    description: 'Pre-market screening by ADV, daily volume, daily volatility, and intraday volatility, with direct exposure of liquidity and volatility alert levels.',
+    title: 'One source for alerts',
+    description:
+      'Liquidity, Volatility and Risk notes are projections of the same assembled rows, so the highlight panel and the table can never disagree about a ticker.',
     icon: Gauge,
   },
   {
-    title: 'Candidate Hand-Off',
-    description: 'Candidate payload already has a clear contract and can be handed off to ExecutionView without requiring a recommendation model.',
-    icon: ArrowUpDown,
+    title: 'Price × volume detail',
+    description:
+      'Clicking a row opens a shared time axis: the 10-minute price-volume distribution with OHLC levels, cumulative volume versus the prior five sessions, and the cumulative share curve.',
+    icon: LineChart,
   },
 ];
 
@@ -27,9 +30,11 @@ export const ModuleIntro = () => (
         MarketView
       </div>
       <div className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Pre-trade workspace</h2>
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Pre-trade monitor</h2>
         <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-          Here we continue to use the same daily snapshot path, but it is no longer just a fixed table. MarketView now uses stock pools as the entry point, bringing together filtering, sorting, liquidity and volatility alerts, and the candidate contract for subsequent handoff into a pre-trade workspace.
+          One highlight panel plus one table. The panel answers “which names need attention today” for
+          liquidity, volatility and data risk; the table carries the full metric set per name. Every
+          number states its own as-of date and source — missing data is shown as missing, never as zero.
         </p>
       </div>
     </div>
