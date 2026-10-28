@@ -12,6 +12,13 @@ import {
   getUnmatchedReasonText,
   renderSeverityBadge,
 } from './marketview-utils';
+import {
+  buildLiveQuotes,
+  fmtSignedPercent,
+  liveVolumeVsAdvPct,
+  pctToneClass,
+} from './lib/workspace';
+import type { MarketStateSnapshot } from './types';
 
 describe('MarketView format helpers', () => {
   it('formats numbers with fixed digits and dashes for missing values', () => {
@@ -49,6 +56,67 @@ describe('MarketView severity helpers', () => {
   it('renders a labelled severity badge', () => {
     render(renderSeverityBadge('Liquidity', 'critical'));
     expect(screen.getByText('Liquidity: Critical')).toBeInTheDocument();
+  });
+});
+
+describe('MarketView live quote helpers (057 DL-15/29)', () => {
+  const state = {
+    equ_ticker: 'AAPL US Equity',
+    as_of: '2026-10-27T10:00:00',
+    bid: 100,
+    ask: 100.2,
+    last: 100.1,
+    high: 101,
+    low: 99,
+    volume: 10_000,
+    spread_bps: 20,
+    spread_vs_baseline_bps: null,
+    pct_change_1d: 1.5,
+    cumulative_volume_ratio: null,
+    flags: [],
+    schema_version: 'market-state-v2',
+  };
+  const snapshot: MarketStateSnapshot = {
+    as_of: '2026-10-27T10:00:00',
+    enabled: true,
+    tickers: [state],
+    thresholds: {},
+    schema_version: 'market-state-v2',
+  };
+
+  it('indexes live quotes by ticker with source status', () => {
+    const live = buildLiveQuotes(snapshot, 'live');
+    expect(live.enabled).toBe(true);
+    expect(live.status).toBe('live');
+    expect(live.asOf).toBe('2026-10-27T10:00:00');
+    expect(live.byTicker.get('AAPL US Equity')?.last).toBe(100.1);
+    expect(live.byTicker.get('MSFT US Equity')).toBeUndefined();
+  });
+
+  it('returns an empty index when the backend switch is off', () => {
+    const live = buildLiveQuotes({ ...snapshot, enabled: false }, 'idle');
+    expect(live.enabled).toBe(false);
+    expect(live.byTicker.size).toBe(0);
+    expect(buildLiveQuotes(null, 'idle').byTicker.size).toBe(0);
+  });
+
+  it('formats signed percentages and tones', () => {
+    expect(fmtSignedPercent(1.234)).toBe('+1.23%');
+    expect(fmtSignedPercent(-0.456)).toBe('-0.46%');
+    expect(fmtSignedPercent(0)).toBe('0.00%');
+    expect(fmtSignedPercent(null)).toBe('—');
+
+    expect(pctToneClass(1)).toContain('emerald');
+    expect(pctToneClass(-1)).toContain('rose');
+    expect(pctToneClass(0)).toContain('muted');
+    expect(pctToneClass(null)).toContain('muted');
+  });
+
+  it('computes live participation against the daily ADV', () => {
+    expect(liveVolumeVsAdvPct(500_000, 2_000_000)).toBe(25);
+    expect(liveVolumeVsAdvPct(null, 2_000_000)).toBeNull();
+    expect(liveVolumeVsAdvPct(500_000, null)).toBeNull();
+    expect(liveVolumeVsAdvPct(500_000, 0)).toBeNull();
   });
 });
 

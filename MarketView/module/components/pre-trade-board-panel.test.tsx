@@ -69,13 +69,14 @@ const LIVE_ON: MarketStateSnapshot = {
       volume: 123456,
       spread_bps: 2,
       spread_vs_baseline_bps: 0.5,
+      pct_change_1d: 1.2,
       cumulative_volume_ratio: 1.25,
       flags: [],
-      schema_version: 'market-state-v1',
+      schema_version: 'market-state-v2',
     },
   ],
   thresholds: {},
-  schema_version: 'market-state-v1',
+  schema_version: 'market-state-v2',
 };
 
 const stubFetch = (body: unknown, ok = true, live: MarketStateSnapshot = LIVE_OFF): void => {

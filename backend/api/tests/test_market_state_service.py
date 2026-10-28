@@ -20,7 +20,11 @@ REPO_ROOT = API_ROOT.parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from platform_data.contracts import MarketBaseline, MarketStateThresholds  # noqa: E402
+from platform_data.contracts import (  # noqa: E402
+    MARKET_STATE_SCHEMA_VERSION,
+    MarketBaseline,
+    MarketStateThresholds,
+)
 from services.bloomberg import enrichment as mde  # noqa: E402
 from services import market_state_service as mss  # noqa: E402
 
@@ -96,9 +100,9 @@ def test_mktdata_fields_disabled_matches_existing():
     assert mde.mktdata_fields(False) == ["CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP", "PX_ROUND_LOT_SIZE"]
 
 
-def test_mktdata_fields_enabled_adds_six_fields():
+def test_mktdata_fields_enabled_adds_intraday_fields():
     fields = mde.mktdata_fields(True)
-    for field in ("BID", "ASK", "LAST_PRICE", "VOLUME", "HIGH", "LOW"):
+    for field in ("BID", "ASK", "LAST_PRICE", "VOLUME", "HIGH", "LOW", "PREV_CLOSE_VALUE_REALTIME"):
         assert field in fields
     assert fields[:4] == ["CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP", "PX_ROUND_LOT_SIZE"]
 
@@ -117,6 +121,14 @@ def test_parse_intraday_quote_extracts_present_fields():
 def test_parse_intraday_quote_skips_missing_and_nan():
     quote = mde.parse_intraday_quote(_FakeMsg({"BID": 100.0, "ASK": None, "HIGH": float("nan")}))
     assert quote == {"BID": 100.0}
+
+
+def test_parse_intraday_quote_keeps_prev_close_for_fallback():
+    """前收是实时涨跌幅的回落来源（本机终端不推送 CHG_PCT_1D）。"""
+    quote = mde.parse_intraday_quote(
+        _FakeMsg({"LAST_PRICE": 101.0, "PREV_CLOSE_VALUE_REALTIME": 100.0})
+    )
+    assert quote == {"LAST_PRICE": 101.0, "PREV_CLOSE_VALUE_REALTIME": 100.0}
 
 
 # ── 快照构建 ────────────────────────────────────────────────────────────────
@@ -192,3 +204,91 @@ async def test_intraday_state_enabled_follows_settings(monkeypatch):
     assert mss.intraday_state_enabled() is False
     monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", True)
     assert mss.intraday_state_enabled() is True
+
+
+# ── v2 实时涨跌幅 ───────────────────────────────────────────────────────────
+
+
+def _fake_bloomberg_v2(quotes: dict, changes=None):
+    """带报价与涨跌幅缓存的最小替身（与门面暴露的属性同名）。"""
+    return SimpleNamespace(intraday_quotes=quotes, price_changes=changes or {})
+
+
+@pytest.mark.asyncio
+async def test_snapshot_prefers_pushed_chg_pct():
+    quotes = {"AAPL US Equity": {"BID": 100.0, "ASK": 100.5, "LAST_PRICE": 100.2}}
+    snapshot = mss.build_market_state_snapshot(
+        _fake_bloomberg_v2(quotes, changes={"AAPL US Equity": 1.234567})
+    )
+    assert snapshot.schema_version == MARKET_STATE_SCHEMA_VERSION
+    assert snapshot.tickers[0].pct_change_1d == 1.23
+
+
+@pytest.mark.asyncio
+async def test_snapshot_falls_back_to_prev_close_when_chg_pct_missing():
+    """本机终端 CHG_PCT_1D 不推送：用 LAST_PRICE ÷ PREV_CLOSE_VALUE_REALTIME 回落。"""
+    quotes = {
+        "AAPL US Equity": {
+            "BID": 101.0,
+            "ASK": 101.2,
+            "LAST_PRICE": 101.0,
+            "PREV_CLOSE_VALUE_REALTIME": 100.0,
+        }
+    }
+    state = mss.build_market_state_snapshot(_fake_bloomberg_v2(quotes)).tickers[0]
+    assert state.pct_change_1d == 1.0
+
+
+@pytest.mark.asyncio
+async def test_snapshot_pct_change_none_without_quotes_or_prev_close():
+    """无行情 / 前收缺失或非正数时字段为 None（不猜 0）。"""
+    quotes = {"AAPL US Equity": {"BID": 100.0, "ASK": 100.5}}
+    assert mss.build_market_state_snapshot(_fake_bloomberg_v2(quotes)).tickers[0].pct_change_1d is None
+
+    zero_prev = {
+        "AAPL US Equity": {"LAST_PRICE": 100.0, "PREV_CLOSE_VALUE_REALTIME": 0.0},
+    }
+    assert mss.build_market_state_snapshot(_fake_bloomberg_v2(zero_prev)).tickers[0].pct_change_1d is None
+
+    nan_change = {"AAPL US Equity": {"LAST_PRICE": 100.0}}
+    state = mss.build_market_state_snapshot(
+        _fake_bloomberg_v2(nan_change, changes={"AAPL US Equity": float("nan")})
+    ).tickers[0]
+    assert state.pct_change_1d is None
+
+
+@pytest.mark.asyncio
+async def test_snapshot_filters_by_whitelist_and_skips_unknown():
+    quotes = {
+        "AAPL US Equity": {"BID": 100.0, "ASK": 100.5},
+        "MSFT US Equity": {"BID": 400.0, "ASK": 400.4},
+    }
+    snapshot = mss.build_market_state_snapshot(
+        _fake_bloomberg_v2(quotes), tickers=["MSFT US Equity", "NOPE US Equity"]
+    )
+    assert [state.equ_ticker for state in snapshot.tickers] == ["MSFT US Equity"]
+
+
+# ── 门面暴露（生产链路打通：market_state_service 读得到订阅缓存） ────────────
+
+
+def test_facade_exposes_realtime_caches():
+    """门面必须代理 enrichment 的四个实时缓存。
+
+    缺少该代理时 `build_market_state_snapshot` 的 getattr 恒为 None，
+    `/api/market-state/*` 在生产环境永远返回空 tickers（前端实时列为空）。
+    """
+    from services.bloomberg_adapter import BloombergEMSXService
+
+    service = BloombergEMSXService()
+    service._enrich._intraday_quotes["AAPL US Equity"] = {"BID": 100.0, "ASK": 100.5}
+    service._enrich._price_changes["AAPL US Equity"] = 1.23
+
+    assert service.intraday_quotes == {"AAPL US Equity": {"BID": 100.0, "ASK": 100.5}}
+    assert service._intraday_quotes == service.intraday_quotes
+    assert service.price_changes == {"AAPL US Equity": 1.23}
+    assert service._price_changes == service.price_changes
+
+    snapshot = mss.build_market_state_snapshot(service)
+    assert [state.equ_ticker for state in snapshot.tickers] == ["AAPL US Equity"]
+    assert snapshot.tickers[0].pct_change_1d == 1.23

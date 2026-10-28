@@ -176,7 +176,8 @@ class MarketRegimeState:
 # ── 057 DL-15：盘中市场状态契约（C 层实时特征；特性开关默认关闭） ─────────────
 
 # 契约版本：口径或字段变更时升版
-MARKET_STATE_SCHEMA_VERSION = "market-state-v1"
+# v2：新增 pct_change_1d（实时涨跌幅，CHG_PCT_1D 或 最新价÷前收 回落口径）
+MARKET_STATE_SCHEMA_VERSION = "market-state-v2"
 # 服务端阈值版本：变更阈值即升版并记审计（替代前端 localStorage 全局常数）
 MARKET_STATE_THRESHOLDS_VERSION = "market-state-thresholds-v1"
 
@@ -215,6 +216,9 @@ class MarketStateTickerState:
     volume: int | None = None
     spread_bps: float | None = None
     spread_vs_baseline_bps: float | None = None
+    # v2 实时涨跌幅（百分数，1.23 表示 +1.23%）：优先 CHG_PCT_1D 推送，
+    # 缺失时由服务层用 LAST_PRICE ÷ PREV_CLOSE_VALUE_REALTIME 回落计算。
+    pct_change_1d: float | None = None
     # DL-09 预期量曲线就绪前 None；DL-12 到达价、参与率同理（预留）
     cumulative_volume_ratio: float | None = None
     flags: tuple[MarketStateFlag, ...] = ()

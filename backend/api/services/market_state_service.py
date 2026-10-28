@@ -1,7 +1,9 @@
 """盘中市场状态服务（057 DL-15；C 层实时特征，特性开关默认关闭）。
 
-从订阅缓存（`MarketDataEnrichmentService._intraday_quotes`）构建
-`MarketStateSnapshot`：价差 bps、相对日度基线的差值与服务端版本化阈值告警。
+从订阅缓存构建 `MarketStateSnapshot`：价差 bps、相对日度基线的差值与服务端
+版本化阈值告警；v2 追加实时涨跌幅（优先 CHG_PCT_1D，缺失时用最新价 ÷ 前收 回落）。
+缓存经 `BloombergEMSXService` 门面暴露（`intraday_quotes` / `price_changes`），
+MarketView 前端只读快照、不直连 Bloomberg。
 预期量曲线（DL-09）、到达价 σ 位移（DL-12）、参与率本期不可得，契约预留 `None`。
 """
 
@@ -61,27 +63,86 @@ def _spread_bps(quote: dict) -> float | None:
     return (ask - bid) / mid * 10_000
 
 
+def _quote_cache(bloomberg: Any) -> dict:
+    """逐票报价缓存：门面公开属性优先，兼容私有属性（历史调用方/测试替身）。"""
+    for name in ("intraday_quotes", "_intraday_quotes"):
+        cache = getattr(bloomberg, name, None)
+        if cache:
+            return cache
+    return {}
+
+
+def _scalar_cache(bloomberg: Any, name: str) -> dict:
+    """逐票单值缓存（如 price_changes）；缺失返回空字典。"""
+    for attr in (name, f"_{name}"):
+        cache = getattr(bloomberg, attr, None)
+        if cache:
+            return cache
+    return {}
+
+
+def _round2(value: Any) -> float | None:
+    """数值四舍五入到 2 位；None / 非数值一律返回 None（不猜数）。"""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number:  # NaN
+        return None
+    return round(number, 2)
+
+
+def _pct_change_1d(quote: dict, pushed_change: Any) -> float | None:
+    """实时涨跌幅（%）：优先 CHG_PCT_1D 推送，缺失时用最新价 ÷ 前收回落。
+
+    实盘订阅实测（2026-10-28，本机终端）：CHG_PCT_1D 不在 mktdata 推送字段中，
+    而 PREV_CLOSE_VALUE_REALTIME 可用，因此回落口径是工作站 Chg% 列的实际来源。
+    前收缺失或非正数时返回 None（不猜数）。
+    """
+    pushed = _round2(pushed_change)
+    if pushed is not None:
+        return pushed
+    try:
+        last = float(quote.get("LAST_PRICE"))
+        prev_close = float(quote.get("PREV_CLOSE_VALUE_REALTIME"))
+    except (TypeError, ValueError):
+        return None
+    if prev_close <= 0 or last <= 0:
+        return None
+    return round((last / prev_close - 1) * 100, 2)
+
+
 def build_market_state_snapshot(
     bloomberg: Any,
     *,
     baseline_lookup: BaselineLookup | None = None,
+    tickers: list | tuple | set | None = None,
     now: datetime | None = None,
 ) -> MarketStateSnapshot:
-    """从订阅缓存构建逐票盘中状态；无行情缓存/无数据时返回空快照（不猜数）。"""
+    """从订阅缓存构建逐票盘中状态；无行情缓存/无数据时返回空快照（不猜数）。
+
+    ``tickers`` 为可选白名单（MarketView 股票池工作站只关心池内标的）：
+    只返回「既在订阅缓存、又在白名单内」的标的，避免把全量订单标的推给前端。
+    """
     current = now or datetime.now()
-    quotes: dict = getattr(bloomberg, "_intraday_quotes", None) or {}
-    tickers = sorted(quotes)
+    quotes: dict = _quote_cache(bloomberg)
+    wanted = {ticker for ticker in (tickers or ()) if ticker}
+    selected = sorted(ticker for ticker in quotes if not wanted or ticker in wanted)
+
+    changes = _scalar_cache(bloomberg, "price_changes")
 
     baselines: dict = {}
-    if baseline_lookup is not None and tickers:
+    if baseline_lookup is not None and selected:
         try:
-            baselines = baseline_lookup(tickers) or {}
+            baselines = baseline_lookup(selected) or {}
         except Exception:
             # 基线不可得 → 退化为无基线比较（披露于日志，不静默填 0）
             logger.warning("market-state baseline lookup failed", exc_info=True)
 
     states: list[MarketStateTickerState] = []
-    for ticker in tickers:
+    for ticker in selected:
         quote = quotes.get(ticker) or {}
         spread = _spread_bps(quote)
         baseline: MarketBaseline | None = baselines.get(ticker)
@@ -112,6 +173,7 @@ def build_market_state_snapshot(
                 volume=quote.get("VOLUME"),
                 spread_bps=round(spread, 2) if spread is not None else None,
                 spread_vs_baseline_bps=spread_vs,
+                pct_change_1d=_pct_change_1d(quote, changes.get(ticker)),
                 cumulative_volume_ratio=None,  # DL-09 预期曲线就绪前不可得
                 flags=tuple(flags),
             )
