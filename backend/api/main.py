@@ -308,11 +308,13 @@ from routers.route_plans import router as route_plans_router
 from routers.authorizations import router as authorizations_router  # S12/042
 from routers.routing_decisions import router as routing_decisions_router  # 057 DL-21
 from routers.interval_series import router as interval_series_router  # 057 DL-30
+from routers.securities import router as securities_router  # 参考数据（中文简称）
 
 app.include_router(connection_router)
 app.include_router(authorizations_router)
 app.include_router(routing_decisions_router)
 app.include_router(interval_series_router)
+app.include_router(securities_router)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)

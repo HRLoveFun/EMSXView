@@ -21,6 +21,7 @@ import {
   fmtPercent,
   isLiveTrading,
   renderMarketStatusBadge,
+  renderSecurityName,
 } from '../marketview-utils';
 import { fmtSignedPercent, liveVolumeVsAdvPct, pctToneClass } from '../lib/workspace';
 
@@ -30,6 +31,8 @@ interface PoolBoardPanelProps {
   limit?: number;
   /** 实时行情索引与来源状态（由 MARKETVIEW 模块统一持有，单条 WS 连接共享）。 */
   live: LiveQuotes;
+  /** 中文简称（core refdata 解析结果；缺失显示破折号） */
+  names: Map<string, string>;
   /** 把池板标的登记给上层订阅集合（池板无告警筛选，通常是快照的超集）。 */
   onUniverseChange?: (tickers: string[]) => void;
 }
@@ -68,7 +71,15 @@ const LiveFlags = ({ state }: { state?: MarketStateTickerState }) => {
   );
 };
 
-const Row = ({ row, live }: { row: PoolBoardRow; live?: MarketStateTickerState }) => {
+const Row = ({
+  row,
+  live,
+  name,
+}: {
+  row: PoolBoardRow;
+  live?: MarketStateTickerState;
+  name?: string;
+}) => {
   // 盘中参与率：实时成交量 ÷ 日度 ADV20（ADV 来自日度快照，见 liveVolumeVsAdvPct）
   const liveVolPct = liveVolumeVsAdvPct(live?.volume, row.adv_20d);
   // 盘前/收市：mktdata 给的是上一交易日镜像，实时列统一置灰（不隐藏，保留可核对）
@@ -80,6 +91,7 @@ const Row = ({ row, live }: { row: PoolBoardRow; live?: MarketStateTickerState }
         {row.equ_ticker}
         <LiveFlags state={live} />
       </td>
+      <td className="px-3 py-2 text-xs">{renderSecurityName(name)}</td>
       <td className="px-3 py-2">{renderMarketStatusBadge(row.market_status, row.market_time)}</td>
       <td className={`px-3 py-2 text-right font-mono ${muted}`}>{liveNum(live?.last)}</td>
       <td className={`px-3 py-2 text-right font-mono ${liveMuted ? muted : pctToneClass(live?.pct_change_1d)}`}>
@@ -115,6 +127,7 @@ export const PoolBoardPanel = ({
   tradeDate,
   limit = 40,
   live,
+  names,
   onUniverseChange,
 }: PoolBoardPanelProps) => {
   const key = `${poolId}|${tradeDate ?? ''}|${limit}`;
@@ -168,10 +181,11 @@ export const PoolBoardPanel = ({
         <div className="p-6 text-sm text-red-700">{error.message}</div>
       ) : data && data.rows.length ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1660px] text-sm">
+          <table className="w-full min-w-[1800px] text-sm">
             <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-3 py-3 text-left font-medium">Ticker</th>
+                <th className="px-3 py-3 text-left font-medium">Name</th>
                 <th className="px-3 py-3 text-left font-medium">Status</th>
                 <th className="px-3 py-3 text-right font-medium">Last</th>
                 <th className="px-3 py-3 text-right font-medium">Chg %</th>
@@ -194,7 +208,12 @@ export const PoolBoardPanel = ({
             </thead>
             <tbody>
               {data.rows.map((row) => (
-                <Row key={row.equ_ticker} row={row} live={live.byTicker.get(row.equ_ticker)} />
+                <Row
+                  key={row.equ_ticker}
+                  row={row}
+                  live={live.byTicker.get(row.equ_ticker)}
+                  name={names.get(row.equ_ticker)}
+                />
               ))}
             </tbody>
           </table>

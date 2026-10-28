@@ -39,6 +39,8 @@ const quote: MarketStateTickerState = {
   schema_version: 'market-state-v2',
 };
 
+const names = new Map([['SEC_A US Equity', '甲证券股份有限公司']]);
+
 const renderTable = (live: LiveQuotes) =>
   render(
     <SnapshotTable
@@ -46,6 +48,7 @@ const renderTable = (live: LiveQuotes) =>
       selectedTickers={[]}
       drillTicker={null}
       live={live}
+      names={names}
       onToggleTicker={vi.fn()}
       onSelectAll={vi.fn()}
       onClearSelection={vi.fn()}
@@ -64,6 +67,8 @@ describe('SnapshotTable live columns (057 DL-15/DL-29)', () => {
 
     expect(screen.getByText('Last')).toBeInTheDocument();
     expect(screen.getByText('Chg %')).toBeInTheDocument();
+    // Name 列：中文简称来自 core refdata
+    expect(screen.getByText('甲证券股份有限公司')).toBeInTheDocument();
     expect(screen.getByText('100.55')).toBeInTheDocument();
     expect(screen.getByText('-0.46%')).toBeInTheDocument();
   });
