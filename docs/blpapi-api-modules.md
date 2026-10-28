@@ -429,6 +429,8 @@ while not stop:
 
 样本取自 `tca_route_summary.Exchange` 的实际取值（34 个交易所），每市 1–2 个高流动性标的，共 67 个样本；两次 15–20 秒窗口。工具见 §15.7。
 
+> 完整测试记录（逐市场矩阵、字段否决依据、更新字段列表的改动清单、复测 SOP）见 [docs/report-marketview-live-fields.md](report-marketview-live-fields.md)。本节只保留结论摘要。
+
 | 字段 | 触及 | 结论 |
 |---|---|---|
 | `BID` / `ASK` / `LAST_PRICE` / `MID` / `OPEN` / `HIGH` / `LOW` / `VOLUME` | 62–66 / 66 | **全市场可用**，含休市市场（返回上一交易日镜像值） |
