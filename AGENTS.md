@@ -470,6 +470,7 @@ python -c "from data_access import ConnectionManager, Config; print(Config.DATA_
 | 后端边界 | `python -m pytest backend/api/tests/boundaries/ -q` | 跨模块 import、DB 路径等契约 |
 | CostView | `python -m pytest CostView/tests/ -q` | 10 个测试文件 / 305 个测试函数（含 golden 指标锁定） |
 | MarketView | `python -m pytest MarketView/tests/ -q` | 8 个测试文件 / 74 例 |
+| 全仓（单命令） | 仓库根 `python -m pytest -q` | 由根 `conftest.py` 分套件子进程执行（backend / CostView / MarketView / scripts）并汇总退出码——`backend/api` 与 `MarketView` 存在同名顶层模块（`config` / `auth` / `routers`），不能共享同一解释器 |
 | 前端 | `npm run typecheck && npm run lint && npm run lint:modules && npm test` | 31 个测试文件 |
 | 边界审计 | `python scripts/audit_cross_imports.py`、`audit_underscore_access.py`、`audit_db_paths.py`、`audit_doc_drift.py` | CI `boundary-protection` 硬阻断 |
 | 质量门禁 | `python scripts/quality_gate.py [--report|--staged]` | AP 契约 + OE 过度工程；规则见 [docs/spec/quality-gate.md](docs/spec/quality-gate.md) |
