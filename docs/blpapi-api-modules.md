@@ -412,7 +412,9 @@ while not stop:
 
 要点：`correlationId` 用 ticker 本身即可免去维护映射表；字段用 `SubscriptionList.add(fields=...)` 限定，未列字段不推送；解析必须先 `hasElement` 再取值（缺失字段直接取会抛异常）。
 
-### 15.3 字段实盘可用性（2026-10-28 本机终端实测，AAPL US Equity）
+### 15.3 字段实盘可用性
+
+#### 15.3.1 单标的全字段（AAPL US Equity，2026-10-28 13:53 HKT，美股休市）
 
 | 字段 | 结论 | 说明 |
 |---|---|---|
@@ -422,6 +424,32 @@ while not stop:
 | `VOLUME_AVG_5D` / `VOLUME_AVG_20D` | 不推送 | 均量改用日度基线（`bdib_daily_summary` 的 ADV） |
 | `PX_ROUND_LOT_SIZE` | 不推送 | 整手走 `//blp/refdata` 查询（既有实现） |
 | `VWAP` | 推送但为 `0.0` | 不可直接使用 |
+
+#### 15.3.2 跨市场矩阵（34 个实际交易市场，2026-10-28 14:17–14:20 HKT）
+
+样本取自 `tca_route_summary.Exchange` 的实际取值（34 个交易所），每市 1–2 个高流动性标的，共 67 个样本；两次 15–20 秒窗口。工具见 §15.7。
+
+| 字段 | 触及 | 结论 |
+|---|---|---|
+| `BID` / `ASK` / `LAST_PRICE` / `MID` / `OPEN` / `HIGH` / `LOW` / `VOLUME` | 62–66 / 66 | **全市场可用**，含休市市场（返回上一交易日镜像值） |
+| `PREV_CLOSE_VALUE_REALTIME` | 66 / 66 | **全市场可用** → 涨跌幅回落口径在全球范围成立 |
+| `CHG_PCT_1D` / `NET_CHG_PCT_1D` / `PX_CLOSE_1D` | 0 / 66 | 全市场不推送 |
+| `VOLUME_AVG_5D` / `VOLUME_AVG_20D` / `PX_ROUND_LOT_SIZE` | 0 / 66 | 全市场不推送 |
+| `BID_SIZE` / `ASK_SIZE` | 58–62 / 66 | 丹麦（DC）、瑞典（SS）**整体缺失**；IT/SW/IJ 个别标的缺失 |
+| `VWAP` | 50 / 66 | 只有 AU/IJ/IN/JP/KS/MK/NZ/SP 有真实值；EU/US 返回 `0.00`；HK/CN/BZ/MM 缺失 |
+
+市场级例外（实测个例，非普遍规律）：
+
+- **BID 缺失**：`IT`（NICE/TSEM）、`SW`（ABBN）、`IJ`（BRMS）等单边报价标的 → 价差算不出，按 `n/a` 呈现。
+- **ASK 为 `0.00`**（休市镜像）：`SW`（ABBN）实测 `ASK=0.0`，因此价差计算必须保留 `ask <= 0 → None` 的守卫，不能假定「有元素即有价格」。
+- **`MID` 为 `0.00`**：与 BID 缺失同源（SW/IT 等），不可直接用作中间价。
+- **`MUMBAI` 后缀不可订阅**：`TVSLIN/P MUMBAI Equity` 返回 `SubscriptionFailure / BAD_SEC（Unknown/Invalid Security）`——该 EMSX 交易所代码不对应可用的 BLPAPI 后缀，属订单侧代码问题（全库仅 5 条路由）。
+
+#### 15.3.3 分时段结论（休市 ≠ 无数据）
+
+- 休市市场仍返回**完整镜像**（价、量、高开低、前收都在），因此「字段有值」不代表「行情在跳」；探针用 `LAST_PRICE` 在窗口内是否变化区分二者，2026-10-28 14:20 HKT 只有 JP/HK/IN（部分窗口含 C1/KS/SP）在跳。
+- 因此工作站把 `as_of` 暴露在池板徽标 tooltip 上；休市市场的实时列会与日度快照同值，属预期行为。
+- 同一字段在不同时段的表现不同（如 `VWAP` 在 EU/US 休市时为 `0.00`，开盘后是否变成真实值需在对应时段复测）。**结论必须带探针时刻**，复测命令见 §15.7。
 
 结论：工作站涨跌幅 = `CHG_PCT_1D` 优先、缺失时 `LAST_PRICE ÷ PREV_CLOSE_VALUE_REALTIME − 1`；实时参与率 = 实时 `VOLUME` ÷ 日度 ADV20（不订阅均量字段）。终端权限不同时推送集可能不同，代码对两种情形都成立。
 
@@ -441,3 +469,20 @@ while not stop:
 1. 后端日志出现 `Mktdata subscriptions started: N (...)`；失败时 `Mktdata subscription failures` 会带 `rcode`。
 2. `curl -H "Authorization: Bearer <token>" "http://<host>:3000/api/market-state/snapshot?tickers=AAPL%20US%20Equity"` 应返回非空 `tickers`（开关默认开启）。
 3. 前端工作站右上角徽标：`Live · WS N`（推送）/ `Live · REST N`（回落）/ `Live off`（开关关闭或无行情）。
+
+### 15.7 跨市场探针工具
+
+`scripts/diagnose/blpapi_mktdata_probe.py`：一次性订阅全部样本，输出「逐样本矩阵 + 字段覆盖 + 跳动清单 + 订阅失败清单」。
+
+```powershell
+# 34 个实际交易市场（样本清单随仓库维护）
+python scripts/diagnose/blpapi_mktdata_probe.py --tickers-file scripts/diagnose/mktdata_market_samples.txt
+
+# 指定标的 / 拉长窗口 / 落 JSON 供二次分析
+python scripts/diagnose/blpapi_mktdata_probe.py --tickers "AAPL US Equity,700 HK Equity" --seconds 60 --json _tmp/probe.json
+```
+
+- 单元格语义：`-` 元素缺失（未推送或无权限）、`null` 元素存在但无值、数字即有值。
+- 判读顺序：先看「窗口内 `LAST_PRICE` 有跳动」确认时段（休市市场不会跳），再看字段覆盖表。
+- 复测建议：美股开盘（21:30 HKT）与欧洲开盘（15:00 HKT）各跑一次，验证 `VWAP`、`BID_SIZE`/`ASK_SIZE` 在开盘时段的表现。
+- 样本清单 `scripts/diagnose/mktdata_market_samples.txt` 每市一个高流动性标的；公司行动导致失效时，探针会在失败清单中点名。

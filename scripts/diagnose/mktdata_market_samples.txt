@@ -1,0 +1,40 @@
+# 跨市场实时订阅探针样本（每个实际交易市场 1 个高流动性标的）
+#
+# 市场清单来源：tca_route_summary.Exchange 的实际取值（2026-10-28 全量统计，34 个交易所）；
+# 标的取该交易所路由数最多的名字（MUMBAI 保留原始写法，用于复现无效后缀问题）。
+# 格式：EXCHANGE,TICKER —— 也可只写 TICKER（此时 label = ticker）。
+# 用法：python scripts/diagnose/blpapi_mktdata_probe.py --tickers-file scripts/diagnose/mktdata_market_samples.txt
+US,NVDA US Equity
+JP,6857 JP Equity
+LN,RIO LN Equity
+HK,2899 HK Equity
+GR,SAP EU Equity
+CN,AEM CN Equity
+C1,600183 CH Equity
+FP,SU EU Equity
+AU,BHP AU Equity
+SW,ABBN SW Equity
+SS,VOLVB SS Equity
+KS,005930 KS Equity
+NA,ASML EU Equity
+IM,UCG EU Equity
+SM,SAN EU Equity
+BZ,VALE3 BZ Equity
+IN,ICICIBC IN Equity
+FH,NOKIA EU Equity
+BB,KBC EU Equity
+DC,DSV DC Equity
+SJ,ANG SJ Equity
+SP,DBS SP Equity
+NO,NHY NO Equity
+MM,GMEXICOB MM Equity
+IJ,TLKM IJ Equity
+MK,PMAH MK Equity
+AV,EBS EU Equity
+ID,KSP EU Equity
+PL,GALP EU Equity
+PW,KGH PW Equity
+IT,NICE IT Equity
+GA,ETE EU Equity
+NZ,AIA NZ Equity
+MUMBAI,TVSLIN/P MUMBAI Equity
