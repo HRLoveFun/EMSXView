@@ -200,7 +200,16 @@ class TestEndpoint:
     """③ 端点。"""
 
     def test_empty_board_message(self, monkeypatch):
-        monkeypatch.setattr(pretrade, "assemble_items", lambda: [])
+        # 端点走 assemble_board 取 (items, meta)；早期 patch assemble_items 已失效
+        meta = {
+            "intent_source": "none",
+            "intent_coverage_pct": 0.0,
+            "unmatched": (),
+            "freshness": (),
+            "snapshot_source": "none",
+            "generated_at": "2026-10-28T00:00:00+00:00",
+        }
+        monkeypatch.setattr(pretrade, "assemble_board", lambda **kwargs: ([], meta))
         response = _client().get("/api/marketview/pretrade-board")
 
         assert response.status_code == 200
