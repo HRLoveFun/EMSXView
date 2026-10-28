@@ -1,14 +1,20 @@
 from pathlib import Path
+import os
 import sys
 
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from db import create_engine, get_database_url
-from models.execution_state import Base
+# 单文件运行也要能自洽：config 在 import 期即校验 JWT_SECRET（其余后端用例同样在
+# 顶层 setdefault），否则 `pytest tests/test_db_bootstrap.py` 会收集期直接报错。
+os.environ.setdefault("JWT_SECRET", "testsecret")
+os.environ.setdefault("BYPASS_AUTH", "true")
 
-import config
+from db import create_engine, get_database_url  # noqa: E402
+from models.execution_state import Base  # noqa: E402
+
+import config  # noqa: E402
 
 
 def test_get_database_url_from_env(monkeypatch):

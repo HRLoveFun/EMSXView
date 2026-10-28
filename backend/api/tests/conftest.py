@@ -3,10 +3,13 @@
 背景（2026-10-28 排查）：aiosqlite 的 `_connection_worker_thread` 是**非 daemon**
 线程，连接未关闭时解释器退出阶段 `threading._shutdown` 会永久 join，表现为
 pytest 打印汇总后进程不退出、并锁住 CWD（`backend/api`）导致 worktree 删不掉。
-本文件做两件事：
+本文件做三件事：
 
-1. 每个用例结束后 dispose 运营库异步引擎，从源头掐断最常见的泄漏；
-2. 会话结束时盘点残留线程：非 daemon 线程打印「归属用例 + 线程栈」后以失败码
+1. 会话级把运营库切到临时库（未显式配置 `DATABASE_URL` 时），避免用例经
+   `db.get_db_session()` 打开真实 `~/.emsxview/ops/emsx_ops.db`（与正在运行的后端
+   共用同一文件，既污染数据也让用例依赖本机状态）；
+2. 每个用例结束后 dispose 运营库异步引擎，从源头掐断最常见的线程泄漏；
+3. 会话结束时盘点残留线程：非 daemon 线程打印「归属用例 + 线程栈」后以失败码
    强制退出（否则进程会挂住），daemon 线程仅告警（不阻塞退出，属卫生问题）。
 """
 
@@ -23,6 +26,22 @@ import pytest
 
 # 线程 ident -> 首次观察到它存活的用例 nodeid（泄漏归因用）
 _THREAD_ORIGIN: Dict[int, str] = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_ops_database(tmp_path_factory):
+    """未显式配置 DATABASE_URL 时，运营库改指会话临时库。
+
+    显式设置 `DATABASE_URL`（CI / 持久化演练）时保持原样，交由调用方决定；
+    用例自身仍可用 `monkeypatch.setenv` 覆盖或 `delenv` 验证默认路径分支。
+    """
+    previous = os.environ.get("DATABASE_URL")
+    if previous is None:
+        db_path = tmp_path_factory.mktemp("ops-db") / "emsx_ops.db"
+        os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    yield
+    if previous is None:
+        os.environ.pop("DATABASE_URL", None)
 
 
 def _alive_threads() -> List[threading.Thread]:
