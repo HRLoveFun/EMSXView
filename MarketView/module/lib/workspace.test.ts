@@ -47,6 +47,8 @@ const snapshot: MarketSnapshotPayload = {
       liquidity_alert: 'normal',
       volatility_alert: 'normal',
       alert_count: 0,
+      market_status: 'open',
+      market_time: '10:30',
       alerts: [],
     },
     {
@@ -62,6 +64,8 @@ const snapshot: MarketSnapshotPayload = {
       liquidity_alert: 'warning',
       volatility_alert: 'critical',
       alert_count: 2,
+      market_status: 'closed',
+      market_time: '18:00',
       alerts: [
         {
           code: 'volatility-alert',
