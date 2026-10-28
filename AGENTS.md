@@ -346,6 +346,7 @@ EMSXView/
 - **数据零受损**：数据落外置数据根 `${EMSXVIEW_DATA_DIR}`（与代码树解耦）；EMSXView 为只读消费者（sqlite mode=ro），数据更新维护的唯一写入方是独立仓库 EMSXDataPipeline。
 - **Agent 隔离**：一个 Agent 绑定一个 worktree，禁止跨 worktree 读写文件或操作其他任务正在使用的分支；功能代码禁止直接提交 main（PR + Squash merge）
 - **等待与轮询**：凡需等待外部状态变化（PR checks / Actions run / 服务就绪），一律**每 5 秒**检查一次（如 `gh pr checks <编号> --watch --interval 5`），轮询只用只读命令，以退出码作门禁判定
+- **收工即提交**：任何 worktree（含后台/无人值守会话）在一轮作业结束时立即提交，或走 `wt-finish.ps1 <task> [-DeleteBranch]` 收尾；**禁止**留「已注册 + 含未提交改动」的 worktree 跨会话——注册 worktree 不在 `wt-gc` 的孤儿判定内，脏状态只能靠 mtime/进程人工判别在途与否（详见 [`docs/spec/git-workflow.md`](docs/spec/git-workflow.md) §4.10）
 - 并行任务启动前必须先读 `docs/spec/git-workflow.md` §6（端口偏移 / 数据目录 / 依赖安装）与 §7（AI Agent 专项规则）
 
 ## 11. Build & Run Commands

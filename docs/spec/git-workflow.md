@@ -193,6 +193,7 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 7. **合并方式**：PR 合并建议 Squash merge，保持 main 历史一行一个任务。
 8. **一分支一提交（squash 友好）**：`Test-BranchMerged` 的 squash 识别是**逐 commit 比对 patch-id**——多提交分支被 squash 后，每个 commit 的 patch-id 都不等于合并出的那一个，会被判为「未合并」，使 `wt-finish -DeleteBranch` 必须加 `-Force`。因此 push 前把分支压成 1 个提交：`git reset --soft origin/main && git commit`（或 `git rebase -i origin/main` 全 squash）。实测对照：单提交分支 `git cherry` 输出 `- <sha>`（判定已合并），双提交分支输出 `+ <sha1>` / `+ <sha2>`（判定未合并）。
 9. **顺序执行 git 操作**：多个 Agent 同时操作共享 refs（fetch/rebase 同一分支）易产生竞态；跨 worktree 的 git 命令串行执行。
+10. **收工即提交或走 `wt-finish`（★ 2026-10-28）**：任何 worktree（前台或后台会话）在一轮作业结束时，必须**立即提交**（推分支或至少本地 commit）或直接走 `wt-finish.ps1 <task> [-DeleteBranch]` 收尾；**禁止**留下「已注册 + 含未提交改动」的 worktree 跨会话、跨夜存在。理由：注册的 worktree 不在 `wt-gc.ps1` 的孤儿判定范围内（它只扫不在 `git worktree list` 的兄弟目录），脏状态一旦滞留，只能靠文件 mtime、进程命令行等间接证据人工判别「是否仍在途」，极易误删他人在制品或误判为已完成。收工前用 `wt-list.ps1` 的「未提交」列自检（非 0 即未收工）。后台/无人值守会话尤其必须在下线前完成提交，不得把判别责任转移给下一个会话。
 
 ---
 
@@ -201,6 +202,7 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 - [ ] 最后一次 `wt-sync`（rebase 到最新 origin/main），跑通该任务相关测试（`pytest` / `npm test`）
 - [ ] push 分支并创建 PR（Squash merge）
 - [ ] PR 合并后：`wt-finish.ps1 <task> -DeleteBranch`
+- [ ] 收工前 `wt-list.ps1` 确认该 worktree「未提交」列为 0（非 0 须先提交；残留在建制品走 `wt-clean.ps1`，勿裸 `Remove-Item`）
 - [ ] 关闭对应 IDE / Agent 窗口
 - [ ] 必要时更新 `AGENTS.md`「当前计划」状态与 `specs/<feature-id>/` 进度（走正常提交）
 
