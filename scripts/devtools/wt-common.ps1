@@ -123,3 +123,141 @@ function Format-WtLockLabel {
     if ($sid.Length -gt 12) { $sid = $sid.Substring(0, 12) + "..." }
     return "$sid ($($LockInfo.IdleSec)s)"
 }
+
+# 路径归一化到「小写 + 正斜杠 + 盘符」，兼容 Git Bash 的 /c/Users 与 Windows 的 C:\Users
+function ConvertTo-MatchablePath {
+    param([string]$Text)
+    $t = $Text.ToLowerInvariant().Replace("\", "/")
+    if ($t -match "^/([a-z])/") { $t = $t.Substring(1, 1) + ":" + $t.Substring(2) }
+    return $t
+}
+
+# 判定路径是否落在（或等于）某目录之内：CWD 占用与「命令行含路径」同口径比较
+function Test-PathWithin {
+    param([string]$Candidate, [string]$Parent)
+    if (-not $Candidate -or -not $Parent) { return $false }
+    $c = ConvertTo-MatchablePath -Text $Candidate
+    $p = (ConvertTo-MatchablePath -Text $Parent).TrimEnd("/")
+    return ($c -eq $p) -or $c.StartsWith($p + "/")
+}
+
+# ── 进程工作目录（CWD）探测 ────────────────────────────────────────────────
+# 背景：Win32_Process 没有 CWD 字段，而「工作目录落在残留目录内」的进程
+# （Start-Process -WorkingDirectory、后台解释器）同样会锁住目录、使删除失败。
+# 手段：NtQueryInformationProcess(ProcessBasicInformation) 取 PEB，ReadProcessMemory
+# 读 RTL_USER_PROCESS_PARAMETERS.CurrentDirectory（x64 与 WOW64 两套偏移）。
+# 权限不足（系统/提权进程）或宿主架构不匹配时返回 $null，调用方回落到 CommandLine 判定。
+
+function Initialize-ProcCwdProbe {
+    if ("EmsxProcCwd" -as [type]) { return $true }
+    $source = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class EmsxProcCwd
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_BASIC_INFORMATION
+    {
+        public IntPtr ExitStatus;
+        public IntPtr PebBaseAddress;
+        public IntPtr AffinityMask;
+        public IntPtr BasePriority;
+        public IntPtr UniqueProcessId;
+        public IntPtr InheritedFromUniqueProcessId;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(int access, bool inherit, int pid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ReadProcessMemory(IntPtr handle, IntPtr address, byte[] buffer, int size, out IntPtr read);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool IsWow64Process(IntPtr handle, out bool wow64);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr handle, int infoClass, ref PROCESS_BASIC_INFORMATION info, int length, out int returnLength);
+
+    public static string GetWorkingDirectory(int pid)
+    {
+        const int PROCESS_QUERY_INFORMATION = 0x0400;
+        const int PROCESS_VM_READ = 0x0010;
+        IntPtr handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+        if (handle == IntPtr.Zero) { return null; }
+        try
+        {
+            bool wow64;
+            if (!IsWow64Process(handle, out wow64)) { return null; }
+            // 32 位宿主无法可靠读取 64 位进程的用户态地址
+            if (!wow64 && IntPtr.Size == 4) { return null; }
+
+            PROCESS_BASIC_INFORMATION pbi = new PROCESS_BASIC_INFORMATION();
+            int returned;
+            int status = NtQueryInformationProcess(handle, 0, ref pbi, Marshal.SizeOf(typeof(PROCESS_BASIC_INFORMATION)), out returned);
+            if (status != 0 || pbi.PebBaseAddress == IntPtr.Zero) { return null; }
+
+            int pointerSize = wow64 ? 4 : 8;
+            int paramsOffset = wow64 ? 0x10 : 0x20;   // PEB.ProcessParameters
+            int curDirOffset = wow64 ? 0x24 : 0x38;   // RTL_USER_PROCESS_PARAMETERS.CurrentDirectory
+            int bufferOffset = wow64 ? 4 : 8;         // UNICODE_STRING.Buffer（相对 CurrentDirectory 起始）
+
+            IntPtr parameters = ReadPointer(handle, Offset(pbi.PebBaseAddress, paramsOffset), pointerSize);
+            if (parameters == IntPtr.Zero) { return null; }
+
+            byte[] header = new byte[pointerSize == 8 ? 16 : 8];
+            IntPtr read;
+            if (!ReadProcessMemory(handle, Offset(parameters, curDirOffset), header, header.Length, out read)) { return null; }
+            int length = BitConverter.ToUInt16(header, 0);
+            if (length <= 0 || length > 0x8000) { return null; }
+            IntPtr buffer = pointerSize == 8
+                ? new IntPtr(BitConverter.ToInt64(header, bufferOffset))
+                : new IntPtr(BitConverter.ToInt32(header, bufferOffset));
+            if (buffer == IntPtr.Zero) { return null; }
+
+            byte[] text = new byte[length];
+            if (!ReadProcessMemory(handle, buffer, text, length, out read)) { return null; }
+            return Encoding.Unicode.GetString(text, 0, length);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    private static IntPtr Offset(IntPtr baseAddress, int offset)
+    {
+        return new IntPtr(baseAddress.ToInt64() + offset);
+    }
+
+    private static IntPtr ReadPointer(IntPtr handle, IntPtr address, int pointerSize)
+    {
+        byte[] buffer = new byte[pointerSize];
+        IntPtr read;
+        if (!ReadProcessMemory(handle, address, buffer, pointerSize, out read)) { return IntPtr.Zero; }
+        return pointerSize == 8 ? new IntPtr(BitConverter.ToInt64(buffer, 0)) : new IntPtr(BitConverter.ToInt32(buffer, 0));
+    }
+}
+'@
+    try {
+        Add-Type -TypeDefinition $source -ErrorAction Stop
+        return $true
+    }
+    catch { return $false }
+}
+
+# 读取进程工作目录；不可得（权限/架构/进程已退出）返回 $null
+function Get-ProcessWorkingDirectory {
+    param([int]$ProcessId)
+    if (-not (Initialize-ProcCwdProbe)) { return $null }
+    try { return [EmsxProcCwd]::GetWorkingDirectory($ProcessId) }
+    catch { return $null }
+}
