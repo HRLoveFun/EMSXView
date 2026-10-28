@@ -69,7 +69,23 @@
 
 ## 4. 项目定位与模块成熟度
 
-**项目定位**：订单执行与交易成本分析（TCA）单体仓库——执行管理（ExecutionView）、盘前市场视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
+**项目定位**：订单执行与交易成本分析（TCA）单体仓库——交易执行视图（ExecutionView）、市场走势视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
+
+### 4.0 模块使命与边界（★ 单一来源）
+
+三个模块构成「交易前研判 → 交易中执行 → 交易后评估」的闭环；共享同一批行情、基线与成交数据，但**观察轴不同**，因此都保留、不能互相替代：
+
+| 模块 | 使命 | 回答的问题 | 观察轴 | 不做什么 |
+|------|------|------------|--------|----------|
+| **MarketView** | 检查、更新股票池；监测股票池内标的 | 今天该关注哪些票、这些票的意图是什么、执行难度多大、成本大概多少 | 标的 × 交易日（交易前 · 市场走势） | **不碰下单路径**：不发送、不修改、不撤销订单/路由，不写任何库；股票池只做只读汇集，不做页面内编辑与持久化 |
+| **ExecutionView** | 获取交易意图；发送、修改订单/路由；监测订单执行区间的量价变化 | 这笔（这批）委托正在做得怎么样、与市场和预期偏离多少 | 订单/路由 × 执行区间（交易中 · 交易执行） | 不承担选股与盘前研判；盘前结论只从 MarketView 交接读取；不重复实现行情/基线取数 |
+| **CostView** | 盘后评估执行表现与成本，形成券商/算法评价并回流建议 | 成本贵在哪、花了多少、同类条件下哪家券商或算法更好 | 成交/路由 × 交易日（交易后 · 成本归因） | 不写库、不触发 ETL、不直连 Bloomberg；预期成本不对券商输出、不作为对外预测（K3） |
+
+- **MarketView 的功能落点**：固定筛选池汇集与检查（数量/价格/成交量/波动/ADV 等量价指标，与执行难度、预期成本同屏）、日度基线与事件状态、意图覆盖率与未匹配、执行难度与预期成本提示、池内标的盘中走势。
+- **ExecutionView 的功能落点**：意图交接读取、订单/路由的发送与修改、合规与授权校验、实时订单/路由流、**以执行区间为窗口**的量价曲线与对照（区间价格、累计成交量、区间 VWAP vs 成交均价），取数复用 MarketView 的 bar / 基线路径。
+- **CostView 的功能落点**：TCA 分析与 scorecard（读 `tca_route_summary` 预计算表）、订单内配对与综合评估报告、监控与 HTML 报告导出、只读巡检 CLI、券商推荐 pin（经 handoff 回流 ExecutionView）。
+- **边界判定**：改动落在「标的/池/盘前提示」一侧归 MarketView；落在「订单/路由/执行区间」一侧归 ExecutionView；落在「成本归因/评分/评估口径」一侧归 CostView。跨侧只经 handoff 契约（`docs/schema-contract.md`）传递，禁止直接 import 对方模块。
+- **顺序依赖**：MarketView 的结论是 ExecutionView 的输入；ExecutionView 的成交与决策记录是 CostView 的输入；CostView 的评价经 handoff 回流 ExecutionView，不反向改写前两者的过程数据。
 
 ### 4.1 分级定义（契约）
 
@@ -85,10 +101,10 @@
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB）；后端 45 个测试文件 / 295 个测试函数；运维手册 [docs/ops/service-management.md](docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB）；后端 45 个测试文件 / 295 个测试函数；运维手册 [docs/ops/service-management.md](docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg）；执行区间量价视图已实现（`GET /api/execution/interval-series` + MonitorBoard 面板，DL-30），待用户复核 |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但无 `--cov-fail-under` 门槛）；无模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
-| **MarketView**（`MarketView/`） | **Beta** | 7 个端点（快照 / 盘中特征 / handoff 发布 / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态）；8 个测试文件 / 71 例；已知限制清单 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md) §5 | 策略分析、选券支持、SLA/运维文档未实现；盘中实时列默认开启（设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回退） |
-| **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
+| **MarketView**（`MarketView/`） | **Beta** | 8 个端点（快照 / 盘中特征 / handoff 发布 / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态 / pool-board）；8 个测试文件 / 74 例；已知限制清单 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md) §5 | 池内量价/难度/成本同屏已实现（DL-29，待用户复核）；SLA/运维文档未实现；盘中实时列默认开启（设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回退） |
+| **frontend/**（React 壳） | **Beta** | 31 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
 
@@ -103,7 +119,7 @@
 │                                                                              │
 │  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐          │
 │  │   MarketView     │──▶│  ExecutionView   │──▶│    CostView      │          │
-│  │   (Pre-Trade)    │   │  (Order Exec)    │   │  (Post-Trade)    │          │
+│  │ (Market Trend)   │   │(Order Execution) │   │  (Post-Trade)    │          │
 │  │  [Beta]          │   │  [GA]            │   │  [Beta]          │          │
 │  │ :<MARKETVIEW_PORT>│  │  :<API_PORT>     │   │ :<COSTVIEW_PORT> │          │
 │  └────────┬─────────┘   └───────┬──────────┘   └───────┬──────────┘          │
@@ -121,15 +137,15 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-箭头仅表示数据流向，**不表示能力对等**（MarketView 与 CostView 完成度不对等）。
+箭头仅表示数据流向，**不表示能力对等**（MarketView 与 CostView 完成度不对等）。MarketView 与 ExecutionView **共享同一批行情/基线数据**，但前者按「标的 × 交易日」看市场走势，后者按「订单/路由 × 执行区间」看执行质量，两种视图并存（见 §4.0）。
 
 ```
-MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostView (Post-Trade TCA)
-   [Beta]                       [GA]                              [Beta]
-        │                          │                                │
-  Market Snapshot            Orders & Routes                   TCA Analysis
-  Intraday Features          Bloomberg EMSX API                Scorecard / Monitoring
-  Handoff → Execution        Real-time WebSocket               Recommendations (pin)
+MarketView (Market Trend) ──▶ ExecutionView (Order Execution) ──▶ CostView (Post-Trade TCA)
+   [Beta]                          [GA]                              [Beta]
+        │                             │                                │
+  Stock Pools & Intent          Order/Route Send & Amend          TCA Analysis
+  Difficulty & Expected Cost    Interval Price/Volume            Scorecard / Monitoring
+  Handoff → Execution           Real-time WebSocket               Recommendations (pin)
 ```
 
 ### 5.2 部署形态
@@ -197,12 +213,12 @@ EMSXView/
 │       ├── components/              # shadcn/ui 共享组件、error-boundary、startup-gate
 │       └── standalone/shell-less.tsx# 独立构建共用的无 Shell 桩 Provider
 │
-├── ExecutionView/                   # 订单/路由工作台 [GA]（仓库根级，与 frontend/ 平级）
+├── ExecutionView/                   # 交易执行视图 [GA]（意图 · 下单/改单 · 执行区间量价）
 │   ├── module/                      # views/ · components/ · services/ · stores/(Zustand)
 │   │                                # types/ · module.registry.ts · module.contract.ts · data/
 │   └── standalone/                  # 独立构建入口
 ├── CostView/module/                 # 盘后 TCA UI [Beta]（唯一规范入口）
-├── MarketView/module/               # 盘前壳锚点 [Beta]
+├── MarketView/module/               # 市场走势视图（股票池 · 意图 · 难度/成本）[Beta]
 │
 ├── backend/                         # ★ Core backend [GA]
 │   ├── docker-compose.yml           # Docker Compose（6 服务，见 §11.4）
@@ -210,16 +226,17 @@ EMSXView/
 │   └── api/
 │       ├── main.py                  # FastAPI 装配入口（默认 :3000）；可选路由经 _register_optional
 │       ├── auth.py · db.py · service_provider.py · config.py
-│       ├── routers/                 # 核心 10 路由 + costview.py（可选桥接，含 Runner 代理）
+│       ├── routers/                 # 核心 11 路由 + costview.py（可选桥接，含 Runner 代理）
 │       ├── services/                # bloomberg/ 拆分包 · compliance · route_engine · algo_scheduler 等
 │       ├── repositories/ · models/ · schemas/ · migrations/
 │       └── tests/                   # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
 │
-├── MarketView/                      # 盘前微服务 [Beta]（默认 :8001）
+├── MarketView/                      # 市场走势微服务 [Beta]（默认 :8001）
 │   ├── main.py · config.py
-│   ├── routers/marketview.py        # snapshot / intraday-features / handoff 端点
+│   ├── routers/                     # marketview（snapshot/intraday/handoff）· export_orders
+│   │                                # pretrade（盘前板）· baseline · regime
 │   ├── module/ · standalone/
-│   └── tests/                       # 8 个测试文件 / 71 例
+│   └── tests/                       # 8 个测试文件 / 74 例
 │
 ├── CostView/                        # 盘后 TCA 微服务 [Beta]（默认 :8002）
 │   ├── pyproject.toml               # pip package: emsxview-costview
@@ -416,7 +433,8 @@ Compose 服务（6 个）：`backend`、`postgres`、`frontend`（Nginx，SPA + 
 | 名称 | 作用 | 默认值 |
 |------|------|--------|
 | `BLOOMBERG_HOST` / `BLOOMBERG_PORT` | Bloomberg SAPI 连接 | `localhost` / `8194` |
-| `JWT_SECRET` | JWT 签名密钥 | 空（未设且未开 `BYPASS_AUTH` 时启动即报错） |
+| `JWT_SECRET` | JWT 签名密钥（core 与 MarketView 共用，建议放仓库根 `.env`） | 空（未设且未开 `BYPASS_AUTH` 时启动即报错） |
+| `BYPASS_AUTH` | 本地开发跳过 Bearer 鉴权（core 与 MarketView 同语义；生产必须保持 `false`） | `false` |
 | `EMSXVIEW_OPTIONAL_MODULES` | 可选路由桥接清单（`*`/`all` 加载全部，置空禁用） | `costview:CostView` |
 | `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory` / `redis`） | `memory` |
 | `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 缓存） | `redis://localhost:6379/0` |
@@ -450,8 +468,8 @@ python -c "from data_access import ConnectionManager, Config; print(Config.DATA_
 | 后端全量 | `cd backend/api && python -m pytest tests/ -q` | 45 个测试文件 / 295 个测试函数 |
 | 后端边界 | `python -m pytest backend/api/tests/boundaries/ -q` | 跨模块 import、DB 路径等契约 |
 | CostView | `python -m pytest CostView/tests/ -q` | 10 个测试文件 / 305 个测试函数（含 golden 指标锁定） |
-| MarketView | `python -m pytest MarketView/tests/ -q` | 8 个测试文件 / 71 例 |
-| 前端 | `npm run typecheck && npm run lint && npm run lint:modules && npm test` | 25 个测试文件 |
+| MarketView | `python -m pytest MarketView/tests/ -q` | 8 个测试文件 / 74 例 |
+| 前端 | `npm run typecheck && npm run lint && npm run lint:modules && npm test` | 31 个测试文件 |
 | 边界审计 | `python scripts/audit_cross_imports.py`、`audit_underscore_access.py`、`audit_db_paths.py`、`audit_doc_drift.py` | CI `boundary-protection` 硬阻断 |
 | 质量门禁 | `python scripts/quality_gate.py [--report|--staged]` | AP 契约 + OE 过度工程；规则见 [docs/spec/quality-gate.md](docs/spec/quality-gate.md) |
 
@@ -510,9 +528,10 @@ CI（`.github/workflows/boundary.yml`，job `boundary-protection`）三组：**a
 | 「Redis handoff 后端未实现 TTL」 | 已修：三通道均设 7 天 TTL（与内存后端 `_HANDOFF_TTL` 对齐） |
 | 「黄金样本回归需外部冻结快照」 | 已修：`CostView/tests/golden/snapshot/fill_bdib.db` 随基线入库，`EMSXVIEW_GOLDEN_DATA_DIR` 仅为可选覆盖 |
 | 「CostView 13 个端点」/「`TCA_ORDER_AGG_ENABLED` 默认关闭」 | 现状为 14 个端点，`TCA_ORDER_AGG_ENABLED`、`TCA_EVAL_ENABLED` 默认开启（置 `0` 显式降级） |
-| 「MarketView 无自身测试目录」 | `MarketView/tests/` 已存在（8 个测试文件 / 71 例） |
-| 「MarketView 3 个端点 / 1 个测试文件 / Scaffold」 | 现状 7 个端点、8 个测试文件，2026-10-27 节点一交付后升 **Beta**（证据与已知限制见 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md)） |
-| 「后端 9 个核心路由 / 约 180 个测试函数」 | 现状 10 个核心路由（含 `authorizations`）、295 个测试函数 |
+| 「MarketView 无自身测试目录」 | `MarketView/tests/` 已存在（8 个测试文件 / 74 例） |
+| 「MarketView 3 个端点 / 1 个测试文件 / Scaffold」 | 现状 8 个端点、8 个测试文件 / 74 例，2026-10-27 节点一交付后升 **Beta**（证据与已知限制见 [docs/milestone-1-pretrade-board.md](docs/milestone-1-pretrade-board.md)） |
+| 「后端 9 个核心路由 / 约 180 个测试函数」 | 现状 11 个核心路由（含 `authorizations`、`interval_series`）、295 个测试函数 |
+| 「MarketView 只是盘前视图 / ExecutionView 只做订单管理」 | 现状：MarketView = **市场走势视图**（股票池检查、意图/难度/成本提示，盘前+盘中，只读、不碰下单路径）；ExecutionView = **交易执行视图**（意图获取、下单/改单、执行区间量价）。定义见 §4.0 |
 
 ## 15. 文档地图
 

@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.5",
     "python-dateutil>=2.8",
-    "emsxview-datapipeline",
+    # 057 A10：数据管道包不在本仓依赖内（禁止 import DataPipeline.*）
     # 057 DL-16：外部算法白名单读取（xlsx 样板格式）
     "openpyxl>=3.1",
 ]

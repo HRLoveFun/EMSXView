@@ -31,8 +31,8 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 
 | Module | Role | Current implementation state |
 |---|---|---|
-| MarketView | Pre-trade analysis, market context, execution preparation | Shell anchor exists, domain capabilities still to be built（定级 Scaffold） |
-| ExecutionView | Real-time order and route management via Bloomberg EMSX | GA（判据与证据见主 [README.md §0](../../README.md#0-模块成熟度分级契约定义)：真实交易数据持续入库 + 约 180 个后端测试函数 + 运维手册；无正式 SLA 文档） |
+| MarketView | Market trend view: stock-pool check, intent / execution-difficulty / expected-cost hints, read-only and never touches the order path | Beta（8 端点 / 8 测试文件 74 例；池内量价/难度/成本同屏见 057 DL-29；SLA/运维文档未实现） |
+| ExecutionView | Execution view: intent intake, order/route send & amend, execution-interval price/volume monitoring | GA（判据与证据见主 [README.md §0](../../README.md#0-模块成熟度分级契约定义)：真实交易数据持续入库 + 295 个后端测试函数 + 运维手册；无正式 SLA 文档；执行区间量价视图见 057 DL-30） |
 | CostView | Post-trade analytics, TCA, broker recommendations, reporting | Beta（只读消费者；数据管道已迁独立仓库 EMSXDataPipeline） |
 
 ---
@@ -45,9 +45,9 @@ Browser
   v
 frontend/ (canonical React shell: app/ 编排 + shared/ 契约层 + components/ 共享 UI)
   |
-  +--ExecutionView/module   (实时订单与路由工作区，仓库根级)
+  +--ExecutionView/module   (交易执行视图：意图 / 下单改单 / 执行区间量价，仓库根级)
   +--CostView/module        (盘后分析 / TCA UI，仓库根级)
-  `--MarketView/module      (盘前锚点，仓库根级)
+  `--MarketView/module      (市场走势视图：股票池 / 意图 / 难度与成本，仓库根级，只读)
   |
   v
 backend/api (FastAPI assembly layer)
@@ -206,9 +206,9 @@ Responsibilities:
 
 Current module split inside the shell:
 
-- `../ExecutionView/module/` — Execution workspace（仓库根级，与 `frontend/` 平级）
+- `../ExecutionView/module/` — Execution view：意图获取、订单/路由发送与修改、执行区间量价（仓库根级，与 `frontend/` 平级）
 - `../CostView/module/` — active post-trade UI（仓库根级）
-- `../MarketView/module/` — pre-trade shell anchor（仓库根级）；
+- `../MarketView/module/` — Market trend view：股票池检查、意图/难度/成本提示（仓库根级，只读、不碰下单路径）
 
   （三模块对外接口契约与依赖约束：Execution workspace 的见下：
   对外接口契约收敛于 `ExecutionView/module/module.contract.ts`
@@ -374,7 +374,7 @@ Cross-domain access should follow this order of preference:
 
 1. `CostView/frontend/` legacy prototype has been removed from the repository (formerly archived under `docs/archive/`) — removed from active surfaces.
 2. ExecutionView operational data and CostView analytical data now have a shared adapter entry; cross-module deep imports from ExecutionView to CostView have been eliminated.
-3. MarketView has a shell anchor, but the actual pre-trade workflows and data contracts remain to be built. MarketView runs as a standalone service on `<MARKETVIEW_PORT>` (default 8001).
+3. MarketView has delivered 7 endpoints and is graded Beta, but its stock pools are still the 4 fixed filter pools; pool-level intent/difficulty/cost aggregation and the ExecutionView execution-interval price/volume view remain to be built (057 DL-29 / DL-30). MarketView runs as a standalone service on `<MARKETVIEW_PORT>` (default 8001) and never touches the order path.
 4. Legacy CostView DB classes (`raw_fills_db.py`, `raw_bdib_db.py`, `fill_bdib_db.py`, `processed_raw_bdib_db.py`) have been **deleted** — fully migrated to the pipeline repository's `DataPipeline/storage/` repositories per `docs/spec/data-domain.md`; EMSXView 侧对应物是本仓库的 `data_access/storage/`。
 5. `platform_data/adapters.py` has been split into `platform_data/adapters/` subpackage (with backward-compat re-exports in `__init__.py`).
 

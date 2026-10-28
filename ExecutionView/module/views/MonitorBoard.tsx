@@ -34,6 +34,8 @@ import {
   type ConditionId,
 } from '@execution/lib/monitor-conditions';
 import { OrderStatusBadge } from '@execution/components/order-status-badge';
+import { IntervalSeriesPanel } from '@execution/components/IntervalSeriesPanel';
+import { buildPreviewOrder } from '@execution/lib/interval-series';
 import type { Order, Route } from '@execution/types'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -111,6 +113,13 @@ export function MonitorBoard({
   // ── Sort / Subgroup state ─────────────────────────────────────────────────
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: null, direction: 'asc' });
   const [groupBy, setGroupBy] = useState<OrderGroupByValue>('exchange');
+  // 057 DL-30：点击 symbol 打开执行区间量价面板
+  const [intervalOrder, setIntervalOrder] = useState<Order | null>(null);
+  // 开发预览入口（仅 dev server；生产构建不显示）
+  const previewOrder = useMemo<Order | null>(
+    () => (import.meta.env.DEV ? buildPreviewOrder() : null),
+    [],
+  );
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
     () => new Set([
       'c:__critical__',
@@ -332,7 +341,16 @@ export function MonitorBoard({
             </Tooltip>
           </td>
           <td className="px-2 py-1.5 font-mono text-xs">{order.id}</td>
-          <td className="px-2 py-1.5 font-mono font-medium whitespace-nowrap">{order.symbol}</td>
+          <td className="px-2 py-1.5 font-mono font-medium whitespace-nowrap">
+            <button
+              type="button"
+              className="hover:underline"
+              title="查看执行区间量价（DL-30）"
+              onClick={() => setIntervalOrder(order)}
+            >
+              {order.symbol}
+            </button>
+          </td>
           <td className={`px-2 py-1.5 font-medium ${order.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{order.side}</td>
           <td className="px-2 py-1.5"><OrderStatusBadge status={order.status} /></td>
           <td className="px-2 py-1.5 text-muted-foreground">{order.orderType}</td>
@@ -409,6 +427,16 @@ export function MonitorBoard({
           <AlertTriangle className="h-4 w-4 text-amber-500" />
           <span className="text-sm font-semibold">Monitor Board</span>
           <Badge variant="secondary" className="text-xs">{totalAlerts} alerts</Badge>
+          {previewOrder ? (
+            <button
+              type="button"
+              className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              title="Dev preview: 601398 CH Equity 2026-10-26 09:30-10:30"
+              onClick={() => setIntervalOrder(previewOrder)}
+            >
+              Interval preview
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -567,6 +595,12 @@ export function MonitorBoard({
           </tbody>
         </table>
       </ScrollArea>
+
+      {intervalOrder ? (
+        <div className="mt-3">
+          <IntervalSeriesPanel order={intervalOrder} onClose={() => setIntervalOrder(null)} />
+        </div>
+      ) : null}
     </div>
   );
 }

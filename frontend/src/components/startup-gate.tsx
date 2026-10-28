@@ -41,8 +41,11 @@ export function StartupGate({
     setRetryCooldown(3); // 3-second debounce window
     onRetry();
   };
-  const title =
-    phase === 'backend_starting'
+  // 认证缺失不是启动故障：单独给标题，避免与「后端未就绪」混淆
+  const authIssue = /authentication required|requires authentication|注入有效 token/i.test(message ?? '');
+  const title = authIssue
+    ? 'Backend requires authentication'
+    : phase === 'backend_starting'
       ? 'Backend HTTP service is starting'
       : phase === 'bloomberg_connecting'
         ? 'Connecting to Bloomberg EMSX'

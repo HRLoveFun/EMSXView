@@ -300,3 +300,42 @@ export interface MarketStateSnapshot {
   thresholds: Record<string, unknown>;
   schema_version: string;
 }
+
+// ── 057 DL-29：固定筛选池池板（量价 / 难度 / 成本同屏） ──────────
+
+export interface PoolBoardAssumptions {
+  notional_usd: number;
+  annual_vol_pct: number;
+  duration_min: number;
+  model_calibrated: boolean;
+  note: string;
+}
+
+export interface PoolBoardRow {
+  equ_ticker: string;
+  daily_close: number | null;
+  total_volume: number | null;
+  adv_20d: number | null;
+  volume_vs_adv20_pct: number | null;
+  daily_volatility: number | null;
+  intraday_volatility: number | null;
+  liquidity_alert: MarketAlertSeverity;
+  volatility_alert: MarketAlertSeverity;
+  log_volume_z: number | null;
+  vol_percentile: number | null;
+  adv5_adv60_ratio: number | null;
+  expected_cost_bps: number | null;
+  timing_risk_bps: number | null;
+  in_domain: boolean;
+  model_version: string | null;
+  data_gaps: string[];
+}
+
+export interface PoolBoardPayload {
+  trade_date: string | null;
+  pool_id: string;
+  row_count: number;
+  assumptions: PoolBoardAssumptions;
+  rows: PoolBoardRow[];
+  generated_at: string;
+}
