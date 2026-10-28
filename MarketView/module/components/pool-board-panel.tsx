@@ -15,7 +15,13 @@ import { useAsyncData } from '@shared/hooks/use-async-data';
 
 import type { LiveQuotes, MarketStateTickerState, PoolBoardRow } from '../types';
 import { fetchPoolBoard } from '../services/api';
-import { fmtCompact, fmtNumber, fmtPercent } from '../marketview-utils';
+import {
+  fmtCompact,
+  fmtNumber,
+  fmtPercent,
+  isLiveTrading,
+  renderMarketStatusBadge,
+} from '../marketview-utils';
 import { fmtSignedPercent, liveVolumeVsAdvPct, pctToneClass } from '../lib/workspace';
 
 interface PoolBoardPanelProps {
@@ -65,21 +71,25 @@ const LiveFlags = ({ state }: { state?: MarketStateTickerState }) => {
 const Row = ({ row, live }: { row: PoolBoardRow; live?: MarketStateTickerState }) => {
   // 盘中参与率：实时成交量 ÷ 日度 ADV20（ADV 来自日度快照，见 liveVolumeVsAdvPct）
   const liveVolPct = liveVolumeVsAdvPct(live?.volume, row.adv_20d);
+  // 盘前/收市：mktdata 给的是上一交易日镜像，实时列统一置灰（不隐藏，保留可核对）
+  const liveMuted = !isLiveTrading(row.market_status);
+  const muted = liveMuted ? 'text-muted-foreground' : '';
   return (
     <tr className="border-t border-border/60">
       <td className="px-3 py-2 font-medium text-foreground">
         {row.equ_ticker}
         <LiveFlags state={live} />
       </td>
-      <td className="px-3 py-2 text-right font-mono">{liveNum(live?.last)}</td>
-      <td className={`px-3 py-2 text-right font-mono ${pctToneClass(live?.pct_change_1d)}`}>
+      <td className="px-3 py-2">{renderMarketStatusBadge(row.market_status, row.market_time)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${muted}`}>{liveNum(live?.last)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${liveMuted ? muted : pctToneClass(live?.pct_change_1d)}`}>
         {fmtSignedPercent(live?.pct_change_1d)}
       </td>
-      <td className="px-3 py-2 text-right font-mono text-emerald-500">{liveNum(live?.bid)}</td>
-      <td className="px-3 py-2 text-right font-mono text-rose-500">{liveNum(live?.ask)}</td>
-      <td className="px-3 py-2 text-right font-mono">{liveNum(live?.spread_bps)}</td>
-      <td className="px-3 py-2 text-right font-mono">{fmtCompact(live?.volume)}</td>
-      <td className="px-3 py-2 text-right font-mono">{fmtPercent(liveVolPct, 1)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${liveMuted ? muted : 'text-emerald-500'}`}>{liveNum(live?.bid)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${liveMuted ? muted : 'text-rose-500'}`}>{liveNum(live?.ask)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${muted}`}>{liveNum(live?.spread_bps)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${muted}`}>{fmtCompact(live?.volume)}</td>
+      <td className={`px-3 py-2 text-right font-mono ${muted}`}>{fmtPercent(liveVolPct, 1)}</td>
       <td className="px-3 py-2 text-right">{fmtNumber(row.daily_close, 2)}</td>
       <td className="px-3 py-2 text-right">{fmtCompact(row.total_volume)}</td>
       <td className="px-3 py-2 text-right">{fmtPercent(row.volume_vs_adv20_pct, 1)}</td>
@@ -158,10 +168,11 @@ export const PoolBoardPanel = ({
         <div className="p-6 text-sm text-red-700">{error.message}</div>
       ) : data && data.rows.length ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1560px] text-sm">
+          <table className="w-full min-w-[1660px] text-sm">
             <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-3 py-3 text-left font-medium">Ticker</th>
+                <th className="px-3 py-3 text-left font-medium">Status</th>
                 <th className="px-3 py-3 text-right font-medium">Last</th>
                 <th className="px-3 py-3 text-right font-medium">Chg %</th>
                 <th className="px-3 py-3 text-right font-medium">Bid</th>

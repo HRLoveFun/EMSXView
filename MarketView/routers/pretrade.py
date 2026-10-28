@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import config
 from data_access import IntradayStoreReader
 from export_parser import load_pre_trade_board
+from market_clock import exchange_of, market_clock
 from platform_data.adapters import DailyBaselineAdapter, EventRegimeAdapter
 from platform_data.adapters.session import ExchangeSessionAdapter
 from platform_data.contracts import (
@@ -66,6 +67,9 @@ class PreTradeBoardItemResponse(BaseModel):
     in_domain: bool = False
     model_version: Optional[str] = None
     model_calibrated: bool = False
+    # 交易状态（pre/open/lunch/closed/unknown）与交易所本地时间
+    market_status: str = "unknown"
+    market_time: Optional[str] = None
     data_gaps: list[str] = Field(default_factory=list)
 
 
@@ -105,7 +109,12 @@ class PreTradeBoardEnvelope(BaseModel):
 
 
 def _serialize(item: PreTradeBoardItem) -> PreTradeBoardItemResponse:
-    return PreTradeBoardItemResponse(**item.__dict__)
+    payload = PreTradeBoardItemResponse(**item.__dict__)
+    adapter = _session if _session is not None else _adapters()[2]
+    payload.market_status, payload.market_time = market_clock(
+        adapter, exchange_of(item.equ_ticker)
+    )
+    return payload
 
 
 def _load_adv20(mgr, equ_ticker: str, trade_date: str) -> Optional[float]:

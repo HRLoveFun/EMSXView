@@ -1,7 +1,15 @@
 import { AlertTriangle } from 'lucide-react';
 
 import type { LiveQuotes, MarketSnapshotRow } from '../types';
-import { fmtCompact, fmtNumber, fmtPercent, getSeverityText, renderSeverityBadge } from '../marketview-utils';
+import {
+  fmtCompact,
+  fmtNumber,
+  fmtPercent,
+  getSeverityText,
+  isLiveTrading,
+  renderMarketStatusBadge,
+  renderSeverityBadge,
+} from '../marketview-utils';
 import { fmtSignedPercent, pctToneClass } from '../lib/workspace';
 
 interface SnapshotTableProps {
@@ -73,6 +81,7 @@ export const SnapshotTable = ({
           <tr>
             <th className="px-3 py-3 text-left font-medium">Pick</th>
             <th className="px-3 py-3 text-left font-medium">Ticker</th>
+            <th className="px-3 py-3 text-left font-medium">Status</th>
             <th className="px-3 py-3 text-right font-medium">Last</th>
             <th className="px-3 py-3 text-right font-medium">Chg %</th>
             <th className="px-3 py-3 text-right font-medium">Close</th>
@@ -91,6 +100,8 @@ export const SnapshotTable = ({
           {rows.map((row) => {
             const isSelected = selectedTickers.includes(row.equ_ticker);
             const quote = live.byTicker.get(row.equ_ticker);
+            // 盘前/收市时实时列是上一交易日镜像，置灰避免误读为盘中跳价
+            const liveMuted = !isLiveTrading(row.market_status);
             return (
               <tr key={`${row.equ_ticker}-${row.trade_date}`} className="border-t border-border/60 align-top">
                 <td className="px-3 py-3">
@@ -103,10 +114,13 @@ export const SnapshotTable = ({
                   />
                 </td>
                 <td className="px-3 py-3 font-medium text-foreground">{row.equ_ticker}</td>
-                <td className="px-3 py-3 text-right font-mono">
+                <td className="px-3 py-3">
+                  {renderMarketStatusBadge(row.market_status, row.market_time)}
+                </td>
+                <td className={`px-3 py-3 text-right font-mono ${liveMuted ? 'text-muted-foreground' : ''}`}>
                   {quote?.last != null ? fmtNumber(quote.last, 2) : '—'}
                 </td>
-                <td className={`px-3 py-3 text-right font-mono ${pctToneClass(quote?.pct_change_1d)}`}>
+                <td className={`px-3 py-3 text-right font-mono ${liveMuted ? 'text-muted-foreground' : pctToneClass(quote?.pct_change_1d)}`}>
                   {fmtSignedPercent(quote?.pct_change_1d)}
                 </td>
                 <td className="px-3 py-3 text-right">{fmtNumber(row.daily_close, 2)}</td>

@@ -33,6 +33,8 @@ const payload: PoolBoardPayload = {
       timing_risk_bps: 3.2,
       in_domain: true,
       model_version: 'cost-model-v1',
+      market_status: 'open',
+      market_time: '10:30',
       data_gaps: [],
     },
     {
@@ -52,6 +54,8 @@ const payload: PoolBoardPayload = {
       timing_risk_bps: null,
       in_domain: false,
       model_version: null,
+      market_status: 'closed',
+      market_time: '18:00',
       data_gaps: ['baseline', 'cost_model'],
     },
   ],

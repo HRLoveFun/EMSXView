@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 from auth import require_token
+from market_clock import exchange_of, market_clock
 from platform_data.adapters import MarketReferenceDataAdapter
+from platform_data.adapters.session import ExchangeSessionAdapter
 # 2026-09-16：契约类型统一从 platform_data.contracts 导入（此前经
 # platform_data.adapters 的兼容 re-export，与「跨域数据类型只从契约包导入」规则冲突）。
 from platform_data.contracts import (
@@ -34,6 +36,8 @@ router = APIRouter(tags=["MarketView"])
 
 # Lazy-init the market adapter with ConnectionManager from DataPipeline.
 _market: MarketReferenceDataAdapter | None = None
+# 交易状态用的会话注册表（无状态、无 IO，可与池板共用）
+_session: ExchangeSessionAdapter | None = None
 
 
 def _get_market() -> MarketReferenceDataAdapter:
@@ -44,6 +48,13 @@ def _get_market() -> MarketReferenceDataAdapter:
         from data_access import ConnectionManager
         _market = MarketReferenceDataAdapter(connection_manager=ConnectionManager())
     return _market
+
+
+def _get_session() -> ExchangeSessionAdapter:
+    global _session
+    if _session is None:
+        _session = ExchangeSessionAdapter()
+    return _session
 
 MarketAlertFilter = Literal["all", "warning", "critical"]
 MarketSortField = Literal[
@@ -103,6 +114,9 @@ class MarketSnapshotRowResponse(BaseModel):
     liquidity_alert: str
     volatility_alert: str
     alert_count: int
+    # 交易状态（pre/open/lunch/closed/unknown）与交易所本地时间：休市镜像要置灰
+    market_status: str = "unknown"
+    market_time: Optional[str] = None
     alerts: list[MarketAlertResponse] = Field(default_factory=list)
 
 
@@ -220,7 +234,10 @@ def _serialize_alert(alert: MarketAlert) -> MarketAlertResponse:
 
 
 def _serialize_row(row) -> MarketSnapshotRowResponse:
+    status, local_time = market_clock(_get_session(), exchange_of(row.equ_ticker))
     return MarketSnapshotRowResponse(
+        market_status=status,
+        market_time=local_time,
         equ_ticker=row.equ_ticker,
         trade_date=row.trade_date,
         daily_close=row.daily_close,

@@ -3,12 +3,21 @@ import type { ReactNode } from 'react';
 import { Activity, Layers, RefreshCw } from 'lucide-react';
 
 import { useAsyncData } from '@shared/hooks/use-async-data';
-import { fetchMarketStateSnapshot, fetchPreTradeBoard } from '../services/api';
-import type { FreshnessEntry, MarketStateTickerState, PreTradeBoardItem } from '../types';
-import { fmtCompact, getIntentLabel, getIntentTone } from '../marketview-utils';
+import { fetchPreTradeBoard } from '../services/api';
+import type {
+  FreshnessEntry,
+  LiveQuotes,
+  MarketStateTickerState,
+  PreTradeBoardItem,
+} from '../types';
+import {
+  fmtCompact,
+  getIntentLabel,
+  getIntentTone,
+  isLiveTrading,
+  renderMarketStatusBadge,
+} from '../marketview-utils';
 
-// 实时列刷新间隔：盘中行情由后端订阅提供，此处只做低频拉取（不新增订阅）
-const LIVE_REFRESH_MS = 30_000;
 // 盘前单刷新间隔：跟随管道盘中作业 J1 的约 5 分钟轮次（意图/订单状态/路由参数）
 const BOARD_REFRESH_MS = 5 * 60_000;
 
@@ -87,19 +96,22 @@ const GapsBadge = ({ item }: { item: PreTradeBoardItem }) => {
   );
 };
 
-// 实时列单元格：快照关闭或该票缺失一律 n/a（不猜）
+// 实时列单元格：快照关闭、该票缺失或市场非交易时段一律 n/a / 置灰（不猜）
 const LiveCell = ({
   state,
   field,
+  muted = false,
 }: {
   state?: MarketStateTickerState;
   field: 'last' | 'spread' | 'vol_ratio';
+  muted?: boolean;
 }) => {
   if (!state) return <span className="text-xs text-muted-foreground">n/a</span>;
-  if (field === 'last') return <span>{fmtNum(state.last, 2)}</span>;
-  if (field === 'spread') return <span>{fmtNum(state.spread_bps)}</span>;
+  const tone = muted ? 'text-muted-foreground' : '';
+  if (field === 'last') return <span className={tone}>{fmtNum(state.last, 2)}</span>;
+  if (field === 'spread') return <span className={tone}>{fmtNum(state.spread_bps)}</span>;
   return (
-    <span>
+    <span className={tone}>
       {state.cumulative_volume_ratio == null ? 'n/a' : `${state.cumulative_volume_ratio.toFixed(2)}x`}
     </span>
   );
@@ -108,26 +120,27 @@ const LiveCell = ({
 // 057 DL-14/DL-07：盘前单装配面板（四路产物 + 意图覆盖 + 实时列）。
 // 列分三组：静态订单要素 / 日度基线 / 实时盘中 / 预期成本估算——分界线清晰。
 // 呈现效果按原则 10 与用户反复沟通打磨确定——v2 先交付可讨论版本。
-export const PreTradeBoardPanel = () => {
-  const { data, error, isLoading, reload } = useAsyncData('pretrade-board', fetchPreTradeBoard);
-  const { data: live, reload: reloadLive } = useAsyncData(
-    'market-state-snapshot',
-    fetchMarketStateSnapshot,
-  );
+interface PreTradeBoardPanelProps {
+  /** 统一行情流（与池板/快照表共用模块级单连接：WS 推送、断线回落 REST）。 */
+  live: LiveQuotes;
+  /** 把本面板标的登记给上层订阅集合（盘前单的票不一定在日度快照/池板里）。 */
+  onUniverseChange?: (tickers: string[]) => void;
+}
 
-  // 盘中随作业刷新：意图与订单状态跟随 J1 轮次，实时列跟随行情快照
+export const PreTradeBoardPanel = ({ live, onUniverseChange }: PreTradeBoardPanelProps) => {
+  const { data, error, isLoading, reload } = useAsyncData('pretrade-board', fetchPreTradeBoard);
+
+  // 盘中随作业刷新：意图与订单状态跟随 J1 轮次；实时列由模块级 WS 负责，不再单独轮询
   useEffect(() => {
     const boardTimer = setInterval(() => reload(), BOARD_REFRESH_MS);
-    const liveTimer = setInterval(() => reloadLive(), LIVE_REFRESH_MS);
-    return () => {
-      clearInterval(boardTimer);
-      clearInterval(liveTimer);
-    };
-  }, [reload, reloadLive]);
+    return () => clearInterval(boardTimer);
+  }, [reload]);
 
-  const liveByTicker = new Map<string, MarketStateTickerState>(
-    (live?.enabled ? live.tickers : []).map((state) => [state.equ_ticker, state]),
-  );
+  useEffect(() => {
+    if (!data?.items.length) return;
+    onUniverseChange?.(data.items.map((item) => item.equ_ticker));
+  }, [data, onUniverseChange]);
+
   const withCost = data?.items.filter((item) => item.expected_cost_bps != null).length ?? 0;
 
   return (
@@ -138,18 +151,16 @@ export const PreTradeBoardPanel = () => {
           <p className="mt-1 text-sm text-muted-foreground">
             Order intents (DL-07 intraday store, export fallback) + daily baseline (DL-10) + market
             regime (DL-11) + expected cost (DL-13, v1 not calibrated — marked with *). Live columns
-            come from the intraday quote subscription and refresh every 30s; missing products stay
-            visible as gaps, never zero-filled.
+            stream from the shared market-state WebSocket (5s push, REST fallback) and are greyed out
+            when the venue is pre-open or closed; missing products stay visible as gaps, never
+            zero-filled.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            reload();
-            reloadLive();
-          }}
+          onClick={() => reload()}
           className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted/40"
-          title="Refresh board and live snapshot"
+          title="Refresh pre-trade board (live columns follow the shared stream)"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           refresh
@@ -185,11 +196,11 @@ export const PreTradeBoardPanel = () => {
             <Chip>snapshot {data.snapshot_source}</Chip>
             <Chip>
               <Activity className="h-3.5 w-3.5" />
-              {live?.enabled ? `${live.tickers.length} live` : 'live off'}
+              {live.enabled ? `${live.byTicker.size} live` : 'live off'}
             </Chip>
           </div>
 
-          {!live?.enabled && (
+          {!live.enabled && (
             <p className="text-[11px] text-muted-foreground">
               Live columns show n/a because the intraday quote subscription is off. Set{' '}
               <code>EMSXVIEW_INTRADAY_STATE_ENABLED=true</code> on the backend and restart to stream
@@ -241,7 +252,7 @@ export const PreTradeBoardPanel = () => {
           )}
 
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[1240px] text-sm">
+            <table className="w-full min-w-[1340px] text-sm">
               <thead className="bg-muted/50">
                 <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   <th colSpan={3} className="px-3 pb-1 pt-3 text-left font-semibold">
@@ -254,7 +265,7 @@ export const PreTradeBoardPanel = () => {
                     Daily baseline
                   </th>
                   <th
-                    colSpan={3}
+                    colSpan={4}
                     className="border-l border-border/60 px-3 pb-1 pt-3 text-left font-semibold"
                   >
                     Live intraday
@@ -276,7 +287,8 @@ export const PreTradeBoardPanel = () => {
                   <th className="px-3 pb-3 text-right font-medium">Vol pct</th>
                   <th className="px-3 pb-3 text-right font-medium">ADV5/60</th>
                   <th className="px-3 pb-3 text-left font-medium">Regime</th>
-                  <th className="border-l border-border/60 px-3 pb-3 text-right font-medium">Last</th>
+                  <th className="border-l border-border/60 px-3 pb-3 text-left font-medium">Status</th>
+                  <th className="px-3 pb-3 text-right font-medium">Last</th>
                   <th className="px-3 pb-3 text-right font-medium">Spread bps</th>
                   <th className="px-3 pb-3 text-right font-medium">Vol vs base</th>
                   <th className="border-l border-border/60 px-3 pb-3 text-left font-medium">Cost</th>
@@ -285,7 +297,8 @@ export const PreTradeBoardPanel = () => {
               </thead>
               <tbody>
                 {data.items.map((item) => {
-                  const state = liveByTicker.get(item.equ_ticker);
+                  const state = live.byTicker.get(item.equ_ticker);
+                  const muted = !isLiveTrading(item.market_status);
                   return (
                     <tr
                       key={`${item.equ_ticker}-${item.order_key}`}
@@ -313,14 +326,17 @@ export const PreTradeBoardPanel = () => {
                       <td className="px-3 py-2">
                         <RegimeBadge item={item} />
                       </td>
-                      <td className="border-l border-border/40 px-3 py-2 text-right">
-                        <LiveCell state={state} field="last" />
+                      <td className="border-l border-border/40 px-3 py-2">
+                        {renderMarketStatusBadge(item.market_status, item.market_time)}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <LiveCell state={state} field="spread" />
+                        <LiveCell state={state} field="last" muted={muted} />
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <LiveCell state={state} field="vol_ratio" />
+                        <LiveCell state={state} field="spread" muted={muted} />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <LiveCell state={state} field="vol_ratio" muted={muted} />
                       </td>
                       <td className="border-l border-border/40 px-3 py-2">
                         <CostBadge item={item} />

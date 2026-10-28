@@ -17,6 +17,8 @@ const row: MarketSnapshotRow = {
   liquidity_alert: 'none',
   volatility_alert: 'none',
   alert_count: 0,
+  market_status: 'open',
+  market_time: '10:30',
   alerts: [],
 };
 

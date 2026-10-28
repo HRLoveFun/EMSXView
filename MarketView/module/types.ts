@@ -1,4 +1,12 @@
 export type MarketAlertSeverity = 'none' | 'normal' | 'warning' | 'critical';
+
+/**
+ * 交易状态（后端按交易所会话注册表判定）。
+ *
+ * mktdata 在休市时仍返回上一交易日镜像，`pre`/`closed` 时实时列要置灰，
+ * 不能让用户把镜像值当成盘中跳价。
+ */
+export type MarketTradingStatus = 'pre' | 'open' | 'lunch' | 'closed' | 'unknown';
 type MarketAlertFilter = 'all' | 'warning' | 'critical';
 type MarketSortField =
   | 'equ_ticker'
@@ -55,6 +63,8 @@ export interface MarketSnapshotRow {
   liquidity_alert: MarketAlertSeverity;
   volatility_alert: MarketAlertSeverity;
   alert_count: number;
+  market_status: MarketTradingStatus;
+  market_time: string | null;
   alerts: MarketAlert[];
 }
 
@@ -237,6 +247,8 @@ export interface PreTradeBoardItem {
   in_domain: boolean;
   model_version: string | null;
   model_calibrated: boolean;
+  market_status: MarketTradingStatus;
+  market_time: string | null;
   data_gaps: string[];
 }
 
@@ -341,6 +353,8 @@ export interface PoolBoardRow {
   timing_risk_bps: number | null;
   in_domain: boolean;
   model_version: string | null;
+  market_status: MarketTradingStatus;
+  market_time: string | null;
   data_gaps: string[];
 }
 
