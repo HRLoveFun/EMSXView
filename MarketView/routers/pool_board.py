@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_token
 from data_access import ConnectionManager
+from market_clock import exchange_of, market_clock
 from platform_data.adapters import DailyBaselineAdapter, MarketReferenceDataAdapter
 from platform_data.adapters.session import ExchangeSessionAdapter
 
@@ -61,6 +62,10 @@ class PoolBoardRowResponse(BaseModel):
     timing_risk_bps: Optional[float] = None
     in_domain: bool = False
     model_version: Optional[str] = None
+    # 交易状态（pre/open/lunch/closed/unknown）与交易所本地时间：
+    # 休市时 mktdata 仍返回上一交易日镜像，前端据此置灰实时列
+    market_status: str = "unknown"
+    market_time: Optional[str] = None
     data_gaps: list[str] = Field(default_factory=list)
 
 
@@ -96,8 +101,7 @@ def _adapters():
 
 
 def _exchange_of(equ_ticker: str) -> str:
-    parts = str(equ_ticker).split()
-    return parts[-2].upper() if len(parts) >= 2 else ""
+    return exchange_of(equ_ticker)
 
 
 def _session_minutes(session_adapter: ExchangeSessionAdapter, market_code: str) -> float:
@@ -147,7 +151,10 @@ def _build_row(row, baseline, market_code: str, session_adapter) -> PoolBoardRow
     cost, risk, in_domain, version, cost_gaps = _cost_for(
         market_code, session_adapter, row.daily_close, row.adv_20d
     )
+    status, local_time = market_clock(session_adapter, _exchange_of(row.equ_ticker))
     return PoolBoardRowResponse(
+        market_status=status,
+        market_time=local_time,
         equ_ticker=row.equ_ticker,
         daily_close=row.daily_close,
         total_volume=row.total_volume,

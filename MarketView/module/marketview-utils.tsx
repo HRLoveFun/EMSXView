@@ -1,4 +1,42 @@
-import type { MarketAlertSeverity, OrderIntentBenchmark } from './types';
+import type { MarketAlertSeverity, MarketTradingStatus, OrderIntentBenchmark } from './types';
+
+// ── 交易状态（057 DL-29 追加）──────────────────────────────────────────────
+// 休市时 mktdata 仍返回上一交易日镜像：状态徽标 + 是否置灰实时列都由这里统一口径
+
+export function getMarketStatusText(status: MarketTradingStatus): string {
+  switch (status) {
+    case 'open': return 'Trading';
+    case 'lunch': return 'Lunch';
+    case 'pre': return 'Pre-open';
+    case 'closed': return 'Closed';
+    default: return 'Unknown';
+  }
+}
+
+export function getMarketStatusTone(status: MarketTradingStatus): string {
+  switch (status) {
+    case 'open': return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700';
+    case 'lunch': return 'border-amber-500/40 bg-amber-500/10 text-amber-700';
+    case 'pre': return 'border-sky-500/40 bg-sky-500/10 text-sky-700';
+    default: return 'border-border bg-muted/30 text-muted-foreground';
+  }
+}
+
+/** 只有 open/lunch 才是「活的」行情；pre/closed 的实时列是镜像值，需置灰。 */
+export function isLiveTrading(status: MarketTradingStatus): boolean {
+  return status === 'open' || status === 'lunch';
+}
+
+export function renderMarketStatusBadge(status: MarketTradingStatus, time?: string | null) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-medium ${getMarketStatusTone(status)}`}
+      title={time ? `Exchange local time ${time}` : 'Unknown exchange session'}
+    >
+      {getMarketStatusText(status)}
+    </span>
+  );
+}
 
 export function fmtNumber(value: number | null | undefined, digits = 2): string {
   if (value == null) return '—';

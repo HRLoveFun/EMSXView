@@ -129,19 +129,33 @@ export default function MarketViewModule() {
   // ── 实时行情（057 DL-15/DL-29）────────────────────────────────────────
   // 订阅集合 = 日度快照行 ∪ 池板行（池板无告警筛选，通常是快照的超集）。
   // 池板通过 onUniverseChange 把自身标的登记进来，避免带筛选时实时列大面积 n/a。
-  const [poolUniverse, setPoolUniverse] = useState<string[]>([]);
-  const handlePoolUniverseChange = useCallback((tickers: string[]) => {
-    setPoolUniverse((current) =>
-      current.length === tickers.length && current.every((ticker, index) => ticker === tickers[index])
-        ? current
-        : tickers,
-    );
-  }, []);
+  // 订阅集合 = 日度快照行 ∪ 各面板登记的行（池板无告警筛选、盘前单来自导出，
+  // 都可能是快照之外的名字）。按来源分别登记，面板刷新互不覆盖。
+  const [universeBySource, setUniverseBySource] = useState<Record<string, string[]>>({});
+  const makeUniverseReporter = useCallback(
+    (source: string) => (tickers: string[]) => {
+      setUniverseBySource((current) => {
+        const previous = current[source];
+        const unchanged =
+          previous &&
+          previous.length === tickers.length &&
+          previous.every((ticker, index) => ticker === tickers[index]);
+        return unchanged ? current : { ...current, [source]: tickers };
+      });
+    },
+    [],
+  );
+  const handlePoolUniverseChange = useMemo(() => makeUniverseReporter('pool'), [makeUniverseReporter]);
+  const handlePretradeUniverseChange = useMemo(
+    () => makeUniverseReporter('pretrade'),
+    [makeUniverseReporter],
+  );
 
   const liveTickers = useMemo(() => {
     const rowTickers = snapshot?.rows.map((row) => row.equ_ticker) ?? [];
-    return Array.from(new Set([...rowTickers, ...poolUniverse]));
-  }, [snapshot, poolUniverse]);
+    const panelTickers = Object.values(universeBySource).flat();
+    return Array.from(new Set([...rowTickers, ...panelTickers]));
+  }, [snapshot, universeBySource]);
 
   const liveState = useMarketStateStream(liveTickers);
   const live = useMemo(
@@ -319,7 +333,7 @@ export default function MarketViewModule() {
 
       <ExportOrdersPanel />
 
-      <PreTradeBoardPanel />
+      <PreTradeBoardPanel live={live} onUniverseChange={handlePretradeUniverseChange} />
     </section>
   );
 }
