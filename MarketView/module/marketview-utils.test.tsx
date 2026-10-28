@@ -7,9 +7,13 @@ import {
   fmtPercent,
   getIntentLabel,
   getIntentTone,
+  getMarketStatusText,
+  getMarketStatusTone,
   getSeverityText,
   getSeverityTone,
   getUnmatchedReasonText,
+  isLiveTrading,
+  renderMarketStatusBadge,
   renderSeverityBadge,
 } from './marketview-utils';
 import {
@@ -117,6 +121,35 @@ describe('MarketView live quote helpers (057 DL-15/29)', () => {
     expect(liveVolumeVsAdvPct(null, 2_000_000)).toBeNull();
     expect(liveVolumeVsAdvPct(500_000, null)).toBeNull();
     expect(liveVolumeVsAdvPct(500_000, 0)).toBeNull();
+  });
+});
+
+describe('MarketView trading status helpers (057 DL-29 追加)', () => {
+  it('maps statuses to readable text and tones', () => {
+    expect(getMarketStatusText('open')).toBe('Trading');
+    expect(getMarketStatusText('lunch')).toBe('Lunch');
+    expect(getMarketStatusText('pre')).toBe('Pre-open');
+    expect(getMarketStatusText('closed')).toBe('Closed');
+    expect(getMarketStatusText('unknown')).toBe('Unknown');
+
+    expect(getMarketStatusTone('open')).toContain('emerald');
+    expect(getMarketStatusTone('lunch')).toContain('amber');
+    expect(getMarketStatusTone('pre')).toContain('sky');
+    expect(getMarketStatusTone('closed')).toContain('muted');
+  });
+
+  it('only treats open/lunch as live trading', () => {
+    expect(isLiveTrading('open')).toBe(true);
+    expect(isLiveTrading('lunch')).toBe(true);
+    expect(isLiveTrading('pre')).toBe(false);
+    expect(isLiveTrading('closed')).toBe(false);
+    expect(isLiveTrading('unknown')).toBe(false);
+  });
+
+  it('renders a status badge with exchange local time in the tooltip', () => {
+    render(renderMarketStatusBadge('closed', '18:00'));
+    const badge = screen.getByText('Closed');
+    expect(badge).toHaveAttribute('title', expect.stringContaining('18:00'));
   });
 });
 
