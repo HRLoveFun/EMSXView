@@ -55,9 +55,19 @@ function Get-LockedWtPaths {
 }
 
 # 该 worktree 是否存在会话独占锁文件（锁路径按工作树隔离，见 .githooks/common.sh 与规范 §10）
+# 孤儿目录（git 已不认）没有 .git 标记，直接判定「无锁」——否则 `git -C <孤儿目录>` 写 stderr，
+# 在 $ErrorActionPreference=Stop 下抛 NativeCommandError，使清理流程在识别阶段就中断，
+# 而孤儿目录恰是本工具要处理的对象之一（2026-10-28 实测踩到）。
 function Test-WtSessionLock {
     param([string]$Path)
-    $gitDir = (& git -C $Path rev-parse --absolute-git-dir 2>$null | Select-Object -First 1)
+    if (-not (Test-Path -LiteralPath (Join-Path $Path ".git"))) { return $false }
+    $gitDir = $null
+    try {
+        $gitDir = (& git -C $Path rev-parse --absolute-git-dir 2>$null | Select-Object -First 1)
+    }
+    catch {
+        return $false
+    }
     if (-not $gitDir) { return $false }
     return (Test-Path -LiteralPath (Join-Path $gitDir "EMSXVIEW_SESSION_LOCK"))
 }
@@ -102,7 +112,14 @@ function New-WtCandidate {
 function Remove-WtCandidate {
     param([string]$Root, [object]$Candidate)
     if ($Candidate.Kind -eq "orphan") {
-        Remove-Item -LiteralPath $Candidate.Path -Recurse -Force
+        try {
+            Remove-Item -LiteralPath $Candidate.Path -Recurse -Force
+        }
+        catch {
+            # 句柄占用（如后台 pytest / dev server 的 CWD 停在残留目录）在本脚本不处置，
+            # 交由 wt-gc 的 -KillHolders + 重试路径，避免在这里悄悄杀进程。
+            throw ("$($_.Exception.Message)（若提示被占用，改用 wt-gc.ps1 <task> -Apply -Force -KillHolders）")
+        }
         return "已删除孤儿目录"
     }
     if ($Candidate.Removable) {
