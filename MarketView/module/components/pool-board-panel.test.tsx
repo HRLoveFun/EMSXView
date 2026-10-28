@@ -89,15 +89,22 @@ const liveOn = (overrides: Partial<MarketStateTickerState> = {}): LiveQuotes => 
   asOf: '2026-10-27T10:00:00',
 });
 
+// 用真实 Response 对象：api.readError 需要读 text()（区分代理不可达与真实 5xx）
+const jsonResponse = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+
 const stubFetch = (body: unknown, ok = true): void => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.includes('pool-board')) {
-        return { ok, json: async () => body };
+        return jsonResponse(body, ok ? 200 : 500);
       }
-      return { ok: false, json: async () => ({ detail: 'unknown endpoint' }) };
+      return jsonResponse({ detail: 'unknown endpoint' }, 404);
     }),
   );
 };

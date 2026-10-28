@@ -76,6 +76,19 @@ $Config = @{
         ProcessName = "node"
         StartupDelay = 30
     }
+    # MarketView 是独立微服务（core 没有桥接路径）：前端 Market View 标签页的
+    # 全部数据面板都打 /api/marketview/*，服务未启动时 Vite 代理返回 500，
+    # 页面表现为「所有数据面板 Request failed: 500」（2026-10-28 实测）。
+    # 它与 backend/frontend 无启动依赖（只读数据层 + 无 Bloomberg 会话），
+    # 因此 start 时先拉起，失败也只告警、不阻断其余服务。
+    MarketView = @{
+        Port = 8001
+        Dir = "MarketView"
+        Script = "main.py"
+        HealthUrl = "http://localhost:8001/openapi.json"
+        StartupDelay = 30
+        RequestTimeoutSec = 3
+    }
     LogDir = "logs/service"
 }
 
@@ -589,6 +602,105 @@ function Start-FrontendService {
     }
 }
 
+function Test-MarketViewReady {
+    # /openapi.json 是 FastAPI 自带路由：不触库、不受鉴权影响，适合做就绪探针
+    param([int]$TimeoutSec = 3)
+    try {
+        $req = [System.Net.HttpWebRequest]::Create($Config.MarketView.HealthUrl)
+        $req.Timeout = $TimeoutSec * 1000
+        $resp = $req.GetResponse()
+        $code = [int]$resp.StatusCode
+        $resp.Close()
+        return ($code -ge 200 -and $code -lt 400)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Start-MarketViewService {
+    $port = $Config.MarketView.Port
+    Write-Status "Starting MarketView service (port $port)..." "Info"
+
+    if (Test-PortActiveListen -Port $port) {
+        if (Test-MarketViewReady) {
+            Write-Status "MarketView already running on port $port" "Success"
+            return $true
+        }
+        Write-Status "Port $port is in use but /openapi.json is not responding; leaving it untouched" "Warning"
+        return $false
+    }
+
+    $dir = Join-Path $Config.ProjectRoot $Config.MarketView.Dir
+    $scriptPath = Join-Path $dir $Config.MarketView.Script
+    $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+    $logFile = Join-Path $logDir "marketview-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
+    # 与 backend 一致：cmd.exe 重定向到文件，避免无人读取的 .NET 管道缓冲写满后阻塞子进程
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = "cmd"
+    $startInfo.Arguments = "/c python `"$scriptPath`" >> `"$logFile`" 2>&1"
+    $startInfo.WorkingDirectory = $dir
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    [void][System.Diagnostics.Process]::Start($startInfo)
+
+    Write-Status "Waiting for MarketView (log: $logFile)..." "Info"
+    for ($i = 0; $i -lt $Config.MarketView.StartupDelay; $i++) {
+        Start-Sleep -Seconds 1
+        if (Test-MarketViewReady) {
+            Write-Status "MarketView is ready after $($i + 1)s on port $port" "Success"
+            return $true
+        }
+    }
+    Write-Status "MarketView did not become ready within $($Config.MarketView.StartupDelay)s - see $logFile" "Warning"
+    return $false
+}
+
+function Stop-MarketViewService {
+    $port = $Config.MarketView.Port
+    Write-Status "Stopping MarketView service..." "Info"
+    $killed = @{}
+
+    # 1) 端口监听者优先：`python main.py` 的命令行不含目录，只能靠端口定位
+    $listener = Get-ProcessUsingPortListening -Port $port
+    if ($listener) {
+        try {
+            Stop-Process -Id $listener.Id -Force -ErrorAction Stop
+            $killed[[string]$listener.Id] = $true
+            Write-Status "Stopped MarketView listener on port $port (PID: $($listener.Id))" "Success"
+        }
+        catch {
+            Write-Status "Failed to stop process $($listener.Id): $($_.Exception.Message)" "Error"
+        }
+    }
+
+    # 2) 命令行兜底：带完整路径启动、尚未监听端口的残留进程
+    $processes = Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -eq "python.exe" -and $_.CommandLine -like "*MarketView*main.py*"
+    }
+    foreach ($proc in $processes) {
+        if ($killed.ContainsKey([string]$proc.ProcessId)) { continue }
+        try {
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+            $killed[[string]$proc.ProcessId] = $true
+            Write-Status "Stopped MarketView process (PID: $($proc.ProcessId))" "Success"
+        }
+        catch {
+            Write-Status "Failed to stop process $($proc.ProcessId): $($_.Exception.Message)" "Error"
+        }
+    }
+
+    for ($i = 0; $i -lt 20; $i++) {
+        if (-not (Test-PortActiveListen -Port $port)) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Status "MarketView service stopped" "Success"
+}
+
 function Show-ServiceStatus {
     Write-Separator
     Write-Status "Service Status Check" "Info"
@@ -633,6 +745,36 @@ function Show-ServiceStatus {
     }
     else {
         Write-Host "FREE" -ForegroundColor Gray
+    }
+
+    # MarketView 状态（未启动时前端 Market View 标签页所有数据面板会 500）
+    $mvPort = $Config.MarketView.Port
+    $mvProc = Get-ProcessUsingPortListening -Port $mvPort
+    $mvReady = Test-MarketViewReady
+    Write-Host "`nMarketView Service: " -NoNewline
+    if ($mvProc) {
+        Write-Host "RUNNING" -ForegroundColor Green -NoNewline
+        Write-Host " (PID: $($mvProc.Id))" -ForegroundColor Gray
+    }
+    else {
+        Write-Host "STOPPED" -ForegroundColor Red -NoNewline
+        Write-Host " (Market View 标签页将全部 500)" -ForegroundColor Gray
+    }
+
+    Write-Host "  Port $mvPort`: " -NoNewline
+    if ($mvProc) {
+        Write-Host "IN USE" -ForegroundColor Green
+    }
+    else {
+        Write-Host "FREE" -ForegroundColor Gray
+    }
+
+    Write-Host "  Ready (/openapi.json): " -NoNewline
+    if ($mvReady) {
+        Write-Host "READY" -ForegroundColor Green
+    }
+    else {
+        Write-Host "NOT READY" -ForegroundColor Yellow
     }
 
     Write-Separator
@@ -686,6 +828,9 @@ Write-Separator
 switch ($Action) {
     "start" {
         & "$PSScriptRoot\cleanup-logs.ps1" -Force
+        # MarketView 与 backend/frontend 无启动依赖（只读数据层），先拉起；
+        # 失败只告警：其余服务照常启动，日志里留痕便于排查。
+        [void](Start-MarketViewService)
         $backendStarted = Start-BackendService
         if ($backendStarted) {
             $frontendStarted = Start-FrontendService -WaitForBackend $true
@@ -705,14 +850,17 @@ switch ($Action) {
     }
     "stop" {
         Stop-FrontendService
+        Stop-MarketViewService
         Stop-BackendService
     }
     "restart" {
         Stop-FrontendService
+        Stop-MarketViewService
         Stop-BackendService
         Write-Status "Waiting for services to fully stop..." "Info"
         Start-Sleep -Seconds 2
         & "$PSScriptRoot\cleanup-logs.ps1" -Force
+        [void](Start-MarketViewService)
         $backendStarted = Start-BackendService
         if (-not $backendStarted) {
             Write-Status "Backend failed to start. Aborting." "Error"
@@ -769,6 +917,7 @@ switch ($Action) {
     "kill" {
         Write-Status "Force killing all related processes..." "Warning"
         Stop-FrontendService
+        Stop-MarketViewService
         Stop-BackendService
         Get-Process | Where-Object { $_.ProcessName -in @("python", "python3", "node") } | ForEach-Object {
             try {
