@@ -4,16 +4,28 @@
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $env:PYTHONPATH = $ProjectRoot
 
-$envFile = Join-Path $ProjectRoot "backend\.env"
-if (Test-Path $envFile) {
+# 配置加载顺序：backend\.env（后端专属）→ 仓库根 .env（跨服务共享，MarketView 也读）。
+# 先加载者优先；已存在于进程环境的变量不被文件覆盖（临时覆盖直接 export/set 即可）。
+$envFiles = @(
+    (Join-Path $ProjectRoot "backend\.env"),
+    (Join-Path $ProjectRoot ".env")
+)
+$loadedFiles = @()
+foreach ($envFile in $envFiles) {
+    if (-not (Test-Path $envFile)) { continue }
     Get-Content $envFile | ForEach-Object {
         if ($_ -match '^\s*([^#][^=]*)=(.*)$') {
             $key   = $Matches[1].Trim()
             $value = $Matches[2].Trim().Trim('"')
-            [System.Environment]::SetEnvironmentVariable($key, $value, 'Process')
+            if (-not [System.Environment]::GetEnvironmentVariable($key, 'Process')) {
+                [System.Environment]::SetEnvironmentVariable($key, $value, 'Process')
+            }
         }
     }
-    Write-Host "Loaded config from .env" -ForegroundColor Green
+    $loadedFiles += $envFile
+}
+if ($loadedFiles.Count -gt 0) {
+    Write-Host "Loaded config from: $($loadedFiles -join ', ')" -ForegroundColor Green
 } else {
     Write-Host "WARNING: .env not found, using defaults" -ForegroundColor Yellow
     $env:BLOOMBERG_HOST   = "localhost"
@@ -25,7 +37,7 @@ if (Test-Path $envFile) {
 # JWT_SECRET 必须显式提供：禁止脚本内回退到硬编码密钥（P1-1 整改）
 if (-not $env:JWT_SECRET) {
     Write-Host "ERROR: JWT_SECRET is not set." -ForegroundColor Red
-    Write-Host 'Add "JWT_SECRET=<hex>" to backend\.env (or environment), then retry.' -ForegroundColor Red
+    Write-Host 'Add "JWT_SECRET=<hex>" to .env or backend\.env (or environment), then retry.' -ForegroundColor Red
     Write-Host 'Generate a secure key: python -c "import secrets; print(secrets.token_hex(32))"' -ForegroundColor Red
     exit 1
 }

@@ -154,11 +154,13 @@ Cross-module adapters (actual):
 - `platform_data.adapters.MarketReferenceDataAdapter` — 市场快照（BDIB / 日内特征）
 - `build_platform_data_access()` / `PlatformDataAccess` 未实现（规划中，见 [ADR-0013](adr/0013-platform-data-adapter-current-state.md)）
 
-### 4. MarketView — pre-trade market context (placeholder)
+### 4. MarketView — market trend context
 
-> Reserved for future MarketView pre-trade market context data.
-> Market reference data (BDIB, daily summary) is owned by the Data Platform
-> subdomain and consumed by MarketView through adapters.
+MarketView 是市场走势视图，**只读消费**市场参考数据（BDIB、日度汇总 `bdib_daily_summary`/`bdib_market_snapshot`、盘中库）与意图数据（EMSX 导出 / `order_intent`），用于股票池检查、意图覆盖、执行难度与预期成本提示。
+
+- 观察轴：标的 × 交易日；不拥有任何持久化数据，不写库。
+- 不碰下单路径：只做提示性候选与 handoff，订单/路由动作归 ExecutionView。
+- 市场参考数据的 owner 仍是 Data Platform 子域，MarketView 经 `platform_data` 适配器读取。
 
 ---
 
@@ -310,7 +312,7 @@ The platform treats data as one logical domain with four owned subdomains:
 | 1 | ExecutionView operational state | ExecutionView | Live order/route projections and audit |
 | 2 | Data platform | Independent subsystem | Acquisition, processing, and storage of market/fill data |
 | 3 | Algorithm evaluation and analytics | CostView | Model-driven evaluation and analytical reports |
-| 4 | MarketView pre-trade context | MarketView | Reserved for future pre-trade market context |
+| 4 | MarketView market trend context | MarketView | Read-only stock-pool / intent / difficulty / cost context (no persistence) |
 
 Cross-subdomain access flows through `platform_data` adapters. The CostView
 focus shifts from owning data infrastructure to owning algorithm evaluation

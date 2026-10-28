@@ -50,6 +50,8 @@
 | DL-13 | 预期成本与 timing risk 模型 | 1c | 低 | 1.5 | DL-04、DL-10、DL-12 | 已完成 | 068 |
 | DL-14 | 盘前单与 handoff v2 | 1c | 低 | 1 | DL-01、DL-10、DL-11、DL-13 | 已完成 | 069 |
 | DL-15 | 盘中市场状态 | 1d | 中低 | 1.5 | DL-10 | 已完成（079 后端契约/订阅扩字段/快照服务/REST+WS + 080 MonitorBoard 阈值下发与前端消费） | 079/080 |
+| DL-29 | MarketView 固定筛选池汇集与检查（量价/难度/成本同屏） | 1e | 低 | 1.5 | DL-13、DL-14、DL-15 | 已完成（097：`pool-board` 端点 + `PoolBoardPanel`；待用户复核） | 097 |
+| DL-30 | ExecutionView 执行区间量价视图（区间曲线 + 对照） | 1e | 中低 | 1.5 | DL-12、DL-13、DL-15 | 已完成（098：`interval-series` 端点 + `IntervalSeriesPanel`；待用户复核） | 098 |
 | DL-16 | 规范参数注册表 | 2a | 低 | 1 | DL-04 | 已完成 | 070 |
 | DL-17 | 约束策略引擎 | 2a | 低 | 1.5 | DL-01、DL-03、DL-11、DL-16 | 已完成（071/072/073）；**闭环以 A01/A02 为准** | 073 |
 | DL-18 | 参数策略 v0 | 2a | 低 | 1.5 | DL-03、DL-10、DL-13、DL-16、DL-17 | 已完成 | 074 |
@@ -67,14 +69,14 @@
 ## 审计整改（2026-10-25 全项目审计）
 
 > 完整整改计划、逐项验收断言与可追溯矩阵见 [`audit-remediation-2026-10-25.md`](audit-remediation-2026-10-25.md)。
-> **优先级**：R1（A01/A02 准入与检查收敛 + A10/A11 工程基线）先于 DL-15/DL-19/DL-20；A02 是 DL-22 与 DL-25 的前置；DL-17 的闭环判定以 A01/A02 完成为准。
+> **优先级**：R1（A01/A02 准入与检查收敛 + A10/A11 工程基线）先于 DL-15/DL-19/DL-20/**DL-29/DL-30**；A02 是 DL-22 与 DL-25 的前置；DL-17 的闭环判定以 A01/A02 完成为准。**1e（DL-29/DL-30）排在 R1 之后、节点二之前**——它是两个视图基本使命的补齐，不进入下单路径。
 
 | A | 审计 | 子任务 | 轮次 | 依赖 | 状态 | 子编号 |
 |---|---|---|---|---|---|---|
 | A01 | H1 | 准入白名单写入闭环（admin 权限 + roster 约束 + 密码加固 + 限速） | R1 | — | 已完成 | 076 |
 | A02 | H2 | 下单前检查收敛（`pre_trade_checks` 四入口共用；补批量路径四层） | R1 | A01（审计同批） | 已完成 | 077 |
-| A10 | E1 | `platform_data` 依赖修正（去 `emsxview-datapipeline`、补 `openpyxl`） | R1 | — | 待开始 | — |
-| A11 | E2 | `greenlet` 显式声明 | R1 | — | 待开始 | — |
+| A10 | E1 | `platform_data` 依赖修正（去 `emsxview-datapipeline`、补 `openpyxl`） | R1 | — | 已完成（2026-10-27：移除 `emsxview-datapipeline`，保留 `openpyxl`） | — |
+| A11 | E2 | `greenlet` 显式声明 | R1 | — | 已完成（2026-10-27：requirements 显式声明） | — |
 | A03 | M1 | 建议单状态回滚（CONFIRMING 不再永久卡死） | R2 | A02 | 已完成 | 078 |
 | A04 | M2 | CostView 桥接与 MarketView 鉴权（token + 角色 + 绑定地址 + CORS） | R2 | — | 已完成 | 078 |
 | A05 | M3 | 副作用端点补 `require_permission`（5 处）+ debug 仅 DEBUG 注册 + 每日确认弹窗角色门控 | R2 | A04 | 已完成 | 078 |
@@ -228,6 +230,36 @@
 - **技术方案**：后端行情订阅增加 BID/ASK/LAST_PRICE/VOLUME/HIGH/LOW（只加字段不加证券），由特性开关控制、默认关闭；MarketStateSnapshot 服务与 WS 推送；实际累计量对比日内预期曲线；MonitorBoard 改为服务端 z 值阈值，替代 localStorage 全局常数
 - **检验方法**：字段解析单测；推送延迟与丢包观测；开关关闭时行为与现状一致；阈值变更进审计
 - **预留接口**：盘中字段并入 MarketStateSnapshot；决策时点的报价价差随决策日志快照落盘（DL-21）
+
+## 1e 视角分工（市场走势 × 交易执行）
+
+> 本批补齐两个视图的基本使命，边界见 [`AGENTS.md` §4.0](../../AGENTS.md)：MarketView 按「标的 × 交易日」只读提示；ExecutionView 按「订单/路由 × 执行区间」看执行质量。两视图共享同一批行情/基线数据，**不合并、不互相替代**。
+
+### DL-29 MarketView 固定筛选池汇集与检查（量价/难度/成本同屏）
+
+- 风险：低 · 预估：1.5 周 · 依赖：DL-13、DL-14、DL-15
+- 需求：R1 交易前检测 · 模块：MarketView、platform_data
+- **理论依据**：股票池是市场走势视图的入口；固定池内的量价指标、执行难度与预期成本必须同屏，否则用户要在 snapshot / baseline / pretrade-board 三个端点间手工对齐。只读汇集不引入写入风险，符合「不碰下单路径」。
+- **技术方案**：
+  - 池来源**仅用现有 4 个固定筛选池**（`MarketStockPool`）；当日订单簿/意图池与观察名单**不在本批范围**（§4.1 的长期愿景保留，后续另立任务）。
+  - 契约 `MarketPoolBoard`（pool_id / tickers / as_of / freshness）与 `MarketPoolRow`（量价指标、`OrderDifficulty`、预期成本与模型版本、日度基线摘要、盘中实时摘要），复用现有 `MarketStockPool` 与基线/成本契约；新增契约按 `module-boundary.md` §2.3 登记。
+  - 端点 `GET /api/marketview/pool-board?pool_id=`，经 `platform_data` 适配器取数；**不读 ExecutionView 运营库**，禁止直连库、禁止新增写路径。
+  - 前端股票池视图重排：池选择 → 池内标的表（量价 / 难度 / 成本 / 盘中）；模块介绍文案与 `MarketView/main.py` 服务描述同步为市场走势视图。
+- **检验方法**：固定池汇集与字段完整性单测；无基线/无成本时显式空值且不伪填；池内行与 snapshot / daily-baseline / pretrade-board 抽样对账；前端有/无数据两态测试；边界审计确认无写库路径、无执行侧运营库访问。
+- **预留接口**：`MarketPoolBoard` 与 `MarketPoolRow` 供 DL-30 复用同一标的快照；pool_id 与 `as_of` 进入决策日志。
+
+### DL-30 ExecutionView 执行区间量价视图（区间曲线 + 对照）
+
+- 风险：中低 · 预估：1.5 周 · 依赖：DL-12、DL-13、DL-15
+- 需求：R1 交易前检测、R2 约束分配 · 模块：ExecutionView、platform_data
+- **理论依据**：执行质量必须在「执行区间」内评估——与盘前全天走势不同轴；区间 VWAP 与到达价、成交均价的对照是交易员判断「是否按计划执行」的最短反馈回路。当前监控板只有订单级 Ivl VWAP / Last / Arr 列，无法看到区间内的量价演变。
+- **技术方案**：
+  - 区间边界取订单/路由的创建到结束（未结束取当前时刻），按交易所本地时区换算，跨午休/半日市按 DL-03 会话注册表裁剪。
+  - 后端新增**只读**区间序列端点（`GET /api/orders/{order_id}/interval-series`，在 `routers/orders.py` 扩展），返回区间内价格、累计成交量、区间 VWAP、到达价与成交均价基准线；无 bar 的区间显式返回 gap，不插值。
+  - 数据复用 MarketView 已用的 bar / 基线读取路径（`platform_data` 适配器），不重复实现取数，也不写入任何库。
+  - 前端在 MonitorBoard 增区间分栏/抽屉：价格线与累计量、区间 VWAP vs 成交均价 vs 到达价，可对照全天走势；MarketView 侧不新增执行字段。
+- **检验方法**：区间边界单测（跨午休、半日市、跨日、未结束订单）；缺 bar 时 gap 可见且不插值；与 MonitorBoard 现有 Ivl VWAP 抽样对账；两视角切换前端测试；端点权限与审计基线遵循 A04/A05。
+- **预留接口**：区间序列供 DL-26 信号回检与决策日志事后复盘；对照指标口径与 CostView 的 arrival/VWAP 定义保持同源。
 
 ## 2a 策略骨架
 

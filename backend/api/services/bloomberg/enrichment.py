@@ -83,6 +83,8 @@ class MarketDataEnrichmentService:
         self._mktdata_permanently_failed: set = set()
         self._mktdata_last_retry: Optional[datetime] = None
         self._mktdata_retry_interval = 300
+        # 057 DL-29：额外订阅集（池内标的实时价）；订阅仍在 core 发起，MarketView 无 Bloomberg
+        self._extra_mktdata_tickers: Set[str] = set()
 
         self._fx_discrepancy_threshold = 0.02
         self._fx_scaled_quote_logged: set[str] = set()
@@ -406,8 +408,35 @@ class MarketDataEnrichmentService:
             logger.warning(f"Failed to send {label} refdata request: {e}")
             return False
 
+    def add_mktdata_tickers(self, tickers) -> tuple[set, int, int]:
+        """注册额外 mktdata 订阅标的（057 DL-29：池内标的实时价）。
+
+        返回 (本次新增, 因上限被拒, 额外订阅总数)。上限由
+        `EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS` 控制；订阅仍只在 core 发起，
+        调用方（MarketView/前端）不直连 Bloomberg。
+        """
+        from config import settings
+
+        limit = getattr(settings, "EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS", 200)
+        accepted: set = set()
+        rejected = 0
+        for ticker in tickers or []:
+            symbol = (ticker or "").strip()
+            if not symbol:
+                continue
+            if symbol in self._orders_symbols or symbol in self._extra_mktdata_tickers:
+                continue
+            if symbol in self._mktdata_permanently_failed:
+                continue
+            if len(self._extra_mktdata_tickers) >= limit:
+                rejected += 1
+                continue
+            self._extra_mktdata_tickers.add(symbol)
+            accepted.add(symbol)
+        return accepted, rejected, len(self._extra_mktdata_tickers)
+
     def _update_mktdata_subscriptions(self, sess):
-        current_tickers = self._orders_symbols
+        current_tickers = self._orders_symbols | self._extra_mktdata_tickers
         new_tickers = current_tickers - self._mktdata_subscribed_tickers
 
         now = datetime.now()

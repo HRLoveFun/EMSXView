@@ -75,14 +75,14 @@ flowchart TD
 
 | 维度 | 现状 | 证据 |
 |---|---|---|
-| 数据时点 | 只读 `bdib_daily_summary`（管道日更产物），无盘中数据；MarketView 不依赖 Bloomberg。管道日更 10:00 触发、跑完才有前一天的数据，亚太市场开盘前可用的基线只到 T−2 | `platform_data/adapters/market.py`（`get_market_snapshot`）；`docs/open-todos.md` T18 |
+| 数据时点 | 日更产物 + 盘中库（管道 J1/J2）：股票池与日度基线读 `bdib_daily_summary` / `bdib_market_snapshot`，盘中特征与盘前单读盘中库；MarketView 不依赖 Bloomberg。日更 10:00 触发，亚太市场开盘前可用的正式基线只到 T−2，盘中作业填补当日 | `platform_data/adapters/market.py`（`get_market_snapshot`）；`MarketView/routers/marketview.py`；`docs/milestone-1-pretrade-board.md` |
 | 股票池 | 4 个固定池：all / volatility-watch / liquidity-watch / active-names，不是当日订单簿、篮子或指数成分 | `platform_data/adapters/market.py:86` |
 | 异常判定 | 全局常数：量比 2×/5× 与 0.5×/0.25× ADV20；日波动 25/40、日内波动 2/3。不分市场，不看个股自身历史分布 | `platform_data/adapters/market.py:45-53` |
 | 价差 / 事件 / 日历 | 无 bid-ask；无财报、除息、指数生效日、半日市日历；只有交易所→时区映射，没有会话时刻（开收盘、午休、竞价窗口） | `data_access/common/exchange_tz.py` |
 | 盘中监控（在 ExecutionView） | 行情订阅只有 `CHG_PCT_1D` `VOLUME_AVG_5D` `VWAP` `PX_ROUND_LOT_SIZE` 四个字段；MonitorBoard 条件是全局阈值（Qty/ADV 超 5%、涨跌超 4.5% 等），存在浏览器 localStorage | `backend/api/services/bloomberg/enrichment.py:395`；`ExecutionView/module/lib/monitor-conditions.ts:39-51` |
 | 交接 | MV→EV 单槽 handoff，前端只显示候选数徽标，不进入路由决策 | `frontend/src/app/WorkspaceModuleTabs.tsx:61` |
 | PM 指令（意图） | API 的 PM Note 即订单级字段 `notes`（Bloomberg `EMSX_NOTES`），只带 `^` 段（如 `^1234567^0`）；指令前缀（如 `80 % @Close`）只在 EMSX 手工导出的 PM Note 13 里，交易员盘中多次导出。路由上的同名字段是交易员给券商的指令，与此无关 | D-1；`backend/api/services/bloomberg/subscriptions.py:574`（订单 `notes`）、`:709`（路由 `notes`）；前端 PM Note 列 `ExecutionView/module/views/OrderTable.tsx:555`；持久化开启后随 `orders_projection` 的 payload 落盘（`subscriptions.py:877`） |
-| 成熟度 | Scaffold（2026-10-20 复核）：3 个端点、1 个测试文件；策略分析、选券支持、SLA 与运维文档均未实现 | `AGENTS.md` §4.2；`MarketView/tests/test_marketview_router.py` |
+| 成熟度 | Beta（2026-10-27 复核）：8 个端点、8 个测试文件 / 74 例；池内量价/难度/成本同屏已实现（DL-29），SLA 与运维文档未实现 | `AGENTS.md` §4.2；`MarketView/tests/` |
 
 ### 2.2 分配与参数（ExecutionView）
 
@@ -96,6 +96,7 @@ flowchart TD
 | 决策记录 ⚠️ | 建议单无理由、无市场快照字段；`routes_projection` 只存最新状态，且受 `ENABLE_DB_PERSISTENCE`（默认 false）门控；分析库只有 Broker / StrategyType / algo，没有参与率、起止时间等路由参数——持久化开启前，这些参数每天随进程丢失 | `backend/api/models/route_plan.py:159`；`backend/api/services/bloomberg/subscriptions.py:884`；`data_access/storage/schema/db_partition.sql:67` |
 | 持久化与授权 ⚠️ | 持久化关闭时 PM 授权无法登记，下单入口的授权检查直接跳过；写入失败自进程启动累计 10 次即熔断回内存，`/api/health` 只测连接、不报熔断 | `backend/api/services/authorization_service.py:155`；`backend/api/service_provider.py`（`_max_write_errors`）；`backend/api/routers/connection.py` |
 | CV→EV 推荐 | 手工 pin（上限 200，last-write-wins），同样只显示为徽标 | `backend/api/routers/broker.py`（`/api/broker-recommendations`） |
+| 执行区间量价 | 监控板只有订单级 Ivl VWAP / Last Px / Arr Px 列，没有以执行区间为轴的曲线与累计量对照，也不能与全天走势切换（DL-30） | `ExecutionView/module/views/MonitorBoard.tsx`（列头 Ivl VWAP / Last Px / Arr Px） |
 
 ### 2.3 交易后（CostView）
 
@@ -195,6 +196,8 @@ flowchart TD
 ### 4.1 R1 交易前检测：股票池量价变化
 
 **股票池三层**：当日订单簿（EMSX 导出快照 + 运营库订单，含 `basketName`）为核心；指数调仓预告名单或成分股（可选）；交易员观察名单。
+
+> **批次落位（2026-10-27 调整）**：1e/DL-29 本批**只实现固定筛选池**的量价/难度/成本同屏；当日订单簿池与观察名单不在本批范围，后续另立任务。
 
 **EMSX 订单导出（D-1）**：PM 指令只能从这里取得。交易员盘中多次导出，每份是一个时点快照；同一订单以最新一份为准，旧份留档。导出列按用途分组（以附录 A 样例为准）：
 
@@ -316,13 +319,29 @@ flowchart TD
 
 ## 5. 分阶段路线
 
-**阶段性节点**（D-6，2026-10-21）：下列三个节点是本计划的验收里程碑，与第 6 节需求矩阵对应（节点一 ↔ R0/R1，节点二 ↔ R2，节点三 ↔ R3）。节点内批次按上图节奏推进（1a–1d → 2a/3a → 2b/3b → 2c/3c → 2d），节点之间以前一节点的出口判据为门槛；每个节点的呈现效果按原则 10 与用户反复沟通打磨后定稿。
+**阶段性节点**（D-6，2026-10-21；1e 于 2026-10-27 按模块使命补入）：下列三个节点是本计划的验收里程碑，与第 6 节需求矩阵对应（节点一 ↔ R0/R1，节点二 ↔ R2，节点三 ↔ R3）。节点内批次按上图节奏推进（1a–1e → 2a/3a → 2b/3b → 2c/3c → 2d），节点之间以前一节点的出口判据为门槛；每个节点的呈现效果按原则 10 与用户反复沟通打磨后定稿。**1e 的定位**：补齐「市场走势视图」与「交易执行视图」各自的基本使命（边界见 [`AGENTS.md` §4.0](../../AGENTS.md)），只读、不进入下单路径。
 
 | 节点 | 目标 | 覆盖 | 出口判据 |
 |---|---|---|---|
-| 节点一 · 交易前实时监控表 | MarketView 用表格监控股票实时指标：每一行是一个股票，每一列是股票的静态信息或实时指标 | 1a–1d（DL-01 至 DL-15） | 表格在所辖首个市场开盘前 30 分钟可用、盘中随作业刷新；静态列与实时指标列分界清晰；意图覆盖率、未匹配清单与各数据集新鲜度可见；呈现效果经用户打磨定稿 |
+| 节点一 · 交易前监控与执行区间视图 | MarketView 以固定筛选池为主入口，同屏回答「这些票的量价、执行难度、成本」；ExecutionView 以订单/路由执行区间为轴看量价变化（两数据视角并存） | 1a–1e（DL-01 至 DL-15、DL-29、DL-30） | 表格在所辖首个市场开盘前 30 分钟可用、盘中随作业刷新；静态列与实时指标列分界清晰；意图覆盖率、未匹配清单与各数据集新鲜度可见；**池内量价/难度/成本同屏**；**执行区间量价可对照全天走势、缺 bar 显式 gap**；呈现效果经用户打磨定稿 |
 | 节点二 · 合规路由与券商选择 | 建立完备的合规 + 风险检查系统，正确生成合规的订单路由指令；实现路由订单的券商选择算法；成功路由订单 | 2a–2d（DL-16 至 DL-27） | 新增硬约束（涨跌停距离、竞价可用、半日市、集中度等）零违例；引擎能正确生成合规的订单路由指令；券商选择有可解释理由与完整决策日志；ASSIST 模式下每笔经交易员确认并成功路由；改写原因码回流 |
 | 节点三 · 科学评估执行表现 | 建立模型科学系统评估执行表现 | 3a–3c（DL-19 至 DL-26） | 控制变量去后验化落地；订单内配对（D1）覆盖率披露；z 值校准通过、排名带区间；得分快照被分配引擎消费；每类信号有月度 lift 报告 |
+
+> **1e 交付状态（2026-10-27）**：DL-29/DL-30 已实现并通过自动化测试（MarketView 74 例、后端区间 10 例、前端 18 例）+ Playwright 截图自验，服务运行中（前端 `<FRONTEND_PORT>`、core `<API_PORT>`、MarketView `<MARKETVIEW_PORT>`）。**节点一前端复核清单**：
+>
+> **DL-29 · Market View →「Pool Board · 量价 / 难度 / 成本」**
+> - [ ] 三类指标同屏：Close/Total Vol/Vol-ADV20/Daily Vol + Log Vol Z/Vol %ile/ADV5-60 + Cost bps/Timing bps
+> - [ ] 成本列有区分度（同市场非同值），缺模型的行显示「成本模型缺失」而非空白
+> - [ ] 假设文案可见（100 万美元名义额 → qty ÷ ADV20 参与率）；「模型未校准」徽标正确
+> - [ ] GAPS 列对缺基线/缺成本显式标注；空池/加载/错误三态正常
+>
+> **DL-30 · Execution View → Monitor → 点 ticker 或「Interval preview」**
+> - [ ] 价格线 + 累计量柱 + 三条参考线（Interval VWAP / Avg Px / Arrival）齐备
+> - [ ] 摘要显示 source / bars / gap bucket(s) / 时间区间；缺 bar 的桶价格线断开、不插值
+> - [ ] Bucket 切换（1/5/15/30min）生效；无 bar 区间显示明确提示而非空白
+> - [ ] 与全天走势可对照；订单级 Ivl VWAP/Last/Arr 列仍可见（两视角并存）
+>
+> 复核通过后节点一即可关闭；待调整项记入 DL-29/DL-30 追加改动。
 
 ```mermaid
 flowchart TD
@@ -331,10 +350,12 @@ flowchart TD
         B["1b 即时数据 W4–W8（管道仓库）<br>盘中作业 · 收盘后 bar 与日更复用 · 交易前供给表"]
         C["1c 分析计算 W4–W8<br>日度基线 · 事件与状态 · 路由到达价 · 预期成本 · 盘前单"]
         E1["1d 盘中状态 W9–W10<br>后端订阅扩字段，特性开关默认关闭"]
+        E2["1e 视角分工 W10–W11<br>MarketView 固定池汇集（量价/难度/成本）· ExecutionView 执行区间量价"]
         A --> B
         A --> C
         B -.->|盘中刷新| C
         C --> E1
+        E1 --> E2
     end
     subgraph S23["第二步 × 第三步 · 交替推进"]
         D["2a 策略骨架 W11–W14<br>参数注册表 · 约束引擎 · 参数规则 v0（离线）"] --> E["3a 口径修正与配对 W13–W14<br>去后验化 · 订单内配对 D1"]
@@ -344,7 +365,7 @@ flowchart TD
         H --> I["3c 闭环回检 W23<br>信号与规则 lift"]
         I --> J["2d 券商轮换<br>硬约束内 · 预算后议（D-2）"]
     end
-    E1 --> D
+    E2 --> D
     H -.-> K["预留：AUTO 自动提交<br>D-3 默认人工确认，不排期"]
 ```
 
@@ -354,6 +375,7 @@ flowchart TD
 | 1b 即时数据 | W4–W8 | DL-07 盘中作业 J1 · DL-08 收盘后 bar 与日更复用 · DL-09 交易前供给表与批量通道 | 中低：管道新进程与新表，特性开关默认关闭，不改日更既有判定逻辑 | 盘中库滞后不超过一个作业周期；收盘后 bar 通过完整性守卫；日更复用后额度不增、结果不变；快照与量曲线与明细对账一致；`SchemaDriftGuard` 通过 |
 | 1c 分析计算 | W4–W8 | DL-10 日度基线 · DL-11 事件与流动性状态 · DL-12 路由到达价 · DL-13 预期成本 v0 · DL-14 盘前单与 handoff v2 | 低：只读 | 盘前单在首个市场开盘前 30 分钟可用、盘中随作业刷新；`MarketStateSnapshot`、`OrderDifficulty` 冻结；预期成本附校准报告 |
 | 1d 盘中状态 | W9–W10 | DL-15 盘中市场状态 | 中低：扩订阅字段；特性开关，默认关闭 | 开关开启时订阅延迟与额度在预算内；关闭即回到现状 |
+| 1e 视角分工 | W10–W11 | DL-29 固定筛选池汇集与检查 · DL-30 执行区间量价视图 | 低–中低：只读汇总与新只读端点，不进入下单路径 | 池内量价/难度/成本同屏；执行区间曲线可对照全天走势、缺 bar 显式 gap；无新增写库路径 |
 | 2a 策略骨架 | W11–W14 | DL-16 规范参数注册表 · DL-17 约束引擎 · DL-18 参数策略 v0（含时区修复） | 低：后端离线计算，不接提交 | 历史订单回放零硬约束违例；常用券商 × 策略组合 ≥90% 能生成参数 |
 | 3a 口径修正与配对 | W13–W14 | DL-19 控制变量去后验化 · DL-20 订单内配对评估 D1 | 低：离线，只改报告口径与新增分析 | golden 基线差异逐项解释入档；新旧口径对照报告；D1 样本覆盖率披露 |
 | 2b 影子运行 | W15–W17，之后观察 ≥4 周 | DL-21 决策日志（影子方式）· DL-22 影子模式与周报 | 中低：新增落盘，不改下单入口 | 100% 路由订单有决策记录；连续 4 周影子周报 |
@@ -370,8 +392,8 @@ flowchart TD
 | 需求 | 直接覆盖 | 必要前置 | 验收指标 |
 |---|---|---|---|
 | R0 数据即时获取与更新 | DL-06 · DL-07 · DL-08 · DL-09 | DL-02 持久化；DL-03 会话注册表；DL-05 额度测量 | 各数据集滞后；每日 Bloomberg 请求量；临时版与正式版差异 |
-| R1 交易前检测股票池量价变化 | DL-01 · DL-10 · DL-11 · DL-13 · DL-14 · DL-15 | DL-03；DL-04 意图与算法族映射；DL-05 数据盘点；DL-07 至 DL-09 即时数据与供给表；DL-12 路由到达价（预期成本的拟合目标） | 盘前单准时率与新鲜度；PM 意图覆盖率；告警 lift；盘中状态延迟 |
-| R2 按约束分配券商算法与参数 | DL-16 · DL-17 · DL-18 · DL-21 · DL-22 · DL-25 · DL-27 | DL-01 PM 意图；DL-02 持久化；DL-03；DL-04；DL-11 事件与状态；DL-24 得分快照 | 决策记录覆盖率；硬约束违例数（含轮换）；影子一致率与预期成本差；改写率与原因分布 |
+| R1 交易前检测股票池量价变化 | DL-01 · DL-10 · DL-11 · DL-13 · DL-14 · DL-15 · **DL-29** · **DL-30** | DL-03；DL-04 意图与算法族映射；DL-05 数据盘点；DL-07 至 DL-09 即时数据与供给表；DL-12 路由到达价（预期成本的拟合目标） | 盘前单准时率与新鲜度；PM 意图覆盖率；告警 lift；盘中状态延迟；池内同屏字段覆盖率；执行区间 gap 可见率 |
+| R2 按约束分配券商算法与参数 | DL-16 · DL-17 · DL-18 · DL-21 · DL-22 · DL-25 · DL-27 · **DL-30** | DL-01 PM 意图；DL-02 持久化；DL-03；DL-04；DL-11 事件与状态；DL-24 得分快照 | 决策记录覆盖率；硬约束违例数（含轮换）；影子一致率与预期成本差；改写率与原因分布；执行区间偏离可见 |
 | R3 科学评估与券商排名 | DL-19 · DL-20 · DL-23 · DL-24 · DL-27 | DL-01；DL-04；DL-05；DL-07 至 DL-09 当日临时数据；DL-12；DL-13 预期成本 | z 校准；排名区间宽度；D1 覆盖率；相邻窗口秩相关；临时版与正式版差异 |
 | 跨需求 | DL-26 信号与规则回检 | DL-14；DL-24；DL-25 | 无增量信号下线记录 |
 | 预留（D-3） | DL-28 自动提交：不排期 | — | 只保留 `mode` 枚举与熔断接口 |

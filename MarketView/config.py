@@ -5,11 +5,18 @@ import os
 from pathlib import Path
 
 # 与 core backend 对齐：读取仓库根 .env（本地文件、已 gitignore）。
+# 读取顺序：仓库根 .env（跨服务共享）→ backend/.env（兼容密钥仍放在后端专属配置的既有部署）。
 # 无 python-dotenv 或文件不存在时静默跳过，不改变原有「只认进程环境变量」的行为。
+def _load_env_files(repo_root: Path) -> None:
+    load_dotenv(repo_root / ".env")
+    if not os.getenv("JWT_SECRET"):
+        load_dotenv(repo_root / "backend" / ".env")
+
+
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    _load_env_files(Path(__file__).resolve().parents[1])
 except ImportError:
     pass
 
@@ -26,6 +33,10 @@ PORT: int = int(os.getenv("MARKETVIEW_PORT", "8001"))
 # A04（M2）：handoff 写端点 JWT 校验，与 core backend 共用同一 secret / 算法。
 JWT_SECRET: str = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+
+# 本地开发跳过 Bearer 校验（语义与 core backend 的 BYPASS_AUTH 一致，默认关闭）。
+# 前端没有登录页（设计前提是 Bloomberg 终端已本地认证），本地开发置 true 可免注入 token。
+BYPASS_AUTH: bool = os.getenv("BYPASS_AUTH", "false").lower() == "true"
 
 # A04（M2）：CORS 白名单（逗号分隔）；不再使用 "*" + credentials 组合。
 ALLOWED_ORIGINS: list[str] = [

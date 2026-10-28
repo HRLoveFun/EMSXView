@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -16,3 +17,7 @@ REPO_ROOT = MV_ROOT.parent
 for _path in (str(MV_ROOT), str(REPO_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
+
+# 测试不依赖本机 .env：显式关闭 bypass，保证 fail-closed 用例在任何开发机上都可复现。
+# 需要验证 bypass 的用例自行 monkeypatch config.BYPASS_AUTH。
+os.environ["BYPASS_AUTH"] = "false"

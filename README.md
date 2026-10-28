@@ -1,6 +1,6 @@
 ﻿# EMSXView 交易平台
 
-> 订单执行与交易成本分析（TCA）单体仓库：执行管理（ExecutionView）、盘前市场视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
+> 订单执行与交易成本分析（TCA）单体仓库：交易执行视图（ExecutionView）、市场走势视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
 >
 > **Agent / 开发者作业规范见 [AGENTS.md](./AGENTS.md)**：文档阅读顺序、编码与文件放置约定、Git Worktree 并行工作流、构建与验证命令、已失效声明。原 `CODEBUDDY.md` 已合并进 `AGENTS.md` 并删除，`AGENTS.md` 为唯一规范源。
 
@@ -26,10 +26,10 @@
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 45 个测试文件 / 295 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg） |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 45 个测试文件 / 295 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg）；执行区间量价视图已实现（DL-30），待用户复核 |
 | **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但未设 `--cov-fail-under`）；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
-| **MarketView**（`MarketView/`） | **Beta** | 7 个端点（快照 / 盘中特征 / handoff / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态）；8 个测试文件 / 71 例；已知限制见 [节点一交付说明](docs/milestone-1-pretrade-board.md) | 策略分析、选券支持、SLA/运维文档未实现；实时列依赖开关 |
-| **frontend/**（React 壳） | **Beta** | 25 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
+| **MarketView**（`MarketView/`） | **Beta** | 8 个端点（快照 / 盘中特征 / handoff / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态 / pool-board）；8 个测试文件 / 74 例；已知限制见 [节点一交付说明](docs/milestone-1-pretrade-board.md) | 池内量价/难度/成本同屏已实现（DL-29，待用户复核）；SLA/运维文档未实现；实时列依赖开关 |
+| **frontend/**（React 壳） | **Beta** | 31 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](./docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
 
@@ -44,7 +44,7 @@
 │                                                                              │
 │  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐          │
 │  │   MarketView     │──▶│  ExecutionView   │──▶│    CostView      │          │
-│  │   (Pre-Trade)    │   │  (Order Exec)    │   │  (Post-Trade)    │          │
+│  │ (Market Trend)   │   │(Order Execution) │   │  (Post-Trade)    │          │
 │  │  [Beta]          │   │  [GA]            │   │  [Beta]          │          │
 │  │ :<MARKETVIEW_PORT>│  │  :<API_PORT>     │   │ :<COSTVIEW_PORT> │          │
 │  └────────┬─────────┘   └───────┬──────────┘   └───────┬──────────┘          │
@@ -62,17 +62,17 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 图中方框均携带成熟度标签（定义见 §0）。箭头仅表示数据流向，**不表示能力对等**（MarketView 与 CostView 完成度不对等）。
+> 图中方框均携带成熟度标签（定义见 §0）。箭头仅表示数据流向，**不表示能力对等**（MarketView 与 CostView 完成度不对等）。MarketView 与 ExecutionView 共享同一批行情/基线数据，但观察轴不同：前者按「标的 × 交易日」看市场走势，后者按「订单/路由 × 执行区间」看执行质量，两种视图并存。
 
 ### Module Flow (Trade Lifecycle)
 
 ```
-MarketView (Pre-Trade) ──▶ ExecutionView (Order Execution) ──▶ CostView (Post-Trade TCA)
-   [Beta]                       [GA]                              [Beta]
-        │                          │                                │
-  Market Snapshot            Orders & Routes                   TCA Analysis
-  Intraday Features          Bloomberg EMSX API                Scorecard / Monitoring
-  Handoff → Execution        Real-time WebSocket               Recommendations (pin)
+MarketView (Market Trend) ──▶ ExecutionView (Order Execution) ──▶ CostView (Post-Trade TCA)
+   [Beta]                          [GA]                              [Beta]
+        │                             │                                │
+  Stock Pools & Intent          Order/Route Send & Amend          TCA Analysis
+  Difficulty & Expected Cost    Interval Price/Volume            Scorecard / Monitoring
+  Handoff → Execution           Real-time WebSocket               Recommendations (pin)
 ```
 
 ### Deployment Modes
@@ -109,12 +109,12 @@ EMSXView/
 │       ├── components/               # shadcn/ui 共享组件、error-boundary、startup-gate
 │       └── standalone/shell-less.tsx # 独立构建共用的无 Shell 桩 Provider
 │
-├── ExecutionView/                    # 订单/路由工作台 [GA]（仓库根级，与 frontend/ 平级）
+├── ExecutionView/                    # 交易执行视图 [GA]（意图 · 下单/改单 · 执行区间量价）
 │   ├── module/                       # views/ · components/ · services/ · stores/ · types/
 │   │                                 # module.registry.ts + module.contract.ts
 │   └── standalone/                   # 独立构建入口
 ├── CostView/module/                  # 盘后 TCA UI [Beta]（唯一规范入口）
-├── MarketView/module/                # 盘前壳锚点 [Beta]
+├── MarketView/module/                # 市场走势视图（股票池 · 意图 · 难度/成本）[Beta]
 │
 ├── backend/                          # ★ Core backend [GA]
 │   ├── docker-compose.yml            # Docker Compose（6 服务）
@@ -122,16 +122,17 @@ EMSXView/
 │   └── api/
 │       ├── main.py                   # FastAPI 装配入口（默认 :3000）；可选路由经 _register_optional
 │       ├── auth.py · db.py · service_provider.py · config.py
-│       ├── routers/                  # 核心 10 路由 + costview.py（可选桥接，含 Runner 代理）
+│       ├── routers/                  # 核心 11 路由 + costview.py（可选桥接，含 Runner 代理）
 │       ├── services/                 # bloomberg/ 拆分包、compliance、route_engine、algo_scheduler 等
 │       ├── repositories/ · models/ · schemas/ · migrations/
 │       └── tests/                    # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
 │
-├── MarketView/                       # 盘前微服务 [Beta]（默认 :8001）
+├── MarketView/                       # 市场走势微服务 [Beta]（默认 :8001）
 │   ├── main.py · config.py
-│   ├── routers/marketview.py         # snapshot / intraday-features / handoff 端点
+│   ├── routers/                      # marketview（snapshot/intraday/handoff）· export_orders
+│   │                                 # pretrade（盘前板）· baseline · regime
 │   ├── module/ · standalone/
-│   └── tests/                        # 8 个测试文件 / 71 例
+│   └── tests/                        # 8 个测试文件 / 74 例
 │
 ├── CostView/                         # 盘后 TCA 微服务 [Beta]（默认 :8002）
 │   ├── pyproject.toml                # pip package: emsxview-costview
@@ -204,7 +205,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 ### 4.1 ExecutionView（`backend/api/` + `ExecutionView/module/`）— GA
 
-**定位**：订单与路由执行管理核心服务，Bloomberg EMSX 集成。**入口**：`backend/api/main.py`（`<API_PORT>`，默认 3000）；核心路由 10 个始终加载（connection / authorizations / auth / orders / routes / broker / debug / realtime / market_broker_mapping / route_plans），可选路由经 `_register_optional`。
+**定位**：交易执行视图——获取交易意图，发送与修改订单/路由，并监测**订单执行区间**的量价变化（复用 MarketView 数据，以订单/路由生命周期为观察轴）。**入口**：`backend/api/main.py`（`<API_PORT>`，默认 3000）；核心路由 11 个始终加载（connection / authorizations / auth / orders / routes / broker / debug / realtime / market_broker_mapping / route_plans / interval_series），可选路由经 `_register_optional`。
 
 **已实现能力**（能力 → 入口 → 验证）：
 
@@ -219,8 +220,10 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 | Bloomberg EMSX 集成（订阅缓存、行情增强） | `services/bloomberg/`（adapter/connection/subscriptions/enrichment/request_handler） | `tests/test_bloomberg_adapter_routing.py` + `tests/test_bloomberg_adapter_refdata.py` |
 | 基准计算 | `services/benchmark_engine.py` | `tests/test_benchmark_engine.py` |
 | 健康检查 | `GET /api/health`（`routers/connection.py`，检查 Bloomberg + DB 状态） | 启动后 `curl <API_BASE_URL>/api/health` |
+| 交易意图交接消费（MarketView → Execution，**现状仅徽标展示**） | `useHandoffContracts()` + `frontend/src/shared/services/handoff-api.ts` | 前端 handoff 相关测试 |
+| 执行区间量价视图（DL-30：区间价格 / 累计量 / 区间 VWAP vs 成交均价 vs 到达价） | `GET /api/execution/interval-series`（`backend/api/routers/interval_series.py`）；MonitorBoard 点击 ticker 打开 `IntervalSeriesPanel` | `test_interval_series.py`、`interval-series-panel.test.tsx`、`interval-series.test.ts` |
 
-**不做什么**：不写分析库（分析库由 EMSXDataPipeline 独占写入）；订单/路由持久化仅经 `ENABLE_DB_PERSISTENCE` 门控写入 PostgreSQL（未启用时内存 fallback）；不承担 TCA 计算（读取方是 CostView）。
+**不做什么**：不承担选股与盘前研判（盘前结论以 MarketView 为准，本模块只读取其 handoff 候选，不重复计算）；不写分析库（分析库由 EMSXDataPipeline 独占写入）；订单/路由持久化仅经 `ENABLE_DB_PERSISTENCE` 门控写入 PostgreSQL（未启用时内存 fallback）；不承担 TCA 计算（读取方是 CostView）。
 
 ### 4.2 CostView（`CostView/`）— Beta
 
@@ -256,7 +259,7 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 ### 4.3 MarketView（`MarketView/`）— Beta
 
-**定位**：盘前市场视图——日度基线、事件与状态、EMSX 导出盘前单，以及节点一的交易前实时监控表。
+**定位**：市场走势视图——检查、更新股票池，监测股票池内标的，把「今天该关注哪些票、这些票的意图是什么、执行难度多大、成本大概多少」算清楚。**只读数据、只做提示，不碰下单路径**（不发送/修改/撤销订单与路由，不写任何库）。
 
 **入口**：`MarketView/main.py`（`<MARKETVIEW_PORT>`，默认 8001，无 Bloomberg 依赖）。
 
@@ -264,15 +267,22 @@ MarketView ──mv-to-ev──▶ ExecutionView ◀──cv-to-ev (recommendati
 
 | 能力 | 入口 | 验证 |
 |------|------|------|
+| 股票池检查与筛选（4 个固定池：all / volatility-watch / liquidity-watch / active-names） | `GET /api/marketview/snapshot`（`routers/marketview.py`） | `test_marketview_router.py` |
 | 市场快照（收盘价、波动率、成交量、ADV） | `GET /api/marketview/snapshot`（`routers/marketview.py`） | `test_marketview_router.py` |
 | 盘中特征（交易所本地时段分桶） | `GET /api/marketview/intraday-features` | 同上 |
-| Handoff 发布（Market → Execution） | `POST /api/marketview/handoff/execution` | 同上 |
-| EMSX 导出解析与意图 | `GET /api/marketview/pre-trade-orders`（`routers/export_orders.py`） | `test_export_orders.py`、`test_export_parser.py` |
+| 意图获取与覆盖率（EMSX 导出 / 盘中库 `order_intent`） | `GET /api/marketview/pre-trade-orders`（`routers/export_orders.py`） | `test_export_orders.py`、`test_export_parser.py` |
 | 盘前单四路装配（意图 + 基线 + 状态 + 预期成本） | `GET /api/marketview/pretrade-board`（`routers/pretrade.py`） | `test_pretrade_board.py`、`test_pretrade_board_intraday.py` |
-| 日度基线（60 日稳健分布） | `routers/baseline.py` | `test_baseline_router.py` |
+| 日度基线（60 日稳健分布 → 执行难度输入） | `routers/baseline.py` | `test_baseline_router.py` |
 | 事件与市场状态 | `routers/regime.py` | `test_regime_router.py` |
+| Handoff 发布（Market → Execution，提示性候选） | `POST /api/marketview/handoff/execution` | `test_marketview_router.py` |
+| 池内量价/难度/成本同屏（DL-29：仅现有 4 个固定筛选池） | `GET /api/marketview/pool-board`（`MarketView/routers/pool_board.py`）；前端 `PoolBoardPanel`（含实时 Bid/Ask/Last，经 `POST /api/market-state/subscribe` 订阅池内标的） | `test_pool_board.py`、`pool-board-panel.test.tsx`、`test_market_state_subscribe.py` |
 
-**已知限制**（Beta 定级依据）：见 [docs/milestone-1-pretrade-board.md §5](docs/milestone-1-pretrade-board.md)；策略分析、选券支持、SLA/运维文档未实现；实时列默认开启（设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回退）。
+**不做什么（职责边界）**：
+- **不碰下单路径**：不发送、不修改、不撤销订单/路由；handoff 只发布提示性候选，是否下单由 ExecutionView 决定。
+- **不写库**：全部经只读连接（`mode=ro`）；股票池更新为只读汇集，不做页面内持久化编辑。
+- **不承担 TCA 归因**：盘后成本评估归 CostView；本模块只给盘前预期成本提示。
+
+**已知限制**（Beta 定级依据）：见 [docs/milestone-1-pretrade-board.md §5](docs/milestone-1-pretrade-board.md)；池内量价/难度/成本同屏已实现（DL-29，待用户复核）；SLA/运维文档未实现；实时列默认开启（设 `EMSXVIEW_INTRADAY_STATE_ENABLED=false` 回退）。
 
 ### 4.4 frontend/（React 壳）— Beta
 
@@ -458,12 +468,13 @@ python main.py                           # Starts on <API_PORT> (default 3000)
 pytest
 ```
 
-Environment variables (`backend/.env`；默认值权威来源 `backend/api/config.py` `Settings`):
+Environment variables（`backend/.env` 放后端专属项，仓库根 `.env` 放跨服务共享项；默认值权威来源 `backend/api/config.py` `Settings`）:
 
 | 名称 | 作用 | 默认值 | 是否必填 |
 |------|------|--------|----------|
 | `BLOOMBERG_HOST` / `BLOOMBERG_PORT` | Bloomberg SAPI 连接 | `localhost` / `8194` | 否（实盘需指向终端） |
-| `JWT_SECRET` | JWT 签名密钥 | 空 | **是**（未设 `BYPASS_AUTH=true` 时启动即报错） |
+| `JWT_SECRET` | JWT 签名密钥（core 与 MarketView 必须一致，建议放仓库根 `.env`） | 空 | **是**（未设 `BYPASS_AUTH=true` 时启动即报错） |
+| `BYPASS_AUTH` | 本地开发跳过 Bearer 鉴权（core 与 MarketView 同语义；生产必须保持 `false`） | `false` | 否（仅本地开发置 `true`） |
 | `EMSXVIEW_OPTIONAL_MODULES` | 可选路由桥接清单（`*`/`all` 加载全部；置空禁用；§1 Deployment Modes） | `costview:CostView` | 否 |
 | `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory`/`redis`，语义见 §3.1） | `memory` | 否 |
 | `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 查询缓存） | `redis://localhost:6379/0` | 否 |

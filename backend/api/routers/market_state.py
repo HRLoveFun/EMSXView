@@ -10,6 +10,7 @@ import asyncio
 import json
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 
 from config import settings
 from deps import get_bloomberg_service, verify_token
@@ -43,6 +44,34 @@ async def get_market_state_snapshot(
         mss.build_market_state_snapshot, bloomberg, baseline_lookup=_baseline_lookup
     )
     return ApiResponse(success=True, data=mss.snapshot_payload(snapshot))
+
+
+class SubscribeRequest(BaseModel):
+    tickers: list[str] = Field(default_factory=list, max_length=500)
+
+
+@router.post("/api/market-state/subscribe", response_model=ApiResponse)
+async def subscribe_market_state(
+    request: SubscribeRequest,
+    user: dict = Depends(verify_token),
+    bloomberg=Depends(get_bloomberg_service),
+) -> ApiResponse:
+    """注册额外 mktdata 订阅标的（057 DL-29：池内标的实时价）。
+
+    订阅由 core 后端发起；MarketView/前端只提交 ticker 列表，不直连 Bloomberg。
+    """
+    if not mss.intraday_state_enabled():
+        return ApiResponse(
+            success=True,
+            data={"accepted": [], "rejected": 0, "total_extra": 0},
+            message="intraday market state disabled (EMSXVIEW_INTRADAY_STATE_ENABLED)",
+        )
+    accepted, rejected, total = bloomberg.add_mktdata_tickers(request.tickers)
+    return ApiResponse(
+        success=True,
+        data={"accepted": sorted(accepted), "rejected": rejected, "total_extra": total},
+        message=f"subscribed {len(accepted)} extra ticker(s)",
+    )
 
 
 @router.get("/api/market-state/thresholds", response_model=ApiResponse)

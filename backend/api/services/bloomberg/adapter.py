@@ -164,6 +164,10 @@ class BloombergEMSXService:
         """代理到 MarketDataEnrichmentService._permfail_last_prices（永久失败 ticker 的最新价格缓存）。"""
         return self._enrich._permfail_last_prices
 
+    def add_mktdata_tickers(self, tickers):
+        """代理到 MarketDataEnrichmentService（057 DL-29：池内标的实时价订阅）。"""
+        return self._enrich.add_mktdata_tickers(tickers)
+
     @property
     def connected(self) -> bool:
         return self._conn.connected

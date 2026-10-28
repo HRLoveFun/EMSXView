@@ -51,6 +51,8 @@ orjson==3.9.10
 
 # Persistence (Sprint 1)
 sqlalchemy==2.0.37
+# 057 A11：SQLAlchemy async 桥的必需运行时依赖，显式声明避免传递安装缺失
+greenlet>=3.0.0
 asyncpg==0.30.0
 alembic==1.14.1
 psycopg[binary]==3.2.3

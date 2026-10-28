@@ -6,11 +6,13 @@ import { defineConfig, loadEnv } from "vite"
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = env.VITE_API_URL || 'http://localhost:3000';
+  // 默认用 127.0.0.1 而非 localhost：Node 18+ 的 dns 会把 localhost 优先解析为
+  // IPv6 ::1，而 uvicorn 绑 0.0.0.0 只监听 IPv4，导致代理 ECONNREFUSED
+  const apiTarget = env.VITE_API_URL || 'http://127.0.0.1:3000';
   const wsTarget = apiTarget.replace(/^http/, 'ws');
   // MarketView 是独立微服务（默认 :8001）：core 后端不挂载 /api/marketview/*，
   // 本地 dev 必须有独立代理，否则 MarketView 页面全部 404（生产由 Nginx 转发）。
-  const marketviewTarget = env.VITE_MARKETVIEW_URL || 'http://localhost:8001';
+  const marketviewTarget = env.VITE_MARKETVIEW_URL || 'http://127.0.0.1:8001';
 
   return {
     base: '/',

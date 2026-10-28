@@ -14,15 +14,32 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_READY_POLL_INTERVAL_MS = 30000;
 const DEFAULT_TIMEOUT_MS = 60000;
 
-function buildSyntheticStartupStatus(elapsedMs: number, timeoutMs: number, error?: string): StartupStatusSnapshot {
-  const timedOut = elapsedMs >= timeoutMs;
+// 认证失败与「后端不可用」是两类问题：前者不该被启动门超时判成 error，
+// 否则本地未配置 BYPASS_AUTH 时会误报为 Startup chain error。
+const AUTH_ERROR_PATTERN =
+  /authentication required|requires authentication|unauthorized|invalid username or password/i;
+
+function isAuthError(message?: string): boolean {
+  return !!message && AUTH_ERROR_PATTERN.test(message);
+}
+
+function buildSyntheticStartupStatus(
+  elapsedMs: number,
+  timeoutMs: number,
+  error?: string,
+  authRequired = false,
+): StartupStatusSnapshot {
+  // 认证缺失时后端本身是健康的，不进入 error 阶段
+  const timedOut = !authRequired && elapsedMs >= timeoutMs;
   return {
     phase: timedOut ? 'error' : 'backend_starting',
     ready: false,
-    message: error
-      || (timedOut
-        ? 'Frontend is up, but the backend HTTP service is not ready yet.'
-        : 'Frontend is up, waiting for the backend HTTP service to respond.'),
+    message: authRequired
+      ? 'Backend requires authentication. 本地开发请在 backend/.env 设置 BYPASS_AUTH=true，或在浏览器注入有效 token。'
+      : error
+        || (timedOut
+          ? 'Frontend is up, but the backend HTTP service is not ready yet.'
+          : 'Frontend is up, waiting for the backend HTTP service to respond.'),
     backend: {
       httpReady: false,
       startedAt: undefined,
@@ -124,11 +141,15 @@ export function useStartupStatus({
           scheduleNext(delay);
           return;
         }
-        setStartupStatus(buildSyntheticStartupStatus(elapsedMs, timeoutMs, response.error));
+        setStartupStatus(
+          buildSyntheticStartupStatus(elapsedMs, timeoutMs, response.error, isAuthError(response.error)),
+        );
       } catch (error) {
         if (!active) return;
         const message = error instanceof Error ? error.message : 'Network error';
-        setStartupStatus(buildSyntheticStartupStatus(elapsedMs, timeoutMs, message));
+        setStartupStatus(
+          buildSyntheticStartupStatus(elapsedMs, timeoutMs, message, isAuthError(message)),
+        );
       } finally {
         if (active) {
           setIsChecking(false);

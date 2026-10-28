@@ -24,7 +24,10 @@ except ImportError:
 
 try:
     from dotenv import load_dotenv
+
+    # backend/.env（后端专属）优先；仓库根 .env（跨服务共享，MarketView 也读）补缺
     load_dotenv()
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 except ImportError:
     pass
 
@@ -304,10 +307,12 @@ from routers.market_state import router as market_state_router  # 057 DL-15
 from routers.route_plans import router as route_plans_router
 from routers.authorizations import router as authorizations_router  # S12/042
 from routers.routing_decisions import router as routing_decisions_router  # 057 DL-21
+from routers.interval_series import router as interval_series_router  # 057 DL-30
 
 app.include_router(connection_router)
 app.include_router(authorizations_router)
 app.include_router(routing_decisions_router)
+app.include_router(interval_series_router)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(routes_router)

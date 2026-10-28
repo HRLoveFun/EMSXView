@@ -154,7 +154,7 @@ export function getAuthHeaders(): HeadersInit {
 | Broker | `/api/broker` | 🔒 | 4 | 券商算法配置 |
 | Route Plans | `/api/route-plans` | 🔒 | 3 | 路由计划管理 |
 | Market Broker Mapping | `/api/market-broker-mapping` | 🔒 | 2 | 市场-券商映射配置 |
-| MarketView | `/api/marketview` | 🔒 | 2 | 市场快照数据 |
+| MarketView | `/api/marketview` | 🔒 | 2 | 市场走势与股票池数据（快照 / 盘中特征） |
 | Realtime | `/ws` | 🔒 | 1 | WebSocket 实时订单/路由流 |
 | Debug | `/api/debug` | 🔒 | 2 | 调试端点 |
 

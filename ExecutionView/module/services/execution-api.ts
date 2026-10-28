@@ -4,6 +4,7 @@ import { ordersApi } from './orders-api';
 import { routesApi } from './routes-api';
 import { brokerApi, cachedBrokerApi } from './broker-api';
 import { routePlansApi, batchApi } from './route-plans-api';
+import { intervalApi } from './interval-api';
 
 // Re-export HTTP client for consumers that need direct access
 export { apiFetch, streamNdjsonBatch, tokenService, getToken, getAuthHeaders, toErrorString } from './http-client';
@@ -22,6 +23,7 @@ export const apiService = {
   // Route Plans + Batch
   ...routePlansApi,
   ...batchApi,
+  ...intervalApi,
 };
 
 /** Cached broker API — maintained for backward compatibility. */

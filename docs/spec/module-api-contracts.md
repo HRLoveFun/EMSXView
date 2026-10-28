@@ -2,8 +2,8 @@
 
 > 跨域 API 真相源
 > 配套规范：`.codebuddy/rules/module-boundary.md`、`.codebuddy/rules/coding-style.md` §API 约定
-> 配套反模式：[anti-patterns.md §AP-05](../anti-patterns.md)
-> Last updated: 2026-09-11（端点表与 `api/routers/` 源码逐行核对：移除已不存在的 `/api/execution-history/*`、`/api/regime/*`，补 CostView monitoring 端点与 analyze-orders，修正 MarketView 端点路径，刷新契约文件清单）
+> 配套反模式：[anti-patterns.md §AP-05](anti-patterns.md)
+> Last updated: 2026-10-27（MarketView 升 Beta：补齐 7 个端点与「市场走势视图」定位）；2026-09-11（端点表与 `api/routers/` 源码逐行核对：移除已不存在的 `/api/execution-history/*`、`/api/regime/*`，补 CostView monitoring 端点与 analyze-orders，修正 MarketView 端点路径，刷新契约文件清单）
 
 ---
 
@@ -48,6 +48,19 @@
 | `/api/orders/{id}` | PUT | 修改订单 |
 | `/api/orders/{id}` | DELETE | 取消订单 |
 | `/api/orders/{id}/fill` | GET | 查询订单成交 |
+
+### 执行区间量价（057 DL-30）
+
+| 端点 | 方法 | 描述 |
+|---|---|---|
+| `/api/execution/interval-series` | GET | 按 ticker + 区间返回价格/累计量/区间 VWAP；缺 bar 显式 `is_gap`，不插值 |
+
+### 盘中市场状态（057 DL-15 / DL-29 增强）
+
+| 端点 | 方法 | 描述 |
+|---|---|---|
+| `/api/market-state/snapshot` | GET | 逐票盘中状态（Bid/Ask/Last/Vol 等；开关关闭时 `enabled:false`） |
+| `/api/market-state/subscribe` | POST | 注册额外 mktdata 订阅标的（057 DL-29：池内标的实时价；订阅在 core 发起） |
 
 ### 路由管理
 
@@ -260,11 +273,16 @@
 
 | 端点 | 方法 | 描述 |
 |---|---|---|
-| `/api/marketview/snapshot` | GET | 市场快照（`MarketView/routers/marketview.py:146`） |
-| `/api/marketview/intraday-features` | GET | 日内特征（`marketview.py:341`；注意路径是 `intraday-features` 而非 `intraday`） |
-| `/api/marketview/handoff/execution` | POST | 发布 Market → Execution handoff（`marketview.py:457`） |
+| `/api/marketview/snapshot` | GET | 股票池检查与日度市场快照（`MarketView/routers/marketview.py`） |
+| `/api/marketview/intraday-features` | GET | 日内特征（注意路径是 `intraday-features` 而非 `intraday`） |
+| `/api/marketview/handoff/execution` | POST | 发布 Market → Execution 提示性候选（不触发下单） |
+| `/api/marketview/pre-trade-orders` | GET | EMSX 导出解析与意图（`routers/export_orders.py`） |
+| `/api/marketview/pretrade-board` | GET | 盘前单四路装配：意图 + 基线 + 状态 + 预期成本（`routers/pretrade.py`） |
+| `/api/marketview/daily-baseline` | GET | 60 日稳健个股基线（`routers/baseline.py`） |
+| `/api/marketview/market-regime` | GET | 市场级状态与事件标记（`routers/regime.py`） |
+| `/api/marketview/pool-board` | GET | 固定筛选池池板：量价 + 难度分位 + 成本参考值（`routers/pool_board.py`，057 DL-29） |
 
-> MarketView 当前是只读基线（Scaffold），新端点需走 ADR 决策。
+> MarketView 是**市场走势视图**（Beta）：只读数据、只做提示，不发送/修改/撤销订单与路由。新增端点须维持只读语义并遵守 A04/A05 鉴权基线。
 
 ---
 

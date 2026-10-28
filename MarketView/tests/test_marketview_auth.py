@@ -61,3 +61,34 @@ def test_handoff_post_accepts_valid_token(monkeypatch):
     )
     # 鉴权已过；无行情数据时业务层返回 4xx/5xx 均可，但绝不应是 401
     assert response.status_code != 401
+
+
+def test_bypass_auth_allows_missing_token(monkeypatch):
+    """BYPASS_AUTH=true 时本地开发免 token（与 core backend 同语义）。"""
+    monkeypatch.setattr(config, "BYPASS_AUTH", True)
+    monkeypatch.setattr(config, "JWT_SECRET", "")
+    response = _client().post(
+        "/api/marketview/handoff/execution",
+        json={"pool_id": "all", "trade_date": "2026-10-26", "limit": 10},
+    )
+    assert response.status_code != 401
+
+
+def test_bypass_identity_matches_core(monkeypatch):
+    """bypass 身份与 core backend `_BYPASS_IDENTITY` 一致。"""
+    import asyncio
+
+    import auth
+
+    monkeypatch.setattr(config, "BYPASS_AUTH", True)
+    user = asyncio.run(auth.require_token(None))
+    assert user == {
+        "sub": "bloomberg_local",
+        "name": "Bloomberg Terminal User",
+        "role": "admin",
+    }
+
+
+def test_bypass_auth_defaults_to_false():
+    """默认 fail-closed：测试环境固定关闭 bypass（见 conftest），与生产默认一致。"""
+    assert config.BYPASS_AUTH is False

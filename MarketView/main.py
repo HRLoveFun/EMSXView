@@ -23,6 +23,7 @@ from routers.export_orders import router as export_orders_router
 from routers.baseline import router as baseline_router
 from routers.regime import router as regime_router
 from routers.pretrade import router as pretrade_router
+from routers.pool_board import router as pool_board_router  # 057 DL-29
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ app.include_router(export_orders_router)
 app.include_router(baseline_router)
 app.include_router(regime_router)
 app.include_router(pretrade_router)
+app.include_router(pool_board_router)
 
 logger.info("MarketView service ready — listening on port %s", config.PORT)
 

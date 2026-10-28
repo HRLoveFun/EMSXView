@@ -2,6 +2,7 @@ import type { MarketSnapshotPayload, MarketSnapshotRequest } from '../types';
 import type { IntradayFeatureRequest, IntradayFeatureSnapshot } from '../types';
 import type { PreTradeOrdersPayload } from '../types';
 import type { MarketStateSnapshot, PreTradeBoardPayload } from '../types';
+import type { PoolBoardPayload } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -145,4 +146,49 @@ export async function fetchMarketStateSnapshot(): Promise<MarketStateSnapshot> {
 
   const json = await response.json();
   return json.data as MarketStateSnapshot;
+}
+
+// 057 DL-29：固定筛选池池板（量价 / 难度 / 成本同屏，只读）
+export async function fetchPoolBoard(
+  poolId: string,
+  tradeDate?: string,
+  limit = 40,
+): Promise<PoolBoardPayload> {
+  const params = new URLSearchParams({ pool_id: poolId, limit: String(limit) });
+  if (tradeDate) {
+    params.set('trade_date', tradeDate);
+  }
+  const response = await fetch(
+    `${API_BASE_URL}/api/marketview/pool-board?${params.toString()}`,
+    { headers: getAuthHeaders() },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as PoolBoardPayload;
+}
+
+// 057 DL-29 增强：向 core 注册池内标的 mktdata 订阅（实时价）
+export interface SubscribeResult {
+  accepted: string[];
+  rejected: number;
+  total_extra: number;
+}
+
+export async function subscribeMarketState(tickers: string[]): Promise<SubscribeResult> {
+  const response = await fetch(`${API_BASE_URL}/api/market-state/subscribe`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ tickers }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as SubscribeResult;
 }

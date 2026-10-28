@@ -19,3 +19,4 @@ export * from './parent-execution';
 export * from './broker';
 export * from './route-plan';
 export * from './compliance';
+export * from './interval';
