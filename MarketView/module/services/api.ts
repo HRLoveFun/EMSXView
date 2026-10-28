@@ -3,6 +3,7 @@ import type { IntradayFeatureRequest, IntradayFeatureSnapshot } from '../types';
 import type { PreTradeOrdersPayload } from '../types';
 import type { MarketStateSnapshot, PreTradeBoardPayload } from '../types';
 import type { PoolBoardPayload } from '../types';
+import type { MonitorBoardPayload, TickerDetailPayload } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -220,6 +221,48 @@ export async function fetchPoolBoard(
 
   const json = await response.json();
   return json.data as PoolBoardPayload;
+}
+
+// ── 057 节点一：监控台（高亮面板 + 监控表 + 行详情）─────────────────────
+
+export async function fetchMonitorBoard(
+  poolId?: string,
+  tradeDate?: string,
+): Promise<MonitorBoardPayload> {
+  const params = new URLSearchParams();
+  if (poolId) params.set('pool_id', poolId);
+  if (tradeDate) params.set('trade_date', tradeDate);
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/api/marketview/monitor-board${query ? `?${query}` : ''}`,
+    { headers: getAuthHeaders() },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as MonitorBoardPayload;
+}
+
+export async function fetchTickerDetail(
+  ticker: string,
+  tradeDate?: string,
+): Promise<TickerDetailPayload> {
+  const params = new URLSearchParams({ ticker });
+  if (tradeDate) params.set('trade_date', tradeDate);
+  const response = await fetch(
+    `${API_BASE_URL}/api/marketview/ticker-detail?${params.toString()}`,
+    { headers: getAuthHeaders() },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const json = await response.json();
+  return json.data as TickerDetailPayload;
 }
 
 // 057 DL-29 增强：向 core 注册池内标的 mktdata 订阅（实时价）

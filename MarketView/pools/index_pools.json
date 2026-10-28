@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-28",
+  "note": "指数池尚待接入（管道 index_constituent 表未就绪），dev-validation 为开发验证清单：每市场一个 ticker，用于跑通监控台前端显示；name 仅作展示回落，core refdata 可用时以前者为准。",
+  "pools": [
+    {
+      "pool_id": "dev-validation",
+      "label": "Dev Validation · 8 tickers",
+      "description": "开发验证池：US/CN/HK/JP/LN/EU/AU/KS 各一个 ticker，验证通过后再换指数全集。",
+      "members": [
+        { "equ_ticker": "NVDA US Equity", "name": "NVIDIA Corp", "exchange": "US" },
+        { "equ_ticker": "601398 CH Equity", "name": "ICBC A", "exchange": "CH" },
+        { "equ_ticker": "700 HK Equity", "name": "Tencent Holdings", "exchange": "HK" },
+        { "equ_ticker": "285A JP Equity", "name": null, "exchange": "JP" },
+        { "equ_ticker": "HSBA LN Equity", "name": "HSBC Holdings", "exchange": "LN" },
+        { "equ_ticker": "MC EU Equity", "name": "LVMH", "exchange": "EU" },
+        { "equ_ticker": "BHP AU Equity", "name": "BHP Group", "exchange": "AU" },
+        { "equ_ticker": "005930 KS Equity", "name": "Samsung Electronics", "exchange": "KS" }
+      ]
+    }
+  ]
+}
