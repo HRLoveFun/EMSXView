@@ -1,12 +1,14 @@
 import { AlertTriangle } from 'lucide-react';
 
-import type { MarketSnapshotRow } from '../types';
+import type { LiveQuotes, MarketSnapshotRow } from '../types';
 import { fmtCompact, fmtNumber, fmtPercent, getSeverityText, renderSeverityBadge } from '../marketview-utils';
+import { fmtSignedPercent, pctToneClass } from '../lib/workspace';
 
 interface SnapshotTableProps {
   rows: MarketSnapshotRow[];
   selectedTickers: string[];
   drillTicker: string | null;
+  live: LiveQuotes;
   onToggleTicker: (ticker: string) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -35,6 +37,7 @@ export const SnapshotTable = ({
   rows,
   selectedTickers,
   drillTicker,
+  live,
   onToggleTicker,
   onSelectAll,
   onClearSelection,
@@ -44,7 +47,7 @@ export const SnapshotTable = ({
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-3 text-sm">
       <div className="flex items-center gap-2 text-muted-foreground">
         <AlertTriangle className="h-4 w-4" />
-        Each row comes from the latest daily snapshot and does not include real-time order book data.
+        Last / Chg % are live Bloomberg mktdata via core; other columns are the latest daily snapshot.
       </div>
       <div className="flex gap-2">
         <button
@@ -70,6 +73,8 @@ export const SnapshotTable = ({
           <tr>
             <th className="px-3 py-3 text-left font-medium">Pick</th>
             <th className="px-3 py-3 text-left font-medium">Ticker</th>
+            <th className="px-3 py-3 text-right font-medium">Last</th>
+            <th className="px-3 py-3 text-right font-medium">Chg %</th>
             <th className="px-3 py-3 text-right font-medium">Close</th>
             <th className="px-3 py-3 text-right font-medium">Total Vol</th>
             <th className="px-3 py-3 text-right font-medium">ADV 20D</th>
@@ -85,6 +90,7 @@ export const SnapshotTable = ({
         <tbody>
           {rows.map((row) => {
             const isSelected = selectedTickers.includes(row.equ_ticker);
+            const quote = live.byTicker.get(row.equ_ticker);
             return (
               <tr key={`${row.equ_ticker}-${row.trade_date}`} className="border-t border-border/60 align-top">
                 <td className="px-3 py-3">
@@ -97,6 +103,12 @@ export const SnapshotTable = ({
                   />
                 </td>
                 <td className="px-3 py-3 font-medium text-foreground">{row.equ_ticker}</td>
+                <td className="px-3 py-3 text-right font-mono">
+                  {quote?.last != null ? fmtNumber(quote.last, 2) : '—'}
+                </td>
+                <td className={`px-3 py-3 text-right font-mono ${pctToneClass(quote?.pct_change_1d)}`}>
+                  {fmtSignedPercent(quote?.pct_change_1d)}
+                </td>
                 <td className="px-3 py-3 text-right">{fmtNumber(row.daily_close, 2)}</td>
                 <td className="px-3 py-3 text-right">{fmtCompact(row.total_volume)}</td>
                 <td className="px-3 py-3 text-right">{fmtCompact(row.adv_20d)}</td>

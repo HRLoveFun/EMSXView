@@ -26,7 +26,11 @@ logger = logging.getLogger("main")
 
 # 057 DL-15：mktdata 基础字段（既有）与盘中状态字段（开关开启时追加）
 _MKTDATA_BASE_FIELDS = ["CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP", "PX_ROUND_LOT_SIZE"]
-_MKTDATA_INTRADAY_FIELDS = ["BID", "ASK", "LAST_PRICE", "VOLUME", "HIGH", "LOW"]
+# PREV_CLOSE_VALUE_REALTIME：实盘订阅实测可用（CHG_PCT_1D 在本机终端不推送），
+# 用于在服务层回落计算实时涨跌幅。
+_MKTDATA_INTRADAY_FIELDS = [
+    "BID", "ASK", "LAST_PRICE", "VOLUME", "HIGH", "LOW", "PREV_CLOSE_VALUE_REALTIME",
+]
 
 
 def mktdata_fields(intraday_state_enabled: bool) -> list:
@@ -39,7 +43,7 @@ def mktdata_fields(intraday_state_enabled: bool) -> list:
 def parse_intraday_quote(msg) -> dict:
     """解析 DL-15 行情字段；缺失/NaN 字段跳过，单字段异常不影响其余字段。"""
     quote: dict = {}
-    for field in ("BID", "ASK", "LAST_PRICE", "HIGH", "LOW"):
+    for field in ("BID", "ASK", "LAST_PRICE", "HIGH", "LOW", "PREV_CLOSE_VALUE_REALTIME"):
         if msg.hasElement(field):
             try:
                 value = msg.getElementAsFloat(field)

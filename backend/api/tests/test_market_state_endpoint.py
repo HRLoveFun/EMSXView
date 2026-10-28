@@ -26,6 +26,7 @@ os.environ.setdefault("BYPASS_AUTH", "true")
 
 from config import settings  # noqa: E402
 from deps import get_bloomberg_service  # noqa: E402
+from platform_data.contracts import MARKET_STATE_SCHEMA_VERSION  # noqa: E402
 from routers import market_state  # noqa: E402
 from services import market_state_service as mss  # noqa: E402
 
@@ -34,6 +35,7 @@ def _bloomberg() -> SimpleNamespace:
     return SimpleNamespace(
         _intraday_quotes={
             "AAPL US Equity": {"BID": 100.0, "ASK": 100.5, "LAST_PRICE": 100.2},
+            "MSFT US Equity": {"BID": 400.0, "ASK": 400.4, "LAST_PRICE": 400.2},
         }
     )
 
@@ -72,11 +74,28 @@ def test_snapshot_enabled_returns_tickers(monkeypatch):
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["enabled"] is True
-    assert len(body["tickers"]) == 1
-    state = body["tickers"][0]
-    assert state["equ_ticker"] == "AAPL US Equity"
+    assert len(body["tickers"]) == 2
+    by_ticker = {state["equ_ticker"]: state for state in body["tickers"]}
+    state = by_ticker["AAPL US Equity"]
     assert state["spread_bps"] == pytest.approx(49.88, abs=0.05)
-    assert state["schema_version"] == "market-state-v1"
+    assert state["schema_version"] == MARKET_STATE_SCHEMA_VERSION
+
+
+def test_snapshot_filters_by_ticker_whitelist(monkeypatch):
+    """MarketView 股票池只取池内标的：白名单外的订阅标的不出现在载荷里。"""
+    monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", True)
+    monkeypatch.setattr(market_state, "_baseline_lookup", lambda tickers: {})
+    response = _client().get("/api/market-state/snapshot?tickers=MSFT%20US%20Equity")
+    assert response.status_code == 200
+    tickers = [state["equ_ticker"] for state in response.json()["data"]["tickers"]]
+    assert tickers == ["MSFT US Equity"]
+
+
+def test_snapshot_rejects_oversized_ticker_list(monkeypatch):
+    monkeypatch.setattr(settings, "EMSXVIEW_INTRADAY_STATE_ENABLED", True)
+    oversized = ",".join(f"T{i} US Equity" for i in range(market_state.MAX_TICKERS + 1))
+    response = _client().get(f"/api/market-state/snapshot?tickers={oversized}")
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio

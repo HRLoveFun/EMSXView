@@ -164,6 +164,31 @@ class BloombergEMSXService:
         """代理到 MarketDataEnrichmentService._permfail_last_prices（永久失败 ticker 的最新价格缓存）。"""
         return self._enrich._permfail_last_prices
 
+    # ── 实时行情缓存（057 DL-15/DL-29 读侧）──────────────────────────────
+    # 交易日盘中状态服务（market_state_service）与 MarketView 实时列都从这里
+    # 读取 mktdata 订阅结果。此前门面未暴露这些缓存，market_state_service 的
+    # getattr(svc, "_intraday_quotes") 恒为 None → 实时列在生产环境永远是空的。
+
+    @property
+    def intraday_quotes(self) -> Dict[str, Dict[str, Any]]:
+        """逐票盘中报价缓存（BID/ASK/LAST_PRICE/VOLUME/HIGH/LOW）。"""
+        return self._enrich.intraday_quotes
+
+    @property
+    def _intraday_quotes(self) -> Dict[str, Dict[str, Any]]:
+        """下划线别名：保持既有调用方（含测试替身）兼容。"""
+        return self._enrich.intraday_quotes
+
+    @property
+    def price_changes(self) -> Dict[str, float]:
+        """逐票实时涨跌幅（%，CHG_PCT_1D）。"""
+        return self._enrich.price_changes
+
+    @property
+    def _price_changes(self) -> Dict[str, float]:
+        """下划线别名（兼容既有调用方）。"""
+        return self._enrich.price_changes
+
     def add_mktdata_tickers(self, tickers):
         """代理到 MarketDataEnrichmentService（057 DL-29：池内标的实时价订阅）。"""
         return self._enrich.add_mktdata_tickers(tickers)
