@@ -104,6 +104,10 @@ class Settings:
     EMSXVIEW_MARKET_STATE_PUSH_INTERVAL: float = float(
         os.getenv("EMSXVIEW_MARKET_STATE_PUSH_INTERVAL", "5")
     )
+    # 057 DL-29 增强：mktdata 额外订阅上限（池内标的实时价；订单标的之外的注册）
+    EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS: int = int(
+        os.getenv("EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS", "200")
+    )
 
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"

@@ -4,6 +4,7 @@ import { ModuleIntro } from './components/module-intro';
 import { SummaryCards } from './components/summary-cards';
 import { FilterBar } from './components/filter-bar';
 import { SnapshotTable } from './components/snapshot-table';
+import { PoolBoardPanel } from './components/pool-board-panel';
 import { HandoffPanel } from './components/handoff-panel';
 import { ExportOrdersPanel } from './components/export-orders-panel';
 import { PreTradeBoardPanel } from './components/pre-trade-board-panel';
@@ -222,6 +223,14 @@ export default function MarketViewModule() {
           onQueryChange={updateQuery}
           onReset={() => setQuery(DEFAULT_QUERY)}
         />
+
+        <div className="mt-4">
+          <PoolBoardPanel
+            poolId={query.pool_id ?? 'all'}
+            tradeDate={snapshot?.trade_date}
+            limit={query.limit ?? 40}
+          />
+        </div>
 
         {isLoading ? (
           <div className="mt-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">

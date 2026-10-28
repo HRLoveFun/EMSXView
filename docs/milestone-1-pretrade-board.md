@@ -95,3 +95,11 @@ cd frontend; npm run dev
 - 盘中库由管道 J1/J2 写入；本仓只读。当日无盘中库时，意图回落到收件箱导出（`intent_source=export`）。
 - 日度基线的竞价占比/价差代理已切到 `bdib_market_snapshot`（086）；无表或无行时回退 `raw_bdib` 明细，行为不变。
 - `bdib_market_snapshot.adv_ratio` 覆盖有限（分母 `adv_20d` 只对当日有成交的票计算，实测 548/2143）；读取方不得把 NULL 当 0。
+
+## 7. 1e 实现记录（2026-10-27）
+
+按模块使命（[`AGENTS.md` §4.0](../AGENTS.md)），节点一补入 1e 批次；本页既有列含义不变：
+
+- **DL-29**：MarketView 固定筛选池池板（`GET /api/marketview/pool-board` + `PoolBoardPanel`）——量价指标、执行难度分位与成本参考值同屏；仅用 4 个固定筛选池，不引入意图池/观察名单。
+- **DL-30**：ExecutionView 执行区间量价（`GET /api/execution/interval-series` + `IntervalSeriesPanel`）——区间价格/累计量、区间 VWAP vs 成交均价 vs 到达价，可对照全天走势；缺 bar 显式 gap、不插值。
+- 两项均为只读；成本为「100 万美元名义额 → qty ÷ ADV20」参考值，不是订单级预测（K3）。

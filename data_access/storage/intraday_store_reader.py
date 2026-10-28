@@ -93,6 +93,30 @@ class IntradayStoreReader:
     def read_bars_t0(self) -> list[dict[str, Any]]:
         return self._rows("bars_10s_t0", "equ_ticker, mkt_timestamp")
 
+    def read_bars_window(
+        self, equ_ticker: str, start: str, end: str
+    ) -> list[dict[str, Any]]:
+        """区间 bar 查询（057 DL-30）：按 ticker 与时间窗过滤，避免全表读。
+
+        时间戳为交易所本地 `HH:MM:SS`；区间左闭右开。文件/表缺失返回空。
+        """
+        conn = self._connect()
+        if conn is None:
+            return []
+        try:
+            rows = conn.execute(
+                "SELECT equ_ticker, mkt_timestamp, open, high, low, close, volume "
+                "FROM bars_10s_t0 "
+                "WHERE equ_ticker = ? AND mkt_timestamp >= ? AND mkt_timestamp < ? "
+                "ORDER BY mkt_timestamp",
+                (equ_ticker, start, end),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error:
+            return []
+        finally:
+            conn.close()
+
     def read_intraday_fills(self) -> list[dict[str, Any]]:
         return self._rows("intraday_fills", "order_as_of_date, exchange_exec_time")
 

@@ -127,6 +127,21 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environment prod
 ```
 
+### Local Config Files (.env)
+
+配置分两层，两个文件都被 `.gitignore` 忽略：
+
+| 文件 | 内容 | 读取方 |
+|------|------|--------|
+| `<repo-root>/backend/.env` | 后端专属：`BLOOMBERG_*`、`API_PORT`、`API_WORKERS`；也兼容沿用其中的 `JWT_SECRET` | core backend（优先）、MarketView（回退） |
+| `<repo-root>/.env` | 跨服务共享：`JWT_SECRET`、`BYPASS_AUTH` | core backend（补缺）、MarketView（优先） |
+
+加载规则：`backend/.env` 优先，仓库根 `.env` 补缺；已存在的进程环境变量不被文件覆盖（临时覆盖直接 export/set 即可）。MarketView 优先读仓库根 `.env`，取不到 `JWT_SECRET` 时回退 `backend/.env`，兼容密钥只写在后端配置的既有部署。
+
+**本地开发与鉴权**：前端没有登录页（设计前提是 Bloomberg 终端已本地认证），因此本地开发需在仓库根 `.env` 设置 `BYPASS_AUTH=true`，否则受保护端点（含 `/api/startup-status`、`/api/marketview/*`）返回 401。生产/共享环境必须保持 `false`（默认），两个服务行为一致：bypass 返回本地终端身份，非 bypass 一律 fail-closed。
+
+前端若显示 `Startup chain error` 且消息为 `Authentication required`，即表示后端未开启 bypass 且浏览器未注入 token——这不是后端宕机。
+
 ## Health Checks
 
 ### Backend Health Endpoint
