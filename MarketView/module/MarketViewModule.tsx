@@ -11,6 +11,7 @@ import { PreTradeBoardPanel } from './components/pre-trade-board-panel';
 import { buildLiveQuotes, buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
 import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
 import { useMarketStateStream } from './hooks/use-market-state-stream';
+import { useSecurityNames } from './hooks/use-security-names';
 import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
 import { IntradayFeaturePanel } from './intraday-feature-panel';
 import type {
@@ -157,6 +158,9 @@ export default function MarketViewModule() {
     return Array.from(new Set([...rowTickers, ...panelTickers]));
   }, [snapshot, universeBySource]);
 
+  // 中文简称（core refdata，模块内缓存）：池板/快照/盘前单共用一个 Map
+  const securityNames = useSecurityNames(liveTickers);
+
   const liveState = useMarketStateStream(liveTickers);
   const live = useMemo(
     () => buildLiveQuotes(liveState.snapshot, liveState.status),
@@ -284,6 +288,7 @@ export default function MarketViewModule() {
             tradeDate={snapshot?.trade_date}
             limit={query.limit ?? 40}
             live={live}
+            names={securityNames}
             onUniverseChange={handlePoolUniverseChange}
           />
         </div>
@@ -303,6 +308,7 @@ export default function MarketViewModule() {
               selectedTickers={selectedTickers}
               drillTicker={drillTicker}
               live={live}
+              names={securityNames}
               onToggleTicker={toggleTicker}
               onSelectAll={() => setSelectedTickers(rows.map((row) => row.equ_ticker))}
               onClearSelection={() => setSelectedTickers([])}
@@ -333,7 +339,11 @@ export default function MarketViewModule() {
 
       <ExportOrdersPanel />
 
-      <PreTradeBoardPanel live={live} onUniverseChange={handlePretradeUniverseChange} />
+      <PreTradeBoardPanel
+        live={live}
+        names={securityNames}
+        onUniverseChange={handlePretradeUniverseChange}
+      />
     </section>
   );
 }

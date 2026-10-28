@@ -100,6 +100,11 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     headers: { 'content-type': 'application/json' },
   });
 
+const names = new Map<string, string>([
+  ['SEC_A US Equity', '甲证券股份有限公司'],
+  ['SEC_B US Equity', '乙证券股份有限公司'],
+]);
+
 const stubFetch = (body: unknown, ok = true): void => {
   vi.stubGlobal(
     'fetch',
@@ -121,9 +126,11 @@ describe('PoolBoardPanel', () => {
   it('renders metrics, cost reference and explicit gaps', async () => {
     stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" tradeDate="20260408" live={liveOff} />);
+    render(<PoolBoardPanel poolId="all" tradeDate="20260408" live={liveOff} names={names} />);
 
     expect(await screen.findByText('SEC_A US Equity')).toBeInTheDocument();
+    // Name 列（中文简称）
+    expect(screen.getByText('甲证券股份有限公司')).toBeInTheDocument();
     expect(screen.getByText('2 rows')).toBeInTheDocument();
     expect(screen.getByText('12.5')).toBeInTheDocument();
     expect(screen.getByText('78.0%')).toBeInTheDocument();
@@ -134,7 +141,7 @@ describe('PoolBoardPanel', () => {
   it('shows the cost assumption text', async () => {
     stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" live={liveOff} />);
+    render(<PoolBoardPanel poolId="all" live={liveOff} names={names} />);
 
     expect(await screen.findByText(/ADV20 参与率/)).toBeInTheDocument();
   });
@@ -142,7 +149,7 @@ describe('PoolBoardPanel', () => {
   it('shows empty state when the pool has no rows', async () => {
     stubFetch({ success: true, data: { ...payload, row_count: 0, rows: [] } });
 
-    render(<PoolBoardPanel poolId="liquidity-watch" tradeDate="20260408" live={liveOff} />);
+    render(<PoolBoardPanel poolId="liquidity-watch" tradeDate="20260408" live={liveOff} names={names} />);
 
     expect(await screen.findByText(/No rows for pool/)).toBeInTheDocument();
   });
@@ -150,7 +157,7 @@ describe('PoolBoardPanel', () => {
   it('surfaces fetch failures', async () => {
     stubFetch({ detail: 'unknown pool' }, false);
 
-    render(<PoolBoardPanel poolId="nope" live={liveOff} />);
+    render(<PoolBoardPanel poolId="nope" live={liveOff} names={names} />);
 
     await waitFor(() => {
       expect(screen.getByText(/unknown pool/)).toBeInTheDocument();
@@ -160,7 +167,7 @@ describe('PoolBoardPanel', () => {
   it('renders live last/change/spread/volume ratio from the market-state stream', async () => {
     stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" tradeDate="20260408" live={liveOn()} />);
+    render(<PoolBoardPanel poolId="all" tradeDate="20260408" live={liveOn()} names={names} />);
 
     expect(await screen.findByText('1 live')).toBeInTheDocument();
     expect(screen.getByText('100.55')).toBeInTheDocument();
@@ -177,7 +184,7 @@ describe('PoolBoardPanel', () => {
   it('marks the data source when the stream falls back to REST polling', async () => {
     stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" live={{ ...liveOn(), status: 'polling' }} />);
+    render(<PoolBoardPanel poolId="all" live={{ ...liveOn(), status: 'polling' }} names={names} />);
 
     expect(await screen.findByText('1 live · REST')).toBeInTheDocument();
   });
@@ -197,6 +204,7 @@ describe('PoolBoardPanel', () => {
             },
           ],
         })}
+        names={names}
       />,
     );
 
@@ -212,6 +220,7 @@ describe('PoolBoardPanel', () => {
         poolId="all"
         tradeDate="20260408"
         live={liveOff}
+        names={names}
         onUniverseChange={onUniverseChange}
       />,
     );
