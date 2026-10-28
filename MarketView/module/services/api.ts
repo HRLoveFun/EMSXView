@@ -135,10 +135,18 @@ export async function fetchPreTradeBoard(): Promise<PreTradeBoardPayload> {
 }
 
 // 057 DL-15：盘中市场状态快照（实时列数据源；开关关闭时 enabled=false）
-export async function fetchMarketStateSnapshot(): Promise<MarketStateSnapshot> {
-  const response = await fetch(`${API_BASE_URL}/api/market-state/snapshot`, {
-    headers: getAuthHeaders(),
-  });
+export async function fetchMarketStateSnapshot(
+  tickers?: string[],
+): Promise<MarketStateSnapshot> {
+  const params = new URLSearchParams();
+  if (tickers?.length) {
+    params.set('tickers', tickers.join(','));
+  }
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/api/market-state/snapshot${query ? `?${query}` : ''}`,
+    { headers: getAuthHeaders() },
+  );
 
   if (!response.ok) {
     throw new Error(await readError(response));
@@ -146,6 +154,25 @@ export async function fetchMarketStateSnapshot(): Promise<MarketStateSnapshot> {
 
   const json = await response.json();
   return json.data as MarketStateSnapshot;
+}
+
+/**
+ * 盘中市场状态 WebSocket 地址（core 后端 `/ws/market-state`）。
+ *
+ * `VITE_API_URL` 为空时走同源（dev server 的 `/ws` 代理）；配置为 http(s) 绝对
+ * 地址时同端口换成 ws(s)。tickers 作为连接期白名单，切换股票池时由调用方重连。
+ */
+export function resolveMarketStateStreamUrl(tickers: string[] = []): string {
+  const base = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
+  const origin = base
+    ? base.replace(/^http/, 'ws')
+    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+  const params = new URLSearchParams();
+  if (tickers.length) {
+    params.set('tickers', tickers.join(','));
+  }
+  const query = params.toString();
+  return `${origin}/ws/market-state${query ? `?${query}` : ''}`;
 }
 
 // 057 DL-29：固定筛选池池板（量价 / 难度 / 成本同屏，只读）

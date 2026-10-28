@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ModuleIntro } from './components/module-intro';
 import { SummaryCards } from './components/summary-cards';
@@ -8,8 +8,9 @@ import { PoolBoardPanel } from './components/pool-board-panel';
 import { HandoffPanel } from './components/handoff-panel';
 import { ExportOrdersPanel } from './components/export-orders-panel';
 import { PreTradeBoardPanel } from './components/pre-trade-board-panel';
-import { buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
+import { buildLiveQuotes, buildMarketCandidatePayload, countRowsWithSeverity } from './lib/workspace';
 import { fetchIntradayFeatures, fetchMarketSnapshot } from './services/api';
+import { useMarketStateStream } from './hooks/use-market-state-stream';
 import { useHandoffContracts } from '@shared/hooks/use-handoff-contracts';
 import { IntradayFeaturePanel } from './intraday-feature-panel';
 import type {
@@ -125,6 +126,29 @@ export default function MarketViewModule() {
     drillBucketMinutes,
   );
 
+  // ── 实时行情（057 DL-15/DL-29）────────────────────────────────────────
+  // 订阅集合 = 日度快照行 ∪ 池板行（池板无告警筛选，通常是快照的超集）。
+  // 池板通过 onUniverseChange 把自身标的登记进来，避免带筛选时实时列大面积 n/a。
+  const [poolUniverse, setPoolUniverse] = useState<string[]>([]);
+  const handlePoolUniverseChange = useCallback((tickers: string[]) => {
+    setPoolUniverse((current) =>
+      current.length === tickers.length && current.every((ticker, index) => ticker === tickers[index])
+        ? current
+        : tickers,
+    );
+  }, []);
+
+  const liveTickers = useMemo(() => {
+    const rowTickers = snapshot?.rows.map((row) => row.equ_ticker) ?? [];
+    return Array.from(new Set([...rowTickers, ...poolUniverse]));
+  }, [snapshot, poolUniverse]);
+
+  const liveState = useMarketStateStream(liveTickers);
+  const live = useMemo(
+    () => buildLiveQuotes(liveState.snapshot, liveState.status),
+    [liveState.snapshot, liveState.status],
+  );
+
   const updateQuery = <K extends keyof MarketSnapshotRequest>(key: K, value: MarketSnapshotRequest[K]): void => {
     setQuery((current) => ({ ...current, [key]: value }));
   };
@@ -173,6 +197,13 @@ export default function MarketViewModule() {
   const warningCount = countRowsWithSeverity(rows, 'warning');
   const handoffPayload = snapshot ? buildMarketCandidatePayload(snapshot, selectedTickers) : null;
   const activePool = snapshot?.available_pools.find((pool) => pool.pool_id === snapshot.active_pool_id) ?? null;
+  const liveChip = !live.enabled
+    ? 'Live off'
+    : live.status === 'live'
+      ? `Live · WS ${live.byTicker.size}`
+      : live.status === 'polling'
+        ? `Live · REST ${live.byTicker.size}`
+        : 'Live connecting';
 
   return (
     <section className="space-y-6 rounded-2xl border bg-card p-6 shadow-sm">
@@ -203,7 +234,10 @@ export default function MarketViewModule() {
           <div>
             <p className="text-sm font-medium text-foreground">Stock-pool workstation</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              The data source is still the latest trading day snapshot from `bdib_daily_summary`, exposed to MarketView through the `platform_data` adapter layer. All filtering and alerts here are based on daily data and do not represent real-time market conditions.
+              Daily metrics come from the latest `bdib_daily_summary` snapshot via the `platform_data`
+              adapter. Last / Chg % and the pool-board live columns stream from core&apos;s Bloomberg
+              mktdata subscription (WebSocket push, REST fallback), so they reflect the current session
+              rather than the daily close.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -212,6 +246,12 @@ export default function MarketViewModule() {
             </div>
             <div className="rounded-full border border-border px-3 py-1">{activePool?.label ?? 'Stock pool'}</div>
             <div className="rounded-full border border-border px-3 py-1">{rows.length} rows</div>
+            <div
+              className={`rounded-full border px-3 py-1 ${live.status === 'live' ? 'border-emerald-500/40 text-emerald-600' : 'border-border'}`}
+              title={live.asOf ? `Quote time ${live.asOf}` : 'No live quotes yet'}
+            >
+              {liveChip}
+            </div>
           </div>
         </div>
 
@@ -229,6 +269,8 @@ export default function MarketViewModule() {
             poolId={query.pool_id ?? 'all'}
             tradeDate={snapshot?.trade_date}
             limit={query.limit ?? 40}
+            live={live}
+            onUniverseChange={handlePoolUniverseChange}
           />
         </div>
 
@@ -246,6 +288,7 @@ export default function MarketViewModule() {
               rows={rows}
               selectedTickers={selectedTickers}
               drillTicker={drillTicker}
+              live={live}
               onToggleTicker={toggleTicker}
               onSelectAll={() => setSelectedTickers(rows.map((row) => row.equ_ticker))}
               onClearSelection={() => setSelectedTickers([])}

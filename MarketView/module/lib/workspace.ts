@@ -1,8 +1,11 @@
 import type {
+  LiveMarketStateStatus,
+  LiveQuotes,
   MarketAlertSeverity,
   MarketCandidatePayload,
   MarketSnapshotPayload,
   MarketSnapshotRow,
+  MarketStateSnapshot,
 } from '../types';
 
 // 后端 trade_date 约定为 YYYYMMDD；HTML date input 约定为 YYYY-MM-DD。
@@ -24,6 +27,56 @@ export function buildMarketCandidatePayload(
     row_count: candidates.length,
     candidates,
   };
+}
+
+/**
+ * 把实时快照转成表格索引（按 equ_ticker）。
+ *
+ * `enabled=false`（后端开关关闭或无行情）时返回空索引，表格列回落为占位符，
+ * 不把「无数据」渲染成 0。
+ */
+export function buildLiveQuotes(
+  snapshot: MarketStateSnapshot | null,
+  status: LiveMarketStateStatus,
+): LiveQuotes {
+  const enabled = snapshot?.enabled ?? false;
+  const rows = enabled ? snapshot?.tickers ?? [] : [];
+  return {
+    byTicker: new Map(rows.map((state) => [state.equ_ticker, state])),
+    status,
+    enabled,
+    asOf: snapshot?.as_of ?? null,
+  };
+}
+
+/** 实时涨跌幅文本：带符号；缺失返回破折号。 */
+export function fmtSignedPercent(value: number | null | undefined, digits = 2): string {
+  if (value == null) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  })}%`;
+}
+
+/** 涨跌方向着色（涨绿跌红，与池板 Bid/Ask 配色一致）。 */
+export function pctToneClass(value: number | null | undefined): string {
+  if (value == null || value === 0) return 'text-muted-foreground';
+  return value > 0 ? 'text-emerald-500' : 'text-rose-500';
+}
+
+/**
+ * 盘中实时参与率：实时成交量 ÷ 日度 ADV（%）。
+ *
+ * 用日度快照的 ADV20 做分母而不是订阅 5 日均量：mktdata 的 VOLUME_AVG_5D
+ * 在本机终端不推送（2026-10-28 实测），而 ADV20 已在池板载荷里。
+ */
+export function liveVolumeVsAdvPct(
+  volume: number | null | undefined,
+  adv: number | null | undefined,
+): number | null {
+  if (volume == null || adv == null || adv <= 0) return null;
+  return (volume / adv) * 100;
 }
 
 export function countRowsWithSeverity(

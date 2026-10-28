@@ -372,3 +372,72 @@ blpapi/
 ```
 
 > 说明：`.pyd` 为编译后的 C 扩展，无法阅读；其余 `.py` 均为包装层，本文档结论全部基于对这些 `.py` 源码的逐文件阅读。
+
+---
+
+## 15. 实时行情落地链路（本项目实践）
+
+本节记录「订阅 → 缓存 → 契约 → 前端」的完整链路与实盘实测结论，供后续接入新的实时字段时复用。
+
+### 15.1 五段链路
+
+| 段 | 位置 | 职责 |
+|---|---|---|
+| ① 会话与订阅 | `backend/api/services/bloomberg/enrichment.py`（`MarketDataEnrichmentService`） | 独立后台线程持有一条 `Session`，`//blp/mktdata/{ticker}` + `CorrelationId(ticker)` 批量订阅 |
+| ② 事件泵与缓存 | 同上（`_mktdata_subscription_loop` / `_process_mktdata_message`） | `nextEvent(2000)` 拉事件；`SUBSCRIPTION_DATA` 解析为 `_intraday_quotes[ticker]`（增量合并 + `updated_at`）；`SUBSCRIPTION_STATUS` 处理失败/永久失败重试 |
+| ③ 门面暴露 | `backend/api/services/bloomberg/adapter.py` | `intraday_quotes` / `price_changes` 只读属性，避免消费方直接摸内部实现 |
+| ④ 契约与端点 | `backend/api/services/market_state_service.py` + `routers/market_state.py` | 组装 `MarketStateSnapshot`（价差 bps、基线差、涨跌幅）；REST + WS 同一形状 |
+| ⑤ 前端 | `MarketView/module/hooks/use-market-state-stream.ts` | WS 推送优先、断线回落 5 秒 REST 轮询，供 Stock-pool workstation 实时列 |
+
+### 15.2 订阅代码骨架（与项目实现同构）
+
+```python
+options = blpapi.SessionOptions()
+options.setServerHost("localhost"); options.setServerPort(8194)
+session = blpapi.Session(options)
+session.start()
+session.openService("//blp/mktdata")
+
+subs = blpapi.SubscriptionList()
+subs.add(topic=f"//blp/mktdata/{ticker}", fields=FIELDS,
+         correlationId=blpapi.CorrelationId(ticker))
+session.subscribe(subs)
+
+while not stop:
+    event = session.nextEvent(2000)          # 事件泵；超时返回 Event.TIMEOUT
+    if event.eventType() == blpapi.Event.SUBSCRIPTION_DATA:
+        for msg in event:                    # msg.correlationId().value() == ticker
+            ...
+```
+
+要点：`correlationId` 用 ticker 本身即可免去维护映射表；字段用 `SubscriptionList.add(fields=...)` 限定，未列字段不推送；解析必须先 `hasElement` 再取值（缺失字段直接取会抛异常）。
+
+### 15.3 字段实盘可用性（2026-10-28 本机终端实测，AAPL US Equity）
+
+| 字段 | 结论 | 说明 |
+|---|---|---|
+| `BID` / `ASK` / `LAST_PRICE` / `VOLUME` / `HIGH` / `LOW` / `OPEN` | 可用 | 初始快照与增量推送均正常 |
+| `PREV_CLOSE_VALUE_REALTIME` | 可用 | 实时涨跌幅的回落口径来源 |
+| `CHG_PCT_1D` / `NET_CHG_PCT_1D` / `PX_CLOSE_1D` | 不推送 | 订阅后元素始终缺失（不是空值） |
+| `VOLUME_AVG_5D` / `VOLUME_AVG_20D` | 不推送 | 均量改用日度基线（`bdib_daily_summary` 的 ADV） |
+| `PX_ROUND_LOT_SIZE` | 不推送 | 整手走 `//blp/refdata` 查询（既有实现） |
+| `VWAP` | 推送但为 `0.0` | 不可直接使用 |
+
+结论：工作站涨跌幅 = `CHG_PCT_1D` 优先、缺失时 `LAST_PRICE ÷ PREV_CLOSE_VALUE_REALTIME − 1`；实时参与率 = 实时 `VOLUME` ÷ 日度 ADV20（不订阅均量字段）。终端权限不同时推送集可能不同，代码对两种情形都成立。
+
+### 15.4 契约与端点
+
+- 契约：`MarketStateTickerState`（`platform_data/contracts/market_contracts.py`），`MARKET_STATE_SCHEMA_VERSION = "market-state-v2"`，v2 新增 `pct_change_1d`。
+- `GET /api/market-state/snapshot?tickers=A,B`：一次性快照（开关关闭时 `enabled:false`）。
+- `WS /ws/market-state?tickers=A,B`：每 `EMSXVIEW_MARKET_STATE_PUSH_INTERVAL`（默认 5）秒推送 `{"type":"market_state","data":…}`；`tickers` 为连接期白名单，切换股票池时以新 URL 重连。
+- 白名单上限 500（`routers/market_state.py::MAX_TICKERS`），超出返回 400。
+
+### 15.5 前端消费
+
+`useMarketStateStream(tickers)`（单连接，模块级持有）：首帧走 REST 避免空等 → 注册 mktdata 订阅（`POST /api/market-state/subscribe`）→ 打开 WS；WS 断开期间自动 5 秒 REST 轮询，重连成功后停止。表格层用 `buildLiveQuotes()` 把快照索引成 `Map<equ_ticker, state>`，实时列缺失回落 `—` / `n/a`，不填 0。
+
+### 15.6 现场核对清单
+
+1. 后端日志出现 `Mktdata subscriptions started: N (...)`；失败时 `Mktdata subscription failures` 会带 `rcode`。
+2. `curl -H "Authorization: Bearer <token>" "http://<host>:3000/api/market-state/snapshot?tickers=AAPL%20US%20Equity"` 应返回非空 `tickers`（开关默认开启）。
+3. 前端工作站右上角徽标：`Live · WS N`（推送）/ `Live · REST N`（回落）/ `Live off`（开关关闭或无行情）。

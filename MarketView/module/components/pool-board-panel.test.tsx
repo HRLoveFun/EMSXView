@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
 import { PoolBoardPanel } from './pool-board-panel';
-import type { PoolBoardPayload } from '../types';
+import type { LiveQuotes, MarketStateTickerState, PoolBoardPayload } from '../types';
 
 const payload: PoolBoardPayload = {
   trade_date: '20260408',
@@ -58,6 +58,37 @@ const payload: PoolBoardPayload = {
   generated_at: '2026-10-27T01:00:00+00:00',
 };
 
+const liveQuote: MarketStateTickerState = {
+  equ_ticker: 'SEC_A US Equity',
+  as_of: '2026-10-27T10:00:00',
+  bid: 99.9,
+  ask: 100.1,
+  last: 100.55,
+  high: 101,
+  low: 99,
+  volume: 123_456,
+  spread_bps: 2,
+  spread_vs_baseline_bps: null,
+  pct_change_1d: 1.234,
+  cumulative_volume_ratio: null,
+  flags: [],
+  schema_version: 'market-state-v2',
+};
+
+const liveOff: LiveQuotes = {
+  byTicker: new Map(),
+  status: 'idle',
+  enabled: false,
+  asOf: null,
+};
+
+const liveOn = (overrides: Partial<MarketStateTickerState> = {}): LiveQuotes => ({
+  byTicker: new Map([['SEC_A US Equity', { ...liveQuote, ...overrides }]]),
+  status: 'live',
+  enabled: true,
+  asOf: '2026-10-27T10:00:00',
+});
+
 const stubFetch = (body: unknown, ok = true): void => {
   vi.stubGlobal(
     'fetch',
@@ -66,36 +97,7 @@ const stubFetch = (body: unknown, ok = true): void => {
       if (url.includes('pool-board')) {
         return { ok, json: async () => body };
       }
-      if (url.includes('subscribe')) {
-        return {
-          ok: true,
-          json: async () => ({ success: true, data: { accepted: [], rejected: 0, total_extra: 0 } }),
-        };
-      }
-      if (url.includes('market-state')) {
-        return {
-          ok: true,
-          json: async () => ({ success: true, data: { enabled: false, tickers: [] } }),
-        };
-      }
       return { ok: false, json: async () => ({ detail: 'unknown endpoint' }) };
-    }),
-  );
-};
-
-const stubFetchWithLive = (body: unknown, live: unknown): void => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: unknown) => {
-      const url = String(input);
-      if (url.includes('pool-board')) return { ok: true, json: async () => body };
-      if (url.includes('subscribe')) {
-        return {
-          ok: true,
-          json: async () => ({ success: true, data: { accepted: [], rejected: 0, total_extra: 0 } }),
-        };
-      }
-      return { ok: true, json: async () => ({ success: true, data: live }) };
     }),
   );
 };
@@ -108,7 +110,7 @@ describe('PoolBoardPanel', () => {
   it('renders metrics, cost reference and explicit gaps', async () => {
     stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" tradeDate="20260408" />);
+    render(<PoolBoardPanel poolId="all" tradeDate="20260408" live={liveOff} />);
 
     expect(await screen.findByText('SEC_A US Equity')).toBeInTheDocument();
     expect(screen.getByText('2 rows')).toBeInTheDocument();
@@ -121,7 +123,7 @@ describe('PoolBoardPanel', () => {
   it('shows the cost assumption text', async () => {
     stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" />);
+    render(<PoolBoardPanel poolId="all" live={liveOff} />);
 
     expect(await screen.findByText(/ADV20 参与率/)).toBeInTheDocument();
   });
@@ -129,7 +131,7 @@ describe('PoolBoardPanel', () => {
   it('shows empty state when the pool has no rows', async () => {
     stubFetch({ success: true, data: { ...payload, row_count: 0, rows: [] } });
 
-    render(<PoolBoardPanel poolId="liquidity-watch" tradeDate="20260408" />);
+    render(<PoolBoardPanel poolId="liquidity-watch" tradeDate="20260408" live={liveOff} />);
 
     expect(await screen.findByText(/No rows for pool/)).toBeInTheDocument();
   });
@@ -137,48 +139,74 @@ describe('PoolBoardPanel', () => {
   it('surfaces fetch failures', async () => {
     stubFetch({ detail: 'unknown pool' }, false);
 
-    render(<PoolBoardPanel poolId="nope" />);
+    render(<PoolBoardPanel poolId="nope" live={liveOff} />);
 
     await waitFor(() => {
       expect(screen.getByText(/unknown pool/)).toBeInTheDocument();
     });
   });
 
-  it('shows live bid/ask/last when quotes are available', async () => {
-    stubFetchWithLive(
-      { success: true, data: payload },
-      {
-        as_of: '2026-10-27T01:00:00+00:00',
-        enabled: true,
-        schema_version: 'market-state-v1',
-        thresholds: {},
-        tickers: [
-          {
-            equ_ticker: 'SEC_A US Equity',
-            as_of: '2026-10-27T01:00:00+00:00',
-            bid: 99.9,
-            ask: 100.1,
-            last: 100.55,
-            high: 101,
-            low: 99,
-            volume: 123456,
-            spread_bps: 2,
-            spread_vs_baseline_bps: null,
-            cumulative_volume_ratio: null,
-            flags: [],
-            schema_version: 'market-state-v1',
-          },
-        ],
-      },
-    );
+  it('renders live last/change/spread/volume ratio from the market-state stream', async () => {
+    stubFetch({ success: true, data: payload });
 
-    render(<PoolBoardPanel poolId="all" tradeDate="20260408" />);
+    render(<PoolBoardPanel poolId="all" tradeDate="20260408" live={liveOn()} />);
 
     expect(await screen.findByText('1 live')).toBeInTheDocument();
+    expect(screen.getByText('100.55')).toBeInTheDocument();
+    expect(screen.getByText('+1.23%')).toBeInTheDocument();
     expect(screen.getByText('99.90')).toBeInTheDocument();
     expect(screen.getByText('100.10')).toBeInTheDocument();
-    expect(screen.getByText('100.55')).toBeInTheDocument();
+    expect(screen.getByText('2.00')).toBeInTheDocument();
+    // 实时参与率：123,456 ÷ ADV20 2,000,000 = 6.2%
+    expect(screen.getByText('6.2%')).toBeInTheDocument();
     // 未订阅到行情的标的保持 n/a
     expect(screen.getAllByText('n/a').length).toBeGreaterThan(0);
+  });
+
+  it('marks the data source when the stream falls back to REST polling', async () => {
+    stubFetch({ success: true, data: payload });
+
+    render(<PoolBoardPanel poolId="all" live={{ ...liveOn(), status: 'polling' }} />);
+
+    expect(await screen.findByText('1 live · REST')).toBeInTheDocument();
+  });
+
+  it('shows a flag badge with server-side evidence when a live alert fires', async () => {
+    stubFetch({ success: true, data: payload });
+
+    render(
+      <PoolBoardPanel
+        poolId="all"
+        live={liveOn({
+          flags: [
+            {
+              code: 'SPREAD_VS_BASELINE_WIDE',
+              severity: 'WARN',
+              evidence: '12.00 bps > 5.0 bps',
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(await screen.findByTitle(/SPREAD_VS_BASELINE_WIDE: 12.00 bps/)).toBeInTheDocument();
+  });
+
+  it('reports its universe so the module can subscribe those tickers', async () => {
+    stubFetch({ success: true, data: payload });
+    const onUniverseChange = vi.fn();
+
+    render(
+      <PoolBoardPanel
+        poolId="all"
+        tradeDate="20260408"
+        live={liveOff}
+        onUniverseChange={onUniverseChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onUniverseChange).toHaveBeenCalledWith(['SEC_A US Equity', 'SEC_B US Equity']);
+    });
   });
 });

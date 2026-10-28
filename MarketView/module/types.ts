@@ -288,6 +288,8 @@ export interface MarketStateTickerState {
   volume: number | null;
   spread_bps: number | null;
   spread_vs_baseline_bps: number | null;
+  /** v2：实时涨跌幅（百分数，1.23 表示 +1.23%） */
+  pct_change_1d: number | null;
   cumulative_volume_ratio: number | null;
   flags: MarketStateFlag[];
   schema_version: string;
@@ -299,6 +301,17 @@ export interface MarketStateSnapshot {
   tickers: MarketStateTickerState[];
   thresholds: Record<string, unknown>;
   schema_version: string;
+}
+
+/** 实时数据来源状态：live = WS 推送；polling = WS 不可用、REST 轮询。 */
+export type LiveMarketStateStatus = 'idle' | 'connecting' | 'live' | 'polling';
+
+/** 供表格消费的实时行情索引（按 equ_ticker 对齐日度快照行）。 */
+export interface LiveQuotes {
+  byTicker: Map<string, MarketStateTickerState>;
+  status: LiveMarketStateStatus;
+  enabled: boolean;
+  asOf: string | null;
 }
 
 // ── 057 DL-29：固定筛选池池板（量价 / 难度 / 成本同屏） ──────────
