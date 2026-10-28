@@ -1,4 +1,4 @@
-# 057 子任务清单（DL-01 至 DL-28）
+# 057 子任务清单（DL-01 至 DL-33）
 
 > 伞计划：[`plan.md`](plan.md)。DL 编号即执行顺序。每项含 G1 三栏（理论依据 / 技术方案 / 检验方法）与预留接口；**检验方法即该子任务的验收标准**。
 > 状态以本文件为准，由各子任务 PR 随代码一起更新。
@@ -50,8 +50,11 @@
 | DL-13 | 预期成本与 timing risk 模型 | 1c | 低 | 1.5 | DL-04、DL-10、DL-12 | 已完成 | 068 |
 | DL-14 | 盘前单与 handoff v2 | 1c | 低 | 1 | DL-01、DL-10、DL-11、DL-13 | 已完成 | 069 |
 | DL-15 | 盘中市场状态 | 1d | 中低 | 1.5 | DL-10 | 已完成（079 后端契约/订阅扩字段/快照服务/REST+WS + 080 MonitorBoard 阈值下发与前端消费） | 079/080 |
-| DL-29 | MarketView 固定筛选池汇集与检查（量价/难度/成本同屏） | 1e | 低 | 1.5 | DL-13、DL-14、DL-15 | 已完成（097：`pool-board` 端点 + `PoolBoardPanel`；待用户复核） | 097 |
-| DL-30 | ExecutionView 执行区间量价视图（区间曲线 + 对照） | 1e | 中低 | 1.5 | DL-12、DL-13、DL-15 | 已完成（098：`interval-series` 端点 + `IntervalSeriesPanel`；待用户复核） | 098 |
+| DL-29 | MarketView 固定筛选池汇集与检查（量价/难度/成本同屏） | 1e | 低 | 1.5 | DL-13、DL-14、DL-15 | 已完成（097：`pool-board` 端点 + `PoolBoardPanel`）；**前端池板于 2026-10-28 退役，取数层与额外订阅机制由 DL-32 复用** | 097 |
+| DL-30 | ExecutionView 执行区间量价视图（区间曲线 + 对照） | 1e | 中低 | 1.5 | DL-12、DL-13、DL-15 | 已完成（098）；**2026-10-28 移出节点一**，按执行侧需要另排 | 098 |
+| DL-31 | 指数成分股池与订阅范围（池 → 订阅） | 1e | 低 | 1.5 | DL-03、DL-15、DL-29 | 待开始 | — |
+| DL-32 | 监控台聚合端点（高亮面板 + 监控表） | 1e | 低 | 1.5 | DL-10、DL-15、DL-29、DL-31 | 待开始 | — |
+| DL-33 | 行详情三联图（价格量分布 / 累计量 / 累计量占比） | 1e | 中低 | 2 | DL-31、DL-32 | 待开始 | — |
 | DL-16 | 规范参数注册表 | 2a | 低 | 1 | DL-04 | 已完成 | 070 |
 | DL-17 | 约束策略引擎 | 2a | 低 | 1.5 | DL-01、DL-03、DL-11、DL-16 | 已完成（071/072/073）；**闭环以 A01/A02 为准** | 073 |
 | DL-18 | 参数策略 v0 | 2a | 低 | 1.5 | DL-03、DL-10、DL-13、DL-16、DL-17 | 已完成 | 074 |
@@ -231,9 +234,11 @@
 - **检验方法**：字段解析单测；推送延迟与丢包观测；开关关闭时行为与现状一致；阈值变更进审计
 - **预留接口**：盘中字段并入 MarketStateSnapshot；决策时点的报价价差随决策日志快照落盘（DL-21）
 
-## 1e 视角分工（市场走势 × 交易执行）
+## 1e MarketView 监控台（高亮面板 + 表格 + 行详情）
 
-> 本批补齐两个视图的基本使命，边界见 [`AGENTS.md` §4.0](../../AGENTS.md)：MarketView 按「标的 × 交易日」只读提示；ExecutionView 按「订单/路由 × 执行区间」看执行质量。两视图共享同一批行情/基线数据，**不合并、不互相替代**。
+> 边界见 [`AGENTS.md` §4.0](../../AGENTS.md)：MarketView 按「标的 × 交易日」只读提示，ExecutionView 按「订单/路由 × 执行区间」看执行质量。两视图共享同一批行情/基线数据，**不合并、不互相替代**。
+>
+> **2026-10-28 重定义**：节点一收敛为 MarketView 单一监控台，本批改为 DL-31（指数池与订阅范围）→ DL-32（高亮面板 + 监控表聚合端点）→ DL-33（行详情三联图）。DL-29 的取数层与额外订阅机制保留复用，前端池板退役；DL-30 移出节点一，按执行侧需要另排。
 
 ### DL-29 MarketView 固定筛选池汇集与检查（量价/难度/成本同屏）
 
@@ -260,6 +265,53 @@
   - 前端在 MonitorBoard 增区间分栏/抽屉：价格线与累计量、区间 VWAP vs 成交均价 vs 到达价，可对照全天走势；MarketView 侧不新增执行字段。
 - **检验方法**：区间边界单测（跨午休、半日市、跨日、未结束订单）；缺 bar 时 gap 可见且不插值；与 MonitorBoard 现有 Ivl VWAP 抽样对账；两视角切换前端测试；端点权限与审计基线遵循 A04/A05。
 - **预留接口**：区间序列供 DL-26 信号回检与决策日志事后复盘；对照指标口径与 CostView 的 arrival/VWAP 定义保持同源。
+
+### DL-31 指数成分股池与订阅范围（池 → 订阅）
+
+- 风险：低 · 预估：1.5 周 · 依赖：DL-03、DL-15、DL-29
+- 需求：R1 交易前检测 · 模块：MarketView、platform_data
+- **理论依据**：监控台的证券范围必须由池决定，而不是由「历史上成交过的 ticker」决定（现有 `raw_bdib` 的证券范围来自 `ticker_repository`，只含成交过的票）——否则新纳入指数、尚未成交过的标的永远不进视野，交易前检测从入口就失效。池成员同时是订阅范围的唯一来源，才能保证「表里出现什么」与「订阅了什么」一致，额度也可按池预算。
+- **技术方案**：
+  - 契约 `IndexPool`（pool_id、label、index_ticker、as_of、source、members）与 `IndexPoolMember`（equ_ticker、name、exchange、session_market、currency、weight 可选），按 `module-boundary.md` §2.3 登记。
+  - 池来源优先级：① 管道 `index_constituent` 表（跨仓，沿用 DL-09 的「表存在即读、缺失回落」模式）；② 仓库内配置 `MarketView/config/index_pools.json`（v0 唯一可用来源）。响应必须带 `source=config|table` 与 `as_of`，禁止把配置池当成实时指数成分。
+  - 开发验证池 `dev-validation`：9 个 ticker（`NVDA US Equity`、`601398 CH Equity`、`700 HK Equity`、`285A JP Equity`、`HSBA LN Equity`、`SAP GY Equity`、`MC FP Equity`、`BHP AU Equity`、`005930 KS Equity`），一市场一个，覆盖 9 个会话；验证通过后再换指数全集。
+  - 市场码规范化：`GY→GR`（Xetra）、`CH→C1`（上交所/沪港通）在建池时统一到 `SESSION_REGISTRY` 的键；`SESSION_REGISTRY` 补 `GR` 的 Xetra 时段与 `C1` 的午休，使 Status 列对 9 个市场都有意义（现状 `GY` 未注册、`CH` 仅靠 `market_clock` 别名，见 `MarketView/market_clock.py:27`）。
+  - 订阅范围 = 池成员 ∩（会话 open，或距开盘 ≤60 分钟）；超过 `EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS` 时按「异常严重度 → 池权重 → ticker」截断并返回 `subscription_truncated=true`，不静默丢。
+  - MarketView 不直连 Bloomberg：池成员与 `subscribe_tickers` 由 MarketView 响应返回，前端沿用 `POST /api/market-state/subscribe` + `/ws/market-state` 上报（core 是唯一订阅方与额度闸门，见 `backend/api/services/bloomberg/enrichment.py:415` `add_mktdata_tickers`）。
+  - **数据现状（2026-10-28 只读实测，作为本条的已知缺口）**：9 个验证 ticker 中 7 个在 `raw_bdib` 有 10 秒 bar（2026-03-02 起，日均 1.4k–2.5k 根）；`SAP GY Equity` 与 `MC FP Equity` 既无 bar 也不在 `ticker_repository`（管道证券范围 = 历史上成交过的票），必须由管道把范围扩到指数池后才会有数——本侧只读，只能显式显示「无数据」。`bdib_daily_summary` 基线对 `700 HK`（最新 20260928）、`005930 KS`（20261016）、`285A JP`（20261023）滞后于 bar（20261027），行上必须标 `stale` 并回落到当日 bar 计算当日量；`bdib_market_snapshot` 本机尚不存在，086 路径继续走明细回落。
+- **检验方法**：池契约单测（config/table 两种来源、缺表回落、`as_of` 透出）；市场码规范化与 9 市场会话判定用例；订阅截断用例（上限下界）；9 个验证 ticker 全部出现在 board 且 `subscribe_tickers` 与池成员一致；边界审计确认无写库路径。
+- **预留接口**：`IndexPool` 供后续「按指数换池」与「池权重进难度分」；pool_id 与 as_of 进决策日志。
+
+### DL-32 监控台聚合端点（高亮面板 + 监控表）
+
+- 风险：低 · 预估：1.5 周 · 依赖：DL-10、DL-15、DL-29、DL-31
+- 需求：R1 交易前检测 · 模块：MarketView、platform_data
+- **理论依据**：高亮面板与表格必须同源——用户先看「哪些票异常」，再看「这一票的全部指标」，两处若各自算阈值就会出现「面板说异常、表里正常」。一次聚合、两视图共用同一行结构，异常判定只有一个实现。
+- **技术方案**：
+  - 端点 `GET /api/marketview/monitor-board?pool_id=`，返回 `MarketMonitorBoard`（pool_id、source、as_of、rows、highlights、gaps、subscribe_tickers、subscription_truncated）。
+  - 行契约 `MarketMonitorRow` 与前端 14 列一一对应：`ticker`、`name`、`status`、`last`、`chg_pct`、`close`、`total_vol`、`adv_20d`、`vol_vs_adv20`、`daily_vol`、`intraday_vol`、`liquidity`、`volatility`、`risk_notes`；另带逐字段 `as_of` 与 `data_gaps`。
+  - 取数：`close / adv_20d / daily_vol / intraday_vol` 取 `bdib_daily_summary` 最新可用日（逐行带 `baseline_date`，过期即 `stale`）；`last / chg_pct / total_vol` 取 core `market-state` 快照，无订阅或休市回落当日 bar 末值与当日累计量（`source=live|bar`）；`chg_pct` 基准 = 前一交易日 `daily_close`（不用 `CHG_PCT_1D`——实测本机终端不推送，见 `enrichment.py:29`）。
+  - 三个高亮模块 = 同一批行按 `liquidity` / `volatility` / `risk_notes` 过滤投影，各含 `{ticker, metric, value, threshold, severity}`；阈值 v0 沿用现有绝对阈值（2×/5×/0.5×/0.25× ADV20；日波动 25/40、日内波动 2/3），另出 60 日分位字段供后续换相对阈值。
+  - `risk_notes` 由后端生成（缺基线、基线过期、缺 bar、ADV20 覆盖不足、半日市、休市、波动越阈、流动性越阈），前端只渲染不再拼文案。
+  - 刷新：实时列 5s（core 推送节流），基线列随作业（`as_of` 变化才重取）；整表一次拉取，避免 14 列 × N 行多次请求。
+- **检验方法**：行字段完整性单测（缺数据显式 null + gap，不填 0）；面板与表格同源一致性用例（同一行在 highlights 与 rows 的 severity 相等）；9 个验证 ticker 的 `as_of` 与来源标注核对；无实时订阅时回落 bar 且 `source` 可见；前端三态（加载/空池/错误）与 14 列渲染测试。
+- **预留接口**：`MarketMonitorRow` 供 DL-33 详情抽屉共用同一 `as_of`；severity 与阈值版本入决策日志。
+
+### DL-33 行详情三联图（价格量分布 / 累计量 / 累计量占比）
+
+- 风险：中低 · 预估：2 周 · 依赖：DL-31、DL-32
+- 需求：R1 交易前检测 · 模块：MarketView、platform_data
+- **理论依据**：「量在价上的分布」与「量在时间上的推进」是两条独立的执行难度线索：前者回答今天成交集中在哪个价位、还剩多少价格空间，后者回答后面还有多少量；两者与前五日同一时间轴对齐，才能判断今天是否提前放量。
+- **技术方案**：
+  - 端点 `GET /api/marketview/ticker-detail?ticker=&trade_date=`，一次返回三图共用的 x 轴与全部序列：`TickerIntradayDetail`（session、buckets、price_bins、ohlc、cumulative、cumulative_pct、prev5_avg、gaps、prev5_days）。
+  - x 轴统一为「会话内分钟序号」（开市 = 0，午休跳过），跨市场可比；桶默认 10 分钟，桶标签同时给本地时间。
+  - 图一（价格—成交量分布）：桶内按 bar 的 high/low 与成交量摊到价格分档（分档数自适应，返回 `price_bins`），每桶一个横向分布；叠加当日 O/H/L/C 四条参考线。
+  - 图二（累计量）：当日累计量曲线 + 前五个交易日（同日历向前取 5 个有 bar 的交易日）按会话时间对齐的均值曲线；不足 5 日按实际天数返回 `prev5_days`。
+  - 图三（累计量占比）：两条曲线各除以自身总量，压到 0–1。
+  - 数据：`raw_bdib` 10 秒 bar（只读）；缺 bar 的桶 `gap=true`、曲线断开不插值；`bdib_volume_profile`（DL-09 已规划）就绪后作为加速路径，未就绪走 bar 聚合。
+  - 前端用 `recharts`（已在依赖内，不新增图表库）画三联图，抽屉内纵向排列、共享 x 轴；行点击触发，URL 带 `?ticker=` 便于复现。
+- **检验方法**：桶边界与午休裁剪用例（JP/HK/C1 午休、US 无午休、AU 10:00 开市）；前五日均值对齐用例（缺日、半日市、跨 DST）；缺 bar 时 gap 与断线用例；三序列总量守恒（图三末值 = 1 ± 1e-9）；端点只用只读连接、无写路径。
+- **预留接口**：`TickerIntradayDetail` 供 ExecutionView 区间视图与 CostView 事后归因复用同一桶口径；`prev5_days` 与 `gaps` 进决策日志。
 
 ## 2a 策略骨架
 
