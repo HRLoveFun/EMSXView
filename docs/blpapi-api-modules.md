@@ -488,3 +488,12 @@ python scripts/diagnose/blpapi_mktdata_probe.py --tickers "AAPL US Equity,700 HK
 - 判读顺序：先看「窗口内 `LAST_PRICE` 有跳动」确认时段（休市市场不会跳），再看字段覆盖表。
 - 复测建议：美股开盘（21:30 HKT）与欧洲开盘（15:00 HKT）各跑一次，验证 `VWAP`、`BID_SIZE`/`ASK_SIZE` 在开盘时段的表现。
 - 样本清单 `scripts/diagnose/mktdata_market_samples.txt` 每市一个高流动性标的；公司行动导致失效时，探针会在失败清单中点名。
+
+### 15.8 参考数据：中文简称（`NAME_CHINESE_SIMPLIFIED`）
+
+该字段**不在** mktdata 推送面，只能走 `//blp/refdata` 的 `ReferenceDataRequest`：
+
+- core 提供只读端点 `GET /api/securities/names?tickers=A,B`（`backend/api/routers/securities.py`），服务层 `SecurityNamesService`（`services/bloomberg/security_names.py`）用单会话取数 + 进程内缓存——名称是静态参考数据，命中后不再打终端；失败不写负缓存，下次重试。
+- MarketView 微服务没有 Bloomberg 会话，`Name` 列由前端经 core 取一次（`useSecurityNames`，模块内按 ticker 增量），解析不到显示 `—`。
+- 实测（2026-10-28，含缓存命中）：`AAPL US Equity → 苹果公司`、`700 HK Equity → 腾讯控股有限公司`、`6758 JP Equity → 索尼集团公司`、`SAP EU Equity → SAP公司`。
+- 边界：无效 ticker 可能被终端**模糊匹配**成别的证券而不报 `securityError`（实测 `BAD XX Equity` 解析出了真实公司名），因此只应用于库内既有的 ticker，不要拿用户手输代码直接查。

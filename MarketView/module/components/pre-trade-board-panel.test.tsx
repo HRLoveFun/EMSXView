@@ -92,8 +92,13 @@ const stubFetch = (body: unknown, ok = true): void => {
   );
 };
 
+const names = new Map<string, string>([
+  ['SEC_A US Equity', '甲证券股份有限公司'],
+  ['SEC_B US Equity', '乙证券股份有限公司'],
+]);
+
 const renderPanel = (live: LiveQuotes = liveOff, onUniverseChange = vi.fn()) =>
-  render(<PreTradeBoardPanel live={live} onUniverseChange={onUniverseChange} />);
+  render(<PreTradeBoardPanel live={live} names={names} onUniverseChange={onUniverseChange} />);
 
 afterEach(() => {
   vi.unstubAllGlobals();

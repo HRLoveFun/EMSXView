@@ -16,6 +16,7 @@ import {
   getIntentTone,
   isLiveTrading,
   renderMarketStatusBadge,
+  renderSecurityName,
 } from '../marketview-utils';
 
 // 盘前单刷新间隔：跟随管道盘中作业 J1 的约 5 分钟轮次（意图/订单状态/路由参数）
@@ -123,11 +124,17 @@ const LiveCell = ({
 interface PreTradeBoardPanelProps {
   /** 统一行情流（与池板/快照表共用模块级单连接：WS 推送、断线回落 REST）。 */
   live: LiveQuotes;
+  /** 中文简称（core refdata 解析结果；缺失显示破折号） */
+  names: Map<string, string>;
   /** 把本面板标的登记给上层订阅集合（盘前单的票不一定在日度快照/池板里）。 */
   onUniverseChange?: (tickers: string[]) => void;
 }
 
-export const PreTradeBoardPanel = ({ live, onUniverseChange }: PreTradeBoardPanelProps) => {
+export const PreTradeBoardPanel = ({
+  live,
+  names,
+  onUniverseChange,
+}: PreTradeBoardPanelProps) => {
   const { data, error, isLoading, reload } = useAsyncData('pretrade-board', fetchPreTradeBoard);
 
   // 盘中随作业刷新：意图与订单状态跟随 J1 轮次；实时列由模块级 WS 负责，不再单独轮询
@@ -252,10 +259,10 @@ export const PreTradeBoardPanel = ({ live, onUniverseChange }: PreTradeBoardPane
           )}
 
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[1340px] text-sm">
+            <table className="w-full min-w-[1460px] text-sm">
               <thead className="bg-muted/50">
                 <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <th colSpan={3} className="px-3 pb-1 pt-3 text-left font-semibold">
+                  <th colSpan={4} className="px-3 pb-1 pt-3 text-left font-semibold">
                     Order (static)
                   </th>
                   <th
@@ -279,6 +286,7 @@ export const PreTradeBoardPanel = ({ live, onUniverseChange }: PreTradeBoardPane
                 </tr>
                 <tr className="text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-3 pb-3 text-left font-medium">Code</th>
+                  <th className="px-3 pb-3 text-left font-medium">Name</th>
                   <th className="px-3 pb-3 text-left font-medium">Intent</th>
                   <th className="px-3 pb-3 text-right font-medium">Qty</th>
                   <th className="border-l border-border/60 px-3 pb-3 text-right font-medium">
@@ -305,6 +313,7 @@ export const PreTradeBoardPanel = ({ live, onUniverseChange }: PreTradeBoardPane
                       className="border-t border-border/60"
                     >
                       <td className="px-3 py-2 font-medium text-foreground">{item.equ_ticker}</td>
+                      <td className="px-3 py-2 text-xs">{renderSecurityName(names.get(item.equ_ticker))}</td>
                       <td className="px-3 py-2">
                         <span
                           className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-medium ${getIntentTone(item.benchmark)}`}

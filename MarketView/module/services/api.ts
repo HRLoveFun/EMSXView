@@ -229,6 +229,25 @@ export interface SubscribeResult {
   total_extra: number;
 }
 
+// ── 参考数据：中文简称（core 的 refdata 端点，进程内缓存）──────────────────
+export interface SecurityNamesPayload {
+  names: Record<string, string>;
+  missing: string[];
+  field: string;
+}
+
+export async function fetchSecurityNames(tickers: string[]): Promise<SecurityNamesPayload> {
+  const params = new URLSearchParams({ tickers: tickers.join(',') });
+  const response = await fetch(`${API_BASE_URL}/api/securities/names?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  const body = (await response.json()) as { data: SecurityNamesPayload };
+  return body.data;
+}
+
 export async function subscribeMarketState(tickers: string[]): Promise<SubscribeResult> {
   const response = await fetch(`${API_BASE_URL}/api/market-state/subscribe`, {
     method: 'POST',

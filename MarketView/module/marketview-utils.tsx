@@ -27,6 +27,16 @@ export function isLiveTrading(status: MarketTradingStatus): boolean {
   return status === 'open' || status === 'lunch';
 }
 
+/** 名称列：中文全名可能较长，截断显示、tooltip 给全名；缺失给破折号。 */
+export function renderSecurityName(name?: string | null) {
+  if (!name) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="block max-w-[180px] truncate" title={name}>
+      {name}
+    </span>
+  );
+}
+
 export function renderMarketStatusBadge(status: MarketTradingStatus, time?: string | null) {
   return (
     <span

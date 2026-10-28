@@ -8,6 +8,7 @@ import {
   getSeverityText,
   isLiveTrading,
   renderMarketStatusBadge,
+  renderSecurityName,
   renderSeverityBadge,
 } from '../marketview-utils';
 import { fmtSignedPercent, pctToneClass } from '../lib/workspace';
@@ -17,6 +18,8 @@ interface SnapshotTableProps {
   selectedTickers: string[];
   drillTicker: string | null;
   live: LiveQuotes;
+  /** 中文简称（core refdata 解析结果；缺失显示破折号） */
+  names: Map<string, string>;
   onToggleTicker: (ticker: string) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -46,6 +49,7 @@ export const SnapshotTable = ({
   selectedTickers,
   drillTicker,
   live,
+  names,
   onToggleTicker,
   onSelectAll,
   onClearSelection,
@@ -81,6 +85,7 @@ export const SnapshotTable = ({
           <tr>
             <th className="px-3 py-3 text-left font-medium">Pick</th>
             <th className="px-3 py-3 text-left font-medium">Ticker</th>
+            <th className="px-3 py-3 text-left font-medium">Name</th>
             <th className="px-3 py-3 text-left font-medium">Status</th>
             <th className="px-3 py-3 text-right font-medium">Last</th>
             <th className="px-3 py-3 text-right font-medium">Chg %</th>
@@ -114,6 +119,7 @@ export const SnapshotTable = ({
                   />
                 </td>
                 <td className="px-3 py-3 font-medium text-foreground">{row.equ_ticker}</td>
+                <td className="px-3 py-3 text-xs">{renderSecurityName(names.get(row.equ_ticker))}</td>
                 <td className="px-3 py-3">
                   {renderMarketStatusBadge(row.market_status, row.market_time)}
                 </td>
