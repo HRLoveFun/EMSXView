@@ -152,7 +152,7 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 - **`-Apply` 会连带处理 `_tmp`**：`-Apply` 同时删除「非在途」的 `_tmp` 子项（默认行为，非提示）；**若本意只清 worktree 目录，请显式加 `-SkipTmp`**——否则其他会话留在 `_tmp/` 的备份/产物会被一并删除（2026-09-21 实测踩到）。
 - **残留目录的推荐清理路径**：§3.4 的「注册表已注销、目录删不掉」残留也用本工具（`wt-clean.ps1 <task> -Apply -Force`）——它按 `EMSXView-wt-*` 兄弟目录识别为 `orphan` 并带上述全部保护；`git` 已不认的孤儿目录同样需要 `-Force` + 显式指名。
 - **孤儿目录识别不再中断（2026-10-28 修复）**：`Test-WtSessionLock` 先看 `.git` 标记再调 `git -C`——此前对孤儿目录执行 `git -C` 会写 stderr，在 `$ErrorActionPreference=Stop` 下抛 `NativeCommandError`，使整个清理在**识别阶段**就退出（日志形如 `fatal: not a git repository`）。
-- **删除报「被占用」时改用 wt-gc**：残留目录的句柄常来自「CWD 停在其中的后台进程」（实测：`python -m pytest` 跑完不退出，其工作目录锁住 `backend/api`）。此时 `wt-clean` 只把错误透出并提示，处置与重试交给 `wt-gc.ps1 <task> -Apply -Force -KillHolders`（仅终止白名单解释器，且 CommandLine 必须含目标绝对路径）。
+- **删除报「被占用」时改用 wt-gc**：残留目录的句柄常来自「CWD 停在其中的后台进程」（实测：`python -m pytest` 跑完不退出，其工作目录锁住 `backend/api`）。此时 `wt-clean` 只把错误透出并提示，处置与重试交给 `wt-gc.ps1 <task> -Apply -Force -KillHolders`（终止白名单解释器；命中条件为「CommandLine 含目标路径」或「进程工作目录落在目标内」，后者 2026-10-28 补齐，详见 §3.5.1 安全边界）。
 - **`python -m pytest` 汇总后不退出（2026-10-28 已定位并修复）**：根因是 aiosqlite 的 `_connection_worker_thread` 为**非 daemon** 线程——用例只要经 `db.get_db_session()` 建过运营库连接而未 `dispose`，解释器退出阶段 `threading._shutdown` 会永久 join。`backend/api/tests/conftest.py` 现已逐用例收口引擎，并在仍有残留时打印线程栈后以失败码强制退出；历史 worktree 若仍见挂住，按上一条 `wt-gc -KillHolders` 处置。
 - 原生等价：`git worktree remove ../EMSXView-wt-xxx --force` → `git worktree prune` → `Remove-Item -Recurse -Force _tmp/*`（无 dry-run 保护）。
 
@@ -179,7 +179,7 @@ rebase 冲突时脚本会自动 `git rebase --abort` 恢复原状并提示——
 安全边界：
 
 - 主工作树与 git 仍注册的 worktree 一律不处理；
-- `-KillHolders` 只终止白名单解释器（`bash` / `sh` / `node` / `python` / `powershell`）且命令行含目标绝对路径；GUI/IDE 与未暴露路径的进程**不触碰**，改为登记待下次重试；
+- `-KillHolders` 只终止白名单解释器（`bash` / `sh` / `node` / `python` / `powershell`），命中条件为「CommandLine 含目标绝对路径」**或**「进程工作目录落在残留目录内」（2026-10-28 补齐 CWD 维度：`Win32_Process` 没有 CWD 字段，经 `NtQueryInformationProcess` 取 PEB 再读 `RTL_USER_PROCESS_PARAMETERS.CurrentDirectory`，权限不足/架构不匹配时自动回落到命令行判定）；为避免误杀用户窗口，CWD 命中时**排除** `powershell` / `pwsh`（交互终端的工作目录常留在 worktree 里），这类进程只登记不终止；GUI/IDE 与提权进程**不触碰**，同样登记待下次重试；
 - 每次 `-Apply` 写 `logs/wt-gc-report.json`（已 gitignore），仍有残留时退出码 1；
 - 触发点：`wt-finish.ps1` 在「注册表已注销、目录删不掉」分支自动调用；`wt-sync.ps1`（每日计划任务）末尾全量 GC；`wt-list.ps1` 末尾报告残留清单。
 
