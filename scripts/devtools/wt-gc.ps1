@@ -4,8 +4,9 @@
 # 定位：wt-clean.ps1 解决「怎么安全地清」，本脚本解决「谁来发现、失败怎么办、如何不再复发」：
 #   1. 主动识别：扫描兄弟目录 EMSXView-wt-*，凡不在 git worktree list 的即为孤儿残留；
 #   2. 分级清理：空目录 / 仅缓存目录（node_modules 等）默认自动清；含其他文件须 -Force 且指名任务；
-#   3. 句柄处置：删除失败时按 CommandLine 精确匹配占用进程，仅终止白名单解释器（bash/node/python/powershell），
-#      绝不触碰 explorer / Code 等 GUI 宿主，也不触碰当前进程链；
+#   3. 句柄处置：删除失败时按「CommandLine 含目标路径」或「进程工作目录落在目标内」定位占用进程，
+#      仅终止白名单解释器（bash/node/python/powershell），绝不触碰 explorer / Code 等 GUI 宿主，
+#      也不触碰当前进程链；CWD 命中时额外排除交互终端（powershell/pwsh），避免误杀用户的 shell 窗口；
 #   4. 失败登记：仍删不掉的写 logs/wt-gc-report.json，下次运行继续尝试（退出码 1 供计划任务告警）。
 #
 # 安全边界（与 wt-clean.ps1 一致，破坏性动作永不默认生效）：
@@ -34,6 +35,9 @@ if (-not $ScanRoot) { $ScanRoot = Split-Path $root -Parent }
 if ($MaxRetries -lt 1) { throw "-MaxRetries 必须 >= 1" }
 
 $script:AllowedHolderNames = @("bash.exe", "sh.exe", "node.exe", "python.exe", "pythonw.exe", "powershell.exe", "pwsh.exe")
+# CWD 命中时允许终止的进程名：交互终端（powershell/pwsh）常把工作目录留在 worktree 里，
+# 只按 CWD 就终止会误杀用户窗口，故 CWD 维度仅对无交互语义的解释器生效。
+$script:CwdKillNames = @("bash.exe", "sh.exe", "node.exe", "python.exe", "pythonw.exe")
 $script:CacheLeafNames = @(
     "node_modules", "__pycache__", ".pytest_cache", ".vite", "dist", "logs",
     ".venv", "venv", ".mypy_cache", ".ruff_cache", "target", "bin", "obj"
@@ -99,25 +103,38 @@ function Get-OrphanKind {
     return "dirty"
 }
 
-# 路径归一化到「小写 + 正斜杠 + 盘符」，兼容 Git Bash 的 /c/Users 与 Windows 的 C:\Users
-function ConvertTo-MatchablePath {
-    param([string]$Text)
-    $t = $Text.ToLowerInvariant().Replace("\", "/")
-    if ($t -match "^/([a-z])/") { $t = $t.Substring(1, 1) + ":" + $t.Substring(2) }
-    return $t
-}
-
-# 占用进程：进程名白名单 + CommandLine 含目标绝对路径（归一化后比较）
+# 占用进程：进程名白名单 + （CommandLine 含目标绝对路径 或 工作目录落在目标内）
+# 两个维度互补：前者覆盖 `python -m pytest <path>` 这类把路径写进命令行的场景，
+# 后者覆盖 `Start-Process -WorkingDirectory` / 后台解释器等「命令行不含路径」的场景
+# （此前这类进程无法定位，只能登记后等下次重试）。
 function Get-HolderProcesses {
     param([string]$Path)
     $needle = ConvertTo-MatchablePath -Text $Path
     $self = $PID
     $parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $self" -ErrorAction SilentlyContinue).ParentProcessId
-    return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            $_.ProcessId -ne $self -and $_.ProcessId -ne $parent -and
-            $_.CommandLine -and (ConvertTo-MatchablePath -Text $_.CommandLine).Contains($needle) -and
-            ($script:AllowedHolderNames -contains $_.Name.ToLowerInvariant())
-        })
+    $out = @()
+    foreach ($proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+        if ($proc.ProcessId -eq $self -or $proc.ProcessId -eq $parent) { continue }
+        $name = $proc.Name.ToLowerInvariant()
+        if ($script:AllowedHolderNames -notcontains $name) { continue }
+
+        $reason = ""
+        if ($proc.CommandLine -and (ConvertTo-MatchablePath -Text $proc.CommandLine).Contains($needle)) {
+            $reason = "cmdline"
+        }
+        $cwd = Get-ProcessWorkingDirectory -ProcessId $proc.ProcessId
+        if (-not $reason -and (Test-PathWithin -Candidate $cwd -Parent $Path)) { $reason = "cwd" }
+        if (-not $reason) { continue }
+
+        $out += [pscustomobject]@{
+            ProcessId = $proc.ProcessId
+            Name      = $proc.Name
+            Reason    = $reason
+            Cwd       = $cwd
+            Killable  = ($reason -eq "cmdline") -or ($script:CwdKillNames -contains $name)
+        }
+    }
+    return $out
 }
 
 function Remove-OrphanDir {
@@ -135,14 +152,23 @@ function Remove-OrphanDir {
             $lastError = $_.Exception.Message
             if (-not $Kill) { break }
             $holders = @(Get-HolderProcesses -Path $Path)
-            if ($holders.Count -eq 0) {
-                # 目录被「工作目录不在命令行」的进程占用（GUI/IDE 或 Start-Process -WorkingDirectory）：
-                # 无法安全定位，登记后由下次运行重试（计划任务每日自动跑）。
-                $lastError = $lastError + " | holder 未识别（可能为 GUI/IDE 或未暴露路径的进程），下次运行重试"
+            $killable = @($holders | Where-Object { $_.Killable })
+            if ($killable.Count -eq 0) {
+                # 两种情况都登记后由下次运行重试（计划任务每日自动跑）：
+                #   a) 已识别但不在可终止名单（如工作目录在残留里的交互终端）；
+                #   b) 完全无法识别（GUI/IDE、提权进程，或持有的是文件句柄而非工作目录）。
+                $detail = if ($holders.Count -gt 0) {
+                    "holder 已识别但不可自动终止：" +
+                    (($holders | ForEach-Object { "{0}#{1}({2})" -f $_.Name, $_.ProcessId, $_.Reason }) -join ",")
+                }
+                else {
+                    "holder 未识别（可能为 GUI/IDE、提权进程，或持有的是文件句柄而非工作目录）"
+                }
+                $lastError = $lastError + " | " + $detail + "，下次运行重试"
                 Start-Sleep -Seconds $DelaySeconds
                 continue
             }
-            foreach ($holder in $holders) {
+            foreach ($holder in $killable) {
                 try {
                     Stop-Process -Id $holder.ProcessId -Force -ErrorAction Stop
                     $killed += ("{0}#{1}" -f $holder.Name, $holder.ProcessId)
