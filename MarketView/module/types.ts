@@ -366,3 +366,118 @@ export interface PoolBoardPayload {
   rows: PoolBoardRow[];
   generated_at: string;
 }
+
+// ── 057 节点一：监控台（高亮面板 + 监控表 + 行详情三联图）──────────────
+
+export interface MonitorPoolSummary {
+  pool_id: string;
+  label: string;
+  description: string;
+  /** config = 仓库内配置（指数池表就绪前）；table = 管道 index_constituent */
+  source: string;
+  as_of: string;
+  member_count: number;
+}
+
+export interface MonitorRow {
+  equ_ticker: string;
+  name: string | null;
+  market_status: MarketTradingStatus;
+  market_time: string | null;
+  last: number | null;
+  chg_pct: number | null;
+  /** Close 列 = 前收盘（涨跌幅基准） */
+  close: number | null;
+  prev_close: number | null;
+  total_volume: number | null;
+  adv_20d: number | null;
+  /** 百分比数值：59.65 表示 59.65% */
+  vol_vs_adv20: number | null;
+  daily_volatility: number | null;
+  intraday_volatility: number | null;
+  liquidity: MarketAlertSeverity;
+  volatility: MarketAlertSeverity;
+  risk_notes: string[];
+  data_gaps: string[];
+  trade_date: string | null;
+  baseline_date: string | null;
+  bar_count: number;
+  first_bar_time: string | null;
+  last_bar_time: string | null;
+  /** bars = 当日 10 秒 bar 聚合；none = 无数据 */
+  source: string;
+}
+
+export interface MonitorHighlightItem {
+  equ_ticker: string;
+  name: string | null;
+  metric: string;
+  value: number | null;
+  threshold: string;
+  severity: MarketAlertSeverity;
+  note: string;
+}
+
+export interface MonitorHighlights {
+  liquidity: MonitorHighlightItem[];
+  volatility: MonitorHighlightItem[];
+  risk_notes: MonitorHighlightItem[];
+}
+
+export interface MonitorBoardPayload {
+  pool: MonitorPoolSummary;
+  trade_date: string | null;
+  row_count: number;
+  rows: MonitorRow[];
+  highlights: MonitorHighlights;
+  subscribe_tickers: string[];
+  generated_at: string;
+}
+
+export interface MonitorDetailBucket {
+  index: number;
+  label: string;
+  volume: number | null;
+  cumulative_volume: number | null;
+  cumulative_pct: number | null;
+  vwap: number | null;
+  high: number | null;
+  low: number | null;
+  gap: boolean;
+}
+
+export interface MonitorPrevBucket {
+  index: number;
+  label: string;
+  cumulative_volume: number | null;
+  cumulative_pct: number | null;
+}
+
+export interface MonitorDetailCell {
+  bucket: number;
+  price_bin: number;
+  volume: number;
+}
+
+export interface TickerDetailPayload {
+  equ_ticker: string;
+  trade_date: string | null;
+  bucket_minutes: number;
+  market_code: string | null;
+  session_open: string | null;
+  session_close: string | null;
+  session_note: string;
+  buckets: MonitorDetailBucket[];
+  prev_buckets: MonitorPrevBucket[];
+  prev_days: number;
+  prev_dates: string[];
+  ohlc: Record<string, number | null>;
+  price_low: number | null;
+  price_high: number | null;
+  price_bin_count: number;
+  cells: MonitorDetailCell[];
+  total_volume: number | null;
+  prev_avg_volume: number | null;
+  gaps: string[];
+  source: string;
+}
