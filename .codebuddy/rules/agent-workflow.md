@@ -1,7 +1,7 @@
 # Agent 工作流规则（作业节奏与等待）
 
 > 定位：约束 AI 代理（CodeBuddy / Claude Code / Cursor 等）在本仓库**执行作业时的等待与轮询行为**。
-> 与 [`docs/spec/git-workflow.md`](../../docs/spec/git-workflow.md)（多任务并行 / worktree / hooks / 并发纪律）互补：本文件只管「等待节奏」，其余不重复、不另立规则。
+> 与 [`docs/spec/git-workflow.md`](../../docs/spec/git-workflow.md)（多任务并行 / worktree / hooks / 并发纪律，含 §4.10「收工即提交或走 `wt-finish`」与 §5 收工检查项）互补：本文件只管「等待节奏」，其余不重复、不另立规则。
 
 ---
 
