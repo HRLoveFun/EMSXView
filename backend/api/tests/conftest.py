@@ -1,10 +1,13 @@
-"""后端测试公共夹具：收口 SQLite 异步引擎，避免进程在汇总后挂死。
+"""后端测试公共夹具：收口 SQLite 异步引擎 + 定位非 daemon 线程泄漏。
 
 背景（2026-10-28 排查）：aiosqlite 的 `_connection_worker_thread` 是**非 daemon**
 线程，连接未关闭时解释器退出阶段 `threading._shutdown` 会永久 join，表现为
 pytest 打印汇总后进程不退出、并锁住 CWD（`backend/api`）导致 worktree 删不掉。
-任何用例只要经 `db.get_db_session()` 惰性建过连接（含风控/决策日志等间接路径），
-都必须把引擎 dispose 掉。
+本文件做两件事：
+
+1. 每个用例结束后 dispose 运营库异步引擎，从源头掐断最常见的泄漏；
+2. 会话结束时盘点残留线程：非 daemon 线程打印「归属用例 + 线程栈」后以失败码
+   强制退出（否则进程会挂住），daemon 线程仅告警（不阻塞退出，属卫生问题）。
 """
 
 from __future__ import annotations
@@ -14,23 +17,27 @@ import os
 import sys
 import threading
 import traceback
+from typing import Dict, List
 
 import pytest
 
+# 线程 ident -> 首次观察到它存活的用例 nodeid（泄漏归因用）
+_THREAD_ORIGIN: Dict[int, str] = {}
 
-@pytest.fixture(autouse=True)
-def _dispose_ops_engine():
-    """每个用例结束后释放运营库异步引擎（无引擎时为空操作）。
 
-    autouse fixture 的 teardown 晚于用例自身的 fixture，因此覆盖
-    `importlib.reload(db)` 型夹具与隐式触发 `get_db_session()` 的代码路径。
+def _alive_threads() -> List[threading.Thread]:
+    """当前存活的非主线程。"""
+    main = threading.main_thread()
+    return [t for t in threading.enumerate() if t is not main and t.is_alive()]
 
-    强制用独立 loop 而非 `asyncio.run`：后者退出时会把当前线程的隐式事件
-    循环置空，使后续仍依赖 `asyncio.get_event_loop()` 的用例（如
-    test_algo_scheduler）抛 "There is no current event loop"。
+
+def _dispose_ops_engine() -> None:
+    """释放运营库异步引擎（无引擎时为空操作）。
+
+    用独立 loop 而非 `asyncio.run`：后者退出会把当前线程的隐式事件循环置空，
+    使仍依赖 `asyncio.get_event_loop()` 的用例（如 test_algo_scheduler）报
+    "There is no current event loop"。
     """
-    yield
-
     try:
         import db
     except ImportError:  # 无 SQLAlchemy / 独立子目录用例
@@ -42,6 +49,23 @@ def _dispose_ops_engine():
         loop.run_until_complete(db.dispose_engine())
     finally:
         loop.close()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_background_resources(request):
+    """用例级隔离：收口运营库引擎，并记录新起线程的归属用例。
+
+    autouse fixture 的 teardown 晚于用例自身的 fixture，因此覆盖
+    `importlib.reload(db)` 型夹具与隐式触发 `get_db_session()` 的代码路径；
+    归属信息在会话结束时用于指出「哪个用例起的线程没停」。
+    """
+    before = {t.ident for t in threading.enumerate()}
+    yield
+
+    _dispose_ops_engine()
+    for thread in threading.enumerate():
+        if thread.ident not in before and thread.is_alive():
+            _THREAD_ORIGIN.setdefault(thread.ident, request.node.nodeid)
 
 
 def _write(text: str) -> None:
@@ -58,21 +82,30 @@ def _write(text: str) -> None:
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """守卫：仍残留 aiosqlite 工作线程时打印线程栈并强制退出。
-
-    这类线程没有任何自动回收路径，直接返回会让进程永久挂住；强制以失败码
-    退出可把「静默挂死」转成「可见失败」，否则 CI 会带着隐患继续保持绿色。
-    """
-    leaked = [t for t in threading.enumerate() if "_connection_worker_thread" in t.name]
+    """盘点残留线程并给出归属；非 daemon 线程直接判失败并强制退出。"""
+    leaked = _alive_threads()
     if not leaked:
         return
 
+    blocking = [t for t in leaked if not t.daemon]
+    _write(
+        f"\n[conftest] 会话结束时仍有 {len(leaked)} 个非主线程存活（其中非 daemon {len(blocking)} 个）：\n"
+    )
     frames = sys._current_frames()
-    _write("\n[conftest] 检测到 aiosqlite 工作线程残留（非 daemon 线程，进程会永久挂住）：\n")
     for thread in leaked:
-        _write(f"  - {thread.name} (daemon={thread.daemon})\n")
+        origin = _THREAD_ORIGIN.get(thread.ident, "未知（收集阶段或非用例代码创建）")
+        _write(f"  - {thread.name} daemon={thread.daemon} origin={origin}\n")
         frame = frames.get(thread.ident)
         if frame is not None:
             _write("".join(traceback.format_stack(frame)))
-    _write("[conftest] 修复方式：创建异步引擎的夹具/用例在 teardown 调 `await db.dispose_engine()`。\n")
+
+    if not blocking:
+        _write("[conftest] 均为 daemon 线程，不阻塞解释器退出；建议在用例 teardown 内 stop/join。\n")
+        return
+
+    _write(
+        "[conftest] 非 daemon 线程未收口：若阻塞在无终止条件的等待上（实测 aiosqlite 工作线程即如此），\n"
+        "          解释器退出阶段 threading._shutdown 会永久 join，进程挂住并锁住 CWD；已强制以失败码退出。\n"
+        "[conftest] 修复方式：创建线程/引擎的夹具在 teardown 内 stop/join 或 `await db.dispose_engine()`。\n"
+    )
     os._exit(int(pytest.ExitCode.TESTS_FAILED))
