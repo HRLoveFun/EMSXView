@@ -16,9 +16,33 @@ function getAuthHeaders(): HeadersInit {
   return headers;
 }
 
+// 网关类状态：Vite dev 代理（或生产 Nginx）在上游不可达时返回这些码
+const GATEWAY_STATUS = new Set([500, 502, 503, 504]);
+// 代理转发失败的典型文本（Vite/http-proxy 的错误的响应体）
+const PROXY_FAILURE_HINT = /ECONNREFUSED|ECONNRESET|proxy error|socket hang up/i;
+
+/**
+ * 把响应体转成可读错误。
+ *
+ * 不能把「500 + 非 JSON」一律当服务端异常：MarketView 微服务（:8001）未启动时，
+ * 代理返回 500 且 body 为空/含 ECONNREFUSED，旧实现会渲染成
+ * `Request failed: 500`（用户无法判断该做什么）。这里对这类情形给出启动指引，
+ * 而真正的 500（如 `Internal Server Error` 文本）仍原样透出。
+ */
 async function readError(response: Response): Promise<string> {
-  const body = await response.json().catch(() => ({}));
-  return body?.detail ?? body?.error ?? `Request failed: ${response.status}`;
+  const text = await response.text();
+  let detail: string | undefined;
+  try {
+    const body = JSON.parse(text) as { detail?: string; error?: string } | null;
+    detail = body?.detail ?? body?.error;
+  } catch {
+    detail = undefined;
+  }
+  if (detail) return detail;
+  if (GATEWAY_STATUS.has(response.status) && (!text.trim() || PROXY_FAILURE_HINT.test(text))) {
+    return 'MarketView service unavailable — start it with "python MarketView/main.py" (or emsxview.bat start)';
+  }
+  return text || `Request failed: ${response.status}`;
 }
 
 const DEFAULT_MARKET_SNAPSHOT_REQUEST: Required<
