@@ -33,6 +33,7 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 | docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
 | docs/EMSXDataPipeline-TECHNICAL_GUIDE.md | 独立数据管道仓库 EMSXDataPipeline 技术说明的**同步副本**（供无该仓库权限的外部 Agent 了解其架构/数据链路/交易前供给；真相源在 EMSXDataPipeline 仓库，更新后整体覆盖同步，见副本头部说明） | 真相源（EMSXDataPipeline `docs/TECHNICAL_GUIDE.md`）更新时 |
 | docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
+| [docs/report-marketview-live-fields.md](report-marketview-live-fields.md) | MarketView 实时字段可用性矩阵（34 个交易市场实测）、字段否决依据、更新字段列表的改动清单与复测 SOP | 新增/替换实时字段、复测后追加记录 |
 | [`data_access/config.py`](../data_access/config.py)（`Config` 类） | 数据根、库/表常量等只读侧运行时参数（写入侧参数归独立仓库 EMSXDataPipeline） | 修改数据根/库表常量时 |
 
 ---
