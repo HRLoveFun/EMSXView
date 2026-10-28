@@ -24,6 +24,15 @@
 - **Entry Point**: `<repo-root>/frontend/` (npm run dev)
 - **Startup Time**: ~5 seconds
 
+### MarketView Service（2026-10-28 起纳入统一启停）
+- **Port**: `<MARKETVIEW_PORT>`（默认 8001）
+- **Process**: Python（`python main.py`）
+- **Entry Point**: `<repo-root>/MarketView/main.py`
+- **Ready 探针**: `<MARKETVIEW_BASE_URL>/openapi.json`（FastAPI 自带路由，不触库、不受鉴权影响）
+- **依赖**: 不依赖 core backend 与 Bloomberg 会话；core 侧**没有** `/api/marketview/*` 桥接，只能独立运行
+- **未启动的后果**: 前端 Market View 标签页**所有**数据面板返回 500（Vite 代理上游 `ECONNREFUSED`），日志另见 §Troubleshooting
+- **启停**: `emsxview.bat start|stop|restart|status` 与 `service-manager.ps1` 均已覆盖；启动失败只告警，不阻断 backend/frontend
+
 ## Synchronized Startup Process
 
 ```
@@ -247,6 +256,25 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
    ```powershell
    powershell -ExecutionPolicy Bypass -File "service-manager.ps1" restart
    ```
+
+### Issue: Market View 标签页所有数据面板报 500 / "MarketView service unavailable"
+
+原因：MarketView 微服务（`:8001`）未启动。前端 `/api/marketview/*` 由 Vite 代理转发，
+上游不可达时代理返回 500——不是数据问题，也不是后端异常。
+
+```powershell
+# 1) 看状态（MarketView 段应显示 RUNNING / READY）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/service-manager.ps1 status -Environment dev
+
+# 2) 拉起（幂等：已在运行会直接返回）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/service-manager.ps1 start -Environment dev
+
+# 3) 单独启动（排查用）
+cd MarketView; python main.py     # 日志：logs/service/marketview-*.log
+```
+
+判据：`curl http://localhost:8001/openapi.json` 返回 200 即服务就绪；若端口被占但
+`/openapi.json` 无响应，说明是被别的进程占用，先 `stop` 或手工释放端口。
 
 ### Issue: Services start but stop immediately
 **Symptoms**: Processes start then exit

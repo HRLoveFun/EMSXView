@@ -82,7 +82,7 @@ MarketView (Market Trend) ──▶ ExecutionView (Order Execution) ──▶ Co
 | **Microservice**（默认） | 无需配置 | Core `<API_PORT>`、CostView `<COSTVIEW_PORT>` 独立进程 |
 | **CostView 路由桥接**（可选） | `EMSXVIEW_OPTIONAL_MODULES`（默认 `costview:CostView`） | CostView 的 `/api/tca/*` 路由挂载进 core 进程（`backend/api/routers/costview.py`），前端经 `:3000` 单入口访问，无需启动 `:8002` |
 
-- 可选模块由 `backend/api/main.py` 的 `_register_optional` 加载（`*`/`all` 加载全部，置空禁用）；MarketView **没有**桥接路径，仅独立运行。
+- 可选模块由 `backend/api/main.py` 的 `_register_optional` 加载（`*`/`all` 加载全部，置空禁用）；MarketView **没有**桥接路径，仅独立运行，由 `emsxview.bat start` 一并拉起（未启动时前端 Market View 标签页所有面板报 500）。
 - 跨模块 handoff 后端由 `EMSXVIEW_HANDOFF_BACKEND` 选择：`memory`（默认，进程内 dict + 锁）或 `redis`（跨进程）；非法值启动即 `ValueError`。
 - 已失效的历史机制（`EMSXVIEW_MERGE_MODULES`、`VITE_USE_MOCK`、`CORS_ORIGINS` 等）汇总见 [AGENTS.md §14](./AGENTS.md#14-已失效声明勿再引用)。
 
