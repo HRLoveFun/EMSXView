@@ -171,34 +171,34 @@ class TickerDetailEnvelope(BaseModel):
 
 # ── 风险提示与高亮 ──────────────────────────────────────────────────────────
 
-LIQUIDITY_THRESHOLD_TEXT = "2×/5× 或 0.5×/0.25× ADV20"
-VOLATILITY_THRESHOLD_TEXT = "日波动 25/40 或 日内波动 2/3"
+LIQUIDITY_THRESHOLD_TEXT = "2×/5× or 0.5×/0.25× ADV20"
+VOLATILITY_THRESHOLD_TEXT = "daily vol 25/40 or intraday vol 2/3"
 CHG_NOTE_PCT = 4.5
 
 
 def _risk_notes(quote: MonitorQuote) -> list[str]:
-    """后端统一生成风险提示文本（前端只渲染，不再拼文案）。"""
+    """后端统一生成风险提示文本（前端只渲染，不再拼文案）；界面全英文。"""
     notes: list[str] = []
     if "baseline" in quote.gaps:
-        notes.append("无日度基线")
+        notes.append("No daily baseline")
     if "bars" in quote.gaps:
-        notes.append("无当日行情")
+        notes.append("No intraday bars")
     if quote.baseline_date and quote.trade_date and quote.baseline_date < quote.trade_date:
-        notes.append(f"基线滞后至 {quote.baseline_date}")
+        notes.append(f"Baseline stale to {quote.baseline_date}")
     if "adv20" in quote.gaps:
-        notes.append("ADV20 缺失")
+        notes.append("ADV20 missing")
     if "prev_close" in quote.gaps:
-        notes.append("前收缺失，涨跌幅不可算")
+        notes.append("Prev close missing; change unavailable")
     if quote.liquidity in ("warning", "critical") and quote.vol_vs_adv20 is not None:
-        notes.append(f"量比 {quote.vol_vs_adv20:.0f}% ADV20")
+        notes.append(f"Volume {quote.vol_vs_adv20:.0f}% of ADV20")
     if quote.volatility in ("warning", "critical"):
         daily = f"{quote.daily_volatility:.1f}%" if quote.daily_volatility is not None else "—"
         intra = (
             f"{quote.intraday_volatility:.2f}%" if quote.intraday_volatility is not None else "—"
         )
-        notes.append(f"波动偏高（日 {daily} / 日内 {intra}）")
+        notes.append(f"Volatility elevated (daily {daily} / intraday {intra})")
     if quote.chg_pct is not None and abs(quote.chg_pct) >= CHG_NOTE_PCT:
-        notes.append(f"涨跌 {quote.chg_pct:+.1f}%")
+        notes.append(f"Move {quote.chg_pct:+.1f}%")
     return notes
 
 
@@ -229,7 +229,7 @@ def _build_highlights(rows: list[MonitorRowResponse], severity_rank: dict[str, i
                     threshold=VOLATILITY_THRESHOLD_TEXT,
                     severity=row.volatility,
                     note=(
-                        f"日 {row.daily_volatility:.1f}% / 日内 "
+                        f"daily {row.daily_volatility:.1f}% / intraday "
                         f"{row.intraday_volatility:.2f}%"
                         if row.daily_volatility is not None and row.intraday_volatility is not None
                         else ""
@@ -245,7 +245,7 @@ def _build_highlights(rows: list[MonitorRowResponse], severity_rank: dict[str, i
                     value=None,
                     threshold="",
                     severity="critical" if len(row.risk_notes) >= 2 else "warning",
-                    note="；".join(row.risk_notes),
+                    note="; ".join(row.risk_notes),
                 )
             )
     key = lambda item: (-severity_rank.get(item.severity, 0), item.equ_ticker)  # noqa: E731

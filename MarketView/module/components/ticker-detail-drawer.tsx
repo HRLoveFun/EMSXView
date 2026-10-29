@@ -104,7 +104,7 @@ function PriceVolumeHeatmap({
   if (!buckets.length || !binCount || low == null || high == null || high <= low || width <= 0) {
     return (
       <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-        该标的当日没有可用的 bar，价格分布无法绘制。
+        No usable bars for this session; the price distribution cannot be drawn.
       </div>
     );
   }
@@ -124,7 +124,7 @@ function PriceVolumeHeatmap({
       viewBox={`0 0 ${width} ${HEATMAP_HEIGHT}`}
       className="block"
       role="img"
-      aria-label={`${detail.equ_ticker} 价格—成交量分布`}
+      aria-label={`${detail.equ_ticker} price–volume distribution`}
     >
       <rect
         x={AXIS_LEFT}
@@ -147,7 +147,7 @@ function PriceVolumeHeatmap({
               fill="#f59e0b"
               opacity={0.12}
             >
-              <title>{`${bucket.label} 缺 bar`}</title>
+              <title>{`${bucket.label} missing bars`}</title>
             </rect>
           );
         }
@@ -164,7 +164,7 @@ function PriceVolumeHeatmap({
               fill="#2563eb"
               opacity={0.08 + 0.82 * intensity}
             >
-              <title>{`${buckets[index]?.label ?? ''} · 价格分档 ${cell.price_bin + 1} · ${fmtCompact(cell.volume)}`}</title>
+              <title>{`${buckets[index]?.label ?? ''} · price bin ${cell.price_bin + 1} · ${fmtCompact(cell.volume)}`}</title>
             </rect>
           );
         });
@@ -372,11 +372,11 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
             <p className="mt-1 text-xs text-muted-foreground">
               {data
                 ? `${data.trade_date ?? '—'} · ${data.buckets.length} buckets × ${data.bucket_minutes}min · ${data.prev_days} prev day(s) · gaps ${data.gaps.length} · source ${data.source}`
-                : '行详情：价格—成交量分布 / 累计量 / 累计量占比'}
+                : 'Ticker detail: price × volume / cumulative volume / cumulative share'}
             </p>
             {data?.session_open ? (
               <p className="mt-1 text-[11px] text-muted-foreground">
-                会话 {data.session_open}–{data.session_close}（{data.market_code}）· {data.session_note}
+                Session {data.session_open}–{data.session_close} ({data.market_code})
               </p>
             ) : null}
           </div>
@@ -407,7 +407,8 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
             <div className="rounded-xl border border-border/70 bg-background/60 p-3">
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>
-                  价格—成交量分布（每 {data.bucket_minutes} 分钟一桶；色深 = 量；竖线 + 左右短横 = 该桶 OHLC）
+                  Price × volume distribution (one {data.bucket_minutes}-min bucket; darker = more volume; wick +
+                  open/close ticks = bucket OHLC)
                 </span>
                 <span>
                   Total {fmtCompact(data.total_volume)} · Prev5D avg {fmtCompact(data.prev_avg_volume)} · Prev close{' '}
@@ -426,7 +427,7 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
               dataKeyPrev="prevVolume"
               domain={[0, 'auto']}
               tickFormatter={(value: number) => fmtCompact(value)}
-              caption={`累计成交量：当日 vs 前 ${data.prev_days} 个交易日均值（每桶一个点；缺 bar 的桶断开，不插值）`}
+              caption={`Cumulative volume: today vs prior ${data.prev_days}-session average (one point per bucket; missing bars break the line, no interpolation)`}
               tickLabels={tickLabels}
             />
 
@@ -436,12 +437,12 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
               dataKeyPrev="prevPct"
               domain={[0, 100]}
               tickFormatter={(value: number) => `${value.toFixed(0)}%`}
-              caption="累计成交量占比：各曲线除以自身当日总量（0–100%，每桶一个点）"
+              caption="Cumulative volume share: each series divided by its own day total (0–100%, one point per bucket)"
               tickLabels={tickLabels}
             />
 
             {data.gaps.length ? (
-              <p className="text-xs text-amber-600">缺口时间桶：{data.gaps.join(', ')}</p>
+              <p className="text-xs text-amber-600">Bucket gaps: {data.gaps.join(', ')}</p>
             ) : null}
           </div>
         ) : (

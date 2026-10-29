@@ -48,9 +48,9 @@ interface MonitorBoardPanelProps {
 }
 
 const EMPTY_TEXT: Record<string, string> = {
-  liquidity: '无量比异常',
-  volatility: '无波动异常',
-  risk_notes: '无数据风险提示',
+  liquidity: 'No liquidity alerts',
+  volatility: 'No volatility alerts',
+  risk_notes: 'No risk notes',
 };
 
 const severityRank = (severity: MarketAlertSeverity): number =>
@@ -105,7 +105,7 @@ const rowValues = (row: MonitorRow, key: FilterKey): string[] => {
   }
 };
 
-const valueLabel = (value: string): string => (value === '' ? '（无提示）' : value);
+const valueLabel = (value: string): string => (value === '' ? '(none)' : value);
 
 const uniqueValues = (rows: MonitorRow[], key: FilterKey): string[] =>
   Array.from(new Set(rows.flatMap((row) => rowValues(row, key)))).sort((a, b) =>
@@ -195,7 +195,11 @@ const HighlightModule = ({
             ))
           ) : (
             <li className="rounded-lg border border-dashed border-border/60 px-2 py-2 text-[11px] text-muted-foreground">
-              {items.length ? (selectedMarkets.size ? '该市场无信号' : '选择上方市场查看信号股票') : emptyText}
+              {items.length
+                ? selectedMarkets.size
+                  ? 'No signals in the selected market'
+                  : 'Select a market above to list signals'
+                : emptyText}
             </li>
           )}
         </ul>
@@ -232,25 +236,25 @@ const FilterPanel = ({
     <div
       ref={panelRef}
       role="dialog"
-      aria-label={`筛选 ${FILTER_LABELS[filterKey]}`}
+      aria-label={`Filter ${FILTER_LABELS[filterKey]}`}
       className="absolute left-1/2 top-2 z-30 w-[min(560px,92%)] -translate-x-1/2 rounded-xl border border-border bg-card p-2.5 shadow-2xl"
     >
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-medium text-foreground">
-          筛选 · {FILTER_LABELS[filterKey]}
+          Filter · {FILTER_LABELS[filterKey]}
           <span className="ml-1.5 font-normal text-muted-foreground">
-            已选 {selection.length}/{options.length}
+            selected {selection.length}/{options.length}
           </span>
         </p>
         <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onSelectAll}>
-            一键全选
+            Select all
           </button>
           <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onInvert}>
-            一键反选
+            Invert
           </button>
           <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onClose}>
-            关闭
+            Close
           </button>
         </div>
       </div>
@@ -299,7 +303,7 @@ const Row = ({
   const chg = usingLive ? quote?.pct_change_1d : row.chg_pct;
   const volume = usingLive ? (quote?.volume ?? row.total_volume) : row.total_volume;
   const volVsAdv = usingLive ? liveVolumeVsAdvPct(volume, row.adv_20d) : row.vol_vs_adv20;
-  const notes = row.risk_notes.join('；');
+  const notes = row.risk_notes.join('; ');
 
   return (
     <tr
@@ -313,7 +317,7 @@ const Row = ({
       <td className="px-3 py-2 font-mono text-xs font-medium text-foreground">
         {row.equ_ticker}
         {usingLive ? (
-          <span className="ml-1 text-[10px] text-emerald-600" title="Last/Chg/Vol 来自实时行情">
+          <span className="ml-1 text-[10px] text-emerald-600" title="Last/Chg/Vol from the live feed">
             ●
           </span>
         ) : null}
@@ -369,7 +373,7 @@ const FilterableHeader = ({
             ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
             : 'border-border bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground'
         }`}
-        title={`点击筛选 ${FILTER_LABELS[filterKey]}`}
+        title={`Click to filter ${FILTER_LABELS[filterKey]}`}
       >
         {FILTER_LABELS[filterKey]}
         <span aria-hidden className="text-[9px] opacity-70">
@@ -497,7 +501,7 @@ export const MonitorBoardPanel = ({
       ? `${liveCount} live`
       : live.status === 'polling'
         ? `${liveCount} live · REST`
-        : 'live 连接中';
+        : 'live connecting';
 
   const maxSeverity = useMemo(
     () => rows.reduce((max, row) => Math.max(max, severityRank(row.volatility), severityRank(row.liquidity)), 0),
@@ -518,7 +522,8 @@ export const MonitorBoardPanel = ({
               {data?.pool.label ?? 'Monitor board'}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {data?.pool.description ?? '池成员来自配置；指数成分股表就绪后切换（DL-31）。'}
+              {data?.pool.description ??
+                'Pool members come from config; switches to index constituents once the table lands (DL-31).'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -540,7 +545,7 @@ export const MonitorBoardPanel = ({
             </span>
             <span
               className={`rounded-full border px-3 py-1 ${live.status === 'live' ? 'border-emerald-500/40 text-emerald-600' : 'border-border'}`}
-              title={live.asOf ? `行情时间 ${live.asOf}` : '尚无实时行情'}
+              title={live.asOf ? `Quote time ${live.asOf}` : 'No live quotes yet'}
             >
               {liveChip}
             </span>
@@ -549,7 +554,7 @@ export const MonitorBoardPanel = ({
               className="rounded-full border border-border px-3 py-1 transition hover:text-foreground"
               onClick={() => setModulesCollapsed((current) => !current)}
             >
-              {modulesCollapsed ? '展开模块' : '折叠模块'}
+              {modulesCollapsed ? 'Expand modules' : 'Collapse modules'}
             </button>
             <button
               type="button"
@@ -561,8 +566,9 @@ export const MonitorBoardPanel = ({
           </div>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          口径：Last / Chg % / Total Vol 优先实时行情、否则当日 10 秒 bar 聚合；Close 为前收盘（涨跌幅基准）；
-          ADV 20D / Daily Vol / Intraday Vol 取日度基线，逐行 baseline 日期见行 tooltip。
+          Basis: Last / Chg % / Total Vol prefer the live feed, else today&apos;s 10-second bar aggregate; Close is the
+          previous close (change base); ADV 20D / Daily Vol / Intraday Vol come from the daily baseline — per-row
+          baseline date in the row tooltip.
         </p>
       </div>
 
@@ -578,7 +584,7 @@ export const MonitorBoardPanel = ({
         <>
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">市场</span>
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Markets</span>
               {marketBuckets.length ? (
                 marketBuckets.map(({ market, count }) => {
                   const active = selectedMarkets.has(market);
@@ -593,35 +599,35 @@ export const MonitorBoardPanel = ({
                           ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
                           : 'border-border/60 text-muted-foreground hover:text-foreground'
                       }`}
-                      title={`点击展开/收起 ${market} 的信号股票（三个模块共享）`}
+                      title={`Click to show/hide ${market} signals (shared by all modules)`}
                     >
                       {market} · {count}
                     </button>
                   );
                 })
               ) : (
-                <span className="text-[11px] text-muted-foreground">无信号市场</span>
+                <span className="text-[11px] text-muted-foreground">No markets with signals</span>
               )}
               <button
                 type="button"
                 className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:text-foreground"
                 onClick={selectAllMarkets}
               >
-                全选
+                Select all markets
               </button>
               <button
                 type="button"
                 className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:text-foreground"
                 onClick={invertMarkets}
               >
-                反选
+                Invert markets
               </button>
             </div>
 
             <div className="grid gap-3 xl:grid-cols-3">
               <HighlightModule
                 title="Liquidity"
-                metricHint="量比越阈（ADV20 的 2×/5× 或 0.5×/0.25×）"
+                metricHint="Volume vs ADV20 beyond 2×/5× or 0.5×/0.25×"
                 items={highlights?.liquidity ?? []}
                 emptyText={EMPTY_TEXT.liquidity}
                 selectedTicker={selectedTicker}
@@ -631,7 +637,7 @@ export const MonitorBoardPanel = ({
               />
               <HighlightModule
                 title="Volatility"
-                metricHint="日波动 ≥25/40 或日内波动 ≥2/3"
+                metricHint="Daily vol ≥25/40 or intraday vol ≥2/3"
                 items={highlights?.volatility ?? []}
                 emptyText={EMPTY_TEXT.volatility}
                 selectedTicker={selectedTicker}
@@ -641,7 +647,7 @@ export const MonitorBoardPanel = ({
               />
               <HighlightModule
                 title="Risk notes"
-                metricHint="数据缺口 / 基线滞后 / 涨跌越阈"
+                metricHint="Data gaps / stale baseline / large move"
                 items={highlights?.risk_notes ?? []}
                 emptyText={EMPTY_TEXT.risk_notes}
                 selectedTicker={selectedTicker}
@@ -719,7 +725,7 @@ export const MonitorBoardPanel = ({
             ) : (
               <div className="p-6 text-sm text-muted-foreground">
                 {rows.length
-                  ? '当前筛选条件下没有行——点击表头调整筛选。'
+                  ? 'No rows under the current filters — adjust the column filters.'
                   : `Pool “${data.pool.pool_id}” has no members yet.`}
               </div>
             )}
@@ -738,8 +744,8 @@ export const MonitorBoardPanel = ({
           </div>
 
           <p className="text-[11px] text-muted-foreground">
-            表行的 Last / Chg% / Total Vol 若带 ● 表示当前用实时行情；点击任意行打开三联图详情
-            （价格—成交量分布 / 累计量 / 累计量占比）。
+            Rows with ● use the live feed for Last / Chg% / Total Vol. Click any row to open the three-chart detail
+            (price × volume, cumulative volume, cumulative share).
           </p>
         </>
       ) : null}
