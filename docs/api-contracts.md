@@ -1,5 +1,7 @@
 # EMSXView 前后端 API 通信接口契约
 
+> L2 | 权威：后端端点、请求/响应与错误码规范 | 不权威：跨模块 TS↔Python 契约（见 `docs/schema-contract.md`）、端点实现（见 `backend/api/routers/`）
+
 > **文档版本**: 1.0.0  
 > **创建日期**: 2026-05-28  
 > **适用范围**: 前端 `frontend/` ↔ 后端 `backend/api/`  

@@ -1,5 +1,7 @@
 # 模块 API 契约
 
+> L2 | 权威：模块间 API 契约细节 | 不权威：跨模块载荷类型（见 `docs/schema-contract.md`）
+
 > 跨域 API 真相源
 > 配套规范：`.codebuddy/rules/module-boundary.md`、`.codebuddy/rules/coding-style.md` §API 约定
 > 配套反模式：[anti-patterns.md §AP-05](anti-patterns.md)

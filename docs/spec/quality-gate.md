@@ -1,5 +1,7 @@
 # 质量门禁框架（Quality Gate）
 
+> L2 | 权威：质量门禁规则（AP-xx / OE-xx）、框架设计与基线演进、全仓验证命令矩阵 | 不权威：测试用例数量（会漂移，用命令实跑）、模块职责（见 `project-structure.md`）
+
 > **状态**：实施中（2026-08-21）
 > **代码**：`scripts/quality_gate/` 包 + `scripts/quality_gate.py` 平铺入口
 > **规则**：AP-xx 契约违规（包装既有 `audit_*.py`）+ OE-xx 过度工程（自研 AST 检测器）
@@ -96,3 +98,21 @@ python scripts/quality_gate.py --suppress <fingerprint> --note "理由"
 
 - 趋势库：`scripts/reports/quality_gate/quality_gate.db`（scans/findings/baseline 三表）
 - 报告：`scripts/reports/quality_gate/report-YYYYMMDD.md`
+
+## 全仓验证矩阵（CI 同款）
+
+规模只写命令、不写用例数——数字必然漂移，命令永远可复跑。
+
+| 范围 | 命令 | 说明 |
+|------|------|------|
+| 后端全量 | `cd backend/api && python -m pytest tests/ -q` | 含 `tests/boundaries/` 契约测试 |
+| 后端边界 | `python -m pytest backend/api/tests/boundaries/ -q` | 跨模块 import、DB 路径等契约 |
+| CostView | `python -m pytest CostView/tests/ -q` | 含 golden 指标锁定 |
+| MarketView | `python -m pytest MarketView/tests/ -q` | — |
+| 全仓（单命令） | 仓库根 `python -m pytest -q` | 由根 `conftest.py` 分套件子进程执行（backend / CostView / MarketView / scripts）并汇总退出码——`backend/api` 与 `MarketView` 存在同名顶层模块（`config` / `auth` / `routers`），不能共享同一解释器 |
+| 前端 | `npm run typecheck && npm run lint && npm run lint:modules && npm test` | vitest |
+| 边界审计 | `python scripts/audit_cross_imports.py`、`audit_underscore_access.py`、`audit_db_paths.py`、`audit_doc_drift.py` | CI `boundary-protection` 硬阻断 |
+| 文档对账 | `python scripts/doc_check.py` | 地图覆盖 / 元信息头 / 状态枚举 / 死链；规则见 `docs/index.md` §4 |
+| 质量门禁 | `python scripts/quality_gate.py [--report\|--staged]` | 本文档 AP + OE 规则 |
+
+CI（`.github/workflows/boundary.yml`，job `boundary-protection`）三组：**audit**（四个审计脚本）、**backend-tests**（boundaries + 后端全量 + CostView 全量）、**frontend-tests**（typecheck + lint + lint:modules + vitest），全部硬阻断。另有 `doc-drift-report.yml`（周报）与 `cleanup-report.yml`。

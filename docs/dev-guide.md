@@ -1,7 +1,9 @@
 ﻿# EMSXView 开发指南
 
-> Last updated: 2026-07-02 | Version: 2.2
-> 与 [`AGENTS.md` §11 Build & Run Commands](../AGENTS.md#11-build--run-commands) 对齐
+> L1 | 权威：启动与验证流程、常见任务入口、启动器与项目根路径规则 | 不权威：命令完整清单（见 `README.md` §9）、编码与文件放置约定（见 `.codebuddy/rules/coding-style.md`）、项目现状（见 `specs/057-execution-decision-loop/tasks.md`）
+
+> Last updated: 2026-10-29 | Version: 2.3
+> 与 [`README.md` §9 Installation & Running](../README.md#9-installation--running) 对齐
 
 ## 1. 快速启动
 
@@ -32,8 +34,8 @@ npm run dev
 - 健康检查：`<API_BASE_URL>/api/health`（默认 `http://localhost:3000/api/health`）
 - 市场快照基线：`<API_BASE_URL>/api/marketview/snapshot?limit=3`
 - 前端开发服务：`http://<host>:<FRONTEND_PORT>`（默认 `http://localhost:5173`）
-- 完整启动/模块清单见 [AGENTS.md §11 Build & Run Commands](../AGENTS.md#11-build--run-commands)
-- 占位符含义见 [docs/index.md §7](index.md#7-占位符与可配置参数约定)
+- 完整启动/模块清单见 [README.md §9 Installation & Running](../README.md#9-installation--running)
+- 占位符含义见 [docs/index.md §5](index.md#5-占位符与可配置参数约定)
 
 ## 2. 当前工程事实
 
@@ -92,7 +94,7 @@ npm run dev
 
 典型顺序：
 
-1. 在 `platform_data/adapters/` 子包下增加或扩展适配器（见 [ADR-0013](../spec/adr/0013-platform-data-adapter-current-state.md)）
+1. 在 `platform_data/adapters/` 子包下增加或扩展适配器（见 [ADR-0013](spec/adr/0013-platform-data-adapter-current-state.md)）
 2. 修改调用方路由或服务
 3. 补对应测试
 4. 同步前端类型或展示
@@ -105,26 +107,27 @@ npm run dev
 - `.github/knowledge/error-patterns.md`
 - [`data_access/config.py`](../data_access/config.py) 的 `Config` 类（当前运行时开关）
 
-## 5. 当前文档地图
+## 5. 文档入口
 
-优先阅读顺序：
-
-1. `docs/index.md`：文档入口与分类
-2. `docs/spec/project-structure.md`：当前仓库结构与权威实现面
-3. `docs/spec/data-domain.md`：逻辑数据域边界
-4. `docs/spec/memory.md`：稳定架构记忆与工作约束
-5. [`AGENTS.md` §11 Build & Run Commands](../AGENTS.md#11-build--run-commands)：启动/运行/部署命令（与本文档 §1 等价）
+「该读哪份文档」只有一处答案：[`AGENTS.md` 文档地图](../AGENTS.md)。本节不再维护第二份清单。
 
 知识库位置：
 
-- 架构决策：`.github/knowledge/architecture-decisions.md`
+- 架构决策：`docs/spec/adr/`（索引 `docs/spec/memory.md`）
 - 错误模式：`.github/knowledge/error-patterns.md`
 
-> 历史上曾存在 `.github/knowledge/user-needs.md` 与 `iteration-log.md`，已下线；新的跨阶段/跨需求总结请按 [docs/index.md §5 Archive Policy](index.md#5-archive-policy) 直接放入 `docs/archive/YYYY-MM-DD/`。
+> 历史上曾存在 `.github/knowledge/architecture-decisions.md`、`user-needs.md`、`iteration-log.md`，均已下线（前两者在仓库中已不存在，勿再引用）；新的跨阶段总结按 [docs/index.md §3 归档策略](index.md#3-归档策略) 直接放入 `docs/archive/YYYY-MM-DD/`。
 
 ## 6. 工作约束
 
 - 不要把 CostView/frontend 当成正式前端入口。
 - 不要再用 app/ 或 emsx-backend/ 作为当前结构描述。
 - 新的专题总结类文档如果只对应一次性问题或已完成阶段，应放入 docs/archive/ 而不是长期留在 docs 根目录。
-- 长期有效的文档才留在 docs 根目录：运行指南、架构说明、数据边界、当前 handoff、持续维护的计划文档。
+- 长期有效的文档才留在 docs 根目录：运行指南、架构说明、数据边界、持续维护的计划文档。
+
+## 7. 启动器与项目根路径（★ 必须遵守）
+
+- 项目根定位**唯一信息源**是仓库根的 `.emsxview-root` marker 文件；新增/修改 `scripts/deploy/` 下启动脚本时**必须**用 `Find-EmsxviewRoot`（向上查找 marker），**禁止**硬编码「向上 N 层」。
+- 启动器算出项目根后**必须** `Assert-ProjectRootValid` 自检，错路径立即 throw，**禁止**进入 120s 超时黑盒。
+- VBS 启动器只做 thin wrapper（隐藏窗口 + 调起 PS1），**禁止**在 VBS 内做路径深度计算或业务逻辑。
+- 详见 [AP-16 启动器路径硬编码 + 跨宿主语义错位](spec/anti-patterns.md#ap-16-启动器路径硬编码--跨宿主语义错位)。

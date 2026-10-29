@@ -1,5 +1,7 @@
 # 029 交易可靠性加固 — 交付汇报
 
+> L3 | 权威：029 可靠性加固的交付记录 | 不权威：当前可靠性现状（见 `specs/057-execution-decision-loop/tasks.md`）
+
 > 依据：外部审计报告《EMSXView 实用化评估》（基于 `ed4b586`，2026-09-23）与伞计划
 > [`specs/029-trading-reliability-hardening/plan.md`](../specs/029-trading-reliability-hardening/plan.md)
 > 执行窗口：2026-10-07（单日）；交付形态：13 个独立 PR（#114–#126），全部 CI 全绿 squash 合并。

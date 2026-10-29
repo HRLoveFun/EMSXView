@@ -1,5 +1,7 @@
 # CostView Module
 
+> L2 | 权威：盘后 TCA 模块结构、端点表与 CLI | 不权威：报告口径缺口（见 `docs/report-tca-known-limitations.md`）
+
 > **Post-Trade TCA Analytics** · 🟡 **Beta** · Independent Microservice (port 8002)
 
 ---

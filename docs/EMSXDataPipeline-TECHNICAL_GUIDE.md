@@ -1,5 +1,7 @@
 # EMSXDataPipeline 技术说明（外部 Agent 版）
 
+> L2 | 权威：上游管道架构与数据链路的同步副本（真相源在 EMSXDataPipeline 仓库） | 不权威：本仓取数实现（见 `docs/spec/data-domain.md`）
+
 > **副本说明（EMSXView 仓库侧）**
 >
 > - 本文件是独立私有仓库 **EMSXDataPipeline** 的技术说明 `docs/TECHNICAL_GUIDE.md` 的**同步副本**，保留于本仓库（EMSXView），供仅有本仓库访问权限的外部 Agent 了解该数据管道仓库。

@@ -1,5 +1,7 @@
 # 数据盘点报告（057 DL-05 首版）
 
+> L3 | 权威：数据盘点与额度测量结论（时点快照） | 不权威：当前数据规模（见 `README.md` §5.1）
+
 > 数据窗口：2026-04-25 至 2026-10-21（近 6 个月）· 生成时间：2026-10-22
 > 工具：`python -m CostView.src --query inventory`（`CostView/src/monitoring/data_inventory.py`）
 > 配套探测：`python scripts/ops/probe_intraday_freshness.py`（交易机按 §4 清单运行）

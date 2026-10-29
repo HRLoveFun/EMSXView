@@ -1,12 +1,14 @@
 ﻿# EMSXView 交易平台
 
+> L1 | 权威：项目定位、模块分工与成熟度总表、架构与数据流、目录结构、技术栈、安装与运行命令 | 不权威：文档清单（见 `AGENTS.md` 地图）、批次进度（见 `specs/057-*/tasks.md`）、编码与文件放置约定（见 `.codebuddy/rules/coding-style.md`）
+
 > 订单执行与交易成本分析（TCA）单体仓库：交易执行视图（ExecutionView）、市场走势视图（MarketView）、盘后 TCA（CostView），共享一个 React 前端壳与一个只读数据访问层。
 >
-> **Agent / 开发者作业规范见 [AGENTS.md](./AGENTS.md)**：文档阅读顺序、编码与文件放置约定、Git Worktree 并行工作流、构建与验证命令、已失效声明。原 `CODEBUDDY.md` 已合并进 `AGENTS.md` 并删除，`AGENTS.md` 为唯一规范源。
+> **文档入口与作业规范见 [AGENTS.md](./AGENTS.md)**：它给出完整文档地图（该读哪份、何时改）与改动协议；编码约定、文件放置、Git Worktree 流程分别在 `.codebuddy/rules/`、`docs/dev-guide.md`、`docs/spec/git-workflow.md`。
 
 ---
 
-> **占位符约定**：`<host>` 默认 `localhost`；`<API_BASE_URL>` / `<MARKETVIEW_BASE_URL>` / `<COSTVIEW_BASE_URL>` 默认 `http://localhost:3000` / `:8001` / `:8002`；`<repo-root>` 指仓库根（由 `.emsxview-root` marker 定位）；`${EMSXVIEW_DATA_DIR}` 指数据根。完整约定见 [docs/index.md §7](./docs/index.md#7-占位符与可配置参数约定)。
+> **占位符约定**：`<host>` 默认 `localhost`；`<API_BASE_URL>` / `<MARKETVIEW_BASE_URL>` / `<COSTVIEW_BASE_URL>` 默认 `http://localhost:3000` / `:8001` / `:8002`；`<repo-root>` 指仓库根（由 `.emsxview-root` marker 定位）；`${EMSXVIEW_DATA_DIR}` 指数据根。完整约定见 [docs/index.md §5](./docs/index.md#5-占位符与可配置参数约定)。
 
 > **本 README 的可验证性原则**：每项能力描述均标注「入口（文件/端点）+ 验证方式（测试/命令）」。标注「实测」的数据来自静态代码审计与本机数据目录测量，未含运行时验证；过期的描述请在变更时同步更新 §11。
 
@@ -26,10 +28,10 @@
 
 | 模块 | 等级 | 判定证据 | 已知欠缺 |
 |------|------|----------|----------|
-| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；后端 45 个测试文件 / 295 个测试函数覆盖订单/路由/合规/调度；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg）；执行区间量价视图已实现（DL-30），待用户复核 |
-| **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 10 个测试文件 / 305 个测试函数（含 CLI 入口与黄金样本回归）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但未设 `--cov-fail-under`）；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
-| **MarketView**（`MarketView/`） | **Beta** | 8 个端点（快照 / 盘中特征 / handoff / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态 / pool-board）；8 个测试文件 / 74 例；已知限制见 [节点一交付说明](docs/milestone-1-pretrade-board.md) | 池内量价/难度/成本同屏已实现（DL-29，待用户复核）；SLA/运维文档未实现；实时列依赖开关 |
-| **frontend/**（React 壳） | **Beta** | 31 个前端测试文件（vitest）；三模块注册完整 | 覆盖率未量化 |
+| **ExecutionView**（`backend/api/` + `ExecutionView/module/`） | **GA** | 真实成交数据持续入库（`raw_fills.db` 7.15 GB、`execution_history.db` 6.54 GB，实测 2026-10-20）；订单/路由/合规/调度均有测试（`cd backend/api && python -m pytest tests/ -q`）；运维手册 [docs/ops/service-management.md](./docs/ops/service-management.md) | 无正式 SLA 文档；无独立端到端集成测试套件（依赖 mock Bloomberg）；执行区间量价视图已实现（DL-30），待用户复核 |
+| **CostView**（`CostView/` + `CostView/module/`） | **Beta** | 测试含 CLI 入口与黄金样本回归（`python -m pytest CostView/tests/ -q`）；14 个 API 端点全部可追溯到代码；已知限制清单 [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | 覆盖率未量化（已配 coverage 但未设 `--cov-fail-under`）；无本模块专项运维手册（`docs/ops/` 未覆盖，故不进 GA） |
+| **MarketView**（`MarketView/`） | **Beta** | 8 个端点（快照 / 盘中特征 / handoff / 盘前单导出 / 盘前单装配 / 日度基线 / 事件与状态 / pool-board）；测试见 `python -m pytest MarketView/tests/ -q`；已知限制见 [节点一交付说明](docs/milestone-1-pretrade-board.md) | 池内量价/难度/成本同屏已实现（DL-29，待用户复核）；SLA/运维文档未实现；实时列依赖开关 |
+| **frontend/**（React 壳） | **Beta** | vitest 覆盖壳层与三模块（`npm test`）；三模块注册完整 | 覆盖率未量化 |
 | **data_access/**（只读数据层） | **Beta** | 契约测试锁定两仓常量一致（`data_access/config.py` 模块 docstring）；`mode=ro` 连接层 | 无自身测试目录 |
 | **platform_data/**（跨模块适配层） | **Beta（部分规划中）** | handoff/contracts/tests 均有实现 | 部分 Adapter 为规划中、尚未实现，见 [ADR-0013](./docs/spec/adr/0013-platform-data-adapter-current-state.md)，禁止按符号 import |
 
@@ -84,7 +86,7 @@ MarketView (Market Trend) ──▶ ExecutionView (Order Execution) ──▶ Co
 
 - 可选模块由 `backend/api/main.py` 的 `_register_optional` 加载（`*`/`all` 加载全部，置空禁用）；MarketView **没有**桥接路径，仅独立运行，由 `emsxview.bat start` 一并拉起（未启动时前端 Market View 标签页所有面板报 500）。
 - 跨模块 handoff 后端由 `EMSXVIEW_HANDOFF_BACKEND` 选择：`memory`（默认，进程内 dict + 锁）或 `redis`（跨进程）；非法值启动即 `ValueError`。
-- 已失效的历史机制（`EMSXVIEW_MERGE_MODULES`、`VITE_USE_MOCK`、`CORS_ORIGINS` 等）汇总见 [AGENTS.md §14](./AGENTS.md#14-已失效声明勿再引用)。
+- 已失效的历史机制（`EMSXVIEW_MERGE_MODULES`、`VITE_USE_MOCK`、`CORS_ORIGINS` 等）汇总见 [已失效声明归档](./docs/archive/2026-10-29/agents-invalidated-claims.md)（原 `AGENTS.md` §14）。
 
 ---
 
@@ -92,7 +94,7 @@ MarketView (Market Trend) ──▶ ExecutionView (Order Execution) ──▶ Co
 
 ```
 EMSXView/
-├── AGENTS.md                         # Agent 入口 + 项目总览（唯一规范源）
+├── AGENTS.md                         # Agent 入口 + 文档地图（唯一路由源）
 ├── README.md                         # This file
 ├── QUICKSTART.md                     # One-command quick start guide
 ├── emsxview.bat                      # Unified entry (start/stop/restart/status)
@@ -125,21 +127,21 @@ EMSXView/
 │       ├── routers/                  # 核心 11 路由 + costview.py（可选桥接，含 Runner 代理）
 │       ├── services/                 # bloomberg/ 拆分包、compliance、route_engine、algo_scheduler 等
 │       ├── repositories/ · models/ · schemas/ · migrations/
-│       └── tests/                    # 45 个测试文件 / 295 个测试函数（含 boundaries/ 契约测试）
+│       └── tests/                    # 含 boundaries/ 契约测试（规模跑命令看，不写死）
 │
 ├── MarketView/                       # 市场走势微服务 [Beta]（默认 :8001）
 │   ├── main.py · config.py
 │   ├── routers/                      # marketview（snapshot/intraday/handoff）· export_orders
 │   │                                 # pretrade（盘前板）· baseline · regime
 │   ├── module/ · standalone/
-│   └── tests/                        # 8 个测试文件 / 74 例
+│   └── tests/                        # 测试规模跑命令看，不写死数字
 │
 ├── CostView/                         # 盘后 TCA 微服务 [Beta]（默认 :8002）
 │   ├── pyproject.toml                # pip package: emsxview-costview
 │   ├── api/routers/                  # costview.py（查询/推荐/交接/评估）· monitoring.py
 │   ├── src/                          # tca_query_service · tca_query_builder · tca_cache · tca_utils
 │   │                                 # monitoring/ · evaluation/（统计评估层）· __main__.py（CLI）
-│   └── tests/                        # 10 个测试文件 / 305 个测试函数；golden/ 内附冻结快照
+│   └── tests/                        # golden/ 内附冻结快照（规模跑命令看）
 │
 ├── data_access/                      # ★ 只读数据访问层 [Beta]
 │   ├── config.py                     # Config：${EMSXVIEW_DATA_DIR} + 10 个库键 + 表常量
@@ -464,7 +466,7 @@ pip install -r requirements.txt          # Includes -e ../../platform_data
 set EMSXVIEW_OPTIONAL_MODULES=costview:CostView
 python main.py                           # Starts on <API_PORT> (default 3000)
 
-# Run tests（45 个测试文件 / 295 个测试函数）
+# Run tests（规模以实跑为准；全仓验证矩阵见 docs/spec/quality-gate.md）
 pytest
 ```
 
@@ -514,7 +516,7 @@ export EMSXVIEW_DATA_DIR=<data-dir>
 # 只读连接自检（READ tier；任何写请求会被拒绝）
 python -c "from data_access import ConnectionManager, Config; print(Config.DATA_DIR)"
 
-# Run CostView tests（10 个测试文件 / 305 个测试函数；golden 快照随基线入库）
+# Run CostView tests（golden 快照随基线入库；规模以实跑为准）
 python -m pytest CostView/tests/
 
 # CostView 只读查询 CLI（盘后巡检 / CI）
@@ -551,29 +553,11 @@ Nginx routes: `/api/*` → backend `<API_PORT>`, `/ws/*` → backend `<API_PORT>
 
 ---
 
-## 10. Related Documentation（引用均经存在性核对）
+## 10. 文档入口
 
-| Document | Purpose |
-|----------|---------|
-| [AGENTS.md](./AGENTS.md) | **Agent 入口 + 项目总览**（工作流、编码约定、构建与验证、已失效声明） |
-| [QUICKSTART.md](./QUICKSTART.md) | One-command Windows service launcher |
-| [docs/index.md](./docs/index.md) | 文档导航（§7 占位符约定） |
-| [docs/api-contracts.md](./docs/api-contracts.md) | 前后端 API 契约（端点总览、各 Router 详述、错误码规范） |
-| [docs/schema-contract.md](./docs/schema-contract.md) | 跨模块 TS↔Python 类型契约（Contract 1–4） |
-| [docs/report-tca-known-limitations.md](./docs/report-tca-known-limitations.md) | TCA 报告口径缺陷清单（§一 硬缺口 / §三 口径脚注） |
-| [docs/spec/project-structure.md](./docs/spec/project-structure.md) | Canonical architecture reference |
-| [docs/spec/data-domain.md](./docs/spec/data-domain.md) | Logical data domain design |
-| [docs/spec/memory.md](./docs/spec/memory.md) | Architecture memory & constraints |
-| [docs/spec/anti-patterns.md](./docs/spec/anti-patterns.md) | 禁止模式清单（AP-01~） |
-| [docs/spec/adr/](./docs/spec/adr/) | ADR 0001–0021 + 0700（0013 platform_data 现状 / 0014 dead-code cleanup） |
-| [docs/dev-guide.md](./docs/dev-guide.md) | Developer guide |
-| [docs/ops/service-management.md](./docs/ops/service-management.md) | Service operations & troubleshooting |
-| [backend/README.md](./backend/README.md) | Backend production deployment guide |
-| [CostView/README.md](./CostView/README.md) | CostView 模块细节（端点表） |
-| [MarketView/README.md](./MarketView/README.md) | MarketView 模块细节 |
-| [scripts/README.md](./scripts/README.md) | Automation scripts reference |
+文档清单只有一处：**[`AGENTS.md` 文档地图](./AGENTS.md)**（五列：路径 / 层 / 回答什么 / 何时读 / 何时改）。本节不维护第二份清单；新增或移动文档只改那张表。
 
-> 文档主从关系：`AGENTS.md` 为 Agent 视角的单一事实源；本 README 面向人类读者给出概览与可验证证据；上述子文档仅作深入补充。
+> 主从关系：`AGENTS.md` 负责路由（该读哪份、何时改）与改动协议；本 README 面向人类读者给出概览与可验证证据；`docs/` 下的文档按 L2/L3 承担实现细节与历史。文档规则（分层预算、写入时机、归档、占位符）见 [docs/index.md](./docs/index.md)。
 
 ---
 

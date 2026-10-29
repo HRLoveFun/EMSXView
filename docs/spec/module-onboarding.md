@@ -1,7 +1,9 @@
 # 新增模块 / 适配器 / 路由 流程
 
+> L2 | 权威：新增模块的接入步骤与检查项 | 不权威：现有模块清单与边界（见 `project-structure.md`）
+
 > AI agent 加新组件时必读
-> 配套规范：[ADR-0008](../adr/0008-frontend-module-registry-pattern.md)、[ADR-0002](../adr/0002-platform-data-adapter-pattern.md)
+> 配套规范：[ADR-0008](adr/0008-frontend-module-registry-pattern.md)、[ADR-0002](adr/0002-platform-data-adapter-pattern.md)
 > Last updated: 2026-06-03
 
 ---
@@ -290,7 +292,7 @@ pytest tests/boundaries/ -v   # 边界测试
 ❌ 跨域写 `processed_fills.db` / `regime.db`
 ❌ 在 router 层直接 import 其他 router
 
-详见 [anti-patterns.md §AP-01](../anti-patterns.md)。
+详见 [anti-patterns.md §AP-01](anti-patterns.md)。
 
 ### D.3 配套同步
 
@@ -319,7 +321,7 @@ pytest tests/boundaries/ -v   # 边界测试
 # ADR-0013: 调整 X 决策
 
 > 状态: Accepted
-> 替代: [ADR-0001](0001-one-logical-data-domain.md)
+> 替代: [ADR-0001](adr/0001-one-logical-data-domain.md)
 
 ## 背景
 原 ADR-0001 中 ... 假设已不成立，因为 ...
@@ -333,7 +335,7 @@ pytest tests/boundaries/ -v   # 边界测试
 ```markdown
 # ADR-0001: 一个逻辑数据域，多种存储技术
 
-> 状态: Superseded by [ADR-0013](0013-...)
+> 状态: Superseded by [ADR-0013](adr/0013-platform-data-adapter-current-state.md)
 ```
 
 ---

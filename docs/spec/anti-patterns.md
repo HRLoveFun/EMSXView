@@ -1,5 +1,7 @@
 # 反模式清单
 
+> L2 | 权威：禁止模式清单（AP-01~）与判定 | 不权威：OE 检测器实现与基线（见 `quality-gate.md`）
+
 > AI agent 写代码 / Code Review 必查
 > 每个反模式含 ID / 描述 / 检测命令 / 修复方案 / 优先级
 > 配套测试：`tests/boundaries/`
@@ -52,7 +54,7 @@ rg "from DataPipeline" backend/ CostView/ platform_data/ data_access/
 - 后端跨域 → 改走 `platform_data.<domain>.*` 适配器
 - 共享类型 → 抽到 `@shared/types` 或 `platform_data/contracts/`
 **测试**: `tests/boundaries/test_cross_module_imports.py`
-**参考**: [ADR-0002](../adr/0002-platform-data-adapter-pattern.md)、[ADR-0005](../adr/0005-data-pipeline-extraction.md)
+**参考**: [ADR-0002](adr/0002-platform-data-adapter-pattern.md)、[ADR-0005](adr/0005-data-pipeline-extraction.md)
 
 ---
 
@@ -97,7 +99,7 @@ rg "['\"][^'\"]*\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 ```
 **修复**: 通过 `data_access.config.Config` 的库路径常量（如 `Config.RAW_FILLS_DB`）读取
 **测试**: `tests/boundaries/test_db_path_from_config.py`
-**参考**: [ADR-0012](../adr/0012-config-isolation-rule.md)
+**参考**: [ADR-0012](adr/0012-config-isolation-rule.md)
 
 ---
 
@@ -140,7 +142,7 @@ rg "^#\s+[A-Z][a-z]+" backend/ data_access/ platform_data/ --type py
 rg "useOrderStreamStore|useRouteStreamStore" CostView/module/ MarketView/module/
 ```
 **修复**: 改走 handoff 契约（`useHandoffContracts`）或 ShellContext
-**参考**: [ADR-0007](../adr/0007-handoff-exchange-pattern.md)
+**参考**: [ADR-0007](adr/0007-handoff-exchange-pattern.md)
 
 ---
 
@@ -169,7 +171,7 @@ rg "\._[a-z_]+\(" frontend/src/ | rg -v "node_modules"
 rg "include_router|app\.include" backend/api/main.py | rg -v "_register_optional"
 ```
 **修复**: 改用 `_register_optional(router, ...)` 模式，由 `EMSXVIEW_OPTIONAL_MODULES` 控制（原 `EMSXVIEW_MERGE_MODULES` 已失效，backend 无消费点，2026-09-11 核实）
-**参考**: [ADR-0009](../adr/0009-blend-of-microservice-and-monolith.md)
+**参考**: [ADR-0009](adr/0009-blend-of-microservice-and-monolith.md)
 
 ---
 
@@ -213,7 +215,7 @@ rg "window\.location\." {ExecutionView,CostView,MarketView}/module/{components,v
 rg "new WebSocket\(" {ExecutionView,CostView,MarketView}/module/
 ```
 **修复**: 在 `module.registry.ts` 声明 `realtimeWsPath`，Shell 统一管理
-**参考**: [ADR-0008](../adr/0008-frontend-module-registry-pattern.md)
+**参考**: [ADR-0008](adr/0008-frontend-module-registry-pattern.md)
 
 ---
 

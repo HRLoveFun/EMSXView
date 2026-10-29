@@ -1,6 +1,8 @@
 ﻿# EMSXView Trading Tool - Quick Start
 
-> **占位符约定**：`<repo-root>` 为仓库根（由仓库根的 `.emsxview-root` marker 定位，请替换为你的实际克隆路径）；`<host>` 默认 `localhost`；`<API_PORT>` / `<FRONTEND_PORT>` 默认 3000 / 5173，可由环境变量覆盖。完整约定见 [`docs/index.md` §7](./docs/index.md#7-占位符与可配置参数约定)。
+> L1 | 权威：Windows 一键启动的内容与交互步骤 | 不权威：按模块单独启动与验证（见 `README.md` §9）、排障（见 `docs/ops/service-management.md`）
+
+> **占位符约定**：`<repo-root>` 为仓库根（由仓库根的 `.emsxview-root` marker 定位，请替换为你的实际克隆路径）；`<host>` 默认 `localhost`；`<API_PORT>` / `<FRONTEND_PORT>` 默认 3000 / 5173，可由环境变量覆盖。完整约定见 [`docs/index.md` §5](./docs/index.md#5-占位符与可配置参数约定)。
 
 ## One-Command Start
 

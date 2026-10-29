@@ -1,5 +1,7 @@
 # EMSXView Trading API - Production Deployment
 
+> L2 | 权威：后端生产部署步骤与服务拓扑 | 不权威：本地开发启动（见 `README.md` §9）、运维排障（见 `docs/ops/service-management.md`）
+
 开箱即用的彭博EMSX交易API后端服务，用于生产环境部署。
 
 > **占位符约定**：`<host>` 默认 `localhost`；`<API_PORT>` 默认 3000（环境变量 `API_HOST` / `API_PORT`，见 `backend/api/config.py`）。占位符完整清单见 [`docs/index.md` §7](../docs/index.md#7-占位符与可配置参数约定)。

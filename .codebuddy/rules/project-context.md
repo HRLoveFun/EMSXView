@@ -64,7 +64,7 @@
 - 不再引入其他图标库
 
 ### 模块架构
-- **模块使命（单一来源：[`AGENTS.md` §4.0](../../AGENTS.md)）**：MarketView = 市场走势视图（股票池检查、意图/难度/成本提示，只读、不碰下单路径）；ExecutionView = 交易执行视图（意图获取、订单/路由发送与修改、执行区间量价）；CostView = 盘后 TCA
+- **模块使命（单一来源：[`docs/spec/project-structure.md` §1](../../docs/spec/project-structure.md)）**：MarketView = 市场走势视图（股票池检查、意图/难度/成本提示，只读、不碰下单路径）；ExecutionView = 交易执行视图（意图获取、订单/路由发送与修改、执行区间量价）；CostView = 盘后 TCA
 - 前端壳 `frontend/src/app/AppShell.tsx` — 根布局编排器，包含工具栏、模块标签页和 Toast 容器
 - 懒加载 React 模块（均为**仓库根级目录**，与 `frontend/` 平级）：`ExecutionView/module/`、`CostView/module/`、`MarketView/module/`；`frontend/src/` 仅保留壳层（`app/`）与共享层（`shared/`、`components/`）
 - 包管理：npm workspaces（根 `package.json` 成员 `frontend` + `ExecutionView`），lockfile 唯一在仓库根，安装入口为仓库根 `npm ci`；依赖提升到根 `node_modules`，`resolve.dedupe` 保证单实例 React（ADR-0020）

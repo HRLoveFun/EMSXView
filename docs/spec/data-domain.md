@@ -1,5 +1,7 @@
 ﻿# EMSX Logical Data Domain
 
+> L2 | 权威：逻辑数据域划分、数据所有权边界、只读访问通道与库表常量归属 | 不权威：库文件实测大小（见 `README.md` §5.1）、降级行为（见 `README.md` §8）、管道侧写入实现（独立仓库 EMSXDataPipeline）
+
 > Boundary definition for shared platform data
 > Last updated: 2026-09-11 (v3.4 — 移除 `tca_fallback.py`/不存在契约文件/`repositories.py` 等过时引用，与实际代码对齐)
 >
@@ -266,6 +268,18 @@ CostView should not treat ExecutionView's operational projection store as its an
 
 Data Platform should not embed domain-specific analytical logic — its responsibility
 ends at clean, well-structured data delivery.
+
+---
+
+## Read-only access channel（本仓库的取数纪律）
+
+本仓库是**只读消费者**，取数只经一条通道：
+
+- 入口：`data_access.config.Config` + `data_access.storage.ConnectionManager`（仅 READ tier；WRITE / admin 请求被拒绝）。
+- 数据根解析优先级：`${EMSXVIEW_DATA_DIR}` 环境变量 > `Config.DEFAULT_DATA_DIR`。
+- 库/表常量全部在 `data_access/config.py`；与他仓共享的数据契约由契约测试锁定（`backend/api/tests/boundaries/`）。
+- **永不写入**：数据更新与维护由独立仓库 EMSXDataPipeline 独占（触发链见 `README.md` §3.2）；本仓库禁止 `import DataPipeline.*`。
+- 降级语义（缺库 → 空结果而非静默补数）见 `README.md` §8；库文件实测规模见 `README.md` §5.1。
 
 ---
 

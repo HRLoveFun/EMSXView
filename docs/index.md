@@ -1,94 +1,86 @@
-﻿# EMSXView Documentation Guide
+﻿# EMSXView 文档规则
 
-> 当前 docs 目录入口与维护规则
-> Last updated: 2026-07-02
-> 📦 已重组为 spec/api/ops 子目录结构；`docs/roadmap/` 整目录已归档（2026-07-02），详见 [§5 Archive Policy](#5-archive-policy)
+> L1 | 权威：文档分层与行数预算、写入时机、归档策略、校验命令、占位符与可配置参数约定 | 不权威：文档清单（见 `AGENTS.md` 文档地图）、项目现状与进度（见 `specs/057-execution-decision-loop/tasks.md`）
 
----
-
-## 1. Root Principles
-
-docs 根目录只保留入口导航，其余按领域划入子目录：
-
-- docs/spec/ — 架构规范（稳定、真相源）
-- docs/api/ — API 接口定义
-- docs/ops/ — 运维部署
-
-已完成阶段的实施总结、一次性诊断报告归入 docs/archive/。
-
-> **当前活跃 handoff 入口**：[`AGENTS.md` §data_management_refactoring 分支工作流](../AGENTS.md#data_management_refactoring-分支工作流-已完成归档--2026-07-02)（📦 已归档，运行时参数见 [`data_access/config.py`](../data_access/config.py) 的 `Config`）。无跨日进行中工作项时，docs 根目录不保留 `handoff.md` 占位。
+> **单一来源分工**：本文只管「文档怎么维护」；「该读哪份」在 [`AGENTS.md`](../AGENTS.md) 的文档地图，「现在到哪」在 `specs/057-execution-decision-loop/tasks.md` 的状态总览。三处互不复述。
 
 ---
 
-## 2. Canonical Docs
+## 1. 分层与行数预算
 
-| 路径 | 用途 | 何时更新 |
+层数由判据算，不由文档数量抄：每份文档只属于一层，且必须被上一层指到。
+
+| 层 | 回答什么 | 预算 | 谁读 | 落盘位置 |
+|---|---|---|---|---|
+| L0 | 我该看哪份？文档怎么改？ | ≤120 行 | 每次会话的 agent | 仓库根 `AGENTS.md` |
+| L1 | 项目是什么、现在到哪、什么规矩 | 每份 ≤200 行 | 接手任务的人与 agent | `README.md`、`docs/index.md`、`specs/057-*/tasks.md` |
+| L2 | 这个模块/机制为什么这样、怎么改它 | 无硬限，须被 L1 指到 | 要动该模块的人 | `docs/spec/`、`docs/api/`、`docs/ops/`、各模块 `README.md` |
+| L3 | 当时怎么想、试过什么、证据在哪 | 不限，append-only | 追溯者与复核者 | `specs/`（在途计划）、`docs/archive/`、`docs/report-*.md` |
+
+L0 超预算就下沉到 L1/L2，**不许缩句糊过去**——缩句只是把同样的上下文换个说法继续占坑。
+
+## 2. 写入时机表
+
+维护不是「记得更新文档」，而是每类改动都有指定动作。
+
+| 事件 | 必改（按顺序） | 不用改 |
 |---|---|---|
-| docs/spec/project-structure.md | 当前仓库结构与权威实现面 | 结构调整、模块边界变化时 |
-| docs/spec/data-domain.md | 逻辑数据域与适配层边界 | 数据所有权或适配层变化时 |
-| docs/spec/memory.md | 稳定架构记忆与长期约束 | 形成新的稳定规则时 |
-| docs/spec/attribution-pitfalls.md | 归因**推理层**红线（AT-01~03 自检清单：禁把观测顺序当契约 / 跨层配对须同一时点语义 / 反常追到底） | 形成新的归因经验时 |
-| docs/dev-guide.md | 开发指南与验证约束 | 开发流程或权威入口变化时 |
-| docs/schema-contract.md | 跨域类型契约（前端 TS ↔ 后端 Python） | 跨模块协议变更时 |
-| docs/api/bloomberg-emsx-reference.md | Bloomberg EMSX API 参考（第三方权威文档，非公开资源） | 外部分发 |
-| docs/EMSXDataPipeline-TECHNICAL_GUIDE.md | 独立数据管道仓库 EMSXDataPipeline 技术说明的**同步副本**（供无该仓库权限的外部 Agent 了解其架构/数据链路/交易前供给；真相源在 EMSXDataPipeline 仓库，更新后整体覆盖同步，见副本头部说明） | 真相源（EMSXDataPipeline `docs/TECHNICAL_GUIDE.md`）更新时 |
-| docs/ops/service-management.md | 启停、健康检查、日志查看 | 服务管理方式变化时 |
-| [docs/report-marketview-live-fields.md](report-marketview-live-fields.md) | MarketView 实时字段可用性矩阵（34 个交易市场实测）、字段否决依据、更新字段列表的改动清单与复测 SOP | 新增/替换实时字段、复测后追加记录 |
-| [`data_access/config.py`](../data_access/config.py)（`Config` 类） | 数据根、库/表常量等只读侧运行时参数（写入侧参数归独立仓库 EMSXDataPipeline） | 修改数据根/库表常量时 |
+| 一批任务收尾 | `tasks.md` 该行状态 + 子编号/证据 + 日期 | `README.md`（结构没变时） |
+| 新增/删除模块、依赖方向变 | `docs/spec/project-structure.md` 模块表 → `AGENTS.md` 地图 → 新 L2 | `QUICKSTART.md` |
+| 做了取舍、否掉了方案 | 新 ADR → `docs/spec/memory.md` 的 ADR 索引（`audit_doc_drift.py` 会校验） → 相关 L1 加指针 | `tasks.md` 只记结果 |
+| 对外用法变了 | `README.md` §9 | `docs/spec/` 细节 |
+| 改了约定 | `docs/dev-guide.md` 或对应 `docs/spec/*`；若约束 agent 行为，加进 `AGENTS.md` 元规则 | L2 细节 |
+| 文档结构变化 | **先** `AGENTS.md` 地图 → 再动文件 → 跑 `scripts/doc_check.py` | 其余 |
+| 文档与代码冲突 | 描述性文档（现状/结构/进度）：改文档；规范性文档（约定/契约/安全）：改代码或记例外 | 不许两边各改一半 |
+| 文档被取代 | 首部加「已被 <新文档> 取代」，移入 `docs/archive/` | 不许静默删除 |
 
----
+**算做完的标志是 `python scripts/doc_check.py` 退出码 0**，不是「我改完了」。
 
-## 3. Generated And Reference Material
+## 3. 归档策略
 
-> 时序图已归档至 `docs/archive/2026-06-29/sequence-diagrams.md`（无 CI 保障且与实际代码漂移）。如需新时序图，请从代码生成或显式标注为草稿。
+满足任一条件即归档到 `docs/archive/YYYY-MM-DD/`：
 
----
+- 主要描述的功能或阶段已经完成；
+- 主要内容是一次性诊断、审计或修复报告；
+- 仍在引用已删除或已迁移的路径；
+- 已被新的真相源文档替代。
 
-## 4. Knowledge Base Outside docs
+约定细则：
 
-持续维护的知识库在 .github/knowledge/：
+- 归档**保留原编号与目录名**：`docs/archive/YYYY-MM-DD/<feature-id>/`；活文档引用已归档计划时一律指向归档路径（2026-09-16、2026-09-21、2026-10-29 三批即此约定）。
+- `specs/` 只承载在途计划；已完成计划归档后目录消失，新建计划时再建。
+- 归档件首部必须留一行「归档于 YYYY-MM-DD；已被 <新文档> 取代」，禁止静默移动或删除。
 
-| 文件 | 说明 |
-|---|---|
-| .github/knowledge/architecture-decisions.md | 架构决策（本仓库 ADR 的对外映射） |
-| .github/knowledge/error-patterns.md | 错误模式与解法 |
+## 4. 文档校验
 
----
+```bash
+python scripts/doc_check.py            # 六项对账，退出码 0 = 通过（WARN 不计失败）
+python scripts/doc_check.py --strict   # WARN 也算失败
+python scripts/audit_doc_drift.py      # 契约级漂移（ADR 索引 / 模块边界 / 适配器表）
+```
 
-## 5. Archive Policy
+`doc_check.py` 只查能对账的部分：地图路径存在、`.md` 全量覆盖、被索引文档有元信息头、状态枚举与证据列、相对链接可解析。它**不评价**「写得好不好」。
 
-满足以下任一条件的文档应归档到 docs/archive/YYYY-MM-DD/：
+现状与已知 WARN：
 
-- 主要描述的功能或阶段已经完成
-- 主要内容是一次性诊断或修复报告
-- 仍在引用 app/、emsxview-backend/ 等旧路径
-- 已被新的 source-of-truth 文档替代
+- 当前**未接 CI**（`doc_check.py` 为按需脚本）；`audit_doc_drift.py` 走 `boundary.yml` 硬阻断 + `doc-drift-report.yml` 周报。
+- 检查 6 会把豁免区（`.codebuddy/skills/**`、`.specify/**`、`docs/archive/**`）的历史死链一并报出，约 24 处，**按归档原则不修**——这些目录不参与文档路由，链接保留原样作为历史记录。
+- `--strict` 用于本地强校验；CI 若要接入，建议先用非 strict 模式观察一周。
 
-归档后计划**保留原编号与目录名**：`docs/archive/YYYY-MM-DD/<feature-id>/`。`specs/` 只承载在途计划，
-活文档与代码注释引用已归档计划时一律指向归档路径（2026-09-16、2026-09-21 两批归档即此约定）。
-
----
-
-## 6. Maintenance Rule Of Thumb
-
-如果某份文档不能回答"现在开发这项功能应该以哪里为准"，它不该留在 docs/ 下。
-
----
-
-## 7. 占位符与可配置参数约定
+## 5. 占位符与可配置参数约定
 
 文档（含 `README.md`、`QUICKSTART.md`、`AGENTS.md`、`docs/**`）中禁止写入与具体机器绑定的硬编码值，统一使用下列占位符。**本仓库内部文件一律以仓库相对路径引用**，确保文档自包含（不依赖仓库外路径或资源）。
 
-### 7.1 路径占位
+### 5.1 路径占位
 
 | 占位符 | 含义 | 说明 |
 |---|---|---|
-| `<repo-root>` | 仓库根 | 由仓库根 `.emsxview-root` marker 定位；脚本中用 `Find-EmsxviewRoot` 解析，禁止硬编码"向上 N 层" |
+| `<repo-root>` | 仓库根 | 由仓库根 `.emsxview-root` marker 定位；脚本中用 `Find-EmsxviewRoot` 解析，禁止硬编码「向上 N 层」 |
 | `${EMSXVIEW_DATA_DIR}` | 数据根 | 环境变量显式覆盖优先；默认值见 `data_access/config.py` 的 `Config.DEFAULT_DATA_DIR` |
 | `<data-dir>` | 泛指某个数据目录 | 用于示例命令，实际取值即 `${EMSXVIEW_DATA_DIR}` |
 | `<pipeline-repo>` | 独立数据管道仓库 EMSXDataPipeline 的本地检出路径 | **仓库外资源**：仅在说明归属时使用，文档中不得出现其具体磁盘路径 |
 
-### 7.2 主机与端口占位
+### 5.2 主机与端口占位
 
 | 占位符 | 默认值 | 覆盖环境变量 |
 |---|---|---|
@@ -99,9 +91,9 @@ docs 根目录只保留入口导航，其余按领域划入子目录：
 | `<FRONTEND_PORT>` | `5173`（开发态），容器态 `80` | `vite --port`、`VITE_API_URL`、`FRONTEND_PORT` |
 | `<POSTGRES_PORT>` / `<PROMETHEUS_PORT>` / `<GRAFANA_PORT>` | `5432` / `9090` / `3001` | `backend/.env` 同名变量 |
 
-### 7.3 仓库外引用处理原则
+### 5.3 仓库外引用处理原则
 
 数据管道的 ETL 写入方已迁独立仓库 EMSXDataPipeline，本仓库仅保留只读访问层 `data_access/`：
 
-- 文档需要指向"原 `DataPipeline/xxx` 文件"时，**改写为本仓库的对应路径**（`data_access/xxx`）；本仓库无对应物时只说明归属（"由独立仓库 EMSXDataPipeline 维护"），不写磁盘路径。
-- 历史文档（`docs/archive/**`、`specs/**` 已完成计划）中的旧路径**保留原样作为历史记录**，但如出现用户目录等机器绑定路径，须替换为占位符。
+- 文档需要指向「原 `DataPipeline/xxx` 文件」时，**改写为本仓库的对应路径**（`data_access/xxx`）；本仓库无对应物时只说明归属（「由独立仓库 EMSXDataPipeline 维护」），不写磁盘路径。
+- 历史文档（`docs/archive/**`、`specs/**` 已归档计划）中的旧路径**保留原样作为历史记录**，但如出现用户目录等机器绑定路径，须替换为占位符。

@@ -1,8 +1,10 @@
 # EMSXView Trading Tool - Service Management Guide
 
-> Last updated: 2026-10-20 | 与 [`AGENTS.md` §11 Build & Run Commands](../../AGENTS.md#11-build--run-commands) 对齐
+> L2 | 权威：服务启停、健康检查、日志、故障排查、环境变量清单 | 不权威：启动命令速查（见 `README.md` §9）、编码与文件放置约定（见 `.codebuddy/rules/coding-style.md`）
+
+> Last updated: 2026-10-29 | 与 [`README.md` §9 Installation & Running](../../README.md#9-installation--running) 对齐
 >
-> **占位符约定**（详见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）：`<repo-root>` = 仓库根（由 `.emsxview-root` marker 定位）；`<host>` 默认 `localhost`；`<API_PORT>`=3000（`/api/health` 等端点基址记作 `<API_BASE_URL>`）、`<FRONTEND_PORT>`=5173（dev）/ 80（prod）。
+> **占位符约定**（详见 [`docs/index.md` §5](../index.md#5-占位符与可配置参数约定)）：`<repo-root>` = 仓库根（由 `.emsxview-root` marker 定位）；`<host>` 默认 `localhost`；`<API_PORT>`=3000（`/api/health` 等端点基址记作 `<API_BASE_URL>`）、`<FRONTEND_PORT>`=5173（dev）/ 80（prod）。
 
 ## Quick Start
 
@@ -150,6 +152,53 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 **本地开发与鉴权**：前端没有登录页（设计前提是 Bloomberg 终端已本地认证），因此本地开发需在仓库根 `.env` 设置 `BYPASS_AUTH=true`，否则受保护端点（含 `/api/startup-status`、`/api/marketview/*`）返回 401。生产/共享环境必须保持 `false`（默认），两个服务行为一致：bypass 返回本地终端身份，非 bypass 一律 fail-closed。
 
 前端若显示 `Startup chain error` 且消息为 `Authentication required`，即表示后端未开启 bypass 且浏览器未注入 token——这不是后端宕机。
+
+### 环境变量清单
+
+服务地址（`<host>` 默认 `localhost`）：
+
+| 服务 | 默认 | 覆盖 |
+|------|------|------|
+| Frontend (dev) | `http://<host>:5173` | `npm run dev -- --port <FRONTEND_PORT>` |
+| Core Backend / Swagger | `<API_BASE_URL>` / `/docs` | `API_HOST`、`API_PORT` |
+| MarketView | `http://<host>:8001/docs` | `MARKETVIEW_HOST`、`MARKETVIEW_PORT` |
+| CostView | `http://<host>:8002/docs` | `COSTVIEW_HOST`、`COSTVIEW_PORT` |
+| 健康检查 | `<API_BASE_URL>/api/health` | `API_PORT` |
+
+后端（默认值权威来源 `backend/api/config.py`）：
+
+| 名称 | 作用 | 默认值 |
+|------|------|--------|
+| `BLOOMBERG_HOST` / `BLOOMBERG_PORT` | Bloomberg SAPI 连接 | `localhost` / `8194` |
+| `JWT_SECRET` | JWT 签名密钥（core 与 MarketView 共用，建议放仓库根 `.env`） | 空（未设且未开 `BYPASS_AUTH` 时启动即报错） |
+| `BYPASS_AUTH` | 本地开发跳过 Bearer 鉴权（core 与 MarketView 同语义；生产必须保持 `false`） | `false` |
+| `EMSXVIEW_OPTIONAL_MODULES` | 可选路由桥接清单（`*`/`all` 加载全部，置空禁用） | `costview:CostView` |
+| `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory` / `redis`） | `memory` |
+| `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 缓存） | `redis://localhost:6379/0` |
+| `ENABLE_DB_PERSISTENCE` | 运营库订单/路由持久化开关（关闭时内存 fallback；默认 SQLite，路径见 `EMSXVIEW_OPS_DB_DIR`，显式设 `DATABASE_URL` 可走 PostgreSQL，见 [ADR-0022](../spec/adr/0022-operational-db-sqlite.md)） | `false` |
+| `EMSXVIEW_OPS_DB_DIR` | 运营库目录（仓库外，未设取 `~/.emsxview/ops`，ADR-0022） | 空 |
+| `ALLOWED_ORIGINS` | CORS 允许来源（逗号分隔） | `http://localhost:5173,http://localhost:80` |
+| `EMSXVIEW_RUNNER_URL` | 数据管道 Runner 地址（代理目标） | `http://127.0.0.1:8100` |
+
+前端（`frontend/.env`）：
+
+| 名称 | 作用 | 默认值 |
+|------|------|--------|
+| `VITE_API_URL` | Backend 基址；**留空 = mock / 无后端模式** | 空 |
+| `VITE_MARKETVIEW_URL` | MarketView 微服务基址（dev 代理 `/api/marketview/*` 的目标） | `http://localhost:8001` |
+
+数据访问：
+
+```bash
+# 数据根解析优先级：${EMSXVIEW_DATA_DIR} > Config.DEFAULT_DATA_DIR
+set EMSXVIEW_DATA_DIR=<data-dir>          # Windows cmd
+$env:EMSXVIEW_DATA_DIR = "<data-dir>"     # PowerShell
+export EMSXVIEW_DATA_DIR=<data-dir>       # Linux / macOS
+
+python -c "from data_access import ConnectionManager, Config; print(Config.DATA_DIR)"
+```
+
+> 已失效：`EMSXVIEW_MERGE_MODULES`（无消费点，改用 `EMSXVIEW_OPTIONAL_MODULES`）、`CORS_ORIGINS`（实际变量名 `ALLOWED_ORIGINS`）、`VITE_USE_MOCK`（mock 由 `VITE_API_URL` 是否为空决定）。完整清单见 [归档：已失效声明](../archive/2026-10-29/agents-invalidated-claims.md)。
 
 ## Health Checks
 

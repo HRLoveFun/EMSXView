@@ -1,5 +1,7 @@
 ﻿# Project Memory
 
+> L2 | 权威：稳定架构约束与 ADR 索引 | 不权威：ADR 正文（见 `docs/spec/adr/`）、项目现状（见 `README.md` §0）
+
 > 架构记忆入口
 > 详细决策见 `docs/spec/adr/`，本文件仅作索引与高频速查
 > Last updated: 2026-06-03

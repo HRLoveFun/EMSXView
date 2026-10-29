@@ -1,5 +1,7 @@
 # 057 子任务清单（DL-01 至 DL-33）
 
+> L1 | 权威：各 DL 的状态、子编号与验收口径，以及派工/执行/交付规程 | 不权威：模块成熟度（见 `README.md` §0）、架构与结构（见 `docs/spec/project-structure.md`）、文档规则（见 `docs/index.md`）
+
 > 伞计划：[`plan.md`](plan.md)。DL 编号即执行顺序。每项含 G1 三栏（理论依据 / 技术方案 / 检验方法）与预留接口；**检验方法即该子任务的验收标准**。
 > 状态以本文件为准，由各子任务 PR 随代码一起更新。
 
@@ -15,7 +17,7 @@
 
 ### 执行（Agent，worktree 内）
 
-4. **读**：确认当前分支（`git branch --show-current`）；按 `AGENTS.md` §1 读完必读文档；读 `plan.md` 全文，以及本文件的目标条目和它依赖的条目。
+4. **读**：确认当前分支（`git branch --show-current`）；按 `AGENTS.md` 文档地图的「何时读」列取文档（开工前至少读：本文件、`plan.md`、`docs/spec/project-structure.md`、`.codebuddy/rules/module-boundary.md`）；读 `plan.md` 全文，以及本文件的目标条目和它依赖的条目。
 5. **写子规格（G1）**：新建 `specs/<feature-id>/plan.md`，沿用 030–048 的单文件写法。抬头写父计划（本伞计划的 DL-xx）、分支与依赖；正文分问题、方案（P2 三栏）、范围锁、验收（P4）四节。三栏与验收取自本文件条目，只细化到文件与函数，不扩范围。写完先停下等用户确认；发现条目本身有错或有缺口时也停下报告，计划修订单独走 docs PR，不夹带在实现 PR 里。子规格不走 `/speckit.specify`：它会另生成 spec.md，其建分支钩子也会与 worktree 已有的分支冲突。
 6. **实施（G2）**：只改范围锁内的文件；新能力默认关闭，开关在 Config 声明（宪法 IV）；测试按「检验方法」写；夹具只用虚构或脱敏数据（公开仓库）。单 PR 建议 ≤200 行 diff，超出时拆成多个子编号，各自一个 PR。
 7. **交付（G3）**：`wt-sync.ps1` 同步并跑相关测试，压成一个提交（同文 §4.8），push 后开 PR。标题形如 `feat: <摘要> (057-DL-01/058)`，描述逐条对照「检验方法」给证据。同一 PR 内把状态总览该行改为「已完成」并填子编号；squash 合并的提交标题会带上 PR 号，用 `git log --oneline --grep "057-DL-01"` 可查。几个并行 PR 都改状态表时，后合并的那个 rebase 会在相邻行冲突，两边都保留即可。合并后用户在主工作树运行 `wt-finish.ps1 <feature-id> -DeleteBranch`。
@@ -25,7 +27,7 @@
 
 ```text
 你在 worktree ../EMSXView-wt-058-export-intent-parser（分支 058-export-intent-parser）中工作，任务是 specs/057-execution-decision-loop 伞计划的 DL-01，子编号 058。
-1. 先确认当前分支；按 AGENTS.md §1 读完必读文档；再读 specs/057-execution-decision-loop/plan.md 全文，以及 tasks.md 中 DL-01 和它依赖的条目。
+1. 先确认当前分支；按 AGENTS.md 文档地图的「何时读」列取文档；再读 specs/057-execution-decision-loop/plan.md 全文，以及 tasks.md 中 DL-01 和它依赖的条目。
 2. 按 tasks.md 开工规程第 5 步写 specs/058-export-intent-parser/plan.md，只细化条目、不扩范围。写完先停下等我确认。
 3. 确认后按范围锁实施：新能力默认关闭，测试按条目「检验方法」写，夹具只用虚构或脱敏数据，单 PR 不超过 200 行。
 4. 交付：压成一个提交，PR 标题带 (057-DL-01/058)，描述逐条对照检验方法给证据；同一 PR 内把 tasks.md 状态总览的 DL-01 改为「已完成」并填子编号。
