@@ -2,7 +2,9 @@
 
 > 依据：第二份审计报告（基于 `147fcbf`，2026-10-08）——五个阻断项 + 两个接线缺口全部核实成立。
 > 形态：伞计划，四个子任务（S14–S17），各自独立分支/PR。
-> 关联：`specs/048`（第一轮演练）、`docs/report-029-reliability-hardening-delivery.md`（第一轮交付）。
+> 关联：`docs/archive/2026-10-29/048-rehearsal-sqlite-persistence/`（第一轮演练）、`docs/report-029-reliability-hardening-delivery.md`（第一轮交付）。
+>
+> **归档（2026-10-29）**：S14/S15/S16 已交付（#137/#138/#139）；**S17（056）授权占用语义增强仍处搁置**——占用口径（滚动累计 vs 按日重置）待业务决策，恢复时另开新计划，不重启本文件。
 
 ## 1. 审计发现与根因映射
 

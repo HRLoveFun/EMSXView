@@ -3,7 +3,7 @@
 > L3 | 权威：029 可靠性加固的交付记录 | 不权威：当前可靠性现状（见 `specs/057-execution-decision-loop/tasks.md`）
 
 > 依据：外部审计报告《EMSXView 实用化评估》（基于 `ed4b586`，2026-09-23）与伞计划
-> [`specs/029-trading-reliability-hardening/plan.md`](../specs/029-trading-reliability-hardening/plan.md)
+> [`docs/archive/2026-10-29/029-trading-reliability-hardening/plan.md`](archive/2026-10-29/029-trading-reliability-hardening/plan.md)
 > 执行窗口：2026-10-07（单日）；交付形态：13 个独立 PR（#114–#126），全部 CI 全绿 squash 合并。
 > Last updated: 2026-10-07
 
@@ -13,7 +13,7 @@
 
 | 维度 | 数据 |
 |---|---|
-| 子任务 | 13 个（S1–S13，specs/030–043）+ 实盘验证（044–046） |
+| 子任务 | 13 个（S1–S13，`docs/archive/2026-10-29/030–043`）+ 实盘验证（044–046） |
 | PR | #114–#126（计划内）+ #127–#129（实盘验证与实测修复），全部 squash 合并，main 线性历史 |
 | 后端测试 | 226 → **296 passed**（+70 用例，零回归） |
 | 既有审计五处阻断项 | **全部闭环**（B1–B5） |
@@ -168,7 +168,7 @@
 - **判定 A 通过**：真实路由 `5018309.1`（CARLB DC Equity SELL 119 @ MKT）创建成功——终端接受携带 `EMSX_REQUEST_SEQ` 字段的 RouteEx 请求，无需回退开关。
 - **判定 B 通过 + 语义修正（#129）**：路由 `5018201.1`（GIVN SW Equity，PARTFILL）实测 `lastShares=1`、`dayFill=9`——`lastShares` 是最后一笔增量、`dayFill` 是累计；成交回填链路已改用 dayFill（与 FILLED 判定语义对齐），4 用例回归锁。
 - **顺带实测修复（#128）**：`GET /api/orders/status` 因 facade 缺 `_init_paint_done`/`_subscription_failed` 代理实测 500——已修复。
-- 验证手册与结果：[`specs/044-emsx-field-verification/plan.md`](../specs/044-emsx-field-verification/plan.md)。
+- 验证手册与结果：[`docs/archive/2026-10-29/044-emsx-field-verification/plan.md`](archive/2026-10-29/044-emsx-field-verification/plan.md)。
 
 ### 5.5 报告阶段二验收：单交易台完整交易日闭环 — ✅ 演练结项（2026-10-09）
 
@@ -176,7 +176,7 @@
 - **已删除（高风险）**：D6 端口阻断超时、D7 实盘拒单、D8 真实撤单竞争（覆盖意图由离线测试承接）。
 - **默认结项（未实测）**：D10 终端操作同步、D11 日终对账——由日常使用自然覆盖，结项快照佐证订阅健康（全天订单 251→573 实时流转；PPH SJ 18 万股大单 dayFill 109,482 全程追踪）。
 - **演练产出**：热修 #132/#133/#134（bootstrap 缺表、授权端点 async、batch 授权/审计三缺口）+ 基础设施 #132（SQLite 演练持久化）；测试 296 → 301。
-- 演练手册与完整记录：[`specs/048-rehearsal-sqlite-persistence/plan.md`](../specs/048-rehearsal-sqlite-persistence/plan.md)。
+- 演练手册与完整记录：[`docs/archive/2026-10-29/048-rehearsal-sqlite-persistence/plan.md`](archive/2026-10-29/048-rehearsal-sqlite-persistence/plan.md)。
 - **遗留**：长断线 `subscription_failed` 置位路径（需管理员操作）、首次实盘日终对账清单——由日常运营承接。
 
 ---

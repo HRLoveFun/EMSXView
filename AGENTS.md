@@ -52,7 +52,7 @@
 | MarketView/README.md | L2 | 市场走势模块细节 | 动该模块前 | 模块变化时 |
 | scripts/README.md | L2 | 自动化脚本参考 | 加或换脚本时 | 脚本增删时 |
 | docs/spec/adr/ | L3 | 当初为什么这么选 | 想推翻某个设计前 | 做完取舍时新增一条 |
-| specs/ | L3 | 其余计划：在途的实施记录与已交付未归档的 `plan.md` | 接某个 DL 时 | 开计划、收计划时 |
+| specs/ | L3 | 在途计划（当前仅 057 主线：伞计划、任务清单、审计整改） | 接某个 DL 时 | 开计划时新建、交付即移入 archive |
 | docs/report-full-audit-2026-10-25.md | L3 | 2026-10-25 全项目审计结论与整改卡 | 追溯审计依据时 | 只追加 |
 | docs/report-data-inventory-2026-10.md | L3 | 数据盘点与额度测量结论 | 追溯数据能力时 | 只追加 |
 | docs/report-cost-model-calibration.md | L3 | 成本模型未达标的诊断 | 用 DL-18/23 前 | 只追加 |
