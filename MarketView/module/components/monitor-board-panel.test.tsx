@@ -283,6 +283,26 @@ describe('MonitorBoardPanel', () => {
     expect(within(table).getByText('SEC_B EU Equity')).toBeInTheDocument();
   });
 
+  it('renders filterable headers as buttons and closes the popover on outside click', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const table = await screen.findByRole('table');
+    const exchangeButton = within(table).getByRole('button', { name: /Exchange/ });
+    expect(exchangeButton).toHaveAttribute('aria-haspopup', 'dialog');
+
+    fireEvent.click(exchangeButton);
+    const popover = screen.getByRole('dialog', { name: /筛选 Exchange/ });
+
+    // 面板内点击不关闭
+    fireEvent.mouseDown(popover);
+    expect(screen.getByRole('dialog', { name: /筛选 Exchange/ })).toBeInTheDocument();
+
+    // 点击面板外空白处关闭
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('dialog', { name: /筛选 Exchange/ })).not.toBeInTheDocument();
+  });
+
   it('collapses and expands all three modules uniformly', async () => {
     stubFetch({ success: true, data: payload });
     renderPanel();
