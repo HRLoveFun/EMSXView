@@ -64,7 +64,7 @@ def dimension_label(route: Any, dimension: str, env: Optional[Any] = None) -> st
     """路由在某维度上的取值标签（缺失一律取 ``unknown``）。
 
     环境与资产类别维度**复用 `tca_utils` 的分桶单点**，不在此重写 ——
-    否则「同口径两处实现」会再次分叉（`docs/report-tca-known-limitations.md:68-69`）。
+    否则「同口径两处实现」会再次分叉（`docs/report-tca-known-limitations.md` §四 维护约定）。
     """
     if dimension == "Exchange":
         return str(getattr(route, "Exchange", None) or UNKNOWN_LABEL)
