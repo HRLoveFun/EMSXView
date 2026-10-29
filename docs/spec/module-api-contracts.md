@@ -105,7 +105,7 @@
 
 ## CostView API（Optional / :8002）
 
-> 端点源码定位与验证方式见主 [README.md §4.2](../../README.md#42-costviewcostview-beta) 与 [CostView/README.md](../../CostView/README.md)。
+> 端点源码定位与验证方式见 [project-structure.md §8.2](project-structure.md#82-costviewcostview-beta) 与 [CostView/README.md](../../CostView/README.md)。
 
 ### TCA 分析
 

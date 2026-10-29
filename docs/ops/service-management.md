@@ -447,3 +447,23 @@ For issues or questions:
 1. Check logs in `logs/` directory
 2. Verify configuration in `.env` files
 3. Run status check: `emsxview.bat status`
+
+## 降级路径（Degradation Paths）
+
+主路径失败时的已知降级行为（均经代码核实）：
+
+| 触发条件 | 降级行为 | 用户感知方式 |
+|----------|----------|--------------|
+| `fill_bdib.db` 文件缺失 | TCA 查询/时序查询返回**空结果**（`tca_query_builder.py` 捕获 `FileNotFoundError`） | 响应为空页/空时序 + WARNING 日志 |
+| 分析库任一文件/表缺失 | 可用性探测降级为 `False`（`tca_query_service.py`） | API 返回空数据 + WARNING 日志 |
+| 报告导出时 BDIB 健康扫描超时/异常 | 附录降级为**跳过**，报告主体照常生成（`monitoring/bdib_health.py`，守护线程 + 超时控制） | 导出的 HTML 缺 BDIB 缺口附录 + WARNING 日志 |
+| CostView 查询缓存 Redis 连接失败 | 降级为**直连查询**（`tca_cache.py` get/set 处 try/except） | 响应变慢，无数据差异 |
+| Bloomberg 会话未连接 / DB 断开 | `GET /api/health` 返回 `success=false` + 组件状态串 | 健康检查响应 + `bloomberg=..., database=...` 消息 |
+| `ENABLE_DB_PERSISTENCE=false` | RepositoryProvider 回退**内存存储**（重启即失） | 无持久化，重启数据丢失 |
+| 数据管道 Runner 不可达 / 已在运行 | 代理返回失败 / `pipeline already running`（§3.2） | `ApiResponse.error` 字段 |
+| `TCA_ORDER_AGG_ENABLED=0` | `/api/tca/analyze-orders` 返回**空列表** | 订单聚合页无数据 + `capabilities` 端点可见开关状态 |
+| `TCA_EVAL_ENABLED=0` | `/api/tca/evaluation/report` 返回 `enabled=false` 的**显式不可用**（不回退到未校验的均值比较） | 评估页提示「评估层未启用」 |
+
+**精度损失声明**：上述降级均为"缺数据 → 空结果/缺附录"，**不存在静默的数值精度替换**；报告口径的固有缺口（非降级、属数据源硬缺口）见 [docs/report-tca-known-limitations.md](../report-tca-known-limitations.md)。
+
+---

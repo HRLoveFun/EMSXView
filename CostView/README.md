@@ -13,7 +13,7 @@ and broker recommendation services. It runs as an independent FastAPI service,
 is a **read-only consumer** of the analytical SQLite stores (via `data_access/`,
 all connections `mode=ro`), and never writes to any database.
 
-> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：213 个测试函数（`CostView/tests/`，7 个测试文件，pytest 实际收集 219 个用例，含 CLI 入口与黄金样本回归）；已知限制清单公开发布；13 个 API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
+> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：`python -m pytest CostView/tests/ -q` 全绿（含 CLI 入口与黄金样本回归）；已知限制清单公开发布；**14 个** API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
 
 ## Architecture
 
@@ -94,7 +94,7 @@ python main.py
 
 ## 不做什么（职责边界）
 
-- **不触发 ETL**：数据更新唯一写入方是独立仓库 EMSXDataPipeline；触发链路（含失败与幂等语义）见主 [README.md §3.2](../README.md#32-etl-触发链跨仓库costview-是只读消费者)。
+- **不触发 ETL**：数据更新唯一写入方是独立仓库 EMSXDataPipeline；触发链路（含失败与幂等语义）见 [schema-contract §3.2](../docs/schema-contract.md#32-etl-触发链跨仓库costview-是只读消费者)。
 - **不写任何数据库**：全部经 `data_access` 只读连接（`mode=ro`），WRITE/admin tier 请求被拒绝。
 - **不直连 Bloomberg**：无 blpapi 依赖。
 - **不重复实现 ETL 入口**：`src/__main__.py` + `src/query_cli.py` 仅为只读巡检 CLI（见下方 §CLI），不承担任何数据写入职责。

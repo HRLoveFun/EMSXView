@@ -1,6 +1,6 @@
 ﻿# EMSX Logical Data Domain
 
-> L2 | 权威：逻辑数据域划分、数据所有权边界、只读访问通道与库表常量归属 | 不权威：库文件实测大小（见 `README.md` §5.1）、降级行为（见 `README.md` §8）、管道侧写入实现（独立仓库 EMSXDataPipeline）
+> L2 | 权威：逻辑数据域划分、数据所有权边界、只读访问通道、库表常量归属、存储规模与选型 | 不权威：降级行为（见 `docs/ops/service-management.md`「降级路径」）、管道侧写入实现（独立仓库 EMSXDataPipeline）
 
 > Boundary definition for shared platform data
 > Last updated: 2026-09-11 (v3.4 — 移除 `tca_fallback.py`/不存在契约文件/`repositories.py` 等过时引用，与实际代码对齐)
@@ -141,7 +141,7 @@ Primary code surfaces (actual, 2026-08):
 - `CostView/src/tca_query_service.py` — TCA and scorecard query（读取 `tca_route_summary` 汇总表）
 - `CostView/src/tca_query_builder.py` — TCA 查询构建器（库/表缺失 → 降级空结果，009）
 - `CostView/src/tca_cache.py` / `tca_utils.py` — 查询缓存（Redis，连接失败降级直查）/ 工具
-  （注：原 `tca_fallback.py` 已删除，降级逻辑内置于各查询层，见主 README §8）
+  （注：原 `tca_fallback.py` 已删除，降级逻辑内置于各查询层，见 [`docs/ops/service-management.md`](../ops/service-management.md)「降级路径」）
 - `CostView/src/monitoring/` — BDIB 健康度、指标覆盖率、报告聚合（`bdib_health.py`, `metric_coverage.py`, `report_aggregator.py`, `report_dims.py`, `anomaly_query.py`, `tca_report_html.py`, `time_range.py`）
 - `CostView/src/query_cli.py` / `__main__.py` — QueryEngine 编程接口 / CLI 命令行入口（`python -m CostView.src`，退出码 0/2/3）
 - `CostView/api/routers/costview.py` + `monitoring.py` — 独立服务 API surface（6 + 5 端点）
@@ -278,8 +278,8 @@ ends at clean, well-structured data delivery.
 - 入口：`data_access.config.Config` + `data_access.storage.ConnectionManager`（仅 READ tier；WRITE / admin 请求被拒绝）。
 - 数据根解析优先级：`${EMSXVIEW_DATA_DIR}` 环境变量 > `Config.DEFAULT_DATA_DIR`。
 - 库/表常量全部在 `data_access/config.py`；与他仓共享的数据契约由契约测试锁定（`backend/api/tests/boundaries/`）。
-- **永不写入**：数据更新与维护由独立仓库 EMSXDataPipeline 独占（触发链见 `README.md` §3.2）；本仓库禁止 `import DataPipeline.*`。
-- 降级语义（缺库 → 空结果而非静默补数）见 `README.md` §8；库文件实测规模见 `README.md` §5.1。
+- **永不写入**：数据更新与维护由独立仓库 EMSXDataPipeline 独占（触发链见 [`docs/schema-contract.md`](../schema-contract.md) §3.2）；本仓库禁止 `import DataPipeline.*`。
+- 降级语义（缺库 → 空结果而非静默补数）见 [`docs/ops/service-management.md`](../ops/service-management.md)「降级路径」；库文件实测规模见本文「Storage scale & selection」。
 
 ---
 
@@ -331,3 +331,49 @@ The platform treats data as one logical domain with four owned subdomains:
 Cross-subdomain access flows through `platform_data` adapters. The CostView
 focus shifts from owning data infrastructure to owning algorithm evaluation
 logic, with the new Data Platform subsystem providing clean, reliable data.
+
+## Storage scale & selection（实测 2026-10-20）
+
+### 5.1 数据存储规模（实测 2026-10-20，数据根 `${EMSXVIEW_DATA_DIR}`）
+
+
+
+| 数据库 | 大小 | 用途 |
+
+|--------|------|------|
+
+| `raw_bdib.db` | 101.80 GB | 原始 BDIB 分钟 bars |
+
+| `raw_fills.db` | 7.15 GB | 原始成交 |
+
+| `execution_history.db` | 6.54 GB | 执行历史（orders/routes/route_events） |
+
+| `processed_fills.db` | 5.98 GB | 清洗后成交 |
+
+| `regime.db` | 4.57 GB | Regime 分类 + 归因 |
+
+| `fill_bdib.db` | 1.78 GB | 成交+BDIB 整合（含 `tca_route_summary` 预计算表） |
+
+| `ticker_registry.db` | 0.03 GB | Ticker 注册 |
+
+| `fill_fetch_history.db` / `bdib_fetch_history.db` | <1 MB | 拉取审计 |
+
+| `processed_raw_bdib.db` | 0 GB（已退役） | 仅保留空库文件，写入开关在管道侧 |
+
+| **合计** | **约 127.8 GB** | 10 个库键定义见 `data_access/config.py` |
+
+
+
+### 5.2 选型理由与已知瓶颈
+
+
+
+- **选型**：SQLite（`mode=ro` URI + WAL + busy timeout 30s，`Config.SQLITE_BUSY_TIMEOUT_MS=30_000`）。理由：单一写入方（EMSXDataPipeline 串行日更）+ 本仓库纯读的分析负载，SQLite 免运维、零部署成本；TCA 路由级指标从 `tca_route_summary` **预计算表**读取（查询时禁止实时聚合），将热路径压到单表索引查询。
+
+- **已知瓶颈（如实标注）**：① SQLite 单写者模型——若未来多写入方并发则不适用；② `raw_bdib.db` 超 100 GB，全量扫描类查询（如报告导出的 BDIB 缺口附录）耗时长，已有超时降级保护（§8）；③ `MAX_PARALLEL_DATES/TICKERS=1`，管道吞吐为串行；④ 无并发用户数上限控制，多用户同时重查询未做排队。
+
+- **写路径归属**：数据刷新/维护由独立仓库 EMSXDataPipeline Runner（`POST /run`、`GET /status`）执行；触发链见 §3.2。本仓库任何代码不得写入上述库。
+
+
+
+---

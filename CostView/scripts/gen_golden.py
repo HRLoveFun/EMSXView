@@ -9,7 +9,7 @@
 生成 golden/<start>_<end>.json，内容为 filters + 逐路由关键指标期望值。
 流程：对冻结快照生成 → 人工 review → 入库 tests/golden/。此后
 test_golden_samples.py 以相对容差锁定指标，防止 SQL/口径改动导致
-数值漂移（README §4.2「无黄金样本回归」整改）。
+数值漂移（`docs/spec/project-structure.md` §8.2「无黄金样本回归」整改）。
 
 注意：必须使用冻结的数据快照副本（只读），不要指向生产数据目录——
 生产数据每日更新会令 golden 基线失效。
