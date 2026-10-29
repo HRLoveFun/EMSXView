@@ -2,8 +2,7 @@
  * 行详情抽屉（057 节点一）：三张图共用同一时间桶与同一 x 轴。
  *
  * 1) 价格—成交量分布：每 10 分钟一个时间桶，桶内按价格分档显示成交量，
- *    每个桶叠加 OHLC 点（高—低竖线 + 开/收短横），并保留当日 O/H/L/C 参考线；
- *    右轴为相对前收的百分比变动。
+ *    每个桶叠加 OHLC 点（高—低竖线 + 开/收短横）；右轴为相对前收的百分比变动。
  * 2) 累计成交量：当日 vs 前五个交易日均值，每桶一个数据点。
  * 3) 累计成交量占比：两条曲线各除以自身当日总量，压到 0–1，每桶一个数据点。
  *
@@ -42,13 +41,6 @@ const HEATMAP_HEIGHT = 240;
 const HEATMAP_TOP = 14;
 const HEATMAP_BOTTOM = 24;
 const CHART_HEIGHT = 190;
-
-const OHLC_COLORS: Record<string, string> = {
-  open: '#0ea5e9',
-  high: '#22c55e',
-  low: '#ef4444',
-  close: '#a855f7',
-};
 
 /** 容器宽度（像素）：热力图用与 recharts 相同的像素坐标，保证三图 x 轴等长。 */
 function useMeasuredWidth() {
@@ -213,30 +205,6 @@ function PriceVolumeHeatmap({
             <title>
               {`${bucket.label} O ${fmtNumber(bucket.open, 2)} H ${fmtNumber(bucket.high, 2)} L ${fmtNumber(bucket.low, 2)} C ${fmtNumber(bucket.close, 2)}`}
             </title>
-          </g>
-        );
-      })}
-
-      {/* 当日 O/H/L/C 参考线（虚线，右端标注价格） */}
-      {(['open', 'high', 'low', 'close'] as const).map((key) => {
-        const value = detail.ohlc[key];
-        if (value == null) return null;
-        const y = priceToY(value);
-        return (
-          <g key={key}>
-            <line
-              x1={AXIS_LEFT}
-              x2={AXIS_LEFT + plotWidth}
-              y1={y}
-              y2={y}
-              stroke={OHLC_COLORS[key]}
-              strokeDasharray="4 3"
-              strokeWidth={1}
-              opacity={0.7}
-            />
-            <text x={4} y={y + 3} fontSize={9} fill={OHLC_COLORS[key]}>
-              {`${key.toUpperCase()} ${fmtNumber(value, 2)}`}
-            </text>
           </g>
         );
       })}
