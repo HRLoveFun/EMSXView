@@ -5,8 +5,13 @@
  * 全部由后端 `monitor-board` 一次装配返回，前端不做二次判定，避免「面板说异常、
  * 表里正常」。
  *
- * 表内 Last / Chg % / Total Vol 优先用 core 的实时行情（`useMarketStateStream`），
- * 无订阅或休市时回落到当日 bar 聚合值；两者来源都在表头 chip 与行 tooltip 标注。
+ * 交互约定：
+ * - 市场标签所有模块共享：点一次市场，三个模块同时只看该市场的信号股票；
+ *   支持多选、反选取消，并提供一键全选 / 一键反选。
+ * - 表格 Exchange / Status / Liquidity / Volatility / Risk notes 五列可点击表头
+ *   打开筛选面板（多选、反选取消、全选 / 反选）。
+ * - 表内 Last / Chg % / Total Vol 优先用 core 的实时行情（`useMarketStateStream`），
+ *   无订阅或休市时回落到当日 bar 聚合值；来源在表头 chip 与行 tooltip 标注。
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -63,11 +68,61 @@ const SeverityCell = ({ severity }: { severity: MarketAlertSeverity }) => {
   );
 };
 
-/** ticker → 交易所码（'MC EU Equity' → 'EU'）；用于市场层聚合。 */
+/** ticker → 交易所码（'MC EU Equity' → 'EU'）；用于市场聚合与 Exchange 列。 */
 const marketOf = (equTicker: string): string => {
   const parts = equTicker.split(' ');
   return (parts.length >= 2 ? parts[parts.length - 2] : '').toUpperCase() || '?';
 };
+
+// ── 表格列筛选 ──────────────────────────────────────────────────────────────
+
+type FilterKey = 'exchange' | 'status' | 'liquidity' | 'volatility' | 'riskNotes';
+
+const FILTER_COLUMNS: FilterKey[] = ['exchange', 'status', 'liquidity', 'volatility', 'riskNotes'];
+
+const FILTER_LABELS: Record<FilterKey, string> = {
+  exchange: 'Exchange',
+  status: 'Status',
+  liquidity: 'Liquidity',
+  volatility: 'Volatility',
+  riskNotes: 'Risk notes',
+};
+
+/** 行在某列上的取值（Risk notes 为多值；无提示的行走空串占位）。 */
+const rowValues = (row: MonitorRow, key: FilterKey): string[] => {
+  switch (key) {
+    case 'exchange':
+      return [marketOf(row.equ_ticker)];
+    case 'status':
+      return [row.market_status];
+    case 'liquidity':
+      return [row.liquidity];
+    case 'volatility':
+      return [row.volatility];
+    case 'riskNotes':
+      return row.risk_notes.length ? row.risk_notes : [''];
+  }
+};
+
+const valueLabel = (value: string): string => (value === '' ? '（无提示）' : value);
+
+const uniqueValues = (rows: MonitorRow[], key: FilterKey): string[] =>
+  Array.from(new Set(rows.flatMap((row) => rowValues(row, key)))).sort((a, b) =>
+    valueLabel(a).localeCompare(valueLabel(b)),
+  );
+
+type FilterState = Partial<Record<FilterKey, string[]>>;
+
+/** 生效选择：未设置 = 全选。 */
+const effectiveSelection = (filters: FilterState, key: FilterKey, options: string[]): string[] =>
+  filters[key] ?? options;
+
+const isFiltered = (filters: FilterState, key: FilterKey, options: string[]): boolean => {
+  const selection = filters[key];
+  return Boolean(selection && selection.length !== options.length);
+};
+
+// ── 高亮模块 ────────────────────────────────────────────────────────────────
 
 interface HighlightModuleProps {
   title: string;
@@ -76,8 +131,10 @@ interface HighlightModuleProps {
   emptyText: string;
   selectedTicker: string | null;
   onSelectTicker: (ticker: string) => void;
-  /** 统一折叠：为 true 时只保留标题行，市场层与股票列表整体收起 */
+  /** 统一折叠：为 true 时只保留标题行，股票列表整体收起 */
   collapsed: boolean;
+  /** 共享市场选择：为空 = 未选市场，模块不展开股票 */
+  selectedMarkets: ReadonlySet<string>;
 }
 
 const HighlightModule = ({
@@ -88,42 +145,19 @@ const HighlightModule = ({
   selectedTicker,
   onSelectTicker,
   collapsed,
+  selectedMarkets,
 }: HighlightModuleProps) => {
-  // 市场层多选：点击市场展开其信号股票，再次点击反选取消
-  const [openMarkets, setOpenMarkets] = useState<ReadonlySet<string>>(new Set());
-
-  const groups = useMemo(() => {
-    const map = new Map<string, MonitorHighlightItem[]>();
-    for (const item of items) {
-      const key = marketOf(item.equ_ticker);
-      map.set(key, [...(map.get(key) ?? []), item]);
-    }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [items]);
-
   const visibleItems = useMemo(
-    () => groups.flatMap(([market, list]) => (openMarkets.has(market) ? list : [])),
-    [groups, openMarkets],
+    () => items.filter((item) => selectedMarkets.has(marketOf(item.equ_ticker))),
+    [items, selectedMarkets],
   );
-
-  const toggleMarket = (market: string): void => {
-    setOpenMarkets((current) => {
-      const next = new Set(current);
-      if (next.has(market)) {
-        next.delete(market);
-      } else {
-        next.add(market);
-      }
-      return next;
-    });
-  };
 
   return (
     <div
       role="group"
       aria-label={title}
       className={`flex flex-col rounded-xl border border-border/70 bg-background/60 p-3 ${
-        collapsed ? '' : 'h-[320px]'
+        collapsed ? '' : 'h-[300px]'
       }`}
     >
       <div className="flex items-baseline justify-between">
@@ -132,69 +166,106 @@ const HighlightModule = ({
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground">{metricHint}</p>
       {collapsed ? null : (
-        <>
-          <div className="mt-2 flex min-h-[28px] flex-wrap gap-1.5">
-            {groups.length ? (
-              groups.map(([market, list]) => {
-                const active = openMarkets.has(market);
-                return (
-                  <button
-                    key={market}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => toggleMarket(market)}
-                    className={`rounded-full border px-2 py-1 text-[11px] transition ${
-                      active
-                        ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
-                        : 'border-border/60 text-muted-foreground hover:text-foreground'
-                    }`}
-                    title={`点击展开/收起 ${market} 的信号股票`}
-                  >
-                    {market} · {list.length}
-                  </button>
-                );
-              })
-            ) : (
-              <span className="text-[11px] text-muted-foreground">{emptyText}</span>
-            )}
-          </div>
-          <ul className="mt-2 flex-1 space-y-1.5 overflow-y-auto">
-            {visibleItems.length ? (
-              visibleItems.map((item) => (
-                <li key={`${item.metric}-${item.equ_ticker}`}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectTicker(item.equ_ticker)}
-                    className={`w-full rounded-lg border px-2 py-1.5 text-left transition hover:bg-muted/40 ${
-                      selectedTicker === item.equ_ticker ? 'border-sky-500/60' : 'border-border/60'
-                    }`}
-                    title={item.note || item.threshold}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate font-mono text-xs text-foreground">{item.equ_ticker}</span>
-                      <span
-                        className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${getSeverityTone(item.severity)}`}
-                      >
-                        {getSeverityText(item.severity)}
-                      </span>
+        <ul className="mt-2 flex-1 space-y-1.5 overflow-y-auto">
+          {visibleItems.length ? (
+            visibleItems.map((item) => (
+              <li key={`${item.metric}-${item.equ_ticker}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelectTicker(item.equ_ticker)}
+                  className={`w-full rounded-lg border px-2 py-1.5 text-left transition hover:bg-muted/40 ${
+                    selectedTicker === item.equ_ticker ? 'border-sky-500/60' : 'border-border/60'
+                  }`}
+                  title={item.note || item.threshold}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate font-mono text-xs text-foreground">{item.equ_ticker}</span>
+                    <span
+                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${getSeverityTone(item.severity)}`}
+                    >
+                      {getSeverityText(item.severity)}
                     </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                      {item.note || item.metric}
-                    </span>
-                  </button>
-                </li>
-              ))
-            ) : (
-              <li className="rounded-lg border border-dashed border-border/60 px-2 py-2 text-[11px] text-muted-foreground">
-                {groups.length ? '点击市场查看信号股票' : emptyText}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                    {item.note || item.metric}
+                  </span>
+                </button>
               </li>
-            )}
-          </ul>
-        </>
+            ))
+          ) : (
+            <li className="rounded-lg border border-dashed border-border/60 px-2 py-2 text-[11px] text-muted-foreground">
+              {items.length ? (selectedMarkets.size ? '该市场无信号' : '选择上方市场查看信号股票') : emptyText}
+            </li>
+          )}
+        </ul>
       )}
     </div>
   );
 };
+
+// ── 表格筛选面板 ────────────────────────────────────────────────────────────
+
+const FilterPanel = ({
+  filterKey,
+  options,
+  selection,
+  onToggleValue,
+  onSelectAll,
+  onInvert,
+  onClose,
+}: {
+  filterKey: FilterKey;
+  options: string[];
+  selection: string[];
+  onToggleValue: (value: string) => void;
+  onSelectAll: () => void;
+  onInvert: () => void;
+  onClose: () => void;
+}) => (
+  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs font-medium text-foreground">
+        筛选 · {FILTER_LABELS[filterKey]}
+        <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+          已选 {selection.length}/{options.length}
+        </span>
+      </p>
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onSelectAll}>
+          一键全选
+        </button>
+        <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onInvert}>
+          一键反选
+        </button>
+        <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onClose}>
+          关闭
+        </button>
+      </div>
+    </div>
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {options.map((value) => {
+        const active = selection.includes(value);
+        return (
+          <button
+            key={value || 'empty'}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onToggleValue(value)}
+            className={`rounded-full border px-2 py-1 text-[11px] transition ${
+              active
+                ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
+                : 'border-border/60 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {valueLabel(value)}
+          </button>
+        );
+      })}
+    </div>
+  </div>
+);
+
+// ── 表格行 ──────────────────────────────────────────────────────────────────
 
 const Row = ({
   row,
@@ -225,6 +296,7 @@ const Row = ({
       onClick={onSelect}
       title={`${row.equ_ticker} · bars ${row.bar_count} · ${row.first_bar_time ?? '—'}–${row.last_bar_time ?? '—'} · trade_date ${row.trade_date ?? '—'} · baseline ${row.baseline_date ?? '—'}`}
     >
+      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{marketOf(row.equ_ticker)}</td>
       <td className="px-3 py-2 font-mono text-xs font-medium text-foreground">
         {row.equ_ticker}
         {usingLive ? (
@@ -259,6 +331,35 @@ const Row = ({
   );
 };
 
+const FilterableHeader = ({
+  filterKey,
+  filters,
+  options,
+  onOpen,
+}: {
+  filterKey: FilterKey;
+  filters: FilterState;
+  options: string[];
+  onOpen: () => void;
+}) => {
+  const active = isFiltered(filters, filterKey, options);
+  return (
+    <th className="px-3 py-3 text-left font-medium">
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`inline-flex items-center gap-1 transition hover:text-foreground ${active ? 'text-sky-600' : ''}`}
+        title={`点击筛选 ${FILTER_LABELS[filterKey]}`}
+      >
+        {FILTER_LABELS[filterKey]}
+        <span className="text-[10px]">{active ? '▼' : '▾'}</span>
+      </button>
+    </th>
+  );
+};
+
+// ── 面板 ────────────────────────────────────────────────────────────────────
+
 export const MonitorBoardPanel = ({
   poolId,
   tradeDate,
@@ -274,13 +375,99 @@ export const MonitorBoardPanel = ({
   );
   // 三个高亮模块统一折叠 / 展开
   const [modulesCollapsed, setModulesCollapsed] = useState(false);
+  // 市场标签所有模块共享（多选，空 = 未选）
+  const [selectedMarkets, setSelectedMarkets] = useState<ReadonlySet<string>>(new Set());
+  const [filters, setFilters] = useState<FilterState>({});
+  const [openFilter, setOpenFilter] = useState<FilterKey | null>(null);
 
   useEffect(() => {
     if (!data?.rows.length) return;
     onUniverseChange?.(data.rows.map((row) => row.equ_ticker));
   }, [data, onUniverseChange]);
 
+  const rows = useMemo(() => data?.rows ?? [], [data]);
   const highlights = data?.highlights;
+
+  // 市场标签：跨三个模块取并集，计数为去重后的信号股票数
+  const marketBuckets = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    const all = [
+      ...(highlights?.liquidity ?? []),
+      ...(highlights?.volatility ?? []),
+      ...(highlights?.risk_notes ?? []),
+    ];
+    for (const item of all) {
+      const market = marketOf(item.equ_ticker);
+      const set = map.get(market) ?? new Set<string>();
+      set.add(item.equ_ticker);
+      map.set(market, set);
+    }
+    return Array.from(map.entries())
+      .map(([market, tickers]) => ({ market, count: tickers.size }))
+      .sort((a, b) => a.market.localeCompare(b.market));
+  }, [highlights]);
+
+  const toggleMarket = (market: string): void => {
+    setSelectedMarkets((current) => {
+      const next = new Set(current);
+      if (next.has(market)) {
+        next.delete(market);
+      } else {
+        next.add(market);
+      }
+      return next;
+    });
+  };
+  const selectAllMarkets = (): void =>
+    setSelectedMarkets(new Set(marketBuckets.map((bucket) => bucket.market)));
+  const invertMarkets = (): void =>
+    setSelectedMarkets((current) => {
+      const all = marketBuckets.map((bucket) => bucket.market);
+      return new Set(all.filter((market) => !current.has(market)));
+    });
+
+  // 列筛选：选项来自当前行集合；选择为空表示不筛选
+  const filterOptions = useMemo(() => {
+    const result = {} as Record<FilterKey, string[]>;
+    for (const column of FILTER_COLUMNS) {
+      result[column] = uniqueValues(rows, column);
+    }
+    return result;
+  }, [rows]);
+
+  const visibleRows = useMemo(
+    () =>
+      rows.filter((row) =>
+        FILTER_COLUMNS.every((column) => {
+          const selection = filters[column];
+          if (!selection) return true;
+          return rowValues(row, column).some((value) => selection.includes(value));
+        }),
+      ),
+    [rows, filters],
+  );
+
+  const toggleFilterValue = (column: FilterKey, value: string): void => {
+    const options = filterOptions[column];
+    setFilters((current) => {
+      const selection = effectiveSelection(current, column, options);
+      const next = selection.includes(value)
+        ? selection.filter((item) => item !== value)
+        : [...selection, value];
+      return { ...current, [column]: next.length === options.length ? undefined : next };
+    });
+  };
+  const selectAllValues = (column: FilterKey): void =>
+    setFilters((current) => ({ ...current, [column]: undefined }));
+  const invertValues = (column: FilterKey): void => {
+    const options = filterOptions[column];
+    setFilters((current) => {
+      const selection = effectiveSelection(current, column, options);
+      const next = options.filter((value) => !selection.includes(value));
+      return { ...current, [column]: next.length === options.length ? undefined : next };
+    });
+  };
+
   const liveCount = live.byTicker.size;
   const liveChip = !live.enabled
     ? 'live off'
@@ -290,11 +477,15 @@ export const MonitorBoardPanel = ({
         ? `${liveCount} live · REST`
         : 'live 连接中';
 
-  const rows = useMemo(() => data?.rows ?? [], [data]);
   const maxSeverity = useMemo(
     () => rows.reduce((max, row) => Math.max(max, severityRank(row.volatility), severityRank(row.liquidity)), 0),
     [rows],
   );
+
+  const activeFilter = openFilter ? filters[openFilter] : undefined;
+  const activeSelection = openFilter
+    ? (activeFilter ?? filterOptions[openFilter])
+    : [];
 
   return (
     <div className="space-y-4">
@@ -363,45 +554,114 @@ export const MonitorBoardPanel = ({
         </div>
       ) : data ? (
         <>
-          <div className="grid gap-3 xl:grid-cols-3">
-            <HighlightModule
-              title="Liquidity"
-              metricHint="量比越阈（ADV20 的 2×/5× 或 0.5×/0.25×）"
-              items={highlights?.liquidity ?? []}
-              emptyText={EMPTY_TEXT.liquidity}
-              selectedTicker={selectedTicker}
-              onSelectTicker={onSelectTicker}
-              collapsed={modulesCollapsed}
-            />
-            <HighlightModule
-              title="Volatility"
-              metricHint="日波动 ≥25/40 或日内波动 ≥2/3"
-              items={highlights?.volatility ?? []}
-              emptyText={EMPTY_TEXT.volatility}
-              selectedTicker={selectedTicker}
-              onSelectTicker={onSelectTicker}
-              collapsed={modulesCollapsed}
-            />
-            <HighlightModule
-              title="Risk notes"
-              metricHint="数据缺口 / 基线滞后 / 涨跌越阈"
-              items={highlights?.risk_notes ?? []}
-              emptyText={EMPTY_TEXT.risk_notes}
-              selectedTicker={selectedTicker}
-              onSelectTicker={onSelectTicker}
-              collapsed={modulesCollapsed}
-            />
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">市场</span>
+              {marketBuckets.length ? (
+                marketBuckets.map(({ market, count }) => {
+                  const active = selectedMarkets.has(market);
+                  return (
+                    <button
+                      key={market}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleMarket(market)}
+                      className={`rounded-full border px-2 py-1 text-[11px] transition ${
+                        active
+                          ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
+                          : 'border-border/60 text-muted-foreground hover:text-foreground'
+                      }`}
+                      title={`点击展开/收起 ${market} 的信号股票（三个模块共享）`}
+                    >
+                      {market} · {count}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="text-[11px] text-muted-foreground">无信号市场</span>
+              )}
+              <button
+                type="button"
+                className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:text-foreground"
+                onClick={selectAllMarkets}
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:text-foreground"
+                onClick={invertMarkets}
+              >
+                反选
+              </button>
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-3">
+              <HighlightModule
+                title="Liquidity"
+                metricHint="量比越阈（ADV20 的 2×/5× 或 0.5×/0.25×）"
+                items={highlights?.liquidity ?? []}
+                emptyText={EMPTY_TEXT.liquidity}
+                selectedTicker={selectedTicker}
+                onSelectTicker={onSelectTicker}
+                collapsed={modulesCollapsed}
+                selectedMarkets={selectedMarkets}
+              />
+              <HighlightModule
+                title="Volatility"
+                metricHint="日波动 ≥25/40 或日内波动 ≥2/3"
+                items={highlights?.volatility ?? []}
+                emptyText={EMPTY_TEXT.volatility}
+                selectedTicker={selectedTicker}
+                onSelectTicker={onSelectTicker}
+                collapsed={modulesCollapsed}
+                selectedMarkets={selectedMarkets}
+              />
+              <HighlightModule
+                title="Risk notes"
+                metricHint="数据缺口 / 基线滞后 / 涨跌越阈"
+                items={highlights?.risk_notes ?? []}
+                emptyText={EMPTY_TEXT.risk_notes}
+                selectedTicker={selectedTicker}
+                onSelectTicker={onSelectTicker}
+                collapsed={modulesCollapsed}
+                selectedMarkets={selectedMarkets}
+              />
+            </div>
           </div>
 
+          {openFilter ? (
+            <FilterPanel
+              filterKey={openFilter}
+              options={filterOptions[openFilter]}
+              selection={activeSelection}
+              onToggleValue={(value) => toggleFilterValue(openFilter, value)}
+              onSelectAll={() => selectAllValues(openFilter)}
+              onInvert={() => invertValues(openFilter)}
+              onClose={() => setOpenFilter(null)}
+            />
+          ) : null}
+
           <div className="overflow-hidden rounded-xl border border-border">
-            {data.rows.length ? (
+            {visibleRows.length ? (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1420px] text-sm">
+                <table className="w-full min-w-[1500px] text-sm">
                   <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
+                      <FilterableHeader
+                        filterKey="exchange"
+                        filters={filters}
+                        options={filterOptions.exchange}
+                        onOpen={() => setOpenFilter('exchange')}
+                      />
                       <th className="px-3 py-3 text-left font-medium">Ticker</th>
                       <th className="px-3 py-3 text-left font-medium">Name</th>
-                      <th className="px-3 py-3 text-left font-medium">Status</th>
+                      <FilterableHeader
+                        filterKey="status"
+                        filters={filters}
+                        options={filterOptions.status}
+                        onOpen={() => setOpenFilter('status')}
+                      />
                       <th className="px-3 py-3 text-right font-medium">Last</th>
                       <th className="px-3 py-3 text-right font-medium">Chg %</th>
                       <th className="px-3 py-3 text-right font-medium">Close</th>
@@ -410,13 +670,28 @@ export const MonitorBoardPanel = ({
                       <th className="px-3 py-3 text-right font-medium">Vol / ADV20</th>
                       <th className="px-3 py-3 text-right font-medium">Daily Vol</th>
                       <th className="px-3 py-3 text-right font-medium">Intraday Vol</th>
-                      <th className="px-3 py-3 text-center font-medium">Liquidity</th>
-                      <th className="px-3 py-3 text-center font-medium">Volatility</th>
-                      <th className="px-3 py-3 text-left font-medium">Risk notes</th>
+                      <FilterableHeader
+                        filterKey="liquidity"
+                        filters={filters}
+                        options={filterOptions.liquidity}
+                        onOpen={() => setOpenFilter('liquidity')}
+                      />
+                      <FilterableHeader
+                        filterKey="volatility"
+                        filters={filters}
+                        options={filterOptions.volatility}
+                        onOpen={() => setOpenFilter('volatility')}
+                      />
+                      <FilterableHeader
+                        filterKey="riskNotes"
+                        filters={filters}
+                        options={filterOptions.riskNotes}
+                        onOpen={() => setOpenFilter('riskNotes')}
+                      />
                     </tr>
                   </thead>
                   <tbody>
-                    {data.rows.map((row) => (
+                    {visibleRows.map((row) => (
                       <Row
                         key={row.equ_ticker}
                         row={row}
@@ -431,7 +706,9 @@ export const MonitorBoardPanel = ({
               </div>
             ) : (
               <div className="p-6 text-sm text-muted-foreground">
-                Pool “{data.pool.pool_id}” has no members yet.
+                {rows.length
+                  ? '当前筛选条件下没有行——点击表头调整筛选。'
+                  : `Pool “${data.pool.pool_id}” has no members yet.`}
               </div>
             )}
           </div>
