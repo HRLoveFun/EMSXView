@@ -119,8 +119,10 @@ class DetailBucketResponse(BaseModel):
     cumulative_volume: Optional[float] = None
     cumulative_pct: Optional[float] = None
     vwap: Optional[float] = None
+    open: Optional[float] = None
     high: Optional[float] = None
     low: Optional[float] = None
+    close: Optional[float] = None
     gap: bool = False
 
 
@@ -150,6 +152,7 @@ class TickerDetailPayload(BaseModel):
     prev_days: int = 0
     prev_dates: list[str] = Field(default_factory=list)
     ohlc: dict[str, Optional[float]] = Field(default_factory=dict)
+    prev_close: Optional[float] = None
     price_low: Optional[float] = None
     price_high: Optional[float] = None
     price_bin_count: int = 0
@@ -342,6 +345,7 @@ def assemble_ticker_detail(
         prev_days=detail.prev_days,
         prev_dates=list(detail.prev_dates),
         ohlc=dict(detail.ohlc),
+        prev_close=detail.prev_close,
         price_low=detail.price_low,
         price_high=detail.price_high,
         price_bin_count=detail.price_bin_count,

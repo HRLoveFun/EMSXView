@@ -441,8 +441,11 @@ export interface MonitorDetailBucket {
   cumulative_volume: number | null;
   cumulative_pct: number | null;
   vwap: number | null;
+  /** 桶内 OHLC（首根 open / 极值 / 末根 close），供逐桶 OHLC 点 */
+  open: number | null;
   high: number | null;
   low: number | null;
+  close: number | null;
   gap: boolean;
 }
 
@@ -472,6 +475,8 @@ export interface TickerDetailPayload {
   prev_days: number;
   prev_dates: string[];
   ohlc: Record<string, number | null>;
+  /** 前一交易日收盘（右侧百分比轴分母） */
+  prev_close: number | null;
   price_low: number | null;
   price_high: number | null;
   price_bin_count: number;

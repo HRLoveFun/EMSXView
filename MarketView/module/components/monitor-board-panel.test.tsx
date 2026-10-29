@@ -107,7 +107,7 @@ const payload: MonitorBoardPayload = {
 
 const liveOff: LiveQuotes = { byTicker: new Map(), status: 'idle', enabled: false, asOf: null };
 
-const names = new Map<string, string>([['SEC_A US Equity', '阿尔法股份有限公司']]);
+const names = new Map<string, string>([['SEC_A US Equity', 'ALPHA CORP']]);
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -144,19 +144,24 @@ const renderPanel = (overrides: Partial<Parameters<typeof MonitorBoardPanel>[0]>
   return { onSelectTicker, onUniverseChange };
 };
 
+const marketChip = (market: string): HTMLElement =>
+  screen.getByRole('button', { name: new RegExp(`^${market} · \\d`) });
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('MonitorBoardPanel', () => {
-  it('renders the 14 monitor columns', async () => {
+  it('renders the 15 monitor columns including Exchange first', async () => {
     stubFetch({ success: true, data: payload });
     renderPanel();
 
     const table = await screen.findByRole('table');
-    // ticker 同时出现在高亮模块与表格，这里只校验表格
-    expect(within(table).getByText('SEC_A US Equity')).toBeInTheDocument();
-    for (const header of [
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map((header) => header.textContent?.replace(/[▾▼]/g, '').trim());
+    expect(headers).toEqual([
+      'Exchange',
       'Ticker',
       'Name',
       'Status',
@@ -171,47 +176,53 @@ describe('MonitorBoardPanel', () => {
       'Liquidity',
       'Volatility',
       'Risk notes',
-    ]) {
-      expect(within(table).getByRole('columnheader', { name: header })).toBeInTheDocument();
-    }
-    // 中文简称优先于后端 name
-    expect(within(table).getByText('阿尔法股份有限公司')).toBeInTheDocument();
+    ]);
+    // Name 列走 SHORT_NAME（names map 优先）
+    expect(within(table).getByText('ALPHA CORP')).toBeInTheDocument();
+    // Exchange 列取 ticker 后缀
+    expect(within(table).getAllByText('US').length).toBeGreaterThan(0);
+    expect(within(table).getAllByText('EU').length).toBeGreaterThan(0);
   });
 
-  it('aggregates signals at market level and reveals tickers per market', async () => {
-    stubFetch({ success: true, data: payload });
-    renderPanel();
-
-    const volatility = await screen.findByRole('group', { name: 'Volatility' });
-    // 市场层只显示数量，股票默认不展开
-    expect(within(volatility).getByText('US · 1')).toBeInTheDocument();
-    expect(within(volatility).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
-    expect(within(volatility).getByText('点击市场查看信号股票')).toBeInTheDocument();
-
-    // 点击市场才显示具体股票；再次点击反选取消
-    fireEvent.click(within(volatility).getByText('US · 1'));
-    expect(within(volatility).getByText('SEC_A US Equity')).toBeInTheDocument();
-    fireEvent.click(within(volatility).getByRole('button', { name: 'US · 1' }));
-    expect(within(volatility).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
-  });
-
-  it('supports multi-select across markets', async () => {
+  it('shares market chips across all modules and reveals tickers on click', async () => {
     stubFetch({ success: true, data: payload });
     renderPanel();
 
     const notes = await screen.findByRole('group', { name: 'Risk notes' });
-    expect(within(notes).getByText('US · 1')).toBeInTheDocument();
-    expect(within(notes).getByText('EU · 1')).toBeInTheDocument();
+    const volatility = screen.getByRole('group', { name: 'Volatility' });
+    // 默认不展开任何市场的股票
+    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+    expect(within(volatility).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
 
-    fireEvent.click(within(notes).getByRole('button', { name: 'US · 1' }));
-    fireEvent.click(within(notes).getByRole('button', { name: 'EU · 1' }));
+    // 共享市场标签：点一次，三个模块同时生效
+    fireEvent.click(marketChip('US'));
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(volatility).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(notes).queryByText('SEC_B EU Equity')).not.toBeInTheDocument();
+
+    // 再次点击反选取消
+    fireEvent.click(marketChip('US'));
+    expect(within(notes).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
+  });
+
+  it('supports multi-select, select-all and invert for market chips', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const notes = await screen.findByRole('group', { name: 'Risk notes' });
+    fireEvent.click(marketChip('US'));
+    fireEvent.click(marketChip('EU'));
     expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
     expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
 
-    // 反选其中一个，只剩另一个市场的股票
-    fireEvent.click(within(notes).getByRole('button', { name: 'EU · 1' }));
-    expect(within(notes).queryByText('SEC_B EU Equity')).not.toBeInTheDocument();
+    // 一键反选：两个都选 → 全不选
+    fireEvent.click(screen.getByRole('button', { name: '反选' }));
+    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+
+    // 一键全选：两个市场的股票都展开
+    fireEvent.click(screen.getByRole('button', { name: '全选' }));
     expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
   });
 
   it('keeps highlight panel and table on the same severity', async () => {
@@ -219,29 +230,10 @@ describe('MonitorBoardPanel', () => {
     renderPanel();
 
     expect((await screen.findAllByText('1 alert(s)')).length).toBeGreaterThan(0);
-    // 面板里的 warning 徽标与表内 Volatility 列同值（先展开市场才可见股票）
+    fireEvent.click(marketChip('US'));
     const volatility = screen.getByRole('group', { name: 'Volatility' });
-    fireEvent.click(within(volatility).getByRole('button', { name: 'US · 1' }));
     expect(within(volatility).getByText('Warning')).toBeInTheDocument();
     expect(within(volatility).getByText('日 28.9% / 日内 0.23%')).toBeInTheDocument();
-  });
-
-  it('collapses and expands all three modules uniformly', async () => {
-    stubFetch({ success: true, data: payload });
-    renderPanel();
-
-    const notes = await screen.findByRole('group', { name: 'Risk notes' });
-    expect(within(notes).getByRole('button', { name: 'US · 1' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '折叠模块' }));
-    for (const title of ['Liquidity', 'Volatility', 'Risk notes']) {
-      const module = screen.getByRole('group', { name: title });
-      expect(within(module).queryByRole('button', { name: /·/ })).not.toBeInTheDocument();
-    }
-    expect(screen.getByRole('button', { name: '展开模块' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '展开模块' }));
-    expect(within(notes).getByRole('button', { name: 'US · 1' })).toBeInTheDocument();
   });
 
   it('shows missing data as dashes and lists risk notes', async () => {
@@ -250,7 +242,6 @@ describe('MonitorBoardPanel', () => {
 
     const table = await screen.findByRole('table');
     expect(within(table).getByText('无日度基线；无当日行情')).toBeInTheDocument();
-    // 缺数据不渲染成 0
     const rowB = within(table).getByText('SEC_B EU Equity').closest('tr');
     expect(rowB).not.toBeNull();
     expect(rowB?.textContent).toContain('—');
@@ -263,6 +254,51 @@ describe('MonitorBoardPanel', () => {
     const table = await screen.findByRole('table');
     fireEvent.click(within(table).getByText('SEC_A US Equity'));
     expect(onSelectTicker).toHaveBeenCalledWith('SEC_A US Equity');
+  });
+
+  it('filters table rows by Exchange with select-all and invert', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('button', { name: /Exchange/ }));
+
+    // 筛选面板：两个市场值均默认选中
+    expect(screen.getByText(/筛选 · Exchange/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '一键全选' })).toBeInTheDocument();
+
+    // 取消 US → 只剩 EU 行
+    fireEvent.click(screen.getByRole('button', { name: 'US' }));
+    expect(within(table).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
+    expect(within(table).getByText('SEC_B EU Equity')).toBeInTheDocument();
+
+    // 一键反选 → 只剩 US 行
+    fireEvent.click(screen.getByRole('button', { name: '一键反选' }));
+    expect(within(table).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(table).queryByText('SEC_B EU Equity')).not.toBeInTheDocument();
+
+    // 一键全选 → 恢复两行
+    fireEvent.click(screen.getByRole('button', { name: '一键全选' }));
+    expect(within(table).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(table).getByText('SEC_B EU Equity')).toBeInTheDocument();
+  });
+
+  it('collapses and expands all three modules uniformly', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const notes = await screen.findByRole('group', { name: 'Risk notes' });
+    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '折叠模块' }));
+    for (const title of ['Liquidity', 'Volatility', 'Risk notes']) {
+      const module = screen.getByRole('group', { name: title });
+      expect(within(module).queryByText('选择上方市场查看信号股票')).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: '展开模块' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开模块' }));
+    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
   });
 
   it('reports the pool universe for live subscription', async () => {

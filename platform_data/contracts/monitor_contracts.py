@@ -59,7 +59,7 @@ class MonitorQuote:
 
 @dataclass(frozen=True)
 class DetailBucket:
-    """详情图共用时间桶：当日量/累计量/占比 + 桶内价格区间。"""
+    """详情图共用时间桶：当日量/累计量/占比 + 桶内 OHLC（供逐桶 OHLC 点）。"""
 
     index: int
     label: str
@@ -67,8 +67,10 @@ class DetailBucket:
     cumulative_volume: float | None = None
     cumulative_pct: float | None = None
     vwap: float | None = None
+    open: float | None = None
     high: float | None = None
     low: float | None = None
+    close: float | None = None
     gap: bool = False
 
 
@@ -107,6 +109,8 @@ class TickerDetail:
     prev_days: int = 0
     prev_dates: tuple[str, ...] = ()
     ohlc: dict[str, float | None] = field(default_factory=dict)
+    #: 前一交易日收盘（右侧百分比轴的分母）；缺失时前端不画百分比轴
+    prev_close: float | None = None
     price_low: float | None = None
     price_high: float | None = None
     price_bin_count: int = 0

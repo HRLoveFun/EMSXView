@@ -1,15 +1,17 @@
 /**
- * 行详情抽屉（057 节点一）：三张图共用同一时间桶序列。
+ * 行详情抽屉（057 节点一）：三张图共用同一时间桶与同一 x 轴。
  *
- * 1) 价格—成交量分布：每 10 分钟一个时间桶，桶内按价格分档显示成交量（OHLC 标注）；
- * 2) 累计成交量：当日 vs 前五个交易日均值；
- * 3) 累计成交量占比：两条曲线各除以自身当日总量，压到 0–1。
+ * 1) 价格—成交量分布：每 10 分钟一个时间桶，桶内按价格分档显示成交量，
+ *    每个桶叠加 OHLC 点（高—低竖线 + 开/收短横），并保留当日 O/H/L/C 参考线；
+ *    右轴为相对前收的百分比变动。
+ * 2) 累计成交量：当日 vs 前五个交易日均值，每桶一个数据点。
+ * 3) 累计成交量占比：两条曲线各除以自身当日总量，压到 0–1，每桶一个数据点。
  *
- * 数据全部来自后端 `raw_bdib` 10 秒 bar 聚合；缺 bar 的时间桶显式标 gap，
- * 折线断开不插值。价格分布是 bar 级近似（把 bar 的量按 high–low 与分档的重叠比例摊开）。
+ * 三图的绘图区宽度一致（左轴 64px、右轴 72px），刻度取同一组时间桶，
+ * 因此纵向对齐。缺 bar 的时间桶显式标 gap，折线断开不插值。
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -33,9 +35,13 @@ interface TickerDetailDrawerProps {
   onClose: () => void;
 }
 
+// 三图共用布局：左轴 64px + 右轴 72px，绘图区宽度一致
+const AXIS_LEFT = 64;
+const AXIS_RIGHT = 72;
+const HEATMAP_HEIGHT = 240;
+const HEATMAP_TOP = 14;
+const HEATMAP_BOTTOM = 24;
 const CHART_HEIGHT = 190;
-const HEATMAP_WIDTH = 920;
-const PAD = { left: 64, right: 72, top: 14, bottom: 26 };
 
 const OHLC_COLORS: Record<string, string> = {
   open: '#0ea5e9',
@@ -44,19 +50,55 @@ const OHLC_COLORS: Record<string, string> = {
   close: '#a855f7',
 };
 
-/** 价格—成交量分布（SVG 热力格）：x = 时间桶，y = 价格分档，色深 = 该格成交量。 */
-function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
+/** 容器宽度（像素）：热力图用与 recharts 相同的像素坐标，保证三图 x 轴等长。 */
+function useMeasuredWidth() {
+  // 用 callback ref：节点只在数据加载后才挂载，一次性 effect 会错过它
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!element) return;
+    const update = (): void => setWidth(element.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+
+  return { ref: setElement, width };
+}
+
+/** x 轴刻度：取约 8 个等距时间桶，三图共用。 */
+function useTickIndexes(count: number): number[] {
+  return useMemo(() => {
+    if (count <= 0) return [];
+    const step = Math.max(1, Math.ceil(count / 8));
+    const indexes: number[] = [];
+    for (let index = 0; index < count; index += step) indexes.push(index);
+    const last = count - 1;
+    if (indexes[indexes.length - 1] !== last) indexes.push(last);
+    return indexes;
+  }, [count]);
+}
+
+/** 价格—成交量分布（SVG 热力格）+ 逐桶 OHLC 点 + 右轴百分比。 */
+function PriceVolumeHeatmap({
+  detail,
+  width,
+  tickIndexes,
+}: {
+  detail: TickerDetailPayload;
+  width: number;
+  tickIndexes: number[];
+}) {
   const { buckets, cells } = detail;
   const binCount = detail.price_bin_count;
   const low = detail.price_low;
   const high = detail.price_high;
-  const plotWidth = HEATMAP_WIDTH - PAD.left - PAD.right;
-  const plotHeight = 240 - PAD.top - PAD.bottom;
+  const plotWidth = Math.max(width - AXIS_LEFT - AXIS_RIGHT, 1);
+  const plotHeight = HEATMAP_HEIGHT - HEATMAP_TOP - HEATMAP_BOTTOM;
 
-  const maxVolume = useMemo(
-    () => cells.reduce((max, cell) => Math.max(max, cell.volume), 0),
-    [cells],
-  );
+  const maxVolume = useMemo(() => cells.reduce((max, cell) => Math.max(max, cell.volume), 0), [cells]);
   const cellsByBucket = useMemo(() => {
     const map = new Map<number, typeof cells>();
     for (const cell of cells) {
@@ -67,7 +109,7 @@ function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
     return map;
   }, [cells]);
 
-  if (!buckets.length || !binCount || low == null || high == null || high <= low) {
+  if (!buckets.length || !binCount || low == null || high == null || high <= low || width <= 0) {
     return (
       <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
         该标的当日没有可用的 bar，价格分布无法绘制。
@@ -78,32 +120,36 @@ function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
   const cellWidth = plotWidth / buckets.length;
   const cellHeight = plotHeight / binCount;
   const priceToY = (price: number): number =>
-    PAD.top + plotHeight * (1 - (price - low) / (high - low));
-  const tickStep = Math.max(1, Math.ceil(buckets.length / 9));
+    HEATMAP_TOP + plotHeight * (1 - (price - low) / (high - low));
+  const prevClose = detail.prev_close;
+  const pctToLabel = (price: number): string =>
+    prevClose && prevClose > 0 ? `${(((price / prevClose) - 1) * 100).toFixed(2)}%` : '';
 
   return (
     <svg
-      viewBox={`0 0 ${HEATMAP_WIDTH} 240`}
-      className="h-[240px] w-full"
+      width={width}
+      height={HEATMAP_HEIGHT}
+      viewBox={`0 0 ${width} ${HEATMAP_HEIGHT}`}
+      className="block"
       role="img"
       aria-label={`${detail.equ_ticker} 价格—成交量分布`}
     >
       <rect
-        x={PAD.left}
-        y={PAD.top}
+        x={AXIS_LEFT}
+        y={HEATMAP_TOP}
         width={plotWidth}
         height={plotHeight}
         fill="var(--muted, #f8fafc)"
         opacity={0.35}
       />
       {buckets.map((bucket, index) => {
-        const x = PAD.left + index * cellWidth;
+        const x = AXIS_LEFT + index * cellWidth;
         if (bucket.gap) {
           return (
             <rect
               key={`gap-${bucket.index}`}
               x={x}
-              y={PAD.top}
+              y={HEATMAP_TOP}
               width={cellWidth}
               height={plotHeight}
               fill="#f59e0b"
@@ -115,7 +161,7 @@ function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
         }
         return (cellsByBucket.get(index) ?? []).map((cell) => {
           const intensity = maxVolume > 0 ? Math.sqrt(cell.volume / maxVolume) : 0;
-          const y = PAD.top + plotHeight - (cell.price_bin + 1) * cellHeight;
+          const y = HEATMAP_TOP + plotHeight - (cell.price_bin + 1) * cellHeight;
           return (
             <rect
               key={`c-${cell.bucket}-${cell.price_bin}`}
@@ -132,6 +178,46 @@ function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
         });
       })}
 
+      {/* 逐桶 OHLC 点：高低竖线 + 开（左）/收（右）短横 */}
+      {buckets.map((bucket, index) => {
+        if (bucket.gap || bucket.high == null || bucket.low == null) return null;
+        const center = AXIS_LEFT + index * cellWidth + cellWidth / 2;
+        const yHigh = priceToY(bucket.high);
+        const yLow = priceToY(bucket.low);
+        const tick = Math.min(cellWidth * 0.28, 4);
+        const rising = bucket.close != null && bucket.open != null && bucket.close >= bucket.open;
+        const color = rising ? '#0f766e' : '#b91c1c';
+        return (
+          <g key={`ohlc-${bucket.index}`}>
+            <line x1={center} x2={center} y1={yHigh} y2={yLow} stroke={color} strokeWidth={1} opacity={0.9} />
+            {bucket.open != null ? (
+              <line
+                x1={center - tick}
+                x2={center}
+                y1={priceToY(bucket.open)}
+                y2={priceToY(bucket.open)}
+                stroke={color}
+                strokeWidth={1}
+              />
+            ) : null}
+            {bucket.close != null ? (
+              <line
+                x1={center}
+                x2={center + tick}
+                y1={priceToY(bucket.close)}
+                y2={priceToY(bucket.close)}
+                stroke={color}
+                strokeWidth={1}
+              />
+            ) : null}
+            <title>
+              {`${bucket.label} O ${fmtNumber(bucket.open, 2)} H ${fmtNumber(bucket.high, 2)} L ${fmtNumber(bucket.low, 2)} C ${fmtNumber(bucket.close, 2)}`}
+            </title>
+          </g>
+        );
+      })}
+
+      {/* 当日 O/H/L/C 参考线（虚线，右端标注价格） */}
       {(['open', 'high', 'low', 'close'] as const).map((key) => {
         const value = detail.ohlc[key];
         if (value == null) return null;
@@ -139,33 +225,54 @@ function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
         return (
           <g key={key}>
             <line
-              x1={PAD.left}
-              x2={PAD.left + plotWidth}
+              x1={AXIS_LEFT}
+              x2={AXIS_LEFT + plotWidth}
               y1={y}
               y2={y}
               stroke={OHLC_COLORS[key]}
               strokeDasharray="4 3"
               strokeWidth={1}
-              opacity={0.85}
+              opacity={0.7}
             />
-            <text
-              x={PAD.left + plotWidth + 4}
-              y={y + 3}
-              fontSize={9}
-              fill={OHLC_COLORS[key]}
-            >
+            <text x={4} y={y + 3} fontSize={9} fill={OHLC_COLORS[key]}>
               {`${key.toUpperCase()} ${fmtNumber(value, 2)}`}
             </text>
           </g>
         );
       })}
 
-      {buckets.map((bucket, index) =>
-        index % tickStep === 0 ? (
+      {/* 左轴价格 / 右轴相对前收百分比（同一组刻度，三图等宽） */}
+      {Array.from({ length: 5 }, (_, index) => {
+        const price = low + ((high - low) * index) / 4;
+        const y = priceToY(price);
+        return (
+          <g key={`ticks-${index}`}>
+            <text x={AXIS_LEFT - 6} y={y + 3} fontSize={9} textAnchor="end" fill="currentColor" opacity={0.65}>
+              {fmtNumber(price, 2)}
+            </text>
+            {prevClose ? (
+              <text
+                x={AXIS_LEFT + plotWidth + 6}
+                y={y + 3}
+                fontSize={9}
+                fill="currentColor"
+                opacity={0.65}
+              >
+                {pctToLabel(price)}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+
+      {tickIndexes.map((index) => {
+        const bucket = buckets[index];
+        if (!bucket) return null;
+        return (
           <text
             key={`x-${bucket.index}`}
-            x={PAD.left + index * cellWidth + cellWidth / 2}
-            y={PAD.top + plotHeight + 12}
+            x={AXIS_LEFT + index * cellWidth + cellWidth / 2}
+            y={HEATMAP_TOP + plotHeight + 12}
             fontSize={9}
             textAnchor="middle"
             fill="currentColor"
@@ -173,30 +280,13 @@ function PriceVolumeHeatmap({ detail }: { detail: TickerDetailPayload }) {
           >
             {bucket.label}
           </text>
-        ) : null,
-      )}
-
-      {Array.from({ length: 5 }, (_, index) => {
-        const price = low + ((high - low) * index) / 4;
-        return (
-          <text
-            key={`y-${index}`}
-            x={PAD.left - 6}
-            y={priceToY(price) + 3}
-            fontSize={9}
-            textAnchor="end"
-            fill="currentColor"
-            opacity={0.65}
-          >
-            {fmtNumber(price, 2)}
-          </text>
         );
       })}
     </svg>
   );
 }
 
-/** 累计量 / 累计量占比：两张折线图共用一份对齐数据。 */
+/** 累计量 / 累计量占比：两张折线图共用一份对齐数据（每桶一个点）。 */
 function cumulativeSeries(detail: TickerDetailPayload) {
   return detail.buckets.map((bucket, index) => {
     const prev = detail.prev_buckets[index];
@@ -218,6 +308,7 @@ function CumulativeChart({
   domain,
   tickFormatter,
   caption,
+  tickLabels,
 }: {
   data: ReturnType<typeof cumulativeSeries>;
   dataKeyToday: string;
@@ -225,20 +316,24 @@ function CumulativeChart({
   domain: [number, number | 'auto'];
   tickFormatter: (value: number) => string;
   caption: string;
+  tickLabels: string[];
 }) {
   return (
     <div className="rounded-xl border border-border/70 bg-background/60 p-3">
       <p className="mb-1 text-xs text-muted-foreground">{caption}</p>
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={data} margin={{ top: 6, right: 16, bottom: 4, left: 4 }}>
+        <LineChart data={data} margin={{ top: 6, right: 0, bottom: 4, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.4} />
-          <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={28} />
+          <XAxis dataKey="label" ticks={tickLabels} interval={0} tick={{ fontSize: 10 }} />
           <YAxis
+            yAxisId="left"
             tick={{ fontSize: 10 }}
-            width={58}
+            width={AXIS_LEFT}
             domain={domain}
             tickFormatter={tickFormatter}
           />
+          {/* 右侧留白与量价图的右轴等宽，保证三图绘图区一致 */}
+          <YAxis yAxisId="right" orientation="right" width={AXIS_RIGHT} tick={false} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{
               backgroundColor: 'var(--card)',
@@ -249,22 +344,28 @@ function CumulativeChart({
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           <Line
+            yAxisId="left"
             type="monotone"
             dataKey={dataKeyToday}
             name="Today"
             stroke="#2563eb"
             strokeWidth={2}
-            dot={false}
+            dot={{ r: 2 }}
+            activeDot={{ r: 3 }}
+            isAnimationActive={false}
             connectNulls={false}
           />
           <Line
+            yAxisId="left"
             type="monotone"
             dataKey={dataKeyPrev}
             name="Prev 5D avg"
             stroke="#94a3b8"
             strokeWidth={2}
             strokeDasharray="5 4"
-            dot={false}
+            dot={{ r: 2 }}
+            activeDot={{ r: 3 }}
+            isAnimationActive={false}
             connectNulls={false}
           />
         </LineChart>
@@ -279,6 +380,12 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
     fetchTickerDetail(ticker, tradeDate ?? undefined),
   );
   const series = useMemo(() => (data ? cumulativeSeries(data) : []), [data]);
+  const tickIndexes = useTickIndexes(data?.buckets.length ?? 0);
+  const tickLabels = useMemo(
+    () => tickIndexes.map((index) => data?.buckets[index]?.label ?? '').filter(Boolean),
+    [tickIndexes, data],
+  );
+  const { ref: chartAreaRef, width: chartWidth } = useMeasuredWidth();
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" role="dialog" aria-modal="true">
@@ -324,13 +431,17 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
             <div className="rounded-xl border border-border/70 bg-background/60 p-3">
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>
-                  价格—成交量分布（每 {data.bucket_minutes} 分钟一个时间桶；颜色越深量越大；虚线为 O/H/L/C）
+                  价格—成交量分布（每 {data.bucket_minutes} 分钟一桶；色深 = 量；竖线 + 左右短横 = 该桶 OHLC）
                 </span>
                 <span>
-                  Total {fmtCompact(data.total_volume)} · Prev5D avg {fmtCompact(data.prev_avg_volume)}
+                  Total {fmtCompact(data.total_volume)} · Prev5D avg {fmtCompact(data.prev_avg_volume)} · Prev close{' '}
+                  {fmtNumber(data.prev_close, 2)}
                 </span>
               </div>
-              <PriceVolumeHeatmap detail={data} />
+              {/* 与 recharts 容器同宽（同 padding/边框的卡片内容区），保证三图 x 轴等长 */}
+              <div ref={chartAreaRef}>
+                <PriceVolumeHeatmap detail={data} width={chartWidth} tickIndexes={tickIndexes} />
+              </div>
             </div>
 
             <CumulativeChart
@@ -339,7 +450,8 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
               dataKeyPrev="prevVolume"
               domain={[0, 'auto']}
               tickFormatter={(value: number) => fmtCompact(value)}
-              caption={`累计成交量：当日 vs 前 ${data.prev_days} 个交易日均值（缺 bar 的桶断开，不插值）`}
+              caption={`累计成交量：当日 vs 前 ${data.prev_days} 个交易日均值（每桶一个点；缺 bar 的桶断开，不插值）`}
+              tickLabels={tickLabels}
             />
 
             <CumulativeChart
@@ -348,7 +460,8 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
               dataKeyPrev="prevPct"
               domain={[0, 100]}
               tickFormatter={(value: number) => `${value.toFixed(0)}%`}
-              caption="累计成交量占比：各曲线除以自身当日总量（0–100%）"
+              caption="累计成交量占比：各曲线除以自身当日总量（0–100%，每桶一个点）"
+              tickLabels={tickLabels}
             />
 
             {data.gaps.length ? (
