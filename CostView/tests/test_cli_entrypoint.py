@@ -1,6 +1,6 @@
 """CLI 入口 smoke test — 断言 python -m CostView.src 可用且退出码语义正确。
 
-对应 README §4.2「CLI 入口失效」整改：__main__.py 恢复后由本测试锁定。
+对应 `docs/spec/project-structure.md` §8.2「CLI 入口失效」整改：__main__.py 恢复后由本测试锁定。
 """
 
 from __future__ import annotations

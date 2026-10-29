@@ -28,7 +28,7 @@
 | | A05 | M3 | 副作用端点补 `require_permission`（5 处） | ~60 行 |
 | | A06 | M4 | 审计字段 `username` → `sub`（含断言测试） | ~30 行 |
 | **R3** | A12 | E3 | Node 版本固定（engines + .nvmrc，Node 22） | ~10 行 |
-| | A13 | E4 | AGENTS.md 数字更新 + 测试计数纳入 doc-drift | ~80 行 |
+| | A13 | E4 | 文档计数去硬编码 + `doc_check.py` 结构对账（方式变更，随 2026-10-29 文档重构提前完成） | ✅ 2026-10-29（#204–#209） |
 | | A07 | L1 | 订单不在缓存时拒单 + 准入默认行为明确化 | ~50 行 |
 | | A08 | L2 | PM 授权按条件查询（去 limit=5000 全量） | ~90 行 |
 | **R4** | A09 | L3 | locale 显式化 + 时区口径确认 + token-service 合并 | ~140 行 |
@@ -99,7 +99,7 @@
 | A10（E1） | 删除 `platform_data/pyproject.toml` 的 `emsxview-datapipeline`，补 `openpyxl` | 干净环境 `pip install -e platform_data` 成功（CI job 验证） |
 | A11（E2） | `backend/api/requirements.txt` 加 `greenlet` | 无缓存的 CI 后端测试无 greenlet 报错 |
 | A12（E3） | 根与 `frontend` 的 `package.json` 加 `engines: {"node": ">=20.19 <23"}` + `.nvmrc`（22） | `npm ci` 在 Node 22 通过；README 注明 |
-| A13（E4） | AGENTS.md §4.2/§6/§12/§14 数字更新（512/352/59/27 等）；`audit_doc_drift` 增加「测试计数与实跑一致」检查 | `audit_doc_drift` 通过且能捕获人为改错的计数 |
+| A13（E4） | **方式变更（2026-10-29 完成）**：原动作「更新 AGENTS §4.2/§6/§12/§14 的数字」已失效——那几节随文档重构下沉，且**测试计数改为不写数字、只给可复跑命令**（7 处硬编码全部消除）。替代物：新增 `scripts/doc_check.py` 做结构对账（地图覆盖 / 元信息头 / 状态枚举 / 死链与 `#锚点` / 失效词表），接入 `doc-drift-report.yml` 周报 | `python scripts/doc_check.py` 退出码 0（当前 0 FAIL / 0 WARN）；全仓 `grep "295 个测试函数"` = 0 命中 |
 | A14（E5） | 复杂度热点分批拆分：`get_intraday_features`（66）、`_mktdata_subscription_loop`（58）、`_process_subscription_message`（55）优先；前端三件套（RouteTable 858 行等）排技术债 | 每拆一个函数圈复杂度降 ≥30% 且测试全绿；OEW 下降可量化 |
 
 ## 3. 对既有开发任务的影响评估
@@ -127,7 +127,7 @@
 | M3 | A05 | R2 | `fix(audit/A05): 副作用端点权限` | 权限矩阵测试 |
 | M4 | A06 | R2 | `fix(audit/A06): 审计字段 sub` | 审计断言测试 |
 | E3 | A12 | R3 | `chore(audit/A12): 固定 Node 22` | CI 矩阵 |
-| E4 | A13 | R3 | `docs(audit/A13): 数字更新 + 计数审计` | `audit_doc_drift` 输出 |
+| E4 | A13 | R3 | `docs(audit/A13): 去硬编码 + doc_check` | `python scripts/doc_check.py` 输出（0 FAIL / 0 WARN） |
 | L1 | A07 | R3 | `fix(audit/A07): 订单缺失拒单` | 回归测试 |
 | L2 | A08 | R3 | `fix(audit/A08): PM 授权查询优化` | 6000 单夹具 + mock 计数 |
 | L3 | A09 | R4 | `fix(audit/A09): locale/时区/token 合并` | 前端测试 + 决策记录 |
