@@ -278,6 +278,7 @@ class MarketMonitorAdapter:
             prev_bars,
             bucket_minutes=bucket_minutes,
             price_bins=price_bins,
+            prev_close=self._prev_close(equ_ticker, resolved),
         )
 
     def _load_bars(self, equ_ticker: str, trade_date: str) -> list[tuple]:
@@ -314,16 +315,25 @@ class MarketMonitorAdapter:
     def _aggregate_buckets(bars: list[tuple], bucket_minutes: int) -> dict[str, dict]:
         """按桶聚合：量、高开低、末价、vwap（close 加权，bar 级近似）。"""
         buckets: dict[str, dict] = {}
-        for timestamp, _open, high, low, close, volume in bars:
+        for timestamp, open_, high, low, close, volume in bars:
             label = _bucket_label(timestamp, bucket_minutes)
             if label is None:
                 continue
             item = buckets.setdefault(
                 label,
-                {"volume": 0.0, "high": None, "low": None, "close": None, "value": 0.0},
+                {
+                    "volume": 0.0,
+                    "open": None,
+                    "high": None,
+                    "low": None,
+                    "close": None,
+                    "value": 0.0,
+                },
             )
             item["volume"] += volume
             item["value"] += close * volume
+            # 桶内 OHLC：首根 open / 逐根极值 / 末根 close（供逐桶 OHLC 点）
+            item["open"] = open_ if item["open"] is None else item["open"]
             item["high"] = high if item["high"] is None else max(item["high"], high)
             item["low"] = low if item["low"] is None else min(item["low"], low)
             item["close"] = close
@@ -368,6 +378,7 @@ class MarketMonitorAdapter:
         *,
         bucket_minutes: int,
         price_bins: int,
+        prev_close: float | None = None,
     ) -> TickerDetail:
         today = self._aggregate_buckets(bars, bucket_minutes)
         prev_agg = {
@@ -380,7 +391,12 @@ class MarketMonitorAdapter:
             labels.update(day)
         grid = sorted(labels, key=_label_minutes)
         if not grid:
-            return TickerDetail(equ_ticker=equ_ticker, trade_date=trade_date, bucket_minutes=bucket_minutes)
+            return TickerDetail(
+                equ_ticker=equ_ticker,
+                trade_date=trade_date,
+                bucket_minutes=bucket_minutes,
+                prev_close=prev_close,
+            )
 
         total_volume = sum(item["volume"] for item in today.values()) if today else None
         cumulative = 0.0
@@ -397,8 +413,10 @@ class MarketMonitorAdapter:
                         cumulative_volume=_round(cumulative, 4),
                         cumulative_pct=_round(cumulative / total_volume, 6) if total_volume else None,
                         vwap=_round(item["value"] / item["volume"], 4) if item["volume"] else None,
+                        open=item["open"],
                         high=item["high"],
                         low=item["low"],
+                        close=item["close"],
                     )
                 )
             else:
@@ -432,6 +450,7 @@ class MarketMonitorAdapter:
                 "low": day_low,
                 "close": bars[-1][4] if bars else None,
             },
+            prev_close=_round(prev_close, 4),
             price_low=day_low,
             price_high=day_high,
             price_bin_count=len(bins),
