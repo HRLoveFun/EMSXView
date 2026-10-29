@@ -279,12 +279,9 @@ export interface SecurityNamesPayload {
   field: string;
 }
 
-/** nameField：NAME_CHINESE_SIMPLIFIED（中文简称）或 SHORT_NAME（英文短名，默认） */
-export async function fetchSecurityNames(
-  tickers: string[],
-  nameField = 'SHORT_NAME',
-): Promise<SecurityNamesPayload> {
-  const params = new URLSearchParams({ tickers: tickers.join(','), field: nameField });
+/** 名称口径固定为英文短名（SHORT_NAME） */
+export async function fetchSecurityNames(tickers: string[]): Promise<SecurityNamesPayload> {
+  const params = new URLSearchParams({ tickers: tickers.join(',') });
   const response = await fetch(`${API_BASE_URL}/api/securities/names?${params.toString()}`, {
     headers: getAuthHeaders(),
   });

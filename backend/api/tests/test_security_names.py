@@ -118,11 +118,9 @@ def test_service_caches_hits_and_reports_missing(monkeypatch):
     service = sn.SecurityNamesService()
     calls: list[list[str]] = []
 
-    def fake_fetch(tickers, field=sn.DEFAULT_FIELD):
+    def fake_fetch(tickers):
         calls.append(list(tickers))
-        service._cache.update(
-            {(field, ticker): f"名称-{ticker}" for ticker in tickers[:1]}
-        )
+        service._cache.update({ticker: f"名称-{ticker}" for ticker in tickers[:1]})
 
     monkeypatch.setattr(service, "_fetch", fake_fetch)
 
@@ -135,24 +133,10 @@ def test_service_caches_hits_and_reports_missing(monkeypatch):
     assert calls == [["A", "B"], ["B"]]
 
 
-def test_service_keeps_fields_in_separate_cache_entries(monkeypatch):
-    service = sn.SecurityNamesService()
-
-    def fake_fetch(tickers, field=sn.DEFAULT_FIELD):
-        service._cache.update({(field, ticker): f"{field}-{ticker}" for ticker in tickers})
-
-    monkeypatch.setattr(service, "_fetch", fake_fetch)
-
-    zh, _ = service.get_names(["A"], sn.DEFAULT_FIELD)
-    short, _ = service.get_names(["A"], "SHORT_NAME")
-    assert zh == {"A": f"{sn.DEFAULT_FIELD}-A"}
-    assert short == {"A": "SHORT_NAME-A"}
-
-
 def test_service_survives_terminal_failure(monkeypatch):
     service = sn.SecurityNamesService()
 
-    def boom(tickers, field=sn.DEFAULT_FIELD):
+    def boom(tickers):
         raise RuntimeError("blpapi down")
 
     monkeypatch.setattr(service, "_fetch", boom)
@@ -172,39 +156,16 @@ def _client(monkeypatch, resolver=None) -> TestClient:
 
 
 def test_endpoint_returns_names_and_missing(monkeypatch):
-    client = _client(
-        monkeypatch,
-        lambda tickers, field=sn.DEFAULT_FIELD: ({"AAPL US Equity": "苹果公司"}, ["BAD US Equity"]),
-    )
+    client = _client(monkeypatch, lambda tickers: ({"AAPL US Equity": "APPLE INC"}, ["BAD US Equity"]))
 
     response = client.get("/api/securities/names?tickers=AAPL%20US%20Equity,BAD%20US%20Equity")
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["names"] == {"AAPL US Equity": "苹果公司"}
+    assert data["names"] == {"AAPL US Equity": "APPLE INC"}
     assert data["missing"] == ["BAD US Equity"]
-    assert data["field"] == "NAME_CHINESE_SIMPLIFIED"
-
-
-def test_endpoint_accepts_short_name_field(monkeypatch):
-    seen: list[str] = []
-
-    def resolver(tickers, field=sn.DEFAULT_FIELD):
-        seen.append(field)
-        return {"AAPL US Equity": "APPLE INC"}, []
-
-    client = _client(monkeypatch, resolver)
-    response = client.get("/api/securities/names?tickers=AAPL%20US%20Equity&field=SHORT_NAME")
-
-    assert response.status_code == 200
-    assert response.json()["data"]["field"] == "SHORT_NAME"
-    assert seen == ["SHORT_NAME"]
-
-
-def test_endpoint_rejects_unknown_field(monkeypatch):
-    client = _client(monkeypatch, lambda tickers, field=sn.DEFAULT_FIELD: ({}, []))
-    response = client.get("/api/securities/names?tickers=AAPL%20US%20Equity&field=SECURITY_DES")
-    assert response.status_code == 400
+    # Name 列口径固定为英文短名
+    assert data["field"] == "SHORT_NAME"
 
 
 def test_endpoint_rejects_empty_and_oversized_lists(monkeypatch):
