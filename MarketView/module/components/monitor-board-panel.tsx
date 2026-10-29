@@ -9,7 +9,7 @@
  * 无订阅或休市时回落到当日 bar 聚合值；两者来源都在表头 chip 与行 tooltip 标注。
  */
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useAsyncData } from '@shared/hooks/use-async-data';
 
@@ -63,6 +63,23 @@ const SeverityCell = ({ severity }: { severity: MarketAlertSeverity }) => {
   );
 };
 
+/** ticker → 交易所码（'MC EU Equity' → 'EU'）；用于市场层聚合。 */
+const marketOf = (equTicker: string): string => {
+  const parts = equTicker.split(' ');
+  return (parts.length >= 2 ? parts[parts.length - 2] : '').toUpperCase() || '?';
+};
+
+interface HighlightModuleProps {
+  title: string;
+  metricHint: string;
+  items: MonitorHighlightItem[];
+  emptyText: string;
+  selectedTicker: string | null;
+  onSelectTicker: (ticker: string) => void;
+  /** 统一折叠：为 true 时只保留标题行，市场层与股票列表整体收起 */
+  collapsed: boolean;
+}
+
 const HighlightModule = ({
   title,
   metricHint,
@@ -70,54 +87,114 @@ const HighlightModule = ({
   emptyText,
   selectedTicker,
   onSelectTicker,
-}: {
-  title: string;
-  metricHint: string;
-  items: MonitorHighlightItem[];
-  emptyText: string;
-  selectedTicker: string | null;
-  onSelectTicker: (ticker: string) => void;
-}) => (
-  <div className="rounded-xl border border-border/70 bg-background/60 p-3">
-    <div className="flex items-baseline justify-between">
-      <p className="text-sm font-medium text-foreground">{title}</p>
-      <span className="text-[11px] text-muted-foreground">{items.length} alert(s)</span>
-    </div>
-    <p className="mt-0.5 text-[11px] text-muted-foreground">{metricHint}</p>
-    <ul className="mt-2 space-y-1.5">
-      {items.length ? (
-        items.map((item) => (
-          <li key={`${item.metric}-${item.equ_ticker}`}>
-            <button
-              type="button"
-              onClick={() => onSelectTicker(item.equ_ticker)}
-              className={`w-full rounded-lg border px-2 py-1.5 text-left transition hover:bg-muted/40 ${
-                selectedTicker === item.equ_ticker ? 'border-sky-500/60' : 'border-border/60'
-              }`}
-              title={item.note || item.threshold}
-            >
-              <span className="flex items-center justify-between gap-2">
-                <span className="truncate font-mono text-xs text-foreground">{item.equ_ticker}</span>
-                <span
-                  className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${getSeverityTone(item.severity)}`}
-                >
-                  {getSeverityText(item.severity)}
-                </span>
-              </span>
-              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                {item.note || item.metric}
-              </span>
-            </button>
-          </li>
-        ))
-      ) : (
-        <li className="rounded-lg border border-dashed border-border/60 px-2 py-2 text-[11px] text-muted-foreground">
-          {emptyText}
-        </li>
+  collapsed,
+}: HighlightModuleProps) => {
+  // 市场层多选：点击市场展开其信号股票，再次点击反选取消
+  const [openMarkets, setOpenMarkets] = useState<ReadonlySet<string>>(new Set());
+
+  const groups = useMemo(() => {
+    const map = new Map<string, MonitorHighlightItem[]>();
+    for (const item of items) {
+      const key = marketOf(item.equ_ticker);
+      map.set(key, [...(map.get(key) ?? []), item]);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [items]);
+
+  const visibleItems = useMemo(
+    () => groups.flatMap(([market, list]) => (openMarkets.has(market) ? list : [])),
+    [groups, openMarkets],
+  );
+
+  const toggleMarket = (market: string): void => {
+    setOpenMarkets((current) => {
+      const next = new Set(current);
+      if (next.has(market)) {
+        next.delete(market);
+      } else {
+        next.add(market);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label={title}
+      className={`flex flex-col rounded-xl border border-border/70 bg-background/60 p-3 ${
+        collapsed ? '' : 'h-[320px]'
+      }`}
+    >
+      <div className="flex items-baseline justify-between">
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        <span className="text-[11px] text-muted-foreground">{items.length} alert(s)</span>
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{metricHint}</p>
+      {collapsed ? null : (
+        <>
+          <div className="mt-2 flex min-h-[28px] flex-wrap gap-1.5">
+            {groups.length ? (
+              groups.map(([market, list]) => {
+                const active = openMarkets.has(market);
+                return (
+                  <button
+                    key={market}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggleMarket(market)}
+                    className={`rounded-full border px-2 py-1 text-[11px] transition ${
+                      active
+                        ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
+                        : 'border-border/60 text-muted-foreground hover:text-foreground'
+                    }`}
+                    title={`点击展开/收起 ${market} 的信号股票`}
+                  >
+                    {market} · {list.length}
+                  </button>
+                );
+              })
+            ) : (
+              <span className="text-[11px] text-muted-foreground">{emptyText}</span>
+            )}
+          </div>
+          <ul className="mt-2 flex-1 space-y-1.5 overflow-y-auto">
+            {visibleItems.length ? (
+              visibleItems.map((item) => (
+                <li key={`${item.metric}-${item.equ_ticker}`}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectTicker(item.equ_ticker)}
+                    className={`w-full rounded-lg border px-2 py-1.5 text-left transition hover:bg-muted/40 ${
+                      selectedTicker === item.equ_ticker ? 'border-sky-500/60' : 'border-border/60'
+                    }`}
+                    title={item.note || item.threshold}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate font-mono text-xs text-foreground">{item.equ_ticker}</span>
+                      <span
+                        className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${getSeverityTone(item.severity)}`}
+                      >
+                        {getSeverityText(item.severity)}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                      {item.note || item.metric}
+                    </span>
+                  </button>
+                </li>
+              ))
+            ) : (
+              <li className="rounded-lg border border-dashed border-border/60 px-2 py-2 text-[11px] text-muted-foreground">
+                {groups.length ? '点击市场查看信号股票' : emptyText}
+              </li>
+            )}
+          </ul>
+        </>
       )}
-    </ul>
-  </div>
-);
+    </div>
+  );
+};
 
 const Row = ({
   row,
@@ -195,6 +272,8 @@ export const MonitorBoardPanel = ({
   const { data, isLoading, error, reload } = useAsyncData(key, () =>
     fetchMonitorBoard(poolId, tradeDate ?? undefined),
   );
+  // 三个高亮模块统一折叠 / 展开
+  const [modulesCollapsed, setModulesCollapsed] = useState(false);
 
   useEffect(() => {
     if (!data?.rows.length) return;
@@ -255,6 +334,13 @@ export const MonitorBoardPanel = ({
             <button
               type="button"
               className="rounded-full border border-border px-3 py-1 transition hover:text-foreground"
+              onClick={() => setModulesCollapsed((current) => !current)}
+            >
+              {modulesCollapsed ? '展开模块' : '折叠模块'}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-border px-3 py-1 transition hover:text-foreground"
               onClick={() => reload()}
             >
               Refresh
@@ -285,6 +371,7 @@ export const MonitorBoardPanel = ({
               emptyText={EMPTY_TEXT.liquidity}
               selectedTicker={selectedTicker}
               onSelectTicker={onSelectTicker}
+              collapsed={modulesCollapsed}
             />
             <HighlightModule
               title="Volatility"
@@ -293,6 +380,7 @@ export const MonitorBoardPanel = ({
               emptyText={EMPTY_TEXT.volatility}
               selectedTicker={selectedTicker}
               onSelectTicker={onSelectTicker}
+              collapsed={modulesCollapsed}
             />
             <HighlightModule
               title="Risk notes"
@@ -301,6 +389,7 @@ export const MonitorBoardPanel = ({
               emptyText={EMPTY_TEXT.risk_notes}
               selectedTicker={selectedTicker}
               onSelectTicker={onSelectTicker}
+              collapsed={modulesCollapsed}
             />
           </div>
 
