@@ -1,21 +1,15 @@
 /**
- * 证券名称（refdata 名称字段）——按 ticker 批量取一次、模块内缓存。
+ * 证券名称（`SHORT_NAME` 英文短名）——按 ticker 批量取一次、模块内缓存。
  *
- * 默认取 `SHORT_NAME`（监控表 Name 列）；需要中文简称时传
- * `NAME_CHINESE_SIMPLIFIED`。名称是静态参考数据，不随行情变化：只在出现新
- * ticker 时请求增量，失败静默（列显示 `—`），不阻塞面板渲染。
+ * 名称是静态参考数据，不随行情变化：只在出现新 ticker 时请求增量，
+ * 失败静默（列显示 `—`），不阻塞面板渲染。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchSecurityNames } from '../services/api';
 
-export type SecurityNameField = 'SHORT_NAME' | 'NAME_CHINESE_SIMPLIFIED';
-
-export function useSecurityNames(
-  tickers: string[],
-  nameField: SecurityNameField = 'SHORT_NAME',
-): Map<string, string> {
+export function useSecurityNames(tickers: string[]): Map<string, string> {
   const [resolved, setResolved] = useState<Record<string, string>>({});
   const cacheRef = useRef<Record<string, string>>({});
 
@@ -32,7 +26,7 @@ export function useSecurityNames(
     if (!missing.length) return;
 
     let cancelled = false;
-    fetchSecurityNames(missing, nameField)
+    fetchSecurityNames(missing)
       .then((data) => {
         if (cancelled || !data?.names) return;
         cacheRef.current = { ...cacheRef.current, ...data.names };
@@ -44,7 +38,7 @@ export function useSecurityNames(
     return () => {
       cancelled = true;
     };
-  }, [key, nameField]);
+  }, [key]);
 
   return useMemo(() => new Map(Object.entries(resolved)), [resolved]);
 }

@@ -205,6 +205,7 @@ const HighlightModule = ({
 
 // ── 表格筛选面板 ────────────────────────────────────────────────────────────
 
+/** 列筛选弹层：浮在表格上方居中，内容紧密排列。 */
 const FilterPanel = ({
   filterKey,
   options,
@@ -222,15 +223,19 @@ const FilterPanel = ({
   onInvert: () => void;
   onClose: () => void;
 }) => (
-  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-xs font-medium text-foreground">
+  <div
+    role="dialog"
+    aria-label={`筛选 ${FILTER_LABELS[filterKey]}`}
+    className="absolute left-1/2 top-2 z-30 w-[min(560px,92%)] -translate-x-1/2 rounded-xl border border-border bg-card p-2.5 shadow-2xl"
+  >
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-[11px] font-medium text-foreground">
         筛选 · {FILTER_LABELS[filterKey]}
-        <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+        <span className="ml-1.5 font-normal text-muted-foreground">
           已选 {selection.length}/{options.length}
         </span>
       </p>
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
         <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onSelectAll}>
           一键全选
         </button>
@@ -242,7 +247,7 @@ const FilterPanel = ({
         </button>
       </div>
     </div>
-    <div className="mt-2 flex flex-wrap gap-1.5">
+    <div className="mt-1.5 flex flex-wrap justify-center gap-1">
       {options.map((value) => {
         const active = selection.includes(value);
         return (
@@ -251,7 +256,7 @@ const FilterPanel = ({
             type="button"
             aria-pressed={active}
             onClick={() => onToggleValue(value)}
-            className={`rounded-full border px-2 py-1 text-[11px] transition ${
+            className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
               active
                 ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
                 : 'border-border/60 text-muted-foreground hover:text-foreground'
@@ -630,20 +635,10 @@ export const MonitorBoardPanel = ({
             </div>
           </div>
 
-          {openFilter ? (
-            <FilterPanel
-              filterKey={openFilter}
-              options={filterOptions[openFilter]}
-              selection={activeSelection}
-              onToggleValue={(value) => toggleFilterValue(openFilter, value)}
-              onSelectAll={() => selectAllValues(openFilter)}
-              onInvert={() => invertValues(openFilter)}
-              onClose={() => setOpenFilter(null)}
-            />
-          ) : null}
-
-          <div className="overflow-hidden rounded-xl border border-border">
-            {visibleRows.length ? (
+          {/* relative 包裹：筛选弹层浮在表格上方居中，不被 overflow 裁切 */}
+          <div className="relative">
+            <div className="overflow-hidden rounded-xl border border-border">
+              {visibleRows.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1500px] text-sm">
                   <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
@@ -711,6 +706,18 @@ export const MonitorBoardPanel = ({
                   : `Pool “${data.pool.pool_id}” has no members yet.`}
               </div>
             )}
+            </div>
+            {openFilter ? (
+              <FilterPanel
+                filterKey={openFilter}
+                options={filterOptions[openFilter]}
+                selection={activeSelection}
+                onToggleValue={(value) => toggleFilterValue(openFilter, value)}
+                onSelectAll={() => selectAllValues(openFilter)}
+                onInvert={() => invertValues(openFilter)}
+                onClose={() => setOpenFilter(null)}
+              />
+            ) : null}
           </div>
 
           <p className="text-[11px] text-muted-foreground">
