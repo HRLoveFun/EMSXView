@@ -146,7 +146,7 @@ EMSXView/
 │       ├── repositories/
 │       ├── models/
 │       ├── schemas/                  # Pydantic v2 请求/响应 schema（目录，非单文件）
-│       └── tests/                    # 20 个测试文件，约 180 个测试函数（含 boundaries/ 契约测试）
+│       └── tests/                    # 含 boundaries/ 契约测试（规模跑命令看）
 ├── MarketView/
 │   ├── main.py                       # FastAPI entry（无 Bloomberg 依赖）
 │   ├── config.py
@@ -172,7 +172,7 @@ EMSXView/
 │   │   └── monitoring/               # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │   │                                 #   anomaly_query · tca_report_html · time_range
 │   ├── scripts/                      # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
-│   ├── tests/                        # 7 个测试文件，213 个测试函数（含 golden 基线回归）
+│   ├── tests/                        # 含 golden 基线回归（规模跑命令看）
 │   ├── module/                       # 前端模块（仓库根级；原 frontend/src/modules/costview/，018 平移）
 │   ├── standalone/                   # 独立构建入口（index.html + main.tsx）
 │   # 注：CostView/frontend/（legacy prototype UI）已于 2026-08-26 删除（ADR-0014，见 §6.1）
@@ -499,7 +499,7 @@ Cross-domain access should follow this order of preference:
 - **Technology:** React 19.2, TypeScript 5.9, Vite 7, Tailwind CSS 3.4, shadcn/ui, Recharts 2.15
 - **Architecture:** Module Registry 模式——各模块经 `moduleRegistry.register()` 自注册（id / label / order / lazy component），壳动态发现，不硬编码模块路径（`frontend/src/shared/lib/module-registry.ts`）。
 - **模块注册**：`execution`（order 0，默认，WS `/ws/orders`）、`marketview`（order 10）、`costview`（order 20）。
-- **验证**：`npm test`（25 个测试文件）；`npm run lint`（壳层/共享层）+ `npm run lint:modules`（三业务模块）—— 两者自 2026-09-16 起均为 CI 硬阻断。
+- **验证**：`npm test`（vitest）；`npm run lint`（壳层/共享层）+ `npm run lint:modules`（三业务模块）—— 两者自 2026-09-16 起均为 CI 硬阻断。
 
 ### 8.5 data_access/（只读数据访问层）— Beta
 

@@ -36,7 +36,7 @@ CostView/                          # CostView domain
 │   ├── __main__.py                # CLI 入口：python -m CostView.src（退出码 0/2/3，见 §4.2）
 │   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │                                  # anomaly_query · tca_report_html · time_range
-├── tests/                          # 7 个测试文件，213 个测试函数（pytest 收集 219 个用例：
+├── tests/                          # 规模跑命令看（python -m pytest CostView/tests/ -q）：
 │                                   #   test_report_metrics 105 / test_monitoring 57 /
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
 │                                   #   test_order_aggregation 9 /
@@ -72,7 +72,7 @@ python main.py
 
 ## Endpoints
 
-共 13 个端点（8 个 costview 路由 + 5 个 monitoring 路由），行号取自 `api/routers/` 源码（2026-09-15 复核）：
+共 14 个端点（9 个 costview 路由 + 5 个 monitoring 路由），行号取自 `api/routers/` 源码（2026-10-29 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
@@ -115,7 +115,7 @@ python -m CostView.src --query tickers    --ticker-type equ_ticker
 ## Verification
 
 ```bash
-# 运行单元测试（7 个测试文件，213 个测试函数，pytest 收集 219 个用例）
+# 运行单元测试（规模以实跑为准）
 python -m pytest CostView/tests/
 
 # 黄金样本回归（口径漂移硬阻断；缺 golden 基线/冻结快照时自动 skip）
