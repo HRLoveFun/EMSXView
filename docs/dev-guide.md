@@ -72,10 +72,12 @@ npm run dev
 
 文档改动：
 
-- 更新 `docs/index.md` 中的文档分层或入口说明
+- 先改 `AGENTS.md` 文档地图，再动文件，最后跑 `python scripts/doc_check.py`（退出码 0 才算完）
 - 如改变架构表述，同时检查 `docs/spec/project-structure.md`、`docs/spec/data-domain.md`、`docs/spec/memory.md`
 - 如改变数据/存储相关语义，同步检查 [`data_access/config.py`](../data_access/config.py) 的 `Config` 类（本仓库运行时参数唯一真相源；写入侧参数归独立仓库 EMSXDataPipeline）
 - 如改变跨域类型契约，同步检查 `docs/schema-contract.md`
+
+**本地 git 钩子状态**：仓库自带 `.githooks/`（提交锁校验 + 质量门禁增量快检），但需 `git config core.hooksPath .githooks` 才生效；**当前未启用**（2026-10-29 决定暂不启用）。在此之前，质量门禁与文档对账只在 CI 与手动执行中生效。
 
 ## 4. 常见任务入口
 
