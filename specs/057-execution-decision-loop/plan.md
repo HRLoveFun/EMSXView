@@ -115,11 +115,11 @@ flowchart TD
 | 维度 | 现状 | 证据 |
 |---|---|---|
 | 运行方式 | 三种形态：常驻 Runner（本机 :8100，单任务：`POST /run` 用子进程跑默认的 `--once`，即 S2→S3→S4→S6；`include_fetch=1` 改跑日更脚本；运行中再触发返回 409）；日更调度进程 `scripts/daily_update.py`（不经 Runner）；单次 CLI。启动统一由 `bootstrap.ps1` 拉起并做健康检查；EMSXView 经后端鉴权代理调 Runner | 指南 §2.3、§9.2–§9.4；`backend/api/routers/costview.py:54` |
-| 更新时点 | 日更每天 10:00（本机时间）触发：拉成交 → S2–S10 全链 → manifest → WAL checkpoint → 维护同步 → 新鲜度检查（落后超过 1 个交易日 WARN、超过 2 个 FAIL）→ 报告钩子。前一天的数据要等这次日更跑完才可用；漏跑的日期由下一次日更顺带补上（2026-09-23 一次处理了 0921、0922 两天） | 指南 §9.3、§6.4；`docs/open-todos.md` T18 |
+| 更新时点 | 日更每天 10:00（本机时间）触发：拉成交 → S2–S10 全链 → manifest → WAL checkpoint → 维护同步 → 新鲜度检查（落后超过 1 个交易日 WARN、超过 2 个 FAIL）→ 报告钩子。前一天的数据要等这次日更跑完才可用；漏跑的日期由下一次日更顺带补上（2026-09-23 一次处理了 0921、0922 两天） | 指南 §9.3、§6.4；`docs/archive/2026-10-29/open-todos.md` T18 |
 | 成交 | `//blp/emsx.history` 的 `GetFills`，按单日全窗口请求；拉取范围从最早已拉取日扫到上一工作日，不含当日；`fetch_log` 只认 `fetched` 状态判缺口；成交时间以纽约时间返回，S2 换算成交易所本地日期（拉取日 ≠ 交易日） | 指南 §4.1、§4.4、§5.1 |
-| 行情 | xbbg `bdib` 10 秒 bar；证券范围 = 历史上成交过的证券（`ticker_repository`）∩ 26 个交易所白名单，正常日约 2,160 个；按 (ticker, 日期) 拉取、每批 50 个，并发上限保守（`MAX_PARALLEL_*` = 1）；安全日期：不超过上一工作日，本机时间 08:00 前再退一天（视为前一天的 bar 尚未就绪）；节假日表为空，只靠周末过滤与 `permanent_gap_dates` | 指南 §3.2、§4.2、§5.4、§11.1；`docs/open-todos.md` T22 |
+| 行情 | xbbg `bdib` 10 秒 bar；证券范围 = 历史上成交过的证券（`ticker_repository`）∩ 26 个交易所白名单，正常日约 2,160 个；按 (ticker, 日期) 拉取、每批 50 个，并发上限保守（`MAX_PARALLEL_*` = 1）；安全日期：不超过上一工作日，本机时间 08:00 前再退一天（视为前一天的 bar 尚未就绪）；节假日表为空，只靠周末过滤与 `permanent_gap_dates` | 指南 §3.2、§4.2、§5.4、§11.1；`docs/archive/2026-10-29/open-todos.md` T22 |
 | 额度 | 命中额度类错误或「应有数据却为空」时置 `quota_pause.json`，成交、行情、汇率、日指标、维护各入口一律短路；下一轮开头真实探测成功才清除 | 指南 §4.4、§8；`data_access/config.py`（`QUOTA_PAUSE_FILE`） |
-| 增量起点 | S5 候选日期从 `raw_bdib` 最新日期 + 1 起，只向前看、不回看历史缺口 | 指南 §5.4；`docs/open-todos.md` T24 |
+| 增量起点 | S5 候选日期从 `raw_bdib` 最新日期 + 1 起，只向前看、不回看历史缺口 | 指南 §5.4；`docs/archive/2026-10-29/open-todos.md` T24 |
 | 守卫与护栏 | S5 前置 `EmptyBarGuard` 与 `BDIBCoverageGuard`（ticker 覆盖率低于 0.5，或 ≥20 个 ticker 的市场整体缺失占比高于 0.3，告警不阻断）；各阶段连续 3 次 ERROR 熔断；启动前 `SchemaDriftGuard` 扫描 DDL 与写入路径，未知漂移直接阻断 | 指南 §6 |
 | 存储 | 10 个库（活跃 9 个），合计约 128 GB，其中 `raw_bdib.db` 约 102 GB、3.7 亿行，查询必须带前导列；写连接 WAL + busy_timeout 30s，WRITE 层也拒绝 DELETE / DROP / ALTER；Parquet 双写默认关闭 | 指南 §2.2、§7；`AGENTS.md` §13.1 |
 | 交易前供给 | 管道自列短板：Parquet 批量通道默认关闭；没有全市场当日快照表，下游只能自己扫 `raw_bdib`；`fill_bdib` 的涨跌幅与价差两列未接线、恒为 NULL。已规划 P1-A（开 Parquet）、P1-B（接线两列）、P1-C（快照表） | 指南 §10–§11 |
@@ -181,7 +181,7 @@ flowchart TD
 
 **两仓契约**（DL-06 冻结）：盘中库按交易日分文件，表 `intraday_fills`、`blotter_snapshots`、`order_intent`、`route_params_snapshot`、`bars_10s_t0`、`snapshot_t0`；新库键在两仓 Config 登记，契约测试锁定；新鲜度清单 `intraday_manifest.json`（原子写；每个数据集的 as_of、水位、行数、状态、last_error，与管道 freshness SLA 同口径）；作业节奏、市场开关与互斥锁；运营库路径与只读口径；导出收件箱路径；provisional 语义与读侧按日期路由规则。两仓各立一篇 ADR；管道侧按指南 §13 的 T3、T4、T7 更新技术文档，并整体同步本仓库副本。
 
-**联合开发流程**：契约先行 → 管道实现（特性开关，默认关闭）→ 本侧独立复验（沿用 `docs/open-todos.md` 的 T 系列协作记录）→ 按市场逐个开启。管道仓库私有，本侧以 `docs/EMSXDataPipeline-TECHNICAL_GUIDE.md` 为接口说明（管道侧每周核对、触发式 1 个工作日内更新，副本整体覆盖同步），据文档、新鲜度清单与对账结果复验。
+**联合开发流程**：契约先行 → 管道实现（特性开关，默认关闭）→ 本侧独立复验（沿用 `docs/archive/2026-10-29/open-todos.md` 的 T 系列协作记录）→ 按市场逐个开启。管道仓库私有，本侧以 `docs/EMSXDataPipeline-TECHNICAL_GUIDE.md` 为接口说明（管道侧每周核对、触发式 1 个工作日内更新，副本整体覆盖同步），据文档、新鲜度清单与对账结果复验。
 
 **与管道既有优化路径对齐**（指南 §11）：P1-A（开启 Parquet 批量通道）与 P1-C（全市场日快照表）并入 DL-09，快照表再扩充日内量曲线与竞价占比，作为 DL-10 基线与 DL-13 拟合的数据源；P3（交易日历）与 DL-03 的假日、半日市合为一份数据；P1-B（`fill_bdib` 涨跌幅与价差两列接线）需额外 Bloomberg 字段，本计划不依赖。
 
