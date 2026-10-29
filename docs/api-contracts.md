@@ -38,7 +38,7 @@
 
 ### 开发环境
 
-> 占位符约定见 [index.md §7](index.md#7-占位符与可配置参数约定)：`<host>` 默认 `localhost`，`<API_PORT>` 默认 3000（`API_PORT`），`<FRONTEND_PORT>` 默认 5173。
+> 占位符约定见 [index.md §5](index.md#5-占位符与可配置参数约定)：`<host>` 默认 `localhost`，`<API_PORT>` 默认 3000（`API_PORT`），`<FRONTEND_PORT>` 默认 5173。
 
 | 配置项 | 前端口址 | 后端地址 |
 |--------|----------|----------|

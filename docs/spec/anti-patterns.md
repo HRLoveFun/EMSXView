@@ -235,7 +235,7 @@ rg "@router\.(get|post|put|delete|patch)" backend/api/routers/ -A 10 | rg -v "tr
 ## AP-14 硬编码端口/URL
 
 **严重度**: medium
-**描述**: 业务代码与文档中出现 `:3000` / `:8001` / `:8002` 等端口字面量（文档统一用占位符 `<API_PORT>` / `<MARKETVIEW_PORT>` / `<COSTVIEW_PORT>`，默认值见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）
+**描述**: 业务代码与文档中出现 `:3000` / `:8001` / `:8002` 等端口字面量（文档统一用占位符 `<API_PORT>` / `<MARKETVIEW_PORT>` / `<COSTVIEW_PORT>`，默认值见 [`docs/index.md` §5](../index.md#5-占位符与可配置参数约定)）
 **为什么坏**: 部署模式切换时需改多处
 **检测**:
 ```bash

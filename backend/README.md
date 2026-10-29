@@ -4,7 +4,7 @@
 
 开箱即用的彭博EMSX交易API后端服务，用于生产环境部署。
 
-> **占位符约定**：`<host>` 默认 `localhost`；`<API_PORT>` 默认 3000（环境变量 `API_HOST` / `API_PORT`，见 `backend/api/config.py`）。占位符完整清单见 [`docs/index.md` §7](../docs/index.md#7-占位符与可配置参数约定)。
+> **占位符约定**：`<host>` 默认 `localhost`；`<API_PORT>` 默认 3000（环境变量 `API_HOST` / `API_PORT`，见 `backend/api/config.py`）。占位符完整清单见 [`docs/index.md` §5](../docs/index.md#5-占位符与可配置参数约定)。
 
 ## 📋 系统要求
 

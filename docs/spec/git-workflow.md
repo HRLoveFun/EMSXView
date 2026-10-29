@@ -240,7 +240,7 @@ Worktree 的工作文件是独立的，但**数据不属于 git**：
 | MarketView | `<MARKETVIEW_PORT>` | 8001 | 8101 | 8201 |
 | CostView | `<COSTVIEW_PORT>` | 8002 | 8102 | 8202 |
 
-> 表中为主工作树默认值与推荐偏移，实际取值一律由环境变量 / `.env` 覆盖（见 [`docs/index.md` §7](../index.md#7-占位符与可配置参数约定)）。
+> 表中为主工作树默认值与推荐偏移，实际取值一律由环境变量 / `.env` 覆盖（见 [`docs/index.md` §5](../index.md#5-占位符与可配置参数约定)）。
 
 worktree 内示例（写入该 worktree 的 `.env` 或会话环境变量）：
 
