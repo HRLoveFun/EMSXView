@@ -72,7 +72,7 @@ python scripts/audit_doc_drift.py      # 契约级漂移（ADR 索引 / 模块�
 门禁位置（2026-10-29 定）：
 
 - `audit_doc_drift.py`：`boundary.yml` 硬阻断 + `doc-drift-report.yml` 周报。
-- `doc_check.py`：先接 `doc-drift-report.yml` 周报（非 strict、`continue-on-error`）；连续两周 0 FAIL 后再前移到 `boundary.yml`。
+- `doc_check.py`：先接 `doc-drift-report.yml` 周报（非 strict、`continue-on-error`）；连续两周 0 FAIL 后再前移到 `boundary.yml`。**首跑验证 2026-10-29**（run `40846474733`）：`audit_doc_drift` 与 `doc_check` 两段输出均进 Job Summary 与产物 `drift-report.txt`，结果 0 FAIL / 0 WARN。
 - 本地 git 钩子（`.githooks/`）**当前未启用**（`core.hooksPath` 仍指向 `.git/hooks`），本次决定暂不启用；因此质量门禁与文档对账目前只在 CI 与手动执行中生效。
 - 检查 6/7 的范围已收窄：死链只查被地图覆盖且不在 `docs/archive/` 的文档，失效术语只查活文档（ADR 正文与归档件除外）。当前基线为 **0 FAIL / 0 WARN**，新出现的红灯都是真回归。
 
