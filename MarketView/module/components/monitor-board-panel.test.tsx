@@ -90,6 +90,15 @@ const payload: MonitorBoardPayload = {
         severity: 'critical',
         note: '无日度基线；无当日行情',
       },
+      {
+        equ_ticker: 'SEC_A US Equity',
+        name: 'Alpha Corp',
+        metric: 'Risk notes',
+        value: null,
+        threshold: '',
+        severity: 'warning',
+        note: '基线滞后至 20261026；波动偏高（日 28.9% / 日内 0.23%）',
+      },
     ],
   },
   subscribe_tickers: ['SEC_A US Equity', 'SEC_B EU Equity'],
@@ -169,14 +178,70 @@ describe('MonitorBoardPanel', () => {
     expect(within(table).getByText('阿尔法股份有限公司')).toBeInTheDocument();
   });
 
+  it('aggregates signals at market level and reveals tickers per market', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const volatility = await screen.findByRole('group', { name: 'Volatility' });
+    // 市场层只显示数量，股票默认不展开
+    expect(within(volatility).getByText('US · 1')).toBeInTheDocument();
+    expect(within(volatility).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
+    expect(within(volatility).getByText('点击市场查看信号股票')).toBeInTheDocument();
+
+    // 点击市场才显示具体股票；再次点击反选取消
+    fireEvent.click(within(volatility).getByText('US · 1'));
+    expect(within(volatility).getByText('SEC_A US Equity')).toBeInTheDocument();
+    fireEvent.click(within(volatility).getByRole('button', { name: 'US · 1' }));
+    expect(within(volatility).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
+  });
+
+  it('supports multi-select across markets', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const notes = await screen.findByRole('group', { name: 'Risk notes' });
+    expect(within(notes).getByText('US · 1')).toBeInTheDocument();
+    expect(within(notes).getByText('EU · 1')).toBeInTheDocument();
+
+    fireEvent.click(within(notes).getByRole('button', { name: 'US · 1' }));
+    fireEvent.click(within(notes).getByRole('button', { name: 'EU · 1' }));
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
+
+    // 反选其中一个，只剩另一个市场的股票
+    fireEvent.click(within(notes).getByRole('button', { name: 'EU · 1' }));
+    expect(within(notes).queryByText('SEC_B EU Equity')).not.toBeInTheDocument();
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
+  });
+
   it('keeps highlight panel and table on the same severity', async () => {
     stubFetch({ success: true, data: payload });
     renderPanel();
 
     expect((await screen.findAllByText('1 alert(s)')).length).toBeGreaterThan(0);
-    // 面板里的 warning 徽标与表内 Volatility 列同值
-    expect(screen.getAllByText('Warning').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('日 28.9% / 日内 0.23%')).toBeInTheDocument();
+    // 面板里的 warning 徽标与表内 Volatility 列同值（先展开市场才可见股票）
+    const volatility = screen.getByRole('group', { name: 'Volatility' });
+    fireEvent.click(within(volatility).getByRole('button', { name: 'US · 1' }));
+    expect(within(volatility).getByText('Warning')).toBeInTheDocument();
+    expect(within(volatility).getByText('日 28.9% / 日内 0.23%')).toBeInTheDocument();
+  });
+
+  it('collapses and expands all three modules uniformly', async () => {
+    stubFetch({ success: true, data: payload });
+    renderPanel();
+
+    const notes = await screen.findByRole('group', { name: 'Risk notes' });
+    expect(within(notes).getByRole('button', { name: 'US · 1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '折叠模块' }));
+    for (const title of ['Liquidity', 'Volatility', 'Risk notes']) {
+      const module = screen.getByRole('group', { name: title });
+      expect(within(module).queryByRole('button', { name: /·/ })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: '展开模块' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开模块' }));
+    expect(within(notes).getByRole('button', { name: 'US · 1' })).toBeInTheDocument();
   });
 
   it('shows missing data as dashes and lists risk notes', async () => {
