@@ -61,6 +61,7 @@ EMPTY_EVIDENCE = {"", "-", "—", "待补", "见上文", "已测", "N/A", "n/a"}
 
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
 CELL_SPLIT_RE = re.compile(r"\|")
+_SLUG_CACHE: dict[Path, set[str]] = {}
 
 # 检查 7：已失效术语 → 期望说法。新增条目时同步 docs/archive/<日期>/agents-invalidated-claims.md
 FORBIDDEN_TERMS: dict[str, str] = {
@@ -75,6 +76,8 @@ FORBIDDEN_SKIP_TOKENS = ("已失效", "已废弃", "勿再引用", "已删除", 
 FORBIDDEN_SKIP_PREFIXES = ("docs/archive/", "docs/spec/adr/")
 # 检查 6 不查归档目录：历史文档的图片/子文档链接按归档原则保留原样
 LINK_SKIP_PREFIXES = ("docs/archive/",)
+# 锚点校验跳过第三方导入文档（目录锚点按原样保留，不属本仓库维护范围）
+ANCHOR_SKIP_PREFIXES = ("docs/api/",)
 
 
 class Report:
@@ -305,31 +308,75 @@ def check_status(report: Report, root: Path, paths: list[str]) -> None:
 
 
 def check_links(report: Report, root: Path, files: list[str]) -> None:
-    """只查被地图覆盖的文档——豁免区（skills / .specify / archive）不参与路由。"""
+    """只查被地图覆盖的文档——豁免区（skills / .specify / archive）不参与路由。
+
+    文件目标存在之外还校验 `#锚点`：章节重编号是最高频的静默失效（改了小节号，
+    正文里的 `file.md#7-xxx` 仍指向旧锚点，肉眼与旧版脚本都发现不了）。
+    """
     dead: list[str] = []
     for rel in files:
         if rel.startswith(LINK_SKIP_PREFIXES):
             continue
-        file_path = root / rel
-        try:
-            text = file_path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        for target in LINK_RE.findall(text):
-            if target.startswith(("http://", "https://", "mailto:", "#", "/")) or "%" in target:
-                continue
-            target = target.split("#", 1)[0].strip()
-            if not target:
-                continue
-            if not (file_path.parent / target).exists() and not (root / target).exists():
-                dead.append(f"{rel} → {target}")
+        dead.extend(_dead_links(root, rel))
     if not dead:
-        report.ok("检查 6：文档内相对链接均可解析")
+        report.ok("检查 6：文档内相对链接与锚点均可解析")
         return
     for item in dead[:5]:
         report.warnf(f"检查 6：死链 {item}")
     if len(dead) > 5:
         report.warnf(f"检查 6：另有 {len(dead) - 5} 处死链（只列前 5 处）")
+
+
+def _slugs(path: Path) -> set[str]:
+    """标题 → GitHub 风格锚点集合（小写、去标点、空格转 -，保留中英文与数字）。"""
+    cached = _SLUG_CACHE.get(path)
+    if cached is not None:
+        return cached
+    slugs: set[str] = set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        _SLUG_CACHE[path] = slugs
+        return slugs
+    for line in text.splitlines():
+        if not line.startswith("#"):
+            continue
+        heading = line.lstrip("#").strip().lower()
+        if not heading:
+            continue
+        cleaned = re.sub(r"[^\w\u4e00-\u9fff\- ]", "", heading)
+        slugs.add(cleaned.replace(" ", "-"))
+    _SLUG_CACHE[path] = slugs
+    return slugs
+
+
+def _dead_links(root: Path, rel: str) -> list[str]:
+    """单个文档里的死链与失效锚点。"""
+    file_path = root / rel
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    dead: list[str] = []
+    for target in LINK_RE.findall(text):
+        if target.startswith(("http://", "https://", "mailto:", "/")) or "%" in target:
+            continue
+        path_part, _, anchor = target.partition("#")
+        path_part, anchor = path_part.strip(), anchor.strip()
+        target_path = file_path
+        if path_part:
+            candidate = file_path.parent / path_part
+            if not candidate.exists():
+                candidate = root / path_part
+            if not candidate.exists():
+                dead.append(f"{rel} → {path_part}")
+                continue
+            target_path = candidate
+        if rel.startswith(ANCHOR_SKIP_PREFIXES) or not anchor:
+            continue
+        if target_path.suffix == ".md" and anchor not in _slugs(target_path):
+            dead.append(f"{rel} → {path_part or rel}#{anchor}（锚点不存在）")
+    return dead
 
 
 def check_forbidden_terms(report: Report, root: Path, files: list[str]) -> None:

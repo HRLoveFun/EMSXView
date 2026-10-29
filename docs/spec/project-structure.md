@@ -191,7 +191,6 @@ EMSXView/
 │   ├── dev-guide.md
 │   ├── handoff-costview-html-report.md
 │   ├── report-tca-known-limitations.md
-│   ├── open-todos.md
 │   ├── spec/
 │   │   ├── project-structure.md
 │   │   ├── data-domain.md
