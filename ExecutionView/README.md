@@ -1,5 +1,7 @@
 # ExecutionView Module
 
+> L2 | 权威：执行视图模块的结构、入口与职责 | 不权威：模块使命与边界（见 `docs/spec/project-structure.md`）、成熟度（见 `README.md` §0）
+
 > **Post-Trade Order & Route Execution Workspace** · 🟢 **GA** · 仓库根级独立前端模块
 
 > 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。本目录与 `frontend/`、`backend/`、`CostView/`、`MarketView/` 平级，不再嵌套在 `frontend/src/modules/` 之内。

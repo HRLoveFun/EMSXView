@@ -1,5 +1,7 @@
 # Git 多任务并行工作流（Git Worktree SOP）
 
+> L2 | 权威：worktree/分支/PR/收尾 SOP 与并行隔离规则 | 不权威：具体任务的派工顺序（见 `specs/057-execution-decision-loop/tasks.md`）
+
 > 定位：个人多任务并行开发的标准作业流程，针对 AI Agent（CodeBuddy / Claude Code / Cursor 等）协作场景优化。
 > 决策记录：[ADR-0700](adr/0700-git-worktree-parallel-workflow.md)
 > 生效范围：本仓库所有分支操作、并行任务管理与 AI Agent 工作区隔离。

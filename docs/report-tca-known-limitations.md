@@ -1,5 +1,7 @@
 # TCA 报告口径缺陷清单（Known Limitations）
 
+> L2 | 权威：TCA 报告口径硬缺口（K1–K9）与逐轮诊断留痕 | 不权威：指标定义（见 `docs/spec/adr/0018-tca-report-metrics-conventions.md`）、当前覆盖率（跑诊断命令）
+
 > 记录 CostView 导出的 TCA 可视化 HTML 报告（`/api/tca/monitoring/export-html` 与
 > `scripts/reports/generate_tca_report.py` 共用渲染器）当前已知的**口径缺陷**。
 > 供审计留痕；有数据/算力条件后逐项补齐。
@@ -888,7 +890,7 @@ C3 不推翻结论（「分母跨 ticker」仍由多条证据支持，且上游�
 | M2 | 「首 bar 应为 0」判据未考虑 `fill_bdib` 是**成交采样表** | 抽到 3 个非 0 值，一度疑为契约违反 | 表内首条 ≠ `raw_bdib` 完整序列首根；须对照 `raw_bdib` 判定 → 0 违反 ✅ |
 | M3 | 拿**备份 CSV 行数**当 BEFORE 非空数 | 得出「逐日普遍下降」的假象 | 备份是「三列中任一非空」的行；须逐列 `notna().sum()` 计数 |
 
-三处都是**测量侧**问题，非上游数据问题。这与 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)
+三处都是**测量侧**问题，非上游数据问题。这与 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)
 AT-03 同源：**反常信号先假设自己的假设错了**（M1/M3 的"不符"实际是我算错）。
 
 **三、`journal_mode` 实为 `wal`（实测：当前无影响，不断言变更时点）**
@@ -928,7 +930,7 @@ AT-03 同源：**反常信号先假设自己的假设错了**（M1/M3 的"不符
 `20260420` / `20260421` 的 `raw_bdib` 只有 **431 / 371** 个 ticker，而相邻正常日为
 **2,157~2,172** 个 —— 约 1/5。这不是「整天缺失」（那样重算会全部为 NULL），
 而是**部分 ticker 缺失**，因此**无法从 `fill_bdib` 侧察觉**（只能看到结果 NULL）。
-本侧已登记为新待办（见 `docs/open-todos.md` **T22**）。
+本侧已登记为新待办（见归档件 `docs/archive/2026-10-29/open-todos.md` **T22**）。
 
 **六、2025 年段的精确范围（修正上游「5 天」的表述）**
 
@@ -1223,7 +1225,7 @@ T22 的**技术部分已完整闭环**：「归因已实锤（`fetched_at`）+ �
 ### 2026-09-23 — 第三十轮（T23 执行安全：`--force` 必需 + 静默失效机制）
 
 上游在执行前发现一个**会让补拉静默失效**的坑（提交 `ed70186`）。本轮为**本侧独立读代码复验**，
-并据此新增 `AT-04`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）。
+并据此新增 `AT-04`（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）。
 
 **一、`--force` 是必需项：本侧读代码后的机制比 docstring 更严**
 
@@ -1289,7 +1291,7 @@ ConnectionError: Cannot connect to Bloomberg
 ### 2026-09-23 — 第三十一轮（`--force` 静默失效已修：本侧实证复验 + 新增 AT-05）
 
 上游修正了 `--force` 的静默失败形态（提交 `0df3e67`）。本轮为**本侧实证复验**，并据此新增
-`AT-05`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）。
+`AT-05`（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）。
 
 **一、上游的根因自述（重要）：误导源自文案本身，而非转述**
 
@@ -1355,7 +1357,7 @@ Incremental mode: raw_bdib has data through 20260918
 | `backfill_bdib_history.py` | ❌ 不受影响 —— 自算 `missing_dates` **差集** | 默认即可 |
 
 **T23 之所以必须带 `--force`**，正是因为走的是 `backfill_bdib_by_market.py → run_backfill`
-这条受影响路径。本侧已将该表记入 `open-todos.md` 的 T23，避免将来误用。
+这条受影响路径。本侧已将该表记入归档件 `docs/archive/2026-10-29/open-todos.md` 的 T23，避免将来误用。
 
 ### 2026-09-23 — 第三十二轮（本侧「误报」命中上游真实缺陷；新增 AT-06）
 
@@ -1428,7 +1430,7 @@ Incremental mode: raw_bdib has data through 20260918
 上游的概括准确：**两种偏差形状不同但同源 —— 都是在没回到原始事实（代码 / `fetched_at` /
 实测输出）之前就给出了结论。** 本侧的纠偏动作是「回代码看判据」，上游的是「回数据看实锤」。
 
-**六、新增 `AT-06`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）**
+**六、新增 `AT-06`（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）**
 
 > 排查过程（含误报与自纠）也要上报 —— 它可能命中对方的真实缺陷。
 
@@ -1491,7 +1493,7 @@ print('中文')  →  UnicodeEncodeError (cp1252.py:19)
 或抽一个共用 `ensure_utf8_stdio()` 供各入口调用，而非复制 `reconfigure` 代码块。
 本侧认同该方向：**逐点补丁会随脚本增长而失效，启动层/共用函数才能覆盖新入口。**
 
-**五、新增 `AT-07`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）**
+**五、新增 `AT-07`（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）**
 
 > 自纠必须基于**真实运行条件** —— 否则是另一种失实。
 
@@ -1868,7 +1870,7 @@ xbbg 1.4.12 → blp.bdp(['AAPL US Equity','MSFT US Equity'], ['PX_LAST'])
 → 说明上游新增的**日期级市场完整性守卫在 `20260921` / `20260922` 两次写入中未触发**，
 即这两天市场覆盖完整。**T18 可闭环。**
 
-**七、新增 `AT-08`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）**
+**七、新增 `AT-08`（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）**
 
 > **修复有效 ≠ 根因正确 —— 别让 workaround 终止追问。**
 
@@ -1950,7 +1952,7 @@ T23 只能在残存范围内捞回部分。
 （在拉取前就 `return`，**同样不触达**那个延迟导入）→ **两次都是 AT-04 的「输入没触达路径」**，
 真正触达的只有**真实执行**。
 
-**五、新增 `AT-09`（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）**
+**五、新增 `AT-09`（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）**
 
 > **不可逆约束的边界必须实测，不能只取配置值 —— 且假设要系统性偏保守。**
 
@@ -2200,7 +2202,7 @@ T23 只能在残存范围内捞回部分。
 > log/cum 不可比，主动选择不跑）；**T24 这 10 天没有人决定过**。
 > **同一个结构，一次有决定、十次没有。**
 
-本侧认同，并已沉淀为 **`AT-13`**（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）。
+本侧认同，并已沉淀为 **`AT-13`**（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）。
 
 **三、⭐ 本侧的分档验证（按「贴得出聚合数据」的判据执行）**
 
@@ -2304,7 +2306,7 @@ T23 只能在残存范围内捞回部分。
 **却没查** —— 而本侧**在上一轮刚把 AT-11 写进清单**，条款里那句「边界类结论必须用总体的
 聚合数据得出」**正是为这种情况写的**。
 
-**本侧已强化 `AT-11`**（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)），
+**本侧已强化 `AT-11`**（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)），
 追加一节「**结构性正确的推理，同样需要「对总体核实」才能推广**」，含：
 
 - 本案例的完整推理链与实测对照；
@@ -2380,7 +2382,7 @@ T23 只能在残存范围内捞回部分。
 | `20260414` | 19.7% | 14.6% ← 略低 |
 
 **本案例的代价较小**（本侧只是把它当分档依据，且方向恰好一致），但**方法错了**。
-已沉淀为 **`AT-14`**（见 [`attribution-pitfalls.md`](../spec/attribution-pitfalls.md)）：
+已沉淀为 **`AT-14`**（见 [`attribution-pitfalls.md`](spec/attribution-pitfalls.md)）：
 **不要用指标 A 推断指标 B —— 语义不同的量之间不可外推**；
 判据是 **「推断前先问：两个指标的『计算依赖』是否相同？（逐行 / 逐组 / 全局）」**。
 

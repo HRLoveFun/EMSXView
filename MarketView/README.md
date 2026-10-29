@@ -1,8 +1,10 @@
 # MarketView Module
 
+> L2 | 权威：市场走势模块结构、端点与数据来源 | 不权威：节点交付范围与限制（见 `docs/milestone-1-pretrade-board.md`）
+
 > **Market Trend View** · 🟢 **Beta** · Independent Microservice (port 8001)
 
-> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 Beta 的证据：8 个端点、8 个测试文件 / 74 例、已知限制清单（[docs/milestone-1-pretrade-board.md](../docs/milestone-1-pretrade-board.md) §5）。
+> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 Beta 的证据：8 个端点、`python -m pytest MarketView/tests/ -q` 全绿、已知限制清单（[docs/milestone-1-pretrade-board.md](../docs/milestone-1-pretrade-board.md) §5）。
 
 ---
 
@@ -40,7 +42,7 @@ MarketView/                      # Independent microservice
 │   ├── regime.py                # market-regime（事件与市场状态）
 │   └── pool_board.py            # pool-board（固定池量价/难度/成本同屏，DL-29）
 ├── module/                      # 前端模块（仓库根级，与 frontend/ 平级）
-└── tests/                       # 8 个测试文件 / 74 例
+└── tests/                       # 测试规模跑命令看，不写死数字
 ```
 
 ## Deployment

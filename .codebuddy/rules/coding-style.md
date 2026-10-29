@@ -239,6 +239,13 @@ async def get_order(order_id: str):
 - **模块内部状态**：优先使用 `useState` / `useReducer`，跨组件共享提取为自定义 Hook
 - **服务端状态**：模块内 `services/` 目录封装 API 调用，组件不直接使用 fetch/axios
 
+### Broker ↔ Exchange 映射（★ 维护点）
+
+- **唯一数据源**：`frontend/src/shared/lib/broker-exchange-mapping.ts`（导出 `EXCHANGE_FOR_BROKER` / `getBrokerExchangeMapping()` / `EXCHANGE_LIST`）
+- **维护方式**：增删交易所或 broker 时**只改 shared 文件**；`ExecutionView/module/data/broker-exchange-mapping.ts` 仅为 re-export 兼容层
+- **Report 专有市场**：仅需出现在 Report Exchanges、但不进入授权表的交易所（如 `C1` 沪港通、`HK` 香港），加入 `REPORT_ONLY_EXCHANGES` 常量（挂 `EXCHANGE_LIST`，不挂 `EXCHANGE_FOR_BROKER`）
+- **禁止**：在 `ExecutionView/module/data/broker-exchange-mapping.ts` 内直接编辑映射（改此处不生效且会造成漂移）
+
 ### 后端
 
 - **依赖注入**：通过 FastAPI `Depends()` 链式注入服务实例
@@ -271,4 +278,4 @@ async def get_order(order_id: str):
   - 422：验证失败（Pydantic 校验）
   - 500：服务器内部错误
 - WebSocket 端点：`/ws/*` 用于实时数据推送（Bloomberg 订单/路由更新）
-- 部署模式隔离：通过 `EMSXVIEW_MERGE_MODULES` 环境变量控制路由加载范围
+- 部署模式隔离：通过 `EMSXVIEW_OPTIONAL_MODULES` 控制可选路由的桥接加载（默认 `costview:CostView`；原 `EMSXVIEW_MERGE_MODULES` 已失效、backend 无消费点）

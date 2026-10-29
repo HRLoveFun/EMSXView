@@ -1,5 +1,7 @@
 # 归因陷阱清单（Attribution Pitfalls）
 
+> L2 | 权威：归因推理红线（AT-01~）与自检清单 | 不权威：具体归因结论（见 `docs/report-*`）
+
 > 分析结论的**推理层**红线 —— 做数据归因、故障定位、跨层对照、异常排查时必查
 > 编号：`AT-xx`（Attribution Trap）
 > Last updated: 2026-09-22

@@ -1,5 +1,7 @@
 # blpapi 功能模块全景（基于源码分析）
 
+> L2 | 权威：blpapi 模块用法与实时字段消费方式 | 不权威：EMSX 接口字段定义（见 `docs/api/`）、字段可用性实测（见 `docs/report-marketview-live-fields.md`）
+
 > 本文档基于对安装在环境中的 `blpapi` 源码（`D:\anaconda3\Lib\site-packages\blpapi`，版本 **3.25.11.1**）逐文件阅读整理，覆盖全部公开功能模块、同步/异步接口、事件处理机制、错误处理方式与支持的数据类型，并归纳官方示例与项目内使用场景。
 >
 > 包结构：底层为 C 扩展 `internals`（`_blpapi` 的 ctypes FFI），上层为纯 Python 包装层（`Session`/`Message`/`Element` 等），所有 Python 对象均持有 C 端 `handle` 并以 `CHandle` 管理生命周期。

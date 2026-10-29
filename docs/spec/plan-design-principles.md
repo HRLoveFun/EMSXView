@@ -1,5 +1,7 @@
 # 计划设计原则（Plan Design Principles）
 
+> L2 | 权威：计划文档的设计原则与验收要素 | 不权威：当前计划内容（见 `specs/`）
+
 > 跨特性可复用规范 —— 任何计划（数据改造 / 优化 / 重构）执行前必读
 > 关联：`docs/archive/2026-08-26/002-pipeline-guardrail/`（管道护栏，已完成 2026-06-25，已归档；本文件管计划流）
 > 配套阅读：`docs/spec/anti-patterns.md`（★ 禁止模式）、`docs/spec/boundary-protection.md`（运行时防护）

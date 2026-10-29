@@ -1,5 +1,7 @@
 # 模块边界防护机制设计（Boundary Protection）
 
+> L2 | 权威：边界审计的实现、豁免与修复路径 | 不权威：模块职责定义（见 `project-structure.md`）、门禁规则全集（见 `quality-gate.md`）
+
 > 状态：**P0/P1/P2 已全部实施**（2026-08-14）
 > 关联规范：`.codebuddy/rules/module-boundary.md`、`docs/spec/anti-patterns.md`
 > 来源：2026-08-14 全仓库边界风险分析（前端 4 模块 / 后端 3 服务 / 数据管道 5 阶段）
