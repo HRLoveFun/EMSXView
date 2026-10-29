@@ -82,7 +82,7 @@ flowchart TD
 | 盘中监控（在 ExecutionView） | 行情订阅只有 `CHG_PCT_1D` `VOLUME_AVG_5D` `VWAP` `PX_ROUND_LOT_SIZE` 四个字段；MonitorBoard 条件是全局阈值（Qty/ADV 超 5%、涨跌超 4.5% 等），存在浏览器 localStorage | `backend/api/services/bloomberg/enrichment.py:395`；`ExecutionView/module/lib/monitor-conditions.ts:39-51` |
 | 交接 | MV→EV 单槽 handoff，前端只显示候选数徽标，不进入路由决策 | `frontend/src/app/WorkspaceModuleTabs.tsx:61` |
 | PM 指令（意图） | API 的 PM Note 即订单级字段 `notes`（Bloomberg `EMSX_NOTES`），只带 `^` 段（如 `^1234567^0`）；指令前缀（如 `80 % @Close`）只在 EMSX 手工导出的 PM Note 13 里，交易员盘中多次导出。路由上的同名字段是交易员给券商的指令，与此无关 | D-1；`backend/api/services/bloomberg/subscriptions.py:574`（订单 `notes`）、`:709`（路由 `notes`）；前端 PM Note 列 `ExecutionView/module/views/OrderTable.tsx:555`；持久化开启后随 `orders_projection` 的 payload 落盘（`subscriptions.py:877`） |
-| 成熟度 | Beta（2026-10-27 复核）：8 个端点、8 个测试文件 / 74 例；池内量价/难度/成本同屏已实现（DL-29），SLA 与运维文档未实现 | `AGENTS.md` §4.2；`MarketView/tests/` |
+| 成熟度 | Beta（定义与判定证据见主 `README.md` §0；本行不复写计数）。池内量价/难度/成本同屏已实现（DL-29），SLA 与运维文档未实现 | `README.md` §0；`MarketView/tests/` |
 
 ### 2.2 分配与参数（ExecutionView）
 
