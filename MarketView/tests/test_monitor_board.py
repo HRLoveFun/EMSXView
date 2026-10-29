@@ -195,7 +195,7 @@ def test_board_has_14_columns_and_same_source_highlights(monkeypatch):
         item for item in payload["highlights"]["volatility"] if item["equ_ticker"] == "AAPL US Equity"
     )
     assert vol_alert["severity"] == row["volatility"] == "warning"
-    assert "波动偏高" in "；".join(row["risk_notes"])
+    assert "Volatility elevated" in "; ".join(row["risk_notes"])
 
 
 def test_missing_data_is_explicit_not_zero(monkeypatch):
@@ -205,7 +205,7 @@ def test_missing_data_is_explicit_not_zero(monkeypatch):
     assert row["last"] is None and row["total_volume"] is None and row["adv_20d"] is None
     assert row["source"] == "none"
     assert set(row["data_gaps"]) == {"baseline", "bars", "adv20", "prev_close"}
-    assert "无当日行情" in row["risk_notes"]
+    assert "No intraday bars" in row["risk_notes"]
     assert any(item["equ_ticker"] == "MC EU Equity" for item in payload["highlights"]["risk_notes"])
 
 
