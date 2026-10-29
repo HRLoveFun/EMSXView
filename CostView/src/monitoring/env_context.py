@@ -10,7 +10,7 @@
   （已内置，**无需计算**）。
 
 本模块收敛这两类派生的**取数与应用层 join**；分桶职责仍归 ``tca_utils.bucket_*``，
-不在本模块重复（口径单点约定见 ``docs/report-tca-known-limitations.md:68-69``）。
+不在本模块重复（口径单点约定见 ``docs/report-tca-known-limitations.md`` §四 维护约定）。
 
 ## 三级降级链（plan §4.3）
 

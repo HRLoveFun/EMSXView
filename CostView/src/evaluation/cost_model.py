@@ -16,7 +16,7 @@ ln(impact) = ln(a) + b·ln(participation) + c·ln(volatility)
 **冲击函数**（成本对规模与波动的响应曲面），两者不可互相替代。
 
 **禁项**：拟合值**不得**作为「事前成本预测」对外输出 —— K3（事前预测）明确不在
-本计划范围（`docs/report-tca-known-limitations.md:16`）；`predict_bps` 仅用于诊断，
+本计划范围（`docs/report-tca-known-limitations.md` §一 K3 硬缺口）；`predict_bps` 仅用于诊断，
 且**超出估计域一律返回 None**，不做外推。
 """
 

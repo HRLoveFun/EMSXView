@@ -599,7 +599,7 @@ cleanup 复扫清理项 0。**
 - `scripts/reports/quality_gate/report-20260915.md` 已 `git rm` 出库。
   依据 `.gitignore` 第 81-84 行的明确策略：`report-*.md` 忽略 + 注释写明
   「20260821/20260825 为历史快照，保留在版本库内**不再新增**」+「逐轮修复账本以
-  `docs/report-tca-known-limitations.md` §五 为准，**避免双账本**产生『哪份是真相』分叉」。
+  `docs/archive/2026-10-29/tca-known-limitations-rounds.md`（原 `docs/report-tca-known-limitations.md` §五，2026-10-29 拆分归档）为准，**避免双账本**产生『哪份是真相』分叉」。
   出库后该路径由忽略规则接管（`git check-ignore` 对新文件已生效，历史两份快照保留）。
 
 **4. 文档同批修订**
