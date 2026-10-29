@@ -46,7 +46,7 @@
 ### 数据获取
 - 前端通过 Vite 代理 `/api/*` 和 `/ws/*` 到后端 `http://localhost:3000`
 - 各模块 API 客户端服务位于模块 `services/` 目录（如 `ExecutionView/module/services/execution-api.ts`、`CostView/module/services/*`）
-- 开发模式支持 Mock 模式（`VITE_USE_MOCK=true`），不依赖后端运行
+- 开发模式支持 Mock 模式：`VITE_API_URL` 留空即为 mock / 无后端模式（旧开关已下线，见归档的失效声明）
 
 ### 表单处理
 - 使用 **React Hook Form** 管理表单状态

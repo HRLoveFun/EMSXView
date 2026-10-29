@@ -51,21 +51,28 @@ L0 超预算就下沉到 L1/L2，**不许缩句糊过去**——缩句只是把�
 - `specs/` 只承载在途计划；已完成计划归档后目录消失，新建计划时再建。
 - 归档件首部必须留一行「归档于 YYYY-MM-DD；已被 <新文档> 取代」，禁止静默移动或删除。
 
+### 例行体检（每 20 次提交或每月一次）
+
+1. 对地图里每份文档跑 `git log -1 --format=%cs -- <路径>`：超过 180 天未改、且 `grep -rl <文件名>` 无引用 → 列候选归档，交用户确认后移入 `docs/archive/`。
+2. `docs/report-*.md` 为一次性报告，**发布满 90 天**移入 `docs/archive/YYYY-MM-DD/`（截至 2026-10-29 尚未执行，为下一轮内容工作）。
+3. 跑一次 `python scripts/doc_check.py --strict`，WARN 逐条判断是修还是记理由。
+
 ## 4. 文档校验
 
 ```bash
-python scripts/doc_check.py            # 六项对账，退出码 0 = 通过（WARN 不计失败）
+python scripts/doc_check.py            # 七项对账，退出码 0 = 通过（WARN 不计失败）
 python scripts/doc_check.py --strict   # WARN 也算失败
 python scripts/audit_doc_drift.py      # 契约级漂移（ADR 索引 / 模块边界 / 适配器表）
 ```
 
-`doc_check.py` 只查能对账的部分：地图路径存在、`.md` 全量覆盖、被索引文档有元信息头、状态枚举与证据列、相对链接可解析。它**不评价**「写得好不好」。
+`doc_check.py` 只查能对账的部分：地图路径存在、`.md` 全量覆盖、被索引文档有元信息头、状态枚举与证据列、相对链接可解析、已失效术语未回流。它**不评价**「写得好不好」。
 
-现状与已知 WARN：
+门禁位置（2026-10-29 定）：
 
-- 当前**未接 CI**（`doc_check.py` 为按需脚本）；`audit_doc_drift.py` 走 `boundary.yml` 硬阻断 + `doc-drift-report.yml` 周报。
-- 检查 6 会把豁免区（`.codebuddy/skills/**`、`.specify/**`、`docs/archive/**`）的历史死链一并报出，约 24 处，**按归档原则不修**——这些目录不参与文档路由，链接保留原样作为历史记录。
-- `--strict` 用于本地强校验；CI 若要接入，建议先用非 strict 模式观察一周。
+- `audit_doc_drift.py`：`boundary.yml` 硬阻断 + `doc-drift-report.yml` 周报。
+- `doc_check.py`：先接 `doc-drift-report.yml` 周报（非 strict、`continue-on-error`）；连续两周 0 FAIL 后再前移到 `boundary.yml`。
+- 本地 git 钩子（`.githooks/`）**当前未启用**（`core.hooksPath` 仍指向 `.git/hooks`），本次决定暂不启用；因此质量门禁与文档对账目前只在 CI 与手动执行中生效。
+- 检查 6/7 的范围已收窄：死链只查被地图覆盖且不在 `docs/archive/` 的文档，失效术语只查活文档（ADR 正文与归档件除外）。当前基线为 **0 FAIL / 0 WARN**，新出现的红灯都是真回归。
 
 ## 5. 占位符与可配置参数约定
 
