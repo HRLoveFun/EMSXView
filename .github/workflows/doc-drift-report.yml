@@ -1,8 +1,9 @@
-# 文档漂移周报 (2026-08-26)
+# 文档漂移周报 (2026-08-26，2026-10-29 增补 doc_check)
 #
-# 每周一自动运行 scripts/audit_doc_drift.py 生成漂移报告:
-#   - CORE 漂移（契约类）已在 boundary.yml CI 中硬阻断，此处仅汇总呈现
-#   - WARN 漂移（非阻断类，如待实现适配器）依赖本报告暴露，避免无人跟踪
+# 每周一自动运行两个审计并汇总成一份报告:
+#   - scripts/audit_doc_drift.py：契约级漂移（CORE 在 boundary.yml 硬阻断，此处仅呈现）
+#   - scripts/doc_check.py：结构级对账（地图覆盖 / 元信息头 / 状态枚举 / 死链 / 失效词表）
+#     非 strict 模式，WARN 不阻断；观察一段时间后再决定是否前移到 boundary.yml
 #
 # 手动触发: Actions → doc-drift-report → Run workflow
 
@@ -29,6 +30,15 @@ jobs:
         continue-on-error: true # 报告任务不因退出码失败；结果进 Summary 与产物
         run: |
           python scripts/audit_doc_drift.py | tee drift-report.txt || true
+      - name: 文档结构对账（doc_check）
+        continue-on-error: true # 同上；非 strict，WARN 不算失败
+        run: |
+          {
+            echo ""
+            echo "===== doc_check.py（地图 / 元信息头 / 状态枚举 / 死链 / 失效词表）====="
+            echo ""
+            python scripts/doc_check.py || true
+          } | tee -a drift-report.txt
       - name: 写入 Job Summary
         if: always()
         run: |

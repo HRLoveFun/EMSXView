@@ -112,7 +112,7 @@ python scripts/quality_gate.py --suppress <fingerprint> --note "理由"
 | 全仓（单命令） | 仓库根 `python -m pytest -q` | 由根 `conftest.py` 分套件子进程执行（backend / CostView / MarketView / scripts）并汇总退出码——`backend/api` 与 `MarketView` 存在同名顶层模块（`config` / `auth` / `routers`），不能共享同一解释器 |
 | 前端 | `npm run typecheck && npm run lint && npm run lint:modules && npm test` | vitest |
 | 边界审计 | `python scripts/audit_cross_imports.py`、`audit_underscore_access.py`、`audit_db_paths.py`、`audit_doc_drift.py` | CI `boundary-protection` 硬阻断 |
-| 文档对账 | `python scripts/doc_check.py` | 地图覆盖 / 元信息头 / 状态枚举 / 死链；规则见 `docs/index.md` §4 |
+| 文档对账 | `python scripts/doc_check.py` | 七项：地图覆盖 / 元信息头 / 状态枚举 / 死链 / 失效词表；周报执行（非阻断），规则见 `docs/index.md` §4 |
 | 质量门禁 | `python scripts/quality_gate.py [--report\|--staged]` | 本文档 AP + OE 规则 |
 
 CI（`.github/workflows/boundary.yml`，job `boundary-protection`）三组：**audit**（四个审计脚本）、**backend-tests**（boundaries + 后端全量 + CostView 全量）、**frontend-tests**（typecheck + lint + lint:modules + vitest），全部硬阻断。另有 `doc-drift-report.yml`（周报）与 `cleanup-report.yml`。

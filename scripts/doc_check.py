@@ -1,7 +1,8 @@
-"""文档结构与地图对账（六项）。
+"""文档结构与地图对账（七项）。
 
 只查能机械对账的部分：地图路径是否存在、`.md` 是否被地图覆盖、被索引文档有无
-元信息头、状态枚举与证据列、相对链接是否可解析。**不评价**「写得好不好」。
+元信息头、状态枚举与证据列、相对链接是否可解析、已失效说法是否回流。
+**不评价**「写得好不好」。
 
 检测项与失败级别:
 1. AGENTS.md 存在且 docmap 块有数据行                                   [FAIL]
@@ -9,7 +10,8 @@
 3. 仓库内 `.md` 都被地图覆盖，或被 docmap:exclude 块的 glob 豁免         [FAIL]
 4. 被索引的 `.md` 首部有 `> Lx | 权威：… | 不权威：…`                    [WARN]
 5. 状态源表格的状态值合法，`已完成` 行证据列非空                         [FAIL]
-6. 文档内相对链接目标存在                                               [WARN]
+6. 被地图覆盖的文档内，相对链接目标存在（豁免区不查）                    [WARN]
+7. 被地图覆盖的文档不再出现已失效术语（ADR 正文与归档件除外）             [WARN]
 
 执行:
   python scripts/doc_check.py            # 审计；退出码 0 通过（WARN 不计失败）
@@ -59,6 +61,20 @@ EMPTY_EVIDENCE = {"", "-", "—", "待补", "见上文", "已测", "N/A", "n/a"}
 
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
 CELL_SPLIT_RE = re.compile(r"\|")
+
+# 检查 7：已失效术语 → 期望说法。新增条目时同步 docs/archive/<日期>/agents-invalidated-claims.md
+FORBIDDEN_TERMS: dict[str, str] = {
+    "EMSXVIEW_MERGE_MODULES": "已失效，可选路由用 EMSXVIEW_OPTIONAL_MODULES",
+    "VITE_USE_MOCK": "已失效，mock 由 VITE_API_URL 是否为空决定",
+    "CORS_ORIGINS": "实际变量名为 ALLOWED_ORIGINS",
+    "tca_fallback.py": "已删除，降级由各查询层内置",
+}
+# 同一行出现这些词视为「在说明它已失效」，放行
+FORBIDDEN_SKIP_TOKENS = ("已失效", "已废弃", "勿再引用", "已删除", "已迁移", "移除", "下线")
+# ADR 正文保留历史决策原貌、归档件记录历史，均不参与检查 7
+FORBIDDEN_SKIP_PREFIXES = ("docs/archive/", "docs/spec/adr/")
+# 检查 6 不查归档目录：历史文档的图片/子文档链接按归档原则保留原样
+LINK_SKIP_PREFIXES = ("docs/archive/",)
 
 
 class Report:
@@ -223,10 +239,10 @@ def check_map_rows(report: Report, root: Path, paths: list[str]) -> None:
         report.ok(f"检查 2：地图路径全部存在（{len(paths)} 行）")
 
 
-def check_coverage(report: Report, root: Path, paths: list[str], patterns: list[str]) -> None:
+def check_coverage(report: Report, all_md: list[str], paths: list[str], patterns: list[str]) -> None:
     regs = [glob_to_regex(p) for p in patterns]
     orphans: list[str] = []
-    for rel in collect_markdown(root):
+    for rel in all_md:
         if any(reg.match(rel) for reg in regs):
             continue
         if any(covers(rel, path) for path in paths if "*" not in path):
@@ -288,9 +304,12 @@ def check_status(report: Report, root: Path, paths: list[str]) -> None:
         report.ok(f"检查 5：状态枚举与证据列合规（{source}，{len(rows)} 行）")
 
 
-def check_links(report: Report, root: Path) -> None:
+def check_links(report: Report, root: Path, files: list[str]) -> None:
+    """只查被地图覆盖的文档——豁免区（skills / .specify / archive）不参与路由。"""
     dead: list[str] = []
-    for rel in collect_markdown(root):
+    for rel in files:
+        if rel.startswith(LINK_SKIP_PREFIXES):
+            continue
         file_path = root / rel
         try:
             text = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -311,6 +330,31 @@ def check_links(report: Report, root: Path) -> None:
         report.warnf(f"检查 6：死链 {item}")
     if len(dead) > 5:
         report.warnf(f"检查 6：另有 {len(dead) - 5} 处死链（只列前 5 处）")
+
+
+def check_forbidden_terms(report: Report, root: Path, files: list[str]) -> None:
+    """已失效术语是否回流到活文档；ADR 正文与归档件保留历史原貌，不查。"""
+    hits: list[str] = []
+    for rel in files:
+        if rel.startswith(FORBIDDEN_SKIP_PREFIXES):
+            continue
+        try:
+            lines = (root / rel).read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, start=1):
+            if any(token in line for token in FORBIDDEN_SKIP_TOKENS):
+                continue
+            for term, hint in FORBIDDEN_TERMS.items():
+                if term in line:
+                    hits.append(f"{rel}:{lineno} 提及 {term}（{hint}）")
+    if not hits:
+        report.ok("检查 7：活文档无已失效术语回流")
+        return
+    for item in hits[:5]:
+        report.warnf(f"检查 7：{item}")
+    if len(hits) > 5:
+        report.warnf(f"检查 7：另有 {len(hits) - 5} 处（只列前 5 处）")
 
 
 def main(argv: list[str]) -> int:
@@ -340,10 +384,13 @@ def main(argv: list[str]) -> int:
     report = Report()
     check_map_rows(report, root, paths)
     if paths:
-        check_coverage(report, root, paths, patterns)
+        all_md = collect_markdown(root)
+        covered = [rel for rel in all_md if any(covers(rel, p) for p in paths if "*" not in p)]
+        check_coverage(report, all_md, paths, patterns)
         check_meta_headers(report, root, paths)
         check_status(report, root, paths)
-        check_links(report, root)
+        check_links(report, root, covered)
+        check_forbidden_terms(report, root, covered)
 
     print("")
     print(f"—— 汇总：{report.fail} 项 FAIL，{report.warn} 项 WARN ——")
