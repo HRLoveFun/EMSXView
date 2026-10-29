@@ -54,7 +54,7 @@ L0 超预算就下沉到 L1/L2，**不许缩句糊过去**——缩句只是把�
 ### 例行体检（每 20 次提交或每月一次）
 
 1. 对地图里每份文档跑 `git log -1 --format=%cs -- <路径>`：超过 180 天未改、且 `grep -rl <文件名>` 无引用 → 列候选归档，交用户确认后移入 `docs/archive/`。
-2. `docs/report-*.md` 为一次性报告，**发布满 90 天**移入 `docs/archive/YYYY-MM-DD/`（截至 2026-10-29 尚未执行，为下一轮内容工作）。
+2. 标注为 **L3 的一次性报告**（`docs/report-*.md` 中除 `report-tca-known-limitations.md`——它是 L2 活文档）**发布满 90 天**移入 `docs/archive/YYYY-MM-DD/`；截至 2026-10-29 现有报告均未满 90 天，暂无待移文件。
 3. 跑一次 `python scripts/doc_check.py --strict`，WARN 逐条判断是修还是记理由。
 
 ## 4. 文档校验
