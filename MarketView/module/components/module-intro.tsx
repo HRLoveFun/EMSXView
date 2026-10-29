@@ -6,7 +6,8 @@ export const ModuleIntro = () => (
     </span>
     <h2 className="text-base font-semibold text-foreground">Pre-trade monitor</h2>
     <p className="text-xs text-muted-foreground">
-      高亮异常（Liquidity / Volatility / Risk notes）+ 监控表；点击行查看价格—量分布、累计量与占比。
+      Highlight anomalies (Liquidity / Volatility / Risk notes) plus the monitor table; click any row for price ×
+      volume, cumulative volume and share.
     </p>
   </div>
 );

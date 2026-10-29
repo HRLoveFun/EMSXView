@@ -6,7 +6,7 @@
     {
       "pool_id": "dev-validation",
       "label": "Dev Validation · 8 tickers",
-      "description": "开发验证池：US/CN/HK/JP/LN/EU/AU/KS 各一个 ticker，验证通过后再换指数全集。",
+      "description": "Dev validation pool: one ticker per market (US/CH/HK/JP/LN/EU/AU/KS); switches to the full index once validated.",
       "members": [
         { "equ_ticker": "NVDA US Equity", "name": "NVIDIA Corp", "exchange": "US" },
         { "equ_ticker": "601398 CH Equity", "name": "ICBC A", "exchange": "CH" },

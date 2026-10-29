@@ -8,7 +8,7 @@ const payload: MonitorBoardPayload = {
   pool: {
     pool_id: 'dev-validation',
     label: 'Dev Validation · 8 tickers',
-    description: '开发验证池',
+    description: 'Dev validation pool',
     source: 'config',
     as_of: '2026-10-28',
     member_count: 2,
@@ -32,7 +32,7 @@ const payload: MonitorBoardPayload = {
       intraday_volatility: 0.23,
       liquidity: 'normal',
       volatility: 'warning',
-      risk_notes: ['基线滞后至 20261026', '波动偏高（日 28.9% / 日内 0.23%）'],
+      risk_notes: ['Baseline stale to 20261026', 'Volatility elevated (daily 28.9% / intraday 0.23%)'],
       data_gaps: [],
       trade_date: '20261027',
       baseline_date: '20261026',
@@ -57,7 +57,7 @@ const payload: MonitorBoardPayload = {
       intraday_volatility: null,
       liquidity: 'none',
       volatility: 'none',
-      risk_notes: ['无日度基线', '无当日行情'],
+      risk_notes: ['No daily baseline', 'No intraday bars'],
       data_gaps: ['baseline', 'bars'],
       trade_date: '20261027',
       baseline_date: null,
@@ -75,9 +75,9 @@ const payload: MonitorBoardPayload = {
         name: 'Alpha Corp',
         metric: 'Daily / Intraday Vol',
         value: 28.9,
-        threshold: '日波动 25/40 或 日内波动 2/3',
+        threshold: 'daily vol 25/40 or intraday vol 2/3',
         severity: 'warning',
-        note: '日 28.9% / 日内 0.23%',
+        note: 'daily 28.9% / intraday 0.23%',
       },
     ],
     risk_notes: [
@@ -88,7 +88,7 @@ const payload: MonitorBoardPayload = {
         value: null,
         threshold: '',
         severity: 'critical',
-        note: '无日度基线；无当日行情',
+        note: 'No daily baseline; No intraday bars',
       },
       {
         equ_ticker: 'SEC_A US Equity',
@@ -97,7 +97,7 @@ const payload: MonitorBoardPayload = {
         value: null,
         threshold: '',
         severity: 'warning',
-        note: '基线滞后至 20261026；波动偏高（日 28.9% / 日内 0.23%）',
+        note: 'Baseline stale to 20261026; Volatility elevated (daily 28.9% / intraday 0.23%)',
       },
     ],
   },
@@ -191,8 +191,8 @@ describe('MonitorBoardPanel', () => {
     const notes = await screen.findByRole('group', { name: 'Risk notes' });
     const volatility = screen.getByRole('group', { name: 'Volatility' });
     // 默认不展开任何市场的股票
-    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
-    expect(within(volatility).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
+    expect(within(volatility).getByText('Select a market above to list signals')).toBeInTheDocument();
 
     // 共享市场标签：点一次，三个模块同时生效
     fireEvent.click(marketChip('US'));
@@ -216,11 +216,11 @@ describe('MonitorBoardPanel', () => {
     expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
 
     // 一键反选：两个都选 → 全不选
-    fireEvent.click(screen.getByRole('button', { name: '反选' }));
-    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Invert markets' }));
+    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
 
     // 一键全选：两个市场的股票都展开
-    fireEvent.click(screen.getByRole('button', { name: '全选' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select all markets' }));
     expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
     expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
   });
@@ -233,7 +233,7 @@ describe('MonitorBoardPanel', () => {
     fireEvent.click(marketChip('US'));
     const volatility = screen.getByRole('group', { name: 'Volatility' });
     expect(within(volatility).getByText('Warning')).toBeInTheDocument();
-    expect(within(volatility).getByText('日 28.9% / 日内 0.23%')).toBeInTheDocument();
+    expect(within(volatility).getByText('daily 28.9% / intraday 0.23%')).toBeInTheDocument();
   });
 
   it('shows missing data as dashes and lists risk notes', async () => {
@@ -241,7 +241,7 @@ describe('MonitorBoardPanel', () => {
     renderPanel();
 
     const table = await screen.findByRole('table');
-    expect(within(table).getByText('无日度基线；无当日行情')).toBeInTheDocument();
+    expect(within(table).getByText('No daily baseline; No intraday bars')).toBeInTheDocument();
     const rowB = within(table).getByText('SEC_B EU Equity').closest('tr');
     expect(rowB).not.toBeNull();
     expect(rowB?.textContent).toContain('—');
@@ -264,8 +264,8 @@ describe('MonitorBoardPanel', () => {
     fireEvent.click(within(table).getByRole('button', { name: /Exchange/ }));
 
     // 筛选面板：两个市场值均默认选中
-    expect(screen.getByText(/筛选 · Exchange/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '一键全选' })).toBeInTheDocument();
+    expect(screen.getByText(/Filter · Exchange/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select all' })).toBeInTheDocument();
 
     // 取消 US → 只剩 EU 行
     fireEvent.click(screen.getByRole('button', { name: 'US' }));
@@ -273,12 +273,12 @@ describe('MonitorBoardPanel', () => {
     expect(within(table).getByText('SEC_B EU Equity')).toBeInTheDocument();
 
     // 一键反选 → 只剩 US 行
-    fireEvent.click(screen.getByRole('button', { name: '一键反选' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Invert' }));
     expect(within(table).getByText('SEC_A US Equity')).toBeInTheDocument();
     expect(within(table).queryByText('SEC_B EU Equity')).not.toBeInTheDocument();
 
     // 一键全选 → 恢复两行
-    fireEvent.click(screen.getByRole('button', { name: '一键全选' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
     expect(within(table).getByText('SEC_A US Equity')).toBeInTheDocument();
     expect(within(table).getByText('SEC_B EU Equity')).toBeInTheDocument();
   });
@@ -292,15 +292,15 @@ describe('MonitorBoardPanel', () => {
     expect(exchangeButton).toHaveAttribute('aria-haspopup', 'dialog');
 
     fireEvent.click(exchangeButton);
-    const popover = screen.getByRole('dialog', { name: /筛选 Exchange/ });
+    const popover = screen.getByRole('dialog', { name: /Filter Exchange/ });
 
     // 面板内点击不关闭
     fireEvent.mouseDown(popover);
-    expect(screen.getByRole('dialog', { name: /筛选 Exchange/ })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Filter Exchange/ })).toBeInTheDocument();
 
     // 点击面板外空白处关闭
     fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('dialog', { name: /筛选 Exchange/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Filter Exchange/ })).not.toBeInTheDocument();
   });
 
   it('collapses and expands all three modules uniformly', async () => {
@@ -308,17 +308,17 @@ describe('MonitorBoardPanel', () => {
     renderPanel();
 
     const notes = await screen.findByRole('group', { name: 'Risk notes' });
-    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '折叠模块' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse modules' }));
     for (const title of ['Liquidity', 'Volatility', 'Risk notes']) {
       const module = screen.getByRole('group', { name: title });
-      expect(within(module).queryByText('选择上方市场查看信号股票')).not.toBeInTheDocument();
+      expect(within(module).queryByText('Select a market above to list signals')).not.toBeInTheDocument();
     }
-    expect(screen.getByRole('button', { name: '展开模块' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand modules' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '展开模块' }));
-    expect(within(notes).getByText('选择上方市场查看信号股票')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand modules' }));
+    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
   });
 
   it('reports the pool universe for live subscription', async () => {
