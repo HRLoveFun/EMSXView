@@ -214,7 +214,7 @@ async def get_order(order_id: str):
 | 运维/诊断脚本 | `scripts/`（部署启动器归 `scripts/deploy/`） |
 | 规范类文档 | `docs/spec/` |
 | 其他文档（分析笔记、操作记录） | `docs/` |
-| 特性计划与清单 | `specs/<feature-id>/` |
+| 特性计划与清单 | `specs/<feature-id>/`（只放在途计划）；已交付的移入 `docs/archive/YYYY-MM-DD/<feature-id>/`，保留原编号与目录名 |
 | 临时调试代码 | 仓库根 `_tmp/`（已在 `.gitignore` 中忽略，见「临时代码文件」一节） |
 | 运行产物（日志、导出、生成图片等） | 被 `.gitignore` 覆盖的目录，或系统临时目录 |
 

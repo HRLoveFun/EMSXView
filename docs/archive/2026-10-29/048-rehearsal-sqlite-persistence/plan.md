@@ -1,8 +1,10 @@
 # 048 — 5.5 整日演练：SQLite 演练持久化 + 执行手册
 
-> 父计划：`specs/029-trading-reliability-hardening/plan.md`（剩余项 5.5）
+> 父计划：`docs/archive/2026-10-29/029-trading-reliability-hardening/plan.md`（剩余项 5.5）
 > 分支：`048-rehearsal-sqlite-persistence`
 > 前提：5.4 已闭环（#127–#129）；5.3 已搁置（演练覆盖人工路由路径，不含调度驱动提交）
+>
+> **归档（2026-10-29）**：已交付并归档。**两项运营触发型遗留仍有效**（见本文 §「遗留」）：① 长断线 `subscription_failed` 置位路径（需管理员防火墙操作）；② 日终对账差异清单（首次实盘对账时生成）。两项均由日常运营承接、不阻断归档，触发时按本文件步骤执行。
 
 ## 1. 演练基础设施（本 PR）
 
