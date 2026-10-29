@@ -1,5 +1,7 @@
 ﻿# EMSXView Scripts Directory
 
+> L2 | 权威：自动化脚本清单与用途 | 不权威：CI 接线（见 `docs/spec/quality-gate.md` 与 `.github/workflows/`）
+
 Quick-launch batch files for local development workflows.
 
 ## Directory Layout
@@ -26,6 +28,7 @@ scripts/
 │
 │
 └── audit_*.py              # 契约/数据路径/文档漂移/下划线访问审计（CI 边界门禁调用）
+    doc_check.py            # 文档地图对账（六项：覆盖/元信息头/状态枚举/死链），非 CI 门禁，按需或入 hook 跑
 ```
 
 ## Quick Reference
@@ -37,5 +40,6 @@ scripts/
 | Create desktop shortcuts          | `deploy\create-desktop-shortcut.ps1`          |
 | Check startup status              | `diagnose\check-startup-status.ps1`          |
 | 质量门禁（全量 + 债务报告）        | `python quality_gate.py --report`            |
+| 文档地图对账（改文档后）           | `python doc_check.py`（`--strict` 让 WARN 也失败） |
 | 清理门禁（冗余 / 性能热点）        | `python cleanup.py --report`                 |
 | 模块边界审计（CI 同款）            | `python audit_cross_imports.py`              |

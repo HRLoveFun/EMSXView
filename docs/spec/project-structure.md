@@ -1,5 +1,7 @@
 ﻿# EMSXView Project Structure
 
+> L2 | 权威：仓库结构、权威实现面、模块使命与边界、逻辑数据域、遗留面 | 不权威：批次进度（见 `specs/057-*/tasks.md`）、成熟度证据（见 `README.md` §0）、编码约定（见 `docs/dev-guide.md`）
+
 > Current architecture reference for the EMSXView Trading Platform
 > Last updated: 2026-09-11 | Version: 3.4（对齐 [data-domain.md](data-domain.md) v3.4：刷新 CostView/src 实际文件、contracts 实际契约、成熟度定级引用；移除已迁移/已删除路径）
 
@@ -31,9 +33,23 @@ This is an incremental evolution of the live codebase, not a big-bang rewrite.
 
 | Module | Role | Current implementation state |
 |---|---|---|
-| MarketView | Market trend view: stock-pool check, intent / execution-difficulty / expected-cost hints, read-only and never touches the order path | Beta（8 端点 / 8 测试文件 74 例；池内量价/难度/成本同屏见 057 DL-29；SLA/运维文档未实现） |
-| ExecutionView | Execution view: intent intake, order/route send & amend, execution-interval price/volume monitoring | GA（判据与证据见主 [README.md §0](../../README.md#0-模块成熟度分级契约定义)：真实交易数据持续入库 + 295 个后端测试函数 + 运维手册；无正式 SLA 文档；执行区间量价视图见 057 DL-30） |
+| MarketView | Market trend view: stock-pool check, intent / execution-difficulty / expected-cost hints, read-only and never touches the order path | Beta（8 端点；池内量价/难度/成本同屏见 057 DL-29；SLA/运维文档未实现） |
+| ExecutionView | Execution view: intent intake, order/route send & amend, execution-interval price/volume monitoring | GA（判据与证据见主 [README.md §0](../../README.md#0-模块成熟度分级契约定义)：真实交易数据持续入库 + 后端测试全绿（`cd backend/api && python -m pytest tests/ -q`）+ 运维手册；无正式 SLA 文档；执行区间量价视图见 057 DL-30） |
 | CostView | Post-trade analytics, TCA, broker recommendations, reporting | Beta（只读消费者；数据管道已迁独立仓库 EMSXDataPipeline） |
+
+### Module mission and boundaries（单一来源）
+
+三个模块构成「交易前研判 → 交易中执行 → 交易后评估」的闭环；共享同一批行情、基线与成交数据，但**观察轴不同**，因此都保留、不能互相替代：
+
+| 模块 | 使命 | 回答的问题 | 观察轴 | 不做什么 |
+|------|------|------------|--------|----------|
+| **MarketView** | 检查、更新股票池；监测股票池内标的 | 今天该关注哪些票、这些票的意图是什么、执行难度多大、成本大概多少 | 标的 × 交易日（交易前 · 市场走势） | **不碰下单路径**：不发送、不修改、不撤销订单/路由，不写任何库；股票池只做只读汇集，不做页面内编辑与持久化 |
+| **ExecutionView** | 获取交易意图；发送、修改订单/路由；监测订单执行区间的量价变化 | 这笔（这批）委托正在做得怎么样、与市场和预期偏离多少 | 订单/路由 × 执行区间（交易中 · 交易执行） | 不承担选股与盘前研判；盘前结论只从 MarketView 交接读取；不重复实现行情/基线取数 |
+| **CostView** | 盘后评估执行表现与成本，形成券商/算法评价并回流建议 | 成本贵在哪、花了多少、同类条件下哪家券商或算法更好 | 成交/路由 × 交易日（交易后 · 成本归因） | 不写库、不触发 ETL、不直连 Bloomberg；预期成本不对券商输出、不作为对外预测（K3） |
+
+- **功能落点**：MarketView = 固定筛选池汇集与检查（量价指标与执行难度、预期成本同屏）+ 日度基线与事件状态 + 意图覆盖率与未匹配 + 池内盘中走势；ExecutionView = 意图交接读取 + 订单/路由发送与修改 + 合规与授权校验 + 实时订单流 + **以执行区间为窗口**的量价曲线与对照（取数复用 MarketView 的 bar / 基线路径）；CostView = TCA 分析与 scorecard（读 `tca_route_summary` 预计算表）+ 订单内配对与综合评估报告 + 监控与 HTML 报告导出 + 只读巡检 CLI + 券商推荐 pin（经 handoff 回流 ExecutionView）。
+- **边界判定**：改动落在「标的/池/盘前提示」一侧归 MarketView；落在「订单/路由/执行区间」一侧归 ExecutionView；落在「成本归因/评分/评估口径」一侧归 CostView。跨侧只经 handoff 契约（`docs/schema-contract.md`）传递，禁止直接 import 对方模块。
+- **顺序依赖**：MarketView 的结论是 ExecutionView 的输入；ExecutionView 的成交与决策记录是 CostView 的输入；CostView 的评价经 handoff 回流 ExecutionView，不反向改写前两者的过程数据。
 
 ---
 

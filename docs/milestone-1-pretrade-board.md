@@ -1,5 +1,7 @@
 # 节点一交付说明：交易前实时监控表（057 · 2026-10-27）
 
+> L2 | 权威：MarketView 节点一的范围、交付证据与已知限制 | 不权威：当前成熟度定级（见 `README.md` §0）、全模块进度（见 `specs/057-execution-decision-loop/tasks.md`）
+
 > 依据：`specs/057-execution-decision-loop/plan.md` 第 5 节节点一出口判据
 > 覆盖：1a–1d（DL-01 至 DL-15）+ DL-07/08 读侧接线
 > 状态：代码侧完成；呈现定稿（D-6）待用户反馈后收口
@@ -100,7 +102,7 @@ cd frontend; npm run dev
 
 ## 7. 1e 实现记录（2026-10-27）
 
-按模块使命（[`AGENTS.md` §4.0](../AGENTS.md)），节点一补入 1e 批次；本页既有列含义不变：
+按模块使命（[`docs/spec/project-structure.md` §1](spec/project-structure.md)），节点一补入 1e 批次；本页既有列含义不变：
 
 - **DL-29**：MarketView 固定筛选池池板（`GET /api/marketview/pool-board` + `PoolBoardPanel`）——量价指标、执行难度分位与成本参考值同屏；仅用 4 个固定筛选池，不引入意图池/观察名单。
 - **DL-30**：ExecutionView 执行区间量价（`GET /api/execution/interval-series` + `IntervalSeriesPanel`）——区间价格/累计量、区间 VWAP vs 成交均价 vs 到达价，可对照全天走势；缺 bar 显式 gap、不插值。

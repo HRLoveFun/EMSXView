@@ -2,7 +2,7 @@
 
 > AI agent 改 import 前必读
 > 配套检测：`tests/boundaries/test_cross_module_imports.py`
-> 配套规范：[ADR-0002](../docs/spec/adr/0002-platform-data-adapter-pattern.md)、[ADR-0003](../docs/spec/adr/0003-executionview-owns-operational-state.md)、[ADR-0005](../docs/spec/adr/0005-data-pipeline-extraction.md)
+> 配套规范：[ADR-0002](../../docs/spec/adr/0002-platform-data-adapter-pattern.md)、[ADR-0003](../../docs/spec/adr/0003-executionview-owns-operational-state.md)、[ADR-0005](../../docs/spec/adr/0005-data-pipeline-extraction.md)
 > Last updated: 2026-09-07
 
 ---
@@ -43,7 +43,7 @@ rg "useOrderStreamStore|useRouteStreamStore" CostView/module/
 
 **TEST**: `tests/boundaries/test_cross_module_imports.py::test_execution_no_costview_imports`
 
-**RATIONALE**: execution 与 costview 是独立 lazy chunk，跨模块 import 会导致打包体积泄漏与循环依赖。[ADR-0008](../docs/spec/adr/0008-frontend-module-registry-pattern.md)
+**RATIONALE**: execution 与 costview 是独立 lazy chunk，跨模块 import 会导致打包体积泄漏与循环依赖。[ADR-0008](../../docs/spec/adr/0008-frontend-module-registry-pattern.md)
 
 ---
 
@@ -88,7 +88,7 @@ rg "from ['\"]@marketview" ExecutionView/module/
 > **010-extract-pipeline**：DatabaseView（module id `database`，目录 `frontend/src/modules/databaseview/`）已迁独立项目
 > EMSXDataPipeline Runner，本仓库已无该前端模块与 `@databaseview` 路径别名，相关边界条款随之移除。
 > 数据库维护走 Runner（`POST /run`、`GET /status`），前端经 core :3000 代理访问（见 §3.1）。
-> 若模块回迁：按 [module-onboarding.md](../docs/spec/module-onboarding.md) 重新注册边界契约
+> 若模块回迁：按 [module-onboarding.md](../../docs/spec/module-onboarding.md) 重新注册边界契约
 > （`platform_data/contracts/boundary_registry.py`）；既有各前端模块的 `forbidden_imports`
 > 中保留的 `"@databaseview"` 作为防回迁护栏，届时一并评估。
 
@@ -132,7 +132,7 @@ python scripts/audit_cross_imports.py --module frontend_execution
 **RATIONALE**: 壳层只依赖注册描述符与契约类型，模块只依赖 `@shared/*` 契约层，双向皆不越界，
 ExecutionView 才能在「Shell 内嵌」与「独立构建（`ExecutionView/standalone/`）」两种宿主下行为一致。
 接口契约落文件（`module.contract.ts`）而非散落在组件签名中，可直接被编译器与测试校验。
-[ADR-0008](../docs/spec/adr/0008-frontend-module-registry-pattern.md)
+[ADR-0008](../../docs/spec/adr/0008-frontend-module-registry-pattern.md)
 
 ---
 
@@ -158,7 +158,7 @@ rg "from CostView\.src" platform_data/
 
 **TEST**: `tests/boundaries/test_cross_module_imports.py::test_no_costview_deep_imports`
 
-**RATIONALE**: CostView 已重构为分析层，不再暴露内部数据访问。[ADR-0004](../docs/spec/adr/0004-costview-focused-on-evaluation.md)、[ADR-0005](../docs/spec/adr/0005-data-pipeline-extraction.md)
+**RATIONALE**: CostView 已重构为分析层，不再暴露内部数据访问。[ADR-0004](../../docs/spec/adr/0004-costview-focused-on-evaluation.md)、[ADR-0005](../../docs/spec/adr/0005-data-pipeline-extraction.md)
 
 ---
 
@@ -183,13 +183,13 @@ rg "\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 
 **TEST**: `tests/boundaries/test_db_path_from_config.py`
 
-**RATIONALE**: Data Platform 是独立子域，跨域必须经适配器或配置桥接。[ADR-0006](../docs/spec/adr/0006-dataplatform-as-independent-subdomain.md)、[ADR-0012](../docs/spec/adr/0012-config-isolation-rule.md)
+**RATIONALE**: Data Platform 是独立子域，跨域必须经适配器或配置桥接。[ADR-0006](../../docs/spec/adr/0006-dataplatform-as-independent-subdomain.md)、[ADR-0012](../../docs/spec/adr/0012-config-isolation-rule.md)
 
 ---
 
 ### 2.3 platform_data 内部适配器可见性
 
-> **状态说明**：`platform_data.adapters` 已拆分为子包（`handoff.py` / `market.py` / `redis_handoff.py` / `tca_bridge.py`）。`ExecutionOperationalDataAdapter`、`CostViewAnalyticsAdapter`、`CostViewDatabaseAdapter`、`ExecutionHistoryAdapter`、`DataPlatformIngestionAdapter` 与 `PlatformDataAccess` / `build_platform_data_access()` **为规划中、尚未实现**，禁止跨域 import 使用（详见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）。后续若实现新适配器，按 [module-onboarding.md §B](../docs/spec/module-onboarding.md) 流程补登本表。
+> **状态说明**：`platform_data.adapters` 已拆分为子包（`handoff.py` / `market.py` / `redis_handoff.py` / `tca_bridge.py`）。`ExecutionOperationalDataAdapter`、`CostViewAnalyticsAdapter`、`CostViewDatabaseAdapter`、`ExecutionHistoryAdapter`、`DataPlatformIngestionAdapter` 与 `PlatformDataAccess` / `build_platform_data_access()` **为规划中、尚未实现**，禁止跨域 import 使用（详见 `docs/spec/adr/0013-platform-data-adapter-current-state.md`）。后续若实现新适配器，按 [module-onboarding.md §B](../../docs/spec/module-onboarding.md) 流程补登本表。
 
 每个 Adapter 类**显式区分**外部可见方法与内部私有方法。
 约定：内部方法以 `_` 开头，跨域**禁止**调用 `_` 前缀方法。
@@ -247,7 +247,7 @@ rg "fetch\(['\"]http://(localhost|127\.0\.0\.1):(8001|8002|8100)" frontend/src/
 rg "from ['\"].*backend/api" frontend/src/
 ```
 
-**RATIONALE**: 跨语言 import 在物理上不可能，但端口绕过会导致 CORS 与生产部署不一致。[ADR-0009](../docs/spec/adr/0009-blend-of-microservice-and-monolith.md)
+**RATIONALE**: 跨语言 import 在物理上不可能，但端口绕过会导致 CORS 与生产部署不一致。[ADR-0009](../../docs/spec/adr/0009-blend-of-microservice-and-monolith.md)
 
 ---
 
@@ -290,7 +290,7 @@ rg "\.db['\"]" backend/api/ | rg -v "config\.py"
 **CANNOT**:
 - 直接 `from CostView.src.db.repositories.* import ...`（应走适配器）
 
-**RATIONALE**: 见 [ADR-0002](../docs/spec/adr/0002-platform-data-adapter-pattern.md)。
+**RATIONALE**: 见 [ADR-0002](../../docs/spec/adr/0002-platform-data-adapter-pattern.md)。
 
 ---
 
@@ -314,7 +314,7 @@ rg "['\"][^'\"]*\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 
 **TEST**: `tests/boundaries/test_db_path_from_config.py`
 
-**RATIONALE**: [ADR-0012](../docs/spec/adr/0012-config-isolation-rule.md)。
+**RATIONALE**: [ADR-0012](../../docs/spec/adr/0012-config-isolation-rule.md)。
 
 ---
 
@@ -336,7 +336,7 @@ rg "['\"][^'\"]*\.db['\"]" backend/ data_access/ | rg -v "config\.py"
 rg "new WebSocket\(" {ExecutionView,CostView,MarketView}/module/
 ```
 
-**RATIONALE**: Shell 统一管理 WS 连接生命周期与重连。[ADR-0008](../docs/spec/adr/0008-frontend-module-registry-pattern.md)
+**RATIONALE**: Shell 统一管理 WS 连接生命周期与重连。[ADR-0008](../../docs/spec/adr/0008-frontend-module-registry-pattern.md)
 
 ---
 
@@ -344,7 +344,7 @@ rg "new WebSocket\(" {ExecutionView,CostView,MarketView}/module/
 
 **CAN**:
 - 跨模块的只读配置 → `@shared/types` + `@shared/lib`
-- 跨模块的临时事件 → `useHandoffContracts()`（[ADR-0007](../docs/spec/adr/0007-handoff-exchange-pattern.md)）
+- 跨模块的临时事件 → `useHandoffContracts()`（[ADR-0007](../../docs/spec/adr/0007-handoff-exchange-pattern.md)）
 - Shell 全局状态 → `ShellContext` (`useShellContext()`)
 
 **CANNOT**:

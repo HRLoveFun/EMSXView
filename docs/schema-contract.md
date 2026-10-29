@@ -1,5 +1,7 @@
 # Schema Contract — Frontend TypeScript ↔ Backend Python
 
+> L2 | 权威：跨模块 TS↔Python 类型契约（Contract 1–4） | 不权威：HTTP 端点清单（见 `docs/api-contracts.md`）
+
 This document defines the canonical data types that cross the HTTP/WS boundary
 between the React frontend and FastAPI backend. Both sides maintain independent
 type definitions that MUST stay in sync with this contract.

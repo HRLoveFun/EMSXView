@@ -1,5 +1,7 @@
 # 数据更新管道健壮性机制（Pipeline Resilience）
 
+> L2 | 权威：取数管道的降级与韧性约定 | 不权威：管道侧写入实现（独立仓库 EMSXDataPipeline）、本仓降级表（见 `README.md` §8）
+
 > 来源：对数据更新管道（`CostView/scripts/daily_update.py` + `DataPipeline/orchestration/`）
 > 历史问题的系统复盘（2026-04 ~ 2026-08），归纳为 6 类故障模式与配套机制。
 > 证据源：AGENTS.md 计划记录、`docs/archive/` 诊断报告、git 提交历史、生产日志
