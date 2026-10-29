@@ -43,7 +43,7 @@
 | docs/blpapi-api-modules.md | L2 | blpapi 各模块怎么用 | 改 Bloomberg 取数时 | 模块变化时 |
 | docs/EMSXDataPipeline-TECHNICAL_GUIDE.md | L2 | 上游管道怎么产数（同步副本） | 查数据链路时 | 上游真相源更新时 |
 | docs/milestone-1-pretrade-board.md | L2 | MarketView 节点一的范围与已知限制 | 改盘前板时 | 节点交付或限制变化时 |
-| docs/report-tca-known-limitations.md | L2 | TCA 报告口径硬缺口（K1–K9） | 改报告口径、对外解释前 | 口径变化时 |
+| docs/report-tca-known-limitations.md | L2 | TCA 报告口径：硬缺口 K1–K4 / 已补 K5–K9 / 口径脚注 / P2 待处理 | 改报告口径、对外解释前 | 口径变化时（逐轮记录追加到归档账本） |
 | docs/handoff-costview-html-report.md | L2 | HTML 报告导出怎么接 | 改导出时 | 实现变化时 |
 | backend/README.md | L2 | 后端生产部署 | 部署后端时 | 部署方式变化时 |
 | backend/QUICKSTART.md | L2 | 后端最小启动步骤 | 首次起后端时 | 步骤变化时 |
