@@ -356,7 +356,15 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
   const { ref: chartAreaRef, width: chartWidth } = useMeasuredWidth();
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/30"
+      role="dialog"
+      aria-modal="true"
+      // 点击抽屉外空白处关闭（面板内部点击不触发）
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="h-full w-full max-w-[1180px] overflow-y-auto bg-card p-5 shadow-2xl">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-3">
           <div>

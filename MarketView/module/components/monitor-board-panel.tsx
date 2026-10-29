@@ -14,9 +14,10 @@
  *   无订阅或休市时回落到当日 bar 聚合值；来源在表头 chip 与行 tooltip 标注。
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAsyncData } from '@shared/hooks/use-async-data';
+import { useClickOutside } from '@shared/hooks/use-click-outside';
 
 import { fetchMonitorBoard } from '../services/api';
 import { fmtSignedPercent, liveVolumeVsAdvPct, pctToneClass } from '../lib/workspace';
@@ -222,53 +223,60 @@ const FilterPanel = ({
   onSelectAll: () => void;
   onInvert: () => void;
   onClose: () => void;
-}) => (
-  <div
-    role="dialog"
-    aria-label={`筛选 ${FILTER_LABELS[filterKey]}`}
-    className="absolute left-1/2 top-2 z-30 w-[min(560px,92%)] -translate-x-1/2 rounded-xl border border-border bg-card p-2.5 shadow-2xl"
-  >
-    <div className="flex items-center justify-between gap-2">
-      <p className="text-[11px] font-medium text-foreground">
-        筛选 · {FILTER_LABELS[filterKey]}
-        <span className="ml-1.5 font-normal text-muted-foreground">
-          已选 {selection.length}/{options.length}
-        </span>
-      </p>
-      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-        <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onSelectAll}>
-          一键全选
-        </button>
-        <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onInvert}>
-          一键反选
-        </button>
-        <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onClose}>
-          关闭
-        </button>
+}) => {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  // 点击面板外空白处即关闭；点表头（自身负责 toggle）不算「外部」
+  useClickOutside(panelRef, onClose, { ignoreSelector: '[data-filter-trigger]' });
+
+  return (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label={`筛选 ${FILTER_LABELS[filterKey]}`}
+      className="absolute left-1/2 top-2 z-30 w-[min(560px,92%)] -translate-x-1/2 rounded-xl border border-border bg-card p-2.5 shadow-2xl"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-medium text-foreground">
+          筛选 · {FILTER_LABELS[filterKey]}
+          <span className="ml-1.5 font-normal text-muted-foreground">
+            已选 {selection.length}/{options.length}
+          </span>
+        </p>
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onSelectAll}>
+            一键全选
+          </button>
+          <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onInvert}>
+            一键反选
+          </button>
+          <button type="button" className="rounded-full border border-border px-2 py-0.5" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap justify-center gap-1">
+        {options.map((value) => {
+          const active = selection.includes(value);
+          return (
+            <button
+              key={value || 'empty'}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onToggleValue(value)}
+              className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
+                active
+                  ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {valueLabel(value)}
+            </button>
+          );
+        })}
       </div>
     </div>
-    <div className="mt-1.5 flex flex-wrap justify-center gap-1">
-      {options.map((value) => {
-        const active = selection.includes(value);
-        return (
-          <button
-            key={value || 'empty'}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onToggleValue(value)}
-            className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
-              active
-                ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
-                : 'border-border/60 text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {valueLabel(value)}
-          </button>
-        );
-      })}
-    </div>
-  </div>
-);
+  );
+};
 
 // ── 表格行 ──────────────────────────────────────────────────────────────────
 
@@ -350,14 +358,23 @@ const FilterableHeader = ({
   const active = isFiltered(filters, filterKey, options);
   return (
     <th className="px-3 py-3 text-left font-medium">
+      {/* 按钮化表头：边框 + 底色 + hover，明确「可点击筛选」 */}
       <button
         type="button"
+        data-filter-trigger
+        aria-haspopup="dialog"
         onClick={onOpen}
-        className={`inline-flex items-center gap-1 transition hover:text-foreground ${active ? 'text-sky-600' : ''}`}
+        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium normal-case tracking-normal shadow-sm transition ${
+          active
+            ? 'border-sky-500/60 bg-sky-500/10 text-sky-700'
+            : 'border-border bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground'
+        }`}
         title={`点击筛选 ${FILTER_LABELS[filterKey]}`}
       >
         {FILTER_LABELS[filterKey]}
-        <span className="text-[10px]">{active ? '▼' : '▾'}</span>
+        <span aria-hidden className="text-[9px] opacity-70">
+          ▾
+        </span>
       </button>
     </th>
   );
