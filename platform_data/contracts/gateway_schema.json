@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://emsx.local/contracts/gateway-v1.json",
+  "title": "EMSX Gateway API Contract v1",
+  "description": "行情/参考数据网关的机器可读契约。提供方为 EMSXDataPipeline（runner/gateway），消费方为 EMSXView。人读说明见 docs/spec/013-bloomberg-gateway.md。",
+  "contractVersion": "gateway-v1",
+  "status": "frozen",
+  "frozenAt": "2026-11-02",
+  "transport": {
+    "baseUrl": "http://127.0.0.1:8101",
+    "httpPrefix": "/api/gw/v1",
+    "wsPrefix": "/ws/gw/v1",
+    "auth": "none",
+    "note": "同机部署，仅绑定回环地址；跨机部署需另立 ADR 增加 token 鉴权。"
+  },
+  "envelope": {
+    "type": "object",
+    "description": "全部 HTTP 响应的统一包装。错误响应中 data 必须为 null，不得用空对象冒充成功。",
+    "required": ["code", "message", "data", "source", "degraded", "ts"],
+    "additionalProperties": false,
+    "properties": {
+      "code": {
+        "type": "integer",
+        "description": "业务错误码，取值见 errorCodes。"
+      },
+      "message": {
+        "type": "string",
+        "description": "人类可读的简短说明；不得承载业务数据。"
+      },
+      "data": {
+        "description": "业务载荷；错误响应为 null。"
+      },
+      "source": {
+        "type": "string",
+        "enum": ["cache", "bloomberg", "stale", "none"],
+        "description": "cache=命中内存缓存；bloomberg=本次回源；stale=回源失败返回上次缓存；none=无数据（错误响应）。"
+      },
+      "degraded": {
+        "type": "boolean",
+        "description": "true 表示数据非本次回源且可能陈旧，消费方应标注。"
+      },
+      "ts": {
+        "type": "string",
+        "format": "date-time",
+        "description": "网关生成响应的时刻，带时区偏移。"
+      }
+    }
+  },
+  "errorCodes": [
+    {
+      "code": 0,
+      "name": "OK",
+      "http": 200,
+      "retryable": false,
+      "clientAction": "none"
+    },
+    {
+      "code": 1001,
+      "name": "INVALID_ARGUMENT",
+      "http": 400,
+      "retryable": false,
+      "clientAction": "fix_request",
+      "description": "ticker 格式非法、字段名不在 fieldCatalog、日期格式错误。"
+    },
+    {
+      "code": 2001,
+      "name": "UPSTREAM_UNAVAILABLE",
+      "http": 503,
+      "retryable": true,
+      "clientAction": "fallback_direct",
+      "description": "网关未连上 bbcomm 或终端未登录。消费方应熔断并回落直连。"
+    },
+    {
+      "code": 2002,
+      "name": "SUBSCRIPTION_LIMIT",
+      "http": 429,
+      "retryable": false,
+      "clientAction": "shrink_universe",
+      "description": "订阅总数超过 limits.maxSubscriptions；不得静默丢弃已有订阅。"
+    },
+    {
+      "code": 2003,
+      "name": "UPSTREAM_TIMEOUT",
+      "http": 504,
+      "retryable": true,
+      "clientAction": "use_stale",
+      "description": "回源超时。存在 stale 缓存时 gateway 改为返回 200 + source=stale + degraded=true。"
+    },
+    {
+      "code": 2004,
+      "name": "FIELD_UNAVAILABLE",
+      "http": 200,
+      "retryable": false,
+      "clientAction": "mark_gap",
+      "description": "请求的字段在该市场**全部**不可推送：data 为空对象，非错误。部分可用时返回 code=0，并在 _meta.gaps 标注缺失字段——两者不得混用，否则调用方无法区分「没有数据」与「部分缺字段」。"
+    },
+    {
+      "code": 3001,
+      "name": "INTERNAL_ERROR",
+      "http": 500,
+      "retryable": true,
+      "clientAction": "fallback_direct",
+      "description": "网关内部异常。消费方应熔断并回落直连。"
+    }
+  ],
+  "limits": {
+    "maxSubscriptions": 300,
+    "subscriptionGraceSeconds": 60,
+    "heartbeatSeconds": 15,
+    "requestTimeoutSeconds": 5,
+    "wsSendQueueMax": 1000,
+    "note": "maxSubscriptions 为估值，M2 压测后以实测上限回调，回调时 contractVersion 保持 v1（仅数值变化，报文结构不变）。"
+  },
+  "endpoints": [
+    {
+      "id": "quote",
+      "method": "GET",
+      "path": "/quote",
+      "purpose": "从订阅缓存读取实时快照，不回源。",
+      "request": {
+        "query": {
+          "tickers": {
+            "type": "string",
+            "required": true,
+            "description": "逗号分隔的 Bloomberg 复合代码。"
+          },
+          "fields": {
+            "type": "string",
+            "required": false,
+            "description": "逗号分隔字段名；省略时返回该 ticker 已订阅的全部字段。"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "description": "键为 ticker，值为字段名到 FieldValue 的映射，外加 _meta。",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "_meta": {
+              "type": "object",
+              "required": ["subscribed", "last_update", "gaps"],
+              "properties": {
+                "subscribed": {"type": "boolean"},
+                "last_update": {"type": ["string", "null"]},
+                "gaps": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "已订阅但 Bloomberg 未推送的字段。"
+                }
+              }
+            }
+          }
+        }
+      },
+      "cache": "read-through，不回源；无订阅时返回 2004 或空 gaps 记录。"
+    },
+    {
+      "id": "subscribe",
+      "method": "POST",
+      "path": "/subscriptions",
+      "purpose": "增加订阅（引用计数 +1，去重后向 Bloomberg 只发一条）。",
+      "request": {
+        "body": {
+          "type": "object",
+          "required": ["tickers"],
+          "properties": {
+            "tickers": {"type": "array", "items": {"type": "string"}},
+            "fields": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "省略时用 limits 对应的默认字段清单（fieldCatalog.mktdata 中 scope 含 default 的项）。"
+            }
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["accepted", "rejected", "total"],
+        "properties": {
+          "accepted": {"type": "array", "items": {"type": "string"}},
+          "rejected": {"type": "integer"},
+          "total": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "id": "unsubscribe",
+      "method": "DELETE",
+      "path": "/subscriptions",
+      "purpose": "减少订阅（引用计数 -1，归零后进入宽限期再退订）。",
+      "request": {
+        "body": {
+          "type": "object",
+          "properties": {
+            "tickers": {"type": "array", "items": {"type": "string"}},
+            "all": {"type": "boolean", "description": "true 时清空该客户端全部订阅。"}
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["removed", "remaining"],
+        "properties": {
+          "removed": {"type": "array", "items": {"type": "string"}},
+          "remaining": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "id": "refdata",
+      "method": "GET",
+      "path": "/refdata",
+      "purpose": "参考数据请求，按字段类别 TTL 缓存并做 single-flight 合并。",
+      "request": {
+        "query": {
+          "securities": {"type": "string", "required": true},
+          "fields": {
+            "type": "string",
+            "required": true,
+            "description": "必须全部落在 fieldCatalog.refdata 内；含未登记字段返回 1001。"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "description": "键为证券代码，值为字段名到值的映射；缺失字段不出现在结果中，由调用方回落。"
+      },
+      "cache": "TTL 分级，见 fieldCatalog.refdata[].ttlSeconds。"
+    },
+    {
+      "id": "marketdata_ws",
+      "method": "WS",
+      "path": "/ws/gw/v1/marketdata",
+      "purpose": "订阅推送。连接建立后先发一条 snapshot，随后发增量 tick。",
+      "request": {
+        "query": {
+          "tickers": {"type": "string", "required": true},
+          "fields": {"type": "string", "required": false}
+        }
+      },
+      "messages": [
+        {
+          "type": "snapshot",
+          "description": "连接建立或重连后的一次全量快照。",
+          "data": "同 quote 的 response。"
+        },
+        {
+          "type": "tick",
+          "description": "单字段增量。",
+          "data": "ticker -> field -> FieldValue。"
+        },
+        {
+          "type": "status",
+          "description": "订阅态变更（接受/拒绝/掉线）。",
+          "data": {
+            "type": "object",
+            "required": ["subscribed", "dropped", "connected"],
+            "properties": {
+              "subscribed": {"type": "array", "items": {"type": "string"}},
+              "dropped": {"type": "array", "items": {"type": "string"}},
+              "connected": {"type": "boolean"}
+            }
+          }
+        },
+        {
+          "type": "heartbeat",
+          "description": "空载心跳，间隔 limits.heartbeatSeconds。",
+          "data": null
+        }
+      ]
+    },
+    {
+      "id": "health",
+      "method": "GET",
+      "path": "/health",
+      "purpose": "会话状态、订阅计数与缓存命中率，供下游判活与运维巡检。",
+      "response": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "connected",
+          "mktdata_session",
+          "refdata_session",
+          "subscriptions",
+          "clients",
+          "cache_hit_rate",
+          "uptime_seconds"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "enum": ["gateway-v1"],
+            "description": "客户端启动时应断言与本仓镜像契约的 contractVersion 一致；不一致即拒绝启用网关通道，避免按旧结构解析新报文。"
+          },
+          "connected": {"type": "boolean"},
+          "mktdata_session": {"type": "string", "enum": ["up", "down", "connecting"]},
+          "refdata_session": {"type": "string", "enum": ["up", "down", "connecting"]},
+          "subscriptions": {"type": "integer"},
+          "clients": {"type": "integer"},
+          "cache_hit_rate": {"type": "number"},
+          "uptime_seconds": {"type": "number"}
+        }
+      }
+    }
+  ],
+  "fieldValue": {
+    "type": "object",
+    "required": ["value", "recv_ts"],
+    "properties": {
+      "value": {"type": ["number", "string", "boolean", "null"]},
+      "src_ts": {
+        "type": ["string", "null"],
+        "description": "Bloomberg 侧时间戳；消息未带则为 null。"
+      },
+      "recv_ts": {
+        "type": "string",
+        "description": "网关收到该字段更新的时刻。"
+      }
+    }
+  },
+  "fieldCatalog": {
+    "mktdata": [
+      {
+        "field": "CHG_PCT_1D",
+        "pushed": false,
+        "coverage": "0/33",
+        "scope": "default",
+        "fallback": "compute_from_prev_close",
+        "evidence": "report-marketview-live-fields.md §2"
+      },
+      {
+        "field": "VOLUME_AVG_5D",
+        "pushed": false,
+        "coverage": "0/33",
+        "scope": "default",
+        "fallback": "bdib_daily_summary.adv_5d",
+        "evidence": "report-marketview-live-fields.md §2"
+      },
+      {
+        "field": "VWAP",
+        "pushed": "partial",
+        "coverage": "20/33 touched, 8 markets real",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "report-marketview-live-fields.md §2（EU/US 返回 0.00，不可作基准价）"
+      },
+      {
+        "field": "PX_ROUND_LOT_SIZE",
+        "pushed": false,
+        "coverage": "0/33",
+        "scope": "default",
+        "fallback": "refdata:PX_ROUND_LOT_SIZE",
+        "evidence": "report-marketview-live-fields.md §2"
+      },
+      {
+        "field": "BID",
+        "pushed": true,
+        "coverage": "31-33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "DC/SS 整体缺失；IT/SW 个别缺失"
+      },
+      {
+        "field": "ASK",
+        "pushed": true,
+        "coverage": "31-33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "同上；休市镜像可能出现 0.00，需 <=0 守卫"
+      },
+      {
+        "field": "LAST_PRICE",
+        "pushed": true,
+        "coverage": "33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "report-marketview-live-fields.md §2"
+      },
+      {
+        "field": "VOLUME",
+        "pushed": true,
+        "coverage": "30-33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "BB/ID/PL 偶缺；两次探针覆盖不稳定"
+      },
+      {
+        "field": "HIGH",
+        "pushed": true,
+        "coverage": "33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "report-marketview-live-fields.md §2"
+      },
+      {
+        "field": "LOW",
+        "pushed": true,
+        "coverage": "33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "report-marketview-live-fields.md §2"
+      },
+      {
+        "field": "PREV_CLOSE_VALUE_REALTIME",
+        "pushed": true,
+        "coverage": "33/33",
+        "scope": "default",
+        "fallback": "none",
+        "evidence": "全市场可用，实时涨跌幅唯一可靠来源"
+      }
+    ],
+    "refdata": [
+      {
+        "field": "PX_LAST",
+        "purpose": "FX 汇率",
+        "securitiesPattern": "{ccy}USD Curncy / USD{ccy} Curncy",
+        "ttlSeconds": 60
+      },
+      {
+        "field": "CRNCY",
+        "purpose": "证券本币",
+        "securitiesPattern": "{ticker}",
+        "ttlSeconds": 3600
+      },
+      {
+        "field": "PX_ROUND_LOT_SIZE",
+        "purpose": "整手股数",
+        "securitiesPattern": "{ticker}",
+        "ttlSeconds": 3600
+      },
+      {
+        "field": "SHORT_NAME",
+        "purpose": "证券英文短名",
+        "securitiesPattern": "{ticker}",
+        "ttlSeconds": 3600
+      }
+    ],
+    "excluded": [
+      {
+        "field": "NET_CHG_PCT_1D",
+        "reason": "mktdata 不推送（0/33）"
+      },
+      {
+        "field": "PX_CLOSE_1D",
+        "reason": "mktdata 不推送（0/33），改用 PREV_CLOSE_VALUE_REALTIME"
+      },
+      {
+        "field": "VOLUME_AVG_20D",
+        "reason": "mktdata 不推送；参与率分母用 bdib_daily_summary.adv_20d"
+      },
+      {
+        "field": "BID_SIZE",
+        "reason": "DC/SS 整体缺失，不足以支撑规模推断"
+      },
+      {
+        "field": "ASK_SIZE",
+        "reason": "同上"
+      },
+      {
+        "field": "MID",
+        "reason": "SW/IT 等市场为 0.00"
+      }
+    ]
+  },
+  "clientRequirements": {
+    "fallback": "收到 2001/3001 或连续 3 次超时后，必须熔断并回落直连；恢复需手动切回，避免抖动。",
+    "stale": "source=stale 时必须向终端用户标注数据时点，不得当作实时值展示。",
+    "gaps": "_meta.gaps 非空时必须按 fieldCatalog[].fallback 回落，不得填 0。",
+    "noBar": "网关不提供 bar 接口；10 秒 bar 走 raw_bdib / 盘中库 bars_10s_t0。"
+  }
+}
