@@ -193,18 +193,23 @@ def test_no_forbidden_imports(
 
 
 # ── 跨域调用下划线方法检测 ──
+# 私有约定是**前缀**下划线（`_foo`），不是中间下划线。旧写法 `platform_data\.\w+\.\w+_\w+`
+# 会把公开模块名当成私有访问（013 实测：`platform_data.contracts.gateway_contracts`
+# 命中 `\w+_\w+` 被误判为「调用下划线方法」）。故限定为「点号后紧跟下划线」。
+_UNDERSCORE_ACCESS = r"platform_data\.\w+\._\w+"
+
 UNDERSCORE_RULES = [
     (
         REPO_ROOT / "backend",
         "*.py",
-        r"platform_data\.\w+\.\w+_\w+",
+        _UNDERSCORE_ACCESS,
         "AP-08",
         "调用 platform_data 适配器的下划线方法",
     ),
     (
         REPO_ROOT / "frontend" / "src",
         "*.ts",
-        r"platform_data\.\w+\.\w+_\w+",
+        _UNDERSCORE_ACCESS,
         "AP-08",
         "调用 platform_data 适配器的下划线方法",
     ),

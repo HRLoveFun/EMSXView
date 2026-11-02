@@ -23,6 +23,11 @@ class Settings:
     BLOOMBERG_PORT: int = int(os.getenv("BLOOMBERG_PORT", "8194"))
     BLOOMBERG_TIMEOUT: int = int(os.getenv("BLOOMBERG_TIMEOUT", "60000"))
 
+    # 行情/参考数据网关（013）：off=纯直连（现状）；shadow=双跑比对；on=以网关为准
+    EMSXVIEW_GATEWAY_MODE: str = os.getenv("EMSXVIEW_GATEWAY_MODE", "off")
+    EMSXVIEW_GATEWAY_URL: str = os.getenv("EMSXVIEW_GATEWAY_URL", "http://127.0.0.1:8101")
+    EMSXVIEW_GATEWAY_WS_URL: str = os.getenv("EMSXVIEW_GATEWAY_WS_URL", "ws://127.0.0.1:8101")
+
     # API Configuration
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", "3000"))
