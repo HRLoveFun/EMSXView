@@ -90,7 +90,7 @@ const SummaryCards = ({ health, coverage }: { health: BdibHealthReport; coverage
   );
 };
 
-/** 指标勾选开关组（默认全选 18 个） */
+/** 指标勾选开关组（默认全选 38 个） */
 const MetricTogglePanel = ({ state, onChange }: { state: MonitoringViewState; onChange: (s: MonitoringViewState) => void }) => {
   const toggle = (metric: string, checked: boolean) => {
     const selected = checked
