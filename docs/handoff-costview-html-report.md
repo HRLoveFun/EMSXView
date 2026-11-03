@@ -9,8 +9,9 @@
 ## 现状一句话
 
 CostView Report 页已有"导出 HTML 报告"按钮 → `GET /api/tca/monitoring/export-html`
-→ 自包含静态 HTML（内联 CSS + SVG 图表，零 JS 依赖），内容 8 小节，与 CLI
-`scripts/reports/generate_tca_report.py` 共用同一渲染器。
+→ 自包含静态 HTML（内联 CSS + SVG 图表，零 JS 依赖），报告头 + KPI 卡片区 + 12 个二级
+小节 + 页脚（数据质量提示 / 分市场金额 / 冲击分解 / 综合评估 / 覆盖率 / BDIB 附录等按
+数据可得性条件渲染），与 CLI `scripts/reports/generate_tca_report.py` 共用同一渲染器。
 
 ## 关键文件地图
 
