@@ -72,23 +72,24 @@ python main.py
 
 ## Endpoints
 
-共 14 个端点（9 个 costview 路由 + 5 个 monitoring 路由），行号取自 `api/routers/` 源码（2026-10-29 复核）：
+共 14 个端点（9 个 costview 路由 + 5 个 monitoring 路由），行号取自 `api/routers/` 源码（2026-11-03 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
-| `POST /api/tca/analyze` | Run TCA analysis with optional filters (route 级，读 `tca_route_summary`) | `api/routers/costview.py:143` |
-| `POST /api/tca/analyze-orders` | TCA order-aggregate query（`TCA_ORDER_AGG_ENABLED` 默认关闭） | `api/routers/costview.py:215` |
-| `POST /api/tca/scorecard` | Broker/strategy cohort scorecard | `api/routers/costview.py:314` |
-| `POST /api/tca/recommendations/pin` | Pin a broker recommendation handoff（ExecutionView 经 `GET /api/broker-recommendations` 读取） | `api/routers/costview.py:396` |
-| `GET /api/tca/handoff/post-trade/{order_id}` | Peek ExecutionView → CostView handoff | `api/routers/costview.py:442` |
-| `GET /api/tca/data-freshness` | TCA 数据新鲜度（最新交易日 / 滞后工作日数） | `api/routers/costview.py:491` |
-| `GET /api/tca/capabilities` | 当前可见的区间 / 维度 / 指标能力清单 | `api/routers/costview.py:545` |
-| `GET /api/costview/regime-distribution` | Per-day regime label counts | `api/routers/costview.py:584` |
-| `GET /api/tca/monitoring/bdib-health` | BDIB data health scan | `api/routers/monitoring.py:151` |
-| `GET /api/tca/monitoring/metric-coverage` | Computed-metric non-NULL coverage | `api/routers/monitoring.py:187` |
-| `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) | `api/routers/monitoring.py:225` |
-| `GET /api/tca/monitoring/anomaly-thresholds` | Anomaly route-filter thresholds | `api/routers/monitoring.py:269` |
-| `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:288` |
+| `POST /api/tca/analyze` | Run TCA analysis with optional filters (route 级，读 `tca_route_summary`) | `api/routers/costview.py:145` |
+| `POST /api/tca/analyze-orders` | TCA order-aggregate query（`TCA_ORDER_AGG_ENABLED` 默认开启，`env=0` 可关闭并降级提示） | `api/routers/costview.py:238` |
+| `POST /api/tca/scorecard` | Broker/strategy cohort scorecard | `api/routers/costview.py:337` |
+| `POST /api/tca/evaluation/report` | 027 综合评估报告（与报告内嵌 `evaluation` 章节同一编排） | `api/routers/costview.py:419` |
+| `POST /api/tca/recommendations/pin` | Pin a broker recommendation handoff（ExecutionView 经 `GET /api/broker-recommendations` 读取） | `api/routers/costview.py:518` |
+| `GET /api/tca/handoff/post-trade/{order_id}` | Peek ExecutionView → CostView handoff | `api/routers/costview.py:564` |
+| `GET /api/tca/data-freshness` | TCA 数据新鲜度（最新交易日 / 滞后工作日数） | `api/routers/costview.py:613` |
+| `GET /api/tca/capabilities` | 当前可见的能力开关（订单级 / 核心基准 / 风险冲击 / 评估） | `api/routers/costview.py:667` |
+| `GET /api/costview/regime-distribution` | Per-day regime label counts | `api/routers/costview.py:708` |
+| `GET /api/tca/monitoring/bdib-health` | BDIB data health scan | `api/routers/monitoring.py:169` |
+| `GET /api/tca/monitoring/metric-coverage` | Computed-metric non-NULL coverage | `api/routers/monitoring.py:220` |
+| `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) | `api/routers/monitoring.py:262` |
+| `GET /api/tca/monitoring/anomaly-thresholds` | Anomaly route-filter thresholds | `api/routers/monitoring.py:312` |
+| `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:331` |
 
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
 
@@ -108,9 +109,12 @@ python -m CostView.src --query summary    --date 20260408 --output json
 python -m CostView.src --query raw-fills  --order-id 12345
 python -m CostView.src --query log        --last 10
 python -m CostView.src --query tickers    --ticker-type equ_ticker
+python -m CostView.src --query inventory        --date 20260408   # DL-05 数据盘点
+python -m CostView.src --query fit-cost-model   --date 20260408   # DL-13 成本模型拟合落盘
+python -m CostView.src --query cost-calibration                   # DL-13 样本外校准
 ```
 
-> `--query` 取值：`fills` / `raw-fills` / `log` / `order-log` / `orders` / `tickers` / `summary`。入口由 `tests/test_cli_entrypoint.py` 锁定，详见主 [README.md §4.2](../README.md)。
+> `--query` 取值共 10 个：`fills` / `raw-fills` / `log` / `order-log` / `orders` / `tickers` / `summary` / `inventory` / `fit-cost-model` / `cost-calibration`。入口由 `tests/test_cli_entrypoint.py` 锁定，详见主 [README.md §4.2](../README.md)。
 
 ## Verification
 
@@ -130,7 +134,7 @@ cd CostView/api && python main.py    # Swagger: http://<host>:<COSTVIEW_PORT>/do
 
 ## Dependencies
 
-包级依赖声明在 `pyproject.toml`（`pip install -e .`）：`pydantic`、`pandas`、`emsxview-platform-data`、`emsxview-datapipeline`。
+包级依赖声明在 `pyproject.toml`（`pip install -e .`）：`pydantic`、`pandas`、`scipy`、`emsxview-platform-data`（`emsxview-datapipeline` 已于 2026-09-16 移除，管道迁独立仓库）。
 微服务进程依赖见 `api/requirements.txt`（fastapi / uvicorn / redis 等）。
 
 - `data_access/`（仓库内只读数据访问层，非独立 pip 包）
