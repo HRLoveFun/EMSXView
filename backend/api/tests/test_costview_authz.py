@@ -52,9 +52,9 @@ def _bridge_routes() -> list[tuple[str, str]]:
 
 
 def test_bridge_requires_token_on_all_endpoints():
-    """全部桥接端点缺 token 一律 401（A04 验收）；计数随端点增删同步（现 16 个）。"""
+    """全部桥接端点缺 token 一律 401（A04 验收）；计数随端点增删同步（现 17 个）。"""
     routes = _bridge_routes()
-    assert len(routes) == 16, routes
+    assert len(routes) == 17, routes
     client = _client(unauthorized=True)
     for method, path in routes:
         url = path.replace("{order_id}", "1")

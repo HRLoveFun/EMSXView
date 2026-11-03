@@ -164,3 +164,71 @@ class TestFilterOptions:
             conn.close()
 
         assert dates == ["20261020", "20261021", "20261022"]
+
+
+class TestDetailQueries:
+    """PR-2：详情逐笔/行情取数（processed_fills / raw_fills / raw_bdib）。"""
+
+    def test_order_routes_fills_raw_and_bars(self, tmp_path):
+        mgr = make_manager(
+            tmp_path, [{"OrderId": "D1"}],
+            fills=[{"OrderId": "D1", "fill_id": "F1", "exec_time": "09:31:00"}],
+            raw_fills=[{"OrderId": "D1", "fill_id": "F1", "liquidity": "1"}],
+            bars=[{"ts": "09:30:10", "volume": 500.0}],
+        )
+        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+        try:
+            routes = tq.query_order_routes(conn, "D1")
+        finally:
+            conn.close()
+        assert [r["RouteId"] for r in routes] == ["R1"]
+
+        conn = mgr.get_connection("processed_fills", AccessTier.READ)
+        try:
+            fills = tq.query_order_fills(conn, "D1", "20261022")
+        finally:
+            conn.close()
+        assert [f["FillId"] for f in fills] == ["F1"]
+
+        conn = mgr.get_connection("raw_fills", AccessTier.READ)
+        try:
+            raw = tq.query_order_raw_fills(conn, "D1", "20261022")
+        finally:
+            conn.close()
+        assert raw[0]["Liquidity"] == "1"
+
+        conn = mgr.get_connection("raw_bdib", AccessTier.READ)
+        try:
+            bars = tq.query_order_bars(conn, "ABCD US Equity", "20261022")
+        finally:
+            conn.close()
+        assert bars[0]["volume"] == 500.0
+
+    def test_detail_queries_degrade_on_missing_table(self, tmp_path):
+        """库在但表缺失 → 查询层降级空列表（009 语义，不抛错）。"""
+        import sqlite3
+
+        from data_access.storage.connection import ConnectionManager
+
+        empty = tmp_path / "empty.db"
+        sqlite3.connect(str(empty)).close()
+        mgr = ConnectionManager(path_overrides={
+            "processed_fills": empty, "raw_fills": empty, "raw_bdib": empty,
+        })
+        conn = mgr.get_connection("processed_fills", AccessTier.READ)
+        try:
+            assert tq.query_order_fills(conn, "D1", "20261022") == []
+            assert tq.query_order_raw_fills(conn, "D1", "20261022") == []
+            assert tq.query_order_bars(conn, "ABCD", "20261022") == []
+        finally:
+            conn.close()
+
+    def test_missing_db_file_raises_for_router_503(self, tmp_path):
+        """库文件不存在 → FileNotFoundError（路由层映射 503 data_source_unavailable）。"""
+        from data_access.storage.connection import ConnectionManager
+
+        mgr = ConnectionManager(path_overrides={
+            "processed_fills": tmp_path / "nodir" / "missing.db",
+        })
+        with pytest.raises(FileNotFoundError):
+            mgr.get_connection("processed_fills", AccessTier.READ)

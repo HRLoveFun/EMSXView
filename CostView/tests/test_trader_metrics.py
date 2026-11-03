@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from CostView.src import trader_metrics as tm
 
 
@@ -132,3 +134,203 @@ class TestComputeProbes:
     def test_participation_counts_par_suspect(self) -> None:
         probes = tm.compute_probes([_row(max_par_rate=1.2), _row(max_par_rate=0.2)])
         assert probes[1]["triggered"] == 1
+
+    def test_fill_quality_context_applied(self) -> None:
+        probes = tm.compute_probes([], {"checked": True, "triggered": 2, "note": None})
+        assert probes[3]["checked"] is True
+        assert probes[3]["triggered"] == 2
+
+
+# ── PR-2：FIX 851 映射 / 主被动拆分 / 成本分解 ──────────────────────────────
+
+
+class TestLiquidityMapping:
+    """§4.6 验收：FIX 851 全部取值映射单测（1/2/3/4/0/5/6/Z/空 + 扩展）。"""
+
+    def test_strict_mapping_all_values(self) -> None:
+        assert tm.liquidity_class("1") == "passive"
+        assert tm.liquidity_class("2") == "aggressive"
+        assert tm.liquidity_class("4") == "auction"
+        assert tm.liquidity_class("Maker") == "passive"
+        assert tm.liquidity_class("Taker") == "aggressive"
+        assert tm.liquidity_class("Auction") == "auction"
+        for raw in ("3", "0", "5", "6", "Z", "P", "A", "Routed", "", None):
+            assert tm.liquidity_class(raw) == "unknown", raw
+
+
+class TestLiquiditySplit:
+    def test_shares_sum_invariant_and_costs(self) -> None:
+        fills = [
+            {"shares": 100.0, "price": 10.0, "liquidity_raw": "1"},   # passive
+            {"shares": 200.0, "price": 11.0, "liquidity_raw": "2"},   # aggressive
+            {"shares": 50.0, "price": 12.0, "liquidity_raw": "4"},    # auction
+            {"shares": 50.0, "price": 9.0, "liquidity_raw": "Z"},     # unknown
+        ]
+        split = tm.liquidity_split(fills, p_arrival=10.0, side="BUY")
+
+        assert split["total_shares"] == 400.0
+        assert split["passive_share_strict"] == 0.25
+        assert split["aggressive_share_strict"] == 0.5
+        assert split["auction_share"] == 0.125
+        assert split["unknown_share"] == 0.125
+        # BUY：成交价高于 p_arrival 为不利 → 负 bps
+        assert split["passive_cost_bps"] == 0.0
+        assert split["aggressive_cost_bps"] == pytest.approx(-1000.0)
+        assert split["recognized_share"] == 0.875
+
+    def test_missing_p_arrival_gives_none_costs(self) -> None:
+        split = tm.liquidity_split([{"shares": 1.0, "price": 1.0, "liquidity_raw": "1"}], None, "BUY")
+        assert split["passive_cost_bps"] is None
+
+
+class TestCostDecomposition:
+    def test_residual_zero_when_components_close(self) -> None:
+        cost = tm.cost_decomposition(
+            delay_cost=-100.0, trading_cost=-200.0, opportunity_cost=-50.0,
+            wagner_is_bps=-35.0, route_shares=1000.0, p_decision=100.0,
+            arrival_cost_bps=-4.0, completion=0.9,
+        )
+        assert cost["denominator"] == 100_000.0
+        assert cost["delay_bps"] == pytest.approx(-10.0)
+        assert cost["trading_bps"] == pytest.approx(-20.0)
+        assert cost["opportunity_bps"] == pytest.approx(-5.0)
+        assert cost["residual_bps"] == pytest.approx(0.0)
+        assert cost["residual_flag"] is None
+        assert cost["opportunity_dominant"] is True
+        assert cost["opportunity_highlight"] is True
+
+    def test_residual_flagged_at_tolerance(self) -> None:
+        cost = tm.cost_decomposition(
+            delay_cost=-100.0, trading_cost=-200.0, opportunity_cost=-50.0,
+            wagner_is_bps=-30.0, route_shares=1000.0, p_decision=100.0,
+        )
+        assert cost["residual_bps"] == pytest.approx(5.0)
+        assert cost["residual_flag"] == "对账异常"
+
+    def test_missing_p_decision_no_nan(self) -> None:
+        cost = tm.cost_decomposition(
+            delay_cost=-100.0, trading_cost=-200.0, opportunity_cost=-50.0,
+            wagner_is_bps=-35.0, route_shares=1000.0, p_decision=None,
+        )
+        assert cost["denominator"] is None
+        assert cost["residual_bps"] is None
+        assert cost["delay_bps"] is None
+        assert cost["note"] == "IS 分解不可用（无 BDIB/决策价）"
+
+
+class TestLatencyBlock:
+    def test_scheduled_and_clamp(self) -> None:
+        block = tm.latency_block(
+            order_to_route_sec=10.0, route_to_first_fill_sec=20.0,
+            first_continuous_fill_sec=-0.5, algo="close", first_fill_is_auction=False,
+        )
+        assert block["scheduled"] is True
+        assert block["first_continuous_fill_sec"] == 0.0      # <1s 负值钳 0
+        assert block["latency_anomaly"] is False
+        assert block["order_to_first_fill_sec"] == 30.0
+
+    def test_negative_over_1s_flags_anomaly(self) -> None:
+        block = tm.latency_block(
+            order_to_route_sec=None, route_to_first_fill_sec=None,
+            first_continuous_fill_sec=-5.0, algo="vwap", first_fill_is_auction=False,
+        )
+        assert block["latency_anomaly"] is True
+        assert block["scheduled"] is False
+
+
+class TestPercentileMadZ:
+    def test_percentile_rank(self) -> None:
+        assert tm.percentile_rank(5.0, [1.0, 3.0, 5.0, 7.0]) == 0.625
+        assert tm.percentile_rank(None, [1.0]) is None
+        assert tm.percentile_rank(1.0, []) is None
+
+    def test_mad_z_and_zero_mad_fallback(self) -> None:
+        # 中位 2、MAD 1 → z = (6 − 2) / 1
+        assert tm.mad_z(6.0, [1.0, 2.0, 3.0]) == pytest.approx(4.0)
+        assert tm.mad_z(2.0, [2.0, 2.0, 2.0]) is None
+
+
+# ── PR-2：时间线分桶 / 完成轨迹 / 填充分布 ─────────────────────────────────
+
+
+def _fill(ts: float, shares: float, price: float = 10.0, auction: int = 0) -> dict:
+    return {"ts_sec": ts, "shares": shares, "price": price, "is_closing_auction": auction}
+
+
+class TestBucketFills:
+    def test_sums_cum_completion_and_participation(self) -> None:
+        fills = [_fill(33660, 300.0), _fill(33960, 300.0), _fill(34260, 400.0)]
+        bars = [
+            {"ts_sec": 33670, "volume": 3000.0},
+            {"ts_sec": 33970, "volume": 3000.0},
+            {"ts_sec": 34270, "volume": 4000.0},
+        ]
+        timeline = tm.bucket_fills(fills, 5, 1000.0, bars)
+
+        buckets = timeline["buckets"]
+        assert len(buckets) == 3
+        assert sum(b["fill"] for b in buckets) == 1000.0          # 桶和 = 总成交
+        assert buckets[-1]["cum_completion"] == 1.0               # 末桶 = completion
+        assert buckets[0]["participation"] == pytest.approx(0.1)
+        assert buckets[0]["accel"] is None
+        assert all(b["participation_status"] == "ok" for b in buckets)
+
+    def test_auction_bucket_unavailable(self) -> None:
+        fills = [_fill(57300, 300.0), _fill(57600, 700.0, auction=1)]
+        bars = [{"ts_sec": 57310, "volume": 1000.0}]
+        buckets = tm.bucket_fills(fills, 5, 1000.0, bars)["buckets"]
+
+        assert len(buckets) == 2
+        assert buckets[1]["participation"] is None
+        assert buckets[1]["participation_status"] == "unavailable"
+
+    def test_auto_widen_disclosed(self) -> None:
+        fills = [_fill(0.0, 100.0), _fill(30 * 3600, 100.0)]
+        timeline = tm.bucket_fills(fills, 5, 200.0, [])
+
+        assert timeline["auto_widened"] is True
+        assert timeline["bucket_min"] > 5
+
+    def test_empty_fills(self) -> None:
+        assert tm.bucket_fills([], 5, None, [])["buckets"] == []
+
+
+class TestFillSpanStats:
+    def test_single_fill_returns_none_not_zero(self) -> None:
+        fills = [_fill(100.0, 300.0)]
+        buckets = tm.bucket_fills(fills, 5, 300.0, [])["buckets"]
+        stats = tm.fill_span_stats(fills, buckets, 300.0)
+
+        assert stats["fill_span_sec"] is None
+        assert stats["speed_shares_per_min"] is None
+        assert stats["speed_cv"] is None
+
+    def test_multi_fill_speed_and_zero_buckets(self) -> None:
+        fills = [_fill(0.0, 300.0), _fill(600.0, 300.0), _fill(1200.0, 400.0)]
+        buckets = tm.bucket_fills(fills, 5, 1000.0, [])["buckets"]
+        stats = tm.fill_span_stats(fills, buckets, 1000.0)
+
+        assert stats["fill_span_sec"] == 1200.0
+        assert stats["speed_shares_per_min"] == pytest.approx(50.0)
+        assert stats["speed_cv_basis"] == "non_zero_buckets"
+
+
+class TestFillDistribution:
+    def test_stats_and_top3(self) -> None:
+        fills = [_fill(0.0, 100.0), _fill(300.0, 200.0), _fill(600.0, 300.0)]
+        stats = tm.fill_distribution(fills, 1000.0)
+
+        assert stats["median"] == 200.0
+        assert stats["p90"] == pytest.approx(280.0)
+        assert stats["top3_share"] == 1.0
+        assert stats["max_fill_ratio"] == pytest.approx(0.3)
+        assert stats["fills_per_min"] == pytest.approx(0.3)
+
+    def test_single_fill_skips_cv_and_top3(self) -> None:
+        stats = tm.fill_distribution([_fill(0.0, 100.0)], 1000.0)
+        assert stats["cv"] is None
+        assert stats["top3_share"] is None
+
+    def test_top3_na_below_three_fills(self) -> None:
+        stats = tm.fill_distribution([_fill(0.0, 100.0), _fill(60.0, 100.0)], 1000.0)
+        assert stats["top3_share"] is None

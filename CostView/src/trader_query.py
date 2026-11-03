@@ -94,6 +94,8 @@ def _agg_select() -> str:
                r.StrategyType AS strategy_type, r.algo, r.Broker AS broker,
                r.TraderName AS trader_name,
                r.p_decision, r.p_arrival, r.p_close,
+               r.LimitPrice AS limit_price, r.Currency AS currency,
+               r.par_rate AS par_rate,
                MAX(r.fill) AS max_fill,
                COUNT(*) AS route_count,
                COUNT(DISTINCT r.StrategyType) AS n_strategy,
@@ -155,11 +157,15 @@ def order_rows_sql(filters) -> tuple[str, list[Any]]:
     """
     t = Config.TCA_ROUTE_SUMMARY_TABLE
     having, having_params = _dim_having(filters)
-    params: list[Any] = [filters.start_date, filters.end_date, *having_params]
+    order_filter = " AND r.OrderId = ?" if filters.order_id else ""
+    params: list[Any] = [filters.start_date, filters.end_date]
+    if filters.order_id:
+        params.append(filters.order_id)
+    params.extend(having_params)
     inner = f"""
         {_agg_select()}
           FROM {t} r
-          WHERE r.order_as_of_date BETWEEN ? AND ?
+          WHERE r.order_as_of_date BETWEEN ? AND ?{order_filter}
           GROUP BY r.OrderId, r.order_as_of_date{having}
         )
         """
@@ -274,3 +280,114 @@ def recent_trading_dates(conn, n: int = 5) -> list[str]:
         logger.warning("recent_trading_dates 失败（返回空）: %s", exc)
         return []
     return sorted(dates)
+
+
+# ── 订单详情逐笔取数（PR-2；库/表缺失一律降级空列表，不抛错）───────────────
+
+
+def _rows_or_empty(conn, sql: str, params: list[Any], label: str) -> list[dict[str, Any]]:
+    """执行查询 → dict 行列表；异常（缺表/缺列）降级为空并记 warning。"""
+    try:
+        cursor = conn.execute(sql, params)
+    except Exception as exc:
+        logger.warning("%s 查询失败（降级空列表）: %s", label, exc)
+        return []
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def query_order_routes(conn, order_id: str) -> list[dict[str, Any]]:
+    """订单全部路由（tca_route_summary），按 RouteId 升序。"""
+    return _rows_or_empty(
+        conn,
+        f"SELECT * FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE OrderId = ? "
+        "ORDER BY RouteId",
+        [order_id],
+        "order routes",
+    )
+
+
+def query_order_fills(conn, order_id: str, order_as_of_date: str) -> list[dict[str, Any]]:
+    """订单逐笔（processed_fills，清洗后权威逐笔），按成交时刻升序。"""
+    return _rows_or_empty(
+        conn,
+        f"SELECT RouteId, FillId, exchange_exec_time, route_as_of_time, "
+        f"FillPrice, FillShares, is_closing_auction, equ_ticker, Exchange "
+        f"FROM {Config.PROCESSED_FILLS_TABLE} "
+        f"WHERE OrderId = ? AND order_as_of_date = ? "
+        "ORDER BY exchange_exec_time, FillId",
+        [order_id, order_as_of_date],
+        "order fills",
+    )
+
+
+def query_order_raw_fills(conn, order_id: str, order_as_of_date: str) -> list[dict[str, Any]]:
+    """订单原始逐笔（raw_fills：Liquidity / NY 时间戳），按 FillId 升序。"""
+    return _rows_or_empty(
+        conn,
+        f"SELECT RouteId, FillId, Liquidity, NyOrderCreateAsOfDateTime, "
+        f"NyTranCreateAsOfDateTime, DateTimeOfFill "
+        f"FROM {Config.RAW_FILLS_TABLE} "
+        f"WHERE OrderId = ? AND order_as_of_date = ? "
+        "ORDER BY FillId",
+        [order_id, order_as_of_date],
+        "order raw_fills",
+    )
+
+
+def query_order_bars(conn, equ_ticker: str, order_as_of_date: str) -> list[dict[str, Any]]:
+    """订单日 raw_bdib 10s bar（按前导列点查，指南 §10.3），按时刻升序。"""
+    return _rows_or_empty(
+        conn,
+        f"SELECT mkt_timestamp, close, open, volume FROM {Config.RAW_BDIB_TABLE} "
+        f"WHERE equ_ticker = ? AND order_as_of_date = ? "
+        "ORDER BY mkt_timestamp",
+        [equ_ticker, order_as_of_date],
+        "order bars",
+    )
+
+
+def _keys_where(keys: list[tuple[str, str]]) -> tuple[str, list[Any]]:
+    """(OrderId, order_as_of_date) 键集 → OrderId IN（走 OrderId 前导索引）。
+
+    OrderId 在 EMSX 内全局唯一，无需再按日期过滤；OR 式 (OrderId, date) 条件
+    会让优化器退化为全表扫（raw_fills 千万级行，实测超预算）。
+    """
+    order_ids = list(dict.fromkeys(str(order_id) for order_id, _ in keys))
+    marks = ", ".join(["?"] * len(order_ids))
+    return f"OrderId IN ({marks})", order_ids
+
+
+def query_page_fill_agg(conn, keys: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """列表当前页逐笔聚合（每订单一行）：span/速度/首笔竞价判定的最小数据。
+
+    不拉全量逐笔 —— 30 天×50 行的性能预算（§6.2）靠这层聚合守住。
+    """
+    if not keys:
+        return []
+    where, params = _keys_where(keys)
+    return _rows_or_empty(
+        conn,
+        f"SELECT OrderId, COUNT(*) AS fill_n, "
+        f"MIN(exchange_exec_time) AS first_exec, MAX(exchange_exec_time) AS last_exec, "
+        f"MIN(route_as_of_time) AS first_route_as_of, "
+        f"MIN(is_closing_auction) AS all_auction "
+        f"FROM {Config.PROCESSED_FILLS_TABLE} WHERE {where} GROUP BY OrderId",
+        params,
+        "page fill agg",
+    )
+
+
+def query_page_liquidity_agg(conn, keys: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """列表当前页 Liquidity×股数聚合（订单 × 原始取值；分类走 LIQUIDITY_MAP）。"""
+    if not keys:
+        return []
+    where, params = _keys_where(keys)
+    return _rows_or_empty(
+        conn,
+        f"SELECT OrderId, Liquidity, SUM(CAST(FillShares AS REAL)) AS shares "
+        f"FROM {Config.RAW_FILLS_TABLE} WHERE {where} "
+        "GROUP BY OrderId, Liquidity",
+        params,
+        "page liquidity agg",
+    )
