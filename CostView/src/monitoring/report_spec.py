@@ -11,10 +11,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import report_measure as rm
+
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
 #: 2026.11.03：F1 —— Amount 语义纠正（委托股数，非金额），异常金额列与门槛改用
 #: fill×p_avg；删除 amount_consistency 探针与其容差声明
-SPEC_VERSION = "2026.11.03"
+#: 2026.11.03b：F2 —— 订单参与率不再按组内求和判定（单路由看自身、多路由看组内
+#: 最大路由参与率），规则拆为 order_par_single_gt100 / route_par_extreme
+SPEC_VERSION = "2026.11.03b"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -74,10 +78,13 @@ REPORT_SPEC: dict[str, Any] = {
     #: D15 / DP-4 定稿：冲击截断占比分母 = 冲击计算样本（任一冲击指标可计算）
     #: （实现常量见 report_aggregator.IMPACT_TRUNCATED_SHARE_DENOMINATOR，测试断言一致）
     "impact_truncated_share_denominator": "impact_sample",
-    #: D17：订单参与率「疑重复记账」临界求和（200%）。唯一实现源见
-    #: report_measure.ORDER_PAR_CRITICAL_SUM（异常规则 critical 档 ×100 与探针共用），
-    #: 测试断言三处一致（P1-a 复核 F-b 阈值唯一化）
-    "order_par_critical_gt": 2.0,
+    #: F2（2026-11-03）：订单参与率不再以组内求和判定 —— 单路由组看自身参与率，
+    #: 多路由组看组内最大路由参与率（各路由共享同一市场成交量分母，求和不可加总）。
+    #: 唯一实现源见 report_measure.ORDER_PAR_SUSPECT_RATE / ORDER_PAR_CRITICAL_RATE，
+    #: 测试断言声明层与规则默认值一致。
+    "order_par_suspect_rate": rm.ORDER_PAR_SUSPECT_RATE,
+    "order_par_critical_rate": rm.ORDER_PAR_CRITICAL_RATE,
+    "order_par_multi_route_rule": "max-route-rate",
     #: D1 / DP-5 定稿：图表轴锚定硬规则（防渲染器各图各自发挥；护栏测试断言
     #: SVG 产物存在零轴元素）
     "chart_axis": {
@@ -178,7 +185,11 @@ def _p0_p1_footer_clauses() -> str:
         f"异常金额列与门槛均为成交金额 fill×p_avg×汇率"
         f"（{REPORT_SPEC['anomaly_notional_gate']}；零成交路由按委托股数×p_avg×汇率 计）；"
         f"Amount 为{REPORT_SPEC['amount_column_semantics']}，不作金额使用；"
-        f"订单参与率 >{REPORT_SPEC['order_par_critical_gt'] * 100:.0f}% 疑重复记账单独分档；"
+        f"订单参与率按分组判定：单路由 >"
+        f"{REPORT_SPEC['order_par_suspect_rate'] * 100:.0f}% 标 par_suspect"
+        f"（>{REPORT_SPEC['order_par_critical_rate'] * 100:.0f}% critical），"
+        f"多路由取组内最大路由参与率、不求和"
+        f"（{REPORT_SPEC['order_par_multi_route_rule']}）；"
         f"冲击截断占比分母为冲击计算样本"
         f"（{REPORT_SPEC['impact_truncated_share_denominator']}）；"
         f"BDIB 缺口金额与 KPI 同源换算并单列未换算金额；"

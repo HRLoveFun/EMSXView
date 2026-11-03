@@ -10,8 +10,11 @@ import type {
 
 /** 本地默认规则：后端 /api/tca/monitoring/anomaly-thresholds 为唯一真相源（ADR-0018），
  *  此处仅作离线兜底；warning 决定是否进入异常清单，critical 仅用于分级标注。
- *  注：后端的 order_par_gt100 规则（订单参与率求和超限）依赖订单级聚合，
- *  前端 route 级数据无法计算，故不在此列，仅由后端异常清单承载。
+ *  注：后端的参与率规则依赖订单级聚合，前端 route 级数据无法计算，故不在此列，
+ *  仅由后端异常清单承载。F2（2026-11-03）起拆为两条：
+ *    - order_par_single_gt100：仅单路由订单，自身 par_rate >100%（>1000% critical）；
+ *    - route_par_extreme：多路由订单，取组内最大路由参与率判定（求和不可加总）。
+ *  旧键 order_par_gt100 仅作一个版本的兼容键，映射到 order_par_single_gt100。
  *  label 一律不含单位符号：单位由渲染层按 unit 补后缀，否则会出现「Fill % 42.0%」
  *  这类重复（ADR-0018 §10.5）；后端 `_RULE_LABELS` 须与本处同改。 */
 const DEFAULT_RULES: Record<CostViewMetricKey, ThresholdRule> = {

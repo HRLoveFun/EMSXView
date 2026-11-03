@@ -514,6 +514,40 @@ std(日对数收益率) × √252 × 100，实测中位 26.075）→ 82.9% 落 `
 探针与容差声明已删除、HTML 出现「委托股数」列）与 `test_monitoring` 的金额下限 /
 缺汇率 / 节流用例。
 
+### 10.14 订单参与率拆单路由 / 多路由判定（F2，2026-11-03）
+
+**背景**：`order_par_gt100` 按组内 `SUM(par_rate)` 判定越界。实测（`D:\db`，
+见 `specs/210-costview-trader-order-review/实施方案.md` §0.2 F2 实测表，2026-11-03）：
+全量 `par_rate > 100%` 的路由 23,946 / 167,481（14.3%），最大 330,459；2026-10 求和越界
+2,427 组中，**多路由组 856 组**属「各路由共享同一市场成交量分母，时间重叠时求和不可解释」，
+单路由组 1,571 组才是真·病态值（区间 BDIB 成交量分母过小 / 缺失）。
+
+**决策**：
+
+1. `ORDER_PAR_GROUP_COLUMNS`（`(OrderId, order_as_of_date, Exchange)`）**不变**，只改
+   组内判定：`order_par_aggregate_sql` 增出 `route_count` / `max_par_rate`。
+2. 异常规则拆为 `order_par_single_gt100`（仅单路由组，看自身参与率）与
+   `route_par_extreme`（多路由组，看组内最大路由参与率）；两档均 above-strict，
+   warning = `ORDER_PAR_SUSPECT_RATE`（100%）、critical = `ORDER_PAR_CRITICAL_RATE`
+   （1000%，疑重复记账 / 分母失真）。
+3. 兼容键 `order_par_gt100` 保留一个版本，经 `_LEGACY_RULE_KEYS` 映射到
+   `order_par_single_gt100`，随后废弃；`AnomalyRoute.order_par_gt100` 布尔标记改为
+   `par_suspect` + `order_par_routes` / `order_par_max`。
+4. 明细列对多路由显示 `max …（N routes）`，求和值不渲染；数据质量提示拆
+   「单路由 N1 个 + 多路由 N2 个」；一致性探针同口径（`order_par_*_suspect_orders` /
+   `order_par_extreme_orders`）。
+5. `REPORT_SPEC` 新增 `order_par_suspect_rate` / `order_par_critical_rate` /
+   `order_par_multi_route_rule`（替代 `order_par_critical_gt`）；`SPEC_VERSION` →
+   `2026.11.03b`。
+
+**取舍**：多路由组的组内求和仍保留在 `order_par_rate` 字段供追溯，但不再进判定与展示；
+单路由订单在 2026-10 的 >100% 规模（1,571 / 16,292 = 9.6%）说明「par > 100%」本身
+主要源于分母缺失，规则定位是数据质量信号（par_suspect），不是「交易差」评价。
+
+**护栏**：`test_report_metrics.TestOrderParAggregation`（多路由求和不判异常、max 判定、
+兼容键映射）与 `TestOrderParRuleBinding`（阈值单源 + HTML 多路由渲染）、
+`TestCoverageConsistency.test_order_par_consistency_splits_single_and_multi`（探针同口径）。
+
 ## 后果 (Consequences)
 
 ### 正面

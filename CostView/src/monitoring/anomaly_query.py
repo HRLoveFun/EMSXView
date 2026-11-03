@@ -19,7 +19,7 @@ import csv
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from data_access.config import Config
 from data_access.storage.connection import AccessTier, ConnectionManager
@@ -47,18 +47,21 @@ _METRIC_MAP: dict[str, tuple[str, float]] = {
     "volume_pct_interval": ("par_rate_continuous", 100.0),
     "intraday_volatility": ("pnl_vwap_continuous", 0.01),
     "price_movement_pct": ("rpm", 1.0),
-    # 数据质量探针（013）：完成率超过 100% / 订单参与率求和超过 100% 均属数据矛盾，
+    # 数据质量探针（013）：完成率超过 100% / 路由参与率超过 100% 均属数据矛盾，
     # 此前被展示层封顶掩盖，现作为独立规则纳入异常判定，不再静默放过。
     # overfill_pct 走 above-strict（严格大于）：完成率恰为 100.0% 属正常「成交满」，
     # 只有真正越界（fill > RouteShares）才算矛盾 —— 与 AnomalyRoute.overfill 同界。
     "overfill_pct": ("completion_rate", 100.0),
-    "order_par_gt100": ("order_par_rate", 100.0),
+    # F2：订单参与率拆两档 —— 单路由看自身参与率（= 组内求和），多路由看组内
+    # 最大路由参与率（求和不可加总，见 report_measure.ORDER_PAR_GROUP_COLUMNS 注释）
+    "order_par_single_gt100": ("order_par_single_rate", 100.0),
+    "route_par_extreme": ("order_par_max_rate", 100.0),
 }
 
 _RULE_KEYS: tuple[str, ...] = (
     "pnl_vwap_bps", "fill_pct", "volume_pct_adv20",
     "volume_pct_interval", "intraday_volatility", "price_movement_pct",
-    "overfill_pct", "order_par_gt100",
+    "overfill_pct", "order_par_single_gt100", "route_par_extreme",
 )
 
 #: 命中规则的展示标签（渲染展示用）。
@@ -73,7 +76,8 @@ _RULE_LABELS: dict[str, str] = {
     "intraday_volatility": "Intraday Vol",
     "price_movement_pct": "Price Move",
     "overfill_pct": "Overfill",
-    "order_par_gt100": "Order Par",
+    "order_par_single_gt100": "Order Par (single)",
+    "route_par_extreme": "Route Par (max)",
 }
 
 #: 命中规则的单位（渲染「超限具体数值」用）
@@ -85,7 +89,8 @@ _RULE_UNITS: dict[str, str] = {
     "intraday_volatility": "percent",
     "price_movement_pct": "percent",
     "overfill_pct": "percent",
-    "order_par_gt100": "percent",
+    "order_par_single_gt100": "percent",
+    "route_par_extreme": "percent",
 }
 
 #: 默认阈值（后端为唯一真相源；前端经 /api/tca/monitoring/anomaly-thresholds 拉取，
@@ -109,20 +114,31 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     # 只有真正超成交（fill > RouteShares）才入清单，与 AnomalyRoute.overfill 同界
     "overfill_pct": {
         "mode": "above-strict", "warning": 100, "critical": 110, "enabled": True},
-    # 订单参与率求和同为 above-strict：恰为 100% 不算矛盾，与 AnomalyRoute.order_par_gt100
-    # 布尔标记、覆盖率一致性探针（metric_coverage 的 par_sum > 1.0）三处同界；
-    # critical 档（疑重复记账）的唯一实现源见 report_measure.ORDER_PAR_CRITICAL_SUM
-    "order_par_gt100": {
-        "mode": "above-strict", "warning": 100,
-        "critical": rm.ORDER_PAR_CRITICAL_SUM * 100, "enabled": True},
+    # F2：订单参与率两档均为 above-strict（恰为 100% 不算矛盾），与
+    # AnomalyRoute.par_suspect、覆盖率一致性探针三处同界；
+    # 越界线（100%）与 critical 档（1000%，疑重复记账 / 分母失真）的唯一实现源
+    # 见 report_measure.ORDER_PAR_SUSPECT_RATE / ORDER_PAR_CRITICAL_RATE
+    "order_par_single_gt100": {
+        "mode": "above-strict",
+        "warning": rm.ORDER_PAR_SUSPECT_RATE * 100,
+        "critical": rm.ORDER_PAR_CRITICAL_RATE * 100, "enabled": True},
+    "route_par_extreme": {
+        "mode": "above-strict",
+        "warning": rm.ORDER_PAR_SUSPECT_RATE * 100,
+        "critical": rm.ORDER_PAR_CRITICAL_RATE * 100, "enabled": True},
 }
 
 #: 合法的比较模式白名单（P2-6：payload 内 mode 缺失或非法时 fail-fast，
 #: 此前任意字符串会被静默按 above 处理，阈值语义被无声改变）
 _VALID_MODES: tuple[str, ...] = ("absolute-above", "above", "above-strict", "below")
 
-#: 规则键重命名迁移（014）：旧 payload 键 → 新键（旧前端 / 旧配置兼容）
-_LEGACY_RULE_KEYS: dict[str, str] = {"tracking_error_bps": "pnl_vwap_bps"}
+#: 规则键重命名迁移：旧 payload 键 → 新键（旧前端 / 旧 localStorage 配置兼容）
+#: tracking_error_bps → pnl_vwap_bps（014）；order_par_gt100 → order_par_single_gt100
+#: （F2：求和口径废弃，兼容键保留一个版本，语义收敛为「仅单路由订单」）
+_LEGACY_RULE_KEYS: dict[str, str] = {
+    "tracking_error_bps": "pnl_vwap_bps",
+    "order_par_gt100": "order_par_single_gt100",
+}
 
 
 def _normalize_rule_keys(
@@ -295,15 +311,23 @@ def evaluate_route_thresholds(
 _OVERFILL_EPS = 1e-9
 
 
-def _load_order_par_sums(
+class OrderParStat(NamedTuple):
+    """订单参与率组内统计（F2）：``par_sum`` 仅单路由组可解释，多路由判 ``max_rate``。"""
+
+    par_sum: float
+    route_count: int
+    max_rate: Optional[float]
+
+
+def _load_order_par_stats(
     conn, start_date: str, end_date: str, scope: rm.ReportScope,
-) -> dict[tuple[str, str, str], float]:
-    """订单级参与率求和（受报告期 + 作用域约束，不受 broker/algo/symbol 维度过滤影响）。
+) -> dict[tuple[str, str, str], OrderParStat]:
+    """订单级参与率统计（受报告期 + 作用域约束，不受 broker/algo/symbol 维度过滤影响）。
 
     口径的唯一实现见 ``report_measure.order_par_aggregate_sql``，与覆盖率一致性探针
-    共用（两处均传作用域），保证「订单参与率 >100%」可对账；作用域条件缺失时虽因
-    聚合键含 Exchange 而结果等价，但会无谓聚合全量市场（大区间下内存 / 耗时浪费），
-    且一旦作用域细到 symbol 级即静默分叉，故按契约显式传入。
+    共用（两处均传作用域），保证「单路由参与率 / 多路由最大参与率」可对账；作用域
+    条件缺失时虽因聚合键含 Exchange 而结果等价，但会无谓聚合全量市场（大区间下
+    内存 / 耗时浪费），且一旦作用域细到 symbol 级即静默分叉，故按契约显式传入。
     """
     condition = "order_as_of_date BETWEEN ? AND ?"
     params: list[Any] = [start_date, end_date]
@@ -312,12 +336,17 @@ def _load_order_par_sums(
         condition = f"{condition} AND {scope_sql}"
         params.extend(scope_params)
     cursor = conn.execute(rm.order_par_aggregate_sql(condition), params)
-    sums: dict[tuple[str, str, str], float] = {}
-    for order_id, oad, exchange, par_sum in cursor.fetchall():
+    stats: dict[tuple[str, str, str], OrderParStat] = {}
+    for order_id, oad, exchange, par_sum, route_count, max_rate in cursor.fetchall():
         total = _to_float(par_sum)
-        if total is not None:
-            sums[rm.order_par_key(order_id, oad, exchange)] = total
-    return sums
+        if total is None:
+            continue
+        stats[rm.order_par_key(order_id, oad, exchange)] = OrderParStat(
+            par_sum=total,
+            route_count=_to_int(route_count) or 0,
+            max_rate=_to_float(max_rate),
+        )
+    return stats
 
 
 def _order_par_key(row: dict[str, Any]) -> tuple[str, str, str]:
@@ -348,6 +377,7 @@ class AnomalyRoute:
     route_shares: Optional[float]
     completion_rate: Optional[float]
     par_rate: Optional[float]
+    #: 组内参与率求和（仅单路由组可解释；多路由组展示用，判定改用 order_par_max）
     order_par_rate: Optional[float]
     pnl_vwap: Optional[float]
     arrival_cost_bps: Optional[float]
@@ -364,9 +394,13 @@ class AnomalyRoute:
     notional_local: Optional[float] = None
     #: 成交金额（USD）= fill × p_avg × 汇率
     notional_usd: Optional[float] = None
-    #: 数据质量标记（013）：成交超过委托 / 订单参与率求和 >100%
+    #: 数据质量标记（013）：成交超过委托（fill > RouteShares）
     overfill: bool = False
-    order_par_gt100: bool = False
+    #: 订单参与率分组统计（F2）：路由数 / 组内最大路由参与率
+    order_par_routes: Optional[int] = None
+    order_par_max: Optional[float] = None
+    #: 参与率疑似失真（par_suspect）：单路由自身 >100%，或多路由组内最大路由 >100%
+    par_suspect: bool = False
     #: 命中项中的最严重档（critical / warning），供明细排序与分级渲染
     severity: str = "warning"
     hits: list[dict[str, Any]] = field(default_factory=list)
@@ -508,7 +542,7 @@ def query_anomaly_routes_page_ex(
         # 订单参与率：独立全量聚合（报告期 + 作用域），不受 broker/algo/symbol
         # 维度过滤影响 —— 否则订单拆到多 broker 时过滤视图下只剩子集参与率，
         # 「订单参与率 >100%」探针系统性低估，且与覆盖率一致性探针不可对账。
-        order_par_sum = _load_order_par_sums(
+        order_par_stats = _load_order_par_stats(
             conn, start_date, end_date, resolved_scope,
         )
 
@@ -577,10 +611,29 @@ def query_anomaly_routes_page_ex(
             completion_rate = effective_fill / route_shares
             overfill = effective_fill > route_shares * (1.0 + _OVERFILL_EPS)
         # 预计算完成率与订单参与率注入 row，供 fill_pct / overfill_pct /
-        # order_par_gt100 规则评估（阈值按百分比 0-100）
-        order_par_rate = order_par_sum.get(_order_par_key(row))
+        # order_par_single_gt100 / route_par_extreme 规则评估（阈值按百分比 0-100）
+        stat = order_par_stats.get(_order_par_key(row))
+        order_par_rate = stat.par_sum if stat else None
+        order_par_routes = stat.route_count if stat else None
+        order_par_max = stat.max_rate if stat else None
+        # F2：单路由组用自身参与率（= 求和），多路由组用组内最大路由参与率 ——
+        # 两档互斥注入，同一数据矛盾不会被两条规则重复计数（求和不可加总）
+        par_suspect_rate = (
+            order_par_max if (order_par_routes or 0) > 1 else order_par_rate
+        )
+        par_suspect = (
+            par_suspect_rate is not None
+            and par_suspect_rate > rm.ORDER_PAR_SUSPECT_RATE
+        )
         row["completion_rate"] = completion_rate
         row["order_par_rate"] = order_par_rate
+        row["order_par_routes"] = order_par_routes
+        row["order_par_single_rate"] = (
+            order_par_rate if order_par_routes == 1 else None
+        )
+        row["order_par_max_rate"] = (
+            order_par_max if (order_par_routes or 0) > 1 else None
+        )
         hits = evaluate_route_thresholds(row, rules)
         if not hits:
             continue
@@ -622,6 +675,8 @@ def query_anomaly_routes_page_ex(
             completion_rate=completion_rate,
             par_rate=_to_float(row.get("par_rate")),
             order_par_rate=order_par_rate,
+            order_par_routes=order_par_routes,
+            order_par_max=order_par_max,
             pnl_vwap=_to_float(row.get("pnl_vwap")),
             arrival_cost_bps=_to_float(row.get("arrival_cost_bps")),
             wagner_is_bps=_to_float(row.get("wagner_is_bps")),
@@ -635,7 +690,7 @@ def query_anomaly_routes_page_ex(
             notional_local=notional_local,
             notional_usd=notional_usd,
             overfill=overfill,
-            order_par_gt100=order_par_rate is not None and order_par_rate > 1.0,
+            par_suspect=par_suspect,
             severity=_worst_severity(hits),
             hits=hits,
         ))
@@ -742,10 +797,11 @@ _ANOMALY_CSV_COLUMNS: tuple[str, ...] = (
     # amount_shares = 委托股数（Amount）；notional_* = 成交金额（fill × p_avg）
     "amount_shares", "notional_local", "notional_usd",
     "route_shares", "fill", "unfilled", "completion_rate",
-    "par_rate", "order_par_rate", "fill_count",
+    # order_par_rate = 组内求和（单路由可解释），order_par_max = 组内最大路由参与率
+    "par_rate", "order_par_rate", "order_par_routes", "order_par_max", "fill_count",
     "pnl_vwap", "arrival_cost_bps", "wagner_is_bps", "opportunity_cost",
     "cost_cvar", "order_duration_sec",
-    "recovery_truncated", "severity", "overfill", "order_par_gt100",
+    "recovery_truncated", "severity", "overfill", "par_suspect",
     "hit_rules",
 )
 

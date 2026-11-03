@@ -36,16 +36,18 @@ const baseRow: TcaAnomalyRow = {
   ],
   severity: 'critical',
   overfill: false,
-  order_par_gt100: false,
+  order_par_routes: 1,
+  order_par_max: 0.5,
+  par_suspect: false,
 };
 
 const anomaly: TcaAnomaly = {
   count: 2,
   rows: [
-    // 数据矛盾行：overfill + 订单参与率 >100%（HTML 报告同款标记）
-    { ...baseRow, order_id: 'OF1', overfill: true, order_par_gt100: true },
+    // 数据矛盾行：overfill + 参与率疑似失真（HTML 报告同款标记）
+    { ...baseRow, order_id: 'OF1', overfill: true, par_suspect: true },
     // 正常命中行
-    { ...baseRow, order_id: 'OK1', overfill: false, order_par_gt100: false },
+    { ...baseRow, order_id: 'OK1', overfill: false, par_suspect: false },
   ],
 };
 
@@ -66,5 +68,27 @@ describe('AnomalyTable 数据质量标记', () => {
 
     expect(screen.queryByText('超成交')).not.toBeInTheDocument();
     expect(screen.queryByText('>100%')).not.toBeInTheDocument();
+  });
+
+  it('多路由行显示组内最大路由参与率与路由数，不显示不可加总的求和值', () => {
+    render(
+      <AnomalyTable
+        anomaly={{
+          ...anomaly,
+          rows: [{
+            ...baseRow,
+            order_id: 'MR1',
+            order_par_rate: 3.2,
+            order_par_routes: 3,
+            order_par_max: 1.5,
+            par_suspect: true,
+          }],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('max 150.00%')).toBeInTheDocument();
+    expect(screen.getByText('3 routes')).toBeInTheDocument();
+    expect(screen.queryByText('320.00%')).not.toBeInTheDocument();
   });
 });

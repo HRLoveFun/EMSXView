@@ -985,7 +985,7 @@ class TestExportHtmlZipClosure:
                 "rows_truncated": 0,
                 "export_ref": None,
                 "throttle": {},
-                "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
+                "data_quality": {"overfill_count": 0, "par_suspect_count": 0},
             },
         }
 
