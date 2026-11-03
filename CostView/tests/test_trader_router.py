@@ -100,3 +100,24 @@ class TestFilterOptionsEndpoint:
         assert "HRCHEN" in data["traders"]
         assert data["strategy_types"]
         assert data["symbols"]
+
+
+class TestOrderDetailEndpoint:
+    def test_success(self, client):
+        response = client.get("/api/tca/trader/orders/M1")
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["order"]["order_id"] == "M1"
+        assert data["order"]["route_count"] == 2
+        assert [r["route_id"] for r in data["routes"]] == ["R1", "R2"]
+        assert data["timeline"]["bucket_min"] == 5
+        assert data["quality"]["level"]
+
+    def test_unknown_order_is_404(self, client):
+        response = client.get("/api/tca/trader/orders/NOPE")
+        assert response.status_code == 404
+
+    def test_invalid_bucket_min_is_422(self, client):
+        response = client.get("/api/tca/trader/orders/M1", params={"bucket_min": 7})
+        assert response.status_code == 422

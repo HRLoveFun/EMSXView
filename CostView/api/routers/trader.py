@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from CostView.src import trader_service
-from CostView.src.trader_service import DataNotReadyError
+from CostView.src.trader_service import DataNotReadyError, OrderNotFound
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView Trader"])
@@ -90,6 +90,39 @@ async def list_trader_orders(
         data=data,
         message=f"订单 {len(data['orders'])}/{data['total_orders']} 条（offset={data['offset']}）",
     )
+
+
+@router.get("/api/tca/trader/orders/{order_id}", response_model=TraderResponse)
+async def get_trader_order_detail(
+    order_id: str,
+    order_as_of_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
+    bucket_min: int = Query(5, description="时间桶宽（分钟）：5 / 15"),
+):
+    """订单详情（§3.4.2）：routes / fills / 时间线（逐桶参与率）/ 成本分解等。
+
+    不含 peer（避免阻塞）；daily（P2）暂为 null；跨日订单需显式 order_as_of_date。
+    """
+    try:
+        data = trader_service.build_order_detail(
+            order_id, order_as_of_date=order_as_of_date, bucket_min=bucket_min,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except OrderNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}",
+            },
+        )
+    except Exception as exc:
+        logger.error("订单详情查询失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"订单详情查询错误: {exc}")
+
+    return TraderResponse(success=True, data=data, message=f"订单 {order_id} 详情")
 
 
 @router.get("/api/tca/trader/filter-options", response_model=TraderResponse)

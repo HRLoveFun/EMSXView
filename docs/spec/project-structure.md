@@ -460,7 +460,7 @@ Cross-domain access should follow this order of preference:
 | BDIB 健康扫描 / 指标覆盖率 / 报告聚合 / 异常阈值 | `GET /api/tca/monitoring/{bdib-health,metric-coverage,report-summary,anomaly-thresholds}`（`monitoring.py`） | `tests/test_monitoring.py` |
 | 自包含 HTML 报告导出（含降级逻辑，见 §8） | `GET /api/tca/monitoring/export-html` | `tests/test_monitoring.py` + `tests/test_report_metrics.py` |
 
-| 交易员复盘台订单列表 / 筛选项（210 PR-1；聚合口径与 analyze-orders 对账） | `GET /api/tca/trader/{orders,filter-options}`（`trader.py` + `src/trader_*`） | `tests/test_trader_*.py` |
+| 交易员复盘台订单列表 / 详情 / 筛选项（210 PR-1/2；聚合口径与 analyze-orders 对账） | `GET /api/tca/trader/{orders,orders/{order_id},filter-options}`（`trader.py` + `src/trader_*`） | `tests/test_trader_*.py` |
 | 查询缓存（Redis，连接失败自动降级直查） | `src/tca_cache.py` | 降级行为见 §8 |
 | 只读查询 CLI（盘后巡检 / CI） | `python -m CostView.src --query <fills\|raw-fills\|log\|order-log\|orders\|tickers\|summary>`（`src/__main__.py`） | `tests/test_cli_entrypoint.py` |
 

@@ -21,6 +21,8 @@ class TraderFilters:
 
     start_date: str
     end_date: str
+    #: 单订单限定（详情头复用列表聚合口径；None = 全量）
+    order_id: Optional[str] = None
     trader: Optional[tuple[str, ...]] = None
     ticker: Optional[tuple[str, ...]] = None
     side: Optional[tuple[str, ...]] = None
@@ -46,6 +48,8 @@ class TraderFilters:
                 payload[key] = list(values)
         for key in ("completion_bucket", "quality", "sort", "sort_dir"):
             payload[key] = getattr(self, key)
+        if self.order_id:
+            payload["order_id"] = self.order_id
         return payload
 
 
