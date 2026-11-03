@@ -837,7 +837,11 @@ class TestTcaReportAggregator:
         assert any(r["order_id"] == "CLS" for r in report["anomaly"]["rows"])
 
     def test_anomaly_min_notional_usd_excludes_low_value(self, tmp_path: Path):
-        """成交金额(USD)下限（默认 10000）对全部路由生效：低金额路由不计入。"""
+        """成交金额(USD)=fill×p_avg（默认下限 10000）生效：低成交额路由不计入。
+
+        F1：Amount 是委托股数、不参与门槛 —— 此处刻意让 Amount 与成交额**反向**
+        （BIG 的 Amount 小、SMALL 的 Amount 大），证明门槛不再读 Amount。
+        """
         import sqlite3
 
         db_path = tmp_path / "fill_bdib.db"
@@ -846,11 +850,11 @@ class TestTcaReportAggregator:
         conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
         # BIG / SMALL 均触发 volume_pct_adv20（par_rate 15% >> 5%），填充笔数达标
         _insert_route(conn, "BIG", "20260803", RouteShares=1000.0, fill=900.0,
-                      Amount=50000.0, fx_rate=1.0, fill_count=20, par_rate=0.15,
-                      pnl_vwap=-2.5)
+                      p_avg=150.0, Amount=5000.0, fx_rate=1.0, fill_count=20,
+                      par_rate=0.15, pnl_vwap=-2.5)
         _insert_route(conn, "SMALL", "20260803", RouteShares=1000.0, fill=900.0,
-                      Amount=5000.0, fx_rate=1.0, fill_count=20, par_rate=0.15,
-                      pnl_vwap=-2.5)
+                      p_avg=10.0, Amount=50000.0, fx_rate=1.0, fill_count=20,
+                      par_rate=0.15, pnl_vwap=-2.5)
         conn.commit()
         conn.close()
 
@@ -892,7 +896,8 @@ class TestTcaReportAggregator:
     def test_anomaly_fill_pct_uses_completion_rate(self, tmp_path: Path):
         """008: fill_pct 必须用完成率百分比（fill/RouteShares×100）比对阈值，而非原始股数。
 
-        低完成率(30%) + 有本币/USD 成交金额 → 触发 fill_pct 且携带 notional 列。
+        低完成率(30%) + 有本币/USD 成交金额 → 触发 fill_pct 且携带 notional 列；
+        成交金额按 F1 口径 = fill × p_avg（300 × 150 = 45,000），与 Amount 无关。
         """
         import sqlite3
 
@@ -921,8 +926,9 @@ class TestTcaReportAggregator:
         low = next((r for r in report["anomaly"]["rows"] if r["order_id"] == "LOW"), None)
         assert low is not None
         assert any(h["key"] == "fill_pct" for h in low["hits"])
-        assert low["notional_local"] == pytest.approx(150000.0)
-        assert low["notional_usd"] == pytest.approx(150000.0)
+        assert low["notional_local"] == pytest.approx(45_000.0)  # 300 × 150
+        assert low["notional_usd"] == pytest.approx(45_000.0)
+        assert low["amount_shares"] == pytest.approx(150000.0)   # 委托股数，非金额
         assert low["currency"] == "USD"
 
     def test_anomaly_notional_usd_missing_fx(self, tmp_path: Path):
@@ -949,8 +955,8 @@ class TestTcaReportAggregator:
         report = TcaReportAggregator(cm).build_report("20260803", "20260804", min_fill_count=0, min_notional_usd=0)
         row = next((r for r in report["anomaly"]["rows"] if r["order_id"] == "NFX"), None)
         assert row is not None
-        assert row["notional_local"] == pytest.approx(200000.0)
-        assert row["notional_usd"] is None
+        assert row["notional_local"] == pytest.approx(135_000.0)  # 900 × 150
+        assert row["notional_usd"] is None                        # 非 USD 缺汇率
 
 
 # ── report_dims（筛选维度持久化列表）────────────────────────────────────────

@@ -358,7 +358,11 @@ class AnomalyRoute:
     order_duration_sec: Optional[float]
     recovery_truncated: Optional[int]
     currency: Optional[str] = None
+    #: 委托股数（tca_route_summary.Amount）—— 股数，**不是金额**，不得按货币渲染
+    amount_shares: Optional[float] = None
+    #: 成交金额（本币）= fill × p_avg；不是 Amount
     notional_local: Optional[float] = None
+    #: 成交金额（USD）= fill × p_avg × 汇率
     notional_usd: Optional[float] = None
     #: 数据质量标记（013）：成交超过委托 / 订单参与率求和 >100%
     overfill: bool = False
@@ -454,8 +458,9 @@ def query_anomaly_routes_page_ex(
     **fill_pct 命中 critical（严重未完成，含零成交）的路由豁免该下限**：该档的目标样本
     恰是低完成率路由，用笔数下限过滤会把「完全未执行」这一最严重情形整体剔除。
     min_notional_usd：异常路由成交金额(USD)下限（默认 10000），对全部路由生效——
-    金额按门槛口径（COALESCE(Amount, fill×p_avg)×汇率）判定；严重未完成路由同样豁免
-    （零成交路由 Amount 为 0，否则会被金额门槛二次屏蔽）。
+    金额 = ``fill × p_avg × 汇率``（零成交路由按 ``RouteShares × p_avg × 汇率`` 计）；
+    **Amount 是委托股数，不作金额参与门槛**；严重未完成路由同样豁免（零成交路由
+    无 p_avg，否则会被金额门槛二次屏蔽）。
     fill_count 列缺失（旧 schema）时下限不可评估，此时 fail-open 并记录告警，
     不静默清空清单。
     节流统计（throttle_stats）：阈值命中数、笔数/金额下限剔除量、豁免量、
@@ -510,17 +515,18 @@ def query_anomaly_routes_page_ex(
         join = _anomaly_fx_join() if fbfx_ready else ""
         fx_select = "fx_rate" if has_fx else "NULL AS fx_rate"
         fill_count_select = "fill_count" if has_fill_count else "NULL AS fill_count"
-        notional_display_expr, notional_gate_expr = _anomaly_notional_exprs(
+        local_expr, usd_expr, gate_expr = _anomaly_notional_exprs(
             fbfx_ready, has_fx,
         )
         sql = f"""
             SELECT OrderId, RouteId, order_as_of_date, equ_ticker, Exchange,
-                   Side, Broker, algo, fill, par_rate, pnl_vwap,
+                   Side, Broker, algo, fill, p_avg, par_rate, pnl_vwap,
                    arrival_cost_bps, wagner_is_bps, opportunity_cost,
                    RouteShares, cost_cvar, order_duration_sec, recovery_truncated,
                    Amount, Currency, {fill_count_select}, {fx_select},
-                   {notional_display_expr} AS notional_usd_display,
-                   {notional_gate_expr} AS notional_usd_gate
+                   {local_expr} AS notional_local_display,
+                   {usd_expr} AS notional_usd_display,
+                   {gate_expr} AS notional_usd_gate
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
             WHERE {" AND ".join(conditions)}
         """
@@ -590,8 +596,9 @@ def query_anomaly_routes_page_ex(
                 throttle["excluded_by_fill_count"] += 1
                 continue
         amount = _to_float(row.get("Amount"))
-        # 展示与门槛分离（D7 / DP-3）：展示列取 Amount 权威口径（缺失 → None），
-        # 门槛取 COALESCE 回退口径 —— 两列语义不同，字段不共用
+        # F1：金额列与门槛同源 = fill × p_avg（本币）/ × 汇率（USD）；
+        # Amount 为委托股数，仅作为数量列返回，不参与金额展示与门槛
+        notional_local = _to_float(row.get("notional_local_display"))
         notional_usd = _to_float(row.get("notional_usd_display"))
         notional_gate = _to_float(row.get("notional_usd_gate"))
         # 成交金额(USD)下限过滤：对全部路由生效（下限为 0 时关闭，含无法换算 USD 的路由）
@@ -624,7 +631,8 @@ def query_anomaly_routes_page_ex(
             order_duration_sec=_to_float(row.get("order_duration_sec")),
             recovery_truncated=row.get("recovery_truncated"),
             currency=row.get("Currency"),
-            notional_local=amount,
+            amount_shares=amount,
+            notional_local=notional_local,
             notional_usd=notional_usd,
             overfill=overfill,
             order_par_gt100=order_par_rate is not None and order_par_rate > 1.0,
@@ -693,29 +701,36 @@ def _anomaly_fx_join() -> str:
     )
 
 
-def _anomaly_notional_exprs(fbfx_ready: bool, has_fx: bool) -> tuple[str, str]:
-    """异常明细成交金额(USD) 的展示与门槛表达式（D7 / DP-3 定稿：两者分离）。
+def _anomaly_notional_exprs(fbfx_ready: bool, has_fx: bool) -> tuple[str, str, str]:
+    """异常明细成交金额的（本币展示, USD 展示, USD 门槛）表达式（F1 定稿）。
 
-    - 展示 = ``Amount × 汇率``（写入方权威列；Amount 缺失 → NULL，渲染 "-"，
-      展示口径与 P1-a 之前一致，不被估算值静默替换）；
-    - 门槛 = ``COALESCE(Amount, fill × p_avg) × 汇率``（Amount 缺失的路由不再
-      被金额门槛误杀）。
-    两个表达式服务语义不同的消费者，**禁止合并** —— P1-a 复核（F-a）的教训：
-    共用单一表达式使 USD 展示列被 fill×p_avg 估算值静默替换，与本币权威列
-    （Amount）同行自相矛盾，且与「异常表金额以 Amount 为准」的披露文案冲突。
+    口径修正（2026-11-03）：``tca_route_summary.Amount`` 是**委托股数**，不是金额
+    （实测 82.55% 的路由 Amount == RouteShares，99.94% 与 fill×p_avg 相差 >0.5%）。
+    此前把它当金额展示与判定门槛，导致异常表「成交金额」列显示股数、US 近 30 天
+    82.8% 的路由被金额门槛误剔除。现统一为：
+
+    - 本币展示 = ``fill × p_avg``（成交金额，非委托金额）；
+    - USD 展示 = ``fill × p_avg × 汇率``；
+    - USD 门槛 = 同 USD 展示；零成交路由改按 ``RouteShares × p_avg × 汇率`` 计
+      （保持「严重未完成」可见；该档另有 fill_pct critical 豁免，两处不冲突）。
+
     有效汇率 = COALESCE(tca.fx_rate, fill_bdib 回填 fb_fx)；
     USD/未知币种缺汇率按 1.0 兜底；非 USD 仍缺汇率时为 NULL（不虚高）。
-    无 fx_rate 列时两者均返回 NULL 字面量（向后兼容旧 schema）。
+    无 fx_rate 列时本币展示仍为 fill×p_avg，USD 两式返回 NULL 字面量
+    （与门槛在旧 schema 下不可评估的既有语义一致）。
     """
+    local = "fill * p_avg"
     if not has_fx:
-        return "NULL", "NULL"
+        return local, "NULL", "NULL"
     tca = Config.TCA_ROUTE_SUMMARY_TABLE
     eff = (
         f"COALESCE({tca}.fx_rate, _fbfx.fb_fx)" if fbfx_ready else f"{tca}.fx_rate"
     )
     # 小计价单位修正与 USD 兜底规则的唯一实现见 report_measure（新增币种只改一处）
     fx = rm.usd_fx_expr(eff)
-    return f"Amount * ({fx})", f"COALESCE(Amount, fill * p_avg) * ({fx})"
+    usd = f"{local} * ({fx})"
+    gate = f"CASE WHEN COALESCE(fill, 0) > 0 THEN {local} ELSE RouteShares * p_avg END * ({fx})"
+    return local, usd, gate
 
 
 # ── 全量明细导出（014：HTML 截断与审计导出分离）──────────────────────────────
@@ -724,7 +739,8 @@ def _anomaly_notional_exprs(fbfx_ready: bool, has_fx: bool) -> tuple[str, str]:
 _ANOMALY_CSV_COLUMNS: tuple[str, ...] = (
     "order_id", "route_id", "date", "ticker", "exchange", "side",
     "broker", "algo", "currency",
-    "notional_local", "notional_usd",
+    # amount_shares = 委托股数（Amount）；notional_* = 成交金额（fill × p_avg）
+    "amount_shares", "notional_local", "notional_usd",
     "route_shares", "fill", "unfilled", "completion_rate",
     "par_rate", "order_par_rate", "fill_count",
     "pnl_vwap", "arrival_cost_bps", "wagner_is_bps", "opportunity_cost",

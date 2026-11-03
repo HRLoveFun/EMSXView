@@ -483,6 +483,37 @@ std(日对数收益率) × √252 × 100，实测中位 26.075）→ 82.9% 落 `
 **护栏**：`test_env_context.TestVolatilityScaleSuspicion`（含「原值不被修改」断言）；
 `TestSpecBinding` 断言 `volatility_scale_cut` / `volatility_unit` 与实现一致。
 
+### 10.13 `Amount` 语义修正：委托股数非金额（F1，2026-11-03）
+
+**背景**：`tca_route_summary.Amount` 一直被异常明细当作「成交金额（本币/USD 展示列）」
+使用，并作为金额门槛的 `COALESCE(Amount, fill×p_avg)` 首选。实测（`D:\db`，2026-11-03）：
+
+| 检查 | 结果 |
+|---|---|
+| `Amount == RouteShares` 的路由占比 | 82.55% |
+| `Amount == ΣRouteShares` 的订单占比 | 96.9% |
+| `Amount` 与 `fill×p_avg` 偏差 >0.5% 的路由 | 99.94% |
+| US 近 30 天 `Amount×fx < 10k` 但 `fill×p_avg×fx ≥ 10k` 的路由 | 5,387 / 6,530（82.5%） |
+
+**决策**：
+
+1. 异常明细「成交金额(本币)」= `fill × p_avg`；「成交金额(USD)」= `fill × p_avg × 汇率`；
+   `Amount` 单独以「委托股数」列展示（数量，非货币）。
+2. 金额门槛 = `fill × p_avg × 汇率`；零成交路由按 `RouteShares × p_avg × 汇率` 计，并保留
+   `fill_pct` critical 下限豁免。
+3. **删除** `metric_coverage` 的 `amount_consistency` 探针与其 HTML 告警、`REPORT_SPEC`
+   的 `amount_consistency_tolerance_pct`（该探针对比股数与成交额，恒误报 99.94%，不是缺陷信号）。
+4. `REPORT_SPEC["anomaly_notional_gate"]` 改为 `fill-times-pavg-fx`，新增
+   `amount_column_semantics = 委托股数（非金额）`；`SPEC_VERSION` → `2026.11.03`。
+
+**取舍**：历史报告数值不具可比性（金额列与门槛同时变化），按 §7.2 决策合并后重跑；
+前端订单表（`TcaOrderTable.tsx`）的 `Amount` 货币渲染不在本批范围，已登记
+`docs/report-tca-known-limitations.md` §五。
+
+**护栏**：`test_report_metrics.TestAmountSemantics`（金额 = fill×p_avg、门槛不读 Amount、
+探针与容差声明已删除、HTML 出现「委托股数」列）与 `test_monitoring` 的金额下限 /
+缺汇率 / 节流用例。
+
 ## 后果 (Consequences)
 
 ### 正面
