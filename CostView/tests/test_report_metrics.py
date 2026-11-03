@@ -1515,22 +1515,77 @@ class TestPwpWeighting:
         assert report_spec.REPORT_SPEC["pwp_weight_mode"] == "traded"
 
 
-class TestAmountConsistency:
-    """金额列同源校验 + order_par 分档 + 门槛 COALESCE（D7/D17 / DP-3 定稿）。"""
+class TestAmountSemantics:
+    """F1（2026-11-03）：Amount 是委托股数；金额列与门槛改用 fill×p_avg。"""
 
-    def test_amount_mismatch_disclosed(self, tca_mgr_factory):
-        """Amount 与 fill×p_avg 偏差超 0.5% 的路由计入一致性探针（仅披露）。"""
+    def test_notional_columns_use_fill_times_pavg(self, tca_mgr_factory):
+        """异常明细金额 = fill×p_avg（USD 再乘汇率），Amount 仅作委托股数返回。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "NVR", "Amount": 10.0, "RouteShares": 10.0, "fill": 10.0,
+             "p_avg": 8178.0, "pnl_vwap": -30.0},
+        ], with_fx=True)
+        rows, _ = query_anomaly_routes_page(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=0, min_notional_usd=10000.0,
+        )
+
+        assert [r.order_id for r in rows] == ["NVR"]
+        assert rows[0].amount_shares == pytest.approx(10.0)
+        assert rows[0].notional_local == pytest.approx(81_780.0)
+        assert rows[0].notional_usd == pytest.approx(81_780.0)
+
+    def test_gate_reads_fill_not_amount(self, tca_mgr_factory):
+        """门槛只看成交额：Amount 大不能抬过门槛，Amount 小也不再被误杀。"""
+        mgr = tca_mgr_factory([
+            # 成交额仅 100 USD（< 10000），Amount 50 万股不参与判定 → 剔除
+            {"OrderId": "BIGAMT", "Amount": 500_000.0, "RouteShares": 10.0,
+             "fill": 10.0, "p_avg": 10.0, "pnl_vwap": -30.0},
+            # 成交额 81,780 USD；Amount=10 股不得再把它挡在门槛外 → 入选
+            {"OrderId": "NVR", "Amount": 10.0, "RouteShares": 10.0, "fill": 10.0,
+             "p_avg": 8178.0, "pnl_vwap": -30.0},
+        ], with_fx=True)
+        rows, _, throttle = query_anomaly_routes_page_ex(
+            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
+            min_fill_count=0, min_notional_usd=10000.0,
+        )
+
+        assert {r.order_id for r in rows} == {"NVR"}
+        assert throttle["excluded_by_notional"] == 1
+        assert throttle["floor_exempted"] == 0
+
+    def test_amount_probe_and_tolerance_removed(self, tca_mgr_factory):
+        """amount_consistency 探针与容差声明随 F1 删除（不保留同名指标）。"""
         mgr = tca_mgr_factory([
             {"OrderId": "A1", "Amount": 1000.0, "fill": 100.0, "p_avg": 10.0},
-            {"OrderId": "A2", "Amount": 2000.0, "fill": 100.0, "p_avg": 10.0},
         ])
         consistency = TcaReportAggregator(mgr).build_report(
             "20260803", "20260803",
         )["metric_coverage"]["consistency"]
 
-        assert consistency["amount_check_routes"] == 2
-        assert consistency["amount_mismatch_routes"] == 1
-        assert consistency["amount_consistency_pct"] == 50.0
+        assert "amount_consistency_pct" not in consistency
+        assert "amount_mismatch_routes" not in consistency
+        assert "amount_consistency_tolerance_pct" not in report_spec.REPORT_SPEC
+        assert report_spec.REPORT_SPEC["anomaly_notional_gate"] == "fill-times-pavg-fx"
+        assert report_spec.SPEC_VERSION == "2026.11.03"
+
+    def test_html_shows_amount_shares_and_traded_notional(self, tca_mgr_factory):
+        """HTML：新增「委托股数」列，金额显示 fill×p_avg，金额一致性告警消失。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "NVR", "Amount": 10.0, "RouteShares": 10.0, "fill": 10.0,
+             "p_avg": 8178.0, "pnl_vwap": -30.0},
+        ], with_fx=True)
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_fill_count=0, min_notional_usd=10000.0,
+        )
+        html = render_report_html(report, None, "2026-11-03 10:00:00")
+
+        assert "委托股数" in html
+        assert "81.8K" in html          # fill × p_avg = 81,780
+        assert "金额一致性" not in html
+
+
+class TestOrderParTier:
+    """订单参与率分档（D17 / DP-3）。"""
 
     def test_order_par_gt200_tiered(self, tca_mgr_factory):
         """订单参与率 >200% 单独分档（critical 档，疑重复记账）。"""
@@ -1548,50 +1603,6 @@ class TestAmountConsistency:
         assert consistency["order_par_gt100_orders"] == 2
         assert consistency["order_par_gt200_orders"] == 1
 
-    def test_amount_gate_coalesce_fill_pavg(self, tca_mgr_factory):
-        """Amount 缺失的路由经 COALESCE(fill×p_avg) 参与金额门槛（不再误杀）。"""
-        mgr = tca_mgr_factory([
-            {"OrderId": "GA1", "Amount": None, "fill": 900.0, "p_avg": 150.0,
-             "pnl_vwap": -30.0},
-        ], with_fx=True)
-        rows, _ = query_anomaly_routes_page(
-            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
-            min_fill_count=0, min_notional_usd=10000.0,
-        )
-
-        assert [r.order_id for r in rows] == ["GA1"]
-
-    def test_display_usd_is_amount_authoritative(self, tca_mgr_factory):
-        """展示列语义（F-a）：Amount 缺失 → notional_usd 为 None，不被估算值替换。"""
-        mgr = tca_mgr_factory([
-            {"OrderId": "GA1", "Amount": None, "fill": 900.0, "p_avg": 150.0,
-             "pnl_vwap": -30.0},
-        ], with_fx=True)
-        rows, _ = query_anomaly_routes_page(
-            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
-            min_fill_count=0, min_notional_usd=10000.0,
-        )
-
-        # 经门槛（COALESCE 口径）入选，但展示列（Amount 权威口径）无值 ——
-        # 与本币列一致呈现 "-"，避免同行两列一个无值一个有值的自相矛盾
-        assert rows[0].notional_usd is None
-        assert rows[0].notional_local is None
-
-    def test_display_usd_uses_amount_when_present(self, tca_mgr_factory):
-        """展示列取 Amount × 汇率（与 fill×p_avg 解耦，混合来源不可再发生）。"""
-        mgr = tca_mgr_factory([
-            {"OrderId": "GB1", "Amount": 50000.0, "fill": 900.0, "p_avg": 150.0,
-             "pnl_vwap": -30.0},
-        ], with_fx=True)
-        rows, _ = query_anomaly_routes_page(
-            mgr, "20260803", "20260803", ThresholdRules.from_payload(None),
-            min_fill_count=0, min_notional_usd=10000.0,
-        )
-
-        # Amount=50K ≠ fill×p_avg=135K：展示列必须忠实 Amount（fx=1.0 兜底），
-        # 门槛经 COALESCE 以 fill×p_avg 判定（135K ≥ 10K，入选）
-        assert rows[0].notional_usd == pytest.approx(50000.0)
-
     def test_gt200_threshold_single_source(self):
         """gt200 阈值唯一化（F-b）：探针 / 异常规则 critical 档 / SPEC 三处一致。"""
         assert rm.ORDER_PAR_CRITICAL_SUM == pytest.approx(2.0)
@@ -1603,16 +1614,6 @@ class TestAmountConsistency:
             report_spec.REPORT_SPEC["order_par_critical_gt"]
             == rm.ORDER_PAR_CRITICAL_SUM
         )
-
-    def test_html_data_quality_shows_amount_probe(self, tca_mgr_factory):
-        """数据质量提示区展示金额一致性探针。"""
-        mgr = tca_mgr_factory([
-            {"OrderId": "A2", "Amount": 2000.0, "fill": 100.0, "p_avg": 10.0},
-        ])
-        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
-        html = render_report_html(report, None, "2026-09-15 10:00:00")
-
-        assert "金额一致性" in html
 
 
 class TestImpactTruncatedShare:
@@ -1740,9 +1741,9 @@ class TestAnomalyThrottleDisclosure:
             # 笔数下限剔除
             {"OrderId": "H2", "pnl_vwap": -30.0, "fill_count": 2,
              "fill": 900.0, "p_avg": 150.0},
-            # 金额下限剔除（Amount=100 → 门槛口径 100 < 10000）
+            # 金额下限剔除（成交额 900×10 = 9,000 < 10000；Amount 不参与判定）
             {"OrderId": "H3", "pnl_vwap": -30.0, "fill_count": 20,
-             "fill": 900.0, "p_avg": 150.0, "Amount": 100.0},
+             "fill": 900.0, "p_avg": 10.0, "Amount": 100.0},
             # 严重未完成豁免（fill_pct critical）→ 入选且不计门槛
             {"OrderId": "Z1", "fill": None, "RouteShares": 1000.0,
              "pnl_vwap": -2.5},

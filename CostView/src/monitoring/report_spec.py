@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import Any
 
 #: 口径规范版本号（脚注展示，归档时可追溯口径随版本的演进）
-SPEC_VERSION = "2026.09.11"
+#: 2026.11.03：F1 —— Amount 语义纠正（委托股数，非金额），异常金额列与门槛改用
+#: fill×p_avg；删除 amount_consistency 探针与其容差声明
+SPEC_VERSION = "2026.11.03"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -61,10 +63,14 @@ REPORT_SPEC: dict[str, Any] = {
     #: + Top N 市场小多图（跨市场混合的逐档值无物理解释，分市场解释由小图承接）
     "pwp_weight_mode": "traded",
     "pwp_by_exchange_top_markets": 6,
-    #: D7 / DP-3 定稿：金额门槛口径 COALESCE(Amount, fill×p_avg)×汇率（Amount 缺失
-    #: 不再被误杀）；一致性校验容差 0.5%（仅披露，不改异常表 Amount 展示列）
-    "anomaly_notional_gate": "coalesce-amount-fill-pavg",
-    "amount_consistency_tolerance_pct": 0.5,
+    #: F1（2026-11-03）：异常金额门槛与展示均为成交金额 fill×p_avg×汇率；零成交路由
+    #: 按 RouteShares×p_avg×汇率 计（严重未完成另享 fill_pct critical 豁免）。
+    #: 原口径 COALESCE(Amount, fill×p_avg) 把委托股数当金额（实测 82.55% 路由
+    #: Amount == RouteShares），US 近 30 天 82.8% 的路由被金额门槛误剔除。
+    "anomaly_notional_gate": "fill-times-pavg-fx",
+    #: F1：Amount 列的语义 —— 委托股数（非金额），必须单独按数量列展示，
+    #: 不得渲染为货币、不得作为金额门槛（实现见 anomaly_query.AnomalyRoute.amount_shares）
+    "amount_column_semantics": "委托股数（非金额）",
     #: D15 / DP-4 定稿：冲击截断占比分母 = 冲击计算样本（任一冲击指标可计算）
     #: （实现常量见 report_aggregator.IMPACT_TRUNCATED_SHARE_DENOMINATOR，测试断言一致）
     "impact_truncated_share_denominator": "impact_sample",
@@ -169,8 +175,9 @@ def _p0_p1_footer_clauses() -> str:
         f"PWP 五档为成交额加权（pwp_weight_mode={REPORT_SPEC['pwp_weight_mode']}）"
         f"并披露覆盖、分市场小图（Top {REPORT_SPEC['pwp_by_exchange_top_markets']}）"
         f"承接解释；"
-        f"异常金额门槛按 {REPORT_SPEC['anomaly_notional_gate']} 口径"
-        f"（Amount 缺失回退 fill×p_avg，展示列以 Amount 为准）；"
+        f"异常金额列与门槛均为成交金额 fill×p_avg×汇率"
+        f"（{REPORT_SPEC['anomaly_notional_gate']}；零成交路由按委托股数×p_avg×汇率 计）；"
+        f"Amount 为{REPORT_SPEC['amount_column_semantics']}，不作金额使用；"
         f"订单参与率 >{REPORT_SPEC['order_par_critical_gt'] * 100:.0f}% 疑重复记账单独分档；"
         f"冲击截断占比分母为冲击计算样本"
         f"（{REPORT_SPEC['impact_truncated_share_denominator']}）；"
