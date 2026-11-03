@@ -44,6 +44,7 @@ _setup_costview_dependencies()
 
 from CostView.api.routers.costview import router as _tca_router  # noqa: E402
 from CostView.api.routers.monitoring import router as _monitoring_router  # noqa: E402
+from CostView.api.routers.trader import router as _trader_router  # noqa: E402
 
 
 async def _bridge_guard(request: Request, user: dict = Depends(verify_token)) -> dict:
@@ -56,10 +57,11 @@ async def _bridge_guard(request: Request, user: dict = Depends(verify_token)) ->
     return user
 
 
-#: 合并 CostView 全部路由（既有 /api/tca/* + 监控 /api/tca/monitoring/*）
+#: 合并 CostView 全部路由（既有 /api/tca/* + 监控 /api/tca/monitoring/* + 交易员 /api/tca/trader/*）
 router = APIRouter()
 router.include_router(_tca_router, dependencies=[Depends(_bridge_guard)])
 router.include_router(_monitoring_router, dependencies=[Depends(_bridge_guard)])
+router.include_router(_trader_router, dependencies=[Depends(_bridge_guard)])
 
 
 # ── 数据管道 Runner 代理（P2-4 整改）────────────────────────────────────────

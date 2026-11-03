@@ -3,7 +3,7 @@
 > L2 | 权威：仓库结构、权威实现面、模块使命与边界、逻辑数据域、遗留面 | 不权威：批次进度（见 `specs/057-*/tasks.md`）、成熟度证据（见 `README.md` §0）、编码约定（见 `docs/dev-guide.md`）
 
 > Current architecture reference for the EMSXView Trading Platform
-> Last updated: 2026-09-11 | Version: 3.4（对齐 [data-domain.md](data-domain.md) v3.4：刷新 CostView/src 实际文件、contracts 实际契约、成熟度定级引用；移除已迁移/已删除路径）
+> Last updated: 2026-11-03 | Version: 3.5（补 210 PR-1 交易员复盘台实现面：`src/trader_*` + `api/routers/trader.py`）；v3.4（对齐 [data-domain.md](data-domain.md) v3.4：刷新 CostView/src 实际文件、contracts 实际契约、成熟度定级引用；移除已迁移/已删除路径）
 
 ---
 
@@ -161,7 +161,8 @@ EMSXView/
 │   │   ├── main.py                   # FastAPI entry (<COSTVIEW_PORT>, default 8002)
 │   │   └── routers/
 │   │       ├── costview.py           # analyze / analyze-orders / scorecard / recommendations pin / handoff peek / regime
-│   │       └── monitoring.py         # bdib-health / metric-coverage / report-summary / anomaly-thresholds / export-html
+│   │       ├── monitoring.py         # bdib-health / metric-coverage / report-summary / anomaly-thresholds / export-html
+│   │       └── trader.py             # 交易员复盘台 orders / filter-options（210 PR-1）
 │   ├── src/
 │   │   ├── tca_query_service.py
 │   │   ├── tca_query_builder.py
@@ -169,6 +170,10 @@ EMSXView/
 │   │   ├── tca_utils.py
 │   │   ├── __main__.py               # CLI 入口：python -m CostView.src（退出码 0/2/3）
 │   │   ├── query_cli.py              # QueryEngine 类（CLI 命令分发目标）
+│   │   ├── trader_query.py           # 交易员复盘台 SQL（210 PR-1）
+│   │   ├── trader_metrics.py         # 交易员复盘台纯函数（210 PR-1）
+│   │   ├── trader_models.py          # 交易员复盘台契约模型（210 PR-1）
+│   │   ├── trader_service.py         # 交易员复盘台编排（210 PR-1）
 │   │   └── monitoring/               # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │   │                                 #   anomaly_query · tca_report_html · time_range
 │   ├── scripts/                      # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
@@ -453,7 +458,9 @@ Cross-domain access should follow this order of preference:
 | TCA 数据新鲜度 | `GET /api/tca/data-freshness` | `tests/test_data_freshness.py` |
 | 可见能力清单（区间 / 维度 / 指标） | `GET /api/tca/capabilities` | `tests/test_cli_entrypoint.py` 间接覆盖入口一致性 |
 | BDIB 健康扫描 / 指标覆盖率 / 报告聚合 / 异常阈值 | `GET /api/tca/monitoring/{bdib-health,metric-coverage,report-summary,anomaly-thresholds}`（`monitoring.py`） | `tests/test_monitoring.py` |
-| 自包含 HTML 报告导出（含降级逻辑，见 §8） | `GET /api/tca/monitoring/export-html` | `tests/test_monitoring.py` + `tests/test_report_metrics.py` |
+| 自包含 HTML 报告导出（含降级逻辑，见 §8） | `GET /api/tca/monitoring/export-html` | `tests/test_monitoring.py` + `tests/test_report_metrics.py` |
+
+| 交易员复盘台订单列表 / 筛选项（210 PR-1；聚合口径与 analyze-orders 对账） | `GET /api/tca/trader/{orders,filter-options}`（`trader.py` + `src/trader_*`） | `tests/test_trader_*.py` |
 | 查询缓存（Redis，连接失败自动降级直查） | `src/tca_cache.py` | 降级行为见 §8 |
 | 只读查询 CLI（盘后巡检 / CI） | `python -m CostView.src --query <fills\|raw-fills\|log\|order-log\|orders\|tickers\|summary>`（`src/__main__.py`） | `tests/test_cli_entrypoint.py` |
 
