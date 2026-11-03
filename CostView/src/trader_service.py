@@ -30,6 +30,10 @@ class DataNotReadyError(Exception):
     """默认日期范围内无任何 TCA 汇总（管道未产出）→ 路由层 503 data_not_ready。"""
 
 
+class OrderNotFound(Exception):
+    """订单不存在（或 order_as_of_date 不匹配）→ 路由层 404。"""
+
+
 def parse_multi(raw: Optional[str]) -> Optional[tuple[str, ...]]:
     """逗号分隔多值 → 去空白去重元组（空输入返回 None）。"""
     if not raw:
@@ -136,19 +140,30 @@ def _manager(mgr: Optional[ConnectionManager]) -> ConnectionManager:
     return mgr or DEFAULT_MANAGER
 
 
-def _page_payload(filters: tmod.TraderFilters, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """组装列表 payload：kpi / probes 基于全筛选范围，orders 为当前页切片。"""
+def _page_payload(
+    filters: tmod.TraderFilters, rows: list[dict[str, Any]],
+    manager: Optional[ConnectionManager] = None,
+) -> dict[str, Any]:
+    """组装列表 payload：kpi/probes 基于全筛选范围；当前页逐笔补列后再出页行。"""
     models = [_row_to_model(r) for r in rows]
     page = models[filters.offset:filters.offset + filters.limit]
+    ctx = _page_fill_context(
+        manager, [(m.order_id, m.order_as_of_date) for m in page],
+    ) if manager else {}
+    for model in page:
+        _apply_fill_context(model, ctx.get(model.order_id))
+    kpi = tm.compute_kpi(rows)
+    kpi["passive_ratio"] = _passive_kpi(ctx)
+    kpi["release_delay_p90"] = _delay_kpi(ctx, len(page))
     return {
         "filters": filters.to_payload(),
         "generated_at": datetime.now().isoformat(),
         "total_orders": len(models),
         "offset": filters.offset,
         "limit": filters.limit,
-        "kpi": tm.compute_kpi(rows),
+        "kpi": kpi,
         "probes": {
-            "checks": tm.compute_probes(rows),
+            "checks": tm.compute_probes(rows, _fill_quality_probe(ctx, filters)),
             "spec_version": TRADER_SPEC_VERSION,
         },
         "orders": [m.to_payload() for m in page],
@@ -165,7 +180,7 @@ def build_order_page(
         rows = tq.query_order_rows(conn, filters)
     finally:
         conn.close()
-    return _page_payload(filters, rows)
+    return _page_payload(filters, rows, manager)
 
 
 def build_filter_options(
@@ -195,4 +210,399 @@ def build_order_page_from_query(
         rows = tq.query_order_rows(conn, filters)
     finally:
         conn.close()
-    return _page_payload(filters, rows)
+    return _page_payload(filters, rows, manager)
+
+
+# ── 订单详情与逐笔补列（PR-2）─────────────────────────────────────────────
+
+
+def _read(manager: ConnectionManager, key: str, fetch) -> list[dict[str, Any]]:
+    """跨库只读取数（缺库/缺表由查询层降级空列表）。"""
+    conn = manager.get_connection(key, AccessTier.READ)
+    try:
+        return fetch(conn)
+    finally:
+        conn.close()
+
+
+def _time_sec(value: Any) -> Optional[float]:
+    """``HH:MM:SS[.sss]`` / ``YYYY-MM-DD HH:MM:SS`` → 当日秒；解析失败 None。"""
+    if not value:
+        return None
+    text = str(value).strip()
+    if " " in text:
+        text = text.split(" ")[-1]
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+        second = float(parts[2]) if len(parts) > 2 else 0.0
+    except ValueError:
+        return None
+    return hour * 3600.0 + minute * 60.0 + second
+
+
+def _parse_instant(value: Any) -> Optional[datetime]:
+    """ISO 8601（含时区偏移）→ datetime；NY 时间戳差值与时区偏移无关。"""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _fill_models(
+    processed: list[dict[str, Any]], raw: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """逐笔模型：processed_fills 为主表，raw_fills 按 (RouteId, FillId) 补 Liquidity。"""
+    raw_by_key = {(str(r.get("RouteId")), str(r.get("FillId"))): r for r in raw}
+    models: list[dict[str, Any]] = []
+    for p in processed:
+        raw_row = raw_by_key.get((str(p.get("RouteId")), str(p.get("FillId"))), {})
+        liquidity_raw = raw_row.get("Liquidity")
+        models.append({
+            "route_id": p.get("RouteId"),
+            "fill_id": p.get("FillId"),
+            "ts_local": p.get("local_fill_datetime") or p.get("exchange_exec_time"),
+            "ts_sec": _time_sec(p.get("exchange_exec_time")),
+            "route_as_of_sec": _time_sec(p.get("route_as_of_time")),
+            "price": p.get("FillPrice"),
+            "shares": p.get("FillShares"),
+            "is_closing_auction": bool(p.get("is_closing_auction")),
+            "liquidity_raw": liquidity_raw,
+            "liquidity_class": tm.liquidity_class(liquidity_raw),
+        })
+    return models
+
+
+def _latency_numbers(
+    fills: list[dict[str, Any]], raw: list[dict[str, Any]], algo: Optional[str],
+) -> dict[str, Any]:
+    """延迟三段（§4.9）：order→route / route→首笔 / 首笔非竞价（连续段）。"""
+    def _min_instant(field: str) -> Optional[datetime]:
+        values = [v for v in (_parse_instant(r.get(field)) for r in raw) if v]
+        return min(values) if values else None
+
+    order_create = _min_instant("NyOrderCreateAsOfDateTime")
+    route_create = _min_instant("NyTranCreateAsOfDateTime")
+    first_fill = _min_instant("DateTimeOfFill")
+    route_secs = [f.get("route_as_of_sec") for f in fills if f.get("route_as_of_sec") is not None]
+    cont = next((f for f in fills if not f.get("is_closing_auction")), None)
+    return tm.latency_block(
+        order_to_route_sec=(
+            (route_create - order_create).total_seconds()
+            if (order_create and route_create) else None
+        ),
+        route_to_first_fill_sec=(
+            (first_fill - route_create).total_seconds()
+            if (route_create and first_fill) else None
+        ),
+        first_continuous_fill_sec=(
+            (cont["ts_sec"] - min(route_secs)) if (cont and route_secs) else None
+        ),
+        algo=algo,
+        first_fill_is_auction=bool(fills and fills[0].get("is_closing_auction")),
+    )
+
+
+def _detail_quality(
+    head: dict[str, Any], liquidity: dict[str, Any], latency: dict[str, Any],
+) -> dict[str, Any]:
+    """详情质量徽章（§4.12）：订单级 + 逐笔级（liquidity_unknown / latency_anomaly）。"""
+    level, flags = tm.quality_flags(head)
+    entries = [
+        {"id": fid, "severity": level if level != "clean" else "info", "detail": None}
+        for fid in flags
+    ]
+    unknown = liquidity.get("unknown_share")
+    if unknown is not None and unknown > tm.LIQUIDITY_UNKNOWN_BADGE:
+        severity = "warn" if unknown > tm.LIQUIDITY_UNKNOWN_WARN else "info"
+        entries.append({"id": "liquidity_unknown", "severity": severity,
+                        "detail": f"{unknown * 100:.0f}% 成交的 Liquidity 未识别"})
+        level = "warn" if severity == "warn" and level == "clean" else level
+    if latency.get("latency_anomaly"):
+        entries.append({"id": "latency_anomaly", "severity": "warn",
+                        "detail": "首笔非竞价成交早于路由下达 >1s"})
+        level = "warn" if level == "clean" else level
+    if latency.get("scheduled"):
+        entries.append({"id": "scheduled_close", "severity": "info",
+                        "detail": "按计划在收盘竞价成交"})
+    return {"level": level, "flags": entries}
+
+
+def _resolve_order_date(
+    routes: list[dict[str, Any]], order_as_of_date: Optional[str],
+) -> str:
+    """订单交易日：显式参数优先；跨日订单必须显式指定（否则 ValueError）。"""
+    dates = {str(r.get("order_as_of_date")) for r in routes}
+    if order_as_of_date:
+        if order_as_of_date not in dates:
+            raise OrderNotFound(f"订单在 {order_as_of_date} 无路由记录")
+        return order_as_of_date
+    if len(dates) != 1:
+        raise ValueError("订单跨多个交易日，请显式指定 order_as_of_date")
+    return dates.pop()
+
+
+def _par_rate_check(
+    head: dict[str, Any], timeline: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """逐桶参与率 vs par_rate（§4.2 验收）：单路由 0.99–1.01，越界标窗口差异。"""
+    if head.get("route_count") != 1:
+        return {"note": "多路由订单：分母为订单窗口并集，不与单路由 par_rate 直接可比"}
+    par = head.get("par_rate")
+    buckets = timeline.get("buckets") or []
+    market = sum((b.get("market_volume") or 0.0) for b in buckets)
+    fills_total = sum((b.get("fill") or 0.0) for b in buckets)
+    if not par or not market:
+        return None
+    window = fills_total / market
+    ratio = window / par
+    return {
+        "route_par_rate": par, "window_participation": window, "ratio": ratio,
+        "note": None if 0.99 <= ratio <= 1.01 else "窗口/时区差异",
+    }
+
+
+def _routes_payload(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """路由子表（§3.4.2）：completion = fill / route_shares。"""
+    out = []
+    for r in routes:
+        shares = r.get("RouteShares")
+        fill = r.get("fill")
+        out.append({
+            "route_id": r.get("RouteId"), "broker": r.get("Broker"),
+            "algo": r.get("algo"), "route_shares": shares, "fill": fill,
+            "completion": (fill / shares) if (shares and fill is not None) else None,
+            "arrival_cost_bps": r.get("arrival_cost_bps"),
+            "wagner_is_bps": r.get("wagner_is_bps"),
+        })
+    return out
+
+
+def _detail_payload(
+    head: dict[str, Any], routes: list[dict[str, Any]],
+    processed: list[dict[str, Any]], raw: list[dict[str, Any]],
+    bars_raw: list[dict[str, Any]], bucket_min: int,
+) -> dict[str, Any]:
+    """订单详情 payload 组装（§3.4.2；daily 随 P2 批次接入，此处为 None）。"""
+    fills = _fill_models(processed, raw)
+    bars = [
+        {"ts_sec": _time_sec(b.get("mkt_timestamp")), "volume": b.get("volume")}
+        for b in bars_raw
+    ]
+    timeline = tm.bucket_fills(fills, bucket_min, head.get("route_shares"), bars)
+    timeline["benchmarks"] = {
+        k: head.get(k) for k in ("p_decision", "p_arrival", "p_avg", "p_close", "limit_price")
+    }
+    timeline["par_rate_check"] = _par_rate_check(head, timeline)
+    liquidity = tm.liquidity_split(fills, head.get("p_arrival"), head.get("side"))
+    latency = _latency_numbers(fills, raw, head.get("algo"))
+    order_payload = _row_to_model(head).to_payload()
+    order_payload.update({
+        "limit_price": head.get("limit_price"), "currency": head.get("currency"),
+    })
+    if fills:
+        ctx = _order_fill_stats(fills, raw, str(head.get("OrderId") or ""))
+        order_payload["fill_span_sec"] = ctx["fill_span_sec"]
+        order_payload["speed_shares_per_min"] = ctx["speed_shares_per_min"]
+        total = ctx["total_shares"]
+        order_payload["passive_ratio"] = (
+            ctx["passive_shares"] / total if total else None
+        )
+    return {
+        "order": order_payload,
+        "routes": _routes_payload(routes),
+        "fills": fills,
+        "timeline": timeline,
+        "cost": tm.cost_decomposition(
+            delay_cost=head.get("delay_cost"), trading_cost=head.get("trading_cost"),
+            opportunity_cost=head.get("opportunity_cost"),
+            wagner_is_bps=head.get("wagner_is_bps"),
+            route_shares=head.get("route_shares"), p_decision=head.get("p_decision"),
+            arrival_cost_bps=head.get("arrival_cost_bps"),
+            completion=head.get("completion"),
+        ),
+        "fill_stats": tm.fill_distribution(fills, head.get("route_shares")),
+        "liquidity": liquidity,
+        "latency": latency,
+        "daily": None,
+        "quality": _detail_quality(head, liquidity, latency),
+    }
+
+
+def build_order_detail(
+    order_id: str,
+    *,
+    order_as_of_date: Optional[str] = None,
+    bucket_min: int = tm.DEFAULT_BUCKET_MIN,
+    mgr: Optional[ConnectionManager] = None,
+) -> dict[str, Any]:
+    """订单详情端点编排（§3.4.2）：聚合头复用列表口径，逐笔/行情跨库只读。"""
+    if bucket_min not in tm.BUCKET_MINUTES:
+        raise ValueError(f"bucket_min 非法: {bucket_min!r}，可选 {list(tm.BUCKET_MINUTES)}")
+    manager = _manager(mgr)
+    conn = manager.get_connection("fill_bdib", AccessTier.READ)
+    try:
+        routes = tq.query_order_routes(conn, order_id)
+        if not routes:
+            raise OrderNotFound(f"订单不存在: {order_id}")
+        oad = _resolve_order_date(routes, order_as_of_date)
+        head_rows = tq.query_order_rows(conn, tmod.TraderFilters(
+            start_date=oad, end_date=oad, order_id=order_id, limit=1,
+        ))
+    finally:
+        conn.close()
+    if not head_rows:
+        raise OrderNotFound(f"订单不存在: {order_id}")
+    processed = _read(manager, "processed_fills",
+                      lambda c: tq.query_order_fills(c, order_id, oad))
+    raw = _read(manager, "raw_fills",
+                lambda c: tq.query_order_raw_fills(c, order_id, oad))
+    bars_raw = _read(manager, "raw_bdib",
+                     lambda c: tq.query_order_bars(c, head_rows[0].get("equ_ticker") or "", oad))
+    return _detail_payload(head_rows[0], routes, processed, raw, bars_raw, bucket_min)
+
+
+# ── 列表当前页逐笔补列（fill_span / speed / passive_ratio）───────────────────
+
+
+def _page_fill_context(
+    manager: Optional[ConnectionManager], keys: list[tuple[str, str]],
+) -> dict[str, dict[str, Any]]:
+    """当前页逐笔上下文（聚合查询，不拉全量逐笔）：span/速度/被动占比/延迟。"""
+    if not manager or not keys:
+        return {}
+    fill_agg = _read(manager, "processed_fills", lambda c: tq.query_page_fill_agg(c, keys))
+    liq_agg = _read(manager, "raw_fills", lambda c: tq.query_page_liquidity_agg(c, keys))
+    shares_by_order: dict[str, dict[str, float]] = {}
+    for row in liq_agg:
+        cls = tm.liquidity_class(row.get("Liquidity"))
+        bucket = shares_by_order.setdefault(
+            str(row.get("OrderId")), {"passive": 0.0, "unknown": 0.0, "total": 0.0},
+        )
+        shares = float(row.get("shares") or 0.0)
+        bucket["total"] += shares
+        if cls == "passive":
+            bucket["passive"] += shares
+        elif cls == "unknown":
+            bucket["unknown"] += shares
+    return {
+        str(row.get("OrderId")): _agg_fill_ctx(row, shares_by_order.get(str(row.get("OrderId")), {}))
+        for row in fill_agg
+    }
+
+
+def _agg_fill_ctx(row: dict[str, Any], shares: dict[str, float]) -> dict[str, Any]:
+    """聚合行 → 逐笔上下文（span = 首末成交时刻差；scheduled 由调用方结合 algo 判定）。"""
+    first, last = _time_sec(row.get("first_exec")), _time_sec(row.get("last_exec"))
+    route_sec = _time_sec(row.get("first_route_as_of"))
+    span = (last - first) if (first is not None and last is not None) else None
+    gap = (first - route_sec) if (first is not None and route_sec is not None) else None
+    total = shares.get("total", 0.0)
+    return {
+        "fill_span_sec": span,
+        "speed_shares_per_min": (total / (span / 60.0)) if span else None,
+        "passive_shares": shares.get("passive", 0.0),
+        "unknown_shares": shares.get("unknown", 0.0),
+        "total_shares": total,
+        "single_fill": int(row.get("fill_n") or 0) < 2,
+        # MIN(is_closing_auction) != 0 → 全部为竞价成交（列表级近似，详情端点精确）
+        "all_auction": row.get("all_auction") not in (0, None),
+        "scheduled": False,
+        "latency_anomaly": bool(gap is not None and gap < -1.0),
+        "route_to_first_fill_sec": gap,
+    }
+
+
+def _order_fill_stats(
+    fills: list[dict[str, Any]], raw: list[dict[str, Any]], order_id: str,
+) -> dict[str, Any]:
+    """单订单逐笔摘要（列表补列与 KPI 共用）。"""
+    split = tm.liquidity_split(fills, None, None)
+    ts = [f["ts_sec"] for f in fills if f.get("ts_sec") is not None]
+    span = (max(ts) - min(ts)) if len(ts) >= 2 else None
+    latency = _latency_numbers(
+        fills, [r for r in raw if r.get("OrderId") == order_id], None,
+    )
+    return {
+        "fill_span_sec": span,
+        "speed_shares_per_min": (split["total_shares"] / (span / 60.0)) if span else None,
+        "passive_shares": split["passive_share_strict"] * split["total_shares"],
+        "unknown_shares": split["unknown_share"] * split["total_shares"],
+        "total_shares": split["total_shares"],
+        "single_fill": len(fills) < 2,
+        "scheduled": latency.get("scheduled"),
+        "latency_anomaly": latency.get("latency_anomaly"),
+        "route_to_first_fill_sec": latency.get("route_to_first_fill_sec"),
+    }
+
+
+def _apply_fill_context(
+    model: tmod.TraderOrderRow, ctx: Optional[dict[str, Any]],
+) -> None:
+    """把逐笔上下文写回列表行（无逐笔 → 保持 None，不写 0）。"""
+    if not ctx:
+        return
+    ctx["scheduled"] = bool(model.algo == "close" or ctx.get("all_auction"))
+    model.fill_span_sec = ctx["fill_span_sec"]
+    model.speed_shares_per_min = ctx["speed_shares_per_min"]
+    total = ctx["total_shares"]
+    model.passive_ratio = (ctx["passive_shares"] / total) if total else None
+    unknown_share = (ctx["unknown_shares"] / total) if total else 0.0
+    if unknown_share > tm.LIQUIDITY_UNKNOWN_BADGE:
+        model.quality_flags.append("liquidity_unknown")
+        if unknown_share > tm.LIQUIDITY_UNKNOWN_WARN and model.quality_level in ("clean", "info"):
+            model.quality_level = "warn"
+
+
+def _passive_kpi(ctx: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """被动占比 KPI（§4.13）：范围 = 当前页；未知占比随值披露。"""
+    total = sum(c["total_shares"] for c in ctx.values())
+    if not total:
+        return {"value": None, "n": 0, "unknown_share": None,
+                "scope": "current_page", "note": "当前页无逐笔"}
+    return {
+        "value": sum(c["passive_shares"] for c in ctx.values()) / total,
+        "n": total,
+        "unknown_share": sum(c["unknown_shares"] for c in ctx.values()) / total,
+        "scope": "current_page",
+    }
+
+
+def _delay_kpi(ctx: dict[str, dict[str, Any]], page_orders: int) -> dict[str, Any]:
+    """释放延迟 p90（§4.13）：route→首笔，仅连续算法（收盘/竞价单剔除）。"""
+    values = [
+        c["route_to_first_fill_sec"] for c in ctx.values()
+        if not c["scheduled"] and c["route_to_first_fill_sec"] is not None
+    ]
+    return {
+        "value": tm.percentile(values, 90.0),
+        "n": len(values), "denominator": page_orders,
+        "scope": "continuous_only",
+    }
+
+
+def _fill_quality_probe(
+    ctx: dict[str, dict[str, Any]], filters: tmod.TraderFilters,
+) -> dict[str, Any]:
+    """fill_quality 探针（§4.12）：范围 >31 天或无逐笔 → 显式未检查。"""
+    window_days = (
+        datetime.strptime(filters.end_date, "%Y%m%d")
+        - datetime.strptime(filters.start_date, "%Y%m%d")
+    ).days + 1
+    if window_days > 31:
+        return {"checked": False, "triggered": None,
+                "note": "范围 >31 天，未检查（不伪装通过）"}
+    if not ctx:
+        return {"checked": False, "triggered": None,
+                "note": "当前页无逐笔，未检查（不伪装通过）"}
+    triggered = sum(
+        1 for c in ctx.values()
+        if c["latency_anomaly"] or c["single_fill"]
+        or (c["unknown_shares"] / c["total_shares"] if c["total_shares"] else 0)
+        > tm.LIQUIDITY_UNKNOWN_WARN
+    )
+    return {"checked": True, "triggered": triggered, "note": None}

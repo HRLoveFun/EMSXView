@@ -1,12 +1,16 @@
 """交易员复盘台纯函数层（无 IO；单测主战场）。
 
 口径来源：`specs/210-costview-trader-order-review/实施方案.md`
-§0.2 F3（成本符号）、§4.1（完成率 / 多路由聚合语义）、§4.12（质量徽章）、
-§4.13（KPI 首屏）。本模块只接收 dict / 标量，禁止碰数据库（实现约束 §3.3）。
+§0.2 F3（成本符号）、§4.1（完成率 / 多路由聚合语义）、§4.2（时间线分桶）、
+§4.3（成本分解）、§4.4（完成轨迹）、§4.5（填充分布）、§4.6（主动/被动拆分）、
+§4.9（延迟）、§4.12（质量徽章）、§4.13（KPI 首屏）。
+本模块只接收 dict / 标量，禁止碰数据库（实现约束 §3.3）。
 """
 
 from __future__ import annotations
 
+import math
+import statistics
 from typing import Any, Optional
 
 #: 完成率分桶（§3.4.1 completion_bucket 枚举）
@@ -104,6 +108,125 @@ def opp_bps(row: dict[str, Any]) -> Optional[float]:
     return cost / (shares * p_decision) * 10000.0
 
 
+def side_sign(side: Optional[str]) -> Optional[float]:
+    """F3 方向符号：BUY 价涨为不利 → −1；SELL 价跌为不利 → +1。"""
+    if side == "BUY":
+        return -1.0
+    if side == "SELL":
+        return 1.0
+    return None
+
+
+#: FIX 851 严格映射（§4.6）：1/2/4 + 券商扩展 Maker/Taker/Auction；其余取值未知。
+#: 映射变更只改本表；`3/0/5/6/Z/P/A/Routed/空` 在 UI 标「映射待业务确认」。
+LIQUIDITY_MAP: dict[str, str] = {
+    "1": "passive", "2": "aggressive", "4": "auction",
+    "Maker": "passive", "Taker": "aggressive", "Auction": "auction",
+}
+LIQUIDITY_CLASSES: tuple[str, ...] = ("passive", "aggressive", "auction", "unknown")
+#: 未知占比 >10% 打 liquidity_unknown 徽章（§4.6）；>30% 为 warn 档（§4.12）
+LIQUIDITY_UNKNOWN_BADGE = 0.10
+LIQUIDITY_UNKNOWN_WARN = 0.30
+
+
+def liquidity_class(raw: Optional[str]) -> str:
+    """FIX 851 取值 → 分类；未映射取值一律 unknown（不猜）。"""
+    return LIQUIDITY_MAP.get((raw or "").strip(), "unknown")
+
+
+def _class_cost_bps(vwap: Optional[float], p_arrival: Optional[float], sign: Optional[float]) -> Optional[float]:
+    """类别成本 bps：(vwap / p_arrival − 1) × side_sign × 10000（F3：负=不利）。"""
+    if vwap is None or p_arrival is None or sign is None:
+        return None
+    return (vwap / p_arrival - 1.0) * sign * 10000.0
+
+
+def liquidity_split(
+    fills: list[dict[str, Any]], p_arrival: Optional[float], side: Optional[str],
+) -> dict[str, Any]:
+    """主动/被动/竞价/未知拆分（§4.6）：四项股数和 = 总成交股数（误差 0）。"""
+    shares_by = {c: 0.0 for c in LIQUIDITY_CLASSES}
+    vwap_num = {c: 0.0 for c in LIQUIDITY_CLASSES}
+    for fill in fills:
+        cls = liquidity_class(fill.get("liquidity_raw"))
+        shares = float(fill.get("shares") or 0.0)
+        price = fill.get("price")
+        shares_by[cls] += shares
+        if price is not None:
+            vwap_num[cls] += shares * float(price)
+    total = sum(shares_by.values())
+    sign = side_sign(side)
+
+    def _share(cls: str) -> Optional[float]:
+        return (shares_by[cls] / total) if total else None
+
+    def _vwap(cls: str) -> Optional[float]:
+        return (vwap_num[cls] / shares_by[cls]) if shares_by[cls] else None
+
+    return {
+        "passive_share_strict": _share("passive"),
+        "aggressive_share_strict": _share("aggressive"),
+        "auction_share": _share("auction"),
+        "unknown_share": _share("unknown"),
+        "passive_cost_bps": _class_cost_bps(_vwap("passive"), p_arrival, sign),
+        "aggressive_cost_bps": _class_cost_bps(_vwap("aggressive"), p_arrival, sign),
+        "recognized_share": (1.0 - _share("unknown")) if total else None,
+        "total_shares": total,
+        "mapping": "fix851_strict",
+    }
+
+
+#: 成本分解残差容差（§4.3 验收：|residual| < 0.5bps，达到即「对账异常」）
+COST_RESIDUAL_TOLERANCE_BPS = 0.5
+
+
+def cost_decomposition(
+    *,
+    delay_cost: Optional[float],
+    trading_cost: Optional[float],
+    opportunity_cost: Optional[float],
+    wagner_is_bps: Optional[float],
+    route_shares: Optional[float],
+    p_decision: Optional[float],
+    arrival_cost_bps: Optional[float] = None,
+    completion: Optional[float] = None,
+) -> dict[str, Any]:
+    """订单级 IS 成本分解（§4.3）：D = RouteShares × p_decision，与 wagner_is_bps 同源。
+
+    p_decision 缺失时只回货币成本、不画 bps（标 IS 分解不可用，禁止 NaN/Infinity）。
+    residual 是**对账项**：|residual| ≥ 0.5bps 标「对账异常」，不写「归因不全」。
+    """
+    denom = (route_shares * p_decision) if (route_shares and p_decision) else None
+
+    def _bps(cost: Optional[float]) -> Optional[float]:
+        return (cost / denom * 10000.0) if (denom and cost is not None) else None
+
+    delay_bps, trading_bps, opp_bps_v = _bps(delay_cost), _bps(trading_cost), _bps(opportunity_cost)
+    parts = (delay_bps, trading_bps, opp_bps_v)
+    residual = None
+    if wagner_is_bps is not None and all(p is not None for p in parts):
+        residual = wagner_is_bps - sum(parts)  # type: ignore[arg-type]
+    opp_dominant = (
+        opp_bps_v is not None and arrival_cost_bps is not None
+        and abs(opp_bps_v) > abs(arrival_cost_bps)
+    )
+    return {
+        "denominator": denom,
+        "delay_bps": delay_bps,
+        "trading_bps": trading_bps,
+        "opportunity_bps": opp_bps_v,
+        "wagner_is_bps": wagner_is_bps,
+        "residual_bps": residual,
+        "residual_flag": (
+            "对账异常" if residual is not None and abs(residual) >= COST_RESIDUAL_TOLERANCE_BPS else None
+        ),
+        "arrival_cost_bps": arrival_cost_bps,
+        "opportunity_dominant": bool(opp_dominant),
+        "opportunity_highlight": bool(completion is not None and completion < 1.0),
+        "note": None if denom else "IS 分解不可用（无 BDIB/决策价）",
+    }
+
+
 def _kpi(value: Optional[float], n: Optional[int], **extra: Any) -> dict[str, Any]:
     """KPI 卡结构：value / n / scope（口径见 §4.13；n=0 时 value 置 None）。"""
     payload: dict[str, Any] = {"value": value, "n": n, "scope": extra.pop("scope", "full")}
@@ -155,8 +278,15 @@ def _both_flagged(rows: list[dict[str, Any]]) -> int:
     )
 
 
-def compute_probes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """全局可信度横幅 4 类检查（§4.12）：始终返回 4 条，0 触发也可见、不伪装通过。"""
+def compute_probes(
+    rows: list[dict[str, Any]],
+    fill_quality: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    """全局可信度横幅 4 类检查（§4.12）：始终返回 4 条，0 触发也可见、不伪装通过。
+
+    ``fill_quality`` 由逐笔层提供 ``{checked, triggered, note}``；缺省（无逐笔
+    上下文 / 范围 >31 天）返回 checked=false + 明示原因。
+    """
     quantity = sum(
         1 for r in rows if _flag(r, "flag_overfill") or _flag(r, "flag_amount_mismatch")
     )
@@ -164,6 +294,10 @@ def compute_probes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         1 for r in rows if r.get("max_par_rate") is not None and r["max_par_rate"] > 1.0
     )
     cost_missing = sum(1 for r in rows if _flag(r, "flag_cost_missing"))
+    fq = fill_quality or {
+        "checked": False, "triggered": None,
+        "note": "逐笔上下文缺失，未检查（不伪装通过）",
+    }
     return [
         {"id": "quantity", "checked": True, "triggered": quantity,
          "affected_kpis": ["completion", "opportunity_cost"], "note": None},
@@ -172,7 +306,223 @@ def compute_probes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
          "note": "多路由求和不计（F2）；>1000% 见质量徽章 par_suspect"},
         {"id": "cost_missing", "checked": True, "triggered": cost_missing,
          "affected_kpis": ["arrival", "wagner_is", "opportunity_cost"], "note": None},
-        {"id": "fill_quality", "checked": False, "triggered": None,
-         "affected_kpis": ["passive_ratio", "peer_percentile", "release_delay"],
-         "note": "逐笔质量检查待逐笔查询接入（PR-2），当前未检查（不伪装通过）"},
+        {"id": "fill_quality", "checked": bool(fq.get("checked")),
+         "triggered": fq.get("triggered"),
+         "affected_kpis": ["passive_ratio", "peerpercentile", "release_delay"],
+         "note": fq.get("note")},
     ]
+
+
+def latency_block(
+    *,
+    order_to_route_sec: Optional[float],
+    route_to_first_fill_sec: Optional[float],
+    first_continuous_fill_sec: Optional[float],
+    algo: Optional[str],
+    first_fill_is_auction: bool,
+) -> dict[str, Any]:
+    """延迟三段（§4.9）：收盘/竞价单标 scheduled；负延迟 <1s 钳 0、<−1s 标异常。"""
+    anomaly = (
+        first_continuous_fill_sec is not None and first_continuous_fill_sec < -1.0
+    )
+    cont = first_continuous_fill_sec
+    if cont is not None and -1.0 <= cont < 0:
+        cont = 0.0
+    order_to_first = (
+        order_to_route_sec + route_to_first_fill_sec
+        if (order_to_route_sec is not None and route_to_first_fill_sec is not None)
+        else None
+    )
+    return {
+        "order_to_route_sec": order_to_route_sec,
+        "route_to_first_fill_sec": route_to_first_fill_sec,
+        "order_to_first_fill_sec": order_to_first,
+        "first_continuous_fill_sec": cont,
+        "scheduled": bool(algo == "close" or first_fill_is_auction),
+        "latency_anomaly": bool(anomaly),
+    }
+
+
+# ── 时间线分桶 / 完成轨迹 / 填充分布（§4.2/§4.4/§4.5）────────────────────────
+
+#: 时间线最大桶数（§4.2：超过自动加宽桶并披露）
+MAX_TIMELINE_BUCKETS = 240
+#: 默认时间桶宽（分钟；可切 15）
+DEFAULT_BUCKET_MIN = 5
+#: 时间桶白名单（路由参数）
+BUCKET_MINUTES: tuple[int, ...] = (5, 15)
+
+
+def _hms(sec: Optional[float]) -> Optional[str]:
+    """当日秒 → HH:MM（分钟截断；None 原样返回）。"""
+    if sec is None:
+        return None
+    total = int(sec) // 60
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _auto_bucket_min(span_sec: float, bucket_min: int) -> tuple[int, bool]:
+    """桶数 ≤240：超宽自动加宽（向上取整到分钟）并披露。"""
+    buckets = math.floor(span_sec / 60.0 / bucket_min) + 1
+    if buckets <= MAX_TIMELINE_BUCKETS:
+        return bucket_min, False
+    widened = max(1, math.ceil(span_sec / 60.0 / MAX_TIMELINE_BUCKETS))
+    return widened, True
+
+
+def bucket_fills(
+    fills: list[dict[str, Any]],
+    bucket_min: int,
+    route_shares: Optional[float],
+    bars: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """时间线分桶（§4.2）：桶从首笔成交起按固定宽度切，空桶补 0。
+
+    fills 须含 ts_sec / shares / price / is_closing_auction；bars 为当日 raw_bdib
+    聚合单位的市场量（``ts_sec`` / ``volume``），按同一 t_first/桶宽归桶 ——
+    收盘竞价桶 / 无 bar 桶 participation_status = unavailable（不画 0%）。
+    """
+    if not fills:
+        return {"bucket_min": bucket_min, "auto_widened": False, "buckets": []}
+    ts_list = [float(f["ts_sec"]) for f in fills if f.get("ts_sec") is not None]
+    t_first = min(ts_list)
+    bucket_min, widened = _auto_bucket_min(max(ts_list) - t_first, bucket_min)
+    span = math.floor((max(ts_list) - t_first) / (bucket_min * 60.0)) + 1
+    acc = [{"fill": 0.0, "count": 0, "num": 0.0, "auction": 0} for _ in range(span)]
+    for fill in fills:
+        idx = min(int((float(fill["ts_sec"]) - t_first) // (bucket_min * 60)), span - 1)
+        shares = float(fill.get("shares") or 0.0)
+        acc[idx]["fill"] += shares
+        acc[idx]["count"] += 1
+        if fill.get("price") is not None:
+            acc[idx]["num"] += shares * float(fill["price"])
+        if fill.get("is_closing_auction"):
+            acc[idx]["auction"] += 1
+    market: dict[int, float] = {}
+    for bar in bars:
+        bar_ts = bar.get("ts_sec")
+        if bar_ts is None or bar_ts < t_first:
+            continue
+        idx = min(int((float(bar_ts) - t_first) // (bucket_min * 60)), span - 1)
+        market[idx] = market.get(idx, 0.0) + float(bar.get("volume") or 0.0)
+    return {
+        "bucket_min": bucket_min,
+        "auto_widened": widened,
+        "buckets": _bucket_rows(acc, t_first, bucket_min, route_shares, market),
+    }
+
+
+def _bucket_rows(
+    acc: list[dict[str, Any]], t_first: float, bucket_min: int,
+    route_shares: Optional[float], market_by_bucket: dict[int, float],
+) -> list[dict[str, Any]]:
+    """组装逐桶行：参与率 / 累计完成率 / 速度 / 加速度（首桶 accel=None）。"""
+    rows: list[dict[str, Any]] = []
+    cum, prev_speed = 0.0, None
+    for idx, item in enumerate(acc):
+        start = t_first + idx * bucket_min * 60.0
+        speed = item["fill"] / bucket_min
+        volume = market_by_bucket.get(idx)
+        cum += item["fill"]
+        rows.append({
+            "start": _hms(start), "end": _hms(start + bucket_min * 60.0),
+            "fill": item["fill"], "fill_count": item["count"],
+            "vwap": (item["num"] / item["fill"]) if item["fill"] else None,
+            "market_volume": volume,
+            "participation": (item["fill"] / volume) if volume else None,
+            # 无 bar（收盘竞价桶 / 行情缺失）→ unavailable，不画 0%
+            "participation_status": "ok" if volume else "unavailable",
+            "cum_completion": (cum / route_shares) if route_shares else None,
+            "speed_shares_per_min": speed,
+            "accel": None if prev_speed is None else speed - prev_speed,
+        })
+        prev_speed = speed
+    return rows
+
+
+def fill_span_stats(
+    fills: list[dict[str, Any]], buckets: list[dict[str, Any]], fill_total: float,
+) -> dict[str, Any]:
+    """完成轨迹（§4.4）：span = 末笔 − 首笔；单笔成交 → 全部 None（不是 0）。
+
+    ``speed_cv`` 分母为**非零桶**速度（API 注明）；同时披露零成交桶数。
+    """
+    ts = [float(f["ts_sec"]) for f in fills if f.get("ts_sec") is not None]
+    if len(fills) < 2 or len(ts) < 2:
+        return {
+            "fill_span_sec": None, "speed_shares_per_min": None,
+            "speed_cv": None, "max_speed_ratio": None,
+            "zero_bucket_count": 0, "speed_cv_basis": "non_zero_buckets",
+        }
+    span_sec = max(ts) - min(ts)
+    speeds = [b["speed_shares_per_min"] for b in buckets]
+    nonzero = [s for s in speeds if s > 0]
+    mean = (sum(nonzero) / len(nonzero)) if nonzero else None
+    return {
+        "fill_span_sec": span_sec,
+        "speed_shares_per_min": (fill_total / (span_sec / 60.0)) if span_sec else None,
+        "speed_cv": (
+            (statistics.pstdev(nonzero) / mean) if (mean and len(nonzero) > 1) else None
+        ),
+        "max_speed_ratio": (max(nonzero) / mean) if (mean and nonzero) else None,
+        "zero_bucket_count": sum(1 for s in speeds if s == 0),
+        "speed_cv_basis": "non_zero_buckets",
+    }
+
+
+def fill_distribution(fills: list[dict[str, Any]], route_shares: Optional[float]) -> dict[str, Any]:
+    """单次填充量分布（§4.5）：单笔不计算 CV/top3；top3 在 <3 笔时 N/A。"""
+    shares = [float(f.get("shares") or 0.0) for f in fills]
+    n = len(shares)
+    if n == 0:
+        return {"median": None, "p90": None, "cv": None,
+                "max_fill_ratio": None, "top3_share": None, "fills_per_min": None}
+    mean = sum(shares) / n
+    cv = (statistics.pstdev(shares) / mean) if (n > 1 and mean) else None
+    top3 = (sum(sorted(shares, reverse=True)[:3]) / sum(shares)) if n >= 3 and sum(shares) else None
+    ts = [float(f["ts_sec"]) for f in fills if f.get("ts_sec") is not None]
+    span_min = ((max(ts) - min(ts)) / 60.0) if (len(ts) >= 2) else None
+    return {
+        "median": statistics.median(shares),
+        "p90": percentile(shares, 90.0),
+        "cv": cv,
+        "max_fill_ratio": (max(shares) / route_shares) if route_shares else None,
+        "top3_share": top3,
+        "fills_per_min": (n / span_min) if span_min else None,
+    }
+
+
+def percentile(values: list[float], q: float) -> Optional[float]:
+    """线性插值分位数（pandas 禁用，纯函数实现）。"""
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    pos = (len(ordered) - 1) * q / 100.0
+    low = math.floor(pos)
+    high = math.ceil(pos)
+    if low == high:
+        return ordered[low]
+    return ordered[low] + (ordered[high] - ordered[low]) * (pos - low)
+
+
+def percentile_rank(value: Optional[float], peers: list[float]) -> Optional[float]:
+    """分位公式（§4.7）：p = (count< + 0.5×count=) / n；空样本 / 值缺失 → None。"""
+    if value is None or not peers:
+        return None
+    below = sum(1 for p in peers if p < value)
+    equal = sum(1 for p in peers if p == value)
+    return (below + 0.5 * equal) / len(peers)
+
+
+def mad_z(value: Optional[float], peers: list[float]) -> Optional[float]:
+    """稳健 z 分数（§4.7）：MAD=0 时退化 IQR/1.349，仍为 0 → None。"""
+    if value is None or not peers:
+        return None
+    median = statistics.median(peers)
+    mad = statistics.median([abs(p - median) for p in peers])
+    if mad == 0:
+        q1, q3 = percentile(peers, 25.0), percentile(peers, 75.0)
+        mad = ((q3 - q1) / 1.349) if (q1 is not None and q3 is not None) else 0.0
+    return ((value - median) / mad) if mad else None
