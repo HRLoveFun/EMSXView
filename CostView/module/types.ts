@@ -668,9 +668,13 @@ export interface TcaAnomalyRow {
   hits: TcaAnomalyHit[];
   /** 路由级最严重档（critical 优先） */
   severity: 'warning' | 'critical';
-  /** 数据质量标记：成交超过委托 / 订单参与率求和 >100% */
+  /** 数据质量标记：成交超过委托（fill > RouteShares） */
   overfill: boolean;
-  order_par_gt100: boolean;
+  /** 订单参与率分组统计（F2）：组内路由数 / 组内最大路由参与率 */
+  order_par_routes?: number | null;
+  order_par_max?: number | null;
+  /** 参与率疑似失真：单路由自身 >100%，或多路由组内最大路由参与率 >100% */
+  par_suspect: boolean;
 }
 
 /** 异常路由明细（S6） */

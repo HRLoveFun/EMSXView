@@ -261,12 +261,10 @@ class TcaReportAggregator:
             "export_ref": None,
             # 节流统计（D6）：阈值命中 / 笔数 / 金额 / 豁免 / fill_count 缺失
             "throttle": dict(throttle or {}),
-            # 数据质量提示（013）：命中 overfill / 订单参与率 >100% 的条数
+            # 数据质量提示（013 + F2）：命中 overfill / 参与率疑似失真（par_suspect）的条数
             "data_quality": {
                 "overfill_count": sum(1 for r in rows if r.get("overfill")),
-                "order_par_gt100_count": sum(
-                    1 for r in rows if r.get("order_par_gt100")
-                ),
+                "par_suspect_count": sum(1 for r in rows if r.get("par_suspect")),
             },
         }
 
@@ -1035,7 +1033,7 @@ class TcaReportAggregator:
             "anomaly": {
                 "count": 0, "rows": [], "rows_truncated": 0, "export_ref": None,
                 "throttle": {},
-                "data_quality": {"overfill_count": 0, "order_par_gt100_count": 0},
+                "data_quality": {"overfill_count": 0, "par_suspect_count": 0},
             },
             "metric_coverage": None,
             "evaluation": None,

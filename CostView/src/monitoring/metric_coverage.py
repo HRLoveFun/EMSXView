@@ -321,16 +321,16 @@ class MetricCoverageService:
     def _query_consistency(
         conn, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
-        """数据一致性探针（013 + P1-a）：overfill / 订单参与率越界。
+        """数据一致性探针（013 + P1-a + F2）：overfill / 路由参与率越界。
 
-        与异常判定（overfill_pct / order_par_gt100 规则）同源，但此处给出整体
-        比例，不受异常清单截断影响，供报告头「数据质量提示」区展示。
-        订单级聚合（(OrderId, order_as_of_date, Exchange) 求和）与异常明细共用
-        report_measure 的唯一实现，避免两处口径分叉；分母同作用域。
+        与异常判定（overfill_pct / order_par_single_gt100 / route_par_extreme
+        规则）同源，但此处给出整体比例，不受异常清单截断影响，供报告头「数据质量
+        提示」区展示。订单级聚合（(OrderId, order_as_of_date, Exchange)）与异常明细
+        共用 report_measure 的唯一实现，避免两处口径分叉；分母同作用域。
         F1（2026-11-03）：**删除** amount_consistency 探针 —— Amount 实为委托股数，
         与成交额 fill×p_avg 对比恒误报（实测 99.94% 不一致），不是数据缺陷信号。
-        D17：order_par >200% 单独分档（critical 档，疑重复记账），使提示区能
-        区分「越界」与「几乎必然数据矛盾」的规模。
+        F2（2026-11-03）：多路由组的 ``par_sum`` 不可加总，越界判定改为「单路由组看
+        自身参与率、多路由组看组内最大路由参与率」，极端值（>1000%）单独分档。
         """
         where, params = MetricCoverageService._scope_where(start_date, end_date, scope)
         route_row = conn.execute(
@@ -348,9 +348,16 @@ class MetricCoverageService:
         order_row = conn.execute(
             f"""
             SELECT COUNT(*) AS total_orders,
-                   SUM(CASE WHEN par_sum > 1.0 THEN 1 ELSE 0 END) AS gt100_orders,
-                   SUM(CASE WHEN par_sum > {rm.ORDER_PAR_CRITICAL_SUM}
-                            THEN 1 ELSE 0 END) AS gt200_orders
+                   SUM(CASE WHEN route_count = 1 AND par_sum > {rm.ORDER_PAR_SUSPECT_RATE}
+                            THEN 1 ELSE 0 END) AS single_suspect_orders,
+                   SUM(CASE WHEN route_count > 1
+                             AND max_par_rate > {rm.ORDER_PAR_SUSPECT_RATE}
+                            THEN 1 ELSE 0 END) AS multi_suspect_orders,
+                   SUM(CASE WHEN (route_count = 1
+                                  AND par_sum > {rm.ORDER_PAR_CRITICAL_RATE})
+                              OR (route_count > 1
+                                  AND max_par_rate > {rm.ORDER_PAR_CRITICAL_RATE})
+                            THEN 1 ELSE 0 END) AS extreme_orders
             FROM {order_par}
             """,
             params,
@@ -358,16 +365,20 @@ class MetricCoverageService:
         total_routes = int(route_row[0] or 0)
         overfill_routes = int(route_row[1] or 0)
         total_orders = int(order_row[0] or 0)
-        gt100_orders = int(order_row[1] or 0)
-        gt200_orders = int(order_row[2] or 0)
+        single_suspect = int(order_row[1] or 0)
+        multi_suspect = int(order_row[2] or 0)
+        suspect_orders = single_suspect + multi_suspect
         return {
             "total_routes": total_routes,
             "overfill_routes": overfill_routes,
             "completion_consistency_pct": _consistency_pct(total_routes, overfill_routes),
             "total_orders": total_orders,
-            "order_par_gt100_orders": gt100_orders,
-            "order_par_gt200_orders": gt200_orders,
-            "order_par_consistency_pct": _consistency_pct(total_orders, gt100_orders),
+            # F2：单路由组（自身参与率越界）/ 多路由组（组内最大路由参与率越界）
+            "order_par_single_suspect_orders": single_suspect,
+            "order_par_multi_suspect_orders": multi_suspect,
+            "order_par_suspect_orders": suspect_orders,
+            "order_par_extreme_orders": int(order_row[3] or 0),
+            "order_par_consistency_pct": _consistency_pct(total_orders, suspect_orders),
         }
 
     @staticmethod
