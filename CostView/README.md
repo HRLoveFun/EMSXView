@@ -26,7 +26,8 @@ CostView/                          # CostView domain
 │   ├── requirements.txt           # Python dependencies
 │   └── routers/
 │       ├── costview.py            # TCA analysis endpoints (/api/tca/*)
-│       └── monitoring.py          # Monitoring endpoints (/api/tca/monitoring/*)
+│       ├── monitoring.py          # Monitoring endpoints (/api/tca/monitoring/*)
+│       └── trader.py              # 交易员复盘台 (/api/tca/trader/*，210 PR-1)
 ├── src/
 │   ├── tca_query_service.py       # TCA query orchestrator (reads tca_route_summary precomputed table)
 │   ├── tca_query_builder.py       # SQL query builders (库/表缺失 → 降级空结果, 009)
@@ -34,6 +35,10 @@ CostView/                          # CostView domain
 │   ├── tca_cache.py               # query result cache (Redis; 连接失败 → 降级直查)
 │   ├── query_cli.py               # QueryEngine 类（CLI 命令分发目标）
 │   ├── __main__.py                # CLI 入口：python -m CostView.src（退出码 0/2/3，见 §4.2）
+│   ├── trader_query.py            # 交易员复盘台 SQL（订单列表聚合 / 筛选项，210 PR-1）
+│   ├── trader_metrics.py          # 交易员复盘台纯函数（徽章 / KPI / 探针，210 PR-1）
+│   ├── trader_models.py           # 交易员复盘台契约模型（210 PR-1）
+│   ├── trader_service.py          # 交易员复盘台编排（列表 / 筛选项，210 PR-1）
 │   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │                                  # anomaly_query · tca_report_html · time_range
 ├── tests/                          # 规模跑命令看（python -m pytest CostView/tests/ -q）：
@@ -41,7 +46,9 @@ CostView/                          # CostView domain
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
 │                                   #   test_order_aggregation 9 /
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/
-│                                   #   test_golden_samples 1）
+│                                   #   test_golden_samples 1 /
+│                                   #   test_trader_metrics 14 / test_trader_query 11 /
+│                                   #   test_trader_service 11 / test_trader_router 6）
 ├── scripts/                        # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
 # 注：原 data.migrated.202609022339/（2026-09-02 数据迁移留证，约 145GB，从未入版本库）
 #     已于 2026-09-16 确认数据根稳定指向 ${EMSXVIEW_DATA_DIR}（D:\db）后经用户确认删除；
@@ -72,7 +79,7 @@ python main.py
 
 ## Endpoints
 
-共 14 个端点（9 个 costview 路由 + 5 个 monitoring 路由），行号取自 `api/routers/` 源码（2026-11-03 复核）：
+共 16 个端点（9 个 costview 路由 + 5 个 monitoring 路由 + 2 个交易员路由），行号取自 `api/routers/` 源码（2026-11-03 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
@@ -90,6 +97,8 @@ python main.py
 | `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) | `api/routers/monitoring.py:262` |
 | `GET /api/tca/monitoring/anomaly-thresholds` | Anomaly route-filter thresholds | `api/routers/monitoring.py:312` |
 | `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:331` |
+| `GET /api/tca/trader/orders` | 交易员订单复盘列表（服务端分页/排序 + KPI + 质量探针） | `api/routers/trader.py:36` |
+| `GET /api/tca/trader/filter-options` | 交易员筛选下拉（traders/strategy_types + 维度表） | `api/routers/trader.py:95` |
 
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
 >
@@ -155,5 +164,5 @@ location /api/tca/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
-*Last updated: 2026-11-03（PR-0a F1：`Amount` 语义纠正为委托股数，异常金额列 / 门槛改 `fill×p_avg`，删除金额一致性探针；PR-0b F2：订单参与率拆单路由 / 多路由判定（多路由取 max、求和不判异常），规则拆为 `order_par_single_gt100` / `route_par_extreme`；同步测试计数与报告口径声明）*
+*Last updated: 2026-11-03（210 PR-0a/0b：F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1：交易员复盘台订单列表 / 筛选项端点（`trader_*` 四文件 + `/api/tca/trader/*` 两端点），聚合口径与 `analyze-orders` 对账 100 单）*
 *Last verified: 2026-09-15（端点清单与行号提取自 `api/routers/` 源码；测试计数经 grep `def test_` 统计并与 pytest 实际收集数比对；`python -m pytest CostView/tests/` 实测 217 passed。**未做运行时验证**——服务启动响应、端口连通性与查询延迟未在本轮测量）*
