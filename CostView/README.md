@@ -37,7 +37,7 @@ CostView/                          # CostView domain
 │   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │                                  # anomaly_query · tca_report_html · time_range
 ├── tests/                          # 规模跑命令看（python -m pytest CostView/tests/ -q）：
-│                                   #   test_report_metrics 105 / test_monitoring 57 /
+│                                   #   test_report_metrics 115 / test_monitoring 57 /
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
 │                                   #   test_order_aggregation 9 /
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/
@@ -92,6 +92,8 @@ python main.py
 | `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:331` |
 
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
+>
+> **报告金额口径（2026-11-03 起，`SPEC_VERSION 2026.11.03`）**：`tca_route_summary.Amount` 是**委托股数**（非金额），异常明细单列「委托股数」；成交金额（本币/美元）与异常金额门槛均为 `fill × p_avg`（USD 列再乘汇率），零成交路由按 `RouteShares × p_avg × 汇率` 计。
 
 ## 不做什么（职责边界）
 
@@ -153,5 +155,5 @@ location /api/tca/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
-*Last updated: 2026-09-15（成本次冗余清理：移除 secure_config 等 FillFetch 遗产记录、补齐端点表 `data-freshness` / `capabilities`、重写成熟度论据、修正 CLI 状态）*
+*Last updated: 2026-11-03（PR-0a F1：`Amount` 语义纠正为委托股数，异常金额列 / 门槛改 `fill×p_avg`，删除金额一致性探针；同步测试计数与报告金额口径声明）*
 *Last verified: 2026-09-15（端点清单与行号提取自 `api/routers/` 源码；测试计数经 grep `def test_` 统计并与 pytest 实际收集数比对；`python -m pytest CostView/tests/` 实测 217 passed。**未做运行时验证**——服务启动响应、端口连通性与查询延迟未在本轮测量）*

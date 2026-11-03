@@ -314,7 +314,6 @@ def _render_data_quality(
     overfill = consistency.get("overfill_routes") or 0
     gt100 = consistency.get("order_par_gt100_orders") or 0
     gt200 = consistency.get("order_par_gt200_orders") or 0
-    amount_mismatch = consistency.get("amount_mismatch_routes") or 0
     if overfill or gt100:
         completion_pct = _fmt_pct_raw(consistency.get("completion_consistency_pct"))
         order_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
@@ -326,13 +325,6 @@ def _render_data_quality(
             f"（完成率一致性 {completion_pct}）；订单参与率求和 &gt;100% 的订单 {gt100} 个"
             f"{gt200_note}（一致性 {order_pct}）。上述为数据矛盾信号，"
             "建议核对上游成交/委托数据。</div>"
-        )
-    if amount_mismatch > 0:
-        amount_pct = _fmt_pct_raw(consistency.get("amount_consistency_pct"))
-        parts.append(
-            f'<div class="warn">金额列（Amount）与成交额口径（fill × p_avg）偏差超 0.5% '
-            f"的路由 {amount_mismatch} 条（金额一致性 {amount_pct}）—— 异常表金额以 "
-            "Amount 为准，对账请参考该探针。</div>"
         )
     tca_gap = sorted((health or {}).get("tca_gap_dates") or [])
     if tca_gap:
@@ -660,6 +652,7 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
             f'<td>{_fmt_pct(r.get("par_rate"))}</td>'
             f'<td>{_fmt_order_par_rate(r.get("order_par_rate"), bool(r.get("order_par_gt100")))}</td>'
             f'<td>{_fmt_int(r.get("fill_count"))}</td>'
+            f'<td>{_fmt_big(r.get("amount_shares"))}</td>'
             f'<td>{_fmt_big(r.get("route_shares"))}</td>'
             f'<td>{_fmt_big(r.get("fill"))}</td>'
             f'<td>{_fmt_num(r.get("pnl_vwap"))}</td>'
@@ -679,10 +672,12 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
 <table><thead><tr>
 <th class="l">命中规则</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
 <th class="l">标的</th><th class="l">交易所</th><th class="l">方向</th><th class="l">成交金额(本币)</th><th class="l">成交金额(USD)</th>
-<th class="l">Broker</th><th class="l">Algo</th><th>完成率</th><th>路由参与率</th><th>订单参与率</th><th>填充笔数</th><th>路由股数</th><th>成交股数</th><th>pnl_vwap</th>
+<th class="l">Broker</th><th class="l">Algo</th><th>完成率</th><th>路由参与率</th><th>订单参与率</th><th>填充笔数</th><th>委托股数</th><th>路由股数</th><th>成交股数</th><th>pnl_vwap</th>
 <th>arrival</th><th>IS</th><th>机会成本</th><th>未成交</th><th>CVaR</th>
 <th>历时</th><th>跨日</th>
-</tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>"""
+</tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>
+<div class="meta">成交金额 = 成交股数 × 成交均价（fill × p_avg，USD 列再乘汇率）；委托股数为写入方
+Amount（股数，非金额），不得按货币解读。</div>"""
 
 
 def _severity_tag_class(severity: Optional[str]) -> str:
