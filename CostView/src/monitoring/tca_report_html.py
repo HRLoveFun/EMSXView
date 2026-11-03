@@ -312,19 +312,24 @@ def _render_data_quality(
     parts: list[str] = []
     consistency = (report.get("metric_coverage") or {}).get("consistency") or {}
     overfill = consistency.get("overfill_routes") or 0
-    gt100 = consistency.get("order_par_gt100_orders") or 0
-    gt200 = consistency.get("order_par_gt200_orders") or 0
-    if overfill or gt100:
+    single_suspect = consistency.get("order_par_single_suspect_orders") or 0
+    multi_suspect = consistency.get("order_par_multi_suspect_orders") or 0
+    suspect = consistency.get("order_par_suspect_orders") or 0
+    extreme = consistency.get("order_par_extreme_orders") or 0
+    if overfill or suspect:
         completion_pct = _fmt_pct_raw(consistency.get("completion_consistency_pct"))
-        order_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
-        gt200_note = (
-            f"（其中 &gt;200% 的 {gt200} 个疑重复记账）" if gt200 else ""
+        par_pct = _fmt_pct_raw(consistency.get("order_par_consistency_pct"))
+        extreme_note = (
+            f"（其中 &gt;{REPORT_SPEC['order_par_critical_rate'] * 100:.0f}% 的 {extreme} 个"
+            "疑重复记账 / 分母失真）" if extreme else ""
         )
         parts.append(
             f'<div class="warn">成交超过委托（fill &gt; RouteShares）的路由 {overfill} 条'
-            f"（完成率一致性 {completion_pct}）；订单参与率求和 &gt;100% 的订单 {gt100} 个"
-            f"{gt200_note}（一致性 {order_pct}）。上述为数据矛盾信号，"
-            "建议核对上游成交/委托数据。</div>"
+            f"（完成率一致性 {completion_pct}）；参与率 &gt;100% 的订单：单路由 "
+            f"{single_suspect} 个 + 多路由（组内最大路由参与率）{multi_suspect} 个 = "
+            f"{suspect} 个{extreme_note}（一致性 {par_pct}）。多路由订单参与率**不可加总**"
+            "（各路由共享同一市场成交量分母），明细列按组内最大路由参与率展示。"
+            "上述为数据矛盾信号，建议核对上游成交/委托数据。</div>"
         )
     tca_gap = sorted((health or {}).get("tca_gap_dates") or [])
     if tca_gap:
@@ -650,7 +655,7 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
             f'<td class="l">{_esc(r.get("algo") or "")}</td>'
             f'<td>{_fmt_overfill_cell(r.get("completion_rate"), bool(r.get("overfill")))}</td>'
             f'<td>{_fmt_pct(r.get("par_rate"))}</td>'
-            f'<td>{_fmt_order_par_rate(r.get("order_par_rate"), bool(r.get("order_par_gt100")))}</td>'
+            f'<td>{_fmt_order_par_cell(r)}</td>'
             f'<td>{_fmt_int(r.get("fill_count"))}</td>'
             f'<td>{_fmt_big(r.get("amount_shares"))}</td>'
             f'<td>{_fmt_big(r.get("route_shares"))}</td>'
@@ -672,12 +677,14 @@ def _render_anomaly_table(anomaly: Optional[dict[str, Any]]) -> str:
 <table><thead><tr>
 <th class="l">命中规则</th><th class="l">日期</th><th class="l">订单</th><th class="l">路由</th>
 <th class="l">标的</th><th class="l">交易所</th><th class="l">方向</th><th class="l">成交金额(本币)</th><th class="l">成交金额(USD)</th>
-<th class="l">Broker</th><th class="l">Algo</th><th>完成率</th><th>路由参与率</th><th>订单参与率</th><th>填充笔数</th><th>委托股数</th><th>路由股数</th><th>成交股数</th><th>pnl_vwap</th>
+<th class="l">Broker</th><th class="l">Algo</th><th>完成率</th><th>路由参与率</th><th>订单参与率（多路由为 max）</th><th>填充笔数</th><th>委托股数</th><th>路由股数</th><th>成交股数</th><th>pnl_vwap</th>
 <th>arrival</th><th>IS</th><th>机会成本</th><th>未成交</th><th>CVaR</th>
 <th>历时</th><th>跨日</th>
 </tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>
 <div class="meta">成交金额 = 成交股数 × 成交均价（fill × p_avg，USD 列再乘汇率）；委托股数为写入方
-Amount（股数，非金额），不得按货币解读。</div>"""
+Amount（股数，非金额），不得按货币解读。订单参与率：单路由订单为该路由参与率；
+多路由订单各路由共享同一市场成交量分母、求和不可加总，故显示组内最大路由参与率
+（max）与路由数（routes）。</div>"""
 
 
 def _severity_tag_class(severity: Optional[str]) -> str:
@@ -1366,10 +1373,10 @@ def _fmt_risk(stddev: Optional[float], cvar: Optional[float]) -> str:
 
 
 def _fmt_order_par_rate(value: Optional[float], flagged: bool = False) -> str:
-    """订单参与率展示：同一订单（同交易日同交易所）各路由 par_rate 之和。
+    """单路由订单参与率展示（= 该路由 par_rate，可 > 100%）。
 
-    可能 > 100%（语义上即「订单参与率超过市场成交量」的数据异常信号），
-    故不封顶；命中 order_par_gt100 规则时追加标记。
+    可能 > 100%（语义上即「参与率超过市场成交量」的数据异常信号），故不封顶；
+    命中 order_par_single_gt100 规则时追加标记。
     """
     if value is None:
         return "-"
@@ -1377,6 +1384,26 @@ def _fmt_order_par_rate(value: Optional[float], flagged: bool = False) -> str:
     if not flagged:
         return text
     return f'{text} <span class="tag tag-overfill">&gt;100%</span>'
+
+
+def _fmt_order_par_cell(row: dict[str, Any]) -> str:
+    """订单参与率单元格（F2）：单路由显示自身参与率，多路由显示组内最大路由参与率。
+
+    多路由订单的 ``par_sum`` 不可加总（各路由共享同一市场成交量分母），故不展示
+    求和值，改用 ``max(route par_rate)`` 并标注路由数，使「不可加总」在行内可见。
+    """
+    routes = row.get("order_par_routes")
+    if routes is not None and int(routes) > 1:
+        max_rate = row.get("order_par_max")
+        text = "-" if max_rate is None else f"max {max_rate * 100.0:.2f}%"
+        tag = (
+            '<span class="tag tag-overfill">&gt;100%</span>'
+            if row.get("par_suspect") else ""
+        )
+        return f'{text} <span class="tag">{int(routes)} routes</span> {tag}'.strip()
+    return _fmt_order_par_rate(
+        row.get("order_par_rate"), bool(row.get("par_suspect")),
+    )
 
 
 def _fmt_int(value: Optional[float]) -> str:

@@ -240,7 +240,7 @@ class TestCompletionRate:
 
 class TestOrderParAggregation:
     def test_order_par_grouped_by_exchange(self, tca_mgr_factory):
-        """同一 OrderId 跨交易所的路由不再求和（避免参与率失去物理意义）。"""
+        """同一 OrderId 跨交易所的路由分别成组（参与率分母不同市场，不可相加）。"""
         mgr = tca_mgr_factory([
             {"OrderId": "P1", "RouteId": "R1", "Exchange": "US",
              "par_rate": 0.6, "pnl_vwap": -20.0},
@@ -251,21 +251,23 @@ class TestOrderParAggregation:
 
         assert len(routes) == 2
         assert all(r.order_par_rate == pytest.approx(0.6) for r in routes)
-        assert all(r.order_par_gt100 is False for r in routes)
+        assert all(r.order_par_routes == 1 for r in routes)
+        assert all(r.par_suspect is False for r in routes)
 
-    def test_order_par_gt100_flagged_and_hits(self, tca_mgr_factory):
-        """订单参与率求和超过 100% 时打标记并命中数据质量规则。"""
+    def test_single_route_par_over_100_flagged(self, tca_mgr_factory):
+        """单路由订单参与率 >100% 打 par_suspect 并命中单路由规则。"""
         mgr = tca_mgr_factory([
             {"OrderId": "Q1", "RouteId": "R1", "par_rate": 1.5, "pnl_vwap": -1.0},
         ])
         routes = _query_anomalies(mgr)
 
         assert len(routes) == 1
-        assert routes[0].order_par_gt100 is True
-        assert any(h["key"] == "order_par_gt100" for h in routes[0].hits)
+        assert routes[0].par_suspect is True
+        assert routes[0].order_par_routes == 1
+        assert any(h["key"] == "order_par_single_gt100" for h in routes[0].hits)
 
     def test_exact_full_order_par_not_flagged(self, tca_mgr_factory):
-        """求和恰为 100% 不算矛盾：above-strict 不含等号，与 gt100 标记同界。"""
+        """恰为 100% 不算矛盾：above-strict 不含等号，与 par_suspect 同界。"""
         mgr = tca_mgr_factory([
             {"OrderId": "Q1", "RouteId": "R1", "par_rate": 1.0, "pnl_vwap": -1.0},
         ])
@@ -273,8 +275,57 @@ class TestOrderParAggregation:
 
         assert len(routes) == 1
         assert routes[0].order_par_rate == pytest.approx(1.0)
-        assert routes[0].order_par_gt100 is False
-        assert not any(h["key"] == "order_par_gt100" for h in routes[0].hits)
+        assert routes[0].par_suspect is False
+        assert not any(
+            h["key"] == "order_par_single_gt100" for h in routes[0].hits
+        )
+
+    def test_multi_route_sum_not_flagged(self, tca_mgr_factory):
+        """多路由组求和 120% 不再判异常（各路由共享同一分母，求和不可加总）。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "M1", "RouteId": "R1", "par_rate": 0.6, "pnl_vwap": -1.0},
+            {"OrderId": "M1", "RouteId": "R2", "par_rate": 0.6, "pnl_vwap": -1.0},
+        ])
+        routes = _query_anomalies(mgr)
+
+        assert len(routes) == 2
+        for route in routes:
+            assert route.order_par_rate == pytest.approx(1.2)  # 求和仅保留展示
+            assert route.order_par_routes == 2
+            assert route.order_par_max == pytest.approx(0.6)
+            assert route.par_suspect is False
+            assert not any(
+                h["key"] in ("order_par_single_gt100", "route_par_extreme")
+                for h in route.hits
+            )
+
+    def test_multi_route_max_over_100_flagged(self, tca_mgr_factory):
+        """多路由组按最大路由参与率判定：组内 150% 的路由可见，且只命中 max 规则。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "M2", "RouteId": "R1", "par_rate": 0.5, "pnl_vwap": -1.0},
+            {"OrderId": "M2", "RouteId": "R2", "par_rate": 1.5, "pnl_vwap": -1.0},
+        ])
+        routes = _query_anomalies(mgr)
+
+        assert len(routes) == 2
+        assert all(r.order_par_max == pytest.approx(1.5) for r in routes)
+        assert all(r.par_suspect is True for r in routes)
+        assert all(
+            any(h["key"] == "route_par_extreme" for h in r.hits) for r in routes
+        )
+        assert not any(
+            h["key"] == "order_par_single_gt100" for r in routes for h in r.hits
+        )
+
+    def test_legacy_order_par_key_maps_to_single_route_rule(self):
+        """兼容键 order_par_gt100 映射到单路由规则（一个版本后废弃）。"""
+        rules = ThresholdRules.from_payload({
+            "order_par_gt100": {"enabled": False},
+        })
+        serialized = str(rules.rules)
+
+        assert rules.rules["order_par_single_gt100"]["enabled"] is False
+        assert "order_par_gt100" not in serialized
 
 
 # ── 规则标签约定（ADR-0018 §10.5）：标签不含单位符号 ───────────────────────
@@ -357,7 +408,7 @@ class TestOverfillRule:
         quality = report["anomaly"]["data_quality"]
 
         assert quality["overfill_count"] == 1
-        assert quality["order_par_gt100_count"] == 1
+        assert quality["par_suspect_count"] == 1
 
 
 # ── 覆盖率一致性探针 ──────────────────────────────────────────────────────
@@ -380,7 +431,7 @@ class TestCoverageConsistency:
         assert consistency["completion_consistency_pct"] == pytest.approx(50.0)
 
     def test_order_par_consistency_grouped(self, tca_mgr_factory):
-        """跨交易所订单不参与求和，一致性检查不误报。"""
+        """跨交易所订单分别成组，单路由 60% 不误报。"""
         mgr = tca_mgr_factory([
             {"OrderId": "P1", "RouteId": "R1", "Exchange": "US", "par_rate": 0.6},
             {"OrderId": "P1", "RouteId": "R2", "Exchange": "HK", "par_rate": 0.6},
@@ -390,8 +441,34 @@ class TestCoverageConsistency:
         )["consistency"]
 
         assert consistency["total_orders"] == 2
-        assert consistency["order_par_gt100_orders"] == 0
+        assert consistency["order_par_suspect_orders"] == 0
         assert consistency["order_par_consistency_pct"] == pytest.approx(100.0)
+
+    def test_order_par_consistency_splits_single_and_multi(self, tca_mgr_factory):
+        """探针与异常同口径：单路由 >100% 计入 single，多路由按 max 计入 multi。"""
+        mgr = tca_mgr_factory([
+            # 单路由组：自身 150% → single_suspect（且 >1000% 不成立）
+            {"OrderId": "S1", "RouteId": "R1", "par_rate": 1.5},
+            # 多路由组：求和 120% 不判越界，组内最大 60% → 不计入
+            {"OrderId": "M1", "RouteId": "R1", "par_rate": 0.6},
+            {"OrderId": "M1", "RouteId": "R2", "par_rate": 0.6},
+            # 多路由组：组内最大 1500% → multi_suspect 且 extreme
+            {"OrderId": "M2", "RouteId": "R1", "par_rate": 0.5},
+            {"OrderId": "M2", "RouteId": "R2", "par_rate": 15.0},
+        ])
+        consistency = MetricCoverageService(mgr).get_coverage(
+            "20260803", "20260803", ["pnl_vwap"],
+        )["consistency"]
+
+        assert consistency["total_orders"] == 3
+        assert consistency["order_par_single_suspect_orders"] == 1
+        assert consistency["order_par_multi_suspect_orders"] == 1
+        assert consistency["order_par_suspect_orders"] == 2
+        assert consistency["order_par_extreme_orders"] == 1
+        # 一致性 = (1 - 越界组 / 总组数) × 100，探针保留两位小数
+        assert consistency["order_par_consistency_pct"] == pytest.approx(
+            (1.0 - 2 / 3) * 100.0, abs=1e-2,
+        )
 
 
 # ── 缺陷 4：两档严重度与严重度优先排序 ────────────────────────────────────
@@ -846,9 +923,10 @@ class TestReportSpec:
         # D5 PWP 加权与小多图
         assert f"pwp_weight_mode={spec['pwp_weight_mode']}" in text
         assert f"Top {spec['pwp_by_exchange_top_markets']}" in text
-        # D7 门槛口径 + D17 分档
+        # F1 门槛口径 + F2 参与率分档（单路由/多路由 max）
         assert spec["anomaly_notional_gate"] in text
-        assert f"{spec['order_par_critical_gt'] * 100:.0f}%" in text
+        assert spec["order_par_multi_route_rule"] in text
+        assert f"{spec['order_par_critical_rate'] * 100:.0f}%" in text
         # D15 分母 + P0 缺口金额 / TCA 检测 / D1 轴策略
         assert spec["impact_truncated_share_denominator"] in text
         assert "未换算金额" in text
@@ -1094,7 +1172,7 @@ class TestMeasureConsistency:
         }
 
     def test_order_par_rate_uses_full_scope_not_filtered_rows(self, tca_mgr_factory):
-        """订单参与率按全量聚合：按 broker 过滤后仍反映整单参与率（探针不失真）。"""
+        """订单参与率按全量聚合：按 broker 过滤后组内统计仍反映整单（探针不失真）。"""
         mgr = tca_mgr_factory([
             {"OrderId": "P1", "RouteId": "R1", "Broker": "BROKERA", "par_rate": 0.6},
             {"OrderId": "P1", "RouteId": "R2", "Broker": "BROKERB", "par_rate": 0.6},
@@ -1105,8 +1183,11 @@ class TestMeasureConsistency:
         )
 
         assert len(rows) == 1
+        # 过滤视图下仍是整单的 2 路由组：求和仅展示、判定看 max（0.6 < 100%）
         assert rows[0].order_par_rate == pytest.approx(1.2)
-        assert rows[0].order_par_gt100 is True
+        assert rows[0].order_par_routes == 2
+        assert rows[0].order_par_max == pytest.approx(0.6)
+        assert rows[0].par_suspect is False
 
 
 # ── 复核整改（2026-09-15）：归一化 / 契约绑定 / 订单级作用域 / 零成交对称性 ──
@@ -1132,7 +1213,7 @@ class TestReviewRemediation:
 
     def test_order_par_aggregation_honours_scope(self, tca_mgr_factory):
         """订单参与率聚合按作用域裁剪（与一致性探针同契约），不再无谓聚合全量市场。"""
-        from CostView.src.monitoring.anomaly_query import _load_order_par_sums
+        from CostView.src.monitoring.anomaly_query import _load_order_par_stats
         from data_access.storage.connection import AccessTier
 
         mgr = tca_mgr_factory([
@@ -1141,13 +1222,16 @@ class TestReviewRemediation:
         ])
         conn = mgr.get_connection("fill_bdib", AccessTier.READ)
         try:
-            scoped = _load_order_par_sums(
+            scoped = _load_order_par_stats(
                 conn, "20260803", "20260803", rm.resolve_scope("US"),
             )
         finally:
             conn.close()
 
-        assert scoped[rm.order_par_key("P1", "20260803", "US")] == pytest.approx(0.6)
+        us_stat = scoped[rm.order_par_key("P1", "20260803", "US")]
+        assert us_stat.par_sum == pytest.approx(0.6)
+        assert us_stat.route_count == 1
+        assert us_stat.max_rate == pytest.approx(0.6)
         # 作用域在聚合内裁剪：白名单外/未选市场的键根本不参与聚合
         assert rm.order_par_key("P1", "20260803", "HK") not in scoped
 
@@ -1566,7 +1650,8 @@ class TestAmountSemantics:
         assert "amount_mismatch_routes" not in consistency
         assert "amount_consistency_tolerance_pct" not in report_spec.REPORT_SPEC
         assert report_spec.REPORT_SPEC["anomaly_notional_gate"] == "fill-times-pavg-fx"
-        assert report_spec.SPEC_VERSION == "2026.11.03"
+        # F1 与 F2 为同日（2026-11-03）两次口径修订，版本号带修订后缀
+        assert report_spec.SPEC_VERSION.startswith("2026.11.03")
 
     def test_html_shows_amount_shares_and_traded_notional(self, tca_mgr_factory):
         """HTML：新增「委托股数」列，金额显示 fill×p_avg，金额一致性告警消失。"""
@@ -1584,36 +1669,49 @@ class TestAmountSemantics:
         assert "金额一致性" not in html
 
 
-class TestOrderParTier:
-    """订单参与率分档（D17 / DP-3）。"""
+class TestOrderParRuleBinding:
+    """F2：参与率越界线 / critical 档唯一实现源，与规则默认值、SPEC 三处一致。"""
 
-    def test_order_par_gt200_tiered(self, tca_mgr_factory):
-        """订单参与率 >200% 单独分档（critical 档，疑重复记账）。"""
+    def test_par_thresholds_single_source(self):
+        assert rm.ORDER_PAR_SUSPECT_RATE == pytest.approx(1.0)
+        assert rm.ORDER_PAR_CRITICAL_RATE == pytest.approx(10.0)
+        for key in ("order_par_single_gt100", "route_par_extreme"):
+            assert DEFAULT_THRESHOLDS[key]["mode"] == "above-strict"
+            assert (
+                DEFAULT_THRESHOLDS[key]["warning"]
+                == rm.ORDER_PAR_SUSPECT_RATE * 100
+            )
+            assert (
+                DEFAULT_THRESHOLDS[key]["critical"]
+                == rm.ORDER_PAR_CRITICAL_RATE * 100
+            )
+        assert (
+            report_spec.REPORT_SPEC["order_par_suspect_rate"]
+            == rm.ORDER_PAR_SUSPECT_RATE
+        )
+        assert (
+            report_spec.REPORT_SPEC["order_par_critical_rate"]
+            == rm.ORDER_PAR_CRITICAL_RATE
+        )
+        assert (
+            report_spec.REPORT_SPEC["order_par_multi_route_rule"] == "max-route-rate"
+        )
+
+    def test_html_multi_route_shows_max_not_sum(self, tca_mgr_factory):
+        """HTML：多路由行显示 max 与路由数，不显示不可加总的求和值。"""
         mgr = tca_mgr_factory([
-            {"OrderId": "P1", "RouteId": "R1", "par_rate": 0.6},
-            {"OrderId": "P1", "RouteId": "R2", "par_rate": 0.6},  # 1.2 → >100%
-            {"OrderId": "P2", "RouteId": "R1", "par_rate": 0.9},
-            {"OrderId": "P2", "RouteId": "R2", "par_rate": 0.9},
-            {"OrderId": "P2", "RouteId": "R3", "par_rate": 0.9},  # 2.7 → >200%
+            {"OrderId": "M2", "RouteId": "R1", "par_rate": 0.5},
+            {"OrderId": "M2", "RouteId": "R2", "par_rate": 1.5},
         ])
-        consistency = TcaReportAggregator(mgr).build_report(
-            "20260803", "20260803",
-        )["metric_coverage"]["consistency"]
-
-        assert consistency["order_par_gt100_orders"] == 2
-        assert consistency["order_par_gt200_orders"] == 1
-
-    def test_gt200_threshold_single_source(self):
-        """gt200 阈值唯一化（F-b）：探针 / 异常规则 critical 档 / SPEC 三处一致。"""
-        assert rm.ORDER_PAR_CRITICAL_SUM == pytest.approx(2.0)
-        assert (
-            DEFAULT_THRESHOLDS["order_par_gt100"]["critical"]
-            == rm.ORDER_PAR_CRITICAL_SUM * 100
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_fill_count=0, min_notional_usd=0.0,
         )
-        assert (
-            report_spec.REPORT_SPEC["order_par_critical_gt"]
-            == rm.ORDER_PAR_CRITICAL_SUM
-        )
+        html = render_report_html(report, None, "2026-11-03 10:00:00")
+
+        assert "max 150.00%" in html
+        assert "2 routes" in html
+        # 求和 0.5 + 1.5 = 200% 不可加总，不得渲染
+        assert "200.00%" not in html
 
 
 class TestImpactTruncatedShare:

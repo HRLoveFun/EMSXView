@@ -60,8 +60,17 @@ function AnomalyRowView({ r }: { r: TcaAnomalyRow }) {
       </td>
       <td className="py-0.5 pr-2 text-right">{formatPct(r.par_rate)}</td>
       <td className="py-0.5 pr-2 text-right">
-        {formatPct(r.order_par_rate)}
-        {r.order_par_gt100 ? (
+        {r.order_par_routes != null && r.order_par_routes > 1 ? (
+          <>
+            {`max ${formatPct(r.order_par_max ?? null)}`}
+            <span className="ml-1 inline-block rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+              {`${r.order_par_routes} routes`}
+            </span>
+          </>
+        ) : (
+          formatPct(r.order_par_rate)
+        )}
+        {r.par_suspect ? (
           <span className="ml-1 inline-block rounded bg-destructive/20 px-1 py-0.5 text-[10px] text-destructive">
             &gt;100%
           </span>
@@ -138,7 +147,7 @@ export function AnomalyTable({ anomaly }: { anomaly?: TcaAnomaly | null }) {
                 <th className="py-1 pr-2 text-left">Algo</th>
                 <th className="py-1 pr-2 text-right">完成率</th>
                 <th className="py-1 pr-2 text-right">路由参与率</th>
-                <th className="py-1 pr-2 text-right">订单参与率</th>
+                <th className="py-1 pr-2 text-right">订单参与率（多路由为 max）</th>
                 <th className="py-1 pr-2 text-right">填充笔数</th>
                 <th className="py-1 pr-2 text-right">路由股数</th>
                 <th className="py-1 pr-2 text-right">成交股数</th>

@@ -210,14 +210,21 @@ ORDER_PAR_GROUP_COLUMNS: str = "OrderId, order_as_of_date, Exchange"
 
 
 def order_par_aggregate_sql(where: str, *, alias: Optional[str] = None) -> str:
-    """订单参与率求和 SQL（``where`` 只应含报告期与作用域，禁止含维度过滤）。
+    """订单参与率聚合 SQL（``where`` 只应含报告期与作用域，禁止含维度过滤）。
+
+    输出 ``par_sum`` / ``route_count`` / ``max_par_rate`` 三列：
+
+    - ``par_sum`` 仅对**单路由组**可解释（= 该路由自身参与率）；
+    - 多路由组各路由共享同一市场成交量分母，求和不可加总（F2），判定改用
+      ``max_par_rate``，``par_sum`` 仅保留供展示/追溯。
 
     作为派生表使用时传 ``alias``（SQLite 要求派生表有别名），否则返回裸 SELECT。
     异常明细与覆盖率一致性探针共用本定义，保证「同一订单参与率」两处可对账。
     """
     columns = ORDER_PAR_GROUP_COLUMNS
     sql = (
-        f"SELECT {columns}, SUM(par_rate) AS par_sum "
+        f"SELECT {columns}, SUM(par_rate) AS par_sum, "
+        f"COUNT(*) AS route_count, MAX(par_rate) AS max_par_rate "
         f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE {where} "
         f"GROUP BY {columns}"
     )
@@ -229,11 +236,14 @@ def order_par_key(order_id: Any, date: Any, exchange: Any) -> tuple[str, str, st
     return (str(order_id or ""), str(date or ""), str(exchange or ""))
 
 
-#: 订单参与率「疑重复记账」的求和临界值（critical 档，即 200%）。
-#: 异常规则 ``DEFAULT_THRESHOLDS["order_par_gt100"].critical``（百分比口径 ×100）
-#: 与覆盖率一致性探针的 gt200 分档（求和口径）共同引用本常量 —— 唯一实现源，
-#: 防两处字面量漂移（P1-a 复核 F-b：改 critical 档时探针文案静默脱钩）。
-ORDER_PAR_CRITICAL_SUM: float = 2.0
+#: 单条路由参与率越界线（par_suspect 起点，100%）。
+#: 异常规则 ``DEFAULT_THRESHOLDS["order_par_single_gt100"]`` / ``route_par_extreme``
+#: 与覆盖率一致性探针共同引用本常量 —— 唯一实现源（F2：不再以组内求和判定）。
+ORDER_PAR_SUSPECT_RATE: float = 1.0
+
+#: 路由参与率极端值（critical 档，1000% = 市场成交量的 10 倍，疑重复记账 / 分母失真）。
+#: 单路由与多路由（取组内最大路由参与率）共用同一条线。
+ORDER_PAR_CRITICAL_RATE: float = 10.0
 
 
 # ── 3.5 异常明细下限门槛的豁免（严重未完成必须可见）────────────────────────
