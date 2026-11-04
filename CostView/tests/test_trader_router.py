@@ -122,6 +122,80 @@ class TestOrderDetailEndpoint:
         response = client.get("/api/tca/trader/orders/M1", params={"bucket_min": 7})
         assert response.status_code == 422
 
+class TestExportEndpoint:
+    """210 §3.4.4：CSV 下载（Content-Type / 文件名 / BOM / 422 上限 / 404 / 503）。"""
+
+    def test_orders_csv_download(self, client):
+        response = client.get(
+            "/api/tca/trader/export",
+            params={"kind": "orders", "start_date": "20261020", "end_date": "20261022"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        disposition = response.headers["content-disposition"]
+        assert "attachment; filename=" in disposition
+        assert "trader_orders_20261020_20261022_" in disposition
+        assert response.content.startswith(b"\xef\xbb\xbf")   # UTF-8-SIG
+        text = response.content.decode("utf-8-sig")
+        assert text.startswith("# spec_version=")
+        assert "order_id,order_as_of_date" in text
+
+    def test_fills_csv_download(self, client):
+        response = client.get(
+            "/api/tca/trader/export",
+            params={"kind": "fills", "start_date": "20261020", "end_date": "20261022"},
+        )
+
+        assert response.status_code == 200
+        assert "trader_fills_20261020_20261022_" in response.headers["content-disposition"]
+        assert "order_id,route_id,fill_id" in response.content.decode("utf-8-sig")
+
+    def test_invalid_kind_is_422(self, client):
+        response = client.get("/api/tca/trader/export", params={"kind": "bad"})
+        assert response.status_code == 422
+
+    def test_cap_exceeded_is_422(self, client, monkeypatch):
+        from CostView.src import trader_service
+
+        monkeypatch.setattr(trader_service, "EXPORT_ORDER_CAP", 1)
+        response = client.get(
+            "/api/tca/trader/export",
+            params={"kind": "orders", "start_date": "20261020", "end_date": "20261022"},
+        )
+
+        assert response.status_code == 422
+        assert "上限" in response.json()["detail"]
+
+    def test_unknown_order_is_404(self, client):
+        response = client.get(
+            "/api/tca/trader/export", params={"kind": "fills", "order_id": "NOPE"},
+        )
+        assert response.status_code == 404
+
+    def test_default_dates_when_no_data_is_503(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, make_manager(tmp_path, []))
+        response = client.get("/api/tca/trader/export", params={"kind": "orders"})
+
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "data_not_ready"
+
+    def test_missing_db_is_503(self, tmp_path, monkeypatch):
+        from data_access.storage.connection import ConnectionManager
+
+        missing = ConnectionManager(path_overrides={
+            "fill_bdib": tmp_path / "nodir" / "missing.db",
+        })
+        client = _client(monkeypatch, missing)
+        response = client.get(
+            "/api/tca/trader/export",
+            params={"kind": "orders", "start_date": "20261020", "end_date": "20261022"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "data_source_unavailable"
+
+
 class TestPeerEndpoint:
     """GET /orders/{order_id}/peer：信封、样本不足契约、404。"""
 

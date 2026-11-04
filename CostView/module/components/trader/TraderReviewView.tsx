@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useAsyncData } from '@shared/hooks/use-async-data';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Download, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
+  exportTraderCsv,
   fetchTraderFilterOptions,
   fetchTraderOrderDetail,
   fetchTraderOrders,
   fetchTraderPeerStats,
+  type TraderExportKind,
   type TraderListQuery,
 } from '../../services/api';
 import { traderRowKey } from '../../lib/trader-rows';
@@ -69,6 +71,8 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
   const [filters, setFilters] = useState<TraderFilterState>(INITIAL_FILTERS);
   const [selected, setSelected] = useState<SelectedOrder | null>(null);
   const [bucketMin, setBucketMin] = useState(5);
+  const [exporting, setExporting] = useState<TraderExportKind | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const options = useAsyncData(
     'trader-filter-options',
     () => fetchTraderFilterOptions(),
@@ -104,6 +108,18 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
       page: 'page' in update ? (update.page ?? 0) : 0,
     }));
   };
+  /** 210 §3.4.4：导出使用当前筛选（不含分页）；422 上限错误原样展示并提示缩小范围 */
+  const onExport = async (kind: TraderExportKind) => {
+    setExporting(kind);
+    setExportError(null);
+    try {
+      await exportTraderCsv(kind, toQuery(filters));
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(null);
+    }
+  };
   const payload = orders.data;
 
   return (
@@ -115,6 +131,41 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
         onChange={patch}
         onRefresh={() => orders.reload()}
       />
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void onExport('orders')}
+          disabled={!payload || exporting !== null}
+        >
+          {exporting === 'orders'
+            ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            : <Download className="mr-1 h-4 w-4" />}
+          Export orders CSV
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void onExport('fills')}
+          disabled={!payload || exporting !== null}
+        >
+          {exporting === 'fills'
+            ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            : <Download className="mr-1 h-4 w-4" />}
+          Export fills CSV
+        </Button>
+      </div>
+
+      {exportError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Export failed</AlertTitle>
+          <AlertDescription>
+            {exportError} Try again, or narrow the date range if the export is too large.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {orders.error && (
         <Alert variant="destructive">

@@ -17,6 +17,7 @@ import type {
   TraderOrderDetail,
   TraderPeerStats,
 } from '../types';
+import { downloadBlob } from '../lib/export';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 const TOKEN_KEY = 'emsx_token';
@@ -355,6 +356,15 @@ export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
     `${API_BASE_URL}/api/tca/monitoring/export-html?${params.toString()}`,
     { headers: getAuthHeaders() },
   );
+  return downloadResponse(
+    response,
+    `tca_report_${new Date().toISOString().slice(0, 10)}.html`,
+  );
+}
+
+/** 附件下载公共实现：错误渲染 + Content-Disposition 文件名 + 触发浏览器保存。
+ *  006 export-html 与 210 PR-10 trader CSV 共用，避免两份下载代码漂移。 */
+async function downloadResponse(response: Response, fallbackName: string): Promise<string> {
   if (!response.ok) {
     throw new Error(await readError(response));
   }
@@ -362,16 +372,8 @@ export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
   const blob = await response.blob();
   const disposition = response.headers.get('Content-Disposition') ?? '';
   const match = /filename="?([^";]+)"?/.exec(disposition);
-  const fileName = match?.[1] ?? `tca_report_${new Date().toISOString().slice(0, 10)}.html`;
-
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  const fileName = match?.[1] ?? fallbackName;
+  downloadBlob(blob, fileName);
   return fileName;
 }
 
@@ -395,10 +397,12 @@ export interface TraderListQuery {
   offset?: number;
 }
 
-/** 组装 /api/tca/trader/* 查询串（多值维度逗号拼接，与后端 parse_multi 对齐） */
+/** 组装 /api/tca/trader/* 查询串（多值维度逗号拼接，与后端 parse_multi 对齐）。
+ *  ``extra`` 承载端点专有参数（导出：kind / order_id），筛选序列化只有一份实现。 */
 function buildTraderUrl(
   path: string,
   query: TraderListQuery & { tickerPrefix?: string },
+  extra?: Record<string, string | undefined>,
 ): string {
   const params = new URLSearchParams();
   if (query.startDate) params.set('start_date', query.startDate);
@@ -420,6 +424,9 @@ function buildTraderUrl(
   if (query.limit != null) params.set('limit', String(query.limit));
   if (query.offset != null) params.set('offset', String(query.offset));
   if (query.tickerPrefix) params.set('ticker_prefix', query.tickerPrefix);
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (value) params.set(key, value);
+  }
   const qs = params.toString();
   return `${API_BASE_URL}${path}${qs ? `?${qs}` : ''}`;
 }
@@ -465,6 +472,34 @@ export async function fetchTraderPeerStats(params: {
   return fetchMonitoringJson<TraderPeerStats>(
     `${API_BASE_URL}/api/tca/trader/orders/${encodeURIComponent(params.orderId)}/peer`
     + (qs ? `?${qs}` : ''),
+  );
+}
+
+/** 210 §3.4.4：CSV 导出类型（订单汇总 / 成交明细） */
+export type TraderExportKind = 'orders' | 'fills';
+
+/**
+ * 210 §3.4.4：交易员 CSV 导出（服务端生成，与列表同一筛选，不含分页）。
+ *
+ * 后端上限 orders 50,000 / fills 500,000，超出返回 422；调用方把错误文案
+ * 直接展示，并提示缩小日期范围或加筛选条件。`orderId` 用于导出单笔成交。
+ */
+export async function exportTraderCsv(
+  kind: TraderExportKind,
+  query: TraderListQuery,
+  orderId?: string,
+): Promise<string> {
+  const filters: TraderListQuery = { ...query };
+  delete filters.limit;
+  delete filters.offset;
+  const url = buildTraderUrl('/api/tca/trader/export', filters, {
+    kind,
+    order_id: orderId,
+  });
+  const response = await fetch(url, { headers: getAuthHeaders() });
+  return downloadResponse(
+    response,
+    `trader_${kind}_${new Date().toISOString().slice(0, 10)}.csv`,
   );
 }
 

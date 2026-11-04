@@ -52,7 +52,8 @@ interface FlatRouteRow {
   pwp25: number | string | null;
 }
 
-function downloadBlob(blob: Blob, fileName: string): void {
+/** 触发浏览器保存 Blob（服务端附件下载与本地生成导出共用，避免两份下载代码漂移） */
+export function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

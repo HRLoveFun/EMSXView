@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import threading
+
 import pytest
 
 from CostView.src import trader_service
@@ -89,6 +93,307 @@ class TestOrderPage:
             trader_service.build_order_page_from_query(
                 mgr=mgr, start_date="20261020", end_date="20261022", **kwargs,
             )
+
+
+def _export_rows_fixture() -> list[dict]:
+    """两单导出夹具：X1 含注入文本 / 逗号 / 负 bps；X2 仅用于上限与排序。"""
+    return [
+        {
+            "OrderId": "X1", "RouteId": "R1", "fill": 600.0, "RouteShares": 1000.0,
+            "Amount": 1000.0, "p_avg": 100.0, "p_arrival": 99.0, "p_decision": 98.0,
+            "delay_cost": -10.0, "trading_cost": -20.0, "opportunity_cost": -30.0,
+            "wagner_is": -50.0, "wagner_is_bps": -5.0, "fill_count": 2,
+            "arrival_cost_bps": -2.0, "TraderName": "=EVIL",
+            "equ_ticker": "A,B US Equity", "par_rate": 0.01,
+        },
+        {
+            "OrderId": "X2", "RouteId": "R1", "fill": 1000.0, "RouteShares": 1000.0,
+            "Amount": 1000.0, "p_avg": 50.0, "fill_count": 3,
+            "TraderName": "OK", "equ_ticker": "OK US Equity", "par_rate": 0.01,
+        },
+    ]
+
+
+def _export_manager(tmp_path):
+    fills = [
+        {"OrderId": "X1", "fill_id": "F1", "exec_time": "09:31:00",
+         "price": 100.0, "shares": 300.0},
+        {"OrderId": "X1", "fill_id": "F2", "exec_time": "09:36:00",
+         "price": 101.0, "shares": 300.0},
+    ]
+    raw = [
+        {"OrderId": "X1", "fill_id": "F1", "liquidity": "1"},
+        {"OrderId": "X1", "fill_id": "F2", "liquidity": "2"},
+    ]
+    return make_manager(tmp_path, _export_rows_fixture(), fills=fills, raw_fills=raw)
+
+
+def _csv_records(content: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """UTF-8-SIG CSV → (注释行, DictReader 记录)。"""
+    lines = content.decode("utf-8-sig").splitlines()
+    assert len(lines) >= 4
+    assert all(lines[index].startswith("#") for index in range(3))
+    reader = csv.DictReader(io.StringIO("\n".join(lines[3:])))
+    return lines, list(reader)
+
+
+class TestExportOrders:
+    """210 §3.4.4 / §4.14：订单汇总 CSV 的表头、口径、注入防护与上限。"""
+
+    def test_header_version_filters_and_columns(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        content, filename = trader_service.build_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )
+
+        assert content.startswith(b"\xef\xbb\xbf")           # UTF-8-SIG（Excel 直开）
+        lines, records = _csv_records(content)
+        assert lines[0] == f"# spec_version={trader_service.TRADER_SPEC_VERSION}"
+        assert lines[1].startswith("# generated_at=")
+        assert lines[2].startswith("# filters=")
+        assert '"kind":"orders"' in lines[2]
+        assert '"start_date":"20261022"' in lines[2]
+        assert list(records[0]) == list(trader_service.EXPORT_ORDER_COLUMNS)
+        assert filename.startswith("trader_orders_20261022_20261022_")
+        assert filename.endswith(".csv")
+
+    def test_values_match_list_semantics(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        _, records = _csv_records(trader_service.build_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )[0])
+        row = next(item for item in records if item["order_id"] == "X1")
+
+        assert float(row["completion"]) == pytest.approx(0.6)
+        assert float(row["fill"]) == pytest.approx(600.0)
+        # 分母 RouteShares × p_decision = 1000 × 98；与详情成本分解同源
+        assert float(row["delay_bps"]) == pytest.approx(-10 / 98_000 * 10_000)
+        assert float(row["trading_bps"]) == pytest.approx(-20 / 98_000 * 10_000)
+        assert float(row["opportunity_bps"]) == pytest.approx(-30 / 98_000 * 10_000)
+        assert float(row["residual_bps"]) == pytest.approx(
+            -5.0 - (-10 - 20 - 30) / 98_000 * 10_000,
+        )
+        # 逐笔上下文：span 300s / 600 股 → 120 股每分钟；被动 300/600
+        assert float(row["fill_span_sec"]) == pytest.approx(300.0)
+        assert float(row["speed_shares_per_min"]) == pytest.approx(120.0)
+        assert float(row["passive_ratio"]) == pytest.approx(0.5)
+        assert float(row["unknown_share"]) == pytest.approx(0.0)
+        # 订单创建 09:25 → 路由创建 09:30
+        assert float(row["order_to_route_sec"]) == pytest.approx(300.0)
+        assert float(row["route_to_first_fill_sec"]) == pytest.approx(60.0)
+        assert row["quality_flags"] == ""
+
+    def test_formula_injection_and_csv_escaping(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        _, records = _csv_records(trader_service.build_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )[0])
+        row = next(item for item in records if item["order_id"] == "X1")
+
+        assert row["trader_name"] == "'=EVIL"      # 文本前置 ' 防公式注入
+        assert row["equ_ticker"] == "A,B US Equity"  # 逗号按 CSV 规则转义后可回读
+
+    def test_negative_numbers_are_not_escaped(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        _, records = _csv_records(trader_service.build_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )[0])
+        row = next(item for item in records if item["order_id"] == "X1")
+
+        # 数字列不加 '，否则 Excel 会当文本、破坏汇总
+        assert row["delay_bps"].startswith("-")
+        assert not row["delay_bps"].startswith("'-")
+
+    def test_order_cap_raises_export_too_large(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(trader_service, "EXPORT_ORDER_CAP", 1)
+        mgr = _export_manager(tmp_path)
+
+        with pytest.raises(trader_service.ExportTooLargeError, match="上限"):
+            trader_service.build_export_csv(
+                "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+            )
+
+    def test_empty_range_returns_header_only(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        content, _ = trader_service.build_export_csv(
+            "orders", start_date="20270101", end_date="20270131", mgr=mgr,
+        )
+        _, records = _csv_records(content)
+
+        assert records == []
+
+    def test_order_without_fills_leaves_derived_columns_empty(self, tmp_path) -> None:
+        """无逐笔订单：派生列留空、不打 liquidity_unknown（与列表页「无逐笔不写 0」同界）。"""
+        mgr = _export_manager(tmp_path)
+
+        _, records = _csv_records(trader_service.build_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )[0])
+        row = next(item for item in records if item["order_id"] == "X2")
+
+        assert row["passive_ratio"] == ""
+        assert row["unknown_share"] == ""
+        assert row["fill_span_sec"] == ""
+        assert "liquidity_unknown" not in row["quality_flags"]
+
+
+class TestExportFills:
+    """210 §4.14：成交明细 CSV 的列、Liquidity 分类与上限。"""
+
+    def test_fill_rows_and_liquidity(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        content, filename = trader_service.build_export_csv(
+            "fills", start_date="20261022", end_date="20261022", mgr=mgr,
+        )
+        _, records = _csv_records(content)
+
+        assert filename.startswith("trader_fills_20261022_20261022_")
+        assert list(records[0]) == list(trader_service.EXPORT_FILL_COLUMNS)
+        assert [row["fill_id"] for row in records] == ["F1", "F2"]
+        assert [row["liquidity_class"] for row in records] == ["passive", "aggressive"]
+        assert records[0]["liquidity_raw"] == "1"
+        assert records[0]["ts_local"].endswith("09:31:00")
+        assert records[0]["shares"] == "300.0"
+        # fixture 未建 LastCapacity/LastMarket 列 → 空值，不崩溃
+        assert records[0]["last_capacity"] == ""
+        assert records[0]["last_market"] == ""
+
+    def test_single_order_resolves_dates_from_library(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        content, filename = trader_service.build_export_csv("fills", order_id="X1", mgr=mgr)
+        _, records = _csv_records(content)
+
+        assert filename.startswith("trader_fills_20261022_20261022_")
+        assert {row["order_id"] for row in records} == {"X1"}
+
+    def test_unknown_order_is_404_semantics(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        with pytest.raises(trader_service.OrderNotFound):
+            trader_service.build_export_csv("fills", order_id="NOPE", mgr=mgr)
+
+    def test_fill_cap_raises_export_too_large(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(trader_service, "EXPORT_FILL_CAP", 1)
+        mgr = _export_manager(tmp_path)
+
+        with pytest.raises(trader_service.ExportTooLargeError, match="上限"):
+            trader_service.build_export_csv(
+                "fills", start_date="20261022", end_date="20261022", mgr=mgr,
+            )
+
+    def test_invalid_kind(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        with pytest.raises(ValueError, match="kind"):
+            trader_service.build_export_csv("bad", mgr=mgr)
+
+    def test_fill_cap_checked_before_streaming(self, tmp_path, monkeypatch) -> None:
+        """上限必须在返回生成器前判定：流式响应开始后无法再改 422 状态码。"""
+        monkeypatch.setattr(trader_service, "EXPORT_FILL_CAP", 1)
+        mgr = _export_manager(tmp_path)
+
+        with pytest.raises(trader_service.ExportTooLargeError, match="上限"):
+            trader_service.stream_export_csv(
+                "fills", start_date="20261022", end_date="20261022", mgr=mgr,
+            )
+
+    def test_fill_text_cells_escaped(self, tmp_path) -> None:
+        fills = [{"OrderId": "X1", "fill_id": "=1+1", "exec_time": "09:31:00"}]
+        raw = [{"OrderId": "X1", "fill_id": "=1+1", "liquidity": "1"}]
+        mgr = make_manager(tmp_path, _export_rows_fixture(), fills=fills, raw_fills=raw)
+
+        _, records = _csv_records(trader_service.build_export_csv(
+            "fills", start_date="20261022", end_date="20261022", mgr=mgr,
+        )[0])
+
+        assert [row["fill_id"] for row in records] == ["'=1+1"]
+
+
+class TestCsvCellGuard:
+    """公式注入加固：覆盖前导空白（Excel 会忽略空白照常求值）与数字豁免。"""
+
+    def test_leading_whitespace_formula_is_escaped(self) -> None:
+        assert trader_service._csv_cell("\t=cmd|calc") == "'\t=cmd|calc"
+        assert trader_service._csv_text(" =1+1") == "' =1+1"
+        assert trader_service._csv_text("=HYPERLINK()") == "'=HYPERLINK()"
+
+    def test_numbers_none_and_plain_text_untouched(self) -> None:
+        assert trader_service._csv_cell(None) == ""
+        assert trader_service._csv_cell(-5.0) == -5.0
+        assert trader_service._csv_cell(float("nan")) == ""
+        assert trader_service._csv_text(None) is None
+        assert trader_service._csv_text("VWAP") == "VWAP"
+
+
+class TestStreamExport:
+    """流式入口：首块带 BOM + 表头，拼起来与一次性入口逐字节一致。"""
+
+    def test_first_chunk_has_bom_and_header(self, tmp_path) -> None:
+        mgr = _export_manager(tmp_path)
+
+        chunks, filename = trader_service.stream_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )
+        iterator = iter(chunks)
+        first = next(iterator)
+        rest = b"".join(iterator)
+
+        assert first.startswith(b"\xef\xbb\xbf")
+        assert b"# spec_version=" in first
+        assert b"order_id,order_as_of_date,trader_name" in first
+        assert rest  # 仍有数据块
+        joined = first + rest
+        expected, expected_name = trader_service.build_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )
+        # 两次生成的 generated_at / 文件名哈希不同，正文（去注释行）应一致
+        assert joined.split(b"\n", 2)[2] == expected.split(b"\n", 2)[2]
+        assert filename.startswith("trader_orders_20261022_20261022_")
+        assert expected_name.startswith("trader_orders_20261022_20261022_")
+
+    def test_generator_survives_cross_thread_iteration(self, tmp_path) -> None:
+        """Starlette 可能在不同工作线程执行相邻两次 ``next()``（回归）：
+        连接若跨 ``yield`` 持有，SQLite 会抛 ``ProgrammingError``。"""
+        mgr = make_manager(tmp_path, [
+            {"OrderId": f"T{i}", "fill": 100.0, "fill_count": 1,
+             "order_as_of_date": "20261022"}
+            for i in range(401)          # 2 个数据块，驱动 3 次 next()
+        ])
+        chunks, _ = trader_service.stream_export_csv(
+            "orders", start_date="20261022", end_date="20261022", mgr=mgr,
+        )
+        iterator = iter(chunks)
+
+        def next_in_new_thread() -> bytes:
+            box: dict[str, object] = {}
+
+            def target() -> None:
+                try:
+                    box["value"] = next(iterator)
+                except BaseException as exc:  # 原样回传生成器错误
+                    box["error"] = exc
+
+            worker = threading.Thread(target=target)
+            worker.start()
+            worker.join()
+            if "error" in box:
+                raise box["error"]  # type: ignore[misc]
+            return box["value"]  # type: ignore[return-value]
+
+        parts = [next_in_new_thread() for _ in range(3)]
+
+        lines = b"".join(parts).decode("utf-8-sig").splitlines()
+        assert len(lines) == 4 + 401      # 3 行注释 + 表头 + 401 单
+        assert {line.split(",", 1)[0] for line in lines[4:]} == {
+            f"T{i}" for i in range(401)
+        }
 
 
 class TestAnomalySummaryPayload:
