@@ -80,6 +80,7 @@
 
 ## 五、仍待处理（P2）
 
+- **交易员导出 CSV 的逐笔/peer 派生列**：订单汇总导出的 `passive_cost_bps` / `aggressive_cost_bps` / `peer_n` 三列为空 —— 类别成本需「逐笔价格 × Liquidity 分类」联查、peer 需逐单 180 天同类聚合，均超出 50k 订单导出的性能预算；列表页同样不展示这三项，精确值见订单详情卡。成交明细 CSV 与逐笔文件完整（含 `Liquidity` 分类与 `LastCapacity` / `LastMarket`，旧 schema 缺列时留空）。
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
 - **前端订单表的 Amount 展示**：`CostView/module/components/TcaOrderTable.tsx` 仍把 `amount` 按货币渲染

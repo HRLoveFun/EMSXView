@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { analyzeTca } from '../services/api';
+import { analyzeTca, exportTraderCsv } from '../services/api';
 
 // 全局 fetch mock
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+// jsdom 无 createObjectURL；下载实现需要它（只验证文件名/URL，不落盘）
+Object.defineProperty(URL, 'createObjectURL', {
+  configurable: true, value: vi.fn(() => 'blob:mock'),
+});
+Object.defineProperty(URL, 'revokeObjectURL', {
+  configurable: true, value: vi.fn(),
+});
 
 afterEach(() => {
   mockFetch.mockReset();
@@ -78,5 +85,51 @@ describe('analyzeTca', () => {
     mockFetch.mockResolvedValue(jsonResponse(503, { detail: 'tca_route_summary is empty' }));
 
     await expect(analyzeTca({ filters: {}, limit: 5 })).rejects.toThrow('tca_route_summary is empty');
+  });
+});
+
+describe('exportTraderCsv', () => {
+  it('URL 携带 kind/筛选，剥离分页；返回 Content-Disposition 文件名', async () => {
+    mockFetch.mockResolvedValue(new Response('# spec_version=2026.11.04\n', {
+      status: 200,
+      headers: {
+        'Content-Disposition':
+          'attachment; filename="trader_orders_20261020_20261022_abcd1234.csv"',
+      },
+    }));
+
+    const name = await exportTraderCsv('orders', {
+      startDate: '20261020', endDate: '20261022',
+      trader: ['HRCHEN'], quality: 'all', limit: 50, offset: 50,
+    });
+
+    expect(name).toBe('trader_orders_20261020_20261022_abcd1234.csv');
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain('/api/tca/trader/export?');
+    expect(url).toContain('kind=orders');
+    expect(url).toContain('start_date=20261020');
+    expect(url).toContain('trader=HRCHEN');
+    expect(url).not.toContain('limit=');
+    expect(url).not.toContain('offset=');
+    expect(url).not.toContain('quality=');      // quality=all 不发（与列表一致）
+  });
+
+  it('order_id 随导出单笔请求下发', async () => {
+    mockFetch.mockResolvedValue(new Response('csv', { status: 200 }));
+
+    await exportTraderCsv('fills', {}, '5292736');
+
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain('kind=fills');
+    expect(url).toContain('order_id=5292736');
+  });
+
+  it('422 上限错误透传后端文案', async () => {
+    mockFetch.mockResolvedValue(jsonResponse(422, {
+      detail: '导出订单数 60,000 超过上限 50,000，请缩小日期范围或加筛选条件',
+    }));
+
+    await expect(exportTraderCsv('orders', {}))
+      .rejects.toThrow('超过上限 50,000');
   });
 });

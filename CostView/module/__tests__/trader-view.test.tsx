@@ -13,12 +13,19 @@ vi.mock('../services/api', () => ({
   fetchTraderOrderDetail: vi.fn(),
   // PR-8：同类分位懒加载依赖；必须返回 Promise（undefined 会让 useAsyncData 读 .then 崩）
   fetchTraderPeerStats: vi.fn(async () => null),
+  // PR-10：CSV 导出入口
+  exportTraderCsv: vi.fn(async () => 'trader_orders.csv'),
 }));
 
-import { fetchTraderFilterOptions, fetchTraderOrders } from '../services/api';
+import {
+  exportTraderCsv,
+  fetchTraderFilterOptions,
+  fetchTraderOrders,
+} from '../services/api';
 
 const mockOrders = vi.mocked(fetchTraderOrders);
 const mockOptions = vi.mocked(fetchTraderFilterOptions);
+const mockExport = vi.mocked(exportTraderCsv);
 
 // ── 测试数据 ──
 
@@ -143,6 +150,38 @@ describe('TraderReviewView', () => {
     render(<TraderReviewView />);
 
     await waitFor(() => expect(screen.getByText(/当前筛选无订单/)).toBeInTheDocument());
+  });
+
+  it('导出订单 / 成交 CSV 使用当前筛选（不含分页在 api 层剥离）', async () => {
+    const user = userEvent.setup();
+    render(<TraderReviewView />);
+    await waitFor(() => expect(screen.getByText('5292736')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Export orders CSV' }));
+    await waitFor(() => expect(mockExport).toHaveBeenCalledTimes(1));
+    expect(mockExport.mock.calls[0][0]).toBe('orders');
+    expect(mockExport.mock.calls[0][1]).toMatchObject({
+      quality: 'all', sort: 'date', sortDir: 'desc',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Export fills CSV' }));
+    await waitFor(() => expect(mockExport).toHaveBeenCalledTimes(2));
+    expect(mockExport.mock.calls[1][0]).toBe('fills');
+  });
+
+  it('导出上限 422 显示 Export failed 与后端文案（提示缩小范围）', async () => {
+    mockExport.mockRejectedValueOnce(
+      new Error('[export_too_large] 导出订单数 60,000 超过上限 50,000'),
+    );
+    const user = userEvent.setup();
+    render(<TraderReviewView />);
+    await waitFor(() => expect(screen.getByText('5292736')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Export orders CSV' }));
+
+    await waitFor(() => expect(screen.getByText('Export failed')).toBeInTheDocument());
+    expect(screen.getByText(/超过上限 50,000/)).toBeInTheDocument();
+    expect(screen.getByText(/narrow the date range/)).toBeInTheDocument();
   });
 
   it('请求失败显示错误与重试按钮，重试再次发起请求', async () => {
