@@ -494,3 +494,156 @@ class TestPeerMetrics:
         assert tm.peer_latency_p90(rows) == pytest.approx(57.0)  # p90 线性插值
         assert tm.peer_latency_p90([]) is None
 
+
+# ── 210 §4.8：条件化改进提示 ──────────────────────────────────────────────
+
+
+def _peer_payload(metrics: list[dict], *, n: int = 68, p90: float | None = 60.0,
+                  latency_n: int = 68) -> dict:
+    """最小 peer payload（只给规则需要的字段）。"""
+    return {
+        "n": n,
+        "metrics": metrics,
+        "latency": {"p90_sec": p90, "n": latency_n},
+    }
+
+
+def _opp_metric(p25: float | None = 2.0, available: bool = True) -> dict:
+    return {
+        "key": "opportunity_cost_bps", "label": "机会成本", "direction": "higher_better",
+        "value": -10.0, "median": 0.0, "percentile": 0.1,
+        "p25": p25, "p75": 4.0, "p90": 6.0, "n": 68, "available": available, "note": None,
+    }
+
+
+CURRENT_LOW_COMPLETION = {
+    "completion": 0.5, "fill_count": 4, "algo": "vwap", "opp_bps": -10.0,
+    "arrival_cost_bps": -5.0, "first_continuous_fill_sec": 30.0, "quality_level": "warn",
+}
+
+
+class TestHints:
+    """H1 / H4 / H7：正例、反例、样本门槛、坏数据抑制。"""
+
+    def test_confidence_bands(self) -> None:
+        assert tm.hint_confidence(50) == "high"
+        assert tm.hint_confidence(20) == "medium"
+        assert tm.hint_confidence(19) == "low"
+
+    def test_h1_fires_when_opportunity_dominates(self) -> None:
+        hints = tm.evaluate_hints(CURRENT_LOW_COMPLETION, _peer_payload([_opp_metric()]))
+
+        h1 = next(hint for hint in hints if hint["rule_id"] == "H1")
+        assert h1["confidence"] == "high"
+        assert h1["peer_n"] == 68
+        assert h1["evidence"]["completion"] == 0.5
+        assert h1["evidence"]["peer_p25_opp_bps"] == 2.0
+        assert "复核未成交原因" in h1["action"]
+
+    def test_h1_requires_low_completion_and_worse_than_peer(self) -> None:
+        # 完成率够高 → 不触发
+        assert not any(
+            hint["rule_id"] == "H1"
+            for hint in tm.evaluate_hints(
+                {**CURRENT_LOW_COMPLETION, "completion": 0.95},
+                _peer_payload([_opp_metric()]),
+            )
+        )
+        # 机会成本不劣于 peer p25 → 不触发
+        assert not any(
+            hint["rule_id"] == "H1"
+            for hint in tm.evaluate_hints(
+                {**CURRENT_LOW_COMPLETION, "opp_bps": 5.0},
+                _peer_payload([_opp_metric()]),
+            )
+        )
+        # 不劣于 arrival → 不触发
+        assert not any(
+            hint["rule_id"] == "H1"
+            for hint in tm.evaluate_hints(
+                {**CURRENT_LOW_COMPLETION, "opp_bps": -3.0, "arrival_cost_bps": -8.0},
+                _peer_payload([_opp_metric()]),
+            )
+        )
+
+    def test_cost_hints_suppressed_on_bad_quality(self) -> None:
+        hints = tm.evaluate_hints(
+            {**CURRENT_LOW_COMPLETION, "quality_level": "bad",
+             "first_continuous_fill_sec": 120.0},
+            _peer_payload([_opp_metric()], p90=10.0),
+        )
+        # H1 / H4 均被抑制（H7 前提也不满足：fill_count=4）
+        assert hints == []
+
+    def test_h4_fires_only_for_continuous_algo_and_slow(self) -> None:
+        slow = {**CURRENT_LOW_COMPLETION, "first_continuous_fill_sec": 90.0}
+        h4 = next(
+            hint for hint in tm.evaluate_hints(slow, _peer_payload([_opp_metric()]))
+            if hint["rule_id"] == "H4"
+        )
+        assert h4["evidence"]["route_to_first_fill_sec"] == 90.0
+        assert h4["peer_n"] == 68
+
+        # 收盘单（排程不是延迟）
+        assert not any(
+            hint["rule_id"] == "H4"
+            for hint in tm.evaluate_hints(
+                {**slow, "algo": "close"}, _peer_payload([_opp_metric()]),
+            )
+        )
+        # 未超过 60s 绝对门槛
+        assert not any(
+            hint["rule_id"] == "H4"
+            for hint in tm.evaluate_hints(
+                {**slow, "first_continuous_fill_sec": 45.0},
+                _peer_payload([_opp_metric()], p90=30.0),
+            )
+        )
+        # peer 样本 <20
+        assert not any(
+            hint["rule_id"] == "H4"
+            for hint in tm.evaluate_hints(
+                slow, _peer_payload([_opp_metric()], latency_n=10),
+            )
+        )
+
+    def test_h7_single_fill(self) -> None:
+        current = {
+            "completion": 0.9, "fill_count": 1, "algo": "vwap",
+            "opp_bps": 0.0, "arrival_cost_bps": 0.0,
+            "first_continuous_fill_sec": 30.0, "quality_level": "info",
+        }
+        hints = tm.evaluate_hints(current, _peer_payload([]))
+
+        h7 = next(hint for hint in hints if hint["rule_id"] == "H7")
+        assert h7["peer_n"] == 0
+        assert h7["confidence"] == "self"
+        # 完成率 ≥0.95 的满成交不提示
+        assert not any(
+            hint["rule_id"] == "H7"
+            for hint in tm.evaluate_hints(
+                {**current, "completion": 0.99}, _peer_payload([]),
+            )
+        )
+
+    def test_evidence_missing_suppresses_hint(self) -> None:
+        """peer 无可用分位时不凑数出卡（证据缺一项即不渲染）。"""
+        hints = tm.evaluate_hints(
+            CURRENT_LOW_COMPLETION,
+            _peer_payload([_opp_metric(p25=None, available=False)]),
+        )
+        assert not any(hint["rule_id"] == "H1" for hint in hints)
+
+    def test_peer_metrics_expose_percentile_points(self) -> None:
+        metrics = tm.compute_peer_metrics(
+            {"completion": 0.9}, [{"completion": v} for v in (0.8, 0.9, 1.0)],
+        )
+        completion = next(item for item in metrics if item["key"] == "completion")
+        assert completion["p25"] is not None
+        assert completion["p75"] is not None
+        assert completion["p90"] is not None
+
+    def test_skipped_rules_are_disclosed(self) -> None:
+        assert set(tm.HINT_SKIPPED_RULES) == {"H2", "H5", "H6"}
+        assert all(reason for reason in tm.HINT_SKIPPED_RULES.values())
+

@@ -1062,9 +1062,23 @@ export interface TraderPeerMetric {
   value: number | null;
   median: number | null;
   percentile: number | null;
+  /** 分位点（规则引擎与四分位标注用；不可得时为 null） */
+  p25?: number | null;
+  p75?: number | null;
+  p90?: number | null;
   n: number;
   available: boolean;
   note: string | null;
+}
+
+/** 改进提示（§4.8）：任一字段缺失后端即不产出该条 */
+export interface TraderHint {
+  rule_id: string;
+  title: string;
+  evidence: Record<string, number | null>;
+  peer_n: number;
+  confidence: 'high' | 'medium' | 'low' | 'self' | string;
+  action: string;
 }
 
 /** 散点用 peer 点（selected = 本单，用于高亮） */
@@ -1080,8 +1094,8 @@ export interface TraderPeerStats {
   group: TraderPeerGroup;
   n: number;
   metrics: TraderPeerMetric[];
-  /** 改进提示（规则引擎随下一批落地，当前恒为空数组） */
-  hints: Array<Record<string, unknown>>;
+  /** 改进提示（H1/H4/H7 已评估；H2/H5/H6 未落地，原因见 degraded） */
+  hints: TraderHint[];
   latency: { p90_sec: number | null; n: number };
   points: TraderPeerPoint[];
   points_truncated: number;
