@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import { CostBreakdownBar } from './CostBreakdownBar';
 import { CompletionTrajectory } from './CompletionTrajectory';
 import { ExecutionTimeline } from './ExecutionTimeline';
 import { FillStatsPanel } from './FillStatsPanel';
+import { HintCards } from './HintCards';
 import { LatencyBreakdown } from './LatencyBreakdown';
 import { PassiveSplitPanel } from './PassiveSplitPanel';
 import { PeerBenchmarkScatter } from './PeerBenchmarkScatter';
@@ -138,6 +140,11 @@ export function OrderReviewCard({
   peerError = null,
 }: OrderReviewCardProps) {
   const quality = detail?.quality;
+  /** 时间线锚点：提示卡「定位时间线」滚动到这里（§4.8 点击定位） */
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const locateTimeline = () => {
+    timelineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -196,7 +203,9 @@ export function OrderReviewCard({
             )}
             <CostBreakdownBar cost={detail.cost} completion={detail.order.completion} />
             <CompletionTrajectory detail={detail} />
-            <ExecutionTimeline detail={detail} />
+            <div ref={timelineRef}>
+              <ExecutionTimeline detail={detail} />
+            </div>
             {/* PR-8：同类分位（懒加载，失败不影响详情其余部分） */}
             {peerLoading && !peer && (
               <p className="text-xs text-muted-foreground">正在加载同类分位…</p>
@@ -210,6 +219,7 @@ export function OrderReviewCard({
               <>
                 <PeerFingerprint peer={peer} />
                 <PeerBenchmarkScatter peer={peer} />
+                <HintCards hints={peer.hints} onLocateTimeline={locateTimeline} />
               </>
             )}
             {/* PR-6：详情卡第二屏（填充分布 / 主动被动 / 延迟），数据全部来自同一 payload */}

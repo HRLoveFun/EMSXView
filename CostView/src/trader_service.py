@@ -811,8 +811,42 @@ def build_order_peer(
 
     latency_p90, latency_n = _peer_latency(manager, peers, kind)
     payload = _peer_payload(current, oad, kind, window_days, peers, latency_p90, latency_n, note)
+    payload["hints"] = tm.evaluate_hints(
+        _hint_inputs(current, manager, order_id), payload,
+    )
+    payload["degraded"].extend(
+        f"{rule_id}: {reason}" for rule_id, reason in tm.HINT_SKIPPED_RULES.items()
+    )
     _PEER_CACHE[cache_key] = (time.time(), payload)
     return payload
+
+
+def _hint_inputs(
+    current: dict[str, Any], manager: ConnectionManager, order_id: str,
+) -> dict[str, Any]:
+    """提示规则入参：订单聚合行 + 自身延迟 + 质量级别（§4.8 抑制条件用）。"""
+    level, _ = tm.quality_flags(current)
+    return {
+        "completion": current.get("completion"),
+        "fill_count": current.get("fill_count"),
+        "algo": current.get("algo"),
+        "opp_bps": tm.order_opp_bps(current),
+        "arrival_cost_bps": current.get("arrival_cost_bps"),
+        "first_continuous_fill_sec": _self_latency(manager, order_id),
+        "quality_level": level,
+    }
+
+
+def _self_latency(manager: ConnectionManager, order_id: str) -> Optional[float]:
+    """本单的「路由下达 → 首笔连续成交」秒数（H4 与 peer p90 比大小用）。"""
+    conn = None
+    try:
+        conn = manager.get_connection("processed_fills", AccessTier.READ)
+        rows = tq.query_peer_latency(conn, [order_id])
+    finally:
+        if conn is not None:
+            conn.close()
+    return tm.latency_seconds(rows[0]) if rows else None
 
 
 def _head_row(conn, order_id: str, order_as_of_date: Optional[str]):

@@ -165,7 +165,7 @@ export function getAuthHeaders(): HeadersInit {
 | 路由模块 | 前缀 | 说明 |
 |----------|------|------|
 | CostView | `/api/tca`, `/api/costview` | TCA 分析、评分卡、制度分布 |
-| CostView Trader | `/api/tca/trader` | 交易员订单复盘台（订单列表 / 订单详情 / 同类 peer 分位 / 筛选项；210，只读）。列表 payload 含 `probes`（4 类可信度检查）与 `anomaly_summary`（订单级异常摘要）；peer 端点返回 8 维分位（两级口径、样本不足不给分位、10 分钟缓存） |
+| CostView Trader | `/api/tca/trader` | 交易员订单复盘台（订单列表 / 订单详情 / 同类 peer 分位 / 筛选项；210，只读）。列表 payload 含 `probes`（4 类可信度检查）与 `anomaly_summary`（订单级异常摘要）；peer 端点返回 8 维分位（两级口径、样本不足不给分位、10 分钟缓存）与改进提示（H1/H4/H7，未落地规则随 degraded 披露） |
 
 > 010-extract-pipeline：DatabaseView（`/api/db`）与 Execution History（`/api/history`）端点已迁独立项目 EMSXDataPipeline Runner，本仓库不再提供。
 
