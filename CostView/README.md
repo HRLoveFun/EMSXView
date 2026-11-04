@@ -35,14 +35,14 @@ CostView/                          # CostView domain
 │   ├── tca_cache.py               # query result cache (Redis; 连接失败 → 降级直查)
 │   ├── query_cli.py               # QueryEngine 类（CLI 命令分发目标）
 │   ├── __main__.py                # CLI 入口：python -m CostView.src（退出码 0/2/3，见 §4.2）
-│   ├── trader_query.py            # 交易员复盘台 SQL（订单列表聚合 / 筛选项，210 PR-1）
+│   ├── trader_query.py            # 交易员复盘台 SQL（订单列表 / 筛选项 / 报告内执行摘要，210）
 │   ├── trader_metrics.py          # 交易员复盘台纯函数（徽章 / KPI / 探针，210 PR-1）
 │   ├── trader_models.py           # 交易员复盘台契约模型（210 PR-1）
 │   ├── trader_service.py          # 交易员复盘台编排（列表 / 筛选项，210 PR-1）
 │   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │                                  # anomaly_query · tca_report_html · time_range
 ├── tests/                          # 规模跑命令看（python -m pytest CostView/tests/ -q）：
-│                                   #   test_report_metrics 127 / test_monitoring 59 /
+│                                   #   test_report_metrics 133 / test_monitoring 59 /
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
 │                                   #   test_order_aggregation 9 /
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/
