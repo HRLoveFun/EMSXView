@@ -1,7 +1,5 @@
-import { AlertTriangle, CheckCircle2, CircleSlash } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
-import type { TraderListPayload, TraderProbeCheck } from '../../types';
+import type { TraderListPayload } from '../../types';
 
 /** KPI 卡定义：key 对应 payload.kpi 的键；null 一律显示「—」（禁止按 0 解读） */
 interface KpiCardDef {
@@ -64,60 +62,4 @@ export function TraderKpiStrip({ kpi }: { kpi: TraderListPayload['kpi'] }) {
   );
 }
 
-const PROBE_LABELS: Record<string, string> = {
-  quantity: '数量一致性',
-  participation: '参与率一致性',
-  cost_missing: '成本字段缺失',
-  fill_quality: '逐笔质量',
-};
 
-/** 全局可信度横幅（210 §4.12）：4 类检查始终显示，未检查不伪装通过 */
-export function TraderProbesBanner({ probes }: { probes: TraderProbeCheck[] }) {
-  return (
-    <Alert>
-      <AlertTriangle className="h-4 w-4" />
-      <AlertTitle>数据可信度检查</AlertTitle>
-      <AlertDescription>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          {probes.map((probe) => (
-            <ProbeItem key={probe.id} probe={probe} />
-          ))}
-        </div>
-      </AlertDescription>
-    </Alert>
-  );
-}
-
-function ProbeItem({ probe }: { probe: TraderProbeCheck }) {
-  const label = PROBE_LABELS[probe.id] ?? probe.id;
-  if (!probe.checked) {
-    return (
-      <div className="flex items-start gap-1.5 text-xs text-muted-foreground" title={probe.note ?? ''}>
-        <CircleSlash className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>
-          {label}：<span className="italic">未检查</span>
-          {probe.note ? `（${probe.note}）` : ''}
-        </span>
-      </div>
-    );
-  }
-  const triggered = probe.triggered ?? 0;
-  return (
-    <div className="flex items-start gap-1.5 text-xs">
-      {triggered > 0 ? (
-        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-      ) : (
-        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
-      )}
-      <span>
-        {label}：
-        {triggered > 0 ? (
-          <span className="font-medium text-amber-600">{triggered} 单受影响</span>
-        ) : (
-          <span className="text-emerald-600">通过</span>
-        )}
-        {probe.note ? `（${probe.note}）` : ''}
-      </span>
-    </div>
-  );
-}

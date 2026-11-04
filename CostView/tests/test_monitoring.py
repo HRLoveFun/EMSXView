@@ -1098,3 +1098,33 @@ class TestExportHtmlZipClosure:
 
         assert response.media_type == "text/html; charset=utf-8"
         assert b"<!DOCTYPE html>" in response.body
+
+
+class TestEvaluateMetrics:
+    """210 §4.11：路由级与订单级共用同一套规则评估（不出现两套阈值常量）。"""
+
+    def test_route_and_order_share_engine(self) -> None:
+        from CostView.src.monitoring.anomaly_query import (
+            ThresholdRules,
+            evaluate_metrics,
+            order_rule_values,
+        )
+
+        rules = ThresholdRules.from_payload(None)
+        # 同一条规则：路由级传 completion_rate（小数），订单级传 completion（小数）
+        from_route = evaluate_metrics({"fill_pct": 0.5 * 100}, rules)
+        from_order = evaluate_metrics(
+            order_rule_values({"completion": 0.5, "pnl_vwap": 0.0}), rules,
+        )
+        assert [hit["key"] for hit in from_route] == ["fill_pct"]
+        assert [hit["key"] for hit in from_order] == ["fill_pct"]
+        assert from_order[0]["severity"] == "critical"
+
+    def test_order_values_skip_unavailable_fields(self) -> None:
+        from CostView.src.monitoring.anomaly_query import order_rule_values
+
+        values = order_rule_values({"completion": None, "pnl_vwap": 1.5, "max_par_rate": None})
+        assert values == {"pnl_vwap_bps": 1.5}
+        # 订单层不可得的规则键不得出现（不伪造 0 参与评估）
+        assert "volume_pct_interval" not in values
+        assert "order_par_single_gt100" not in values

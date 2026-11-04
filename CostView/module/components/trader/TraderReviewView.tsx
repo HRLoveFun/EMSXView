@@ -10,11 +10,21 @@ import {
   type TraderListQuery,
 } from '../../services/api';
 import { traderRowKey } from '../../lib/trader-rows';
-import type { TraderFilterState, TraderOrderRow } from '../../types';
+import type { CostViewModuleTab, TraderFilterState, TraderOrderRow } from '../../types';
+import { AnomalySummary } from './AnomalySummary';
+import { CredibilityBanner } from './CredibilityBanner';
 import { OrderReviewCard } from './OrderReviewCard';
 import { TraderFilterBar } from './TraderFilterBar';
-import { TraderKpiStrip, TraderProbesBanner } from './TraderKpiStrip';
+import { TraderKpiStrip } from './TraderKpiStrip';
 import { TRADER_PAGE_SIZE, TraderEmptyState, TraderOrderList } from './TraderOrderList';
+
+/** 选中订单的最小身份（可能来自列表或异常摘要 Top5，后者不在当前页） */
+type SelectedOrder = Pick<TraderOrderRow, 'order_id' | 'order_as_of_date'>;
+
+interface TraderReviewViewProps {
+  /** 宿主 tab 切换（「查看全部」跳 Report）；缺省时该按钮禁用 */
+  onNavigateTab?: (tab: CostViewModuleTab) => void;
+}
 
 /** 初始筛选态：日期留空 = 后端默认最近 5 个交易日（210 §3.4.1） */
 const INITIAL_FILTERS: TraderFilterState = {
@@ -53,10 +63,10 @@ function toQuery(state: TraderFilterState): TraderListQuery {
   };
 }
 
-/** 交易员复盘台（210 PR-3/PR-4）：筛选 + KPI + 可信度横幅 + 订单列表 + 订单详情卡 */
-export function TraderReviewView() {
+/** 交易员复盘台（210 PR-3/4/5）：筛选 + KPI + 可信度横幅 + 异常摘要 + 列表 + 详情卡 */
+export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) {
   const [filters, setFilters] = useState<TraderFilterState>(INITIAL_FILTERS);
-  const [selected, setSelected] = useState<TraderOrderRow | null>(null);
+  const [selected, setSelected] = useState<SelectedOrder | null>(null);
   const [bucketMin, setBucketMin] = useState(5);
   const options = useAsyncData(
     'trader-filter-options',
@@ -120,7 +130,16 @@ export function TraderReviewView() {
       {payload && (
         <>
           <TraderKpiStrip kpi={payload.kpi} />
-          <TraderProbesBanner probes={payload.probes.checks} />
+          <CredibilityBanner checks={payload.probes.checks} />
+          {payload.anomaly_summary && (
+            <AnomalySummary
+              summary={payload.anomaly_summary}
+              onSelectOrder={(orderId, orderAsOfDate) => setSelected({
+                order_id: orderId, order_as_of_date: orderAsOfDate,
+              })}
+              onOpenReport={onNavigateTab ? () => onNavigateTab('report') : undefined}
+            />
+          )}
           {payload.orders.length === 0 ? (
             <TraderEmptyState message={`当前筛选无订单（${payload.total_orders} 条命中）`} />
           ) : (
@@ -130,7 +149,9 @@ export function TraderReviewView() {
               offset={payload.offset}
               onPageChange={(page) => patch({ page })}
               onSelect={(row) => setSelected((current) =>
-                current && traderRowKey(current) === traderRowKey(row) ? null : row)}
+                current && traderRowKey(current) === traderRowKey(row)
+                  ? null
+                  : { order_id: row.order_id, order_as_of_date: row.order_as_of_date })}
               selectedKey={selected ? traderRowKey(selected) : null}
             />
           )}

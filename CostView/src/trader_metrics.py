@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 #: 完成率分桶（§3.4.1 completion_bucket 枚举）
 COMPLETION_BUCKETS: tuple[str, ...] = ("lt50", "50to80", "80to100", "eq100", "gt100")
@@ -239,8 +239,130 @@ def _kpi(value: Optional[float], n: Optional[int], **extra: Any) -> dict[str, An
     return payload
 
 
-def compute_kpi(rows: list[dict[str, Any]]) -> dict[str, Optional[dict[str, Any]]]:
-    """KPI 首屏（§4.13，PR-1 可算子集）；passive_ratio / release_delay_p90 / peer 随后续 PR 接入。"""
+#: 异常摘要展示条数（§4.11：按规则计数 + 订单 Top 5）
+ANOMALY_TOP_N = 5
+
+#: 异常摘要口径说明（订单级 vs 路由级；UI 与文档同源）
+ANOMALY_SCOPE_NOTE = (
+    "订单级口径（成交股数加权 pnl_vwap / 完成率 / 组内最大路由参与率）；"
+    "逐笔与区间类规则（区间参与率、日内波动、价格移动、订单参与率汇总）"
+    "依赖路由或逐笔字段，订单层不评估，其命中见 Report → 异常路由明细；"
+    "订单聚合后成交量占比普遍高于路由级，volume_pct_adv20 会主导计数，"
+    "该档应读作「大单 / 高参与」而非数据质量缺陷"
+)
+
+
+#: 订单级严重度排序（critical 在前）
+_SEVERITY_RANK: dict[str, int] = {"critical": 0, "warning": 1, "none": 2}
+
+
+def _worst_of(hits: list[dict[str, Any]]) -> str:
+    """命中项里最严重的档（取档位极值，不与 anomaly_query._worst_severity 重复实现）。"""
+    return min(
+        (str(hit.get("severity") or "warning") for hit in hits),
+        key=lambda value: _SEVERITY_RANK.get(value, 9),
+    )
+
+
+def _record_by_rule(
+    by_rule: dict[str, dict[str, Any]], hits: list[dict[str, Any]],
+) -> None:
+    """按规则累加命中订单数（一次命中一张订单只计一次）。"""
+    for hit in hits:
+        entry = by_rule.setdefault(hit["key"], {
+            "key": hit["key"], "label": hit["label"], "count": 0, "critical": 0,
+        })
+        entry["count"] += 1
+        if hit.get("severity") == "critical":
+            entry["critical"] += 1
+
+
+def _order_key(row: dict[str, Any]) -> tuple[str, str]:
+    """订单键（OrderId + 日期；跨日同号是不同订单）。
+
+    兼容两种行形态：SQL 聚合行（``OrderId``）与模型行（``order_id``），
+    两种形态都由 `compute_anomaly_summary` 的调用方传入。
+    """
+    order_id = row.get("OrderId") or row.get("order_id")
+    return (str(order_id or ""), str(row.get("order_as_of_date") or ""))
+
+
+def compute_anomaly_summary(
+    rows: list[dict[str, Any]],
+    evaluate: Callable[[dict[str, Any]], list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """订单级异常摘要（§4.11）：命中订单数 / 分档 / 按规则计数 / 订单 Top N。
+
+    ``evaluate`` 由调用方注入（唯一规则实现见 ``anomaly_query.evaluate_metrics``
+    与 ``order_rule_values``），本函数只做聚合，**不复制阈值常量**。
+
+    计数口径（§4.13）：异常订单 = 命中 ≥1 条阈值规则 **或** ``overfill`` /
+    ``cost_missing`` 的订单；``par_suspect`` 只进全局横幅，不混入。
+    因此 ``orders_total`` 是三类集合的并集，``rule_orders`` / ``quality_orders``
+    分别披露两个来源，避免并集把「为什么异常」掩盖掉。``overfill``（成交超过
+    委托）属数据矛盾，按 critical 计（与 KPI 旧口径一致）。
+    """
+    overfill_keys = {_order_key(r) for r in rows if _flag(r, "flag_overfill")}
+    quality_keys = {
+        _order_key(r) for r in rows
+        if _flag(r, "flag_overfill") or _flag(r, "flag_cost_missing")
+    }
+    by_rule: dict[str, dict[str, Any]] = {}
+    hit_rows: list[tuple[dict[str, Any], list[dict[str, Any]], str]] = []
+    hit_severity: dict[tuple[str, str], str] = {}
+    for row in rows:
+        hits = evaluate(row)
+        if hits:
+            severity = _worst_of(hits)
+            hit_rows.append((row, hits, severity))
+            hit_severity[_order_key(row)] = severity
+            _record_by_rule(by_rule, hits)
+
+    total = set(hit_severity) | quality_keys
+    critical_orders = {
+        key for key in total
+        if hit_severity.get(key) == "critical" or key in overfill_keys
+    }
+    top_orders = sorted(
+        hit_rows,
+        key=lambda item: (
+            _SEVERITY_RANK.get(item[2], 9),
+            -len(item[1]),
+            str(item[0].get("order_id")),
+        ),
+    )[:ANOMALY_TOP_N]
+    return {
+        "orders_total": len(total),
+        "critical": len(critical_orders),
+        "warning": len(total) - len(critical_orders),
+        "rule_orders": len(hit_severity),
+        "quality_orders": len(quality_keys),
+        "by_rule": sorted(by_rule.values(), key=lambda item: (-item["count"], item["key"])),
+        "top_orders": [
+            {
+                "order_id": _order_key(row)[0],
+                "order_as_of_date": str(row.get("order_as_of_date")),
+                "ticker": row.get("equ_ticker"),
+                "side": row.get("side"),
+                "severity": severity,
+                "reasons": [
+                    {"key": hit["key"], "label": hit["label"],
+                     "severity": hit["severity"], "value": hit["value"],
+                     "unit": hit["unit"]}
+                    for hit in hits
+                ],
+            }
+            for row, hits, severity in top_orders
+        ],
+        "scope": "order-level",
+        "note": ANOMALY_SCOPE_NOTE,
+    }
+
+
+def compute_kpi(
+    rows: list[dict[str, Any]], anomaly: Optional[dict[str, Any]] = None,
+) -> dict[str, Optional[dict[str, Any]]]:
+    """KPI 首屏（§4.13）；``anomaly`` 为 ``compute_anomaly_summary`` 结果。"""
     total = len(rows)
     completions = [r.get("completion") for r in rows if r.get("completion") is not None]
     low = sum(1 for c in completions if c < 0.8)
@@ -253,8 +375,6 @@ def compute_kpi(rows: list[dict[str, Any]]) -> dict[str, Optional[dict[str, Any]
         if c is not None and c < 1.0
         and (adverse_bps(o) or 0.0) > (adverse_bps(a) or 0.0)
     )
-    overfill = sum(1 for r in rows if _flag(r, "flag_overfill"))
-    cost_missing = sum(1 for r in rows if _flag(r, "flag_cost_missing"))
     return {
         "orders": _kpi(float(total), total),
         "low_completion_ratio": _kpi(
@@ -267,13 +387,32 @@ def compute_kpi(rows: list[dict[str, Any]]) -> dict[str, Optional[dict[str, Any]
         ),
         "passive_ratio": _kpi(None, None, scope="current_page", note="逐笔 Liquidity 未接入（PR-2）"),
         "release_delay_p90": _kpi(None, None, scope="continuous_only", note="释放延迟随逐笔时间戳接入（PR-2）"),
-        "anomaly_orders": _kpi(
-            float(overfill + cost_missing - _both_flagged(rows)), total,
-            critical=overfill, warning=cost_missing,
-            note="本批按 overfill/cost_missing 计；阈值规则联动随异常摘要（PR-5）",
-        ),
+        "anomaly_orders": _anomaly_kpi(anomaly, rows, total),
         "peer_small_orders": _kpi(None, total, note="peer 样本量随 peer 端点（PR-2）接入"),
     }
+
+
+def _anomaly_kpi(
+    anomaly: Optional[dict[str, Any]], rows: list[dict[str, Any]], total: int,
+) -> dict[str, Any]:
+    """异常订单 KPI（§4.13）：有订单级摘要时用并集口径，否则退回质量旗标口径。
+
+    并集口径 = 命中阈值规则 ∪ overfill ∪ cost_missing；``critical`` / ``warning``
+    为订单内最严重档计数（overfill 按 critical 计）。
+    """
+    if anomaly is None:
+        overfill = sum(1 for r in rows if _flag(r, "flag_overfill"))
+        cost_missing = sum(1 for r in rows if _flag(r, "flag_cost_missing"))
+        return _kpi(
+            float(overfill + cost_missing - _both_flagged(rows)), total,
+            critical=overfill, warning=cost_missing,
+            note="未接入阈值规则（仅 overfill/cost_missing）",
+        )
+    return _kpi(
+        float(anomaly["orders_total"]), total,
+        critical=anomaly["critical"], warning=anomaly["warning"],
+        note="命中阈值规则或 overfill/cost_missing（订单级口径）",
+    )
 
 
 def _both_flagged(rows: list[dict[str, Any]]) -> int:

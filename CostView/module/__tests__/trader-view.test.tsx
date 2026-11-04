@@ -95,7 +95,7 @@ describe('TraderReviewView', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     // 可信度横幅：未检查显式可见（fill_quality 探针 checked=false + note）
     expect(screen.getByText(/逐笔质量/)).toBeInTheDocument();
-    expect(screen.getByText('未检查')).toBeInTheDocument();
+    expect(screen.getByText(/未检查/)).toBeInTheDocument();
     // 订单行：mixed 标记 + 质量徽章 + 单笔成交 N/A（跨度/速度多列为 N/A）
     expect(screen.getByText('mixed')).toBeInTheDocument();
     expect(screen.getByTitle('参与率失真')).toBeInTheDocument();

@@ -812,6 +812,47 @@ export interface TraderProbeCheck {
   note: string | null;
 }
 
+/** 异常命中项（订单级评估，210 §4.11） */
+export interface TraderAnomalyReason {
+  key: string;
+  label: string;
+  severity: 'critical' | 'warning' | string;
+  value: number;
+  unit: string;
+}
+
+/** 按规则计数（只列命中 > 0 的规则） */
+export interface TraderAnomalyRuleCount {
+  key: string;
+  label: string;
+  count: number;
+  critical: number;
+}
+
+/** 异常订单 Top N（按严重度、命中项数排序） */
+export interface TraderAnomalyOrder {
+  order_id: string;
+  order_as_of_date: string;
+  ticker: string | null;
+  side: string | null;
+  severity: 'critical' | 'warning' | string;
+  reasons: TraderAnomalyReason[];
+}
+
+/** 订单级异常摘要（210 §4.11；orders_total 为规则命中 ∪ overfill ∪ cost_missing 的并集） */
+export interface TraderAnomalySummary {
+  orders_total: number;
+  critical: number;
+  warning: number;
+  /** 命中阈值规则的订单数（与 quality_orders 可能重叠，并集见 orders_total） */
+  rule_orders: number;
+  quality_orders: number;
+  by_rule: TraderAnomalyRuleCount[];
+  top_orders: TraderAnomalyOrder[];
+  scope: string;
+  note: string;
+}
+
 /** GET /api/tca/trader/orders 响应 data（210 §3.4.1） */
 export interface TraderListPayload {
   filters: { start_date: string; end_date: string; [key: string]: unknown };
@@ -821,6 +862,8 @@ export interface TraderListPayload {
   limit: number;
   kpi: Record<string, TraderKpiCard>;
   probes: { checks: TraderProbeCheck[]; spec_version: string };
+  /** 订单级异常摘要（PR-5；缺失时组件按无数据处理，不伪造 0） */
+  anomaly_summary?: TraderAnomalySummary;
   orders: TraderOrderRow[];
 }
 
