@@ -27,7 +27,7 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 
 from . import _common
 from . import report_measure as rm
-from .metric_coverage import MetricCoverageService, validate_metrics
+from .metric_coverage import MetricCoverageService, build_credibility, validate_metrics
 from .anomaly_query import (
     ThresholdRules,
     query_anomaly_routes_page_ex,
@@ -1035,7 +1035,13 @@ class TcaReportAggregator:
                 "throttle": {},
                 "data_quality": {"overfill_count": 0, "par_suspect_count": 0},
             },
-            "metric_coverage": None,
+            # 表缺失时仍带可信度横幅（§4.12 验收：空数据也要渲染 4 类，且一律
+            # 标「未检查」而非「通过」）；其余覆盖率字段保持缺失
+            "metric_coverage": {
+                "credibility": build_credibility(
+                    None, unchecked_note="tca_route_summary 不存在 — 请先运行管道 S5.5",
+                ),
+            },
             "evaluation": None,
             "data_source_warning": "tca_route_summary 不存在 — 请先运行管道 S5.5",
         }

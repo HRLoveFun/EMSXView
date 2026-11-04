@@ -155,6 +155,138 @@ def _consistency_pct(total: int, bad: int) -> Optional[float]:
     return round((1.0 - bad / total) * 100.0, 2)
 
 
+# ── 全局可信度横幅（§4.12；四类检查的组装层）─────────────────────────────────
+
+#: 检查项中文名（payload 与 HTML 共用一份，避免两处各写一半）
+CREDIBILITY_LABELS: dict[str, str] = {
+    "quantity": "数量矛盾",
+    "participation": "参与率异常",
+    "cost_missing": "成本字段缺失",
+    "fill_quality": "逐笔质量",
+}
+
+#: 计数单位（``rm.CredibilityCheck.unit`` 英文键 → 展示文案）
+CREDIBILITY_UNITS: dict[str, str] = {
+    "routes": "条路由", "orders": "个订单", "signals": "项信号",
+}
+
+#: 第四类检查在报告层恒为「未检查」的原因：跨库逐笔聚合实测成本超横幅预算
+#: （2026-11-04 D:\db，30 天窗口：三键对齐 3.2s、Liquidity 股数占比 13.5s）。
+FILL_QUALITY_UNCHECKED_NOTE = (
+    "报告层不重算逐笔质量（逐笔库跨库聚合超出报告预算，实测 3.2s–13.5s）；"
+    "逐笔口径见 CostView → Trader Review（当前页）"
+)
+
+
+def _ratio_text(part: int, total: int) -> str:
+    """``part/total`` 的展示串（无样本时写「无样本」）。"""
+    if total <= 0:
+        return "无样本"
+    return f"{part:,}/{total:,}（{part / total * 100:.1f}%）"
+
+
+def _quantity_signal(consistency: dict[str, Any]) -> dict[str, Any]:
+    """数量矛盾：overfill 路由 + 订单级 ΣAmount 与 ΣRouteShares 偏差。"""
+    overfill = int(consistency.get("overfill_routes") or 0)
+    mismatch = int(consistency.get("amount_qty_mismatch_orders") or 0)
+    orders = int(consistency.get("amount_qty_orders") or 0)
+    detail = (
+        f"成交超过委托（fill > RouteShares）的路由 {overfill:,} 条；"
+        f"委托股数与 ΣRouteShares 偏差 >"
+        f"{rm.ORDER_AMOUNT_QTY_TOLERANCE * 100:.1f}% 的订单 {_ratio_text(mismatch, orders)}"
+    )
+    return {"checked": True, "triggered": overfill, "detail": detail}
+
+
+def _participation_signal(consistency: dict[str, Any]) -> dict[str, Any]:
+    """参与率异常：单路由自身 / 多路由组内最大路由越界（求和不可加总，不计）。"""
+    single = int(consistency.get("order_par_single_suspect_orders") or 0)
+    multi = int(consistency.get("order_par_multi_suspect_orders") or 0)
+    extreme = int(consistency.get("order_par_extreme_orders") or 0)
+    detail = (
+        f"订单参与率 >{rm.ORDER_PAR_SUSPECT_RATE * 100:.0f}%：单路由 {single:,} 个 + "
+        f"多路由（组内最大）{multi:,} 个；其中 >"
+        f"{rm.ORDER_PAR_CRITICAL_RATE * 100:.0f}% 的极端订单 {extreme:,} 个。"
+        "多路由各路由共享同一市场成交量分母，求和不可加总，不计入"
+    )
+    return {"checked": True, "triggered": single + multi, "detail": detail}
+
+
+def _cost_missing_signal(consistency: dict[str, Any]) -> dict[str, Any]:
+    """成本字段缺失：arrival / opportunity / wagner 任一为 NULL 的路由数。"""
+    missing = int(consistency.get("cost_missing_routes") or 0)
+    total = int(consistency.get("total_routes") or 0)
+    detail = (
+        f"arrival {int(consistency.get('arrival_missing_routes') or 0):,} / "
+        f"opportunity {int(consistency.get('opportunity_missing_routes') or 0):,} / "
+        f"wagner {int(consistency.get('wagner_missing_routes') or 0):,} 条路由为 NULL；"
+        f"任一缺失合计 {_ratio_text(missing, total)}"
+    )
+    return {"checked": True, "triggered": missing, "detail": detail}
+
+
+def _fill_quality_signal() -> dict[str, Any]:
+    """逐笔质量：报告层不重算（成本超预算），显式未检查而非伪装通过。"""
+    return {
+        "checked": False, "triggered": None,
+        "detail": "", "note": FILL_QUALITY_UNCHECKED_NOTE,
+    }
+
+
+#: 检查 id → 信号构造函数（第四类无入参，单独列出以免签名不齐）
+_SIGNAL_BUILDERS = {
+    "quantity": _quantity_signal,
+    "participation": _participation_signal,
+    "cost_missing": _cost_missing_signal,
+}
+
+
+def build_credibility(
+    consistency: Optional[dict[str, Any]],
+    *,
+    unchecked_note: Optional[str] = None,
+) -> dict[str, Any]:
+    """组装全局可信度横幅（§4.12）：四类检查**始终**返回，不因 0 触发而隐藏。
+
+    ``consistency`` 为 None（表缺失 / 库缺失 / 空报告）时前三类同样标「未检查」，
+    由 ``unchecked_note`` 说明原因 —— 无数据不等于「检查通过」。
+
+    Returns:
+        ``{"checks": [...], "checked_count", "triggered_count", "affected_kpi_count"}``
+        每项含 ``id / label / unit / unit_label / affected_kpis / checked / triggered
+        / detail / note``；``triggered`` 为受影响对象数（单位见 ``unit_label``），
+        未检查时为 None（禁止用 0 冒充「无问题」）。
+    """
+    checks: list[dict[str, Any]] = []
+    for decl in rm.CREDIBILITY_CHECKS:
+        if consistency is None:
+            signal: dict[str, Any] = {
+                "checked": False, "triggered": None, "detail": "",
+                "note": unchecked_note or "无可评估数据，未检查",
+            }
+        elif decl.id == "fill_quality":
+            signal = _fill_quality_signal()
+        else:
+            signal = _SIGNAL_BUILDERS[decl.id](consistency)
+        checks.append({
+            "id": decl.id,
+            "label": CREDIBILITY_LABELS[decl.id],
+            "unit": decl.unit,
+            "unit_label": CREDIBILITY_UNITS[decl.unit],
+            "affected_kpis": list(decl.affected_kpis),
+            **signal,
+        })
+    checked = [c for c in checks if c["checked"]]
+    triggered = [c for c in checked if (c["triggered"] or 0) > 0]
+    kpis = {kpi for c in triggered for kpi in c["affected_kpis"]}
+    return {
+        "checks": checks,
+        "checked_count": len(checked),
+        "triggered_count": len(triggered),
+        "affected_kpi_count": len(kpis),
+    }
+
+
 class MetricCoverageService:
     """tca_route_summary 指标覆盖率聚合服务。"""
 
@@ -190,6 +322,8 @@ class MetricCoverageService:
                           "coverage": {m: pct},          # 原始口径（分母剔除白名单外交易所）
                           "sla_coverage": {m: pct},      # SLA 口径（再剔除 closing_auction/single_fill 结构内 NULL）
                           "null_counts": {m: n}}],
+                "consistency": {...},   # 一致性 / 数量 / 成本缺失探针
+                "credibility": {...},   # §4.12 全局可信度横幅（四类检查始终返回）
             }
             表不存在时 rows 为空并附 data_source_warning。
         """
@@ -237,6 +371,8 @@ class MetricCoverageService:
             "scope": resolved.to_payload(),
             "overall": overall,
             "consistency": consistency,
+            # §4.12 全局可信度横幅：四类检查始终随 payload 返回（0 触发也可见）
+            "credibility": build_credibility(consistency),
             "rows": rows,
         }
 
@@ -321,14 +457,16 @@ class MetricCoverageService:
     def _query_consistency(
         conn, start_date: str, end_date: str, scope: Optional[rm.ReportScope] = None,
     ) -> dict[str, Any]:
-        """数据一致性探针（013 + P1-a + F2）：overfill / 路由参与率越界。
+        """数据一致性探针（013 + P1-a + F2 + §4.12）：overfill / 参与率 / 数量 / 成本缺失。
 
         与异常判定（overfill_pct / order_par_single_gt100 / route_par_extreme
         规则）同源，但此处给出整体比例，不受异常清单截断影响，供报告头「数据质量
-        提示」区展示。订单级聚合（(OrderId, order_as_of_date, Exchange)）与异常明细
-        共用 report_measure 的唯一实现，避免两处口径分叉；分母同作用域。
+        提示」区与全局可信度横幅展示。订单级聚合与异常明细共用 report_measure 的
+        唯一实现，避免两处口径分叉；分母同作用域。
         F1（2026-11-03）：**删除** amount_consistency 探针 —— Amount 实为委托股数，
         与成交额 fill×p_avg 对比恒误报（实测 99.94% 不一致），不是数据缺陷信号。
+        §4.12：新增订单级**数量矛盾**（ΣAmount vs ΣRouteShares，股数 vs 股数）与
+        **成本字段缺失**（arrival/opportunity/wagner 为 NULL）两组计数。
         F2（2026-11-03）：多路由组的 ``par_sum`` 不可加总，越界判定改为「单路由组看
         自身参与率、多路由组看组内最大路由参与率」，极端值（>1000%）单独分档。
         """
@@ -338,7 +476,13 @@ class MetricCoverageService:
             SELECT COUNT(*) AS total_routes,
                    SUM(CASE WHEN fill IS NOT NULL AND RouteShares IS NOT NULL
                             AND RouteShares > 0 AND fill > RouteShares
-                            THEN 1 ELSE 0 END) AS overfill_routes
+                            THEN 1 ELSE 0 END) AS overfill_routes,
+                   SUM(CASE WHEN arrival_cost_bps IS NULL OR opportunity_cost IS NULL
+                             OR wagner_is_bps IS NULL
+                            THEN 1 ELSE 0 END) AS cost_missing_routes,
+                   SUM(CASE WHEN arrival_cost_bps IS NULL THEN 1 ELSE 0 END) AS arrival_missing,
+                   SUM(CASE WHEN opportunity_cost IS NULL THEN 1 ELSE 0 END) AS opp_missing,
+                   SUM(CASE WHEN wagner_is_bps IS NULL THEN 1 ELSE 0 END) AS wagner_missing
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}
             WHERE {where}
             """,
@@ -362,12 +506,19 @@ class MetricCoverageService:
             """,
             params,
         ).fetchone()
+        qty_row = conn.execute(
+            f"SELECT COUNT(*) AS total, COALESCE(SUM(qty_mismatch), 0) AS mismatch "
+            f"FROM {rm.order_amount_qty_aggregate_sql(where, alias='order_qty')}",
+            params,
+        ).fetchone()
         total_routes = int(route_row[0] or 0)
         overfill_routes = int(route_row[1] or 0)
         total_orders = int(order_row[0] or 0)
         single_suspect = int(order_row[1] or 0)
         multi_suspect = int(order_row[2] or 0)
         suspect_orders = single_suspect + multi_suspect
+        qty_orders = int(qty_row[0] or 0)
+        qty_mismatch = int(qty_row[1] or 0)
         return {
             "total_routes": total_routes,
             "overfill_routes": overfill_routes,
@@ -379,6 +530,16 @@ class MetricCoverageService:
             "order_par_suspect_orders": suspect_orders,
             "order_par_extreme_orders": int(order_row[3] or 0),
             "order_par_consistency_pct": _consistency_pct(total_orders, suspect_orders),
+            # §4.12 数量矛盾：订单级委托股数（ΣAmount）与 ΣRouteShares 偏差 >0.5%
+            "amount_qty_orders": qty_orders,
+            "amount_qty_mismatch_orders": qty_mismatch,
+            "amount_qty_consistency_pct": _consistency_pct(qty_orders, qty_mismatch),
+            # §4.12 成本字段缺失：三项成本字段任一为 NULL 的路由数（分项同时披露）
+            "cost_missing_routes": int(route_row[2] or 0),
+            "cost_missing_pct": _consistency_pct(total_routes, int(route_row[2] or 0)),
+            "arrival_missing_routes": int(route_row[3] or 0),
+            "opportunity_missing_routes": int(route_row[4] or 0),
+            "wagner_missing_routes": int(route_row[5] or 0),
         }
 
     @staticmethod
@@ -476,6 +637,8 @@ class MetricCoverageService:
             "scope": scope.to_payload(),
             "overall": None,
             "consistency": None,
+            # 空报告也必须渲染四类检查（§4.12 验收）：一律「未检查」并说明原因
+            "credibility": build_credibility(None, unchecked_note=warning),
             "rows": [],
             "data_source_warning": warning,
         }
