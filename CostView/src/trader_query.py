@@ -127,7 +127,13 @@ def _agg_select() -> str:
                         THEN r.wagner_is_bps * r.fill * r.p_avg END)
                  / NULLIF(SUM(CASE WHEN r.wagner_is_bps IS NOT NULL
                          AND r.fill IS NOT NULL AND r.p_avg IS NOT NULL
-                        THEN r.fill * r.p_avg END), 0) AS wagner_is_bps
+                        THEN r.fill * r.p_avg END), 0) AS wagner_is_bps,
+               -- 210 §4.11：订单级 pnl_vwap（按成交股数加权）供订单级阈值评估；
+               -- pnl_vwap 是每股价差，权重用 fill 而非成交额（与路由级口径一致）
+               SUM(CASE WHEN r.pnl_vwap IS NOT NULL AND r.fill IS NOT NULL
+                        THEN r.pnl_vwap * r.fill END)
+                 / NULLIF(SUM(CASE WHEN r.pnl_vwap IS NOT NULL AND r.fill IS NOT NULL
+                        THEN r.fill END), 0) AS pnl_vwap
     """
 
 

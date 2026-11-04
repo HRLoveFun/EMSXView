@@ -10,7 +10,7 @@ from CostView.tests.trader_fixtures import make_manager
 
 _CONTRACT_KEYS = {
     "filters", "generated_at", "total_orders", "offset", "limit",
-    "kpi", "probes", "orders",
+    "kpi", "probes", "anomaly_summary", "orders",
 }
 
 
@@ -89,6 +89,44 @@ class TestOrderPage:
             trader_service.build_order_page_from_query(
                 mgr=mgr, start_date="20261020", end_date="20261022", **kwargs,
             )
+
+
+class TestAnomalySummaryPayload:
+    """210 §4.11：订单级异常摘要随列表 payload 下发，KPI 与摘要同口径。"""
+
+    def test_default_rules_apply_at_order_level(self, tmp_path) -> None:
+        mgr = make_manager(tmp_path, [
+            # completion 0.5 → fill_pct 命中 critical（严重未完成）
+            {"OrderId": "LOW", "fill": 500.0, "par_rate": 0.01},
+            {"OrderId": "FULL", "fill": 1000.0, "par_rate": 0.01},
+        ])
+        filters = TraderFilters(start_date="20261022", end_date="20261022")
+        payload = trader_service.build_order_page(filters, mgr=mgr)
+        summary = payload["anomaly_summary"]
+
+        assert summary["orders_total"] == 1
+        assert summary["critical"] == 1
+        assert [item["key"] for item in summary["by_rule"]] == ["fill_pct"]
+        assert summary["top_orders"][0]["order_id"] == "LOW"
+        assert summary["top_orders"][0]["reasons"][0]["key"] == "fill_pct"
+        # KPI 与摘要同一并集口径（不再只数 overfill/cost_missing）
+        assert payload["kpi"]["anomaly_orders"]["value"] == summary["orders_total"]
+        assert payload["probes"]["spec_version"] == "2026.11.04"
+
+    def test_order_level_skips_route_only_metrics(self, tmp_path) -> None:
+        """区间/逐笔类规则在订单层不评估：不会因缺字段而误报或崩溃。"""
+        mgr = make_manager(tmp_path, [
+            {"OrderId": "P1", "par_rate_continuous": 0.9, "pnl_vwap_continuous": 5.0,
+             "RPM": 3.0, "par_rate": 0.01, "fill": 1000.0},
+        ])
+        filters = TraderFilters(start_date="20261022", end_date="20261022")
+        summary = trader_service.build_order_page(filters, mgr=mgr)["anomaly_summary"]
+
+        keys = {item["key"] for item in summary["by_rule"]}
+        assert "volume_pct_interval" not in keys
+        assert "intraday_volatility" not in keys
+        assert "price_movement_pct" not in keys
+        assert "订单级口径" in summary["note"]
 
 
 class TestReconcileWithAnalyzeOrders:

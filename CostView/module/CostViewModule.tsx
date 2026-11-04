@@ -372,7 +372,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
 
         <TabsContent value="trader" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading trader review workspace…</div>}>
-            <LazyTraderReviewView />
+            <LazyTraderReviewView onNavigateTab={setActiveTab} />
           </Suspense>
         </TabsContent>
 

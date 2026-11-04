@@ -280,19 +280,19 @@ def _worst_severity(hits: list[dict[str, Any]]) -> str:
     return "warning" if hits else "none"
 
 
-def evaluate_route_thresholds(
-    route: dict[str, Any], rules: ThresholdRules,
+def evaluate_metrics(
+    values: dict[str, float], rules: ThresholdRules,
 ) -> list[dict[str, Any]]:
-    """对单条路由行评估全部规则，返回命中的告警列表（按规则顺序）。"""
+    """按规则键批量评估（路由级与订单级共用的唯一实现，§4.11）。
+
+    ``values`` 的键为规则键、值**已换算到规则单位**（如 ``fill_pct`` 为百分数）；
+    缺失键一律不评估（该指标在该层级不可得，不是「通过」）。返回命中的告警列表
+    （按 ``_RULE_KEYS`` 顺序），供路由明细与订单级摘要共用同一套阈值常量。
+    """
     hits: list[dict[str, Any]] = []
     for key in _RULE_KEYS:
-        field_name, scale = _METRIC_MAP[key]
-        raw = route.get(field_name)
-        if raw is None:
-            continue
-        try:
-            value = float(raw) * scale
-        except (TypeError, ValueError):
+        value = values.get(key)
+        if value is None:
             continue
         severity = _evaluate_rule(rules.rules[key], value)
         if severity != "none":
@@ -302,6 +302,58 @@ def evaluate_route_thresholds(
                 "severity": severity,
             })
     return hits
+
+
+def _route_metric_values(route: dict[str, Any]) -> dict[str, float]:
+    """路由行 → 规则键取值（经 ``_METRIC_MAP`` 换算到规则单位）。"""
+    values: dict[str, float] = {}
+    for key in _RULE_KEYS:
+        field_name, scale = _METRIC_MAP[key]
+        raw = route.get(field_name)
+        if raw is None:
+            continue
+        try:
+            values[key] = float(raw) * scale
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
+def evaluate_route_thresholds(
+    route: dict[str, Any], rules: ThresholdRules,
+) -> list[dict[str, Any]]:
+    """对单条路由行评估全部规则，返回命中的告警列表（按规则顺序）。"""
+    return evaluate_metrics(_route_metric_values(route), rules)
+
+
+#: 订单级评估可用的规则 → 订单聚合行字段（其余规则依赖路由/逐笔字段，订单层不可得）
+_ORDER_METRIC_MAP: dict[str, tuple[str, float]] = {
+    "pnl_vwap_bps": ("pnl_vwap", 1.0),
+    "fill_pct": ("completion", 100.0),
+    "overfill_pct": ("completion", 100.0),
+    "volume_pct_adv20": ("max_par_rate", 100.0),
+}
+
+
+def order_rule_values(order: dict[str, Any]) -> dict[str, float]:
+    """订单聚合行 → 规则键取值（订单级异常摘要用，§4.11）。
+
+    只有订单层确实可得的指标才进入评估：``pnl_vwap``（成交股数加权）、
+    ``completion``（Σfill/ΣRouteShares）、``max_par_rate``（组内最大路由参与率）。
+    ``volume_pct_interval`` / ``intraday_volatility`` / ``price_movement_pct`` /
+    订单参与率汇总依赖路由或逐笔字段，订单层**不伪造**，因此订单级计数会小于
+    路由级明细计数 —— 两个口径在 UI 与文档中分别标注。
+    """
+    values: dict[str, float] = {}
+    for key, (field_name, scale) in _ORDER_METRIC_MAP.items():
+        raw = order.get(field_name)
+        if raw is None:
+            continue
+        try:
+            values[key] = float(raw) * scale
+        except (TypeError, ValueError):
+            continue
+    return values
 
 
 # ── 明细行查询 ──────────────────────────────────────────────────────────────
