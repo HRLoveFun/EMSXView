@@ -12,6 +12,8 @@ import type {
   TcaReport,
   TcaReportSummary,
   ThresholdRule,
+  TraderFilterOptions,
+  TraderListPayload,
 } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
@@ -369,6 +371,75 @@ export async function fetchExportHtml(query: ExportHtmlQuery): Promise<string> {
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
   return fileName;
+}
+
+// -- Trader review（210 PR-1/2/3）----------------------------------------------
+
+/** 交易员复盘台列表查询参数（多值维度后端按「任一路由命中」过滤） */
+export interface TraderListQuery {
+  startDate?: string;
+  endDate?: string;
+  trader?: string[];
+  ticker?: string[];
+  side?: string[];
+  strategyType?: string[];
+  algo?: string[];
+  broker?: string[];
+  completionBucket?: string;
+  quality?: string;
+  sort?: string;
+  sortDir?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** 组装 /api/tca/trader/* 查询串（多值维度逗号拼接，与后端 parse_multi 对齐） */
+function buildTraderUrl(
+  path: string,
+  query: TraderListQuery & { tickerPrefix?: string },
+): string {
+  const params = new URLSearchParams();
+  if (query.startDate) params.set('start_date', query.startDate);
+  if (query.endDate) params.set('end_date', query.endDate);
+  for (const [key, value] of Object.entries({
+    trader: joinFilter(query.trader),
+    ticker: joinFilter(query.ticker),
+    side: joinFilter(query.side),
+    strategy_type: joinFilter(query.strategyType),
+    algo: joinFilter(query.algo),
+    broker: joinFilter(query.broker),
+  })) {
+    if (value) params.set(key, value);
+  }
+  if (query.completionBucket) params.set('completion_bucket', query.completionBucket);
+  if (query.quality && query.quality !== 'all') params.set('quality', query.quality);
+  if (query.sort) params.set('sort', query.sort);
+  if (query.sortDir) params.set('sort_dir', query.sortDir);
+  if (query.limit != null) params.set('limit', String(query.limit));
+  if (query.offset != null) params.set('offset', String(query.offset));
+  if (query.tickerPrefix) params.set('ticker_prefix', query.tickerPrefix);
+  const qs = params.toString();
+  return `${API_BASE_URL}${path}${qs ? `?${qs}` : ''}`;
+}
+
+/** 210 §3.4.1：订单列表（服务端分页/排序 + KPI + 质量探针 + 当前页逐笔补列） */
+export async function fetchTraderOrders(query: TraderListQuery): Promise<TraderListPayload> {
+  return fetchMonitoringJson<TraderListPayload>(buildTraderUrl('/api/tca/trader/orders', query));
+}
+
+/** 210 §3.4.5：筛选下拉（traders/strategy_types 逐查询，其余复用维度表） */
+export async function fetchTraderFilterOptions(params?: {
+  startDate?: string;
+  endDate?: string;
+  tickerPrefix?: string;
+}): Promise<TraderFilterOptions> {
+  return fetchMonitoringJson<TraderFilterOptions>(
+    buildTraderUrl('/api/tca/trader/filter-options', {
+      startDate: params?.startDate,
+      endDate: params?.endDate,
+      tickerPrefix: params?.tickerPrefix,
+    }),
+  );
 }
 
 // -- Regime distribution ------------------------------------------------------

@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, BarChart3, FileBarChart, HeartPulse, Scale, Settings2, Trophy } from 'lucide-react';
+import { Activity, BarChart3, ClipboardList, FileBarChart, HeartPulse, Scale, Settings2, Trophy } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_FILTER_FORM_STATE,
@@ -58,6 +58,11 @@ const LazyReportView = lazy(async () => {
 const LazyMonitoringView = lazy(async () => {
   const module = await import('./components/MonitoringView');
   return { default: module.MonitoringView };
+});
+
+const LazyTraderReviewView = lazy(async () => {
+  const module = await import('./components/trader/TraderReviewView');
+  return { default: module.TraderReviewView };
 });
 
 function normalizeOrderIds(value: string): string[] | undefined {
@@ -288,13 +293,14 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CostViewModuleTab)}>
-        <TabsList className="grid h-auto w-full grid-cols-7 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit">
+        <TabsList className="grid h-auto w-full grid-cols-4 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit lg:grid-cols-8">
           <TabsTrigger value="overview"><Activity className="h-4 w-4" />Overview</TabsTrigger>
           <TabsTrigger value="analysis"><BarChart3 className="h-4 w-4" />Analysis</TabsTrigger>
           <TabsTrigger value="scorecard"><Trophy className="h-4 w-4" />Scorecard</TabsTrigger>
           <TabsTrigger value="evaluation"><Scale className="h-4 w-4" />Evaluation</TabsTrigger>
           <TabsTrigger value="report"><FileBarChart className="h-4 w-4" />Report</TabsTrigger>
           <TabsTrigger value="monitoring"><HeartPulse className="h-4 w-4" />Monitoring</TabsTrigger>
+          <TabsTrigger value="trader"><ClipboardList className="h-4 w-4" />Trader</TabsTrigger>
           <TabsTrigger value="configure"><Settings2 className="h-4 w-4" />Configure</TabsTrigger>
         </TabsList>
 
@@ -361,6 +367,12 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         <TabsContent value="monitoring" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading monitoring workspace…</div>}>
             <LazyMonitoringView />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="trader" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading trader review workspace…</div>}>
+            <LazyTraderReviewView />
           </Suspense>
         </TabsContent>
 
