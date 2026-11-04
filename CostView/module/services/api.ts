@@ -15,6 +15,7 @@ import type {
   TraderFilterOptions,
   TraderListPayload,
   TraderOrderDetail,
+  TraderPeerStats,
 } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
@@ -445,6 +446,25 @@ export async function fetchTraderOrderDetail(params: {
   const qs = search.toString();
   return fetchMonitoringJson<TraderOrderDetail>(
     `${API_BASE_URL}/api/tca/trader/orders/${encodeURIComponent(params.orderId)}${qs ? `?${qs}` : ''}`,
+  );
+}
+
+/**
+ * 210 §3.4.3：同类 peer 分位（8 维指纹 + 两级口径 + 延迟 p90）。
+ *
+ * 与详情分离懒加载：peer 要聚合 180 天同类样本，不应阻塞详情首屏；
+ * 服务端按「订单 + 数据最新日期」缓存 10 分钟，重复选中同一订单很快返回。
+ */
+export async function fetchTraderPeerStats(params: {
+  orderId: string;
+  orderAsOfDate?: string;
+}): Promise<TraderPeerStats> {
+  const search = new URLSearchParams();
+  if (params.orderAsOfDate) search.set('order_as_of_date', params.orderAsOfDate);
+  const qs = search.toString();
+  return fetchMonitoringJson<TraderPeerStats>(
+    `${API_BASE_URL}/api/tca/trader/orders/${encodeURIComponent(params.orderId)}/peer`
+    + (qs ? `?${qs}` : ''),
   );
 }
 

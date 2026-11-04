@@ -364,3 +364,94 @@ class TestPageFillEnrichment:
         assert row["passive_ratio"] == pytest.approx(0.5)           # 300 passive / 600
         probes = {c["id"]: c for c in payload["probes"]["checks"]}
         assert probes["fill_quality"]["checked"] is True
+
+class TestPeerBenchmark:
+    """210 §4.7：两级 peer 口径 / 样本不足 / 排除自身 / 缓存。"""
+
+    @staticmethod
+    def _peers(
+        count: int, *, ticker: str = "ABCD US Equity", prefix: str = "P",
+    ) -> list[dict]:
+        """count 条同类订单（OrderId 前缀可区分，避免主键冲突）。"""
+        return [
+            {"OrderId": f"{prefix}{index}", "equ_ticker": ticker,
+             "order_as_of_date": "20261022", "RouteId": f"R{index}"}
+            for index in range(count)
+        ]
+
+    def _build(self, tmp_path, rows: list[dict]):
+        from CostView.src import trader_service
+
+        trader_service.clear_peer_cache()
+        mgr = make_manager(tmp_path, rows)
+        return trader_service, mgr
+
+    def test_exact_group_percentile_and_self_excluded(self, tmp_path):
+        rows = [{"OrderId": "ME", "fill": 900.0}] + self._peers(20)
+        service, mgr = self._build(tmp_path, rows)
+
+        payload = service.build_order_peer("ME", mgr=mgr)
+
+        assert payload["group"]["kind"] == "exact"
+        assert payload["group"]["window_days"] == 180
+        assert payload["group"]["excludes_self"] is True
+        assert payload["n"] == 20                     # 自身被排除
+        assert payload["sample_insufficient"] is False
+        completion = next(m for m in payload["metrics"] if m["key"] == "completion")
+        # 全部同值 0.9 → 中位名次公式给 0.5
+        assert completion["percentile"] == pytest.approx(0.5)
+        # 散点包含自身点（高亮用）
+        assert any(point["is_self"] for point in payload["points"])
+
+    def test_insufficient_sample_returns_null_percentile(self, tmp_path):
+        rows = [{"OrderId": "ME", "fill": 500.0}] + self._peers(3)
+        service, mgr = self._build(tmp_path, rows)
+
+        payload = service.build_order_peer("ME", mgr=mgr)
+
+        assert payload["group"]["kind"] == "insufficient"
+        assert payload["sample_insufficient"] is True
+        assert payload["n"] == 3
+        assert all(m["percentile"] is None and m["median"] is None
+                   for m in payload["metrics"])
+        assert any("样本不足" in item for item in payload["degraded"])
+
+    def test_falls_back_to_wide_group(self, tmp_path):
+        rows = ([{"OrderId": "ME", "fill": 900.0}]
+                + self._peers(19, prefix="A")
+                + self._peers(45, ticker="OTHER US Equity", prefix="B"))
+        service, mgr = self._build(tmp_path, rows)
+
+        payload = service.build_order_peer("ME", mgr=mgr)
+
+        assert payload["group"]["kind"] == "wide"
+        assert payload["group"]["definition"] == "exchange+side+algo"
+        assert payload["n"] >= 50
+        # 夹具无逐笔 → 延迟 p90 不可得，必须显式降级（不写 0）
+        assert payload["latency"]["p90_sec"] is None
+        assert any("latency_p90" in item for item in payload["degraded"])
+
+    def test_second_call_hits_cache(self, tmp_path, monkeypatch):
+        rows = [{"OrderId": "ME", "fill": 500.0}] + self._peers(3)
+        service, mgr = self._build(tmp_path, rows)
+        calls = {"n": 0}
+        original = service.tq.query_peer_orders
+
+        def _counting(*args, **kwargs):
+            calls["n"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(service.tq, "query_peer_orders", _counting)
+        first = service.build_order_peer("ME", mgr=mgr)
+        after_first = calls["n"]
+        second = service.build_order_peer("ME", mgr=mgr)
+
+        assert after_first >= 1
+        assert calls["n"] == after_first          # 第二次不再查库
+        assert second == first
+
+    def test_missing_order_raises(self, tmp_path):
+        service, mgr = self._build(tmp_path, self._peers(3))
+        with pytest.raises(service.OrderNotFound):
+            service.build_order_peer("NOPE", mgr=mgr)
+

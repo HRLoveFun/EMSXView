@@ -79,7 +79,7 @@ python main.py
 
 ## Endpoints
 
-共 17 个端点（9 个 costview 路由 + 5 个 monitoring 路由 + 3 个交易员路由），行号取自 `api/routers/` 源码（2026-11-03 复核）：
+共 18 个端点（9 个 costview 路由 + 5 个 monitoring 路由 + 4 个交易员路由），行号取自 `api/routers/` 源码（2026-11-04 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
@@ -99,7 +99,8 @@ python main.py
 | `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:331` |
 | `GET /api/tca/trader/orders` | 交易员订单复盘列表（服务端分页/排序 + KPI + 质量探针 + 当前页逐笔补列） | `api/routers/trader.py:36` |
 | `GET /api/tca/trader/orders/{order_id}` | 订单详情（routes/fills/时间线逐桶参与率/成本分解/主动被动/延迟） | `api/routers/trader.py:95` |
-| `GET /api/tca/trader/filter-options` | 交易员筛选下拉（traders/strategy_types + 维度表） | `api/routers/trader.py:128` |
+| `GET /api/tca/trader/orders/{order_id}/peer` | 同类 peer 分位（8 维指纹 + 两级口径 + 延迟 p90；样本不足不给分位） | `api/routers/trader.py:128` |
+| `GET /api/tca/trader/filter-options` | 交易员筛选下拉（traders/strategy_types + 维度表） | `api/routers/trader.py:161` |
 
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
 >
