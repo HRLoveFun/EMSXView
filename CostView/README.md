@@ -167,5 +167,5 @@ location /api/tca/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
-*Last updated: 2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
+*Last updated: 2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
 *Last verified: 2026-09-15（端点清单与行号提取自 `api/routers/` 源码；测试计数经 grep `def test_` 统计并与 pytest 实际收集数比对；`python -m pytest CostView/tests/` 实测 217 passed。**未做运行时验证**——服务启动响应、端口连通性与查询延迟未在本轮测量）*
