@@ -213,6 +213,9 @@ class TestCostDecomposition:
             wagner_is_bps=-35.0, route_shares=1000.0, p_decision=None,
         )
         assert cost["denominator"] is None
+        # 货币成本原值随 payload 下发（UI 在无 p_decision 时只能展示这三项）
+        assert cost["opportunity_cost"] == -50.0
+        assert cost["delay_bps"] is None
         assert cost["residual_bps"] is None
         assert cost["delay_bps"] is None
         assert cost["note"] == "IS 分解不可用（无 BDIB/决策价）"
