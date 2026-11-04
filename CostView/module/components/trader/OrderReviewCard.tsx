@@ -11,13 +11,15 @@ import {
   formatShares,
 } from '../../lib/report-format';
 import { costToneClass, formatSignedBps } from '../../lib/cost-sign';
-import type { TraderOrderDetail, TraderQualityEntry } from '../../types';
+import type { TraderOrderDetail, TraderPeerStats, TraderQualityEntry } from '../../types';
 import { CostBreakdownBar } from './CostBreakdownBar';
 import { CompletionTrajectory } from './CompletionTrajectory';
 import { ExecutionTimeline } from './ExecutionTimeline';
 import { FillStatsPanel } from './FillStatsPanel';
 import { LatencyBreakdown } from './LatencyBreakdown';
 import { PassiveSplitPanel } from './PassiveSplitPanel';
+import { PeerBenchmarkScatter } from './PeerBenchmarkScatter';
+import { PeerFingerprint } from './PeerFingerprint';
 
 /** 时间桶可选项（与后端 trader_metrics.BUCKET_MINUTES 白名单一致） */
 const BUCKET_OPTIONS: number[] = [5, 15];
@@ -46,6 +48,10 @@ interface OrderReviewCardProps {
   onBucketMinChange: (value: number) => void;
   onClose: () => void;
   onRetry: () => void;
+  /** 同类 peer 分位（懒加载；null = 加载中或失败，不阻塞详情其余部分） */
+  peer?: TraderPeerStats | null;
+  peerLoading?: boolean;
+  peerError?: Error | null;
 }
 
 /** 质量徽章组（详情口径：带 severity 与说明，与列表的字符串数组不同） */
@@ -127,6 +133,9 @@ export function OrderReviewCard({
   onBucketMinChange,
   onClose,
   onRetry,
+  peer = null,
+  peerLoading = false,
+  peerError = null,
 }: OrderReviewCardProps) {
   const quality = detail?.quality;
   return (
@@ -188,10 +197,28 @@ export function OrderReviewCard({
             <CostBreakdownBar cost={detail.cost} completion={detail.order.completion} />
             <CompletionTrajectory detail={detail} />
             <ExecutionTimeline detail={detail} />
+            {/* PR-8：同类分位（懒加载，失败不影响详情其余部分） */}
+            {peerLoading && !peer && (
+              <p className="text-xs text-muted-foreground">正在加载同类分位…</p>
+            )}
+            {peerError && !peer && (
+              <p className="text-xs text-destructive">
+                同类分位加载失败：{peerError.message}（其余面板不受影响）
+              </p>
+            )}
+            {peer && (
+              <>
+                <PeerFingerprint peer={peer} />
+                <PeerBenchmarkScatter peer={peer} />
+              </>
+            )}
             {/* PR-6：详情卡第二屏（填充分布 / 主动被动 / 延迟），数据全部来自同一 payload */}
             <FillStatsPanel stats={detail.fill_stats} fillCount={detail.order.fill_count} />
             <PassiveSplitPanel liquidity={detail.liquidity} />
-            <LatencyBreakdown latency={detail.latency} />
+            <LatencyBreakdown
+              latency={detail.latency}
+              peerP90={peer ? peer.latency.p90_sec : undefined}
+            />
           </>
         )}
       </CardContent>

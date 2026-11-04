@@ -121,3 +121,28 @@ class TestOrderDetailEndpoint:
     def test_invalid_bucket_min_is_422(self, client):
         response = client.get("/api/tca/trader/orders/M1", params={"bucket_min": 7})
         assert response.status_code == 422
+
+class TestPeerEndpoint:
+    """GET /orders/{order_id}/peer：信封、样本不足契约、404。"""
+
+    def test_peer_envelope_and_insufficient_contract(self, client):
+        response = client.get("/api/tca/trader/orders/M1/peer")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        data = body["data"]
+        # 夹具里只有 1 个同类订单（S1）且不足 20 → 样本不足但结构完整（无伪分位）
+        assert data["sample_insufficient"] is True
+        assert data["n"] == 1
+        assert data["group"]["excludes_self"] is True
+        assert len(data["metrics"]) == 8
+        assert all(item["percentile"] is None for item in data["metrics"])
+        assert data["hints"] == []
+        assert isinstance(data["degraded"], list) and data["degraded"]
+
+    def test_peer_unknown_order_404(self, client):
+        response = client.get("/api/tca/trader/orders/NOT_EXIST/peer")
+
+        assert response.status_code == 404
+

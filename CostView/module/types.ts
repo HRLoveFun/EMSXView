@@ -1035,6 +1035,62 @@ export interface TraderDetailQuality {
   flags: TraderQualityEntry[];
 }
 
+// ── 210 §4.7：同类 peer 分位（GET /orders/{id}/peer）────────────────────────
+
+/** peer 分组口径：exact = 同标的+方向+算法；wide = 同市场+方向+算法；insufficient = 样本不足 */
+export type TraderPeerKind = 'exact' | 'wide' | 'insufficient';
+
+export interface TraderPeerGroup {
+  definition: string;
+  kind: TraderPeerKind;
+  window_days: number;
+  ticker: string | null;
+  exchange: string | null;
+  side: string | null;
+  algo: string | null;
+  order_as_of_date: string;
+  note: string;
+  /** 分母口径：peer 样本不含本单自身 */
+  excludes_self: boolean;
+}
+
+/** 单维分位：available=false 表示该维度不可算（note 说明原因） */
+export interface TraderPeerMetric {
+  key: string;
+  label: string;
+  direction: 'higher_better' | 'lower_better' | string;
+  value: number | null;
+  median: number | null;
+  percentile: number | null;
+  n: number;
+  available: boolean;
+  note: string | null;
+}
+
+/** 散点用 peer 点（selected = 本单，用于高亮） */
+export interface TraderPeerPoint {
+  order_id: string;
+  arrival_cost_bps: number | null;
+  opportunity_cost_bps: number | null;
+  completion: number | null;
+  is_self: boolean;
+}
+
+export interface TraderPeerStats {
+  group: TraderPeerGroup;
+  n: number;
+  metrics: TraderPeerMetric[];
+  /** 改进提示（规则引擎随下一批落地，当前恒为空数组） */
+  hints: Array<Record<string, unknown>>;
+  latency: { p90_sec: number | null; n: number };
+  points: TraderPeerPoint[];
+  points_truncated: number;
+  sample_insufficient: boolean;
+  deviation_count: number;
+  degraded: string[];
+  generated_at: string;
+}
+
 /** GET /api/tca/trader/orders/{order_id} 响应 data（210 §3.4.2；daily 属 P2，当前恒为 null） */
 export interface TraderOrderDetail {
   order: TraderDetailOrder;

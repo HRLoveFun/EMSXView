@@ -10,6 +10,8 @@ vi.mock('../services/api', () => ({
   fetchTraderOrders: vi.fn(),
   fetchTraderFilterOptions: vi.fn(),
   fetchTraderOrderDetail: vi.fn(),
+  // PR-8：peer 懒加载依赖；必须返回 Promise（返回 undefined 会让 useAsyncData 读 .then 崩）
+  fetchTraderPeerStats: vi.fn(async () => null),
 }));
 
 import {

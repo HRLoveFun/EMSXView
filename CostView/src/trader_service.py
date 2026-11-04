@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from data_access.storage.connection import AccessTier, ConnectionManager
@@ -628,3 +629,223 @@ def _fill_quality_probe(
         > tm.LIQUIDITY_UNKNOWN_WARN
     )
     return {"checked": True, "triggered": triggered, "note": None}
+
+# ── 210 §4.7：同类 peer 分位（两级口径 + 进程内缓存）────────────────────────
+
+#: peer 结果缓存 TTL（§3.7：进程内 LRU，TTL 10 分钟，key 含数据最新日期）
+PEER_CACHE_TTL_SEC = 600.0
+#: 库内最新日期缓存 TTL（避免每次请求都对全表求 MAX）
+LATEST_DATE_TTL_SEC = 60.0
+#: 散点最多返回的 peer 点数（超出按到达成本抽样截断并披露）
+PEER_SCATTER_LIMIT = 200
+
+_PEER_CACHE: dict[tuple[str, str, Optional[str]], tuple[float, dict[str, Any]]] = {}
+_LATEST_DATE_CACHE: dict[str, tuple[float, Optional[str]]] = {}
+
+
+def clear_peer_cache() -> None:
+    """清空 peer 缓存（测试与运维手动失效用；进程内缓存无跨进程共享）。"""
+    _PEER_CACHE.clear()
+    _LATEST_DATE_CACHE.clear()
+
+
+def _latest_tca_date(conn) -> Optional[str]:
+    """库内最新 TCA 日期（短 TTL 缓存；用作 peer 缓存 key，跑批后自然失效）。"""
+    now = time.time()
+    cached = _LATEST_DATE_CACHE.get("latest")
+    if cached and now - cached[0] < LATEST_DATE_TTL_SEC:
+        return cached[1]
+    value = tq.query_latest_order_date(conn)
+    _LATEST_DATE_CACHE["latest"] = (now, value)
+    return value
+
+
+def _window_start(order_date: str, days: int) -> str:
+    """窗口起点（含）：订单日回溯 N 个自然日（YYYYMMDD）。"""
+    start = datetime.strptime(order_date, "%Y%m%d") - timedelta(days=days)
+    return start.strftime("%Y%m%d")
+
+
+def _peer_where(
+    *, ticker: Optional[str] = None, exchange: Optional[str] = None,
+    side: Optional[str], algo: Optional[str],
+    start_date: str, end_date: str,
+) -> tuple[str, list[Any]]:
+    """peer 分组条件（ticker 精确口径 / exchange 宽口径二选一）。"""
+    conditions = ["order_as_of_date BETWEEN ? AND ?"]
+    params: list[Any] = [start_date, end_date]
+    if ticker:
+        conditions.append("equ_ticker = ?")
+        params.append(ticker)
+    if exchange:
+        conditions.append("Exchange = ?")
+        params.append(exchange)
+    for column, value in (("Side", side), ("algo", algo)):
+        if value:
+            conditions.append(f"{column} = ?")
+            params.append(value)
+    return "WHERE " + " AND ".join(conditions), params
+
+
+def _peer_rows(conn, where: str, params: list[Any], *, exclude: tuple[str, str]) -> list[dict[str, Any]]:
+    """同类订单样本（去掉订单自身：自己不该是自己的基准）。"""
+    rows = tq.query_peer_orders(conn, where, params)
+    return [
+        row for row in rows
+        if (str(row.get("OrderId")), str(row.get("order_as_of_date"))) != exclude
+    ]
+
+
+def _peer_group_with(
+    conn, current: dict[str, Any], oad: str,
+) -> tuple[str, int, list[dict[str, Any]], str]:
+    """两级口径的实际判定（独立函数：便于单测注入连接）。"""
+    exclude = (str(current.get("OrderId")), oad)
+    ticker = current.get("equ_ticker")
+    side, algo = current.get("Side"), current.get("algo")
+    exact_where, exact_params = _peer_where(
+        ticker=ticker, side=side, algo=algo,
+        start_date=_window_start(oad, tq.PEER_EXACT_WINDOW_DAYS), end_date=oad,
+    )
+    peers = _peer_rows(conn, exact_where, exact_params, exclude=exclude)
+    if len(peers) >= tq.PEER_EXACT_MIN_SAMPLE:
+        return "exact", tq.PEER_EXACT_WINDOW_DAYS, peers, "同类精确口径（同标的 + 方向 + 算法）"
+    wide_where, wide_params = _peer_where(
+        exchange=current.get("exchange"), side=side, algo=algo,
+        start_date=_window_start(oad, tq.PEER_WIDE_WINDOW_DAYS), end_date=oad,
+    )
+    wide = _peer_rows(conn, wide_where, wide_params, exclude=exclude)
+    if len(wide) >= tq.PEER_WIDE_MIN_SAMPLE:
+        return (
+            "wide", tq.PEER_WIDE_WINDOW_DAYS, wide,
+            "宽口径（同市场 + 方向 + 算法；精确口径样本不足）",
+        )
+    return (
+        "insufficient", tq.PEER_EXACT_WINDOW_DAYS, peers,
+        "样本不足：精确与宽口径都未达最小样本，仅展示原值与 n",
+    )
+
+
+def _peer_payload(
+    current: dict[str, Any], oad: str, kind: str, window_days: int,
+    peers: list[dict[str, Any]], latency_p90: Optional[float], latency_n: int,
+    group_note: str,
+) -> dict[str, Any]:
+    """组装 peer payload（§3.4.3 契约 + 两级口径与降级披露）。"""
+    insufficient = kind == "insufficient"
+    metrics = tm.compute_peer_metrics(current, peers)
+    if insufficient:
+        for item in metrics:
+            item["percentile"] = None
+            item["median"] = None
+    degraded = [
+        f"{dim.key}: {dim.note}" for dim in tm.PEER_DIMENSIONS if dim.loader is None
+    ]
+    if insufficient:
+        degraded.append("分位：样本不足（n < 最小样本），只给原值与 n")
+    if latency_p90 is None:
+        degraded.append("latency_p90: 无可用逐笔时刻（或宽口径不含同标的），未计算")
+    points = [
+        {
+            "order_id": str(row.get("OrderId")),
+            "arrival_cost_bps": row.get("arrival_cost_bps"),
+            "opportunity_cost_bps": tm.order_opp_bps(row),
+            "completion": row.get("completion"),
+            "is_self": False,
+        }
+        for row in peers[:PEER_SCATTER_LIMIT]
+    ]
+    points.append({
+        "order_id": str(current.get("OrderId")),
+        "arrival_cost_bps": current.get("arrival_cost_bps"),
+        "opportunity_cost_bps": tm.order_opp_bps(current),
+        "completion": current.get("completion"),
+        "is_self": True,
+    })
+    return {
+        "group": {
+            "definition": "ticker+side+algo" if kind == "exact" else "exchange+side+algo",
+            "kind": kind,
+            "window_days": window_days,
+            "ticker": current.get("equ_ticker"),
+            "exchange": current.get("exchange"),
+            "side": current.get("Side"),
+            "algo": current.get("algo"),
+            "order_as_of_date": oad,
+            "note": group_note,
+            "excludes_self": True,
+        },
+        "n": len(peers),
+        "metrics": metrics,
+        "hints": [],
+        "latency": {"p90_sec": latency_p90, "n": latency_n},
+        "points": points,
+        "points_truncated": max(0, len(peers) - PEER_SCATTER_LIMIT),
+        "sample_insufficient": insufficient,
+        "deviation_count": tm.fingerprint_deviation(metrics),
+        "degraded": degraded,
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
+def build_order_peer(
+    order_id: str,
+    *,
+    order_as_of_date: Optional[str] = None,
+    mgr: Optional[ConnectionManager] = None,
+) -> dict[str, Any]:
+    """订单的同类 peer 分位（§3.4.3 / §4.7）：两级口径 + 10 分钟缓存。"""
+    manager = _manager(mgr)
+    conn = manager.get_connection("fill_bdib", AccessTier.READ)
+    try:
+        head = _head_row(conn, order_id, order_as_of_date)
+        current, oad = head
+        latest = _latest_tca_date(conn)
+        cache_key = (order_id, oad, latest)
+        cached = _PEER_CACHE.get(cache_key)
+        if cached and time.time() - cached[0] < PEER_CACHE_TTL_SEC:
+            return cached[1]
+        kind, window_days, peers, note = _peer_group_with(conn, current, oad)
+    finally:
+        conn.close()
+
+    latency_p90, latency_n = _peer_latency(manager, peers, kind)
+    payload = _peer_payload(current, oad, kind, window_days, peers, latency_p90, latency_n, note)
+    _PEER_CACHE[cache_key] = (time.time(), payload)
+    return payload
+
+
+def _head_row(conn, order_id: str, order_as_of_date: Optional[str]):
+    """订单聚合头（与详情同一口径）；订单不存在 → OrderNotFound。"""
+    routes = tq.query_order_routes(conn, order_id)
+    if not routes:
+        raise OrderNotFound(f"订单不存在: {order_id}")
+    oad = _resolve_order_date(routes, order_as_of_date)
+    rows = tq.query_order_rows(conn, tmod.TraderFilters(
+        start_date=oad, end_date=oad, order_id=order_id, limit=1,
+    ))
+    if not rows:
+        raise OrderNotFound(f"订单不存在: {order_id}")
+    return rows[0], oad
+
+
+def _peer_latency(
+    manager: ConnectionManager, peers: list[dict[str, Any]], kind: str,
+) -> tuple[Optional[float], int]:
+    """peer 延迟 p90（§4.9 H4 证据）：按**已选出的 peer 订单 id** 反查逐笔。
+
+    延迟是流程指标，与标的不强相关，因此精确与宽口径都可比较；样本为 0 或
+    逐笔缺失时返回 None + 0，由调用方写进 ``degraded``。
+    """
+    ids = [str(row.get("OrderId")) for row in peers if row.get("OrderId")]
+    if not ids:
+        return None, 0
+    conn = None
+    try:
+        conn = manager.get_connection("processed_fills", AccessTier.READ)
+        rows = tq.query_peer_latency(conn, ids)
+    finally:
+        if conn is not None:
+            conn.close()
+    return tm.peer_latency_p90(rows), len(rows)
+

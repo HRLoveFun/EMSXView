@@ -11,6 +11,8 @@ vi.mock('../services/api', () => ({
   fetchTraderFilterOptions: vi.fn(),
   // PR-4：视图新增详情取数依赖，模块 mock 必须一并提供（否则点击行会 TypeError）
   fetchTraderOrderDetail: vi.fn(),
+  // PR-8：同类分位懒加载依赖；必须返回 Promise（undefined 会让 useAsyncData 读 .then 崩）
+  fetchTraderPeerStats: vi.fn(async () => null),
 }));
 
 import { fetchTraderFilterOptions, fetchTraderOrders } from '../services/api';

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from typing import Any, Callable, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 #: 完成率分桶（§3.4.1 completion_bucket 枚举）
 COMPLETION_BUCKETS: tuple[str, ...] = ("lt50", "50to80", "80to100", "eq100", "gt100")
@@ -670,3 +670,142 @@ def mad_z(value: Optional[float], peers: list[float]) -> Optional[float]:
         q1, q3 = percentile(peers, 25.0), percentile(peers, 75.0)
         mad = ((q3 - q1) / 1.349) if (q1 is not None and q3 is not None) else 0.0
     return ((value - median) / mad) if mad else None
+
+# ── 210 §4.7：算法特征指纹（8 维 peer 分位）────────────────────────────────
+
+
+class PeerDimension(NamedTuple):
+    """单个指纹维度：取值口径 + 方向 + 不可得时的原因。"""
+
+    key: str
+    label: str
+    #: higher_better：分位越高越好；lower_better：分位越低越好
+    direction: str
+    #: 取值函数（None = 该维度在当前数据口径下不可得，直接标 N/A）
+    loader: Optional[Callable[[dict[str, Any]], Optional[float]]]
+    note: Optional[str] = None
+
+
+def _avg_fill_ratio(row: dict[str, Any]) -> Optional[float]:
+    """单次成交量 / 委托股数（越小切片越细）。"""
+    fill, count, shares = row.get("fill"), row.get("fill_count"), row.get("route_shares")
+    if not fill or not count or not shares:
+        return None
+    return (float(fill) / float(count)) / float(shares)
+
+
+def order_opp_bps(row: dict[str, Any]) -> Optional[float]:
+    """订单级机会成本 bps：cost / (RouteShares × p_decision) × 10000（§3.8）。"""
+    cost, shares, decision = (
+        row.get("opportunity_cost"), row.get("route_shares"), row.get("p_decision"),
+    )
+    if cost is None or not shares or not decision:
+        return None
+    return float(cost) / (float(shares) * float(decision)) * 10000.0
+
+
+#: 8 维指纹（顺序即展示顺序）；逐笔类维度在订单级不可得，显式标 N/A 而非跳过
+PEER_DIMENSIONS: tuple[PeerDimension, ...] = (
+    PeerDimension("completion", "完成率", "higher_better", lambda r: r.get("completion")),
+    PeerDimension("duration", "订单历时", "lower_better", lambda r: r.get("order_duration_sec")),
+    PeerDimension(
+        "speed", "成交速度", "higher_better",
+        lambda r: r.get("exec_rate_shares_per_min"),
+    ),
+    PeerDimension(
+        "fill_cv", "单笔 CV", "lower_better", None,
+        "需逐笔填充量分布（180 天窗口内跨库聚合超 peer 预算）",
+    ),
+    PeerDimension(
+        "passive_ratio", "被动占比", "higher_better", None,
+        "需逐笔 Liquidity（同上，逐笔级口径见详情「主动/被动拆分」）",
+    ),
+    PeerDimension("avg_fill_ratio", "单笔 / 委托", "lower_better", _avg_fill_ratio),
+    PeerDimension(
+        "arrival_cost_bps", "arrival", "higher_better",
+        lambda r: r.get("arrival_cost_bps"),
+    ),
+    PeerDimension(
+        "opportunity_cost_bps", "机会成本", "higher_better", order_opp_bps,
+    ),
+)
+
+#: 分位偏离中位的阈值（|p−0.5| > 0.4 记一次偏离，§4.7 只作线索不判好坏）
+PEER_DEVIATION_BAND = 0.4
+
+
+def compute_peer_metrics(
+    current: dict[str, Any], peers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """8 维 peer 分位（§4.7）：每维给出原值 / 中位 / 分位 / 方向 / 有效样本数。
+
+    - 该维度在**当前订单**缺失，或 peer 侧没有可用值 → `available=false` + `note`，
+      UI 显示 N/A（禁止把 null 当 0）；
+    - 分位用 §4.7 的中位名次公式（`trader_metrics.percentile_rank`），
+      中位用 `statistics.median`；同一维度 peer 值缺失的行不计入 n。
+    """
+    metrics: list[dict[str, Any]] = []
+    for dim in PEER_DIMENSIONS:
+        if dim.loader is None:
+            metrics.append({
+                "key": dim.key, "label": dim.label, "direction": dim.direction,
+                "value": None, "median": None, "percentile": None,
+                "n": 0, "available": False, "note": dim.note,
+            })
+            continue
+        value = dim.loader(current)
+        values = [v for v in (dim.loader(row) for row in peers) if v is not None]
+        available = value is not None and bool(values)
+        metrics.append({
+            "key": dim.key, "label": dim.label, "direction": dim.direction,
+            "value": value,
+            "median": statistics.median(values) if values else None,
+            "percentile": percentile_rank(value, values),
+            "n": len(values), "available": available, "note": None,
+        })
+    return metrics
+
+
+def fingerprint_deviation(metrics: list[dict[str, Any]]) -> int:
+    """偏离维度数：|分位 − 0.5| > 0.4 的维度个数（线索，不直接判好坏）。"""
+    return sum(
+        1 for item in metrics
+        if item.get("available") and item.get("percentile") is not None
+        and abs(float(item["percentile"]) - 0.5) > PEER_DEVIATION_BAND
+    )
+
+
+def _hms_sec(value: Any) -> Optional[float]:
+    """``HH:MM:SS`` → 当日秒（peer 延迟：路由下达 → 首笔连续成交）。"""
+    if not value:
+        return None
+    parts = str(value).strip().split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        secs = [float(part) for part in parts[:3]]
+    except ValueError:
+        return None
+    while len(secs) < 3:
+        secs.append(0.0)
+    return secs[0] * 3600 + secs[1] * 60 + secs[2]
+
+
+def peer_latency_p90(rows: list[dict[str, Any]]) -> Optional[float]:
+    """peer 的「路由下达 → 首笔连续成交」p90（秒；§4.9 H4 证据用）。"""
+    deltas = [
+        delta
+        for row in rows
+        if (delta := _latency_delta(row)) is not None and delta >= 0
+    ]
+    return percentile(deltas, 90.0) if deltas else None
+
+
+def _latency_delta(row: dict[str, Any]) -> Optional[float]:
+    """单行延迟秒差（路由时刻缺失或异常 → None）。"""
+    route = _hms_sec(row.get("route_first"))
+    first = _hms_sec(row.get("first_continuous"))
+    if route is None or first is None:
+        return None
+    return first - route
+
