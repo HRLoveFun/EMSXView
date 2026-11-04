@@ -337,3 +337,97 @@ class TestFillDistribution:
     def test_top3_na_below_three_fills(self) -> None:
         stats = tm.fill_distribution([_fill(0.0, 100.0), _fill(60.0, 100.0)], 1000.0)
         assert stats["top3_share"] is None
+
+# ── 210 §4.11：订单级异常摘要 ─────────────────────────────────────────────
+
+
+def _order_row(order_id: str, **overrides):
+    """订单聚合行（SQL 形态：OrderId / completion / flag_*）。"""
+    row = {
+        "OrderId": order_id, "order_as_of_date": "20261022",
+        "equ_ticker": "ABCD US Equity", "side": "BUY",
+        "completion": 1.0, "pnl_vwap": 0.0, "max_par_rate": 0.1,
+        "flag_overfill": 0, "flag_cost_missing": 0,
+    }
+    row.update(overrides)
+    return row
+
+
+def _hit(key: str, severity: str = "warning"):
+    return {"key": key, "label": key.upper(), "value": 1.0, "unit": "percent",
+            "severity": severity}
+
+
+class TestAnomalySummary:
+    """订单级异常摘要：并集口径 / 分档 / 按规则计数 / Top N 排序。"""
+
+    def test_counts_by_rule_and_severity(self) -> None:
+        rows = [_order_row("A"), _order_row("B"), _order_row("C")]
+        hits = {
+            "A": [_hit("fill_pct", "critical"), _hit("pnl_vwap_bps")],
+            "B": [_hit("pnl_vwap_bps")],
+            "C": [],
+        }
+        summary = tm.compute_anomaly_summary(
+            rows, lambda row: hits[str(row.get("OrderId"))],
+        )
+
+        assert summary["orders_total"] == 2
+        assert summary["rule_orders"] == 2
+        assert summary["quality_orders"] == 0
+        assert summary["critical"] == 1
+        assert summary["warning"] == 1
+        # 按命中数降序：pnl_vwap_bps 2 条 > fill_pct 1 条
+        assert [item["key"] for item in summary["by_rule"]] == ["pnl_vwap_bps", "fill_pct"]
+        assert summary["by_rule"][1]["critical"] == 1
+        assert summary["scope"] == "order-level"
+
+    def test_quality_flags_join_union(self) -> None:
+        """overfill / cost_missing 即使不命中规则也计入并集；overfill 记 critical。"""
+        rows = [
+            _order_row("A", flag_overfill=1),
+            _order_row("B", flag_cost_missing=1),
+            _order_row("C", flag_overfill=1, flag_cost_missing=1),
+        ]
+        summary = tm.compute_anomaly_summary(rows, lambda row: [])
+
+        assert summary["orders_total"] == 3          # 并集去重，不是 4
+        assert summary["quality_orders"] == 3
+        assert summary["rule_orders"] == 0
+        assert summary["critical"] == 2              # A、C 含 overfill
+        assert summary["warning"] == 1               # B 仅 cost_missing
+        assert summary["by_rule"] == []
+
+    def test_top_orders_sorted_by_severity_then_hits(self) -> None:
+        rows = [_order_row(f"O{index}") for index in range(8)]
+        hits = {f"O{index}": [_hit("pnl_vwap_bps")] for index in range(8)}
+        hits["O5"] = [_hit("pnl_vwap_bps", "critical")]
+        hits["O6"] = [_hit("fill_pct"), _hit("pnl_vwap_bps")]
+        summary = tm.compute_anomaly_summary(
+            rows, lambda row: hits[str(row.get("OrderId"))],
+        )
+
+        top = summary["top_orders"]
+        assert len(top) == tm.ANOMALY_TOP_N
+        assert top[0]["order_id"] == "O5"            # critical 优先
+        assert top[1]["order_id"] == "O6"            # 同为 warning，命中项多的在前
+        assert top[0]["reasons"][0]["severity"] == "critical"
+
+    def test_kpi_uses_summary_union(self) -> None:
+        rows = [_order_row("A", flag_overfill=1), _order_row("B")]
+        summary = tm.compute_anomaly_summary(rows, lambda row: [])
+        kpi = tm.compute_kpi(rows, summary)
+
+        assert kpi["anomaly_orders"]["value"] == 1
+        assert kpi["anomaly_orders"]["critical"] == 1
+        assert kpi["anomaly_orders"]["warning"] == 0
+        assert "订单级口径" in (kpi["anomaly_orders"]["note"] or "")
+
+    def test_kpi_falls_back_without_summary(self) -> None:
+        """未注入摘要时退回质量旗标口径（向后兼容，不静默变 0）。"""
+        rows = [_order_row("A", flag_overfill=1), _order_row("B", flag_cost_missing=1)]
+        kpi = tm.compute_kpi(rows)
+
+        assert kpi["anomaly_orders"]["value"] == 2
+        assert "未接入阈值规则" in (kpi["anomaly_orders"]["note"] or "")
+

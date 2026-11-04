@@ -15,11 +15,19 @@ from data_access.storage.connection import AccessTier, ConnectionManager
 from . import trader_metrics as tm
 from . import trader_models as tmod
 from . import trader_query as tq
+# 210 §4.11：订单级异常摘要复用路由级同一套阈值引擎（禁止第二套常量）
+from .monitoring.anomaly_query import (
+    ThresholdRules,
+    evaluate_metrics,
+    order_rule_values,
+)
 
 logger = logging.getLogger(__name__)
 
 #: 交易员视图契约版本（导出与页面同源，见 §4.14）
-TRADER_SPEC_VERSION = "2026.11.03"
+#: 2026.11.03：PR-1 列表 + KPI + 探针
+#: 2026.11.04：PR-5 订单级异常摘要（anomaly_summary）+ 异常订单 KPI 并集口径
+TRADER_SPEC_VERSION = "2026.11.04"
 #: 默认日期窗口：最近 5 个交易日（§4.1）
 DEFAULT_TRADING_DAYS = 5
 #: 单例连接管理器（测试可整体替换；只读连接，mode=ro）
@@ -152,7 +160,8 @@ def _page_payload(
     ) if manager else {}
     for model in page:
         _apply_fill_context(model, ctx.get(model.order_id))
-    kpi = tm.compute_kpi(rows)
+    anomaly = _anomaly_summary(rows)
+    kpi = tm.compute_kpi(rows, anomaly)
     kpi["passive_ratio"] = _passive_kpi(ctx)
     kpi["release_delay_p90"] = _delay_kpi(ctx, len(page))
     return {
@@ -166,8 +175,21 @@ def _page_payload(
             "checks": tm.compute_probes(rows, _fill_quality_probe(ctx, filters)),
             "spec_version": TRADER_SPEC_VERSION,
         },
+        "anomaly_summary": anomaly,
         "orders": [m.to_payload() for m in page],
     }
+
+
+def _anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """订单级异常摘要（§4.11）：默认阈值 + 订单级取值 → 聚合。
+
+    阈值取 ``ThresholdRules.from_payload(None)``（与 Report 默认一致）；自定义阈值
+    的联动属 v1（Report 表单已可改，交易员页暂不暴露），差异在 UI 注明。
+    """
+    rules = ThresholdRules.from_payload(None)
+    return tm.compute_anomaly_summary(
+        rows, lambda row: evaluate_metrics(order_rule_values(row), rules),
+    )
 
 
 def build_order_page(
