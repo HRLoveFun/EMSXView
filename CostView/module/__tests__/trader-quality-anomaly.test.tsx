@@ -150,7 +150,8 @@ describe('TraderReviewView × 异常摘要联动', () => {
   it('「查看全部」把 Report tab 交给宿主导航；点异常订单直接按订单+日期取详情', async () => {
     vi.mocked(fetchTraderOrders).mockResolvedValue(ORDERS);
     vi.mocked(fetchTraderFilterOptions).mockResolvedValue({ traders: [], strategy_types: [] });
-    vi.mocked(fetchTraderOrderDetail).mockResolvedValue({} as never);
+    // 详情内容不是本用例关注点：让请求失败走错误态，避免用空对象喂给详情卡（会崩）
+    vi.mocked(fetchTraderOrderDetail).mockRejectedValue(new Error('detail not needed'));
     const user = userEvent.setup();
     const onNavigateTab = vi.fn();
     render(<TraderReviewView onNavigateTab={onNavigateTab} />);
