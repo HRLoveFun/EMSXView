@@ -404,6 +404,8 @@ class AnomalyRoute:
     #: 命中项中的最严重档（critical / warning），供明细排序与分级渲染
     severity: str = "warning"
     hits: list[dict[str, Any]] = field(default_factory=list)
+    #: 交易员（路由级原值，210 §3.6.2 交易员执行摘要按此归集异常订单数）
+    trader: Optional[str] = None
 
 
 def query_anomaly_routes(
@@ -554,7 +556,7 @@ def query_anomaly_routes_page_ex(
         )
         sql = f"""
             SELECT OrderId, RouteId, order_as_of_date, equ_ticker, Exchange,
-                   Side, Broker, algo, fill, p_avg, par_rate, pnl_vwap,
+                   Side, Broker, algo, TraderName, fill, p_avg, par_rate, pnl_vwap,
                    arrival_cost_bps, wagner_is_bps, opportunity_cost,
                    RouteShares, cost_cvar, order_duration_sec, recovery_truncated,
                    Amount, Currency, {fill_count_select}, {fx_select},
@@ -693,6 +695,7 @@ def query_anomaly_routes_page_ex(
             par_suspect=par_suspect,
             severity=_worst_severity(hits),
             hits=hits,
+            trader=row.get("TraderName"),
         ))
 
     results.sort(key=lambda r: (

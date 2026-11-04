@@ -20,7 +20,8 @@ from . import report_measure as rm
 #: 最大路由参与率），规则拆为 order_par_single_gt100 / route_par_extreme
 #: 2026.11.04：210 §4.12 —— 报告头之后新增全局可信度横幅（四类检查始终渲染，
 #: 未检查明示）；数量矛盾改按订单级 ΣAmount 与 ΣRouteShares（股数 vs 股数）判定
-SPEC_VERSION = "2026.11.04"
+#: 2026.11.04b：210 §3.6.2 —— KPI 之后新增交易员执行摘要，执行方排行随之前移
+SPEC_VERSION = "2026.11.04b"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -101,6 +102,15 @@ REPORT_SPEC: dict[str, Any] = {
     #: 第四类（逐笔质量）在报告层的固定状态：未检查（跨库逐笔聚合超横幅预算），
     #: 逐笔口径由 CostView → Trader Review 当前页承载；不得写成「通过」。
     "credibility_fill_quality": "not-checked-report-layer",
+    #: 210 §3.6.2：交易员执行摘要（按订单数 Top N，附未列出交易员数）。
+    #: 实现常量见 trader_query.TRADER_SUMMARY_LIMIT / LOW_COMPLETION_THRESHOLD，
+    #: 测试断言两处一致（声明层不 import 交易员域，避免口径模块反向依赖）。
+    "trader_summary_limit": 10,
+    "trader_low_completion_threshold": 0.8,
+    #: 交易员归属取成交股数最大路由；异常订单按**路由**归属交易员
+    #: （跨交易员订单会分别计入，故各交易员异常数之和可能略大于去重订单数）
+    "trader_summary_attribution": "dominant-route",
+    "trader_anomaly_attribution": "route-level-per-trader",
     #: D1 / DP-5 定稿：图表轴锚定硬规则（防渲染器各图各自发挥；护栏测试断言
     #: SVG 产物存在零轴元素）
     "chart_axis": {
@@ -234,6 +244,23 @@ def _credibility_footer_clause() -> str:
     )
 
 
+def _trader_summary_footer_clause() -> str:
+    """210 §3.6.2：交易员执行摘要的口径自证（行数、完成率界、归属与异常归集）。
+
+    归档读者看到表里某交易员「异常订单 0」时，必须能分辨这是「确实没有」还是
+    「按路由归属后该交易员没有命中」；跨交易员订单会分别计入，这一条必须写明。
+    """
+    threshold_pct = REPORT_SPEC["trader_low_completion_threshold"] * 100
+    return (
+        f"交易员执行摘要按订单数取前 {REPORT_SPEC['trader_summary_limit']} 名，"
+        f"完成率界 {threshold_pct:.0f}%、加权 arrival 为成交额加权"
+        f"（权重 fill × p_avg）；交易员归属取 {REPORT_SPEC['trader_summary_attribution']}"
+        f"（成交股数最大路由），异常订单按 {REPORT_SPEC['trader_anomaly_attribution']} "
+        f"归集（跨交易员订单分别计入）；本报告不随附交易员 CSV，"
+        f"订单级明细见 CostView → Trader Review；"
+    )
+
+
 def _granularity_footer_clause() -> str:
     """026 新增：聚合粒度与期间键声明（由 SPEC 常量插值，不手写数值）。
 
@@ -267,6 +294,7 @@ def footer_text() -> str:
         f"{REPORT_SPEC['anomaly_row_limit']} 条（全量见随附导出 CSV）；"
         f"{_p0_p1_footer_clauses()}"
         f"{_credibility_footer_clause()}"
+        f"{_trader_summary_footer_clause()}"
         f"{_granularity_footer_clause()}"
         f"已知限制见 {REPORT_SPEC['known_limitations_doc']}。"
     )

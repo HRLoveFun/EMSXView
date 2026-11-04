@@ -5,10 +5,11 @@
 
 报告结构（与 render_report_html 的 sections 顺序一致）：
     报告头（标题/生成时间/过滤条件/作用域告警/口径脚注） → 全局可信度横幅 → 市场概览 →
-    KPI 卡片 → 数据质量提示（条件渲染） → 分市场成交金额（排名 + 每日趋势） →
-    分布与走势（直方图 + 按日走势） → 执行方排行（Broker/Algo 双侧） →
-    PWP 分档均值（含分市场小多图） → 市场冲击分解表 → 异常路由明细表 →
-    算法执行质量综合评估 → 指标覆盖率表 → BDIB 缺口附录 → 页脚
+    KPI 卡片 → 数据质量提示（条件渲染） → 交易员执行摘要（210 §3.6.2） →
+    执行方排行（Broker/Algo 双侧，§3.6.3 前移） → 分市场成交金额（排名 + 每日趋势） →
+    分布与走势（直方图 + 按日走势） → PWP 分档均值（含分市场小多图） →
+    市场冲击分解表 → 异常路由明细表 → 算法执行质量综合评估 →
+    指标覆盖率表 → BDIB 缺口附录 → 页脚
 
 口径脚注由 ``report_spec.REPORT_SPEC`` 生成（单一真相源，避免文档-实现漂移）。
 """
@@ -55,6 +56,9 @@ def render_report_html(
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly"), report.get("weight_coverage")),
         _render_data_quality(report, health),
+        # 210 §3.6.2/§3.6.3：交易员执行摘要紧随 KPI 区，执行方排行随之前移
+        _render_trader_summary(report),
+        _render_rankings(report),
         _render_market_charts(report),
         _render_charts(report),
         _render_impact_breakdown(report.get("impact_breakdown"),
@@ -409,17 +413,95 @@ def _render_data_quality(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _render_trader_summary(report: dict[str, Any]) -> str:
+    """交易员执行摘要（210 §3.6.2）：按订单数 Top N 的静态表，零 JS、不展开。
+
+    数据由 ``report["trader_summary"]``（聚合器组装，订单口径与 Trader Review
+    列表同源）提供；本函数只做格式化，不重算任何指标。
+    """
+    summary = report.get("trader_summary") or {}
+    rows = summary.get("rows") or []
+    if not rows:
+        return ""
+    threshold = (summary.get("low_completion_threshold") or 0.8) * 100
+    body = "".join(_trader_summary_row_html(row) for row in rows)
+    return f"""
+<h2>交易员执行摘要</h2>
+<div class="panel">
+<div class="meta"><span>按订单数取前 {_esc(str(summary.get("limit") or len(rows)))} 名</span>
+<span>交易员归属：成交股数最大路由（dominant route）</span></div>
+<table><thead><tr>
+<th class="l">Trader</th><th>订单数</th><th>完成率&lt;{threshold:.0f}%</th>
+<th>机会成本主导</th><th>加权 arrival</th><th>异常订单</th><th class="l">数据质量标记</th>
+</tr></thead><tbody>{body}</tbody></table>
+{_trader_summary_notes(summary)}</div>"""
+
+
+def _trader_summary_row_html(row: dict[str, Any]) -> str:
+    """单行：订单数 / 两个占比 / 加权 arrival / 异常订单 / 质量标记。"""
+    arrival = row.get("arrival_bps")
+    arrival_text = "—" if arrival is None else f"{arrival:+.2f} bps"
+    return (
+        f'<tr><td class="l">{_esc(str(row.get("trader") or ""))}</td>'
+        f'<td>{int(row.get("orders") or 0):,}</td>'
+        f'<td>{_ratio_cell(row.get("low_completion_orders"), row.get("completion_measured_orders"))}</td>'
+        f'<td>{_ratio_cell(row.get("opp_dominant_orders"), row.get("opp_measured_orders"))}</td>'
+        f'<td>{_esc(arrival_text)}</td>'
+        f'<td>{int(row.get("anomaly_orders") or 0):,}</td>'
+        f'<td class="l">{_esc(_quality_flags_text(row))}</td></tr>'
+    )
+
+
+def _ratio_cell(part: Any, total: Any) -> str:
+    """``part / total`` 单元格：无分母写「—」，不以 0% 冒充「没有」。"""
+    denominator = int(total or 0)
+    if denominator <= 0:
+        return "—"
+    numerator = int(part or 0)
+    return f"{numerator:,}（{numerator / denominator * 100:.1f}%）"
+
+
+def _quality_flags_text(row: dict[str, Any]) -> str:
+    """质量标记订单数（只列非零项；全零写「—」）。"""
+    items = (
+        ("overfill", row.get("overfill_orders")),
+        ("成本缺失", row.get("cost_missing_orders")),
+        ("股数矛盾", row.get("amount_mismatch_orders")),
+        ("单笔成交", row.get("single_fill_orders")),
+    )
+    parts = [f"{label} {int(value):,}" for label, value in items if value]
+    return " · ".join(parts) if parts else "—"
+
+
+def _trader_summary_notes(summary: dict[str, Any]) -> str:
+    """摘要表口径脚注（含未列出交易员数与异常归集方式）。"""
+    notes = ["加权 arrival 为成交额加权（权重 fill × p_avg）；成本符号遵循上游原值"]
+    notes.append(
+        "异常订单 = 命中阈值规则或 overfill / cost_missing 的订单（按路由归属交易员，"
+        "跨交易员订单会分别计入）"
+    )
+    anomaly_total = int(summary.get("anomaly_order_total") or 0)
+    if anomaly_total > 0:
+        notes.append(f"区间内异常订单合计 {anomaly_total:,} 单（按订单去重）")
+    remaining_traders = int(summary.get("remaining_traders") or 0)
+    if remaining_traders > 0:
+        notes.append(
+            f"另有 {remaining_traders} 名交易员、"
+            f"{int(summary.get('remaining_orders') or 0):,} 单未列出"
+        )
+    notes.append("订单级复盘与逐笔明细见 CostView → Trader Review（本报告不随附交易员 CSV）")
+    return '<div class="meta">' + "；".join(_esc(n) for n in notes) + "。</div>"
+
+
 def _render_charts(report: dict[str, Any]) -> str:
-    """图表面板：直方图 / 按日走势 / 排行（双侧）/ PWP 曲线（含分市场小多图）。"""
+    """图表面板：直方图 / 按日走势 / PWP 曲线（含分市场小多图）。
+
+    执行方排行自 210 §3.6.3 起独立成节并前移到交易员执行摘要之后，
+    不再挂在本节的走势之后（内容不变，位置变化）。
+    """
     histogram = _svg_histogram(report.get("pnl_vwap_histogram"))
     daily_series = report.get("daily_series") or []
     daily = _svg_daily_series(daily_series)
-    rankings = report.get("rankings") or {}
-    broker_best = _svg_hbar(rankings.get("by_broker") or [], _ranking_title("Broker", "最优"))
-    broker_worst = _svg_hbar(rankings.get("by_broker_worst") or [], _ranking_title("Broker", "最差"))
-    algo_best = _svg_hbar(rankings.get("by_algo") or [], _ranking_title("Algo", "最优"))
-    algo_worst = _svg_hbar(rankings.get("by_algo_worst") or [], _ranking_title("Algo", "最差"))
-    ranking_note = _ranking_gate_note(rankings.get("meta") or {})
     pwp = _svg_pwp_curve(report.get("pwp_curve") or [])
     pwp_small = _render_pwp_small_multiples(report.get("pwp_by_exchange") or [])
     daily_note = _daily_coverage_note(len(daily_series))
@@ -429,6 +511,20 @@ def _render_charts(report: dict[str, Any]) -> str:
   <div class="panel"><h2 style="margin-top:0">pnl_vwap 分布直方图</h2>{histogram}</div>
   <div class="panel"><h2 style="margin-top:0">按日加权 pnl_vwap / 平均 par_rate</h2>{daily}{daily_note}</div>
 </div>
+<h2>PWP 分档均值</h2>
+<div class="panel">{pwp}{_pwp_coverage_note(report.get("weight_coverage"))}<div class="meta" style="margin-top:8px">PWP 为成交额加权（与总成交金额同源）；跨市场混合的逐档值无物理解释，分市场解释见下方小多图。</div></div>
+{pwp_small}"""
+
+
+def _render_rankings(report: dict[str, Any]) -> str:
+    """执行方排行（Broker / Algo 双侧 Top10；210 §3.6.3 前移，内容不变）。"""
+    rankings = report.get("rankings") or {}
+    broker_best = _svg_hbar(rankings.get("by_broker") or [], _ranking_title("Broker", "最优"))
+    broker_worst = _svg_hbar(rankings.get("by_broker_worst") or [], _ranking_title("Broker", "最差"))
+    algo_best = _svg_hbar(rankings.get("by_algo") or [], _ranking_title("Algo", "最优"))
+    algo_worst = _svg_hbar(rankings.get("by_algo_worst") or [], _ranking_title("Algo", "最差"))
+    ranking_note = _ranking_gate_note(rankings.get("meta") or {})
+    return f"""
 <h2>执行方排行</h2>
 {ranking_note}
 <div class="grid2">
@@ -438,10 +534,7 @@ def _render_charts(report: dict[str, Any]) -> str:
 <div class="grid2">
   <div class="panel">{algo_best}</div>
   <div class="panel">{algo_worst}</div>
-</div>
-<h2>PWP 分档均值</h2>
-<div class="panel">{pwp}{_pwp_coverage_note(report.get("weight_coverage"))}<div class="meta" style="margin-top:8px">PWP 为成交额加权（与总成交金额同源）；跨市场混合的逐档值无物理解释，分市场解释见下方小多图。</div></div>
-{pwp_small}"""
+</div>"""
 
 
 def _ranking_title(dimension: str, side: str) -> str:

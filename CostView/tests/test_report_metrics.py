@@ -2022,6 +2022,129 @@ class TestGranularityPeriodKeys:
         assert data["rows"][0]["total_routes"] == 2
 
 
+class TestTraderExecSummary:
+    """210 §3.6.2：报告内交易员执行摘要表（静态、按订单数 Top N）。"""
+
+    @staticmethod
+    def _row(order_id: str, trader: str, **overrides) -> dict[str, Any]:
+        """一条「成本齐备 + 满成交」基线路由，可按需覆盖。"""
+        row = {
+            "OrderId": order_id, "TraderName": trader, "Amount": 1000.0,
+            "RouteShares": 1000.0, "fill": 1000.0, "fill_count": 20,
+            "p_avg": 150.0, "p_decision": 150.0,
+            "arrival_cost_bps": -10.0, "opportunity_cost": 0.0,
+            "wagner_is_bps": -5.0,
+            # 参与率 1%（低于 volume_pct_adv20 的 5% 界），避免无关规则干扰异常计数
+            "par_rate": 0.01,
+        }
+        row.update(overrides)
+        return row
+
+    def test_spec_binds_trader_summary_constants(self):
+        """行数与完成率界在声明层与交易员域之间单向绑定。"""
+        from CostView.src import trader_query
+
+        assert (
+            report_spec.REPORT_SPEC["trader_summary_limit"]
+            == trader_query.TRADER_SUMMARY_LIMIT
+        )
+        assert (
+            report_spec.REPORT_SPEC["trader_low_completion_threshold"]
+            == trader_query.LOW_COMPLETION_THRESHOLD
+        )
+        footer = report_spec.footer_text()
+        assert "交易员执行摘要按订单数取前 10 名" in footer
+        assert "完成率界 80%" in footer
+        assert "本报告不随附交易员 CSV" in footer
+
+    def test_aggregates_per_trader(self, tca_mgr_factory):
+        """订单数 / 低完成率 / 机会成本主导 / 加权 arrival 按交易员聚合。"""
+        mgr = tca_mgr_factory([
+            self._row("T1", "ALICE", arrival_cost_bps=-10.0),
+            # completion 0.5 → 低完成率；opp_bps ≈ -6.67 比 arrival -2 更劣 → 主导
+            self._row("T2", "ALICE", fill=500.0, arrival_cost_bps=-2.0,
+                      opportunity_cost=-100.0),
+            # overfill：命中阈值规则，进入异常订单列
+            self._row("T3", "BOB", fill=1200.0, arrival_cost_bps=-3.0),
+        ])
+        # min_notional_usd=0：夹具无 fx_rate 列时 USD 门槛不可评估，与异常测试同口径
+        summary = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_notional_usd=0.0,
+        )["trader_summary"]
+        alice, bob = summary["rows"]
+
+        assert (alice["trader"], alice["orders"]) == ("ALICE", 2)
+        assert alice["low_completion_orders"] == 1
+        assert alice["completion_measured_orders"] == 2
+        assert alice["opp_dominant_orders"] == 1
+        assert alice["opp_measured_orders"] == 2
+        # 加权 arrival = (-10×150k + -2×75k) / 225k
+        assert alice["arrival_bps"] == pytest.approx(-7.3333, abs=1e-4)
+        # T2 完成率 50% 命中 fill_pct critical（严重未完成豁免门槛）→ 异常订单 1
+        assert alice["anomaly_orders"] == 1
+        assert (bob["trader"], bob["orders"]) == ("BOB", 1)
+        assert bob["overfill_orders"] == 1
+        # T3 成交 120% 命中 overfill_pct → 异常订单 1
+        assert bob["anomaly_orders"] == 1
+        assert summary["order_total"] == 3
+        assert summary["trader_count"] == 2
+        assert summary["anomaly_order_total"] == 2
+
+    def test_top_n_truncation_reports_remainder(self, tca_mgr_factory):
+        """超过前 N 名时截断并披露未列出交易员数与订单数。"""
+        mgr = tca_mgr_factory([
+            self._row(f"R{index}", f"TRADER{index:02d}") for index in range(12)
+        ])
+        summary = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["trader_summary"]
+
+        assert summary["shown"] == 10
+        assert summary["trader_count"] == 12
+        assert summary["remaining_traders"] == 2
+        assert summary["remaining_orders"] == 2
+        assert summary["order_total"] == 12
+
+    def test_anomaly_counts_survive_row_truncation(self, tca_mgr_factory):
+        """异常订单列取自未截断的全量集合，不受 anomaly_limit 影响。"""
+        mgr = tca_mgr_factory([
+            self._row("T3", "BOB", fill=1200.0, arrival_cost_bps=-3.0),
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", anomaly_limit=0, min_notional_usd=0.0,
+        )
+
+        assert report["anomaly"]["rows"] == []
+        assert report["anomaly"]["count"] == 1
+        assert report["trader_summary"]["anomaly_order_total"] == 1
+        assert report["trader_summary"]["rows"][0]["anomaly_orders"] == 1
+
+    def test_html_table_precedes_rankings(self, tca_mgr_factory):
+        """HTML：摘要表在 KPI 区之后、执行方排行之前（§3.6.3 前移）。"""
+        mgr = tca_mgr_factory([self._row("T1", "ALICE")])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-11-04 10:00:00")
+
+        assert "<h2>交易员执行摘要</h2>" in html
+        assert "完成率&lt;80%" in html
+        assert "ALICE" in html
+        assert html.index("<h2>交易员执行摘要</h2>") < html.index("<h2>执行方排行</h2>")
+        assert html.index("<h2>执行方排行</h2>") < html.index("<h2>分布与走势</h2>")
+
+    def test_empty_report_renders_no_table(self, tmp_path: Path):
+        """表缺失时空摘要（0 行）且不渲染章节标题（不造假表）。"""
+        empty_db = tmp_path / "fill_bdib_summary.db"
+        sqlite3.connect(str(empty_db)).close()
+        mgr = ConnectionManager(path_overrides={"fill_bdib": empty_db})
+
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-11-04 10:00:00")
+
+        assert report["trader_summary"]["rows"] == []
+        assert report["trader_summary"]["trader_count"] == 0
+        assert "<h2>交易员执行摘要</h2>" not in html
+
+
 class TestCredibilityBanner:
     """210 §4.12：全局可信度横幅四类检查（始终渲染 / 未检查不伪装通过）。"""
 

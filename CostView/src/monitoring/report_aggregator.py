@@ -33,8 +33,22 @@ from .anomaly_query import (
     query_anomaly_routes_page_ex,
 )
 from .report_dims import get_filter_options as _get_persisted_options
+# 210 §3.6.2：交易员执行摘要复用交易员域的两段聚合外壳（同一订单口径）
+from ..trader_query import (
+    LOW_COMPLETION_THRESHOLD,
+    TRADER_SUMMARY_LIMIT,
+    query_trader_summary,
+)
 
 logger = logging.getLogger(__name__)
+
+#: ``TraderName`` 为空时的展示标签（报告不因缺交易员而丢行，也不伪造归属）
+_NO_TRADER_LABEL = "（未记录）"
+
+
+def _as_int(value: Any) -> int:
+    """``None`` / 空串 → 0（聚合列计数用；避免每个字段各写一个 ``or 0`` 分支）。"""
+    return int(value or 0)
 
 #: 直方图分桶数
 _HISTOGRAM_BINS = 20
@@ -119,6 +133,7 @@ class TcaReportAggregator:
             start_date, end_date, broker, algo, symbol, rm.resolve_scope(None),
         )
         conn = None
+        trader_rows: list[dict[str, Any]] = []
         try:
             conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
             if not self._table_exists(conn):
@@ -140,6 +155,8 @@ class TcaReportAggregator:
                 conn, where, params, where_no_exchange, params_no_exchange,
                 resolved_granularity,
             ))
+            # 210 §3.6.2：交易员执行摘要（同一 conn、同一 where；异常列在下方归集）
+            trader_rows = query_trader_summary(conn, where, params)
         except FileNotFoundError:
             # 只读模式下 fill_bdib.db 缺失 → 空报告（与表缺失同语义, 009）
             return self._empty_report(
@@ -158,13 +175,19 @@ class TcaReportAggregator:
         )
         # S6 异常路由明细（阈值可参数化，默认同前端；作用域与聚合各小节一致）；
         # D6：节流统计（阈值命中 / 门槛剔除量）经第二解包点透传进 payload
+        # 查询侧取全量（引擎本来就要评估全部路由，limit 只在返回处切片），
+        # 截断改在下方做：交易员摘要的异常订单数需要未被截断的全量集合
         anomalies, anomaly_total, throttle = query_anomaly_routes_page_ex(
             self._mgr, start_date, end_date, ThresholdRules.from_payload(thresholds),
             broker=broker, algo=algo, symbol=symbol, exchange=exchange,
             min_fill_count=min_fill_count, min_notional_usd=min_notional_usd,
-            limit=anomaly_limit, scope=scope,
+            limit=None, scope=scope,
         )
-        report["anomaly"] = self._anomaly_payload(anomalies, anomaly_total, throttle)
+        shown = anomalies
+        if anomaly_limit is not None:
+            shown = anomalies[: max(0, anomaly_limit)]
+        report["anomaly"] = self._anomaly_payload(shown, anomaly_total, throttle)
+        report["trader_summary"] = self._trader_summary_payload(trader_rows, anomalies)
         return report
 
     def _query_sections(
@@ -266,6 +289,81 @@ class TcaReportAggregator:
                 "overfill_count": sum(1 for r in rows if r.get("overfill")),
                 "par_suspect_count": sum(1 for r in rows if r.get("par_suspect")),
             },
+        }
+
+    # ── 交易员执行摘要（210 §3.6.2）──────────────────────────────────────
+
+    @staticmethod
+    def _trader_summary_payload(
+        rows: list[dict[str, Any]],
+        anomalies: list[Any],
+        limit: int = TRADER_SUMMARY_LIMIT,
+    ) -> dict[str, Any]:
+        """交易员执行摘要：按订单数取前 ``limit`` 名，附覆盖度元信息。
+
+        异常订单数按「交易员 × 订单」归集：阈值引擎在**路由级**评估，同一订单跨
+        交易员的少量情形（实测 0.2%）按路由分别计入，故各交易员异常数之和可能略
+        大于去重订单数 —— 两个数都给出（``anomaly_orders`` 之和 vs
+        ``anomaly_order_total``），读者可对账，不做静默调和。
+        """
+        anomaly_keys = TcaReportAggregator._anomaly_order_keys(anomalies)
+        enriched = [
+            TcaReportAggregator._trader_summary_row(row, anomaly_keys) for row in rows
+        ]
+        shown = enriched[: max(0, limit)]
+        order_total = sum(row["orders"] for row in enriched)
+        return {
+            "rows": shown,
+            "limit": limit,
+            "shown": len(shown),
+            "trader_count": len(enriched),
+            "order_total": order_total,
+            "remaining_traders": len(enriched) - len(shown),
+            "remaining_orders": order_total - sum(row["orders"] for row in shown),
+            "anomaly_order_total": len({(a.order_id, a.date) for a in anomalies}),
+            "low_completion_threshold": LOW_COMPLETION_THRESHOLD,
+            "attribution": "dominant-route",
+            "anomaly_attribution": "route-level-per-trader",
+        }
+
+    @staticmethod
+    def _anomaly_order_keys(
+        anomalies: list[Any],
+    ) -> dict[str, set[tuple[str, str]]]:
+        """异常路由 → ``{交易员: {(OrderId, 日期)}}``（订单去重，供摘要异常列）。"""
+        keys: dict[str, set[tuple[str, str]]] = {}
+        for item in anomalies:
+            trader = getattr(item, "trader", None) or _NO_TRADER_LABEL
+            keys.setdefault(trader, set()).add((item.order_id, item.date))
+        return keys
+
+    @staticmethod
+    def _trader_summary_row(
+        raw: dict[str, Any], anomaly_keys: dict[str, set[tuple[str, str]]],
+    ) -> dict[str, Any]:
+        """SQL 聚合行 → 展示行（补加权均值、异常订单数与交易员标签）。"""
+        trader = raw.get("trader_name") or _NO_TRADER_LABEL
+        notional = raw.get("arrival_notional")
+        cost = raw.get("arrival_cost_notional")
+        arrival_bps = (
+            round(float(cost) / float(notional), 4)
+            if notional and cost is not None else None
+        )
+        return {
+            "trader": trader,
+            "orders": _as_int(raw.get("orders")),
+            "low_completion_orders": _as_int(raw.get("low_completion_orders")),
+            "completion_measured_orders": _as_int(
+                raw.get("completion_measured_orders")
+            ),
+            "opp_dominant_orders": _as_int(raw.get("opp_dominant_orders")),
+            "opp_measured_orders": _as_int(raw.get("opp_measured_orders")),
+            "arrival_bps": arrival_bps,
+            "anomaly_orders": len(anomaly_keys.get(trader, ())),
+            "overfill_orders": _as_int(raw.get("overfill_orders")),
+            "cost_missing_orders": _as_int(raw.get("cost_missing_orders")),
+            "amount_mismatch_orders": _as_int(raw.get("amount_mismatch_orders")),
+            "single_fill_orders": _as_int(raw.get("single_fill_orders")),
         }
 
     # ── 过滤条件 ─────────────────────────────────────────────────────────
@@ -1043,5 +1141,14 @@ class TcaReportAggregator:
                 ),
             },
             "evaluation": None,
+            # 空报告也给出结构化摘要（0 行），渲染层据此跳过表格而不必判 None
+            "trader_summary": {
+                "rows": [], "limit": TRADER_SUMMARY_LIMIT, "shown": 0,
+                "trader_count": 0, "order_total": 0,
+                "remaining_traders": 0, "remaining_orders": 0,
+                "anomaly_order_total": 0, "attribution": "dominant-route",
+                "anomaly_attribution": "route-level-per-trader",
+                "low_completion_threshold": LOW_COMPLETION_THRESHOLD,
+            },
             "data_source_warning": "tca_route_summary 不存在 — 请先运行管道 S5.5",
         }
