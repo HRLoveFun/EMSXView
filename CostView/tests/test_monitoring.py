@@ -227,6 +227,36 @@ class TestMetricCoverageService:
         assert "pnl_vwap" in result["bdib_dependent_metrics"]
         assert set(result["rows"][0]["coverage"]) == {"pnl_vwap"}
 
+    def test_credibility_payload_shape(self, mgr: ConnectionManager):
+        """210 §4.12：四类检查始终随覆盖率 payload 返回，顺序与声明一致。"""
+        result = MetricCoverageService(mgr).get_coverage("20260803", "20260804")
+        credibility = result["credibility"]
+
+        assert [c["id"] for c in credibility["checks"]] == [
+            "quantity", "participation", "cost_missing", "fill_quality",
+        ]
+        assert credibility["checked_count"] == 3      # 逐笔质量在报告层恒不检查
+        fill_quality = credibility["checks"][3]
+        assert fill_quality["checked"] is False
+        assert fill_quality["triggered"] is None      # 不用 0 冒充「无问题」
+        # 夹具三条路由的 arrival/opportunity/wagner 均为 NULL → 成本缺失全量触发
+        assert credibility["checks"][2]["triggered"] == 3
+
+    def test_credibility_payload_when_table_missing(self, tmp_path: Path):
+        """表缺失 → 四类全部「未检查」并说明原因（无数据不等于检查通过）。"""
+        db_path = tmp_path / "empty_fill_bdib.db"
+        sqlite3.connect(str(db_path)).close()
+        mgr = ConnectionManager(path_overrides={"fill_bdib": db_path})
+
+        credibility = MetricCoverageService(mgr).get_coverage(
+            "20260803", "20260803",
+        )["credibility"]
+
+        assert credibility["checked_count"] == 0
+        assert credibility["triggered_count"] == 0
+        assert len(credibility["checks"]) == 4
+        assert all(c["checked"] is False and c["note"] for c in credibility["checks"])
+
     def test_out_of_scope_exchange_excluded_and_sla_exemption(self, tmp_path: Path):
         """P3 口径对齐：白名单外交易所剔除分母；SLA 口径豁免结构内 NULL。
 

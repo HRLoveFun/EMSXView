@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any, NamedTuple, Optional, Sequence
 
 from data_access.config import Config
 
@@ -209,6 +209,23 @@ def weight_coverage_entry(
 ORDER_PAR_GROUP_COLUMNS: str = "OrderId, order_as_of_date, Exchange"
 
 
+def _order_group_sql(
+    columns: str, metrics: str, where: str, *, alias: Optional[str] = None,
+) -> str:
+    """订单级分组聚合 SQL 外壳（分组键 + 指标列 + 可选派生表别名）。
+
+    ``where`` 只应含报告期与作用域，禁止含维度过滤；作为派生表使用时必须传
+    ``alias``（SQLite 要求派生表有别名）。两个订单级聚合（参与率 / 委托股数）
+    共用此外壳，避免各自重写 FROM / GROUP BY / 别名处理。
+    """
+    sql = (
+        f"SELECT {columns}, {metrics} "
+        f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE {where} "
+        f"GROUP BY {columns}"
+    )
+    return f"({sql}) AS {alias}" if alias else sql
+
+
 def order_par_aggregate_sql(where: str, *, alias: Optional[str] = None) -> str:
     """订单参与率聚合 SQL（``where`` 只应含报告期与作用域，禁止含维度过滤）。
 
@@ -218,22 +235,50 @@ def order_par_aggregate_sql(where: str, *, alias: Optional[str] = None) -> str:
     - 多路由组各路由共享同一市场成交量分母，求和不可加总（F2），判定改用
       ``max_par_rate``，``par_sum`` 仅保留供展示/追溯。
 
-    作为派生表使用时传 ``alias``（SQLite 要求派生表有别名），否则返回裸 SELECT。
     异常明细与覆盖率一致性探针共用本定义，保证「同一订单参与率」两处可对账。
     """
-    columns = ORDER_PAR_GROUP_COLUMNS
-    sql = (
-        f"SELECT {columns}, SUM(par_rate) AS par_sum, "
-        f"COUNT(*) AS route_count, MAX(par_rate) AS max_par_rate "
-        f"FROM {Config.TCA_ROUTE_SUMMARY_TABLE} WHERE {where} "
-        f"GROUP BY {columns}"
+    metrics = (
+        "SUM(par_rate) AS par_sum, COUNT(*) AS route_count, "
+        "MAX(par_rate) AS max_par_rate"
     )
-    return f"({sql}) AS {alias}" if alias else sql
+    return _order_group_sql(
+        ORDER_PAR_GROUP_COLUMNS, metrics, where, alias=alias,
+    )
 
 
 def order_par_key(order_id: Any, date: Any, exchange: Any) -> tuple[str, str, str]:
     """订单级聚合键（字段顺序与 ``ORDER_PAR_GROUP_COLUMNS`` 一致）。"""
     return (str(order_id or ""), str(date or ""), str(exchange or ""))
+
+
+#: 订单级「委托股数一致性」容差（§4.12 ``amount_qty_mismatch``）：0.5%。
+#: 比的是 ``ΣAmount`` 与 ``ΣRouteShares``（**股数 vs 股数**），与成交金额无关 ——
+#: F1 已确认 Amount 是委托股数，把它与 fill×p_avg 对比会恒误报 99.94%，不属缺陷信号。
+#: 交易员视图 ``trader_query._QUALITY_SQL`` 的 ``flag_amount_mismatch`` 与本探针同界，
+#: 两处改动须同步（本常量为报告层的唯一实现源）。
+ORDER_AMOUNT_QTY_TOLERANCE: float = 0.005
+
+
+def order_amount_qty_aggregate_sql(where: str, *, alias: Optional[str] = None) -> str:
+    """订单级委托股数聚合 SQL（``where`` 只应含报告期与作用域，禁止含维度过滤）。
+
+    输出 ``amount_shares`` / ``route_shares`` / ``qty_mismatch`` 三列：``amount_shares``
+    为订单级委托股数（各路由 Amount 求和，与 ``trader_query._agg_select`` 同口径），
+    ``route_shares`` 为委托股数合计，``qty_mismatch`` 为 1 表示两者偏差超容差 ——
+    委托股数在路由间分配不一致，属数量口径矛盾（影响完成率分母）。
+
+    作为派生表使用时传 ``alias``（SQLite 要求派生表有别名），否则返回裸 SELECT。
+    """
+    tolerance = ORDER_AMOUNT_QTY_TOLERANCE
+    metrics = (
+        "SUM(Amount) AS amount_shares, SUM(RouteShares) AS route_shares, "
+        "CASE WHEN SUM(Amount) IS NOT NULL AND SUM(RouteShares) IS NOT NULL "
+        f"AND ABS(SUM(Amount) - SUM(RouteShares)) > {tolerance} "
+        "* MAX(ABS(SUM(Amount)), 1.0) THEN 1 ELSE 0 END AS qty_mismatch"
+    )
+    return _order_group_sql(
+        "OrderId, order_as_of_date", metrics, where, alias=alias,
+    )
 
 
 #: 单条路由参与率越界线（par_suspect 起点，100%）。
@@ -493,3 +538,36 @@ def period_key_expr(granularity: str, column: str = "order_as_of_date") -> str:
 def period_key_select(granularity: str, column: str = "order_as_of_date") -> str:
     """期间键 SELECT 片段（统一别名 ``period_key``，供三种粒度的消费方共用）。"""
     return f"{period_key_expr(granularity, column)} AS {PERIOD_KEY_ALIAS}"
+
+
+# ── 4. 全局可信度横幅（§4.12；四类检查的唯一声明源）────────────────────────
+
+
+class CredibilityCheck(NamedTuple):
+    """一类可信度检查的声明（``unit`` 为英文键，中文单位由渲染层映射）。"""
+
+    id: str
+    unit: str
+    affected_kpis: tuple[str, ...]
+
+
+#: 四类检查及其影响的 KPI（顺序即展示顺序）。
+#: ``affected_kpis`` 只列被该类缺陷**污染**的指标，不含无关指标；触发项的并集
+#: 即横幅的「影响 N 个 KPI」。
+#: 第 4 类（逐笔质量）在报告层恒为「未检查」：它需要 processed_fills ↔ raw_fills
+#: 跨库聚合与全量 Liquidity 占比，实测 30 天窗口分别 3.2s / 13.5s（2026-11-04，
+#: D:\db），远超横幅预算；逐笔口径由 CostView → Trader Review 按当前页承载。
+CREDIBILITY_CHECKS: tuple[CredibilityCheck, ...] = (
+    CredibilityCheck("quantity", "routes", ("completion", "opportunity_cost")),
+    CredibilityCheck(
+        "participation", "orders", ("par_rate", "anomaly_orders"),
+    ),
+    CredibilityCheck(
+        "cost_missing", "routes",
+        ("arrival_cost_bps", "wagner_is_bps", "opportunity_cost"),
+    ),
+    CredibilityCheck(
+        "fill_quality", "signals",
+        ("passive_ratio", "peer_percentile", "release_delay"),
+    ),
+)

@@ -13,7 +13,7 @@ and broker recommendation services. It runs as an independent FastAPI service,
 is a **read-only consumer** of the analytical SQLite stores (via `data_access/`,
 all connections `mode=ro`), and never writes to any database.
 
-> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：`python -m pytest CostView/tests/ -q` 全绿（含 CLI 入口与黄金样本回归）；已知限制清单公开发布；**14 个** API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
+> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：`python -m pytest CostView/tests/ -q` 全绿（含 CLI 入口与黄金样本回归）；已知限制清单公开发布；**17 个** API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
 
 ## Architecture
 
@@ -42,7 +42,7 @@ CostView/                          # CostView domain
 │   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │                                  # anomaly_query · tca_report_html · time_range
 ├── tests/                          # 规模跑命令看（python -m pytest CostView/tests/ -q）：
-│                                   #   test_report_metrics 119 / test_monitoring 57 /
+│                                   #   test_report_metrics 127 / test_monitoring 59 /
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
 │                                   #   test_order_aggregation 9 /
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/

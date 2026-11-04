@@ -4,7 +4,7 @@
 浏览器直接打开即可查看，可邮件分发、离线归档。
 
 报告结构（与 render_report_html 的 sections 顺序一致）：
-    报告头（标题/生成时间/过滤条件/作用域告警/口径脚注） → 市场概览 →
+    报告头（标题/生成时间/过滤条件/作用域告警/口径脚注） → 全局可信度横幅 → 市场概览 →
     KPI 卡片 → 数据质量提示（条件渲染） → 分市场成交金额（排名 + 每日趋势） →
     分布与走势（直方图 + 按日走势） → 执行方排行（Broker/Algo 双侧） →
     PWP 分档均值（含分市场小多图） → 市场冲击分解表 → 异常路由明细表 →
@@ -50,6 +50,7 @@ def render_report_html(
     sections = [
         _html_head(f"TCA 可视化报告 {title_range}"),
         _render_header(filters, generated_at),
+        _render_credibility_banner(report, health),
         _render_market_tabs(report.get("markets"), report.get("kpi")),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly"), report.get("weight_coverage")),
@@ -168,6 +169,65 @@ def _scope_note(scope: dict[str, Any]) -> str:
         + " 不在 BDIB 白名单内 —— 这些市场不拉取 BDIB 行情，其 BDIB 依赖指标必然为 "
         "NULL，覆盖率与走势请对照下方覆盖率表解读。</div>"
     )
+
+
+#: 可信度卡片数值的语义配色（hit 红 / ok 绿 / unchecked 灰）——颜色只表达状态，
+#: 数值与说明一律以文本给出（离线归档打印时颜色不可依赖）
+_CRED_COLORS: dict[str, str] = {"hit": "#ef5350", "ok": "#26a69a", "unchecked": "#90a4ae"}
+
+
+def _render_credibility_banner(
+    report: dict[str, Any],
+    health: Optional[dict[str, Any]] = None,
+) -> str:
+    """全局可信度横幅（210 §4.12）：四类检查**始终**渲染，0 触发也显示。
+
+    数据来自覆盖率服务的 ``metric_coverage.credibility``（四类检查的唯一组装点）；
+    渲染层只做状态映射与文案，不重算任何口径。TCA 整日缺失属成本缺失的可观测
+    后果，在此补进 ``cost_missing`` 卡片说明（与数据质量提示同源数据）。
+    """
+    credibility = (report.get("metric_coverage") or {}).get("credibility")
+    if not credibility:
+        return ""
+    checks = credibility.get("checks") or []
+    gap_days = len((health or {}).get("tca_gap_dates") or [])
+    cards = "".join(_credibility_card(c, gap_days) for c in checks)
+    checked = credibility.get("checked_count") or 0
+    headline = (
+        f"已检查 {checked}/{len(checks)} 类 · 触发 "
+        f"{credibility.get('triggered_count') or 0} 类 · 影响 "
+        f"{credibility.get('affected_kpi_count') or 0} 个 KPI"
+    )
+    return f"""
+<h2>数据可信度</h2>
+<div class="panel">
+<div class="meta"><span>{_esc(headline)}</span><span>口径 v{_esc(REPORT_SPEC['spec_version'])}</span></div>
+<div class="cards">{cards}</div>
+<div class="meta">0 触发不等于数据无缺陷；未检查项不记作通过（见卡片说明）。</div>
+</div>"""
+
+
+def _credibility_card(check: dict[str, Any], gap_days: int) -> str:
+    """单类检查卡片：状态 + 受影响对象数 + 口径明细。"""
+    status, value = _credibility_status(check)
+    detail = check.get("detail") or check.get("note") or ""
+    if check.get("id") == "cost_missing" and check.get("checked") and gap_days:
+        detail = f"{detail}；区间内 TCA 整日缺失 {gap_days} 天（见数据质量提示）"
+    return (
+        f'<div class="card"><div class="label">{_esc(check.get("label") or "")}</div>'
+        f'<div class="value" style="color:{_CRED_COLORS[status]}">{_esc(value)}</div>'
+        f'<div class="sub">{_esc(detail)}</div></div>'
+    )
+
+
+def _credibility_status(check: dict[str, Any]) -> tuple[str, str]:
+    """检查状态 → (配色键, 数值文案)；未检查时值为「未检查」而不是 0。"""
+    if not check.get("checked"):
+        return "unchecked", "未检查"
+    triggered = int(check.get("triggered") or 0)
+    if triggered > 0:
+        return "hit", f"{triggered:,} {check.get('unit_label') or ''}".strip()
+    return "ok", "通过"
 
 
 def _render_footer() -> str:
