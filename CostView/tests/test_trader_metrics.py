@@ -431,3 +431,66 @@ class TestAnomalySummary:
         assert kpi["anomaly_orders"]["value"] == 2
         assert "未接入阈值规则" in (kpi["anomaly_orders"]["note"] or "")
 
+
+# ── 210 §4.7：peer 分位与指纹 ─────────────────────────────────────────────
+
+
+class TestPeerMetrics:
+    """8 维指纹：分位公式 / 不可得维度 / 偏离计数 / 延迟 p90。"""
+
+    def test_percentile_and_median(self) -> None:
+        current = {"completion": 0.9}
+        peers = [{"completion": value} for value in (0.8, 0.85, 0.95, 1.0)]
+        metrics = tm.compute_peer_metrics(current, peers)
+        completion = next(item for item in metrics if item["key"] == "completion")
+
+        # 0.9 落在 0.85 与 0.95 之间：below=2, equal=0 → 2/4
+        assert completion["percentile"] == pytest.approx(0.5)
+        assert completion["median"] == pytest.approx(0.9)
+        assert completion["n"] == 4
+        assert completion["available"] is True
+        assert completion["direction"] == "higher_better"
+
+    def test_unavailable_dimensions_are_explicit(self) -> None:
+        metrics = tm.compute_peer_metrics({"completion": 1.0}, [{"completion": 1.0}])
+        by_key = {item["key"]: item for item in metrics}
+
+        assert len(metrics) == 8
+        for key in ("fill_cv", "passive_ratio"):
+            assert by_key[key]["available"] is False
+            assert by_key[key]["percentile"] is None
+            assert by_key[key]["note"]  # 必须写明为什么不可得
+        # 有 loader 但当前值缺失 → 也不伪造分位
+        assert by_key["arrival_cost_bps"]["available"] is False
+        assert by_key["arrival_cost_bps"]["note"] is None
+
+    def test_null_values_not_counted_as_zero(self) -> None:
+        current = {"opportunity_cost": None, "route_shares": 1000, "p_decision": 100}
+        peers = [{"opportunity_cost": None, "route_shares": 1000, "p_decision": 100}]
+        metrics = tm.compute_peer_metrics(current, peers)
+        opp = next(item for item in metrics if item["key"] == "opportunity_cost_bps")
+
+        assert opp["value"] is None
+        assert opp["n"] == 0
+        assert opp["available"] is False
+
+    def test_deviation_count(self) -> None:
+        metrics = [
+            {"available": True, "percentile": 0.95},   # |0.45| > 0.4 → 偏离
+            {"available": True, "percentile": 0.5},
+            {"available": True, "percentile": 0.05},   # |0.45| > 0.4 → 偏离
+            {"available": True, "percentile": 0.9},    # 恰为 0.4 边界，不算偏离
+            {"available": False, "percentile": None},
+        ]
+        assert tm.fingerprint_deviation(metrics) == 2
+
+    def test_peer_latency_p90_ignores_negative_and_missing(self) -> None:
+        rows = [
+            {"route_first": "09:30:00", "first_continuous": "09:30:30"},   # 30s
+            {"route_first": "09:30:00", "first_continuous": "09:31:00"},   # 60s
+            {"route_first": "09:30:10", "first_continuous": "09:30:00"},   # 负值丢弃
+            {"route_first": None, "first_continuous": "09:31:00"},         # 缺时刻丢弃
+        ]
+        assert tm.peer_latency_p90(rows) == pytest.approx(57.0)  # p90 线性插值
+        assert tm.peer_latency_p90([]) is None
+

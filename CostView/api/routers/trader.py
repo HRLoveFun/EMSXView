@@ -125,6 +125,39 @@ async def get_trader_order_detail(
     return TraderResponse(success=True, data=data, message=f"订单 {order_id} 详情")
 
 
+@router.get("/api/tca/trader/orders/{order_id}/peer", response_model=TraderResponse)
+async def get_trader_order_peer(
+    order_id: str,
+    order_as_of_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
+):
+    """同类 peer 分位（§3.4.3 / §4.7）：8 维指纹 + 两级口径 + 延迟 p90。
+
+    与详情分离（懒加载）：peer 需要 180 天同类样本聚合，不应阻塞详情首屏。
+    样本不足时返回 `sample_insufficient=true` 且分位为 null（不返回伪分位）。
+    """
+    try:
+        data = trader_service.build_order_peer(
+            order_id, order_as_of_date=order_as_of_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except OrderNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}",
+            },
+        )
+    except Exception as exc:
+        logger.error("订单 peer 查询失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"订单 peer 查询错误: {exc}")
+
+    return TraderResponse(success=True, data=data, message=f"订单 {order_id} peer 分位")
+
+
 @router.get("/api/tca/trader/filter-options", response_model=TraderResponse)
 async def list_trader_filter_options(
     start_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),

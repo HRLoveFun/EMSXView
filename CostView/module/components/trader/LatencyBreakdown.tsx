@@ -14,7 +14,14 @@ function seconds(value: number | null): string {
  * 「按计划成交」，不把数值读成执行问题；`latency_anomaly`（首笔非竞价成交早于路由
  * 下达 >1s）单独标红。peer p90 随 peer 端点接入（§4.13），此处显式写「未接入」。
  */
-export function LatencyBreakdown({ latency }: { latency: TraderLatency }) {
+export function LatencyBreakdown({
+  latency,
+  peerP90 = undefined,
+}: {
+  latency: TraderLatency;
+  /** 同类订单「路由→首笔连续成交」p90（undefined = 未接入，null = 不可得） */
+  peerP90?: number | null;
+}) {
   const rows: Array<{ label: string; value: number | null; note?: string }> = [
     { label: '下达 → 路由', value: latency.order_to_route_sec },
     { label: '路由 → 首笔成交', value: latency.route_to_first_fill_sec },
@@ -25,6 +32,13 @@ export function LatencyBreakdown({ latency }: { latency: TraderLatency }) {
       note: '相对路由下达时刻；负值 <1s 视为舍入（后端已钳 0）',
     },
   ];
+  if (peerP90 !== undefined) {
+    rows.push({
+      label: '同类 p90',
+      value: peerP90,
+      note: '同类订单「路由→首笔连续成交」的 p90；样本与口径见同类分位面板',
+    });
+  }
   return (
     <section className="space-y-2">
       <header className="flex flex-wrap items-center justify-between gap-2">
@@ -49,8 +63,12 @@ export function LatencyBreakdown({ latency }: { latency: TraderLatency }) {
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        时间戳取自 raw_fills 的 NY 时区字段（同一时区差值，与时区偏移无关）；peer p90
-        对比随 peer 端点接入（当前未接入，不是「通过」）。
+        时间戳取自 raw_fills 的 NY 时区字段（同一时区差值，与时区偏移无关）；
+        {peerP90 === undefined
+          ? '同类 p90 需 peer 端点（本次未加载，不是「通过」）。'
+          : peerP90 == null
+            ? '同类 p90 不可得（peer 样本无逐笔时刻），不以 0 代替。'
+            : '同类 p90 为 peer 订单的「路由→首笔连续成交」p90。'}
       </p>
     </section>
   );

@@ -112,6 +112,8 @@ def _agg_select() -> str:
                SUM(r.wagner_is) AS wagner_is,
                MAX(r.cost_cvar) AS cost_cvar,
                MAX(r.order_duration_sec) AS order_duration_sec,
+               -- 210 §4.7：peer「成交速度」维度取入库的股/分钟口径（无需逐笔）
+               MAX(r.exec_rate_shares_per_min) AS exec_rate_shares_per_min,
                MAX(r.par_rate) AS max_par_rate,
                SUM(CASE WHEN r.p_avg IS NOT NULL THEN r.fill * r.p_avg END)
                  / NULLIF(SUM(CASE WHEN r.p_avg IS NOT NULL THEN r.fill END), 0) AS vwap,
@@ -407,6 +409,23 @@ TRADER_SUMMARY_LIMIT = 10
 LOW_COMPLETION_THRESHOLD = 0.8
 
 
+def _order_rows_sql(where_clause: str) -> str:
+    """订单级聚合外壳：`_agg_select` 分组 + `_outer_select` 派生列。
+
+    摘要 / peer 等多处消费方共用（``where_clause`` 含 ``WHERE`` 关键字），
+    避免各自复制一遍 GROUP BY 与派生列外壳。
+    """
+    t = Config.TCA_ROUTE_SUMMARY_TABLE
+    inner = f"""
+        {_agg_select()}
+          FROM {t} r
+          {where_clause}
+          GROUP BY r.OrderId, r.order_as_of_date
+        )
+        """
+    return f"""{_outer_select()}{inner} AS agg_rows"""
+
+
 def trader_summary_sql(where_clause: str) -> str:
     """交易员执行摘要 SQL（订单级聚合 → 按交易员分组；方案 §3.6.2）。
 
@@ -429,15 +448,7 @@ def trader_summary_sql(where_clause: str) -> str:
     ``opp_bps`` 按 §3.8 计：``opportunity_cost / (RouteShares × p_decision) × 10000``；
     异常订单数不在此 SQL（需阈值规则引擎），由报告层从异常明细按交易员归集。
     """
-    t = Config.TCA_ROUTE_SUMMARY_TABLE
-    inner = f"""
-        {_agg_select()}
-          FROM {t} r
-          {where_clause}
-          GROUP BY r.OrderId, r.order_as_of_date
-        )
-        """
-    orders = f"""{_outer_select()}{inner} AS agg_rows"""
+    orders = _order_rows_sql(where_clause)
     return f"""
         SELECT trader_name,
                COUNT(*) AS orders,
@@ -486,3 +497,83 @@ def query_trader_summary(
         return []
     columns = [d[0] for d in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+# ── 210 §4.7：同类 peer 样本（订单级，两级口径的 SQL 层）─────────────────────
+
+#: 精确同类口径：窗口天数 / 最小样本（§4.7 n≥20 才出分位）
+PEER_EXACT_WINDOW_DAYS = 180
+PEER_EXACT_MIN_SAMPLE = 20
+#: 宽口径（市场 + 方向 + 算法）：窗口天数 / 最小样本
+PEER_WIDE_WINDOW_DAYS = 90
+PEER_WIDE_MIN_SAMPLE = 50
+
+
+def peer_orders_sql(where_clause: str) -> str:
+    """同类订单聚合 SQL（与列表/摘要同一订单口径，不另写一套聚合）。
+
+    ``where_clause`` 含 ``WHERE`` 关键字（同 ``trader_summary_sql`` 约定）。
+    """
+    return _order_rows_sql(where_clause)
+
+
+def query_peer_orders(conn, where_clause: str, params: list[Any]) -> list[dict[str, Any]]:
+    """执行同类订单聚合；失败（表缺失/旧 schema）降级为空列表。"""
+    try:
+        cursor = conn.execute(peer_orders_sql(where_clause), params)
+    except Exception as exc:  # 009：缺表/旧 schema → 空样本（UI 显示「样本不足」）
+        logger.warning("peer 样本查询失败（返回空列表）: %s", exc)
+        return []
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+#: 延迟样本按 OrderId 分批（SQLite 变量上限 999；主键首列有索引，按 id 查是索引扫描）
+PEER_LATENCY_CHUNK = 200
+
+
+def query_peer_latency(
+    conn, order_ids: list[str],
+) -> list[dict[str, Any]]:
+    """同类订单的「路由下达 → 首笔连续成交」原始时刻（§4.9 peer p90 用）。
+
+    只按**已经选出的 peer 订单 id** 反查逐笔（主键 ``(OrderId, RouteId, FillId, 日期)``
+    首列有索引），而不是按 ticker + 180 天窗口扫逐笔表 —— 实测后者对 `processed_fills`
+    是整表扫描（2.6s@PFE 180 天），前者是索引点查。
+    """
+    if not order_ids:
+        return []
+    sql = f"""
+        SELECT OrderId, order_as_of_date,
+               MIN(route_as_of_time) AS route_first,
+               MIN(CASE WHEN is_closing_auction = 0 THEN exchange_exec_time END)
+                 AS first_continuous
+          FROM {Config.PROCESSED_FILLS_TABLE}
+         WHERE OrderId IN ({{marks}})
+         GROUP BY OrderId, order_as_of_date
+    """
+    rows: list[dict[str, Any]] = []
+    unique_ids = list(dict.fromkeys(order_ids))
+    for start in range(0, len(unique_ids), PEER_LATENCY_CHUNK):
+        chunk = unique_ids[start:start + PEER_LATENCY_CHUNK]
+        marks = ", ".join(["?"] * len(chunk))
+        try:
+            cursor = conn.execute(sql.format(marks=marks), chunk)
+        except Exception as exc:
+            logger.warning("peer 延迟样本查询失败（返回空列表）: %s", exc)
+            return rows
+        columns = [d[0] for d in cursor.description]
+        rows.extend(dict(zip(columns, row)) for row in cursor.fetchall())
+    return rows
+
+
+def query_latest_order_date(conn) -> Optional[str]:
+    """库内最新 TCA 日期（peer 缓存 key 的一部分：管道跑批后缓存自动失效）。"""
+    try:
+        row = conn.execute(
+            f"SELECT MAX(order_as_of_date) FROM {Config.TCA_ROUTE_SUMMARY_TABLE}",
+        ).fetchone()
+    except Exception as exc:
+        logger.warning("最新 TCA 日期查询失败: %s", exc)
+        return None
+    return str(row[0]) if row and row[0] else None
+

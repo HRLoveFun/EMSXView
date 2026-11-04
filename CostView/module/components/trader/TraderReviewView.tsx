@@ -7,6 +7,7 @@ import {
   fetchTraderFilterOptions,
   fetchTraderOrderDetail,
   fetchTraderOrders,
+  fetchTraderPeerStats,
   type TraderListQuery,
 } from '../../services/api';
 import { traderRowKey } from '../../lib/trader-rows';
@@ -88,6 +89,12 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
       bucketMin,
     }),
   );
+  // peer 与详情分开懒加载：同类样本聚合不阻塞详情首屏，失败也不影响其余面板
+  const peerKey = selected ? `trader-peer:${traderRowKey(selected)}` : null;
+  const peer = useAsyncData(peerKey, () => fetchTraderPeerStats({
+    orderId: selected?.order_id ?? '',
+    orderAsOfDate: selected?.order_as_of_date,
+  }));
 
   /** 非翻页的筛选变更回到第 1 页（避免停留在越界页） */
   const patch = (update: Partial<TraderFilterState>) => {
@@ -164,6 +171,9 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
               onBucketMinChange={setBucketMin}
               onClose={() => setSelected(null)}
               onRetry={() => detail.reload()}
+              peer={peer.data ?? null}
+              peerLoading={peer.isLoading}
+              peerError={peer.error}
             />
           )}
         </>
