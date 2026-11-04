@@ -750,6 +750,7 @@ def compute_peer_metrics(
             metrics.append({
                 "key": dim.key, "label": dim.label, "direction": dim.direction,
                 "value": None, "median": None, "percentile": None,
+                "p25": None, "p75": None, "p90": None,
                 "n": 0, "available": False, "note": dim.note,
             })
             continue
@@ -761,6 +762,11 @@ def compute_peer_metrics(
             "value": value,
             "median": statistics.median(values) if values else None,
             "percentile": percentile_rank(value, values),
+            # 分位点随 metrics 下发：H1 用 p25（adverse 方向的 p75 等价量）、
+            # H2 若日后落地用 median+MAD，UI 也可直接标注四分位
+            "p25": percentile(values, 25.0) if values else None,
+            "p75": percentile(values, 75.0) if values else None,
+            "p90": percentile(values, 90.0) if values else None,
             "n": len(values), "available": available, "note": None,
         })
     return metrics
@@ -791,12 +797,16 @@ def _hms_sec(value: Any) -> Optional[float]:
     return secs[0] * 3600 + secs[1] * 60 + secs[2]
 
 
+def latency_seconds(row: dict[str, Any]) -> Optional[float]:
+    """单行「路由下达 → 首笔连续成交」秒数（负值视为非法 → None）。"""
+    delta = _latency_delta(row)
+    return delta if (delta is not None and delta >= 0) else None
+
+
 def peer_latency_p90(rows: list[dict[str, Any]]) -> Optional[float]:
     """peer 的「路由下达 → 首笔连续成交」p90（秒；§4.9 H4 证据用）。"""
     deltas = [
-        delta
-        for row in rows
-        if (delta := _latency_delta(row)) is not None and delta >= 0
+        delta for row in rows if (delta := latency_seconds(row)) is not None
     ]
     return percentile(deltas, 90.0) if deltas else None
 
@@ -808,4 +818,161 @@ def _latency_delta(row: dict[str, Any]) -> Optional[float]:
     if route is None or first is None:
         return None
     return first - route
+
+
+# ── 210 §4.8：条件化改进提示规则引擎 ───────────────────────────────────────
+
+#: 置信度门槛（n≥50 高 / n≥20 中 / 否则低；H4 要求 n≥20 才触发）
+HINT_HIGH_SAMPLE = 50
+HINT_MIN_SAMPLE = 20
+#: H4 的绝对门槛：延迟必须 >60s 才值得提示（否则与噪声不可分）
+HINT_DELAY_SEC = 60.0
+#: H1 的低完成率界（§4.8：completion<0.8）
+HINT_LOW_COMPLETION = 0.8
+#: H7 的完成率界（§4.8：completion<0.95）
+HINT_SINGLE_FILL_COMPLETION = 0.95
+#: H4 适用的连续算法（收盘/竞价单的延迟是排程，不是延迟）
+HINT_CONTINUOUS_ALGOS: tuple[str, ...] = ("vwap", "pov", "twap")
+
+#: 未落地的规则及原因（随 peer payload 的 degraded 一起披露，不静默省略）
+HINT_SKIPPED_RULES: dict[str, str] = {
+    "H2": "被动逆向选择需 peer 被动成本分布（180 天逐笔 Liquidity 聚合超预算）",
+    "H5": "尾盘未完成需各市场收盘时刻表（本模块无该口径来源）",
+    "H6": "集中扫单已在「单次填充量分布」面板作为线索标签展示，不重复出卡",
+}
+
+
+def hint_confidence(sample: int) -> str:
+    """置信度分档（§4.8）：n≥50 high / n≥20 medium / 否则 low。"""
+    if sample >= HINT_HIGH_SAMPLE:
+        return "high"
+    return "medium" if sample >= HINT_MIN_SAMPLE else "low"
+
+
+def _metric_p(peer: dict[str, Any], key: str, field: str) -> Optional[float]:
+    """取 peer 指标的分位值（缺失 → None，规则据此不触发）。"""
+    for item in peer.get("metrics") or []:
+        if item.get("key") == key and item.get("available"):
+            value = item.get(field)
+            return float(value) if value is not None else None
+    return None
+
+
+def _cost_suppressed(current: dict[str, Any]) -> bool:
+    """坏数据（overfill / cost_missing）时抑制成本类提示（§4.8 输出约束）。"""
+    return str(current.get("quality_level") or "") == "bad"
+
+
+def _hint(
+    rule_id: str, title: str, evidence: dict[str, Any],
+    peer_n: int, confidence: str, action: str,
+) -> Optional[dict[str, Any]]:
+    """组装一条提示；任一证据缺失则返回 None（不渲染凑数卡片）。"""
+    if any(value is None for value in evidence.values()):
+        return None
+    return {
+        "rule_id": rule_id,
+        "title": title,
+        "evidence": evidence,
+        "peer_n": peer_n,
+        "confidence": confidence,
+        "action": action,
+    }
+
+
+def _opportunity_evidence(
+    current: dict[str, Any], peer: dict[str, Any],
+) -> Optional[tuple[float, float, float, float]]:
+    """H1 证据四元组 (completion, opp, arrival, peer_p25)；任一缺失 → None。"""
+    completion = current.get("completion")
+    opp = current.get("opp_bps")
+    arrival = current.get("arrival_cost_bps")
+    p25 = _metric_p(peer, "opportunity_cost_bps", "p25")
+    if None in (completion, opp, arrival, p25):
+        return None
+    return float(completion), float(opp), float(arrival), float(p25)
+
+
+def _hint_opportunity(current: dict[str, Any], peer: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """H1 机会成本主导（线索）。
+
+    `adverse(opp) > peer_p75(adverse(opp))` 等价于 `opp < peer_p25(opp)`（adverse 取负后
+    分位方向翻转）；「机会成本比 arrival 更差」（负 = 劣）即 `opp < arrival`。
+    """
+    if _cost_suppressed(current):
+        return None
+    evidence = _opportunity_evidence(current, peer)
+    if evidence is None:
+        return None
+    completion, opp, arrival, p25 = evidence
+    if completion >= HINT_LOW_COMPLETION or opp >= p25 or opp >= arrival:
+        return None
+    sample = int(peer.get("n") or 0)
+    return _hint(
+        "H1", "机会成本主导（线索）",
+        {"completion": completion, "opp_bps": opp, "peer_p25_opp_bps": p25,
+         "arrival_bps": arrival},
+        sample, hint_confidence(sample), "复核未成交原因",
+    )
+
+
+def _delay_not_triggered(
+    algo: str, delay: Any, p90: Any, sample: int,
+) -> bool:
+    """H4 不触发的条件（单一谓词列表，避免分支散落）。"""
+    return (
+        algo not in HINT_CONTINUOUS_ALGOS
+        or delay is None or p90 is None
+        or sample < HINT_MIN_SAMPLE
+        or float(delay) <= float(p90)
+        or float(delay) <= HINT_DELAY_SEC
+    )
+
+
+def _hint_delay(current: dict[str, Any], peer: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """H4 释放延迟：连续算法且「路由→首笔」超过 peer p90 且 >60s。"""
+    if _cost_suppressed(current):
+        return None
+    latency = peer.get("latency") or {}
+    delay = current.get("first_continuous_fill_sec")
+    p90 = latency.get("p90_sec")
+    sample = int(latency.get("n") or 0)
+    algo = str(current.get("algo") or "").lower()
+    if _delay_not_triggered(algo, delay, p90, sample):
+        return None
+    return _hint(
+        "H4", "释放延迟偏高（线索）",
+        {"route_to_first_fill_sec": float(delay), "peer_p90_sec": float(p90)},
+        sample, hint_confidence(sample), "复核路由下达→首笔",
+    )
+
+
+def _hint_single_fill(current: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """H7 单笔成交：节奏类指标不可评估（自身样本，无 peer）。"""
+    fill_count = current.get("fill_count")
+    completion = current.get("completion")
+    if fill_count is None or completion is None:
+        return None
+    if int(fill_count) > 1 or float(completion) >= HINT_SINGLE_FILL_COMPLETION:
+        return None
+    return _hint(
+        "H7", "单笔成交，节奏不可评估",
+        {"fill_count": int(fill_count), "completion": completion},
+        0, "self", "确认是否本应拆分执行",
+    )
+
+
+def evaluate_hints(current: dict[str, Any], peer: dict[str, Any]) -> list[dict[str, Any]]:
+    """条件化改进提示（§4.8）：H1 / H4 / H7，语气是「线索 / 需复核」。
+
+    ``current`` 由服务层从订单聚合行与延迟样本拼装（见 ``build_order_peer``），
+    ``peer`` 是 peer payload 本身（含 metrics 分位与 latency.p90）。未落地的规则见
+    ``HINT_SKIPPED_RULES``，由调用方并入 ``degraded`` 披露。
+    """
+    candidates = [
+        _hint_opportunity(current, peer),
+        _hint_delay(current, peer),
+        _hint_single_fill(current),
+    ]
+    return [hint for hint in candidates if hint is not None]
 

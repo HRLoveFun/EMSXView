@@ -455,3 +455,29 @@ class TestPeerBenchmark:
         with pytest.raises(service.OrderNotFound):
             service.build_order_peer("NOPE", mgr=mgr)
 
+
+class TestPeerHints:
+    """210 §4.8：提示随 peer payload 下发，未落地规则在 degraded 里披露。"""
+
+    def test_hints_and_skipped_rules_in_payload(self, tmp_path):
+        from CostView.src import trader_service
+
+        trader_service.clear_peer_cache()
+        # 单笔成交且未完成满（completion=0.5）→ H7 触发
+        rows = [{"OrderId": "ME", "fill": 500.0, "fill_count": 1}]
+        rows += [
+            {"OrderId": f"P{index}", "fill": 900.0, "fill_count": 3, "RouteId": f"R{index}"}
+            for index in range(20)
+        ]
+        mgr = make_manager(tmp_path, rows)
+
+        payload = trader_service.build_order_peer("ME", mgr=mgr)
+
+        # 单笔成交订单（fill_count=1）→ H7 触发
+        assert any(hint["rule_id"] == "H7" for hint in payload["hints"])
+        hint = next(item for item in payload["hints"] if item["rule_id"] == "H7")
+        assert set(hint) == {"rule_id", "title", "evidence", "peer_n", "confidence", "action"}
+        # 未落地的 H2/H5/H6 必须逐条披露原因
+        for rule_id in ("H2", "H5", "H6"):
+            assert any(item.startswith(f"{rule_id}:") for item in payload["degraded"])
+
