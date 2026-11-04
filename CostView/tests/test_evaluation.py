@@ -419,10 +419,10 @@ class TestSpecBinding:
         assert spec["multiple_comparison"] == "benjamini-hochberg"
 
     def test_spec_version_reflects_phase3(self) -> None:
-        """口径版本随最近一次口径变更 bump（2026-11-04：210 §4.12 可信度横幅）。"""
+        """口径版本随最近一次口径变更 bump（2026-11-04b：210 §3.6.2 交易员摘要）。"""
         from CostView.src.monitoring import report_spec
 
-        assert report_spec.SPEC_VERSION == "2026.11.04"
+        assert report_spec.SPEC_VERSION == "2026.11.04b"
 
 
 def _stub_routes(broker: str, exchange: str, pnl: float, count: int) -> list[Any]:

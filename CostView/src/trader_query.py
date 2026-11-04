@@ -391,3 +391,92 @@ def query_page_liquidity_agg(conn, keys: list[tuple[str, str]]) -> list[dict[str
         params,
         "page liquidity agg",
     )
+
+
+# ── 静态报告：交易员执行摘要（方案 §3.6.2 / §4.13 的静态版）─────────────────
+
+#: 摘要表默认展示行数（按订单数取前 N 名；全量经 Trader Review 查看）
+TRADER_SUMMARY_LIMIT = 10
+#: 低完成率界（§4.13：``completion < 0.8``；与列表完成率桶 ``lt50``/``50to80`` 同界）
+LOW_COMPLETION_THRESHOLD = 0.8
+
+
+def trader_summary_sql(where_clause: str) -> str:
+    """交易员执行摘要 SQL（订单级聚合 → 按交易员分组；方案 §3.6.2）。
+
+    复用订单列表的两段外壳（``_agg_select`` 订单聚合 + ``_outer_select`` 派生
+    completion / 质量旗标），保证摘要与 Trader Review 列表**同一订单口径**，
+    不另写一套聚合。``where_clause`` 由调用方给，**含 ``WHERE`` 关键字**（与
+    ``report_aggregator._build_where`` 的返回约定一致，报告期 + 作用域，裸列）。
+
+    输出列（每交易员一行）：
+
+    - ``orders`` 订单数；``completion_measured_orders`` 有完成率的分母
+    - ``low_completion_orders`` 完成率 < 0.8 的订单数
+    - ``opp_dominant_orders`` / ``opp_measured_orders``：机会成本主导（§4.13 口径
+      ``adverse(opp_bps) > adverse(arrival_bps)`` 且 ``completion<1``）/ 两者均非空
+    - ``arrival_notional`` / ``arrival_cost_notional``：加权 arrival 的分子分母
+      （权重 = 成交额 fill×p_avg，与报告 KPI 同源；均值为两者相除）
+    - ``overfill_orders`` / ``cost_missing_orders`` / ``amount_mismatch_orders`` /
+      ``single_fill_orders``：质量标记订单数（与列表徽章同界）
+
+    ``opp_bps`` 按 §3.8 计：``opportunity_cost / (RouteShares × p_decision) × 10000``；
+    异常订单数不在此 SQL（需阈值规则引擎），由报告层从异常明细按交易员归集。
+    """
+    t = Config.TCA_ROUTE_SUMMARY_TABLE
+    inner = f"""
+        {_agg_select()}
+          FROM {t} r
+          {where_clause}
+          GROUP BY r.OrderId, r.order_as_of_date
+        )
+        """
+    orders = f"""{_outer_select()}{inner} AS agg_rows"""
+    return f"""
+        SELECT trader_name,
+               COUNT(*) AS orders,
+               SUM(CASE WHEN completion IS NOT NULL
+                         AND completion < {LOW_COMPLETION_THRESHOLD}
+                        THEN 1 ELSE 0 END) AS low_completion_orders,
+               SUM(CASE WHEN completion IS NOT NULL THEN 1 ELSE 0 END)
+                 AS completion_measured_orders,
+               SUM(CASE WHEN completion < 1
+                         AND opportunity_cost IS NOT NULL
+                         AND p_decision IS NOT NULL AND route_shares > 0
+                         AND arrival_cost_bps IS NOT NULL
+                         AND -(opportunity_cost / (route_shares * p_decision) * 10000.0)
+                             > -arrival_cost_bps
+                        THEN 1 ELSE 0 END) AS opp_dominant_orders,
+               SUM(CASE WHEN opportunity_cost IS NOT NULL
+                         AND p_decision IS NOT NULL AND route_shares > 0
+                         AND arrival_cost_bps IS NOT NULL
+                        THEN 1 ELSE 0 END) AS opp_measured_orders,
+               SUM(CASE WHEN arrival_cost_bps IS NOT NULL THEN notional END)
+                 AS arrival_notional,
+               SUM(CASE WHEN arrival_cost_bps IS NOT NULL
+                        THEN arrival_cost_bps * notional END) AS arrival_cost_notional,
+               SUM(flag_overfill) AS overfill_orders,
+               SUM(flag_cost_missing) AS cost_missing_orders,
+               SUM(flag_amount_mismatch) AS amount_mismatch_orders,
+               SUM(flag_single_fill) AS single_fill_orders
+          FROM ({orders}) AS order_rows
+         GROUP BY trader_name
+         ORDER BY orders DESC, trader_name ASC
+        """
+
+
+def query_trader_summary(
+    conn, where_clause: str, params: list[Any],
+) -> list[dict[str, Any]]:
+    """执行摘要 SQL，返回**全部**交易员行（截断由调用方按订单数前 N 名做）。
+
+    ``where_clause`` 含 ``WHERE`` 关键字（同上）。表缺失 / 旧 schema 失败时降级为
+    空列表（与列表查询同策略，009）。
+    """
+    try:
+        cursor = conn.execute(trader_summary_sql(where_clause), params)
+    except Exception as exc:  # 表缺失/旧 schema → 空结果（009 降级）
+        logger.warning("trader 执行摘要查询失败（返回空列表）: %s", exc)
+        return []
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
