@@ -51,7 +51,7 @@
 - Broker / Algo 排行按**双维门槛**（组样本 n_used ≥ 5 且组成交额占比 ≥ 0.1%，门槛对象为聚合组）输出**最优 / 最差双侧** Top 10；被门槛排除的组数显式披露
 - PWP 五档为**成交额加权**（与总成交金额同源）并披露样本/权重覆盖；默认聚合曲线 + Top 6 市场小多图（跨市场混合的逐档值无物理解释，分市场解释由小图承接）
 - 异常明细的成交金额列与金额门槛均为 **fill × p_avg × 汇率**（本币列不含汇率）；零成交路由按 **RouteShares × p_avg × 汇率** 计，并另享「严重未完成」下限豁免
-- **`Amount` 是委托股数，不是金额**：异常明细单独以「委托股数」列展示（数量，非货币），不参与成交金额展示与金额门槛；原按 `COALESCE(Amount, fill×p_avg)×汇率` 判定门槛使 US 近 30 天 82.8% 的路由被误剔除（2026-11-03，`SPEC_VERSION 2026.11.03`）
+- **`Amount` 是委托股数，不是金额**：异常明细与前端 Analysis 订单表均单独以「委托股数」列展示（数量，非货币），`Amount` 不参与金额展示与金额门槛；前端 Analysis 订单表的成交金额列一律为 `fill×p_avg`（零成交即 0，与异常明细上条的 `RouteShares×p_avg` 口径不同）；原按 `COALESCE(Amount, fill×p_avg)×汇率` 判定门槛使 US 近 30 天 82.8% 的路由被误剔除（2026-11-03，`SPEC_VERSION 2026.11.03`；前端表格 2026-11-04 补齐）
 - 市场冲击分解的跨日恢复占比分母为**冲击计算样本**（任一冲击指标可计算的路由），随 payload 披露 `impact_sample_count`
 - 异常明细 HTML 渲染上限 **1000 条**（按严重度降序排列，截断样本无偏）；全量明细经随附 `anomaly_<hash>.csv` 导出（CLI 侧与 HTML 同目录落盘；API export-html 侧 HTML + CSV 打包为 zip 下载，`export_ref` 不再为空）
 - BDIB 缺口附录在扫描超时 / 异常时显式标注「未扫描」，与「无缺口」区分
@@ -83,9 +83,7 @@
 - **交易员导出 CSV 的逐笔/peer 派生列**：订单汇总导出的 `passive_cost_bps` / `aggressive_cost_bps` / `peer_n` 三列为空 —— 类别成本需「逐笔价格 × Liquidity 分类」联查、peer 需逐单 180 天同类聚合，均超出 50k 订单导出的性能预算；列表页同样不展示这三项，精确值见订单详情卡。成交明细 CSV 与逐笔文件完整（含 `Liquidity` 分类与 `LastCapacity` / `LastMarket`，旧 schema 缺列时留空）。
 - **呈现层可解释性（D3）**：直方图仍为等宽分桶（尾部被压扁，与「看尾部风险」目标背离）。
 - **覆盖率与健康度口径**：`overall` 仍为 38 项指标池化平均；健康度仍以 ticker 数为主指标、按日期序渲染（未按缺口金额排序/分级）；`processed_fills` 缺 Exchange 列时回退全量 ticker 且无告警。
-- **前端订单表的 Amount 展示**：`CostView/module/components/TcaOrderTable.tsx` 仍把 `amount` 按货币渲染
-  （`renderNotional(amount, currency)`），属同一语义错误；报告侧（HTML / 异常 CSV）已改为成交金额
-  `fill×p_avg` + 独立「委托股数」列，前端表格待后续批次修。
 - **指标命名与标签**：「总成交股数」卡片实为 `SUM(RouteShares)`（委托股数，副标题才澄清）；`intraday_volatility` / `volume_pct_adv20` / `price_movement_pct` 仍是代理字段，用户可见面（HTML / CSV 标签）未附 `metric_field`。
+- **Analysis 订单表成交金额(USD)**：`/api/tca/analyze` 未序列化逐路由 `fx_rate`，该列恒显示「—」；本币成交金额（`fill×p_avg`）已正确。后续如需 USD 列，应由后端按 `fill×p_avg×汇率×小计价单位` 计算后下发（与报告 KPI 同源，不在前端重写换算）。
 - **币种兜底**：`Currency IS NULL` 时按 USD（fx=1.0）兜底且计入 fx 覆盖率分子 —— 若实为非 USD 币种则金额错、覆盖率虚高。
 - **健康扫描信号量饥饿**：`get_health_safe` 超时线程仍阻塞在信号量 acquire 上（P2-5 只防堆积未防排队饥饿）。

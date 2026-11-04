@@ -1,4 +1,4 @@
-import { fmtNum } from '@shared/lib/format-utils';
+import { fmtInt, fmtNum } from '@shared/lib/format-utils';
 import { getHighestOrderSeverity, getOrderAlertDetails, getSeverityText, getSeverityTone } from '../lib/thresholds';
 import type { CostViewConfig, TcaReport, TcaRouteSummary } from '../types';
 
@@ -22,12 +22,21 @@ function fmtBps(value: number | null | undefined): string {
 }
 
 function fmtCurrency(value: number | null | undefined): string {
-  if (value == null) return '—';
+  if (value == null || !Number.isFinite(value)) return '—';
   const abs = Math.abs(value);
   const prefix = value > 0 ? '+' : value < 0 ? '-' : '';
   if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(2)}M`;
   if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(1)}K`;
   return `${prefix}${abs.toFixed(0)}`;
+}
+
+/** 成交额是无符号量（非盈亏差额），不带 `+` 前缀。 */
+function fmtNotional(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${(abs / 1_000).toFixed(1)}K`;
+  return `${abs.toFixed(0)}`;
 }
 
 function fmtDurationSec(value: number | null | undefined): string {
@@ -38,15 +47,25 @@ function fmtDurationSec(value: number | null | undefined): string {
   return `${min}m${sec}s`;
 }
 
-function renderNotional(amount: number | null | undefined, currency: string | null | undefined): string {
-  if (amount == null) return '—';
-  const ccy = (currency ?? '').toUpperCase();
-  return ccy ? `${ccy} ${fmtCurrency(amount)}` : fmtCurrency(amount);
+/**
+ * 成交金额（本币）= fill × p_avg。
+ *
+ * F1（210 §0.2）：`tca_route_summary.Amount` 是**委托股数**，不是金额；
+ * 金额列用 `fill × p_avg`（成交口径），委托股数单独成列。
+ * 注意：零成交路由此处为 0；异常明细/HTML 报告为零成交路由另按
+ * `RouteShares × p_avg` 计，两者口径不同。
+ */
+function tradedNotional(route: TcaRouteSummary): number | null {
+  if (route.fill == null || route.p_avg == null) return null;
+  return route.fill * route.p_avg;
 }
 
-function renderNotionalUsd(amount: number | null | undefined, fxRate: number | null | undefined): string {
-  if (amount == null || fxRate == null) return '—';
-  return `USD ${fmtCurrency(amount * fxRate)}`;
+function renderNotional(value: number | null, currency: string | null | undefined): string {
+  if (value == null) return '—';
+  // 保留货币代码原始大小写：GBp/ILs/ZAr 是最小计价单位（便士/阿高洛/分），
+  // 大写后会被误标成 GBP/ILS/ZAR，而本币金额本身未做 ÷100 修正。
+  const ccy = (currency ?? '').trim();
+  return ccy ? `${ccy} ${fmtNotional(value)}` : fmtNotional(value);
 }
 
 function routeKey(route: TcaRouteSummary): string {
@@ -68,7 +87,7 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1640px] text-sm">
+        <table className="w-full min-w-[1730px] text-sm">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="sticky left-0 z-10 bg-muted/50 px-3 py-3 text-left font-medium">Order · Route</th>
@@ -90,8 +109,9 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                <th className="px-3 py-3 text-right font-medium">RPM</th>
                <th className="px-3 py-3 text-right font-medium">PWP 10</th>
                <th className="px-3 py-3 text-right font-medium">PWP 20</th>
-               <th className="px-3 py-3 text-right font-medium">成交金额(本币)</th>
-               <th className="px-3 py-3 text-right font-medium">成交金额(USD)</th>
+               <th className="px-3 py-3 text-right font-medium" title="tca_route_summary.Amount：委托股数，不是金额">委托股数</th>
+               <th className="px-3 py-3 text-right font-medium" title="fill × p_avg（成交金额，非委托金额）">成交金额(本币)</th>
+               <th className="px-3 py-3 text-right font-medium" title="后端按 fill×p_avg×汇率×小计价单位 计算后下发；当前未序列化，显示 —">成交金额(USD)</th>
              </tr>
           </thead>
           <tbody>
@@ -136,8 +156,11 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                   <td className="px-3 py-3 text-right">{fmtNum(route.rpm)}</td>
                   <td className="px-3 py-3 text-right">{route.pwp_10 ?? '—'}</td>
                   <td className="px-3 py-3 text-right">{route.pwp_20 ?? '—'}</td>
-                  <td className="px-3 py-3 text-right">{renderNotional(route.amount, route.currency)}</td>
-                  <td className="px-3 py-3 text-right">{renderNotionalUsd(route.amount, route.fx_rate)}</td>
+                  <td className="px-3 py-3 text-right" title="委托股数（Amount）">{fmtInt(route.amount)}</td>
+                  <td className="px-3 py-3 text-right">{renderNotional(tradedNotional(route), route.currency)}</td>
+                  {/* 后端未下发逐路由 USD 金额（fx_rate 未序列化）；不在前端重算换算，
+                      待后端按 fill×p_avg×汇率×小计价单位 下发 notional_usd */}
+                  <td className="px-3 py-3 text-right" title="后端未下发逐路由 USD 成交额">—</td>
                 </tr>
               );
             })}
