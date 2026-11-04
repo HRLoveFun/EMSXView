@@ -18,7 +18,9 @@ from . import report_measure as rm
 #: fill×p_avg；删除 amount_consistency 探针与其容差声明
 #: 2026.11.03b：F2 —— 订单参与率不再按组内求和判定（单路由看自身、多路由看组内
 #: 最大路由参与率），规则拆为 order_par_single_gt100 / route_par_extreme
-SPEC_VERSION = "2026.11.03b"
+#: 2026.11.04：210 §4.12 —— 报告头之后新增全局可信度横幅（四类检查始终渲染，
+#: 未检查明示）；数量矛盾改按订单级 ΣAmount 与 ΣRouteShares（股数 vs 股数）判定
+SPEC_VERSION = "2026.11.04"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -85,6 +87,20 @@ REPORT_SPEC: dict[str, Any] = {
     "order_par_suspect_rate": rm.ORDER_PAR_SUSPECT_RATE,
     "order_par_critical_rate": rm.ORDER_PAR_CRITICAL_RATE,
     "order_par_multi_route_rule": "max-route-rate",
+    #: 210 §4.12：订单级「数量矛盾」容差 —— ΣAmount 与 ΣRouteShares 的偏差上限
+    #: （股数 vs 股数，与成交金额无关；F1 已确认 Amount 是委托股数）。
+    #: 实现常量见 report_measure.ORDER_AMOUNT_QTY_TOLERANCE，测试断言两处一致。
+    "amount_qty_tolerance": rm.ORDER_AMOUNT_QTY_TOLERANCE,
+    #: 210 §4.12：全局可信度横幅的四类检查（顺序即展示顺序）与其影响 KPI，
+    #: 由 report_measure.CREDIBILITY_CHECKS 派生；横幅始终渲染（含 0 触发与空数据）。
+    "credibility_checks": tuple(
+        {"id": c.id, "unit": c.unit, "affected_kpis": c.affected_kpis}
+        for c in rm.CREDIBILITY_CHECKS
+    ),
+    "credibility_always_rendered": True,
+    #: 第四类（逐笔质量）在报告层的固定状态：未检查（跨库逐笔聚合超横幅预算），
+    #: 逐笔口径由 CostView → Trader Review 当前页承载；不得写成「通过」。
+    "credibility_fill_quality": "not-checked-report-layer",
     #: D1 / DP-5 定稿：图表轴锚定硬规则（防渲染器各图各自发挥；护栏测试断言
     #: SVG 产物存在零轴元素）
     "chart_axis": {
@@ -199,6 +215,25 @@ def _p0_p1_footer_clauses() -> str:
     )
 
 
+def _credibility_footer_clause() -> str:
+    """210 §4.12：可信度横幅的口径自证（检查类数、数量矛盾容差、未检查项）。
+
+    归档 HTML 的读者只能凭脚注判断「横幅里那个 0 是没问题还是没检查」，故三类
+    事实必须进脚注：检查类数、数量矛盾的判定界、未检查项不记作通过。检查项名称
+    只在横幅与 ``credibility_checks`` 声明里出现一次，脚注不复制（防两处漂移）。
+    """
+    tolerance_pct = REPORT_SPEC["amount_qty_tolerance"] * 100
+    render_mode = (
+        "0 触发也渲染" if REPORT_SPEC["credibility_always_rendered"] else "仅触发时渲染"
+    )
+    return (
+        f"报告头可信度横幅按 {len(REPORT_SPEC['credibility_checks'])} 类检查披露"
+        f"（{render_mode}），0 触发不等于数据无缺陷、未检查项明示而不记作通过；"
+        f"数量矛盾按订单级 ΣAmount 与 ΣRouteShares 偏差 >{tolerance_pct:.1f}% 判定"
+        f"（股数口径，非金额）；"
+    )
+
+
 def _granularity_footer_clause() -> str:
     """026 新增：聚合粒度与期间键声明（由 SPEC 常量插值，不手写数值）。
 
@@ -231,6 +266,7 @@ def footer_text() -> str:
         f"{len(REPORT_SPEC['anomaly_severity_levels'])} 档，明细上限 "
         f"{REPORT_SPEC['anomaly_row_limit']} 条（全量见随附导出 CSV）；"
         f"{_p0_p1_footer_clauses()}"
+        f"{_credibility_footer_clause()}"
         f"{_granularity_footer_clause()}"
         f"已知限制见 {REPORT_SPEC['known_limitations_doc']}。"
     )

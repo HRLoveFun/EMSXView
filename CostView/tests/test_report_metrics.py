@@ -1650,8 +1650,8 @@ class TestAmountSemantics:
         assert "amount_mismatch_routes" not in consistency
         assert "amount_consistency_tolerance_pct" not in report_spec.REPORT_SPEC
         assert report_spec.REPORT_SPEC["anomaly_notional_gate"] == "fill-times-pavg-fx"
-        # F1 与 F2 为同日（2026-11-03）两次口径修订，版本号带修订后缀
-        assert report_spec.SPEC_VERSION.startswith("2026.11.03")
+        # F1/F2（2026-11-03）之后口径继续演进（210 §4.12 横幅），版本号恒不早于 F1
+        assert report_spec.SPEC_VERSION >= "2026.11.03"
 
     def test_html_shows_amount_shares_and_traded_notional(self, tca_mgr_factory):
         """HTML：新增「委托股数」列，金额显示 fill×p_avg，金额一致性告警消失。"""
@@ -2020,3 +2020,146 @@ class TestGranularityPeriodKeys:
         assert data["granularity"] == "week"
         assert [row["date"] for row in data["rows"]] == ["2026-W02"]
         assert data["rows"][0]["total_routes"] == 2
+
+
+class TestCredibilityBanner:
+    """210 §4.12：全局可信度横幅四类检查（始终渲染 / 未检查不伪装通过）。"""
+
+    @staticmethod
+    def _clean_row(order_id: str, **overrides) -> dict[str, Any]:
+        """无缺陷基线行：数量一致、参与率正常、三项成本字段齐备。"""
+        row = {
+            "OrderId": order_id, "Amount": 1000.0,
+            "arrival_cost_bps": -1.0, "opportunity_cost": 0.0,
+            "wagner_is_bps": -2.0,
+        }
+        row.update(overrides)
+        return row
+
+    @staticmethod
+    def _checks(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """report → {检查 id: 检查项}。"""
+        return {c["id"]: c for c in report["metric_coverage"]["credibility"]["checks"]}
+
+    def test_declaration_binds_spec_and_measure(self):
+        """检查项声明、容差、未检查状态在 SPEC 与实现之间单向绑定。"""
+        declared = report_spec.REPORT_SPEC["credibility_checks"]
+        assert tuple(d["id"] for d in declared) == tuple(
+            c.id for c in rm.CREDIBILITY_CHECKS
+        )
+        assert (
+            report_spec.REPORT_SPEC["amount_qty_tolerance"]
+            == rm.ORDER_AMOUNT_QTY_TOLERANCE
+        )
+        assert (
+            report_spec.REPORT_SPEC["credibility_fill_quality"]
+            == "not-checked-report-layer"
+        )
+        assert report_spec.REPORT_SPEC["credibility_always_rendered"] is True
+
+    def test_footer_discloses_banner_semantics(self):
+        """脚注必须写明横幅类数、数量矛盾判定界与「未检查不记作通过」。"""
+        footer = report_spec.footer_text()
+
+        assert f"可信度横幅按 {len(rm.CREDIBILITY_CHECKS)} 类检查" in footer
+        assert "0 触发不等于数据无缺陷" in footer
+        assert "未检查项明示而不记作通过" in footer
+        assert f"{rm.ORDER_AMOUNT_QTY_TOLERANCE * 100:.1f}%" in footer
+
+    def test_zero_triggers_renders_four_checks(self, tca_mgr_factory):
+        """全部通过时横幅仍渲染 4 类；第四类恒为未检查（不伪装通过）。"""
+        mgr = tca_mgr_factory([self._clean_row("C1")])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+
+        credibility = report["metric_coverage"]["credibility"]
+        assert [c["id"] for c in credibility["checks"]] == [
+            d.id for d in rm.CREDIBILITY_CHECKS
+        ]
+        assert credibility["checked_count"] == 3
+        assert credibility["triggered_count"] == 0
+        assert credibility["affected_kpi_count"] == 0
+        fill_quality = self._checks(report)["fill_quality"]
+        assert fill_quality["checked"] is False
+        assert fill_quality["triggered"] is None      # 不用 0 冒充「无问题」
+        assert "Trader Review" in fill_quality["note"]
+
+    def test_html_always_renders_banner(self, tca_mgr_factory):
+        """HTML：报告头之后渲染 4 类卡片，含「通过」与「未检查」两种状态。"""
+        mgr = tca_mgr_factory([self._clean_row("C1")])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-11-04 10:00:00")
+
+        for label in ("数量矛盾", "参与率异常", "成本字段缺失", "逐笔质量"):
+            assert label in html
+        assert "已检查 3/4 类 · 触发 0 类 · 影响 0 个 KPI" in html
+        assert "通过" in html
+        assert "未检查" in html
+        assert html.index("数据可信度") < html.index("市场概览")
+
+    def test_triggered_counts_and_kpi_union(self, tca_mgr_factory):
+        """三类检查各自计数，影响 KPI 取触发项的并集（去重）。"""
+        mgr = tca_mgr_factory([
+            # overfill 且三项成本字段缺失
+            {"OrderId": "Q1", "Amount": 1000.0, "fill": 1200.0},
+            # 单路由参与率越界（成本齐备，避免重复计数）
+            self._clean_row("Q2", par_rate=1.5),
+        ])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        consistency = report["metric_coverage"]["consistency"]
+        checks = self._checks(report)
+
+        assert consistency["overfill_routes"] == 1
+        assert consistency["order_par_single_suspect_orders"] == 1
+        assert consistency["cost_missing_routes"] == 1
+        assert checks["quantity"]["triggered"] == 1
+        assert checks["participation"]["triggered"] == 1
+        assert checks["cost_missing"]["triggered"] == 1
+        # 并集：completion/opportunity_cost + par_rate/anomaly_orders
+        #       + arrival_cost_bps/wagner_is_bps = 6
+        assert report["metric_coverage"]["credibility"]["affected_kpi_count"] == 6
+
+    def test_amount_qty_mismatch_uses_share_tolerance(self, tca_mgr_factory):
+        """数量矛盾比的是股数：偏差 0.04% 不触发、50% 触发。"""
+        mgr = tca_mgr_factory([
+            {"OrderId": "M1", "Amount": 1000.4, "RouteShares": 1000.0},
+            {"OrderId": "M2", "Amount": 500.0, "RouteShares": 1000.0},
+        ])
+        consistency = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803",
+        )["metric_coverage"]["consistency"]
+
+        assert consistency["amount_qty_orders"] == 2
+        assert consistency["amount_qty_mismatch_orders"] == 1
+        assert consistency["amount_qty_consistency_pct"] == 50.0
+        # F1：探针不得再出现「股数 vs 成交额」的老口径字段
+        assert "amount_consistency_pct" not in consistency
+
+    def test_tca_gap_days_join_cost_missing_card(self, tca_mgr_factory):
+        """TCA 整日缺失天数补进成本缺失卡片（与数据质量提示同源）。"""
+        mgr = tca_mgr_factory([self._clean_row("C1")])
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(
+            report, {"tca_gap_dates": ["20260804", "20260805"]},
+            "2026-11-04 10:00:00",
+        )
+
+        assert "区间内 TCA 整日缺失 2 天" in html
+
+    def test_empty_report_marks_all_unchecked(self, tmp_path: Path):
+        """表缺失时 4 类全部「未检查」并说明原因（无数据 ≠ 检查通过）。"""
+        empty_db = tmp_path / "fill_bdib.db"
+        sqlite3.connect(str(empty_db)).close()
+        mgr = ConnectionManager(path_overrides={
+            "fill_bdib": empty_db,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(mgr).build_report("20260803", "20260803")
+        html = render_report_html(report, None, "2026-11-04 10:00:00")
+
+        credibility = report["metric_coverage"]["credibility"]
+        assert credibility["checked_count"] == 0
+        assert credibility["triggered_count"] == 0
+        assert all(c["checked"] is False for c in credibility["checks"])
+        assert all(c["note"] for c in credibility["checks"])
+        assert "已检查 0/4 类 · 触发 0 类 · 影响 0 个 KPI" in html
