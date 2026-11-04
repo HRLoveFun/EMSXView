@@ -1,4 +1,4 @@
-export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'evaluation' | 'report' | 'monitoring' | 'configure';
+export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'evaluation' | 'report' | 'monitoring' | 'trader' | 'configure';
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 export type ExportScope = 'current-page' | 'all-filtered' | 'selected-order';
@@ -741,4 +741,112 @@ export interface MonitoringViewState {
   selectedMetrics: string[];
   /** 026: 覆盖率聚合粒度（缺省视为 day；历史 localStorage 无该字段时由加载层回退） */
   granularity: Granularity;
+}
+
+// ── 210：交易员复盘台（PR-1/2/3；与 CostView/src/trader_models.py 一一对应）──
+
+export type TraderSortKey =
+  | 'date'
+  | 'completion'
+  | 'arrival_bps'
+  | 'opp_cost'
+  | 'notional'
+  | 'route_count';
+export type TraderSortDir = 'asc' | 'desc';
+export type TraderCompletionBucket = 'lt50' | '50to80' | '80to100' | 'eq100' | 'gt100';
+export type TraderQualityFilter =
+  | 'all' | 'clean' | 'overfill' | 'cost_missing' | 'par_suspect' | 'single_fill';
+
+/** 列表行质量徽章：level ∈ clean/info/warn/bad；flags 为徽章 id 列表 */
+export interface TraderQuality {
+  level: string;
+  flags: string[];
+}
+
+/** 订单列表行（210 §3.4.1；null = 不可得，显示「—」，禁止按 0 解读） */
+export interface TraderOrderRow {
+  order_id: string;
+  order_as_of_date: string;
+  trader_name: string | null;
+  equ_ticker: string | null;
+  exchange: string | null;
+  side: string | null;
+  strategy_type: string | null;
+  algo: string | null;
+  broker: string | null;
+  route_count: number;
+  fill_count: number | null;
+  route_shares: number | null;
+  fill: number | null;
+  completion: number | null;
+  vwap: number | null;
+  arrival_cost_bps: number | null;
+  opportunity_cost: number | null;
+  order_duration_sec: number | null;
+  /** 当前页逐笔补列（PR-2；单笔成交为 null） */
+  fill_span_sec: number | null;
+  speed_shares_per_min: number | null;
+  passive_ratio: number | null;
+  mixed: boolean;
+  quality: TraderQuality;
+}
+
+/** KPI 卡（210 §4.13）：value null = 不可得；n/denominator/scope 供副标题 */
+export interface TraderKpiCard {
+  value: number | null;
+  n?: number | null;
+  denominator?: number | null;
+  unknown_share?: number | null;
+  critical?: number | null;
+  warning?: number | null;
+  scope?: string;
+  note?: string | null;
+}
+
+/** 全局可信度横幅单条检查（210 §4.12；checked=false 显式「未检查」） */
+export interface TraderProbeCheck {
+  id: string;
+  checked: boolean;
+  triggered: number | null;
+  affected_kpis: string[];
+  note: string | null;
+}
+
+/** GET /api/tca/trader/orders 响应 data（210 §3.4.1） */
+export interface TraderListPayload {
+  filters: { start_date: string; end_date: string; [key: string]: unknown };
+  generated_at: string;
+  total_orders: number;
+  offset: number;
+  limit: number;
+  kpi: Record<string, TraderKpiCard>;
+  probes: { checks: TraderProbeCheck[]; spec_version: string };
+  orders: TraderOrderRow[];
+}
+
+/** GET /api/tca/trader/filter-options 响应 data（210 §3.4.5） */
+export interface TraderFilterOptions {
+  traders: string[];
+  strategy_types: string[];
+  symbols?: string[];
+  brokers?: string[];
+  algos?: string[];
+  exchanges?: string[];
+}
+
+/** 前端筛选态（提交时序列化为查询参数；页面 0-based） */
+export interface TraderFilterState {
+  startDate: string;
+  endDate: string;
+  traders: string[];
+  tickers: string[];
+  sides: string[];
+  strategyTypes: string[];
+  algos: string[];
+  brokers: string[];
+  completionBucket: TraderCompletionBucket | '';
+  quality: TraderQualityFilter;
+  sort: TraderSortKey;
+  sortDir: TraderSortDir;
+  page: number;
 }
