@@ -6,10 +6,15 @@
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
+import json
 import logging
+import math
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from data_access.storage.connection import AccessTier, ConnectionManager
 
@@ -102,11 +107,12 @@ def build_filters(
     sort_dir: str = "desc",
     limit: int = 50,
     offset: int = 0,
+    order_id: Optional[str] = None,
 ) -> tmod.TraderFilters:
     """原始查询参数 → TraderFilters（含日期默认值与白名单校验）。"""
     resolved_start, resolved_end = _resolve_dates(conn, start_date, end_date)
     filters = tmod.TraderFilters(
-        start_date=resolved_start, end_date=resolved_end,
+        start_date=resolved_start, end_date=resolved_end, order_id=order_id,
         trader=parse_multi(trader), ticker=parse_multi(ticker),
         side=parse_multi(side), strategy_type=parse_multi(strategy_type),
         algo=parse_multi(algo), broker=parse_multi(broker),
@@ -234,6 +240,503 @@ def build_order_page_from_query(
     finally:
         conn.close()
     return _page_payload(filters, rows, manager)
+
+
+# ── 210 §3.4.4 / §4.14：CSV 导出（订单汇总 / 成交明细）──────────────────────
+
+#: 导出行数上限（§3.4.4：超出返回 422 提示缩小范围，不静默截断）
+EXPORT_ORDER_CAP = 50_000
+EXPORT_FILL_CAP = 500_000
+
+#: 订单汇总列（§4.14，顺序即 CSV 列顺序）
+EXPORT_ORDER_COLUMNS: tuple[str, ...] = (
+    "order_id", "order_as_of_date", "trader_name", "equ_ticker", "exchange", "side",
+    "strategy_type", "algo", "broker", "route_count", "fill_count", "route_shares",
+    "fill", "completion", "vwap", "arrival_cost_bps", "wagner_is_bps", "delay_bps",
+    "trading_bps", "opportunity_bps", "residual_bps", "fill_span_sec",
+    "speed_shares_per_min", "passive_ratio", "passive_cost_bps",
+    "aggressive_cost_bps", "unknown_share", "order_to_route_sec",
+    "route_to_first_fill_sec", "peer_n", "quality_flags",
+)
+
+#: 成交明细列（§4.14）
+EXPORT_FILL_COLUMNS: tuple[str, ...] = (
+    "order_id", "route_id", "fill_id", "ts_local", "price", "shares",
+    "liquidity_raw", "liquidity_class", "last_capacity", "last_market",
+    "exchange_exec_time", "route_as_of_time",
+)
+
+
+class ExportTooLargeError(ValueError):
+    """导出超过行数上限 → 路由层 422（明确报错，不静默截断）。"""
+
+
+def _chunks(values: list[Any], size: int) -> Iterator[list[Any]]:
+    """按固定大小切分（导出逐笔按 OrderId 键集分批，守住 SQLite 变量上限）。"""
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+#: 公式注入起始字符（Excel 会忽略前导空白/制表符，遇到时再 lstrip 判断）
+_CSV_INJECTION_HEADS = frozenset("=+-@")
+
+
+def _csv_cell(value: Any) -> Any:
+    """CSV 单元格：None → 空；文本以 ``= + - @`` 开头时前置 ``'`` 防公式注入。
+
+    数字不加固：负数是本层计算出的可信数值，前置 ``'`` 会把它变成文本、破坏
+    Excel 汇总；注入风险只来自用户可控的文本字段（order_id / ticker / broker 等）。
+    500k 笔导出时本函数会被调用数百万次，故用 ``type is`` 与首字符快路径。
+    """
+    if value is None:
+        return ""
+    if value.__class__ is str:
+        head = value[:1]
+        if head in _CSV_INJECTION_HEADS:
+            return f"'{value}"
+        # Excel 会忽略前导空白/制表符，"\t=cmd" 同样触发公式
+        if head.isspace() and value.lstrip()[:1] in _CSV_INJECTION_HEADS:
+            return f"'{value}"
+        return value
+    if value.__class__ is float:
+        return value if math.isfinite(value) else ""
+    if value.__class__ is bool:
+        return "true" if value else "false"
+    return value
+
+
+def _csv_text(value: Any) -> Any:
+    """只对文本做公式注入加固（逐笔热路径：数值原样交给 csv writer，None → 空）。"""
+    if value.__class__ is str:
+        head = value[:1]
+        if head in _CSV_INJECTION_HEADS:
+            return f"'{value}"
+        if head.isspace() and value.lstrip()[:1] in _CSV_INJECTION_HEADS:
+            return f"'{value}"
+    return value
+
+
+def _csv_header_text(
+    kind: str,
+    filters: tmod.TraderFilters,
+    columns: tuple[str, ...],
+    generated_at: str,
+) -> str:
+    """CSV 前导块：3 行 ``#`` 注释 + 英文表头（数据行按块另行输出）。"""
+    snapshot = {"kind": kind, **filters.to_payload()}
+    header = [
+        f"# spec_version={TRADER_SPEC_VERSION}",
+        f"# generated_at={generated_at}",
+        "# filters=" + json.dumps(
+            snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ),
+    ]
+    buffer = io.StringIO()
+    for line in header:
+        buffer.write(line + "\n")
+    csv.writer(buffer, lineterminator="\n").writerow(columns)
+    return buffer.getvalue()
+
+
+def _csv_lists_text(rows: list[list[Any]]) -> str:
+    """一块已按列顺序排列、且已做注入加固的数据行（逐笔导出热路径）。"""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+def _csv_cell_lists_text(rows: list[list[Any]]) -> str:
+    """一块原始值行 → CSV（订单汇总：数值需处理 NaN，故逐格经 ``_csv_cell``）。"""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerows([[_csv_cell(value) for value in row] for row in rows])
+    return buffer.getvalue()
+
+
+def _export_filename(
+    kind: str, filters: tmod.TraderFilters, generated_at: str,
+) -> str:
+    """文件名短哈希：筛选快照 + 生成时刻（流式输出下无法回算全文哈希）。"""
+    payload = json.dumps(
+        {"kind": kind, **filters.to_payload(), "generated_at": generated_at},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
+    return f"trader_{kind}_{filters.start_date}_{filters.end_date}_{digest}.csv"
+
+
+def _csv_prelude(
+    kind: str,
+    filters: tmod.TraderFilters,
+    columns: tuple[str, ...],
+    generated_at: str,
+) -> bytes:
+    """首块：BOM + 3 行注释 + 表头（后续块只含数据行）。"""
+    text = _csv_header_text(kind, filters, columns, generated_at)
+    return (chr(0xFEFF) + text).encode("utf-8")
+
+
+def _export_fill_context(
+    proc_conn: Any, raw_conn: Any, keys: list[tuple[str, str]],
+) -> dict[str, dict[str, Any]]:
+    """单块逐笔上下文（span / 速度 / 被动占比 / 交付延迟）。
+
+    与列表当前页共用 ``_context_from_aggs``（同一口径）；连接由调用方按块
+    创建/关闭（不能跨 ``yield`` 持有，见 ``_export_connections``）。
+    ``order_to_route_sec`` 另由 raw_fills 的 NY 时刻 GROUP BY 得到。
+    无逐笔的订单也建空条目，``_order_export_values`` 以 ``total_shares == 0``
+    输出空值「无逐笔」；「有逐笔但 Liquidity 全缺」时 total_shares > 0，
+    被动占比为 0.0（与列表页一致）。
+    """
+    ctx = _context_from_aggs(
+        tq.query_page_fill_agg(proc_conn, keys),
+        tq.query_page_liquidity_agg(raw_conn, keys),
+    )
+    for row in tq.query_export_latency_agg(raw_conn, keys):
+        order_create = _parse_instant(row.get("order_create"))
+        route_create = _parse_instant(row.get("route_create"))
+        if order_create is None or route_create is None:
+            continue
+        entry = ctx.setdefault(str(row.get("OrderId")), {})
+        entry["order_to_route_sec"] = (route_create - order_create).total_seconds()
+    for order_id, _order_as_of_date in keys:
+        ctx.setdefault(order_id, {})
+    return ctx
+
+
+def _order_export_values(
+    row: dict[str, Any], ctx: Optional[dict[str, Any]],
+) -> list[Any]:
+    """订单聚合行 → CSV 值列表（顺序 = ``EXPORT_ORDER_COLUMNS``）。
+
+    与列表/详情同一口径；不可得列输出空值。直接产出值列表（而非记录 dict
+    再按列名取），50k 单导出时省掉 31 次/行的键查找与 dict 构造。
+    """
+    cost = tm.cost_decomposition(
+        delay_cost=row.get("delay_cost"), trading_cost=row.get("trading_cost"),
+        opportunity_cost=row.get("opportunity_cost"),
+        wagner_is_bps=row.get("wagner_is_bps"),
+        route_shares=row.get("route_shares"), p_decision=row.get("p_decision"),
+        arrival_cost_bps=row.get("arrival_cost_bps"),
+        completion=row.get("completion"),
+    )
+    _, flags = tm.quality_flags(row)
+    ctx = ctx or {}
+    total_shares = float(ctx.get("total_shares") or 0.0)
+    unknown_share = (ctx.get("unknown_shares", 0.0) / total_shares) if total_shares else None
+    # 与列表页 `_apply_fill_context` 同界：未知 Liquidity 占比 >10% 打徽章
+    if unknown_share is not None and unknown_share > tm.LIQUIDITY_UNKNOWN_BADGE:
+        flags.append("liquidity_unknown")
+    return [
+        row.get("OrderId"),
+        row.get("order_as_of_date"),
+        row.get("trader_name"),
+        row.get("equ_ticker"),
+        row.get("exchange"),
+        row.get("side"),
+        row.get("strategy_type"),
+        row.get("algo"),
+        row.get("broker"),
+        row.get("route_count"),
+        row.get("fill_count"),
+        row.get("route_shares"),
+        row.get("fill"),
+        row.get("completion"),
+        row.get("vwap"),
+        row.get("arrival_cost_bps"),
+        row.get("wagner_is_bps"),
+        cost["delay_bps"],
+        cost["trading_bps"],
+        cost["opportunity_bps"],
+        cost["residual_bps"],
+        ctx.get("fill_span_sec"),
+        ctx.get("speed_shares_per_min"),
+        # 与列表页 `_apply_fill_context` 同界：有逐笔但 Liquidity 全缺 → 0.0（不写空）
+        (
+            ctx.get("passive_shares", 0.0) / total_shares
+            if total_shares else None
+        ),
+        # 类别成本需「逐笔价格 × Liquidity 分类」联查；批量导出不拉全量逐笔，
+        # 与页面列表同口径留空（详情端点可精确计算）。
+        None,
+        None,
+        unknown_share,
+        ctx.get("order_to_route_sec"),
+        ctx.get("route_to_first_fill_sec"),
+        # peer 需逐单 180 天同类聚合，属详情懒加载；批量导出不计算。
+        None,
+        ";".join(flags) or None,
+    ]
+
+
+def _fill_records_chunk(
+    proc_conn: Any, raw_conn: Any,
+    chunk: list[tuple[str, str]], remaining: int,
+) -> list[list[Any]]:
+    """单块逐笔导出行（processed_fills 主表 + raw_fills 补 Liquidity）。
+
+    直接产出按 ``EXPORT_FILL_COLUMNS`` 顺序、已做注入加固的值列表：500k 行时
+    「tuple → 按键名取值的 dict → 再按列名取值」两跳是主要 Python 开销。
+    """
+    columns, processed_rows = tq.query_export_fills(proc_conn, chunk, remaining)
+    if not columns:
+        return []
+    idx = {name: i for i, name in enumerate(columns)}
+    i_oid, i_rid, i_fid = idx["OrderId"], idx["RouteId"], idx["FillId"]
+    i_date = idx["order_as_of_date"]
+    i_ts, i_exec = idx.get("local_fill_datetime"), idx.get("exchange_exec_time")
+    i_price, i_shares = idx.get("FillPrice"), idx.get("FillShares")
+    i_cap, i_mkt = idx.get("LastCapacity"), idx.get("LastMarket")
+    i_route_asof = idx.get("route_as_of_time")
+
+    chunk_set = set(chunk)
+    processed = [
+        row for row in processed_rows
+        # OrderId 在同一交易日集内全局唯一；跨日同号按 (id, date) 精确归属
+        if (str(row[i_oid]), str(row[i_date])) in chunk_set
+    ]
+    if len(processed) > remaining:
+        raise ExportTooLargeError(
+            f"导出成交明细超过上限 {EXPORT_FILL_CAP:,} 行，"
+            "请缩小日期范围或加筛选条件（或指定 order_id 导出单笔）"
+        )
+    # Liquidity 只对已归属本批的逐笔补列：raw_fills 按 OrderId 取，同号跨日行
+    # 会混入，按键过滤后既避免无谓内存也保证与 processed 一一对应
+    processed_keys = {
+        (str(row[i_oid]), str(row[i_rid]), str(row[i_fid]), str(row[i_date]))
+        for row in processed
+    }
+    raw_by_key: dict[tuple[str, str, str, str], Any] = {}
+    for order_id, route_id, fill_id, oad, liquidity in (
+        tq.query_export_raw_fills(raw_conn, chunk)
+    ):
+        key = (str(order_id), str(route_id), str(fill_id), str(oad))
+        if key in processed_keys:
+            raw_by_key[key] = liquidity
+
+    rows: list[list[Any]] = []
+    for row in processed:
+        key = (str(row[i_oid]), str(row[i_rid]), str(row[i_fid]), str(row[i_date]))
+        liquidity = raw_by_key.get(key)
+        ts_local = (row[i_ts] if i_ts is not None else None) or (
+            row[i_exec] if i_exec is not None else None
+        )
+        exec_time = row[i_exec] if i_exec is not None else None
+        rows.append([
+            _csv_text(row[i_oid]),
+            _csv_text(row[i_rid]),
+            _csv_text(row[i_fid]),
+            _csv_text(ts_local),
+            row[i_price] if i_price is not None else None,
+            row[i_shares] if i_shares is not None else None,
+            _csv_text(liquidity),
+            _csv_text(tm.liquidity_class(liquidity)),
+            _csv_text(row[i_cap]) if i_cap is not None else None,
+            _csv_text(row[i_mkt]) if i_mkt is not None else None,
+            _csv_text(exec_time),
+            _csv_text(row[i_route_asof]) if i_route_asof is not None else None,
+        ])
+    return rows
+
+
+def _fill_export_count(proc_conn: Any, keys: list[tuple[str, str]]) -> int:
+    """按导出键集精确计数（跨日同号只算本批日期，与流式输出同一集合）。"""
+    key_set = set(keys)
+    total = 0
+    for chunk in _chunks(keys, tq.EXPORT_KEY_CHUNK):
+        for row in tq.query_export_fill_counts(proc_conn, chunk):
+            if (str(row.get("OrderId")), str(row.get("order_as_of_date"))) in key_set:
+                total += int(row.get("n") or 0)
+    return total
+
+
+def _iter_orders_csv(
+    manager: ConnectionManager,
+    filters: tmod.TraderFilters, rows: list[dict[str, Any]], generated_at: str,
+) -> Iterator[bytes]:
+    """订单汇总 CSV 生成器：首块表头，之后每块 400 单（内存与块成正比）。
+
+    连接在**每块**的 ``next()`` 调用内创建并关闭，绝不跨 ``yield`` 持有：
+    StreamingResponse 用 ``anyio.to_thread.run_sync`` 分次驱动同步生成器，
+    相邻两次 ``next()`` 可能落在不同工作线程，跨线程复用 sqlite 连接会抛
+    ``ProgrammingError``（``check_same_thread``）。
+    """
+    columns = EXPORT_ORDER_COLUMNS
+    yield _csv_prelude("orders", filters, columns, generated_at)
+    for chunk in _chunks(rows, tq.EXPORT_KEY_CHUNK):
+        keys = [
+            (str(row.get("OrderId")), str(row.get("order_as_of_date")))
+            for row in chunk
+        ]
+        proc_conn, raw_conn = _export_connections(manager)
+        try:
+            ctx = _export_fill_context(proc_conn, raw_conn, keys)
+        finally:
+            proc_conn.close()
+            raw_conn.close()
+        records = [
+            _order_export_values(row, ctx.get(str(row.get("OrderId"))))
+            for row in chunk
+        ]
+        yield _csv_cell_lists_text(records).encode("utf-8")
+
+
+def _iter_fills_csv(
+    manager: ConnectionManager,
+    filters: tmod.TraderFilters, keys: list[tuple[str, str]], generated_at: str,
+) -> Iterator[bytes]:
+    """成交明细 CSV 生成器：首块表头，之后每块 400 单。
+
+    与 ``_iter_orders_csv`` 同理，连接在每块 ``next()`` 内创建/关闭，
+    不跨 ``yield`` 持有（Starlette 线程池可能在不同线程完成下一次迭代）。
+    """
+    columns = EXPORT_FILL_COLUMNS
+    yield _csv_prelude("fills", filters, columns, generated_at)
+    written = 0
+    for chunk in _chunks(keys, tq.EXPORT_KEY_CHUNK):
+        proc_conn, raw_conn = _export_connections(manager)
+        try:
+            rows = _fill_records_chunk(
+                proc_conn, raw_conn, chunk, EXPORT_FILL_CAP - written,
+            )
+        finally:
+            proc_conn.close()
+            raw_conn.close()
+        written += len(rows)
+        yield _csv_lists_text(rows).encode("utf-8")
+
+
+def _export_connections(manager: ConnectionManager) -> tuple[Any, Any]:
+    """单块导出用的只读连接（processed_fills / raw_fills），由调用方就地关闭。
+
+    必须在**使用它的同一次** ``next()`` 调用内创建/使用/关闭：SQLite 默认
+    ``check_same_thread=True``，而 StreamingResponse 会把每次 ``next()`` 派发到
+    线程池的不同工作线程，跨 ``yield`` 持有的连接会在下一次迭代时抛
+    ``ProgrammingError``。缺库检查由 ``_validate_export_sources`` 在响应前完成。
+    """
+    return (
+        manager.get_connection("processed_fills", AccessTier.READ),
+        manager.get_connection("raw_fills", AccessTier.READ),
+    )
+
+
+def _validate_export_sources(manager: ConnectionManager) -> None:
+    """响应开始前确认逐笔两库可开（缺库 → ``FileNotFoundError`` → 路由 503）。"""
+    for key in ("processed_fills", "raw_fills"):
+        manager.get_connection(key, AccessTier.READ).close()
+
+
+def stream_export_csv(
+    kind: str,
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    trader: Optional[str] = None,
+    ticker: Optional[str] = None,
+    side: Optional[str] = None,
+    strategy_type: Optional[str] = None,
+    algo: Optional[str] = None,
+    broker: Optional[str] = None,
+    completion_bucket: Optional[str] = None,
+    quality: Optional[str] = None,
+    sort: str = "date",
+    sort_dir: str = "desc",
+    order_id: Optional[str] = None,
+    mgr: Optional[ConnectionManager] = None,
+) -> tuple[Iterator[bytes], str]:
+    """导出的流式入口（§3.4.4 / §8 性能预算）：``(chunks, filename)``。
+
+    - 校验、行数上限与连接可用性在返回生成器前完成：所有错误仍走路由层
+      422/404/503，不会出现「200 状态 + 半截 CSV」；
+    - 数据按 400 单一块产出（``EXPORT_KEY_CHUNK``），内存不随 50k/500k 总量增长；
+    - 与列表端点共用 ``build_filters``（同一日期默认值、枚举白名单与维度语义）。
+    """
+    if kind not in ("orders", "fills"):
+        raise ValueError(f"kind 非法: {kind!r}，可选 ['orders', 'fills']")
+    manager = _manager(mgr)
+    conn = manager.get_connection("fill_bdib", AccessTier.READ)
+    try:
+        if order_id:
+            routes = tq.query_order_routes(conn, order_id)
+            if not routes:
+                raise OrderNotFound(f"订单不存在: {order_id}")
+            if not (start_date and end_date):
+                dates = sorted({
+                    str(route.get("order_as_of_date"))
+                    for route in routes if route.get("order_as_of_date")
+                })
+                if dates:
+                    start_date = start_date or dates[0]
+                    end_date = end_date or dates[-1]
+        filters = build_filters(
+            conn, start_date=start_date, end_date=end_date,
+            trader=trader, ticker=ticker, side=side,
+            strategy_type=strategy_type, algo=algo, broker=broker,
+            completion_bucket=completion_bucket, quality=quality,
+            sort=sort, sort_dir=sort_dir, order_id=order_id,
+        )
+        rows = tq.query_order_rows(conn, filters)
+    finally:
+        conn.close()
+
+    generated_at = datetime.now().isoformat()
+    filename = _export_filename(kind, filters, generated_at)
+    _validate_export_sources(manager)
+
+    if kind == "orders":
+        if len(rows) > EXPORT_ORDER_CAP:
+            raise ExportTooLargeError(
+                f"导出订单数 {len(rows):,} 超过上限 {EXPORT_ORDER_CAP:,}，"
+                "请缩小日期范围或加筛选条件"
+            )
+        return _iter_orders_csv(manager, filters, rows, generated_at), filename
+
+    keys = sorted({
+        (str(row.get("OrderId")), str(row.get("order_as_of_date")))
+        for row in rows
+    })
+    proc_conn = manager.get_connection("processed_fills", AccessTier.READ)
+    try:
+        total = _fill_export_count(proc_conn, keys)
+    finally:
+        proc_conn.close()
+    if total > EXPORT_FILL_CAP:
+        raise ExportTooLargeError(
+            f"导出成交明细 {total:,} 行超过上限 {EXPORT_FILL_CAP:,} 行，"
+            "请缩小日期范围或加筛选条件（或指定 order_id 导出单笔）"
+        )
+    return _iter_fills_csv(manager, filters, keys, generated_at), filename
+
+
+def build_export_csv(
+    kind: str,
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    trader: Optional[str] = None,
+    ticker: Optional[str] = None,
+    side: Optional[str] = None,
+    strategy_type: Optional[str] = None,
+    algo: Optional[str] = None,
+    broker: Optional[str] = None,
+    completion_bucket: Optional[str] = None,
+    quality: Optional[str] = None,
+    sort: str = "date",
+    sort_dir: str = "desc",
+    order_id: Optional[str] = None,
+    mgr: Optional[ConnectionManager] = None,
+) -> tuple[bytes, str]:
+    """一次性取回完整 CSV（测试/脚本便利入口；HTTP 路由用 ``stream_export_csv``）。"""
+    chunks, filename = stream_export_csv(
+        kind,
+        start_date=start_date, end_date=end_date,
+        trader=trader, ticker=ticker, side=side,
+        strategy_type=strategy_type, algo=algo, broker=broker,
+        completion_bucket=completion_bucket, quality=quality,
+        sort=sort, sort_dir=sort_dir, order_id=order_id, mgr=mgr,
+    )
+    return b"".join(chunks), filename
 
 
 # ── 订单详情与逐笔补列（PR-2）─────────────────────────────────────────────
@@ -500,6 +1003,13 @@ def _page_fill_context(
         return {}
     fill_agg = _read(manager, "processed_fills", lambda c: tq.query_page_fill_agg(c, keys))
     liq_agg = _read(manager, "raw_fills", lambda c: tq.query_page_liquidity_agg(c, keys))
+    return _context_from_aggs(fill_agg, liq_agg)
+
+
+def _context_from_aggs(
+    fill_agg: list[dict[str, Any]], liq_agg: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """逐笔聚合行 → 订单上下文（列表当前页与 CSV 导出共用同一口径）。"""
     shares_by_order: dict[str, dict[str, float]] = {}
     for row in liq_agg:
         cls = tm.liquidity_class(row.get("Liquidity"))

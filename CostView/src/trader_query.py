@@ -530,6 +530,97 @@ def query_peer_orders(conn, where_clause: str, params: list[Any]) -> list[dict[s
 #: 延迟样本按 OrderId 分批（SQLite 变量上限 999；主键首列有索引，按 id 查是索引扫描）
 PEER_LATENCY_CHUNK = 200
 
+# ── 210 §3.4.4 / §4.14：导出逐笔（按 OrderId 键集分批，避免变量上限）──────────
+
+#: 导出批量键数（每键 2 个参数：400 → 800 个，仍低于旧版 SQLite 的 999 上限；
+#: 50k 单从 250 块降到 125 块，减少逐块查询与连接往返开销）
+EXPORT_KEY_CHUNK = 400
+
+
+def query_export_fills(
+    conn, keys: list[tuple[str, str]], limit: int,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    """导出逐笔（processed_fills）→ ``(columns, rows)``，最多 ``limit + 1`` 行。
+
+    返回原始 tuple 而非 dict：500k 笔时 ``dict(zip(columns, row))`` 的构造成本
+    与内存都翻倍。用 ``SELECT *`` 而非显式列：``LastCapacity`` / ``LastMarket``
+    在旧 schema 可能缺列，显式 SELECT 会让整批导出降级为空；列名由
+    ``cursor.description`` 给出，调用方按名定位缺失列（与 009 降级约定一致）。
+    ``LIMIT`` 让 500k 上限在数据库侧截断，避免无界结果集占满内存。
+    """
+    if not keys:
+        return [], []
+    where, params = _keys_where(keys)
+    try:
+        cursor = conn.execute(
+            f"SELECT * FROM {Config.PROCESSED_FILLS_TABLE} WHERE {where} "
+            "ORDER BY OrderId, exchange_exec_time, RouteId, FillId LIMIT ?",
+            [*params, limit + 1],
+        )
+    except Exception as exc:
+        logger.warning("export fills 查询失败（降级空列表）: %s", exc)
+        return [], []
+    return [d[0] for d in cursor.description], cursor.fetchall()
+
+
+def query_export_fill_counts(conn, keys: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """导出前行数预检（每订单/日期一行）。
+
+    流式响应一旦开始就无法再改状态码，因此上限必须在产出首块前判定；COUNT
+    只读索引/行头，500k 级仍远低于全量取数的成本。
+    """
+    if not keys:
+        return []
+    where, params = _keys_where(keys)
+    return _rows_or_empty(
+        conn,
+        f"SELECT OrderId, order_as_of_date, COUNT(*) AS n "
+        f"FROM {Config.PROCESSED_FILLS_TABLE} WHERE {where} "
+        "GROUP BY OrderId, order_as_of_date",
+        params,
+        "export fill counts",
+    )
+
+
+def query_export_raw_fills(conn, keys: list[tuple[str, str]]) -> list[tuple[Any, ...]]:
+    """导出逐笔的 raw_fills 侧字段 ``(OrderId, RouteId, FillId, date, Liquidity)``。
+
+    只做「主键 → Liquidity」查找，直接返回 tuple；500k 笔时省掉同规模 dict。
+    """
+    if not keys:
+        return []
+    where, params = _keys_where(keys)
+    try:
+        return conn.execute(
+            f"SELECT OrderId, RouteId, FillId, order_as_of_date, Liquidity "
+            f"FROM {Config.RAW_FILLS_TABLE} WHERE {where}",
+            params,
+        ).fetchall()
+    except Exception as exc:
+        logger.warning("export raw fills 查询失败（降级空列表）: %s", exc)
+        return []
+
+
+def query_export_latency_agg(conn, keys: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """导出用延迟聚合（每订单/日期一行）：订单创建与路由创建的最早 NY 时刻。
+
+    与详情 ``_latency_numbers`` 同口径（min(instants) 相减）；导出 50k 单时只做
+    一次 GROUP BY，不拉全量逐笔。
+    """
+    if not keys:
+        return []
+    where, params = _keys_where(keys)
+    return _rows_or_empty(
+        conn,
+        f"SELECT OrderId, order_as_of_date, "
+        f"MIN(NyOrderCreateAsOfDateTime) AS order_create, "
+        f"MIN(NyTranCreateAsOfDateTime) AS route_create "
+        f"FROM {Config.RAW_FILLS_TABLE} WHERE {where} "
+        "GROUP BY OrderId, order_as_of_date",
+        params,
+        "export latency agg",
+    )
+
 
 def query_peer_latency(
     conn, order_ids: list[str],

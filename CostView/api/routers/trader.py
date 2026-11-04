@@ -14,8 +14,10 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from CostView.api.concurrency import QueryTimeoutError, run_bounded
 from CostView.src import trader_service
 from CostView.src.trader_service import DataNotReadyError, OrderNotFound
 
@@ -156,6 +158,81 @@ async def get_trader_order_peer(
         raise HTTPException(status_code=500, detail=f"订单 peer 查询错误: {exc}")
 
     return TraderResponse(success=True, data=data, message=f"订单 {order_id} peer 分位")
+
+
+@router.get("/api/tca/trader/export")
+async def export_trader_csv(
+    kind: str = Query(..., pattern="^(orders|fills)$", description="orders / fills"),
+    start_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
+    end_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
+    trader: Optional[str] = Query(None, max_length=200, description="TraderName，逗号分隔多值"),
+    ticker: Optional[str] = Query(None, max_length=200, description="equ_ticker，逗号分隔"),
+    side: Optional[str] = Query(None, max_length=20, description="BUY/SELL，逗号分隔"),
+    strategy_type: Optional[str] = Query(None, max_length=200),
+    algo: Optional[str] = Query(None, max_length=200),
+    broker: Optional[str] = Query(None, max_length=200),
+    completion_bucket: Optional[str] = Query(None, description="lt50/50to80/80to100/eq100/gt100"),
+    quality: Optional[str] = Query(
+        None, description="all/clean/overfill/cost_missing/par_suspect/single_fill",
+    ),
+    sort: str = Query("date", description="date/completion/arrival_bps/opp_cost/notional/route_count"),
+    sort_dir: str = Query("desc", description="asc/desc"),
+    order_id: Optional[str] = Query(None, max_length=100, description="导出单笔订单"),
+):
+    """CSV 导出（§3.4.4 / §4.14）：与列表同筛选，不含分页。
+
+    UTF-8-SIG + 3 行 ``#`` 注释（spec_version / generated_at / filters）；
+    orders 超 50,000 / fills 超 500,000 → 422 要求缩小范围（不静默截断）。
+    """
+    try:
+        # 预检（订单聚合 + fills 行数 COUNT，最坏 500k 行）是同步重查询：
+        # 走 run_bounded 卸载到线程池并受并发/超时护栏约束，避免冻结事件循环
+        chunks, filename = await run_bounded(
+            trader_service.stream_export_csv,
+            kind,
+            start_date=start_date, end_date=end_date,
+            trader=trader, ticker=ticker, side=side,
+            strategy_type=strategy_type, algo=algo, broker=broker,
+            completion_bucket=completion_bucket, quality=quality,
+            sort=sort, sort_dir=sort_dir, order_id=order_id,
+        )
+    except QueryTimeoutError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "query_timeout", "message": str(exc)},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except OrderNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except DataNotReadyError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "data_not_ready", "message": str(exc)},
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}",
+            },
+        )
+    except Exception as exc:
+        # 合并模式下 5xx 字符串 detail 会被遮蔽为 "Internal server error"
+        # （backend/api/errors.py）；结构化 code 白名单放行，但文案不得携带内部异常内容
+        logger.error("交易员 CSV 导出失败: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "export_failed",
+                "message": "交易员 CSV 导出失败，请缩小范围后重试；持续失败请联系运维",
+            },
+        )
+
+    return StreamingResponse(
+        chunks,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/api/tca/trader/filter-options", response_model=TraderResponse)

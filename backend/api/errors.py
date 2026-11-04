@@ -29,13 +29,15 @@ from typing import Any, Optional, Tuple
 #: 面向调用方的业务降级错误码白名单。
 #: 与 ``CostView/api/routers/costview.py``（data_not_ready / query_timeout /
 #: data_source_unavailable）、``CostView/api/routers/monitoring.py``
-#: （bdib_scan_timeout / bdib_scan_failed）抛出的结构化 detail 一一对应。
+#: （bdib_scan_timeout / bdib_scan_failed）、``CostView/api/routers/trader.py``
+#: （export_failed）抛出的结构化 detail 一一对应。
 CLIENT_SAFE_ERROR_CODES: frozenset[str] = frozenset({
     "data_not_ready",
     "query_timeout",
     "data_source_unavailable",
     "bdib_scan_timeout",
     "bdib_scan_failed",
+    "export_failed",
 })
 
 #: 内部异常的统一对外文案（不得携带异常内容）。
