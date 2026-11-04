@@ -3,8 +3,15 @@ import { useAsyncData } from '@shared/hooks/use-async-data';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { fetchTraderFilterOptions, fetchTraderOrders, type TraderListQuery } from '../../services/api';
-import type { TraderFilterState } from '../../types';
+import {
+  fetchTraderFilterOptions,
+  fetchTraderOrderDetail,
+  fetchTraderOrders,
+  type TraderListQuery,
+} from '../../services/api';
+import { traderRowKey } from '../../lib/trader-rows';
+import type { TraderFilterState, TraderOrderRow } from '../../types';
+import { OrderReviewCard } from './OrderReviewCard';
 import { TraderFilterBar } from './TraderFilterBar';
 import { TraderKpiStrip, TraderProbesBanner } from './TraderKpiStrip';
 import { TRADER_PAGE_SIZE, TraderEmptyState, TraderOrderList } from './TraderOrderList';
@@ -46,9 +53,11 @@ function toQuery(state: TraderFilterState): TraderListQuery {
   };
 }
 
-/** 交易员复盘台（210 PR-3）：筛选 + KPI + 可信度横幅 + 订单列表 */
+/** 交易员复盘台（210 PR-3/PR-4）：筛选 + KPI + 可信度横幅 + 订单列表 + 订单详情卡 */
 export function TraderReviewView() {
   const [filters, setFilters] = useState<TraderFilterState>(INITIAL_FILTERS);
+  const [selected, setSelected] = useState<TraderOrderRow | null>(null);
+  const [bucketMin, setBucketMin] = useState(5);
   const options = useAsyncData(
     'trader-filter-options',
     () => fetchTraderFilterOptions(),
@@ -57,6 +66,17 @@ export function TraderReviewView() {
   const orders = useAsyncData(
     queryKey,
     () => fetchTraderOrders(toQuery(filters)),
+  );
+  // 详情按「订单 + 日期 + 桶宽」取数；未选中时 key=null → 不请求
+  const detailKey = selected
+    ? `${traderRowKey(selected)}|${bucketMin}`
+    : null;
+  const detail = useAsyncData(detailKey, () =>
+    fetchTraderOrderDetail({
+      orderId: selected?.order_id ?? '',
+      orderAsOfDate: selected?.order_as_of_date,
+      bucketMin,
+    }),
   );
 
   /** 非翻页的筛选变更回到第 1 页（避免停留在越界页） */
@@ -109,6 +129,20 @@ export function TraderReviewView() {
               totalOrders={payload.total_orders}
               offset={payload.offset}
               onPageChange={(page) => patch({ page })}
+              onSelect={(row) => setSelected((current) =>
+                current && traderRowKey(current) === traderRowKey(row) ? null : row)}
+              selectedKey={selected ? traderRowKey(selected) : null}
+            />
+          )}
+          {selected && (
+            <OrderReviewCard
+              detail={detail.data ?? null}
+              isLoading={detail.isLoading}
+              error={detail.error}
+              bucketMin={bucketMin}
+              onBucketMinChange={setBucketMin}
+              onClose={() => setSelected(null)}
+              onRetry={() => detail.reload()}
             />
           )}
         </>

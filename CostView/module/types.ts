@@ -850,3 +850,158 @@ export interface TraderFilterState {
   sortDir: TraderSortDir;
   page: number;
 }
+
+// ── 210 §3.4.2：订单详情契约（与 CostView/src/trader_service.py 的 _detail_payload 对齐）──
+
+/** 详情卡头：列表行口径 + 限价 / 币种 */
+export interface TraderDetailOrder extends TraderOrderRow {
+  limit_price: number | null;
+  currency: string | null;
+}
+
+/** 路由子表（completion = fill / route_shares） */
+export interface TraderDetailRoute {
+  route_id: string | null;
+  broker: string | null;
+  algo: string | null;
+  route_shares: number | null;
+  fill: number | null;
+  completion: number | null;
+  arrival_cost_bps: number | null;
+  wagner_is_bps: number | null;
+}
+
+/** 逐笔成交（processed_fills 为主表，raw_fills 按 (RouteId, FillId) 补 Liquidity） */
+export interface TraderDetailFill {
+  route_id: string | null;
+  fill_id: string | null;
+  ts_local: string | null;
+  ts_sec: number | null;
+  route_as_of_sec: number | null;
+  price: number | null;
+  shares: number | null;
+  is_closing_auction: boolean;
+  liquidity_raw: string | null;
+  liquidity_class: string;
+}
+
+/** 时间线逐桶行（桶从首笔成交起按固定宽度切，空桶补 0） */
+export interface TraderTimelineBucket {
+  start: string | null;
+  end: string | null;
+  fill: number;
+  fill_count: number;
+  vwap: number | null;
+  market_volume: number | null;
+  participation: number | null;
+  /** unavailable = 收盘竞价桶 / 无 bar（不画 0% 参与率） */
+  participation_status: 'ok' | 'unavailable';
+  cum_completion: number | null;
+  speed_shares_per_min: number;
+  accel: number | null;
+}
+
+/** 基准价（只画非空值） */
+export interface TraderTimelineBenchmarks {
+  p_decision: number | null;
+  p_arrival: number | null;
+  p_avg: number | null;
+  p_close: number | null;
+  limit_price: number | null;
+}
+
+/** 逐桶参与率与 tca_route_summary.par_rate 的对账（比值越界标「窗口/时区差异」） */
+export interface TraderParRateCheck {
+  route_par_rate: number;
+  window_participation: number;
+  ratio: number;
+  note: string | null;
+}
+
+export interface TraderTimeline {
+  bucket_min: number;
+  /** true = 桶数超 240 已自动加宽（需在 UI 披露） */
+  auto_widened: boolean;
+  buckets: TraderTimelineBucket[];
+  benchmarks: TraderTimelineBenchmarks;
+  par_rate_check: TraderParRateCheck | null;
+}
+
+/** 订单级 IS 成本分解（分母 D = RouteShares × p_decision；p_decision 缺失时 bps 全为 null） */
+export interface TraderCostBreakdown {
+  denominator: number | null;
+  delay_bps: number | null;
+  trading_bps: number | null;
+  opportunity_bps: number | null;
+  /** 货币成本原值（分母缺失时 UI 只能展示这三项，不做 bps 归一） */
+  delay_cost: number | null;
+  trading_cost: number | null;
+  opportunity_cost: number | null;
+  wagner_is_bps: number | null;
+  /** 对账项：|residual| ≥ 0.5bps 时 residual_flag = '对账异常' */
+  residual_bps: number | null;
+  residual_flag: string | null;
+  arrival_cost_bps: number | null;
+  opportunity_dominant: boolean;
+  opportunity_highlight: boolean;
+  note: string | null;
+}
+
+/** 单次填充量分布（单笔成交不计算 CV / top3） */
+export interface TraderFillStats {
+  median: number | null;
+  p90: number | null;
+  cv: number | null;
+  max_fill_ratio: number | null;
+  top3_share: number | null;
+  fills_per_min: number | null;
+}
+
+/** 主动 / 被动 / 竞价 / 未知拆分（四项股数和 = 总成交股数） */
+export interface TraderLiquiditySplit {
+  passive_share_strict: number | null;
+  aggressive_share_strict: number | null;
+  auction_share: number | null;
+  unknown_share: number | null;
+  passive_cost_bps: number | null;
+  aggressive_cost_bps: number | null;
+  recognized_share: number | null;
+  total_shares: number;
+  mapping: string;
+}
+
+/** 延迟三段（收盘 / 竞价单 scheduled = true） */
+export interface TraderLatency {
+  order_to_route_sec: number | null;
+  route_to_first_fill_sec: number | null;
+  order_to_first_fill_sec: number | null;
+  first_continuous_fill_sec: number | null;
+  scheduled: boolean;
+  latency_anomaly: boolean;
+}
+
+/** 详情质量徽章条目（与列表 quality.flags 的字符串数组不同：此处带 severity 与说明） */
+export interface TraderQualityEntry {
+  id: string;
+  severity: 'info' | 'warn' | 'bad' | string;
+  detail: string | null;
+}
+
+export interface TraderDetailQuality {
+  level: string;
+  flags: TraderQualityEntry[];
+}
+
+/** GET /api/tca/trader/orders/{order_id} 响应 data（210 §3.4.2；daily 属 P2，当前恒为 null） */
+export interface TraderOrderDetail {
+  order: TraderDetailOrder;
+  routes: TraderDetailRoute[];
+  fills: TraderDetailFill[];
+  timeline: TraderTimeline;
+  cost: TraderCostBreakdown;
+  fill_stats: TraderFillStats;
+  liquidity: TraderLiquiditySplit;
+  latency: TraderLatency;
+  daily: null;
+  quality: TraderDetailQuality;
+}

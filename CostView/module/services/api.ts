@@ -14,6 +14,7 @@ import type {
   ThresholdRule,
   TraderFilterOptions,
   TraderListPayload,
+  TraderOrderDetail,
 } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
@@ -425,6 +426,26 @@ function buildTraderUrl(
 /** 210 §3.4.1：订单列表（服务端分页/排序 + KPI + 质量探针 + 当前页逐笔补列） */
 export async function fetchTraderOrders(query: TraderListQuery): Promise<TraderListPayload> {
   return fetchMonitoringJson<TraderListPayload>(buildTraderUrl('/api/tca/trader/orders', query));
+}
+
+/**
+ * 210 §3.4.2：订单详情（routes / 逐笔 / 时间线逐桶 / 成本分解 / 质量徽章）。
+ *
+ * 跨日订单必须带 ``orderAsOfDate``（后端 (OrderId, 日期) 唯一定位，缺失时按库内
+ * 日期回退）；``bucketMin`` 仅接受后端白名单（5 / 15），非法值后端返回 422。
+ */
+export async function fetchTraderOrderDetail(params: {
+  orderId: string;
+  orderAsOfDate?: string;
+  bucketMin?: number;
+}): Promise<TraderOrderDetail> {
+  const search = new URLSearchParams();
+  if (params.orderAsOfDate) search.set('order_as_of_date', params.orderAsOfDate);
+  if (params.bucketMin != null) search.set('bucket_min', String(params.bucketMin));
+  const qs = search.toString();
+  return fetchMonitoringJson<TraderOrderDetail>(
+    `${API_BASE_URL}/api/tca/trader/orders/${encodeURIComponent(params.orderId)}${qs ? `?${qs}` : ''}`,
+  );
 }
 
 /** 210 §3.4.5：筛选下拉（traders/strategy_types 逐查询，其余复用维度表） */

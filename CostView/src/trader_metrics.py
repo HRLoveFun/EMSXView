@@ -215,6 +215,11 @@ def cost_decomposition(
         "delay_bps": delay_bps,
         "trading_bps": trading_bps,
         "opportunity_bps": opp_bps_v,
+        # 货币成本原值：p_decision 缺失时 bps 全为 None，UI 只能回退展示这三项
+        # （§4.3「只展示原始货币成本」），故随 payload 一并下发，避免前端另开接口
+        "delay_cost": delay_cost,
+        "trading_cost": trading_cost,
+        "opportunity_cost": opportunity_cost,
         "wagner_is_bps": wagner_is_bps,
         "residual_bps": residual,
         "residual_flag": (
