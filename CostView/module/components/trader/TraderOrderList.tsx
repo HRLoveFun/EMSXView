@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +9,7 @@ import {
   formatPct,
   formatShares,
 } from '../../lib/report-format';
+import { traderRowKey } from '../../lib/trader-rows';
 import type { TraderOrderRow, TraderQuality } from '../../types';
 
 /** 页大小（视图层 offset 换算与列表分页控件共用同一来源） */
@@ -38,10 +40,21 @@ interface TraderOrderListProps {
   totalOrders: number;
   offset: number;
   onPageChange: (page: number) => void;
+  /** 选中订单 → 详情卡（PR-4）；缺省时列表只读 */
+  onSelect?: (row: TraderOrderRow) => void;
+  /** 当前选中行（order_id + 日期复合键；同日多单不同 ticker 也唯一） */
+  selectedKey?: string | null;
 }
 
 /** 订单列表（210 §3.4.1）：质量徽章 + mixed 标记；成本列 tooltip 注明「负 = 成本不利」 */
-export function TraderOrderList({ orders, totalOrders, offset, onPageChange }: TraderOrderListProps) {
+export function TraderOrderList({
+  orders,
+  totalOrders,
+  offset,
+  onPageChange,
+  onSelect,
+  selectedKey,
+}: TraderOrderListProps) {
   const page = Math.floor(offset / TRADER_PAGE_SIZE);
   const from = totalOrders === 0 ? 0 : offset + 1;
   const to = Math.min(offset + TRADER_PAGE_SIZE, totalOrders);
@@ -70,7 +83,12 @@ export function TraderOrderList({ orders, totalOrders, offset, onPageChange }: T
             </thead>
             <tbody>
               {orders.map((row) => (
-                <OrderRowView key={`${row.order_id}-${row.order_as_of_date}`} row={row} />
+                <OrderRowView
+                  key={traderRowKey(row)}
+                  row={row}
+                  selected={selectedKey === traderRowKey(row)}
+                  onSelect={onSelect}
+                />
               ))}
             </tbody>
           </table>
@@ -97,9 +115,37 @@ export function TraderOrderList({ orders, totalOrders, offset, onPageChange }: T
   );
 }
 
-function OrderRowView({ row }: { row: TraderOrderRow }) {
+function OrderRowView({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: TraderOrderRow;
+  selected: boolean;
+  onSelect?: (row: TraderOrderRow) => void;
+}) {
+  /** 行选择：点击或 Enter/Space（键盘可达，选中态用 aria-selected 表达） */
+  const selectProps = onSelect
+    ? {
+        onClick: () => onSelect(row),
+        onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect(row);
+          }
+        },
+        tabIndex: 0,
+        role: 'button',
+        'aria-selected': selected,
+      }
+    : {};
   return (
-    <tr className="border-t border-muted">
+    <tr
+      className={`border-t border-muted ${onSelect ? 'cursor-pointer hover:bg-muted/50' : ''} ${
+        selected ? 'bg-primary/10' : ''
+      }`}
+      {...selectProps}
+    >
       <td className="py-0.5 pr-2">{row.order_as_of_date}</td>
       <td className="py-0.5 pr-2 font-mono">{row.order_id}</td>
       <td className="py-0.5 pr-2">{row.trader_name ?? '—'}</td>
