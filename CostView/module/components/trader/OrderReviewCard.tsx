@@ -15,6 +15,9 @@ import type { TraderOrderDetail, TraderQualityEntry } from '../../types';
 import { CostBreakdownBar } from './CostBreakdownBar';
 import { CompletionTrajectory } from './CompletionTrajectory';
 import { ExecutionTimeline } from './ExecutionTimeline';
+import { FillStatsPanel } from './FillStatsPanel';
+import { LatencyBreakdown } from './LatencyBreakdown';
+import { PassiveSplitPanel } from './PassiveSplitPanel';
 
 /** 时间桶可选项（与后端 trader_metrics.BUCKET_MINUTES 白名单一致） */
 const BUCKET_OPTIONS: number[] = [5, 15];
@@ -185,6 +188,10 @@ export function OrderReviewCard({
             <CostBreakdownBar cost={detail.cost} completion={detail.order.completion} />
             <CompletionTrajectory detail={detail} />
             <ExecutionTimeline detail={detail} />
+            {/* PR-6：详情卡第二屏（填充分布 / 主动被动 / 延迟），数据全部来自同一 payload */}
+            <FillStatsPanel stats={detail.fill_stats} fillCount={detail.order.fill_count} />
+            <PassiveSplitPanel liquidity={detail.liquidity} />
+            <LatencyBreakdown latency={detail.latency} />
           </>
         )}
       </CardContent>
