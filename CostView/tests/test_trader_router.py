@@ -48,6 +48,25 @@ class TestOrdersEndpoint:
         assert {o["order_id"] for o in body["data"]["orders"]} == {"M1", "S1"}
         assert body["data"]["probes"]["spec_version"]
 
+    def test_exchange_filter_multi_value(self, tmp_path, monkeypatch):
+        """市场筛选：exchange=LN,HK 命中这两个市场的订单，多值逗号分隔为 IN 语义。"""
+        mgr = make_manager(tmp_path, [
+            {"OrderId": "US1", "Exchange": "US"},
+            {"OrderId": "LN1", "Exchange": "LN"},
+            {"OrderId": "HK1", "Exchange": "HK"},
+        ])
+        client = _client(monkeypatch, mgr)
+
+        response = client.get(
+            "/api/tca/trader/orders",
+            params={"start_date": "20261022", "end_date": "20261022", "exchange": "LN,HK"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert {o["order_id"] for o in data["orders"]} == {"LN1", "HK1"}
+        assert data["filters"]["exchange"] == ["LN", "HK"]
+
     def test_invalid_enum_is_422(self, client):
         for params in (
             {"quality": "bad"},
@@ -100,6 +119,7 @@ class TestFilterOptionsEndpoint:
         assert "HRCHEN" in data["traders"]
         assert data["strategy_types"]
         assert data["symbols"]
+        assert data["exchanges"] == ["US"]
 
 
 class TestOrderDetailEndpoint:
@@ -150,6 +170,27 @@ class TestExportEndpoint:
         assert response.status_code == 200
         assert "trader_fills_20261020_20261022_" in response.headers["content-disposition"]
         assert "order_id,route_id,fill_id" in response.content.decode("utf-8-sig")
+
+    def test_orders_csv_respects_exchange_filter(self, tmp_path, monkeypatch):
+        """导出与列表同筛选：exchange=LN 时 CSV 只含 LN 订单。"""
+        mgr = make_manager(tmp_path, [
+            {"OrderId": "US1", "Exchange": "US"},
+            {"OrderId": "LN1", "Exchange": "LN"},
+        ])
+        client = _client(monkeypatch, mgr)
+
+        response = client.get(
+            "/api/tca/trader/export",
+            params={
+                "kind": "orders", "start_date": "20261022", "end_date": "20261022",
+                "exchange": "LN",
+            },
+        )
+
+        assert response.status_code == 200
+        text = response.content.decode("utf-8-sig")
+        assert "LN1" in text
+        assert "US1" not in text
 
     def test_invalid_kind_is_422(self, client):
         response = client.get("/api/tca/trader/export", params={"kind": "bad"})

@@ -100,7 +100,7 @@ describe('exportTraderCsv', () => {
 
     const name = await exportTraderCsv('orders', {
       startDate: '20261020', endDate: '20261022',
-      trader: ['HRCHEN'], quality: 'all', limit: 50, offset: 50,
+      trader: ['HRCHEN'], exchange: ['US', 'LN'], quality: 'all', limit: 50, offset: 50,
     });
 
     expect(name).toBe('trader_orders_20261020_20261022_abcd1234.csv');
@@ -109,6 +109,7 @@ describe('exportTraderCsv', () => {
     expect(url).toContain('kind=orders');
     expect(url).toContain('start_date=20261020');
     expect(url).toContain('trader=HRCHEN');
+    expect(url).toContain('exchange=US%2CLN');
     expect(url).not.toContain('limit=');
     expect(url).not.toContain('offset=');
     expect(url).not.toContain('quality=');      // quality=all 不发（与列表一致）

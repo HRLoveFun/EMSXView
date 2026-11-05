@@ -33,6 +33,7 @@ MAX_LIMIT = 200
 _DIM_COLUMNS: dict[str, str] = {
     "trader": "TraderName",
     "ticker": "equ_ticker",
+    "exchange": "Exchange",
     "side": "Side",
     "strategy_type": "StrategyType",
     "algo": "algo",
@@ -64,8 +65,13 @@ _QUALITY_SQL: dict[str, str] = {
 def _dim_having(filters) -> tuple[str, list[Any]]:
     """维度多值过滤（任一路由命中）→ GROUP BY 后的 HAVING 条件。
 
-    用 ``MAX(CASE WHEN col IN (...) THEN 1 END) = 1`` 表达「组内存在匹配路由」，
-    指标仍按全部路由聚合（方案 §4.1）。
+    用 ``SUM(CASE WHEN col IN (...) THEN 1 ELSE 0 END) > 0`` 表达「组内存在匹配
+    路由」，指标仍按全部路由聚合（方案 §4.1）。
+
+    不能用 ``MAX(CASE ...)``：SQLite 的裸列取值规则是「多个 min()/max() 聚合时，
+    裸列来自其中某个聚合取到极值的那一行」。多加一个会被命中路由唯一取到极值的
+    ``MAX`` 会让维度头（exchange/broker/algo/...）翻到该路由，而不是 fill 最大的
+    dominant 路由；``SUM`` 不参与该规则，筛选前后口径一致。
     """
     parts: list[str] = []
     params: list[Any] = []
@@ -75,7 +81,7 @@ def _dim_having(filters) -> tuple[str, list[Any]]:
         values = (raw,) if isinstance(raw, str) else raw
         if values:
             marks = ", ".join(["?"] * len(values))
-            parts.append(f"MAX(CASE WHEN r.{column} IN ({marks}) THEN 1 ELSE 0 END) = 1")
+            parts.append(f"SUM(CASE WHEN r.{column} IN ({marks}) THEN 1 ELSE 0 END) > 0")
             params.extend(values)
     return (" HAVING " + " AND ".join(parts)) if parts else "", params
 
@@ -209,6 +215,9 @@ def query_filter_options(
 ) -> dict[str, list[str]]:
     """筛选下拉（§3.4.5）：traders/strategy_types 逐查询；其余复用维度表。"""
     result = _dims_options(conn)
+    # 维度表缺失时 exchanges 也要回退 DISTINCT（§3.4.5），否则市场下拉为空
+    if not result.get("exchanges"):
+        result["exchanges"] = _distinct(conn, "Exchange", start_date, end_date)
     result["traders"] = _distinct(conn, "TraderName", start_date, end_date)
     result["strategy_types"] = _distinct(conn, "StrategyType", start_date, end_date)
     result["symbols"] = _symbols(conn, start_date, end_date, ticker_prefix)

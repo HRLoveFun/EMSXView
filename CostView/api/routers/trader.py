@@ -41,6 +41,7 @@ async def list_trader_orders(
     end_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
     trader: Optional[str] = Query(None, max_length=200, description="TraderName，逗号分隔多值"),
     ticker: Optional[str] = Query(None, max_length=200, description="equ_ticker 精确匹配，逗号分隔"),
+    exchange: Optional[str] = Query(None, max_length=200, description="市场（Exchange），逗号分隔"),
     side: Optional[str] = Query(None, max_length=20, description="BUY/SELL，逗号分隔"),
     strategy_type: Optional[str] = Query(None, max_length=200),
     algo: Optional[str] = Query(None, max_length=200),
@@ -64,7 +65,7 @@ async def list_trader_orders(
     try:
         data = trader_service.build_order_page_from_query(
             start_date=start_date, end_date=end_date,
-            trader=trader, ticker=ticker, side=side,
+            trader=trader, ticker=ticker, exchange=exchange, side=side,
             strategy_type=strategy_type, algo=algo, broker=broker,
             completion_bucket=completion_bucket, quality=quality,
             sort=sort, sort_dir=sort_dir, limit=limit, offset=offset,
@@ -167,6 +168,7 @@ async def export_trader_csv(
     end_date: Optional[str] = Query(None, pattern=_DATE_PATTERN),
     trader: Optional[str] = Query(None, max_length=200, description="TraderName，逗号分隔多值"),
     ticker: Optional[str] = Query(None, max_length=200, description="equ_ticker，逗号分隔"),
+    exchange: Optional[str] = Query(None, max_length=200, description="市场（Exchange），逗号分隔"),
     side: Optional[str] = Query(None, max_length=20, description="BUY/SELL，逗号分隔"),
     strategy_type: Optional[str] = Query(None, max_length=200),
     algo: Optional[str] = Query(None, max_length=200),
@@ -191,7 +193,7 @@ async def export_trader_csv(
             trader_service.stream_export_csv,
             kind,
             start_date=start_date, end_date=end_date,
-            trader=trader, ticker=ticker, side=side,
+            trader=trader, ticker=ticker, exchange=exchange, side=side,
             strategy_type=strategy_type, algo=algo, broker=broker,
             completion_bucket=completion_bucket, quality=quality,
             sort=sort, sort_dir=sort_dir, order_id=order_id,

@@ -7,6 +7,7 @@ export const TRADER_PAGE_SIZE = 50;
 export const INITIAL_TRADER_FILTERS: TraderFilterState = {
   startDate: '',
   endDate: '',
+  exchanges: [],
   traders: [],
   tickers: [],
   sides: [],
@@ -27,6 +28,7 @@ export function traderFiltersToQuery(state: TraderFilterState): TraderListQuery 
     endDate: state.endDate || undefined,
     trader: state.traders.length ? state.traders : undefined,
     ticker: state.tickers.length ? state.tickers : undefined,
+    exchange: state.exchanges.length ? state.exchanges : undefined,
     side: state.sides.length ? state.sides : undefined,
     strategyType: state.strategyTypes.length ? state.strategyTypes : undefined,
     algo: state.algos.length ? state.algos : undefined,

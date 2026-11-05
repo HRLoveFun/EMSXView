@@ -15,8 +15,8 @@ from typing import Any, Optional
 class TraderFilters:
     """订单列表筛选与分页参数（trader_query / trader_service 共用）。
 
-    维度筛选（trader/ticker/side/strategy_type/algo/broker）为多值 IN 语义，
-    订单级命中 = **任一路由命中**（方案 §4.1）；指标仍按全部路由聚合。
+    维度筛选（trader/ticker/side/strategy_type/algo/broker/exchange）为多值 IN
+    语义，订单级命中 = **任一路由命中**（方案 §4.1）；指标仍按全部路由聚合。
     """
 
     start_date: str
@@ -25,6 +25,8 @@ class TraderFilters:
     order_id: Optional[str] = None
     trader: Optional[tuple[str, ...]] = None
     ticker: Optional[tuple[str, ...]] = None
+    #: 市场（tca_route_summary.Exchange），如 US / LN / HK
+    exchange: Optional[tuple[str, ...]] = None
     side: Optional[tuple[str, ...]] = None
     strategy_type: Optional[tuple[str, ...]] = None
     algo: Optional[tuple[str, ...]] = None
@@ -42,7 +44,9 @@ class TraderFilters:
             "start_date": self.start_date,
             "end_date": self.end_date,
         }
-        for key in ("trader", "ticker", "side", "strategy_type", "algo", "broker"):
+        for key in (
+            "trader", "ticker", "exchange", "side", "strategy_type", "algo", "broker",
+        ):
             values = getattr(self, key)
             if values:
                 payload[key] = list(values)

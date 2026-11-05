@@ -81,6 +81,25 @@ class TestOrderAggregation:
         rows = _rows(mgr, algo="pov")
         assert [r["OrderId"] for r in rows] == ["M1"]
 
+    def test_exchange_filter_matches_any_route(self, tmp_path):
+        """市场维度筛选：订单内**任一路由**命中即命中；订单头仍取 dominant 路由的 Exchange。"""
+        rows = [dict(row) for row in _multi_route_rows()]
+        # M1 的次路由 R2（fill 200，非 dominant）落在 LN → exchange=LN 应命中 M1
+        rows[1]["Exchange"] = "LN"
+        rows.append(
+            {"OrderId": "L1", "RouteId": "R1", "Exchange": "LN",
+             "fill": 500.0, "RouteShares": 500.0, "p_avg": 200.0},
+        )
+        mgr = make_manager(tmp_path, rows)
+
+        ln_rows = {r["OrderId"]: r for r in _rows(mgr, exchange="LN")}
+        assert set(ln_rows) == {"M1", "L1"}
+        assert ln_rows["L1"]["exchange"] == "LN"
+        # M1 只有次路由命中 LN，dominant 路由（R1, fill 700）仍是 US
+        assert ln_rows["M1"]["exchange"] == "US"
+        assert {r["OrderId"] for r in _rows(mgr, exchange=("US", "LN"))} == {"M1", "S1", "L1"}
+        assert _rows(mgr, exchange="HK") == []
+
     def test_empty_table_returns_empty(self, tmp_path):
         mgr = make_manager(tmp_path, [])
         assert _rows(mgr) == []
@@ -136,6 +155,8 @@ class TestFilterOptions:
 
         assert options["traders"] == ["ALICE", "HRCHEN"]
         assert options["strategy_types"] == ["CLOSE", "VWAP"]
+        # 维度表缺失 → exchanges 回退 tca_route_summary DISTINCT（默认夹具 US）
+        assert options["exchanges"] == ["US"]
 
     def test_ticker_prefix_autocomplete(self, tmp_path):
         mgr = make_manager(tmp_path, [

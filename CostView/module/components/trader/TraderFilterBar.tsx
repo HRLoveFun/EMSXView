@@ -133,6 +133,7 @@ export function TraderFilterBar({
   }> = [
     { key: 'traders', label: '交易员', values: state.traders },
     { key: 'tickers', label: '标的', values: state.tickers },
+    { key: 'exchanges', label: '市场', values: state.exchanges },
     { key: 'sides', label: '方向', values: state.sides },
     { key: 'strategyTypes', label: '策略', values: state.strategyTypes },
     { key: 'algos', label: '算法', values: state.algos },
@@ -168,6 +169,7 @@ export function TraderFilterBar({
     onChange({
       startDate: '',
       endDate: '',
+      exchanges: [],
       traders: [],
       tickers: [],
       sides: [],
@@ -189,7 +191,7 @@ export function TraderFilterBar({
         onDelete={handleDeleteView}
       />
 
-      <div className="grid grid-cols-2 items-end gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 items-end gap-3 md:grid-cols-3 xl:grid-cols-7">
         <DateRangeInput
           key={`start-${state.startDate}`}
           label="开始日期（留空 = 最近 5 交易日）"
@@ -202,6 +204,17 @@ export function TraderFilterBar({
           value={state.endDate}
           onCommit={(value) => update({ endDate: value })}
         />
+        <div className="space-y-1">
+          <SearchableSelect
+            label="市场"
+            options={options?.exchanges ?? []}
+            value={state.exchanges}
+            onChange={(values) => update({ exchanges: values })}
+            recentScope="trader.exchanges"
+            placeholder="全部市场"
+            emptyLabel="全部市场"
+          />
+        </div>
         <div className="space-y-1">
           <SearchableSelect
             label="交易员"
