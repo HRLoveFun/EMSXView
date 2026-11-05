@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useReducer, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { fetchRegimeDistribution, type RegimeDistributionRow } from '../services/api';
+import { SegmentedField } from './SegmentedField';
 
 type RegimeDim = 'vol_regime' | 'liq_regime' | 'trend_regime';
+
+const REGIME_DIM_OPTIONS = [
+  { value: 'vol_regime', label: 'vol' },
+  { value: 'liq_regime', label: 'liq' },
+  { value: 'trend_regime', label: 'trend' },
+];
 
 const REGIME_COLORS: Record<string, string> = {
   low: '#10b981',     // green
@@ -119,15 +126,12 @@ export function RegimeDistributionPanel({ startDate, endDate, marketCode }: Prop
             {' · '}{totalFills.toLocaleString()} fills
           </p>
         </div>
-        <select
-          className="text-xs border rounded px-2 py-1"
+        <SegmentedField
+          ariaLabel="Regime dimension"
+          options={REGIME_DIM_OPTIONS}
           value={regimeDim}
-          onChange={(e) => setRegimeDim(e.target.value as RegimeDim)}
-        >
-          <option value="vol_regime">vol_regime</option>
-          <option value="liq_regime">liq_regime</option>
-          <option value="trend_regime">trend_regime</option>
-        </select>
+          onChange={(value) => setRegimeDim(value as RegimeDim)}
+        />
       </div>
       {state.loading && <div className="text-xs text-gray-500">Loading…</div>}
       {state.error && <div className="text-xs text-red-600">Error: {state.error}</div>}
