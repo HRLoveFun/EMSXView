@@ -74,6 +74,12 @@ function summarize(values: string[], emptyLabel = '全部'): string {
   return values.length > MAX_CHIP_NAMES ? `${names} +${values.length - MAX_CHIP_NAMES}` : names;
 }
 
+/** 「标的」允许一次输入/粘贴多个 ticker（逗号分隔），拆成独立值并去重 */
+function splitTickerValues(values: string[]): string[] {
+  const next = values.flatMap((value) => value.split(',').map((item) => item.trim()).filter(Boolean));
+  return [...new Set(next)];
+}
+
 /** 筛选栏（210 §3.4.1）：常用维度一屏可达，长尾维度收进「更多筛选」，变更即生效并回到第 1 页 */
 export function TraderFilterBar({
   state, options, isLoading, onChange, onRefresh,
@@ -197,7 +203,6 @@ export function TraderFilterBar({
           onCommit={(value) => update({ endDate: value })}
         />
         <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">交易员</Label>
           <SearchableSelect
             label="交易员"
             options={options?.traders ?? []}
@@ -207,12 +212,11 @@ export function TraderFilterBar({
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">标的</Label>
           <SearchableSelect
             label="标的"
             options={options?.symbols ?? []}
             value={state.tickers}
-            onChange={(values) => update({ tickers: values })}
+            onChange={(values) => update({ tickers: splitTickerValues(values) })}
             allowCustom
             recentScope="trader.tickers"
             placeholder="搜索或输入标的代码…"
@@ -255,7 +259,6 @@ export function TraderFilterBar({
         <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
           <div className="grid grid-cols-2 items-end gap-3 md:grid-cols-3">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">策略</Label>
               <SearchableSelect
                 label="策略"
                 options={options?.strategy_types ?? []}
@@ -265,7 +268,6 @@ export function TraderFilterBar({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">算法</Label>
               <SearchableSelect
                 label="算法"
                 options={options?.algos ?? []}
@@ -275,7 +277,6 @@ export function TraderFilterBar({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Broker</Label>
               <SearchableSelect
                 label="Broker"
                 options={options?.brokers ?? []}

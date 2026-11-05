@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAsyncData } from '@shared/hooks/use-async-data';
+import { matchesKeywords } from '@shared/lib/search-match';
 import { DatabaseZap, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -88,12 +89,9 @@ const SummaryCards = ({ health, coverage }: { health: BdibHealthReport; coverage
 const MetricTogglePanel = ({ state, onChange }: { state: MonitoringViewState; onChange: (s: MonitoringViewState) => void }) => {
   const [query, setQuery] = useState('');
   const [onlySelected, setOnlySelected] = useState(false);
-  const keywords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const visibleMetrics = ALL_TCA_METRICS.filter((metric) => {
     if (onlySelected && !state.selectedMetrics.includes(metric)) return false;
-    if (!keywords.length) return true;
-    const haystack = `${metric} ${METRIC_LABELS[metric] ?? ''}`.toLowerCase();
-    return keywords.every((keyword) => haystack.includes(keyword));
+    return matchesKeywords(query, `${metric} ${METRIC_LABELS[metric] ?? ''}`);
   });
   const toggle = (metric: string, checked: boolean) => {
     const selected = checked

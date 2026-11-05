@@ -3,6 +3,7 @@ import { Filter, Search } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { matchesKeywords } from '@shared/lib/search-match';
 
 interface MultiSelectFilterPopoverProps {
   label: string;
@@ -32,22 +33,21 @@ export function MultiSelectFilterPopover({
 }: MultiSelectFilterPopoverProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [cursor, setCursor] = useState(-1);
+  /** 用值而不是下标记录键盘光标：已选置顶重排后光标不会漂移到别的项 */
+  const [cursorValue, setCursorValue] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const active = selected.length > 0;
 
   const visible = useMemo(() => {
-    const keywords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const matched = options.filter((option) => {
-      const haystack = `${option} ${displayNames?.[option] ?? ''}`.toLowerCase();
-      return keywords.every((keyword) => haystack.includes(keyword));
-    });
+    const matched = options.filter((option) => matchesKeywords(query, `${option} ${displayNames?.[option] ?? ''}`));
     return matched.sort((a, b) => {
       const rank = (option: string) => (selectedSet.has(option) ? 0 : 1);
       return rank(a) - rank(b) || a.localeCompare(b, undefined, { sensitivity: 'base' });
     });
   }, [options, query, selectedSet, displayNames]);
+
+  const cursor = cursorValue ? visible.indexOf(cursorValue) : -1;
 
   function toggle(option: string) {
     if (selectedSet.has(option)) onChange(selected.filter((item) => item !== option));
@@ -57,16 +57,26 @@ export function MultiSelectFilterPopover({
   function handleOpenChange(next: boolean) {
     setOpen(next);
     setQuery('');
-    setCursor(-1);
+    setCursorValue(null);
+  }
+
+  function moveCursor(delta: number) {
+    const count = visible.length;
+    if (!count) return;
+    const current = cursorValue ? visible.indexOf(cursorValue) : -1;
+    const next = current < 0
+      ? (delta > 0 ? 0 : count - 1)
+      : (current + delta + count) % count;
+    setCursorValue(visible[next] ?? null);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setCursor((current) => (visible.length ? (current + 1) % visible.length : -1));
+      moveCursor(1);
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setCursor((current) => (visible.length ? (current - 1 + visible.length) % visible.length : -1));
+      moveCursor(-1);
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (visible[cursor]) toggle(visible[cursor]);
@@ -95,6 +105,7 @@ export function MultiSelectFilterPopover({
       <PopoverContent
         className="w-56 p-2"
         align="start"
+        onClick={(event) => event.stopPropagation()}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           inputRef.current?.focus();
@@ -129,7 +140,7 @@ export function MultiSelectFilterPopover({
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
-              setCursor(-1);
+              setCursorValue(null);
             }}
             onKeyDown={handleKeyDown}
             placeholder={`搜索 ${label}…`}

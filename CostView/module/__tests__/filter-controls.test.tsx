@@ -109,6 +109,58 @@ describe('SearchableSelect', () => {
     expect(onChange).toHaveBeenCalledWith(['Bob Li']);
   });
 
+  it('allowCustom 下输入恰好等于已有选项时 Enter 直接选中', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <SearchableSelect
+        label="标的"
+        options={options}
+        value={[]}
+        onChange={onChange}
+        allowCustom
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '标的' }));
+    await user.type(screen.getByRole('combobox'), 'Alice Chen');
+    await user.keyboard('{Enter}');
+
+    expect(onChange).toHaveBeenCalledWith(['Alice Chen']);
+  });
+
+  it('键盘光标按值定位：已选项跳到「已选」分组后再次 Enter 仍作用于同一项', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <SearchableSelect label="标的" options={['Alpha', 'Beta', 'Gamma']} value={[]} onChange={onChange} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '标的' }));
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
+    expect(onChange).toHaveBeenLastCalledWith(['Gamma']);
+
+    rerender(
+      <SearchableSelect label="标的" options={['Alpha', 'Beta', 'Gamma']} value={['Gamma']} onChange={onChange} />,
+    );
+    await user.keyboard('{Enter}');
+    expect(onChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it('已选 chip 超过上限时折叠为 +N，避免上百个徽标撑高筛选栏', () => {
+    render(
+      <SearchableSelect
+        label="标的"
+        options={[]}
+        value={['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('button', { name: /^移除 / })).toHaveLength(6);
+    expect(screen.getByText('还有 2 项')).toBeInTheDocument();
+  });
+
   it('allowCustom 可把未知输入添加为值', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

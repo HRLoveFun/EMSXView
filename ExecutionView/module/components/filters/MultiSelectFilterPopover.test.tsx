@@ -83,4 +83,39 @@ describe('MultiSelectFilterPopover', () => {
     expect(screen.getByText('Include')).toBeInTheDocument();
     expect(screen.getByText('Exclude')).toBeInTheDocument();
   });
+
+  it('弹层内点击不冒泡到外层（避免同时触发列排序）', async () => {
+    const user = userEvent.setup();
+    const onOuterClick = vi.fn();
+    render(
+      <div onClick={onOuterClick}>
+        <MultiSelectFilterPopover label="status" options={options} selected={[]} onChange={() => {}} />
+      </div>,
+    );
+
+    await user.click(screen.getByRole('button'));
+    onOuterClick.mockClear();
+    await user.click(screen.getByLabelText('WORKING'));
+
+    expect(onOuterClick).not.toHaveBeenCalled();
+  });
+
+  it('搜索可同时匹配展示名（如 Pending Cancel → PENDING_CANCEL）', async () => {
+    const user = userEvent.setup();
+    render(
+      <MultiSelectFilterPopover
+        label="status"
+        options={['PENDING_CANCEL', 'FILLED']}
+        selected={[]}
+        onChange={() => {}}
+        displayNames={{ PENDING_CANCEL: 'Pending Cancel', FILLED: 'Filled' }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('combobox'), 'pending cancel');
+
+    expect(screen.getByText('Pending Cancel')).toBeInTheDocument();
+    expect(screen.queryByText('Filled')).not.toBeInTheDocument();
+  });
 });

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { matchesKeywords } from '@shared/lib/search-match';
 import { cn } from '@shared/lib/utils';
 import { loadRecentValues, recordRecentValue } from '../lib/recent-values';
 
@@ -38,6 +39,8 @@ interface OptionGroup {
 }
 
 const MAX_HINT_ITEMS = 2;
+/** 触发框下方最多展示的已选 chip 数，其余折叠为 +N */
+const MAX_VISIBLE_CHIPS = 6;
 
 function displayValue(value: string, displayNames?: Record<string, string>): string {
   return displayNames?.[value] ?? value;
@@ -73,19 +76,16 @@ export function SearchableSelect({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [cursor, setCursor] = useState(-1);
+  /** 用值而不是下标记录键盘光标：列表按「已选/最近」重排后光标不会漂移到别的项 */
+  const [cursorValue, setCursorValue] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>(() => (recentScope ? loadRecentValues(recentScope) : []));
 
   const selectedSet = useMemo(() => new Set(value), [value]);
   const recentSet = useMemo(() => new Set(recent), [recent]);
-  const filtered = useMemo(() => {
-    const keywords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!keywords.length) return [...options];
-    return options.filter((option) => {
-      const haystack = `${option} ${displayNames?.[option] ?? ''}`.toLowerCase();
-      return keywords.every((keyword) => haystack.includes(keyword));
-    });
-  }, [options, query, displayNames]);
+  const filtered = useMemo(
+    () => options.filter((option) => matchesKeywords(query, `${option} ${displayNames?.[option] ?? ''}`)),
+    [options, query, displayNames],
+  );
 
   const ordered = useMemo(() => {
     const base = [...filtered].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -114,6 +114,7 @@ export function SearchableSelect({
   }, [ordered, query, selectedSet, recentSet]);
 
   const visibleOptions = groups.flatMap((group) => group.options);
+  const cursor = cursorValue ? visibleOptions.indexOf(cursorValue) : -1;
   const trimmedQuery = query.trim();
   const customCandidate = allowCustom
     && trimmedQuery.length > 0
@@ -152,20 +153,30 @@ export function SearchableSelect({
   function handleOpenChange(next: boolean) {
     setOpen(next);
     setQuery('');
-    setCursor(-1);
+    setCursorValue(null);
   }
 
   function moveCursor(delta: number) {
     const count = visibleOptions.length;
     if (!count) return;
-    setCursor((current) => (current < 0
+    const current = cursorValue ? visibleOptions.indexOf(cursorValue) : -1;
+    const next = current < 0
       ? (delta > 0 ? 0 : count - 1)
-      : (current + delta + count) % count));
+      : (current + delta + count) % count;
+    setCursorValue(visibleOptions[next] ?? null);
   }
 
   function confirmCursor() {
     if (cursor >= 0 && visibleOptions[cursor]) {
       toggle(visibleOptions[cursor]);
+      return;
+    }
+    if (!trimmedQuery) return;
+    // 输入恰好等于某个已有选项时，直接按 Enter 应选中它，而不是要求先按 ↓
+    const exact = options.find((option) => option.toLowerCase() === trimmedQuery.toLowerCase());
+    if (exact) {
+      toggle(exact);
+      setQuery('');
       return;
     }
     if (customCandidate) {
@@ -303,7 +314,7 @@ export function SearchableSelect({
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value);
-                setCursor(-1);
+                setCursorValue(null);
               }}
               onKeyDown={handleKeyDown}
               placeholder={placeholder ?? '输入搜索…'}
@@ -341,7 +352,7 @@ export function SearchableSelect({
       </Popover>
       {multiple && value.length > 0 ? (
         <div className="flex max-w-full flex-wrap gap-1">
-          {value.map((item) => (
+          {value.slice(0, MAX_VISIBLE_CHIPS).map((item) => (
             <Badge key={item} variant="secondary" className="gap-1 pr-1 text-[10px]">
               <span className="max-w-32 truncate">{displayValue(item, displayNames)}</span>
               <button
@@ -354,6 +365,11 @@ export function SearchableSelect({
               </button>
             </Badge>
           ))}
+          {value.length > MAX_VISIBLE_CHIPS ? (
+            <Badge variant="outline" className="text-[10px]" title={value.slice(MAX_VISIBLE_CHIPS).map((item) => displayValue(item, displayNames)).join(', ')}>
+              还有 {value.length - MAX_VISIBLE_CHIPS} 项
+            </Badge>
+          ) : null}
         </div>
       ) : null}
     </div>

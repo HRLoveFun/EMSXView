@@ -93,6 +93,7 @@ CostView 的 `lib/saved-views.ts` / `lib/recent-values.ts` 可直接作为模板
 ## 5. 复用注意
 
 - CostView 的新组件是模块内实现，未放到 `frontend/src/components`；ExecutionView 目前维护自己的 `MultiSelectFilterPopover`，避免跨模块深引用。
+- 多关键词匹配（含展示名命中）已抽到 `frontend/src/shared/lib/search-match.ts`，CostView 与 ExecutionView 共用；后续抽组件时连同存储前缀一起参数化。
 - 若后续三个模块都要用，建议把 `SearchableSelect` / `SegmentedField` 抽到 `frontend/src/components/filters/`，再让各模块引用共享实现；同时把存储前缀从 `emsx_costview_*` 参数化。
 - 改造 `MarketView` 前先读 `MarketView/module/components/monitor-board-panel.test.tsx`：该文件的按钮名、`aria-haspopup="dialog"`、`Filter · Exchange` 标题等断言会随控件形态变化而失效。
 

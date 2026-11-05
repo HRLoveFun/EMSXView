@@ -143,6 +143,24 @@ describe('TraderReviewView', () => {
     });
   });
 
+  it('「标的」支持逗号分隔一次输入多个 ticker', async () => {
+    const user = userEvent.setup();
+    render(<TraderReviewView />);
+    await waitFor(() => expect(screen.getByText('5292736')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '标的' }));
+    await user.type(
+      screen.getByRole('combobox', { name: '搜索标的' }),
+      'ABCD US Equity, BBCD US Equity',
+    );
+    await user.click(screen.getByRole('button', { name: /添加自定义/ }));
+
+    await waitFor(() => {
+      const lastCall = mockOrders.mock.calls[mockOrders.mock.calls.length - 1][0];
+      expect(lastCall.ticker).toEqual(['ABCD US Equity', 'BBCD US Equity']);
+    });
+  });
+
   it('保存筛选视图并可一键套用', async () => {
     const user = userEvent.setup();
     render(<TraderReviewView />);
