@@ -9,11 +9,9 @@ import {
   formatPct,
   formatShares,
 } from '../../lib/report-format';
+import { TRADER_PAGE_SIZE } from '../../lib/trader-filters';
 import { traderRowKey } from '../../lib/trader-rows';
 import type { TraderOrderRow, TraderQuality } from '../../types';
-
-/** 页大小（视图层 offset 换算与列表分页控件共用同一来源） */
-export const TRADER_PAGE_SIZE = 50;
 
 const QUALITY_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   bad: 'destructive',

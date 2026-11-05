@@ -10,16 +10,16 @@ import {
   fetchTraderOrders,
   fetchTraderPeerStats,
   type TraderExportKind,
-  type TraderListQuery,
 } from '../../services/api';
 import { traderRowKey } from '../../lib/trader-rows';
+import { INITIAL_TRADER_FILTERS, traderFiltersToQuery } from '../../lib/trader-filters';
 import type { CostViewModuleTab, TraderFilterState, TraderOrderRow } from '../../types';
 import { AnomalySummary } from './AnomalySummary';
 import { CredibilityBanner } from './CredibilityBanner';
 import { OrderReviewCard } from './OrderReviewCard';
 import { TraderFilterBar } from './TraderFilterBar';
 import { TraderKpiStrip } from './TraderKpiStrip';
-import { TRADER_PAGE_SIZE, TraderEmptyState, TraderOrderList } from './TraderOrderList';
+import { TraderEmptyState, TraderOrderList } from './TraderOrderList';
 
 /** 选中订单的最小身份（可能来自列表或异常摘要 Top5，后者不在当前页） */
 type SelectedOrder = Pick<TraderOrderRow, 'order_id' | 'order_as_of_date'>;
@@ -29,46 +29,9 @@ interface TraderReviewViewProps {
   onNavigateTab?: (tab: CostViewModuleTab) => void;
 }
 
-/** 初始筛选态：日期留空 = 后端默认最近 5 个交易日（210 §3.4.1） */
-const INITIAL_FILTERS: TraderFilterState = {
-  startDate: '',
-  endDate: '',
-  traders: [],
-  tickers: [],
-  sides: [],
-  strategyTypes: [],
-  algos: [],
-  brokers: [],
-  completionBucket: '',
-  quality: 'all',
-  sort: 'date',
-  sortDir: 'desc',
-  page: 0,
-};
-
-/** 筛选态 → 查询参数（空日期/空数组不发送，由后端取默认） */
-function toQuery(state: TraderFilterState): TraderListQuery {
-  return {
-    startDate: state.startDate || undefined,
-    endDate: state.endDate || undefined,
-    trader: state.traders.length ? state.traders : undefined,
-    ticker: state.tickers.length ? state.tickers : undefined,
-    side: state.sides.length ? state.sides : undefined,
-    strategyType: state.strategyTypes.length ? state.strategyTypes : undefined,
-    algo: state.algos.length ? state.algos : undefined,
-    broker: state.brokers.length ? state.brokers : undefined,
-    completionBucket: state.completionBucket || undefined,
-    quality: state.quality,
-    sort: state.sort,
-    sortDir: state.sortDir,
-    limit: TRADER_PAGE_SIZE,
-    offset: state.page * TRADER_PAGE_SIZE,
-  };
-}
-
 /** 交易员复盘台（210 PR-3/4/5）：筛选 + KPI + 可信度横幅 + 异常摘要 + 列表 + 详情卡 */
 export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) {
-  const [filters, setFilters] = useState<TraderFilterState>(INITIAL_FILTERS);
+  const [filters, setFilters] = useState<TraderFilterState>(INITIAL_TRADER_FILTERS);
   const [selected, setSelected] = useState<SelectedOrder | null>(null);
   const [bucketMin, setBucketMin] = useState(5);
   const [exporting, setExporting] = useState<TraderExportKind | null>(null);
@@ -77,10 +40,10 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
     'trader-filter-options',
     () => fetchTraderFilterOptions(),
   );
-  const queryKey = useMemo(() => JSON.stringify(toQuery(filters)), [filters]);
+  const queryKey = useMemo(() => JSON.stringify(traderFiltersToQuery(filters)), [filters]);
   const orders = useAsyncData(
     queryKey,
-    () => fetchTraderOrders(toQuery(filters)),
+    () => fetchTraderOrders(traderFiltersToQuery(filters)),
   );
   // 详情按「订单 + 日期 + 桶宽」取数；未选中时 key=null → 不请求
   const detailKey = selected
@@ -113,7 +76,7 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
     setExporting(kind);
     setExportError(null);
     try {
-      await exportTraderCsv(kind, toQuery(filters));
+      await exportTraderCsv(kind, traderFiltersToQuery(filters));
     } catch (error) {
       setExportError(error instanceof Error ? error.message : String(error));
     } finally {
