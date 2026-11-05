@@ -881,6 +881,8 @@ export interface TraderFilterOptions {
 export interface TraderFilterState {
   startDate: string;
   endDate: string;
+  /** 市场（Exchange），如 US / LN / HK */
+  exchanges: string[];
   traders: string[];
   tickers: string[];
   sides: string[];

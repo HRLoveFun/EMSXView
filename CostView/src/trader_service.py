@@ -97,6 +97,7 @@ def build_filters(
     end_date: Optional[str] = None,
     trader: Optional[str] = None,
     ticker: Optional[str] = None,
+    exchange: Optional[str] = None,
     side: Optional[str] = None,
     strategy_type: Optional[str] = None,
     algo: Optional[str] = None,
@@ -114,6 +115,7 @@ def build_filters(
     filters = tmod.TraderFilters(
         start_date=resolved_start, end_date=resolved_end, order_id=order_id,
         trader=parse_multi(trader), ticker=parse_multi(ticker),
+        exchange=parse_multi(exchange),
         side=parse_multi(side), strategy_type=parse_multi(strategy_type),
         algo=parse_multi(algo), broker=parse_multi(broker),
         completion_bucket=completion_bucket, quality=quality,
@@ -634,6 +636,7 @@ def stream_export_csv(
     end_date: Optional[str] = None,
     trader: Optional[str] = None,
     ticker: Optional[str] = None,
+    exchange: Optional[str] = None,
     side: Optional[str] = None,
     strategy_type: Optional[str] = None,
     algo: Optional[str] = None,
@@ -671,7 +674,7 @@ def stream_export_csv(
                     end_date = end_date or dates[-1]
         filters = build_filters(
             conn, start_date=start_date, end_date=end_date,
-            trader=trader, ticker=ticker, side=side,
+            trader=trader, ticker=ticker, exchange=exchange, side=side,
             strategy_type=strategy_type, algo=algo, broker=broker,
             completion_bucket=completion_bucket, quality=quality,
             sort=sort, sort_dir=sort_dir, order_id=order_id,
@@ -716,6 +719,7 @@ def build_export_csv(
     end_date: Optional[str] = None,
     trader: Optional[str] = None,
     ticker: Optional[str] = None,
+    exchange: Optional[str] = None,
     side: Optional[str] = None,
     strategy_type: Optional[str] = None,
     algo: Optional[str] = None,
@@ -731,7 +735,7 @@ def build_export_csv(
     chunks, filename = stream_export_csv(
         kind,
         start_date=start_date, end_date=end_date,
-        trader=trader, ticker=ticker, side=side,
+        trader=trader, ticker=ticker, exchange=exchange, side=side,
         strategy_type=strategy_type, algo=algo, broker=broker,
         completion_bucket=completion_bucket, quality=quality,
         sort=sort, sort_dir=sort_dir, order_id=order_id, mgr=mgr,
