@@ -185,11 +185,13 @@ export function TraderFilterBar({
 
       <div className="grid grid-cols-2 items-end gap-3 md:grid-cols-3 xl:grid-cols-6">
         <DateRangeInput
+          key={`start-${state.startDate}`}
           label="开始日期（留空 = 最近 5 交易日）"
           value={state.startDate}
           onCommit={(value) => update({ startDate: value })}
         />
         <DateRangeInput
+          key={`end-${state.endDate}`}
           label="结束日期"
           value={state.endDate}
           onCommit={(value) => update({ endDate: value })}
