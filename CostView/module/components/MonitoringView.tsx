@@ -6,14 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { fetchBdibHealth, fetchMetricCoverage } from '../services/api';
 import {
   loadCostViewMonitoringState,
@@ -21,6 +14,7 @@ import {
 } from '../lib/storage';
 import { ALL_TCA_METRICS, EXPECTED_NULL_METRICS, METRIC_LABELS } from '../lib/monitoring-metrics';
 import { CoverageHeatmap } from './CoverageHeatmap';
+import { SegmentedField } from './SegmentedField';
 import type {
   BdibHealthDateEntry,
   BdibHealthReport,
@@ -90,36 +84,72 @@ const SummaryCards = ({ health, coverage }: { health: BdibHealthReport; coverage
   );
 };
 
-/** 指标勾选开关组（默认全选 38 个） */
+/** 指标勾选开关组（默认全选 38 个）：支持按名称/中文标签搜索，一次操作只处理可见项 */
 const MetricTogglePanel = ({ state, onChange }: { state: MonitoringViewState; onChange: (s: MonitoringViewState) => void }) => {
+  const [query, setQuery] = useState('');
+  const [onlySelected, setOnlySelected] = useState(false);
+  const keywords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const visibleMetrics = ALL_TCA_METRICS.filter((metric) => {
+    if (onlySelected && !state.selectedMetrics.includes(metric)) return false;
+    if (!keywords.length) return true;
+    const haystack = `${metric} ${METRIC_LABELS[metric] ?? ''}`.toLowerCase();
+    return keywords.every((keyword) => haystack.includes(keyword));
+  });
   const toggle = (metric: string, checked: boolean) => {
     const selected = checked
       ? [...state.selectedMetrics, metric]
       : state.selectedMetrics.filter((m) => m !== metric);
     onChange({ ...state, selectedMetrics: selected });
   };
+  const selectVisible = () => {
+    const merged = new Set([...state.selectedMetrics, ...visibleMetrics]);
+    onChange({ ...state, selectedMetrics: [...merged] });
+  };
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between text-sm">
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>指标开关（{state.selectedMetrics.length}/{ALL_TCA_METRICS.length}）</span>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onChange({ ...state, selectedMetrics: [...ALL_TCA_METRICS] })}>全选</Button>
-            <Button variant="ghost" size="sm" onClick={() => onChange({ ...state, selectedMetrics: [] })}>清空</Button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索指标…"
+              aria-label="搜索指标"
+              className="h-7 w-40 text-xs"
+            />
+            <Button
+              variant={onlySelected ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              aria-pressed={onlySelected}
+              onClick={() => setOnlySelected((current) => !current)}
+            >
+              仅看已选
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={selectVisible}>全选当前</Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onChange({ ...state, selectedMetrics: [...ALL_TCA_METRICS] })}>全选</Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onChange({ ...state, selectedMetrics: [] })}>清空</Button>
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-3 gap-x-4 gap-y-2 md:grid-cols-6">
-        {ALL_TCA_METRICS.map((metric) => {
-          const expected = EXPECTED_NULL_METRICS.has(metric);
-          return (
-            <label key={metric} className="flex items-center gap-1.5 text-xs" title={METRIC_LABELS[metric]}>
-              <Checkbox checked={state.selectedMetrics.includes(metric)} onCheckedChange={(checked) => toggle(metric, checked === true)} />
-              <span className="truncate">{metric}</span>
-              {expected && <span className="text-[9px] text-slate-500">期望内</span>}
-            </label>
-          );
-        })}
+      <CardContent className="max-h-64 overflow-y-auto">
+        {visibleMetrics.length === 0 ? (
+          <div className="py-4 text-center text-xs text-muted-foreground">无匹配指标</div>
+        ) : (
+          <div className="grid grid-cols-3 gap-x-4 gap-y-2 md:grid-cols-6">
+            {visibleMetrics.map((metric) => {
+              const expected = EXPECTED_NULL_METRICS.has(metric);
+              return (
+                <label key={metric} className="flex items-center gap-1.5 text-xs" title={METRIC_LABELS[metric]}>
+                  <Checkbox checked={state.selectedMetrics.includes(metric)} onCheckedChange={(checked) => toggle(metric, checked === true)} />
+                  <span className="truncate">{metric}</span>
+                  {expected && <span className="text-[9px] text-slate-500">期望内</span>}
+                </label>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -241,35 +271,21 @@ export function MonitoringView() {
       {/* 控制栏 */}
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div className="space-y-1">
-            <Label className="text-xs">监控范围</Label>
-            <Select
-              value={viewState.lastPreset}
-              onValueChange={(v) => setViewState((prev) => ({ ...prev, lastPreset: v as LastPreset }))}
-            >
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PRESET_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SegmentedField
+            label="监控范围"
+            ariaLabel="监控范围"
+            options={PRESET_OPTIONS}
+            value={viewState.lastPreset}
+            onChange={(v) => setViewState((prev) => ({ ...prev, lastPreset: v as LastPreset }))}
+          />
           {/* 026: 覆盖率聚合粒度（按周 / 月观察数据质量缺口） */}
-          <div className="space-y-1">
-            <Label className="text-xs">聚合粒度</Label>
-            <Select
-              value={viewState.granularity}
-              onValueChange={(v) => setViewState((prev) => ({ ...prev, granularity: v as Granularity }))}
-            >
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {GRANULARITY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SegmentedField
+            label="聚合粒度"
+            ariaLabel="聚合粒度"
+            options={GRANULARITY_OPTIONS}
+            value={viewState.granularity}
+            onChange={(v) => setViewState((prev) => ({ ...prev, granularity: v as Granularity }))}
+          />
           <Button variant="outline" onClick={reload} disabled={isLoading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             刷新

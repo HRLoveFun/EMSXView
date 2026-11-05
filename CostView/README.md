@@ -107,6 +107,24 @@ python main.py
 >
 > **报告口径（2026-11-03 起，`SPEC_VERSION 2026.11.03b`）**：①`tca_route_summary.Amount` 是**委托股数**（非金额），异常明细单列「委托股数」；成交金额（本币/美元）与异常金额门槛均为 `fill × p_avg`（USD 列再乘汇率），零成交路由按 `RouteShares × p_avg × 汇率` 计。②订单参与率**不按组内求和判定**：单路由看自身参与率、多路由看组内最大路由参与率（求和不可加总），`>100%` 标 `par_suspect`、`>1000%` 为 critical。
 
+## 筛选交互（UI 约定）
+
+目标是「一次点击完成切换」：短枚举平铺、长列表可搜索、已选条件常驻可见。
+
+| 组件 | 适用 | 关键行为 |
+| --- | --- | --- |
+| `components/SegmentedField.tsx` | 2–6 个短枚举（方向 / 粒度 / 质量 / 排序 / 导出格式等） | 平铺按钮，点击即切换；多选模式再点取消，`clearValue` 提供「全部」 |
+| `components/SearchableSelect.tsx` | 选项 > 6 或多选（交易员 / 标的 / Broker / 算法 / 市场） | 输入即过滤（多关键词 AND）、↑↓/Enter/Esc、已选/最近/全部分组、已选 chip 可直接移除、`allowCustom` 支持自由输入 |
+| `components/FilterSummaryBar.tsx` | 页面级筛选栏底部 | 每条已选条件一个可移除 chip，附「清空全部」 |
+| `components/SavedViewBar.tsx` | 高频复用的整组筛选 | 命名保存 / 一键套用 / 删除；按 scope 存 localStorage（`lib/saved-views.ts`，带 schema 版本） |
+
+约定：
+
+- 常用维度常驻首屏，长尾维度收进「更多筛选」并显示生效项数徽标（见 `TraderFilterBar`）。
+- 多选控件不因选择而关闭，允许连续勾选；单选控件选中即关闭。
+- 最近使用值按 scope 记录（`lib/recent-values.ts`），同一作用域最多 6 个，列表顶部置顶。
+- 筛选变更立即生效；页码统一由 `lib/trader-filters.ts` 的 `traderFiltersToQuery` 换算，非翻页变更回到第 1 页。
+
 ## 不做什么（职责边界）
 
 - **不触发 ETL**：数据更新唯一写入方是独立仓库 EMSXDataPipeline；触发链路（含失败与幂等语义）见 [schema-contract §3.2](../docs/schema-contract.md#32-etl-触发链跨仓库costview-是只读消费者)。
@@ -167,5 +185,5 @@ location /api/tca/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
-*Last updated: 2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
+*Last updated: 2026-11-05（筛选交互改版：新增 SearchableSelect / SegmentedField / FilterSummaryBar / SavedViewBar，替换 MultiSelectFilter 与 SymbolSearchInput；交易员栏长尾条件折叠、已选 chip 常驻、命名视图；Analysis / Report / Monitoring / Configure / Evaluation / Export 的短枚举改为一次点击切换。此前：2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
 *Last verified: 2026-09-15（端点清单与行号提取自 `api/routers/` 源码；测试计数经 grep `def test_` 统计并与 pytest 实际收集数比对；`python -m pytest CostView/tests/` 实测 217 passed。**未做运行时验证**——服务启动响应、端口连通性与查询延迟未在本轮测量）*

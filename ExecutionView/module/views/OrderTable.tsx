@@ -25,9 +25,16 @@ import type { Order, OrderStatus, OrderSide, OrderFilters, ModifyOrderRequest, R
 import { OrderModifyDialog, type OrderUpdates } from '@execution/components/order-modify-dialog';
 import { BatchRouteOrderDialog } from '@execution/components/batch-route-order-dialog';
 import { OrderStatusBadge } from '@execution/components/order-status-badge';
+import { MultiSelectFilterPopover } from '@execution/components/filters/MultiSelectFilterPopover';
 
 type SortField = keyof Order | null;
 type SortDirection = 'asc' | 'desc';
+
+const STATUS_VALUES = STATUS_OPTIONS.map((option) => option.value);
+const STATUS_DISPLAY = Object.fromEntries(STATUS_OPTIONS.map((option) => [option.value, option.label]));
+const ORDER_TYPE_VALUES = ORDER_TYPE_OPTIONS.map((option) => option.value);
+const ORDER_TYPE_DISPLAY = Object.fromEntries(ORDER_TYPE_OPTIONS.map((option) => [option.value, option.label]));
+const FILTER_TRIGGER_IDLE = 'text-muted-foreground/30 hover:text-muted-foreground';
 
 interface OrderTableProps {
   orders: Order[];
@@ -333,54 +340,6 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
     );
   };
 
-  const multiFilterPopover = (
-    key: 'statusMulti' | 'orderTypeMulti' | 'traderMulti',
-    options: { value: string; label: string }[],
-  ) => {
-    const selected = (filters[key] ?? []) as string[];
-    const active = selected.length > 0;
-    return (
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            onClick={e => e.stopPropagation()}
-            className={`ml-auto p-0.5 rounded hover:bg-accent/80 ${active ? 'text-primary' : 'text-muted-foreground/30 hover:text-muted-foreground'}`}
-          >
-            <Filter className="h-3 w-3" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-44 p-1" align="start" side="bottom">
-          <div
-            className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-accent rounded"
-            onMouseDown={e => { e.preventDefault(); updateMultiFilter(key, []); }}
-          >
-            <Checkbox checked={selected.length === 0} tabIndex={-1} className="pointer-events-none h-3.5 w-3.5" />
-            <span className="text-xs font-medium text-muted-foreground">All</span>
-          </div>
-          <div className="border-t my-0.5" />
-          <div className="max-h-48 overflow-y-auto">
-            {options.map(opt => (
-              <div
-                key={opt.value}
-                className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-accent rounded"
-                onMouseDown={e => {
-                  e.preventDefault();
-                  const next = selected.includes(opt.value)
-                    ? selected.filter(v => v !== opt.value)
-                    : [...selected, opt.value];
-                  updateMultiFilter(key, next);
-                }}
-              >
-                <Checkbox checked={selected.includes(opt.value)} tabIndex={-1} className="pointer-events-none h-3.5 w-3.5" />
-                <span className="text-xs">{opt.label}</span>
-              </div>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-    );
-  };
-
   const sideFilterPopover = () => {
     const active = !!filters.side;
     return (
@@ -489,10 +448,30 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                   <div className="flex items-center gap-1">Side{getSortIcon('side')}{sideFilterPopover()}</div>
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('status')}>
-                  <div className="flex items-center gap-1">Status{getSortIcon('status')}{multiFilterPopover('statusMulti', STATUS_OPTIONS)}</div>
+                  <div className="flex items-center gap-1">Status{getSortIcon('status')}
+                    <MultiSelectFilterPopover
+                      label="status"
+                      options={STATUS_VALUES}
+                      displayNames={STATUS_DISPLAY}
+                      selected={(filters.statusMulti ?? []) as string[]}
+                      onChange={(values) => updateMultiFilter('statusMulti', values)}
+                      showAll
+                      triggerClassName={`ml-auto rounded p-0.5 hover:bg-accent/80 ${(filters.statusMulti?.length ?? 0) > 0 ? 'text-primary' : FILTER_TRIGGER_IDLE}`}
+                    />
+                  </div>
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('orderType')}>
-                  <div className="flex items-center gap-1">Type{getSortIcon('orderType')}{multiFilterPopover('orderTypeMulti', ORDER_TYPE_OPTIONS)}</div>
+                  <div className="flex items-center gap-1">Type{getSortIcon('orderType')}
+                    <MultiSelectFilterPopover
+                      label="type"
+                      options={ORDER_TYPE_VALUES}
+                      displayNames={ORDER_TYPE_DISPLAY}
+                      selected={(filters.orderTypeMulti ?? []) as string[]}
+                      onChange={(values) => updateMultiFilter('orderTypeMulti', values)}
+                      showAll
+                      triggerClassName={`ml-auto rounded p-0.5 hover:bg-accent/80 ${(filters.orderTypeMulti?.length ?? 0) > 0 ? 'text-primary' : FILTER_TRIGGER_IDLE}`}
+                    />
+                  </div>
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors text-right" onClick={() => handleSort('quantity')}>
                   <div className="flex items-center justify-end gap-1">Qty{getSortIcon('quantity')}</div>
@@ -528,7 +507,17 @@ export function OrderTable({ orders, allOrders, selectedOrders, onSelectionChang
                   <div className="flex items-center gap-1">Portfolio{getSortIcon('portfolio')}{textFilterPopover('portfolio', 'Filter...')}</div>
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('trader')}>
-                  <div className="flex items-center gap-1">Trader{getSortIcon('trader')}{multiFilterPopover('traderMulti', traderOptions)}</div>
+                  <div className="flex items-center gap-1">Trader{getSortIcon('trader')}
+                    <MultiSelectFilterPopover
+                      label="trader"
+                      options={traderOptions.map((option) => option.value)}
+                      displayNames={Object.fromEntries(traderOptions.map((option) => [option.value, option.label]))}
+                      selected={(filters.traderMulti ?? []) as string[]}
+                      onChange={(values) => updateMultiFilter('traderMulti', values)}
+                      showAll
+                      triggerClassName={`ml-auto rounded p-0.5 hover:bg-accent/80 ${(filters.traderMulti?.length ?? 0) > 0 ? 'text-primary' : FILTER_TRIGGER_IDLE}`}
+                    />
+                  </div>
                 </th>
                 <th className="cursor-pointer hover:bg-secondary/70 transition-colors" onClick={() => handleSort('exchange')}>
                   <div className="flex items-center gap-1">Exchange{getSortIcon('exchange')}{textFilterPopover('exchange', 'Filter...')}</div>

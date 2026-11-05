@@ -33,6 +33,38 @@ describe('MultiSelectFilterPopover', () => {
     expect(onChange).toHaveBeenCalledWith(['WORKING']);
   });
 
+  it('searches options and keeps selected values on top', async () => {
+    const user = userEvent.setup();
+    render(<MultiSelectFilterPopover label="status" options={options} selected={['CANCELLED']} onChange={() => {}} />);
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('combobox'), 'fil');
+
+    expect(screen.getByText('FILLED')).toBeInTheDocument();
+    expect(screen.queryByText('WORKING')).not.toBeInTheDocument();
+  });
+
+  it('supports keyboard selection with ArrowDown + Enter', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<MultiSelectFilterPopover label="status" options={options} selected={[]} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button'));
+    await user.keyboard('{ArrowDown}{Enter}');
+
+    // 字母序首个选项 CANCELLED
+    expect(onChange).toHaveBeenCalledWith(['CANCELLED']);
+  });
+
+  it('shows empty hint when search has no match', async () => {
+    const user = userEvent.setup();
+    render(<MultiSelectFilterPopover label="status" options={options} selected={[]} onChange={() => {}} />);
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('combobox'), 'zzz');
+    expect(screen.getByText('无匹配选项')).toBeInTheDocument();
+  });
+
   it('shows Include/Exclude toggle when onModeChange is provided', async () => {
     const user = userEvent.setup();
 

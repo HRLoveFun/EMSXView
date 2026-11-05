@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TraderKpiStrip } from '../components/trader/TraderKpiStrip';
 import { TraderReviewView } from '../components/trader/TraderReviewView';
@@ -84,6 +84,7 @@ function buildPayload(overrides: Partial<TraderListPayload> = {}): TraderListPay
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   mockOptions.mockResolvedValue({
     traders: ['HRCHEN', 'WLUO125'],
     strategy_types: ['VWAP', 'CLOSE'],
@@ -132,14 +133,43 @@ describe('TraderReviewView', () => {
     await waitFor(() => {
       expect(mockOrders.mock.calls[mockOrders.mock.calls.length - 1][0].offset).toBe(50);
     });
-    // 质量筛选（aria-label 定位，避免依赖 combobox 顺序）
-    await user.click(screen.getByRole('combobox', { name: '质量筛选' }));
-    await waitFor(() => expect(screen.getByText('超成交')).toBeInTheDocument());
-    await user.click(screen.getByText('超成交'));
+    // 质量筛选收在「更多筛选」里，展开后一次点击完成切换
+    await user.click(screen.getByRole('button', { name: /更多筛选/ }));
+    await user.click(screen.getByRole('button', { name: '超成交' }));
     await waitFor(() => {
       const lastCall = mockOrders.mock.calls[mockOrders.mock.calls.length - 1][0];
       expect(lastCall.offset).toBe(0);
       expect(lastCall.quality).toBe('overfill');
+    });
+  });
+
+  it('保存筛选视图并可一键套用', async () => {
+    const user = userEvent.setup();
+    render(<TraderReviewView />);
+    await waitFor(() => expect(screen.getByText('5292736')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /更多筛选/ }));
+    await user.click(screen.getByRole('button', { name: '超成交' }));
+    expect(screen.getByText('质量：超成交')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /保存当前筛选/ }));
+    await user.type(screen.getByPlaceholderText('视图名称，如 每日复盘'), '每日复盘');
+    await user.click(screen.getByRole('button', { name: '保存视图' }));
+    expect(screen.getByRole('button', { name: '每日复盘' })).toBeInTheDocument();
+
+    // 手动改回全部，再套用视图应恢复保存时的口径
+    const qualityGroup = screen.getByRole('group', { name: '质量筛选' });
+    await user.click(within(qualityGroup).getByRole('button', { name: '全部' }));
+    await waitFor(() => {
+      const lastCall = mockOrders.mock.calls[mockOrders.mock.calls.length - 1][0];
+      expect(lastCall.quality).toBe('all');
+    });
+
+    await user.click(screen.getByRole('button', { name: '每日复盘' }));
+    await waitFor(() => {
+      const lastCall = mockOrders.mock.calls[mockOrders.mock.calls.length - 1][0];
+      expect(lastCall.quality).toBe('overfill');
+      expect(lastCall.offset).toBe(0);
     });
   });
 

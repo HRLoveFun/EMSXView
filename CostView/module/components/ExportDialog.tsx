@@ -8,7 +8,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { SegmentedField, type SegmentedOption } from './SegmentedField';
 import type { CostViewConfig, ExportFormat, ExportScope } from '../types';
+
+const FORMAT_OPTIONS: Array<SegmentedOption<ExportFormat>> = [
+  { value: 'csv', label: 'CSV' },
+  { value: 'excel', label: 'Excel' },
+  { value: 'pdf', label: 'PDF' },
+];
+
+const SCOPE_OPTIONS: Array<SegmentedOption<ExportScope>> = [
+  { value: 'current-page', label: '当前页' },
+  { value: 'all-filtered', label: '全部筛选' },
+  { value: 'selected-order', label: '选中路由' },
+];
 
 interface ExportDialogProps {
   config: CostViewConfig;
@@ -31,22 +44,32 @@ export function ExportDialog({ config, isExporting, open, selectedOrderAvailable
           <DialogDescription>Select the export format and data scope.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <label className="space-y-1 text-sm">
+          <div className="space-y-1 text-sm">
             <span className="text-muted-foreground">Format</span>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={format} onChange={(event) => setFormat(event.target.value as ExportFormat)}>
-              <option value="csv">CSV</option>
-              <option value="excel">Excel</option>
-              <option value="pdf">PDF (print preview)</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
+            <SegmentedField
+              ariaLabel="Format"
+              options={FORMAT_OPTIONS}
+              value={format}
+              onChange={(value) => setFormat(value as ExportFormat)}
+              size="md"
+            />
+          </div>
+          <div className="space-y-1 text-sm">
             <span className="text-muted-foreground">Scope</span>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={scope} onChange={(event) => setScope(event.target.value as ExportScope)}>
-              <option value="current-page">Current page</option>
-              <option value="all-filtered">All filtered results</option>
-              <option value="selected-order" disabled={!selectedOrderAvailable}>Selected route detail</option>
-            </select>
-          </label>
+            <SegmentedField
+              ariaLabel="Scope"
+              options={SCOPE_OPTIONS.map((option) => ({
+                ...option,
+                disabled: option.value === 'selected-order' && !selectedOrderAvailable,
+              }))}
+              value={scope}
+              onChange={(value) => setScope(value as ExportScope)}
+              size="md"
+            />
+            {!selectedOrderAvailable ? (
+              <p className="text-xs text-muted-foreground">选中路由后才能导出单条明细。</p>
+            ) : null}
+          </div>
           <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
             CSV exports flat tabular data. Excel adds multi-sheet summary and thresholds. PDF opens a print-friendly report that can be saved as PDF from the browser.
           </div>

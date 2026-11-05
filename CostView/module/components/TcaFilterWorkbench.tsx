@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SegmentedField } from './SegmentedField';
 import type { CostViewFilterFormState } from '../types';
 
 interface TcaFilterWorkbenchProps {
@@ -11,6 +12,10 @@ interface TcaFilterWorkbenchProps {
   onReset: () => void;
   onSearch: () => void;
 }
+
+const ALGO_OPTIONS = ['VWAP', 'TWAP', 'POV', 'IS', 'CLOSE'].map((value) => ({ value, label: value }));
+
+const LIMIT_OPTIONS = ['25', '50', '100', '200'].map((value) => ({ value, label: value }));
 
 export function TcaFilterWorkbench({ form, isLoading, onChange, onReset, onSearch }: TcaFilterWorkbenchProps) {
   const [shouldShowAdvanced, setShouldShowAdvanced] = useState(false);
@@ -51,17 +56,17 @@ export function TcaFilterWorkbench({ form, isLoading, onChange, onReset, onSearc
               <input type="date" className="rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.endDate} onChange={(event) => update('endDate', event.target.value)} />
             </div>
           </label>
-          <label className="space-y-1 text-sm">
+          <div className="space-y-1 text-sm">
             <span className="text-muted-foreground">Algorithm</span>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.algo} onChange={(event) => update('algo', event.target.value)}>
-              <option value="">All</option>
-              <option value="VWAP">VWAP</option>
-              <option value="TWAP">TWAP</option>
-              <option value="POV">POV</option>
-              <option value="IS">IS</option>
-              <option value="CLOSE">CLOSE</option>
-            </select>
-          </label>
+            <SegmentedField
+              ariaLabel="Algorithm"
+              options={[{ value: '', label: 'All' }, ...ALGO_OPTIONS]}
+              value={form.algo}
+              onChange={(value) => update('algo', value as string)}
+              size="md"
+              className="pt-1"
+            />
+          </div>
           <label className="space-y-1 text-sm">
             <span className="text-muted-foreground">Broker</span>
             <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="CITI" value={form.broker} onChange={(event) => update('broker', event.target.value)} />
@@ -70,15 +75,17 @@ export function TcaFilterWorkbench({ form, isLoading, onChange, onReset, onSearc
             <span className="text-muted-foreground">Symbol</span>
             <input type="text" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="AAPL US Equity" value={form.symbol} onChange={(event) => update('symbol', event.target.value)} />
           </label>
-          <label className="space-y-1 text-sm">
+          <div className="space-y-1 text-sm">
             <span className="text-muted-foreground">Max Orders</span>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.limit} onChange={(event) => update('limit', Number(event.target.value))}>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-              <option value={200}>200</option>
-            </select>
-          </label>
+            <SegmentedField
+              ariaLabel="Max Orders"
+              options={LIMIT_OPTIONS}
+              value={String(form.limit)}
+              onChange={(value) => update('limit', Number(value as string))}
+              size="md"
+              className="pt-1"
+            />
+          </div>
         </div>
 
         {shouldShowAdvanced ? (

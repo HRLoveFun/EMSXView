@@ -198,10 +198,8 @@ describe('MonitoringView', () => {
       { last: 'month' }, expect.anything(), false, 'day',
     );
 
-    // 监控范围 / 聚合粒度两个 combobox，聚合粒度在后 → 取末个
-    const combos = screen.getAllByRole('combobox');
-    await user.click(combos[combos.length - 1]);
-    await user.click(screen.getByText('按周'));
+    // 聚合粒度是分段控件：一次点击直接切换
+    await user.click(screen.getByRole('button', { name: '按周' }));
 
     await waitFor(() => {
       expect(mockFetchMetricCoverage).toHaveBeenLastCalledWith(
@@ -433,10 +431,8 @@ describe('ReportView', () => {
     const { container } = render(<ReportView />);
     await waitFor(() => expect(screen.getByText('Route 总数')).toBeInTheDocument());
 
-    // 切换到"上周"并生成
-    // 026 起 ReportView 有两个 combobox（时间范围 / 聚合粒度），时间范围在前 → 取首个
-    await user.click(screen.getAllByRole('combobox')[0]);
-    await user.click(screen.getByText('上周'));
+    // 切换到"上周"并生成（时间范围预设为分段控件，一次点击）
+    await user.click(screen.getByRole('button', { name: '上周' }));
     await user.click(screen.getByRole('button', { name: '生成报告' }));
     await waitFor(() => {
       expect(mockFetchReportSummary).toHaveBeenLastCalledWith(

@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { createDefaultCostViewConfig, getSeverityTone, mergeBackendThresholds } from '../lib/thresholds';
 import type { CostViewConfig, ExportDefaults, ThresholdRule } from '../types';
 import { fetchAnomalyThresholds } from '../services/api';
-import { MultiSelectFilter } from './MultiSelectFilter';
+import { SearchableSelect } from './SearchableSelect';
+import { SegmentedField, type SegmentedOption } from './SegmentedField';
 import { EXCHANGE_LIST } from '@shared/lib/broker-exchange-mapping';
 
 interface ConfigureViewProps {
@@ -24,6 +25,18 @@ function downloadJsonFile(value: unknown, fileName: string) {
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
 }
+
+const EXPORT_FORMAT_OPTIONS: Array<SegmentedOption<ExportDefaults['format']>> = [
+  { value: 'csv', label: 'CSV' },
+  { value: 'excel', label: 'Excel' },
+  { value: 'pdf', label: 'PDF' },
+];
+
+const EXPORT_SCOPE_OPTIONS: Array<SegmentedOption<ExportDefaults['scope']>> = [
+  { value: 'current-page', label: '当前页' },
+  { value: 'all-filtered', label: '全部筛选' },
+  { value: 'selected-order', label: '选中订单' },
+];
 
 export function ConfigureView({ config, onSave }: ConfigureViewProps) {
   const [draft, setDraft] = useState<CostViewConfig>(config);
@@ -240,12 +253,14 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
           <p className="text-sm text-muted-foreground">
             Choose which exchanges are included in the Report tab by default. Leave empty to include all markets.
           </p>
-          <MultiSelectFilter
+          <SearchableSelect
             label="Exchanges"
             options={marketOptions}
-            selected={draft.reportExchanges}
+            value={draft.reportExchanges}
             onChange={updateReportExchanges}
             columns={3}
+            recentScope="configure.exchanges"
+            triggerClassName="w-64"
           />
         </CardContent>
       </Card>
@@ -256,22 +271,28 @@ export function ConfigureView({ config, onSave }: ConfigureViewProps) {
             <CardTitle className="text-base">Export Defaults</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-1 text-sm">
+            <div className="space-y-1 text-sm">
               <span className="text-muted-foreground">Default format</span>
-              <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={draft.exportDefaults.format} onChange={(event) => updateExportDefaults({ format: event.target.value as ExportDefaults['format'] })}>
-                <option value="csv">CSV</option>
-                <option value="excel">Excel</option>
-                <option value="pdf">PDF</option>
-              </select>
-            </label>
-            <label className="space-y-1 text-sm">
+              <SegmentedField
+                ariaLabel="Default format"
+                options={EXPORT_FORMAT_OPTIONS}
+                value={draft.exportDefaults.format}
+                onChange={(value) => updateExportDefaults({ format: value as ExportDefaults['format'] })}
+                size="md"
+                className="pt-1"
+              />
+            </div>
+            <div className="space-y-1 text-sm">
               <span className="text-muted-foreground">Default scope</span>
-              <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={draft.exportDefaults.scope} onChange={(event) => updateExportDefaults({ scope: event.target.value as ExportDefaults['scope'] })}>
-                <option value="current-page">Current page</option>
-                <option value="all-filtered">All filtered results</option>
-                <option value="selected-order">Selected order</option>
-              </select>
-            </label>
+              <SegmentedField
+                ariaLabel="Default scope"
+                options={EXPORT_SCOPE_OPTIONS}
+                value={draft.exportDefaults.scope}
+                onChange={(value) => updateExportDefaults({ scope: value as ExportDefaults['scope'] })}
+                size="md"
+                className="pt-1"
+              />
+            </div>
             <label className="col-span-full flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
               <input type="checkbox" checked={draft.exportDefaults.pdfIncludeCharts} onChange={(event) => updateExportDefaults({ pdfIncludeCharts: event.target.checked })} />
               <span>Reserve chart snapshots for PDF export when chart capture support is added</span>

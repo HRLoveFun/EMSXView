@@ -5,14 +5,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { fetchEvaluationReport } from '../services/api';
+import { SegmentedField } from './SegmentedField';
 import { analysisFiltersToPayload } from '../lib/filters';
 import type {
   CostViewFilterFormState,
@@ -121,19 +115,12 @@ export function EvaluationView({ analysisFilters }: EvaluationViewProps) {
         <div className="flex items-end gap-2">
           <div className="space-y-1">
             <Label className="text-xs">趋势粒度</Label>
-            <Select
+            <SegmentedField
+              ariaLabel="趋势粒度"
+              options={GRANULARITY_OPTIONS}
               value={granularity}
-              onValueChange={(value) => setGranularity(value as Granularity)}
-            >
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {GRANULARITY_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(value) => setGranularity(value as Granularity)}
+            />
           </div>
           <Button variant="outline" onClick={() => void runEvaluation()} disabled={busy}>
             <RefreshCw className={`mr-2 h-4 w-4 ${busy ? 'animate-spin' : ''}`} />

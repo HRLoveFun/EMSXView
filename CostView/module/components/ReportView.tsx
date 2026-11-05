@@ -20,13 +20,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { fetchBdibHealth, fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
 import { loadCostViewConfig } from '../lib/storage';
 import {
@@ -43,8 +36,8 @@ import {
   formatWeightCoverage,
   formatZeroFillSub,
 } from '../lib/report-format';
-import { MultiSelectFilter } from './MultiSelectFilter';
-import { SymbolSearchInput } from './SymbolSearchInput';
+import { SearchableSelect } from './SearchableSelect';
+import { SegmentedField } from './SegmentedField';
 import { AnomalyTable } from './report/AnomalyTable';
 import { BdibHealthAppendix } from './report/BdibHealthAppendix';
 import { CoverageTable } from './report/CoverageTable';
@@ -573,29 +566,21 @@ export function ReportView() {
       {/* 过滤栏 */}
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div className="space-y-1">
-            <Label className="text-xs">时间范围</Label>
-            <Select value={form.preset} onValueChange={updatePreset}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PRESET_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SegmentedField
+            label="时间范围"
+            ariaLabel="时间范围"
+            options={PRESET_OPTIONS}
+            value={form.preset}
+            onChange={(value) => updatePreset(value as string)}
+          />
           {/* 026: 聚合粒度（走势 / 分市场金额趋势 / 覆盖率分组的横轴语义） */}
-          <div className="space-y-1">
-            <Label className="text-xs">聚合粒度</Label>
-            <Select value={form.granularity} onValueChange={updateGranularity}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {GRANULARITY_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SegmentedField
+            label="聚合粒度"
+            ariaLabel="聚合粒度"
+            options={GRANULARITY_OPTIONS}
+            value={form.granularity}
+            onChange={(value) => updateGranularity(value as string)}
+          />
           {/* 日期填充框常驻：预设模式下显示解析后的实际区间，编辑后切换为自定义 */}
           <div className="space-y-1">
             <Label className="text-xs">起始日期</Label>
@@ -605,31 +590,41 @@ export function ReportView() {
             <Label className="text-xs">截止日期</Label>
             <Input type="date" className="w-40" value={form.endDate} onChange={updateField('endDate')} />
           </div>
-          <MultiSelectFilter
+          <SearchableSelect
             label="市场"
             options={options.exchanges ?? []}
-            selected={form.markets}
+            value={form.markets}
             onChange={(values) => setForm((prev) => ({ ...prev, markets: values }))}
-            columns={3}
+            recentScope="report.markets"
+            columns={2}
+            triggerClassName="w-44"
           />
-          <MultiSelectFilter
+          <SearchableSelect
             label="Broker"
             options={options.brokers}
-            selected={form.brokers}
+            value={form.brokers}
             onChange={(values) => setForm((prev) => ({ ...prev, brokers: values }))}
-            columns={3}
+            recentScope="report.brokers"
+            columns={2}
+            triggerClassName="w-44"
           />
-          <MultiSelectFilter
+          <SearchableSelect
             label="Algo"
             options={options.algos}
-            selected={form.algos}
+            value={form.algos}
             onChange={(values) => setForm((prev) => ({ ...prev, algos: values }))}
+            recentScope="report.algos"
+            triggerClassName="w-44"
           />
-          <SymbolSearchInput
+          <SearchableSelect
             label="Symbol"
             options={options.symbols}
-            selected={form.symbols}
+            value={form.symbols}
             onChange={(values) => setForm((prev) => ({ ...prev, symbols: values }))}
+            allowCustom
+            recentScope="report.symbols"
+            placeholder="搜索或输入 Symbol…"
+            triggerClassName="w-56"
           />
           {/* 操作按钮另起一行：占满整行，与上方筛选控件分隔 */}
           <div className="flex w-full items-center gap-3 border-t border-muted pt-3">
