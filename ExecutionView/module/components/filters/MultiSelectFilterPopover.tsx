@@ -39,12 +39,15 @@ export function MultiSelectFilterPopover({
 
   const visible = useMemo(() => {
     const keywords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const matched = options.filter((option) => keywords.every((keyword) => option.toLowerCase().includes(keyword)));
+    const matched = options.filter((option) => {
+      const haystack = `${option} ${displayNames?.[option] ?? ''}`.toLowerCase();
+      return keywords.every((keyword) => haystack.includes(keyword));
+    });
     return matched.sort((a, b) => {
       const rank = (option: string) => (selectedSet.has(option) ? 0 : 1);
       return rank(a) - rank(b) || a.localeCompare(b, undefined, { sensitivity: 'base' });
     });
-  }, [options, query, selectedSet]);
+  }, [options, query, selectedSet, displayNames]);
 
   function toggle(option: string) {
     if (selectedSet.has(option)) onChange(selected.filter((item) => item !== option));
