@@ -47,8 +47,8 @@ CostView/                          # CostView domain
 │                                   #   test_order_aggregation 9 /
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/
 │                                   #   test_golden_samples 1 /
-│                                   #   test_trader_metrics 34 / test_trader_query 14 /
-│                                   #   test_trader_service 39 / test_trader_router 18）
+│                                   #   test_trader_metrics 34 / test_trader_query 15 /
+│                                   #   test_trader_service 39 / test_trader_router 20）
 ├── scripts/                        # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
 # 注：原 data.migrated.202609022339/（2026-09-02 数据迁移留证，约 145GB，从未入版本库）
 #     已于 2026-09-16 确认数据根稳定指向 ${EMSXVIEW_DATA_DIR}（D:\db）后经用户确认删除；
@@ -97,11 +97,11 @@ python main.py
 | `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) | `api/routers/monitoring.py:262` |
 | `GET /api/tca/monitoring/anomaly-thresholds` | Anomaly route-filter thresholds | `api/routers/monitoring.py:312` |
 | `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:331` |
-| `GET /api/tca/trader/orders` | 交易员订单复盘列表（服务端分页/排序 + KPI + 质量探针 + 当前页逐笔补列） | `api/routers/trader.py:37` |
-| `GET /api/tca/trader/orders/{order_id}` | 订单详情（routes/fills/时间线逐桶参与率/成本分解/主动被动/延迟） | `api/routers/trader.py:96` |
-| `GET /api/tca/trader/orders/{order_id}/peer` | 同类 peer 分位（8 维指纹 + 两级口径 + 延迟 p90；样本不足不给分位） | `api/routers/trader.py:129` |
-| `GET /api/tca/trader/export` | CSV 导出（订单汇总 / 成交明细；服务端流式输出，UTF-8-SIG + 3 行 `#` 注释 + 公式注入防护；orders 50k / fills 500k 上限在首块前判定 → 422） | `api/routers/trader.py:162` |
-| `GET /api/tca/trader/filter-options` | 交易员筛选下拉（traders/strategy_types + 维度表） | `api/routers/trader.py:237` |
+| `GET /api/tca/trader/orders` | 交易员订单复盘列表（服务端分页/排序 + KPI + 质量探针 + 当前页逐笔补列；筛选维度含市场 `exchange`） | `api/routers/trader.py:38` |
+| `GET /api/tca/trader/orders/{order_id}` | 订单详情（routes/fills/时间线逐桶参与率/成本分解/主动被动/延迟） | `api/routers/trader.py:98` |
+| `GET /api/tca/trader/orders/{order_id}/peer` | 同类 peer 分位（8 维指纹 + 两级口径 + 延迟 p90；样本不足不给分位） | `api/routers/trader.py:131` |
+| `GET /api/tca/trader/export` | CSV 导出（订单汇总 / 成交明细；服务端流式输出，UTF-8-SIG + 3 行 `#` 注释 + 公式注入防护；orders 50k / fills 500k 上限在首块前判定 → 422） | `api/routers/trader.py:164` |
+| `GET /api/tca/trader/filter-options` | 交易员筛选下拉（traders/strategy_types + 维度表；含市场 `exchanges`，维度表缺失时回退 `Exchange` DISTINCT） | `api/routers/trader.py:240` |
 
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
 >

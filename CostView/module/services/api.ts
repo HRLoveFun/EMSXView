@@ -385,6 +385,7 @@ export interface TraderListQuery {
   endDate?: string;
   trader?: string[];
   ticker?: string[];
+  exchange?: string[];
   side?: string[];
   strategyType?: string[];
   algo?: string[];
@@ -410,6 +411,7 @@ function buildTraderUrl(
   for (const [key, value] of Object.entries({
     trader: joinFilter(query.trader),
     ticker: joinFilter(query.ticker),
+    exchange: joinFilter(query.exchange),
     side: joinFilter(query.side),
     strategy_type: joinFilter(query.strategyType),
     algo: joinFilter(query.algo),
