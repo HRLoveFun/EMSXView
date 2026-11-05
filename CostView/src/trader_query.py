@@ -86,22 +86,77 @@ def _dim_having(filters) -> tuple[str, list[Any]]:
     return (" HAVING " + " AND ".join(parts)) if parts else "", params
 
 
-def _agg_select() -> str:
-    """agg 内层：单趟 GROUP BY 订单聚合 + 派生列（completion/notional/质量旗标）。
+#: 订单头维度（源列, 输出列）：取自 dominant 路由（fill 最大、RouteId 次键）。
+#: 必须用显式子查询选取，不能与多个 MAX() 聚合同查裸列——SQLite 对「多个
+#: min()/max() 聚合时裸列取自哪一行」不提供稳定保证，实测由 SELECT 列表最后
+#: 一个 min/max 决定；指标列的 MAX（cost_cvar/par_rate/...）会把订单头翻到
+#: 非 dominant 路由。
+_HEADER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("equ_ticker", "equ_ticker"),
+    ("Exchange", "exchange"),
+    ("Side", "side"),
+    ("StrategyType", "strategy_type"),
+    ("algo", "algo"),
+    ("Broker", "broker"),
+    ("TraderName", "trader_name"),
+    ("p_decision", "p_decision"),
+    ("p_arrival", "p_arrival"),
+    ("p_close", "p_close"),
+    ("LimitPrice", "limit_price"),
+    ("Currency", "currency"),
+    ("par_rate", "par_rate"),
+)
 
-    bps 加权权重 = fill × p_avg（与 analyze-orders._weighted_bps 同口径）。
-    维度头取 fill 最大路由（dominant）：借助 SQLite「单个 MAX 聚合时裸列取自
-    该 max 行」的语义（MAX(r.fill) 与裸列同查），免去窗口函数与二次 JOIN；
+
+def _header_select(alias: str = "h") -> str:
+    """dominant 路由的订单头列（显式输出别名，避免依赖裸列取值规则）。"""
+    return ", ".join(
+        f"{alias}.{col} AS {out}" if col != out else f"{alias}.{col}"
+        for col, out in _HEADER_COLUMNS
+    )
+
+
+def _dominant_join(where_clause: str = "") -> str:
+    """dominant 路由的 LEFT JOIN（fill 最大；fill 并列取 RouteId 最小）。
+
+    ``where_clause`` 含 ``WHERE`` 关键字；传入时原样下沉为候选路由条件，保证
+    报告期/作用域过滤下订单头仍取自**同一过滤集合**。此时该子句会在整条 SQL
+    中出现两次，调用方需按出现次数重复绑定参数（见 ``_repeat_where_params``）。
+
+    ``ORDER BY h2.fill DESC`` 在 SQLite 中把 NULL 排在最后，因此 fill 全空的
+    订单会退化到 ``MIN(RouteId)``，仍是确定性结果。
+    """
+    t = Config.TCA_ROUTE_SUMMARY_TABLE
+    scope = ""
+    raw = where_clause.strip()
+    if raw:
+        conditions = raw[6:] if raw[:6].upper() == "WHERE " else raw
+        scope = f"\n                AND ({conditions})"
+    return f"""
+        LEFT JOIN {t} h
+          ON h.OrderId = agg_rows.OrderId
+         AND h.order_as_of_date = agg_rows.order_as_of_date
+         AND h.RouteId = (
+             SELECT h2.RouteId
+               FROM {t} h2
+              WHERE h2.OrderId = agg_rows.OrderId
+                AND h2.order_as_of_date = agg_rows.order_as_of_date{scope}
+              ORDER BY h2.fill DESC, h2.RouteId ASC
+              LIMIT 1
+         )
+    """
+
+
+def _agg_select() -> str:
+    """agg 内层：单趟 GROUP BY 订单聚合指标（不含订单头维度）。
+
+    bps 加权权重 = fill × p_avg（与 analyze-orders._weighted_bps 同口径）；
     route_count / 多值计数为 GROUP BY 聚合（SQLite 不支持 COUNT(DISTINCT) OVER）。
+    订单头维度由 ``_dominant_join`` 用 fill 最大路由补回，此处只留指标，避免
+    裸列与多个 MAX() 同查产生未定义的取值来源。
     """
     return """
         SELECT r.OrderId, r.order_as_of_date,
-               r.equ_ticker, r.Exchange AS exchange, r.Side AS side,
-               r.StrategyType AS strategy_type, r.algo, r.Broker AS broker,
-               r.TraderName AS trader_name,
-               r.p_decision, r.p_arrival, r.p_close,
-               r.LimitPrice AS limit_price, r.Currency AS currency,
-               r.par_rate AS par_rate,
                MAX(r.fill) AS max_fill,
                COUNT(*) AS route_count,
                COUNT(DISTINCT r.StrategyType) AS n_strategy,
@@ -166,8 +221,8 @@ def _outer_select() -> str:
 def order_rows_sql(filters) -> tuple[str, list[Any]]:
     """订单列表 SQL（排序白名单 + 完成率桶 / 质量筛选 + 稳定 tie-break）。
 
-    单趟 GROUP BY（无 CTE / 无窗口函数）：维度多值过滤用 HAVING 表达
-    「任一路由命中」，维度头取 fill 最大路由（MAX(r.fill) 裸列语义）。
+    agg 只算指标；订单头由 ``_dominant_join`` 按 fill 最大路由 JOIN 补回。
+    维度多值过滤用 HAVING 表达「任一路由命中」，不进入 dominant 候选范围。
     """
     t = Config.TCA_ROUTE_SUMMARY_TABLE
     having, having_params = _dim_having(filters)
@@ -177,11 +232,14 @@ def order_rows_sql(filters) -> tuple[str, list[Any]]:
         params.append(filters.order_id)
     params.extend(having_params)
     inner = f"""
-        {_agg_select()}
-          FROM {t} r
-          WHERE r.order_as_of_date BETWEEN ? AND ?{order_filter}
-          GROUP BY r.OrderId, r.order_as_of_date{having}
-        )
+        SELECT agg_rows.*, {_header_select()}
+          FROM (
+            {_agg_select()}
+              FROM {t} r
+              WHERE r.order_as_of_date BETWEEN ? AND ?{order_filter}
+              GROUP BY r.OrderId, r.order_as_of_date{having}
+          ) AS agg_rows
+          {_dominant_join()}
         """
     where = ""
     if filters.completion_bucket:
@@ -191,7 +249,7 @@ def order_rows_sql(filters) -> tuple[str, list[Any]]:
         where += f" {'AND' if where else 'WHERE'} {clause}"
     column = SORT_COLUMNS[filters.sort]
     direction = "DESC" if filters.sort_dir == "desc" else "ASC"
-    tail = f"{_outer_select()}{inner} AS agg_rows{where} ORDER BY {column} {direction}, OrderId ASC"
+    tail = f"{_outer_select()}{inner}) AS order_rows{where} ORDER BY {column} {direction}, OrderId ASC"
     return tail, params
 
 
@@ -419,29 +477,40 @@ LOW_COMPLETION_THRESHOLD = 0.8
 
 
 def _order_rows_sql(where_clause: str) -> str:
-    """订单级聚合外壳：`_agg_select` 分组 + `_outer_select` 派生列。
+    """订单级聚合外壳：``_agg_select`` 指标 + dominant 订单头 + 派生列。
 
-    摘要 / peer 等多处消费方共用（``where_clause`` 含 ``WHERE`` 关键字），
-    避免各自复制一遍 GROUP BY 与派生列外壳。
+    ``where_clause`` 含 ``WHERE`` 关键字；在 SQL 中原样出现两次（agg 与
+    dominant 候选路由各一次），调用方须用 ``_repeat_where_params`` 重复绑定。
+    摘要 / peer 等多处消费方共用，避免各自复制一遍聚合与派生列外壳。
     """
     t = Config.TCA_ROUTE_SUMMARY_TABLE
     inner = f"""
-        {_agg_select()}
-          FROM {t} r
-          {where_clause}
-          GROUP BY r.OrderId, r.order_as_of_date
-        )
+        SELECT agg_rows.*, {_header_select()}
+          FROM (
+            {_agg_select()}
+              FROM {t} r
+              {where_clause}
+              GROUP BY r.OrderId, r.order_as_of_date
+          ) AS agg_rows
+          {_dominant_join(where_clause)}
         """
-    return f"""{_outer_select()}{inner} AS agg_rows"""
+    return f"""{_outer_select()}{inner}) AS agg_rows"""
+
+
+def _repeat_where_params(params: list[Any]) -> list[Any]:
+    """``_order_rows_sql`` 的 where 在 agg 与 dominant 子查询各绑定一次。"""
+    return list(params) * 2
 
 
 def trader_summary_sql(where_clause: str) -> str:
     """交易员执行摘要 SQL（订单级聚合 → 按交易员分组；方案 §3.6.2）。
 
-    复用订单列表的两段外壳（``_agg_select`` 订单聚合 + ``_outer_select`` 派生
-    completion / 质量旗标），保证摘要与 Trader Review 列表**同一订单口径**，
-    不另写一套聚合。``where_clause`` 由调用方给，**含 ``WHERE`` 关键字**（与
-    ``report_aggregator._build_where`` 的返回约定一致，报告期 + 作用域，裸列）。
+    复用订单列表的聚合外壳（``_agg_select`` 指标 + dominant 订单头 +
+    ``_outer_select`` 派生 completion / 质量旗标），保证摘要与 Trader Review
+    列表**同一订单口径**，不另写一套聚合。``where_clause`` 由调用方给，
+    **含 ``WHERE`` 关键字**（与 ``report_aggregator._build_where`` 的返回约定
+    一致，报告期 + 作用域，裸列）；SQL 中出现两次，参数由
+    ``query_trader_summary`` 重复绑定。
 
     输出列（每交易员一行）：
 
@@ -500,7 +569,9 @@ def query_trader_summary(
     空列表（与列表查询同策略，009）。
     """
     try:
-        cursor = conn.execute(trader_summary_sql(where_clause), params)
+        cursor = conn.execute(
+            trader_summary_sql(where_clause), _repeat_where_params(params),
+        )
     except Exception as exc:  # 表缺失/旧 schema → 空结果（009 降级）
         logger.warning("trader 执行摘要查询失败（返回空列表）: %s", exc)
         return []
@@ -520,7 +591,8 @@ PEER_WIDE_MIN_SAMPLE = 50
 def peer_orders_sql(where_clause: str) -> str:
     """同类订单聚合 SQL（与列表/摘要同一订单口径，不另写一套聚合）。
 
-    ``where_clause`` 含 ``WHERE`` 关键字（同 ``trader_summary_sql`` 约定）。
+    ``where_clause`` 含 ``WHERE`` 关键字（同 ``trader_summary_sql`` 约定）；
+    SQL 中出现两次，参数由 ``query_peer_orders`` 重复绑定。
     """
     return _order_rows_sql(where_clause)
 
@@ -528,7 +600,9 @@ def peer_orders_sql(where_clause: str) -> str:
 def query_peer_orders(conn, where_clause: str, params: list[Any]) -> list[dict[str, Any]]:
     """执行同类订单聚合；失败（表缺失/旧 schema）降级为空列表。"""
     try:
-        cursor = conn.execute(peer_orders_sql(where_clause), params)
+        cursor = conn.execute(
+            peer_orders_sql(where_clause), _repeat_where_params(params),
+        )
     except Exception as exc:  # 009：缺表/旧 schema → 空样本（UI 显示「样本不足」）
         logger.warning("peer 样本查询失败（返回空列表）: %s", exc)
         return []

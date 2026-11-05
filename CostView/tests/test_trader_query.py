@@ -105,6 +105,85 @@ class TestOrderAggregation:
         assert _rows(mgr) == []
 
 
+class TestDominantHeader:
+    """订单头必须取 fill 最大路由，不能被其他 MAX() 指标翻转到次路由。"""
+
+    def test_header_ignores_other_max_columns(self, tmp_path):
+        # R1 fill 最大（dominant），但 R2 的 par_rate / cost_cvar / duration /
+        # exec_rate 都更大；修复前裸列跟随最后一个 MAX(par_rate) 翻到 R2。
+        rows = [
+            {"OrderId": "D1", "RouteId": "R1", "Exchange": "US", "Side": "BUY",
+             "StrategyType": "VWAP", "algo": "vwap", "Broker": "BROKER_A",
+             "TraderName": "ALICE", "fill": 700.0, "RouteShares": 1000.0,
+             "Amount": 1000.0, "p_avg": 100.0, "par_rate": 0.5,
+             "cost_cvar": 1.0, "order_duration_sec": 10.0,
+             "exec_rate_shares_per_min": 50.0, "fill_count": 4,
+             "p_decision": 100.0, "p_arrival": 99.0, "p_close": 101.0},
+            {"OrderId": "D1", "RouteId": "R2", "Exchange": "LN", "Side": "SELL",
+             "StrategyType": "POV", "algo": "pov", "Broker": "BROKER_B",
+             "TraderName": "BOB", "fill": 200.0, "RouteShares": 500.0,
+             "Amount": 500.0, "p_avg": 110.0, "par_rate": 1.5,
+             "cost_cvar": 9.0, "order_duration_sec": 99.0,
+             "exec_rate_shares_per_min": 5.0, "fill_count": 2,
+             "p_decision": 110.0, "p_arrival": 109.0, "p_close": 111.0},
+        ]
+        mgr = make_manager(tmp_path, rows)
+        row = {r["OrderId"]: r for r in _rows(mgr)}["D1"]
+
+        # 订单头来自 R1（fill 700）
+        assert row["broker"] == "BROKER_A"
+        assert row["algo"] == "vwap"
+        assert row["exchange"] == "US"
+        assert row["side"] == "BUY"
+        assert row["strategy_type"] == "VWAP"
+        assert row["trader_name"] == "ALICE"
+        assert row["par_rate"] == pytest.approx(0.5)
+        assert row["p_decision"] == pytest.approx(100.0)
+        # 指标仍取各自 MAX
+        assert row["max_fill"] == pytest.approx(700.0)
+        assert row["max_par_rate"] == pytest.approx(1.5)
+        assert row["cost_cvar"] == pytest.approx(9.0)
+        assert row["order_duration_sec"] == pytest.approx(99.0)
+        assert row["exec_rate_shares_per_min"] == pytest.approx(50.0)
+
+    def test_header_tie_breaks_by_route_id(self, tmp_path):
+        """fill 并列时取 RouteId 最小，结果确定可复现。"""
+        rows = [
+            {"OrderId": "T1", "RouteId": "R2", "Broker": "BROKER_B",
+             "fill": 500.0, "RouteShares": 1000.0, "Amount": 1000.0},
+            {"OrderId": "T1", "RouteId": "R1", "Broker": "BROKER_A",
+             "fill": 500.0, "RouteShares": 1000.0, "Amount": 1000.0},
+        ]
+        mgr = make_manager(tmp_path, rows)
+        assert _rows(mgr)[0]["broker"] == "BROKER_A"
+
+    def test_header_falls_back_to_min_route_when_fill_all_null(self, tmp_path):
+        """fill 全空时 SQLite DESC 将 NULL 排最后，退化到 MIN(RouteId)。"""
+        rows = [
+            {"OrderId": "N1", "RouteId": "R2", "Broker": "BROKER_B",
+             "fill": None, "RouteShares": 1000.0, "Amount": 1000.0},
+            {"OrderId": "N1", "RouteId": "R1", "Broker": "BROKER_A",
+             "fill": None, "RouteShares": 1000.0, "Amount": 1000.0},
+        ]
+        mgr = make_manager(tmp_path, rows)
+        assert _rows(mgr)[0]["broker"] == "BROKER_A"
+
+    def test_summary_and_peer_bind_scoped_where_twice(self, tmp_path):
+        """where 在 agg 与 dominant 子查询各出现一次，参数须重复绑定。"""
+        mgr = make_manager(tmp_path, _multi_route_rows())
+        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+        where = "WHERE order_as_of_date BETWEEN ? AND ?"
+        params = ["20261001", "20261031"]
+        try:
+            summary = tq.query_trader_summary(conn, where, params)
+            peers = tq.query_peer_orders(conn, where, params)
+        finally:
+            conn.close()
+        # 参数个数不匹配会被 query_* 的降级分支吞成空列表
+        assert summary
+        assert peers
+
+
 class TestBucketQualitySort:
     def test_completion_bucket_filter(self, tmp_path):
         mgr = make_manager(tmp_path, _multi_route_rows())
