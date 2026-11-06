@@ -692,6 +692,8 @@ export interface TcaMarketNotionalRankRow {
   exchange: string;
   name: string;
   route_count: number;
+  /** 订单数：按 (OrderId, 日期) 去重，与交易员/异常订单口径一致 */
+  order_count: number;
   notional: number | null;
   notional_usd: number | null;
 }

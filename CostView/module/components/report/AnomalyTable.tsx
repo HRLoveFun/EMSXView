@@ -1,4 +1,7 @@
+import { useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SearchableSelect } from '../SearchableSelect';
 import {
   formatBps,
   formatDuration,
@@ -93,9 +96,61 @@ function AnomalyRowView({ r }: { r: TcaAnomalyRow }) {
 
 /** 异常路由明细表（S6）：触发阈值规则的路由逐单清单 */
 export function AnomalyTable({ anomaly }: { anomaly?: TcaAnomaly | null }) {
+  // hooks 必须先于早退执行；无 anomaly 时以空集参与计算
+  const rows = useMemo(() => anomaly?.rows ?? [], [anomaly]);
+  const [marketFilter, setMarketFilter] = useState<string[]>([]);
+  const [ruleFilter, setRuleFilter] = useState<string[]>([]);
+
+  const marketMeta = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      if (!row.exchange) continue;
+      counts[row.exchange] = (counts[row.exchange] ?? 0) + 1;
+    }
+    return { options: Object.keys(counts).sort(), counts };
+  }, [rows]);
+
+  const ruleMeta = useMemo(() => {
+    const labels = new Map<string, string>();
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      for (const hit of row.hits) {
+        if (!labels.has(hit.key)) labels.set(hit.key, hit.label);
+        counts[hit.key] = (counts[hit.key] ?? 0) + 1;
+      }
+    }
+    const options = [...labels.keys()].sort((a, b) =>
+      (labels.get(a) ?? a).localeCompare(labels.get(b) ?? b),
+    );
+    return { options, displayNames: Object.fromEntries(labels), counts };
+  }, [rows]);
+
+  // 报告作用域变化后旧筛选值可能已不存在（如换了日期区间）：按当前数据裁剪，
+  // 否则残留值会把新报告的明细全部隐藏成空表。
+  const activeMarketFilter = useMemo(
+    () => marketFilter.filter((market) => marketMeta.counts[market] != null),
+    [marketFilter, marketMeta],
+  );
+  const activeRuleFilter = useMemo(
+    () => ruleFilter.filter((rule) => ruleMeta.counts[rule] != null),
+    [ruleFilter, ruleMeta],
+  );
+
+  const filteredRows = useMemo(() => {
+    const markets = new Set(activeMarketFilter);
+    const rules = new Set(activeRuleFilter);
+    if (!markets.size && !rules.size) return rows;
+    return rows.filter(
+      (row) =>
+        (!markets.size || (row.exchange != null && markets.has(row.exchange)))
+        && (!rules.size || row.hits.some((hit) => rules.has(hit.key))),
+    );
+  }, [rows, activeMarketFilter, activeRuleFilter]);
+
   if (!anomaly) return null;
-  const { count, rows } = anomaly;
-  if (!rows || rows.length === 0) {
+  const { count } = anomaly;
+  const hasFilter = activeMarketFilter.length > 0 || activeRuleFilter.length > 0;
+  if (rows.length === 0) {
     return (
       <Card>
         <CardHeader className="pb-2">
@@ -130,6 +185,52 @@ export function AnomalyTable({ anomaly }: { anomaly?: TcaAnomaly | null }) {
             ) : null}
           </div>
         ) : null}
+        <div className="mb-2 flex flex-wrap items-end gap-2">
+          <SearchableSelect
+            label="市场"
+            ariaLabel="筛选异常市场"
+            options={marketMeta.options}
+            value={activeMarketFilter}
+            onChange={setMarketFilter}
+            counts={marketMeta.counts}
+            recentScope="report.anomaly.markets"
+            columns={2}
+            triggerClassName="w-36"
+          />
+          <SearchableSelect
+            label="命中规则"
+            ariaLabel="筛选异常命中规则"
+            options={ruleMeta.options}
+            value={activeRuleFilter}
+            onChange={setRuleFilter}
+            displayNames={ruleMeta.displayNames}
+            counts={ruleMeta.counts}
+            recentScope="report.anomaly.rules"
+            columns={2}
+            triggerClassName="w-44"
+          />
+          <span className="pb-2 text-xs text-muted-foreground">
+            显示 {filteredRows.length} / {rows.length} 条
+          </span>
+          {hasFilter ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 text-xs"
+              onClick={() => {
+                setMarketFilter([]);
+                setRuleFilter([]);
+              }}
+            >
+              清除筛选
+            </Button>
+          ) : null}
+        </div>
+        {filteredRows.length === 0 ? (
+          <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+            当前筛选无匹配明细
+          </div>
+        ) : (
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-card">
@@ -162,12 +263,13 @@ export function AnomalyTable({ anomaly }: { anomaly?: TcaAnomaly | null }) {
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, MAX_ANOMALY_ROWS_RENDERED).map((r) => (
+              {filteredRows.slice(0, MAX_ANOMALY_ROWS_RENDERED).map((r) => (
                 <AnomalyRowView key={`${r.order_id}-${r.route_id}-${r.date}`} r={r} />
               ))}
             </tbody>
           </table>
         </div>
+        )}
       </CardContent>
     </Card>
   );

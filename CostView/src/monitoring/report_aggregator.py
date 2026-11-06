@@ -502,7 +502,9 @@ class TcaReportAggregator:
     ) -> list[dict[str, Any]]:
         """按市场的成交金额（美元）排名（008）：notional_usd 降序。
 
-        每条含 Exchange 代码 / 中文显示名 / 本币与 USD 成交金额 / route 数。
+        每条含 Exchange 代码 / 中文显示名 / 本币与 USD 成交金额 / route 数 / 订单数。
+        ``order_count`` 按 ``(OrderId, order_as_of_date)`` 去重，与交易员执行摘要、
+        异常订单计的订单口径一致（同一 OrderId 跨日不合并）。
         未配置中文名的 Exchange 用代码回退。
         """
         has_fx = self._has_column(conn, "fx_rate")
@@ -513,6 +515,7 @@ class TcaReportAggregator:
         sql = f"""
             SELECT COALESCE(Exchange, '(unknown)') AS exchange,
                     COUNT(*) AS route_count,
+                    COUNT(DISTINCT COALESCE(OrderId, '') || '|' || order_as_of_date) AS order_count,
                     COALESCE(SUM(fill * p_avg), 0) AS notional,
                     SUM(fill * p_avg * ({fx_sum})) AS notional_usd
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
@@ -526,8 +529,9 @@ class TcaReportAggregator:
                 "exchange": str(r[0]),
                 "name": Config.MARKET_ORDER.get(str(r[0]), str(r[0])),
                 "route_count": int(r[1]),
-                "notional": float(r[2]),
-                "notional_usd": self._to_float(r[3]),
+                "order_count": int(r[2]),
+                "notional": float(r[3]),
+                "notional_usd": self._to_float(r[4]),
             }
             for r in conn.execute(sql, params).fetchall()
         ]

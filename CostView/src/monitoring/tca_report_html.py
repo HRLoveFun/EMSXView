@@ -52,7 +52,12 @@ def render_report_html(
         _html_head(f"TCA 可视化报告 {title_range}"),
         _render_header(filters, generated_at),
         _render_credibility_banner(report, health),
-        _render_market_tabs(report.get("markets"), report.get("kpi")),
+        # 市场概览用 ranking（含 order_count），与前端 MarketOverviewTable 同源；
+        # `markets` 小节没有订单数，直接用会把 #Order 恒渲染成 0
+        _render_market_tabs(
+            report.get("market_notional_ranking") or report.get("markets"),
+            report.get("kpi"),
+        ),
         _render_kpi_cards(report.get("kpi"), report.get("extra_kpis"),
                           report.get("anomaly"), report.get("weight_coverage")),
         _render_data_quality(report, health),
@@ -250,7 +255,7 @@ def _render_market_tabs(
 ) -> str:
     """市场概览（007）：市场由 Config.MARKET_ORDER 设定顺序。
 
-    始终展示全部市场汇总表（route 数 + 成交金额 USD），不再提供点击市场
+    始终展示全部市场汇总表（route 数 / 订单数 + 成交金额），不再提供点击市场
     筛选概览范围的交互（取消点击市场筛选概览范围的功能）。
     """
     if not markets:
@@ -270,11 +275,12 @@ def _render_market_tabs(
 
 
 def _market_summary_table(markets: list[dict[str, Any]]) -> str:
-    """市场汇总表：route 数 + 成交金额（本币 / USD）。"""
+    """市场汇总表：route 数 / 订单数 + 成交金额（本币 / USD）。"""
     rows = "".join(
         f'<tr><td class="l">{_esc(Config.MARKET_ORDER.get(m["exchange"], m["exchange"]))}</td>'
         f'<td class="l">{_esc(m["exchange"])}</td>'
         f"<td>{m['route_count']:,}</td>"
+        f"<td>{int(m.get('order_count') or 0):,}</td>"
         f"<td>{_fmt_big(m.get('notional'))}</td>"
         f"<td>{_fmt_big(m.get('notional_usd'))}</td></tr>"
         for m in markets
@@ -282,7 +288,7 @@ def _market_summary_table(markets: list[dict[str, Any]]) -> str:
     return f"""
 <div class="panel" style="overflow-x:auto">
 <table><thead><tr><th class="l">市场</th><th class="l">代码</th><th>Route 数</th>
-<th>成交金额（本币）</th><th>成交金额（美元）</th></tr></thead>
+<th>#Order</th><th>成交金额（本币）</th><th>成交金额（美元）</th></tr></thead>
 <tbody>{rows}</tbody></table>
 <div class="meta" style="margin-top:8px">市场顺序与白名单由 DataPipeline/config.py::Config.MARKET_ORDER 设定。</div>
 </div>"""
