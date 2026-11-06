@@ -1045,6 +1045,35 @@ class TestReportScopeUnified:
         assert coverage["rows"][0]["coverage"]["pnl_vwap"] == 0.0
 
 
+class TestMarketOverviewOrderCount:
+    """市场概览 #Order：按 (OrderId, 日期) 去重，HTML 导出与前端同列。"""
+
+    def test_order_count_dedupes_routes_by_order_and_date(self, tca_mgr_factory):
+        mgr = tca_mgr_factory([
+            {"OrderId": "A1", "RouteId": "R1"},
+            {"OrderId": "A1", "RouteId": "R2"},
+            {"OrderId": "A2", "RouteId": "R1"},
+        ])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_fill_count=0, min_notional_usd=0.0,
+        )
+
+        row = report["market_notional_ranking"][0]
+        assert row["route_count"] == 3      # 3 条路由
+        assert row["order_count"] == 2      # A1 两条路由只算一张订单
+
+    def test_html_market_overview_renders_order_column(self, tca_mgr_factory):
+        # 2 条路由同属 1 张订单：Route 数与 #Order 取不同值，断言才能区分两列
+        mgr = tca_mgr_factory([{"OrderId": "A1"}, {"OrderId": "A1", "RouteId": "R2"}])
+        report = TcaReportAggregator(mgr).build_report(
+            "20260803", "20260803", min_fill_count=0, min_notional_usd=0.0,
+        )
+        html = render_report_html(report, None, "2026-11-06 10:00:00")
+
+        assert "#Order" in html
+        assert "<td>2</td><td>1</td>" in html
+
+
 # ── P0-2：加权 KPI 的样本量与权重覆盖披露 ─────────────────────────────────
 
 

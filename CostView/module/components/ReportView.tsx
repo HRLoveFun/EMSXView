@@ -18,7 +18,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fetchBdibHealth, fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
 import { loadCostViewConfig } from '../lib/storage';
@@ -36,6 +35,7 @@ import {
   formatWeightCoverage,
   formatZeroFillSub,
 } from '../lib/report-format';
+import { DateField } from './DateField';
 import { SearchableSelect } from './SearchableSelect';
 import { SegmentedField } from './SegmentedField';
 import { AnomalyTable } from './report/AnomalyTable';
@@ -531,8 +531,8 @@ export function ReportView() {
     setForm((prev) => ({ ...prev, granularity: value as Granularity }));
 
   // 编辑日期框视为自定义范围：自动切换为"指定日期/范围"预设
-  const updateField = (key: 'startDate' | 'endDate') => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((prev) => ({ ...prev, preset: 'custom', [key]: event.target.value }));
+  const updateField = (key: 'startDate' | 'endDate') => (value: string) =>
+    setForm((prev) => ({ ...prev, preset: 'custom', [key]: value }));
 
   // 生成报告：重新加载筛选选项（随 broker/algo/symbol 变化）与报告。
   // 事件回调内 setState 属规则允许形态；loading/error 仍由本组件 state 承载（与导出路径共用）。
@@ -584,11 +584,11 @@ export function ReportView() {
           {/* 日期填充框常驻：预设模式下显示解析后的实际区间，编辑后切换为自定义 */}
           <div className="space-y-1">
             <Label className="text-xs">起始日期</Label>
-            <Input type="date" className="w-40" value={form.startDate} onChange={updateField('startDate')} />
+            <DateField label="起始日期" value={form.startDate} onChange={updateField('startDate')} />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">截止日期</Label>
-            <Input type="date" className="w-40" value={form.endDate} onChange={updateField('endDate')} />
+            <DateField label="截止日期" value={form.endDate} onChange={updateField('endDate')} />
           </div>
           <SearchableSelect
             label="市场"

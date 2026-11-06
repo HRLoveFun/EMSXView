@@ -737,8 +737,10 @@ class TestTcaReportAggregator:
         assert exchanges == ["US", "HK"]  # US(2 条) 成交额 > HK(1 条)
         assert ranking[0]["name"] == "美国"
         assert ranking[1]["name"] == "香港"
-        # 每条含 route 数与成交金额
+        # 每条含 route 数 / 订单数与成交金额（US 两条路由分属 O1、O3 两张订单）
         assert ranking[0]["route_count"] == 2
+        assert ranking[0]["order_count"] == 2
+        assert ranking[1]["order_count"] == 1
         assert ranking[0]["notional"] == pytest.approx(2 * 900.0 * 150.0)
         assert ranking[0]["notional_usd"] is None  # 无 fx_rate 列 → USD 不换算
 

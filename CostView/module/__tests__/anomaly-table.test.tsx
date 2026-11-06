@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { AnomalyTable } from '../components/report/AnomalyTable';
 import type { TcaAnomaly, TcaAnomalyRow } from '../types';
 
@@ -90,5 +91,67 @@ describe('AnomalyTable 数据质量标记', () => {
     expect(screen.getByText('max 150.00%')).toBeInTheDocument();
     expect(screen.getByText('3 routes')).toBeInTheDocument();
     expect(screen.queryByText('320.00%')).not.toBeInTheDocument();
+  });
+});
+
+// ── 筛选标签：市场 / 命中规则 ──
+
+const mixedAnomaly: TcaAnomaly = {
+  count: 2,
+  rows: [
+    {
+      ...baseRow,
+      order_id: 'US1',
+      exchange: 'US',
+      hits: [{ key: 'pnl_vwap_bps', label: 'Pnl VWAP', value: 30, unit: 'bps', severity: 'critical' }],
+    },
+    {
+      ...baseRow,
+      order_id: 'HK1',
+      exchange: 'HK',
+      hits: [{ key: 'par_rate', label: '参与率', value: 1.5, unit: 'percent', severity: 'warning' }],
+    },
+  ],
+};
+
+describe('AnomalyTable 筛选标签', () => {
+  it('按市场筛选只保留该市场明细', async () => {
+    const user = userEvent.setup();
+    render(<AnomalyTable anomaly={mixedAnomaly} />);
+
+    await user.click(screen.getByRole('button', { name: '筛选异常市场' }));
+    await user.click(screen.getByRole('option', { name: /HK/ }));
+
+    expect(screen.getByText('HK1')).toBeInTheDocument();
+    expect(screen.queryByText('US1')).not.toBeInTheDocument();
+    expect(screen.getByText(/显示 1 \/ 2 条/)).toBeInTheDocument();
+  });
+
+  it('按命中规则筛选只保留命中该规则的明细', async () => {
+    const user = userEvent.setup();
+    render(<AnomalyTable anomaly={mixedAnomaly} />);
+
+    await user.click(screen.getByRole('button', { name: '筛选异常命中规则' }));
+    await user.click(screen.getByRole('option', { name: /参与率/ }));
+
+    expect(screen.getByText('HK1')).toBeInTheDocument();
+    expect(screen.queryByText('US1')).not.toBeInTheDocument();
+  });
+
+  it('组合筛选无匹配时给出空态，清除后恢复全部', async () => {
+    const user = userEvent.setup();
+    render(<AnomalyTable anomaly={mixedAnomaly} />);
+
+    await user.click(screen.getByRole('button', { name: '筛选异常市场' }));
+    await user.click(screen.getByRole('option', { name: /US/ }));
+    await user.click(screen.getByRole('button', { name: '筛选异常命中规则' }));
+    await user.click(screen.getByRole('option', { name: /参与率/ }));
+
+    expect(screen.getByText('当前筛选无匹配明细')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '清除筛选' }));
+
+    expect(screen.getByText('US1')).toBeInTheDocument();
+    expect(screen.getByText('HK1')).toBeInTheDocument();
   });
 });

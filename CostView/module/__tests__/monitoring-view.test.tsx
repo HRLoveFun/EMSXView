@@ -86,8 +86,8 @@ const reportSummary: TcaReportSummary = {
     symbols: ['AAPL US Equity'],
   },
   market_notional_ranking: [
-    { exchange: 'US', name: '美国', route_count: 10, notional: 1500000, notional_usd: 1500000 },
-    { exchange: 'HK', name: '香港', route_count: 5, notional: 800000, notional_usd: 102000 },
+    { exchange: 'US', name: '美国', route_count: 10, order_count: 7, notional: 1500000, notional_usd: 1500000 },
+    { exchange: 'HK', name: '香港', route_count: 5, order_count: 4, notional: 800000, notional_usd: 102000 },
   ],
   market_notional_trend: [
     { date: '20260803', exchange: 'US', name: '美国', notional_usd: 1500000 },
