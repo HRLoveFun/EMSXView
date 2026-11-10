@@ -163,11 +163,15 @@ def test_health_requires_contract_version(schema: dict) -> None:
 
 
 def test_mirror_matches_upstream_when_available() -> None:
-    """同机存在上游仓库时逐字节比对。
+    """同机存在上游仓库时逐字符比对（行尾归一化后）。
 
     上面 13 个断言只校验「Python 投影 ↔ JSON 镜像」，无法发现**镜像本身过期**——
     实测踩到过：改了上游 `errorCodes[].description` 后忘了重新复制，镜像与上游
     哈希不同，但所有结构性断言仍全绿。CI 无上游仓库时跳过，不误报。
+
+    不按字节比对：两个仓库都没给该文件定 eol，Windows 上 git autocrlf 会把同一份
+    内容检出成 LF / CRLF 两种字节，逐字节比对会误报（2026-11-10 实测踩到）。
+    行尾归一化后仍逐字符比对，真实漂移照样能发现。
     """
     upstream_root = os.getenv("EMSX_PIPELINE_REPO")
     candidate = Path(upstream_root) if upstream_root else REPO_ROOT.parent / "EMSXDataPipeline"
@@ -175,7 +179,10 @@ def test_mirror_matches_upstream_when_available() -> None:
     if not upstream_schema.exists():
         pytest.skip(f"上游仓库不在本机（{candidate}），跳过逐字节比对")
 
-    assert upstream_schema.read_bytes() == _SCHEMA_PATH.read_bytes(), (
+    def _normalized(path: Path) -> str:
+        return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+    assert _normalized(upstream_schema) == _normalized(_SCHEMA_PATH), (
         "镜像与上游不一致：请重新复制 "
         f"{upstream_schema} -> {_SCHEMA_PATH}"
     )
