@@ -283,11 +283,12 @@ ends at clean, well-structured data delivery.
 
 ### 实时通道（013 网关，默认关闭）
 
-`//blp/mktdata` 与 `//blp/refdata` 计划收编到上游网关（设计见上游 `EMSXDataPipeline/docs/spec/013-bloomberg-gateway.md`）。**客户端桩已就绪，接线未开始**：
+`//blp/mktdata` 与 `//blp/refdata` 计划收编到上游网关（设计见上游 `EMSXDataPipeline/docs/spec/013-bloomberg-gateway.md`）。**客户端与 shadow 比对已就绪，默认仍 `off`（纯直连）**：
 
 - 客户端：`backend/api/services/gateway_client.py`——本仓唯一网关出口，只做传输、解包与降级判定，不做业务映射；
 - 契约镜像：`platform_data/contracts/gateway_schema.json`（上游 schema 逐字节镜像）+ `gateway_contracts.py`（Python 投影），由 `backend/api/tests/test_gateway_contract_mirror.py` 锁定；
-- 开关：`EMSXVIEW_GATEWAY_MODE=off|shadow|on`，**当前默认 `off`（纯直连，行为不变）**；
+- 影子比对：`EMSXVIEW_GATEWAY_MODE=shadow` 时 `MarketDataEnrichmentService` 启守护线程，每 30s 把直连采样集合镜像订阅到网关（`/quote` 只读订阅缓存，不镜像订阅会全是缺值），逐字段比对后按天写 `<EMSXVIEW_GATEWAY_SHADOW_DIR>/gateway_shadow_YYYYMMDD.jsonl`（默认 `<后端工作目录>/logs/gateway_shadow`）；`python -m services.gateway_shadow <jsonl...>` 出一致率报表；
+- 开关：`EMSXVIEW_GATEWAY_MODE=off|shadow|on`，**当前默认 `off`（纯直连，行为不变）**；shadow 依赖上游 `emsx-gateway` 在 `:8101` 运行；
 - 范围：只覆盖行情与参考数据；交易链路（`//blp/emapisvc` 下单/改单/撤单/订单订阅）**不经网关**，保持直连；
 - 降级：网关不可用或熔断打开时，客户端抛 `GatewayUnavailable`，上层必须回落直连，**不得静默返回空数据**。
 
