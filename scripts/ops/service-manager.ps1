@@ -123,31 +123,47 @@ function Test-PortActiveListen {
     return $null -ne $connection
 }
 
-function Test-PortHasAnyConnection {
+function Wait-PortListenFree {
     <#
     .SYNOPSIS
-        Returns $true if the port has ANY TCP state (LISTEN, ESTABLISHED, TIME_WAIT, etc.).
-        Used to wait for TIME_WAIT to clear before rebinding.
-    #>
-    param([int]$Port)
-    $connection = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
-    return $null -ne $connection
-}
+        Polls until nothing is actively LISTENING on the given port.
 
-function Wait-PortCompletelyFree {
-    <#
-    .SYNOPSIS
-        Polls until the given port has zero TCP connections of any state.
-        Returns $true once free, $false on timeout.
+    .DESCRIPTION
+        只等活跃监听者退出，不再等 TIME_WAIT 清空。TIME_WAIT 是已关闭连接的
+        正常残留（Windows 默认约 120s），**不会阻止重新 bind**（2026-11-10 实测：
+        杀掉服务端后立刻 bind 成功）。旧实现等「任意状态」的连接清零，实测后端
+        刚停时 :3000 留下 50 条 TimeWait，restart 因此在启动阶段误判「端口仍忙」
+        而放弃，最终留下服务已停的状态。
     #>
-    param([int]$Port, [int]$MaxWaitSeconds = 60)
+    param([int]$Port, [int]$MaxWaitSeconds = 10)
     for ($i = 0; $i -lt $MaxWaitSeconds; $i++) {
-        if (-not (Test-PortHasAnyConnection -Port $Port)) {
+        if (-not (Test-PortActiveListen -Port $Port)) {
             return $true
         }
         Start-Sleep -Seconds 1
     }
-    return (-not (Test-PortHasAnyConnection -Port $Port))
+    return (-not (Test-PortActiveListen -Port $Port))
+}
+
+function Start-DetachedProcess {
+    <#
+    .SYNOPSIS
+        Starts a long-running cmd child without inheriting this process's stdout/stderr.
+
+    .DESCRIPTION
+        子进程自己的输出由命令行里的 `>> log 2>&1` 写文件，不需要父进程的句柄。
+        用 `ProcessStartInfo(UseShellExecute=false)` 启动时，子进程会继承调用方的
+        stdout 管道：一旦调用方是 `powershell -File service-manager.ps1 restart | tail`
+        这类管道，长驻子进程就一直持有写端，管道永远等不到 EOF，外层命令看起来
+        「卡死」（2026-11-10 实测：restart 实际已结束，外层 0 字节输出且永不返回）。
+        Start-Process 走 ShellExecute，子进程拿独立句柄，不再拖住父进程的管道。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Arguments,
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory
+    )
+    return Start-Process -FilePath "cmd" -ArgumentList $Arguments `
+        -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru
 }
 
 function Get-ProcessUsingPortListening {
@@ -353,7 +369,22 @@ function Show-BackendStartupSummary {
 
 function Stop-BackendService {
     Write-Status "Stopping backend service..." "Info"
+    $killed = @{}
 
+    # 1) 端口监听者优先：不管用什么方式启动的，监听 :3000 的就是后端主进程
+    $listener = Get-ProcessUsingPortListening -Port $Config.Backend.Port
+    if ($listener) {
+        try {
+            Stop-Process -Id $listener.Id -Force -ErrorAction Stop
+            $killed[[string]$listener.Id] = $true
+            Write-Status "Stopped backend listener on port $($Config.Backend.Port) (PID: $($listener.Id))" "Success"
+        }
+        catch {
+            Write-Status "Failed to stop process $($listener.Id): $($_.Exception.Message)" "Error"
+        }
+    }
+
+    # 2) 命令行兜底：已启动但尚未监听端口的残留进程
     $processes = Get-CimInstance Win32_Process | Where-Object {
         $_.CommandLine -like "*backend\api\main.py*" -or
         $_.CommandLine -like "*backend/api/main.py*" -or
@@ -361,8 +392,10 @@ function Stop-BackendService {
     }
 
     foreach ($proc in $processes) {
+        if ($killed.ContainsKey([string]$proc.ProcessId)) { continue }
         try {
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+            $killed[[string]$proc.ProcessId] = $true
             Write-Status "Stopped Python process (PID: $($proc.ProcessId))" "Success"
         }
         catch {
@@ -370,17 +403,9 @@ function Stop-BackendService {
         }
     }
 
-    # Wait up to 60s for any stale TIME_WAIT connection to clear
-    if (-not (Wait-PortCompletelyFree -Port $Config.Backend.Port -MaxWaitSeconds 60)) {
-        Write-Status "Port $($Config.Backend.Port) still has stale connections after 60s timeout." "Warning"
-    }
-
-    if (Test-PortActiveListen -Port $Config.Backend.Port) {
-        $proc = Get-ProcessUsingPortListening -Port $Config.Backend.Port
-        if ($proc) {
-            Write-Status "Force killing process using port $($Config.Backend.Port) (PID: $($proc.Id))" "Warning"
-            Stop-Process -Id $proc.Id -Force
-        }
+    # 只等监听者退出；TIME_WAIT 不阻塞重新 bind，无需等它清零（否则白等 60s）
+    if (-not (Wait-PortListenFree -Port $Config.Backend.Port -MaxWaitSeconds 10)) {
+        Write-Status "Port $($Config.Backend.Port) is still listening after 10s." "Warning"
     }
 
     Write-Status "Backend service stopped" "Success"
@@ -443,16 +468,8 @@ function Start-BackendService {
         return $false
     }
 
-    # Second check: could be TIME_WAIT from a recently killed process.
-    # Wait up to 60s for it to clear.
-    if (Test-PortHasAnyConnection -Port $Config.Backend.Port) {
-        Write-Status "Port $($Config.Backend.Port) has stale connections (TIME_WAIT). Waiting up to 60s..." "Warning"
-        if (-not (Wait-PortCompletelyFree -Port $Config.Backend.Port -MaxWaitSeconds 60)) {
-            Write-Status "Port $($Config.Backend.Port) still busy after 60s. Aborting." "Error"
-            return $false
-        }
-        Write-Status "Port $($Config.Backend.Port) is now free." "Success"
-    }
+    # 不再等 TIME_WAIT 清零：它不是端口占用，也不会阻止 bind。
+    # 只要没有活跃 LISTEN（上一个检查已确认），就可以直接启动。
 
     $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
     if (-not (Test-Path $logDir)) {
@@ -464,18 +481,17 @@ function Start-BackendService {
 
     Write-Status "Starting backend (log: $logFile)..." "Info"
 
-    # Use cmd.exe to redirect stdout/stderr to the log file.
-    # This avoids .NET's redirected pipe buffers which nobody reads —
-    # when the 4 KB pipe fills, the child process blocks on Console.Write
-    # and can no longer serve HTTP requests, causing the black-screen bug.
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "cmd"
-    $startInfo.Arguments = "/c python `"$backendScript`" >> `"$logFile`" 2>&1"
-    $startInfo.WorkingDirectory = Split-Path $backendScript -Parent
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
+    # 用 cmd.exe 把 stdout/stderr 直接写日志文件：既避开无人读取的 .NET 管道
+    # 缓冲（写满后子进程阻塞、接口假死），又通过 Start-DetachedProcess 让子进程
+    # 不继承本进程的 stdout（否则 `| tail` 之类的外层管道永不返回）。
+    $process = Start-DetachedProcess `
+        -Arguments "/c python `"$backendScript`" >> `"$logFile`" 2>&1" `
+        -WorkingDirectory (Split-Path $backendScript -Parent)
 
-    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) {
+        Write-Status "Failed to launch backend process (see $logFile)." "Error"
+        return $false
+    }
 
     Write-Status "Waiting for backend to start (up to $($Config.Backend.StartupDelay) seconds)..." "Info"
     $elapsed = 0
@@ -554,15 +570,8 @@ function Start-FrontendService {
         return $false
     }
 
-    # TIME_WAIT check — wait for it to clear before starting the new dev server
-    if (Test-PortHasAnyConnection -Port $frontendPort) {
-        Write-Status "Port $frontendPort has stale connections (TIME_WAIT). Waiting up to 60s..." "Warning"
-        if (-not (Wait-PortCompletelyFree -Port $frontendPort -MaxWaitSeconds 60)) {
-            Write-Status "Port $frontendPort still busy after 60s. Aborting." "Error"
-            return $false
-        }
-        Write-Status "Port $frontendPort is now free." "Success"
-    }
+    # 不再等 TIME_WAIT 清零：它不是端口占用，也不会阻止 bind。
+    # 只要没有活跃 LISTEN（上一个检查已确认），就可以直接启动。
 
     $frontendDir = Join-Path $Config.ProjectRoot "frontend"
     $logDir = Join-Path $Config.ProjectRoot $Config.LogDir
@@ -575,18 +584,17 @@ function Start-FrontendService {
 
     Write-Status "Starting frontend (log: $logFile)..." "Info"
 
-    # Use cmd.exe to redirect stdout/stderr to the log file.
-    # This avoids .NET's redirected pipe buffers which nobody reads —
-    # when the 4 KB pipe fills, Vite blocks on Console.Write and can no
-    # longer serve HTTP requests, causing the black-screen bug.
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "cmd"
-    $startInfo.Arguments = "/c cd /d `"$frontendDir`" && $script >> `"$logFile`" 2>&1"
-    $startInfo.WorkingDirectory = $frontendDir
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
+    # 用 cmd.exe 把 stdout/stderr 直接写日志文件：既避开无人读取的 .NET 管道
+    # 缓冲（写满后 Vite 阻塞、页面假死），又通过 Start-DetachedProcess 让子进程
+    # 不继承本进程的 stdout（否则 `| tail` 之类的外层管道永不返回）。
+    $process = Start-DetachedProcess `
+        -Arguments "/c cd /d `"$frontendDir`" && $script >> `"$logFile`" 2>&1" `
+        -WorkingDirectory $frontendDir
 
-    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) {
+        Write-Status "Failed to launch frontend process (see $logFile)." "Error"
+        return $false
+    }
 
     Write-Status "Waiting for frontend to start (up to $($Config.Frontend.StartupDelay) seconds)..." "Info"
     Start-Sleep -Seconds $Config.Frontend.StartupDelay
@@ -639,14 +647,11 @@ function Start-MarketViewService {
     }
     $logFile = Join-Path $logDir "marketview-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
-    # 与 backend 一致：cmd.exe 重定向到文件，避免无人读取的 .NET 管道缓冲写满后阻塞子进程
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "cmd"
-    $startInfo.Arguments = "/c python `"$scriptPath`" >> `"$logFile`" 2>&1"
-    $startInfo.WorkingDirectory = $dir
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    [void][System.Diagnostics.Process]::Start($startInfo)
+    # 与 backend 一致：cmd.exe 重定向到文件（避免无人读取的 .NET 管道缓冲写满后
+    # 阻塞子进程），并由 Start-DetachedProcess 切断对父进程 stdout 的继承。
+    [void](Start-DetachedProcess `
+        -Arguments "/c python `"$scriptPath`" >> `"$logFile`" 2>&1" `
+        -WorkingDirectory $dir)
 
     Write-Status "Waiting for MarketView (log: $logFile)..." "Info"
     for ($i = 0; $i -lt $Config.MarketView.StartupDelay; $i++) {
@@ -863,7 +868,14 @@ switch ($Action) {
         [void](Start-MarketViewService)
         $backendStarted = Start-BackendService
         if (-not $backendStarted) {
-            Write-Status "Backend failed to start. Aborting." "Error"
+            # restart 已经把服务停掉了：启动失败时先重试一次，避免一个瞬时的
+            # 端口/句柄竞争直接把整套服务留在「已停止」状态。
+            Write-Status "Backend failed to start; retrying once in 5s..." "Warning"
+            Start-Sleep -Seconds 5
+            $backendStarted = Start-BackendService
+        }
+        if (-not $backendStarted) {
+            Write-Status "Backend failed to start. Services are stopped; check the log above." "Error"
             exit 1
         }
         $frontendStarted = Start-FrontendService -WaitForBackend $true
