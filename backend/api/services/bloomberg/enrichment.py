@@ -24,6 +24,10 @@ from .subscriptions import EMSXSubscriptionEngine
 
 logger = logging.getLogger("main")
 
+#: 影子比对（`EMSXVIEW_GATEWAY_MODE=shadow`）只覆盖有 mktdata 推送面的字段；
+#: PX_ROUND_LOT_SIZE 在网关侧走 refdata，语义不同，不纳入比对。
+_SHADOW_FIELDS = ("CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP")
+
 # 057 DL-15：mktdata 基础字段（既有）与盘中状态字段（开关开启时追加）
 _MKTDATA_BASE_FIELDS = ["CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP", "PX_ROUND_LOT_SIZE"]
 # PREV_CLOSE_VALUE_REALTIME：实盘订阅实测可用（CHG_PCT_1D 在本机终端不推送），
@@ -117,6 +121,9 @@ class MarketDataEnrichmentService:
         self._orders_symbols: Set[str] = set()
         self._orders_symbol_exchange: list[tuple[str, str]] = []
 
+        # 影子比对线程（`EMSXVIEW_GATEWAY_MODE=shadow` 才启动；off/on 均为 None）
+        self._shadow_runner: Any = None
+
         self._permfail_last_prices: Dict[str, float] = {}
 
         self._mktdata_thread: Optional[threading.Thread] = None
@@ -167,12 +174,82 @@ class MarketDataEnrichmentService:
         )
         self._mktdata_thread.start()
         logger.info("Started mktdata subscription thread")
+        self._start_shadow_if_enabled()
 
     def stop(self):
+        if self._shadow_runner is not None:
+            self._shadow_runner.stop()
+            self._shadow_runner = None
         if self._mktdata_thread and self._mktdata_thread.is_alive():
             self._mktdata_thread.join(timeout=5)
             if self._mktdata_thread.is_alive():
                 logger.warning("Mktdata subscription thread did not stop within timeout")
+
+    # ── 影子比对（013 P4）──────────────────────────────────────────────
+
+    def _start_shadow_if_enabled(self) -> None:
+        """`shadow` 模式下启动旁路采样；其余模式什么都不做（行为与现状一致）。
+
+        失败一律降级为「不启动」：影子比对是观测手段，不能因为它起不来
+        就影响直连行情。原因写 WARNING，便于运维确认开关是否真的生效。
+        """
+        from config import settings
+
+        mode = str(getattr(settings, "EMSXVIEW_GATEWAY_MODE", "off") or "off").strip().lower()
+        if mode != "shadow":
+            return
+        try:
+            from services.gateway_client import GatewayClient
+            from services.gateway_shadow import (
+                ShadowRecorder,
+                ShadowRunner,
+                ShadowSampler,
+            )
+
+            client = GatewayClient(getattr(settings, "EMSXVIEW_GATEWAY_URL", "http://127.0.0.1:8101"))
+            recorder = ShadowRecorder(self._shadow_dir())
+            sampler = ShadowSampler(
+                direct_snapshot=self._shadow_direct_snapshot,
+                gateway_quote=client.quote,
+                recorder=recorder,
+                fields=_SHADOW_FIELDS,
+            )
+            runner = ShadowRunner(sampler)
+            runner.start()
+            self._shadow_runner = runner
+            logger.info("Gateway shadow comparison started → %s", recorder.directory)
+        except Exception as e:  # noqa: BLE001 - 影子比对失败不影响直连
+            logger.warning(f"Gateway shadow comparison not started: {e}")
+
+    def _shadow_dir(self):
+        """影子 JSONL 落盘目录：`EMSXVIEW_GATEWAY_SHADOW_DIR` > `<本仓 logs>/gateway_shadow`。
+
+        本仓没有 `LOG_DIR` 常量，缺省落在后端工作目录下的 `logs/`；需要与上游
+        报表脚本共用一份时，显式设置 `EMSXVIEW_GATEWAY_SHADOW_DIR` 指向上游
+        `<LOG_DIR>/gateway_shadow`。
+        """
+        import os
+        from pathlib import Path
+
+        from config import settings
+
+        configured = os.getenv("EMSXVIEW_GATEWAY_SHADOW_DIR") or getattr(
+            settings, "EMSXVIEW_GATEWAY_SHADOW_DIR", ""
+        )
+        if configured:
+            return Path(configured)
+        return Path("logs") / "gateway_shadow"
+
+    def _shadow_direct_snapshot(self) -> Dict[str, Dict[str, Any]]:
+        """直连侧快照：只取影子比对覆盖的字段，缺失即不出现（不补 0）。"""
+        snapshot: Dict[str, Dict[str, Any]] = {}
+        for ticker, value in list(self._price_changes.items()):
+            snapshot.setdefault(ticker, {})["CHG_PCT_1D"] = value
+        for ticker, value in list(self._adv5d.items()):
+            snapshot.setdefault(ticker, {})["VOLUME_AVG_5D"] = value
+        for ticker, value in list(self._mkt_vwap.items()):
+            snapshot.setdefault(ticker, {})["VWAP"] = value
+        return snapshot
 
     def reset(self):
         self._price_changes = {}

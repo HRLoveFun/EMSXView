@@ -27,6 +27,8 @@ class Settings:
     EMSXVIEW_GATEWAY_MODE: str = os.getenv("EMSXVIEW_GATEWAY_MODE", "off")
     EMSXVIEW_GATEWAY_URL: str = os.getenv("EMSXVIEW_GATEWAY_URL", "http://127.0.0.1:8101")
     EMSXVIEW_GATEWAY_WS_URL: str = os.getenv("EMSXVIEW_GATEWAY_WS_URL", "ws://127.0.0.1:8101")
+    # shadow 模式比对结果落盘目录；空 = `<后端工作目录>/logs/gateway_shadow`
+    EMSXVIEW_GATEWAY_SHADOW_DIR: str = os.getenv("EMSXVIEW_GATEWAY_SHADOW_DIR", "")
 
     # API Configuration
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")

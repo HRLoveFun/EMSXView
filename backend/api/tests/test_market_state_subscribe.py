@@ -64,3 +64,55 @@ def test_add_mktdata_tickers_is_idempotent():
     assert accepted == {"BBB"}
     assert rejected == 0
     assert total == 2
+
+
+# ── 013 P4 影子比对接线 ──────────────────────────────────────────────────────
+
+
+def test_shadow_not_started_when_mode_is_off(monkeypatch):
+    """默认 off：不建线程、不建客户端，行为与现状一致。"""
+    monkeypatch.setattr(settings, "EMSXVIEW_GATEWAY_MODE", "off")
+    svc = _svc()
+    svc._shadow_runner = None
+    svc._start_shadow_if_enabled()
+    assert svc._shadow_runner is None
+
+
+def test_shadow_not_started_when_mode_is_on(monkeypatch):
+    """on 模式走的是「以网关为准」，不跑影子比对。"""
+    monkeypatch.setattr(settings, "EMSXVIEW_GATEWAY_MODE", "on")
+    svc = _svc()
+    svc._shadow_runner = None
+    svc._start_shadow_if_enabled()
+    assert svc._shadow_runner is None
+
+
+def test_shadow_started_in_shadow_mode_and_stopped_by_stop(monkeypatch, tmp_path):
+    """shadow 模式起守护线程，落盘目录可注入；stop() 后线程退出。"""
+    monkeypatch.setattr(settings, "EMSXVIEW_GATEWAY_MODE", "shadow")
+    monkeypatch.setenv("EMSXVIEW_GATEWAY_SHADOW_DIR", str(tmp_path))
+    svc = _svc()
+    svc._shadow_runner = None
+    svc._price_changes = {}
+    svc._adv5d = {}
+    svc._mkt_vwap = {}
+    svc._mktdata_thread = None
+
+    svc._start_shadow_if_enabled()
+    try:
+        assert svc._shadow_runner is not None
+        assert svc._shadow_runner._sampler._recorder.directory == tmp_path
+    finally:
+        svc.stop()
+    assert svc._shadow_runner is None
+
+
+def test_shadow_direct_snapshot_only_carries_known_fields():
+    svc = _svc()
+    svc._price_changes = {"AAA": 1.5}
+    svc._adv5d = {"AAA": 1e6, "BBB": 2e6}
+    svc._mkt_vwap = {"BBB": 10.0}
+    assert svc._shadow_direct_snapshot() == {
+        "AAA": {"CHG_PCT_1D": 1.5, "VOLUME_AVG_5D": 1e6},
+        "BBB": {"VOLUME_AVG_5D": 2e6, "VWAP": 10.0},
+    }
