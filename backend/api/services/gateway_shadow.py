@@ -179,18 +179,7 @@ class ShadowSampler:
 
         try:
             await self._sync_subscriptions(tickers)
-            quotes = await self._gateway_quote(tickers, list(self._fields))
-        except GatewayError as exc:
-            # 2004「请求字段均无推送值」是契约内的正常结果（client_action=mark_gap），
-            # 不是网关故障：网关确实一个值都没有，按「网关侧无值」逐字段记账。
-            # 整轮记成 gw_error 会把「订阅刚建立、网关慢一拍」和「网关挂了」混成
-            # 同一类（实测 2026-11-10 首轮 50 条全是这种），报表就分不清了。
-            if exc.code != FIELD_UNAVAILABLE_CODE:
-                stats["gw_error"] = f"{type(exc).__name__}: {exc}"
-                logger.debug("gateway shadow: 本轮采样失败: %s", stats["gw_error"])
-                self._emit_error(tickers, stats["gw_error"])
-                return stats
-            quotes = {}
+            quotes = await self._quote_per_ticker(tickers)
         except Exception as exc:  # noqa: BLE001 - 网关任何失败都只记一笔，不影响直连
             stats["gw_error"] = f"{type(exc).__name__}: {exc}"
             logger.debug("gateway shadow: 本轮采样失败: %s", stats["gw_error"])
@@ -233,6 +222,29 @@ class ShadowSampler:
                 )
         self._recorder.record(rows)
         return stats
+
+    async def _quote_per_ticker(self, tickers: list[str]) -> dict[str, Any]:
+        """按标的逐个取 `/quote`，把 2004 还原成「该标的无值」。
+
+        网关的 2004 是**整批**语义（`quote_code`：这批 ticker 上一个值都没有才返回），
+        而 `build_quote` 的 `data` 里其实带着每个 ticker 的 gaps。客户端按契约把非 0
+        一律抛 `GatewayError`，于是「50 个标的里 49 个没值」也会把有值的那一个一起
+        丢掉——实测 2026-11-10 20:48–20:49 的 6 条 `gateway_missing` 就是这么来的：
+        采样集轮换到新标的时，整批里只有新标的没值，整批被判 2004，老标的的值全丢。
+
+        逐标的请求后，2004 只可能意味着「这个标的确实没值」，与直连缺值同义，
+        记 `gateway_missing` 即可；其余错误码照常上抛，由调用方记 `gw_error`。
+        """
+        quotes: dict[str, Any] = {}
+        for ticker in tickers:
+            try:
+                batch = await self._gateway_quote([ticker], list(self._fields))
+            except GatewayError as exc:
+                if exc.code != FIELD_UNAVAILABLE_CODE:
+                    raise
+                continue
+            quotes.update(batch or {})
+        return quotes
 
     async def _sync_subscriptions(self, tickers: list[str]) -> None:
         """让网关订阅面与直连采样集合同步。
