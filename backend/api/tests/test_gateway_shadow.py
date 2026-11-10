@@ -204,6 +204,34 @@ def test_summarize_does_not_count_both_missing_as_match() -> None:
     assert report["by_field"]["CHG_PCT_1D"]["match_rate"] is None
 
 
+def test_summarize_separates_exact_from_within_tolerance() -> None:
+    """容差内一致不能冒充精确相等：否则报表看不出「数值其实不一样」。"""
+    rows = [
+        {"field": "VWAP", "direct": 237.5155, "gateway": 237.5155, "match": True, "reason": None},
+        {"field": "VWAP", "direct": 237.5155, "gateway": 237.5153, "match": True, "reason": None},
+        {"field": "VWAP", "direct": 34.71, "gateway": 34.7104, "match": False, "reason": "value_diff"},
+    ]
+    report = gs.summarize(rows)
+
+    assert report["both_present"] == 3
+    assert report["matched"] == 2
+    assert report["exact"] == 1
+    assert report["near_match"] == 1
+    assert abs(report["match_rate"] - 2 / 3) < 1e-12
+    assert abs(report["exact_rate"] - 1 / 3) < 1e-12
+    vwap = report["by_field"]["VWAP"]
+    assert vwap["exact"] == 1
+    assert vwap["near_match"] == 1
+    assert abs(vwap["exact_rate"] - 1 / 3) < 1e-12
+
+
+def test_summarize_exact_and_near_are_zero_when_no_samples() -> None:
+    report = gs.summarize([])
+    assert report["exact"] == 0
+    assert report["near_match"] == 0
+    assert report["exact_rate"] is None
+
+
 def test_field_unavailable_2004_is_not_recorded_as_gateway_error(tmp_path) -> None:
     """2004「请求字段均无推送值」是契约内结果，应逐字段记账而非整轮 gw_error。"""
 
