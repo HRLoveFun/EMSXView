@@ -234,6 +234,31 @@ async def test_circuit_half_open_allows_single_probe_then_recovers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_circuit_recovers_after_business_error_probe() -> None:
+    """half_open 探针收到业务错误码（2xxx）也说明网关存活，必须复位熔断。"""
+    now = [0.0]
+    breaker = gc.CircuitBreaker(threshold=1, reset_seconds=60, clock=lambda: now[0])
+    responses = iter(
+        [
+            httpx.Response(503, json=_envelope(None, code=2001, source="none")),
+            httpx.Response(429, json=_envelope(None, code=2002, source="none")),
+        ]
+    )
+    client, _ = _make_client(lambda request: next(responses), breaker=breaker)
+    async with client:
+        with pytest.raises(gc.GatewayError):
+            await client.quote(["AAPL US Equity"])
+        assert client.circuit_state == "open"
+
+        now[0] = 61.0
+        with pytest.raises(gc.GatewayError):
+            await client.quote(["AAPL US Equity"])
+
+    assert client.circuit_state == "closed"
+    assert breaker.allow() is True
+
+
+@pytest.mark.asyncio
 async def test_circuit_success_resets_failure_count() -> None:
     """成功一次后失败计数归零，不会因历史失败过早打开。"""
     responses = iter(

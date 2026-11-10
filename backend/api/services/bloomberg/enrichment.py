@@ -213,6 +213,10 @@ class MarketDataEnrichmentService:
                 gateway_quote=client.quote,
                 recorder=recorder,
                 fields=_SHADOW_FIELDS,
+                # 网关 `/quote` 只读订阅缓存：不镜像订阅，影子报表会全是被动缺值
+                gateway_subscribe=client.subscribe,
+                gateway_unsubscribe=client.unsubscribe,
+                gateway_close=client.close,
             )
             runner = ShadowRunner(sampler)
             runner.start()

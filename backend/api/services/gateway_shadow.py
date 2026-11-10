@@ -138,6 +138,9 @@ class ShadowSampler:
         recorder: ShadowRecorder,
         *,
         fields: Iterable[str],
+        gateway_subscribe: Optional[Callable[[list[str], list[str]], Any]] = None,
+        gateway_unsubscribe: Optional[Callable[[list[str]], Any]] = None,
+        gateway_close: Optional[Callable[[], Any]] = None,
         tolerance: float = DEFAULT_TOLERANCE,
         max_tickers: int = DEFAULT_MAX_TICKERS,
         clock: Callable[[], datetime] = datetime.now,
@@ -146,6 +149,10 @@ class ShadowSampler:
         self._gateway_quote = gateway_quote
         self._recorder = recorder
         self._fields = tuple(fields)
+        self._gateway_subscribe = gateway_subscribe
+        self._gateway_unsubscribe = gateway_unsubscribe
+        self._gateway_close = gateway_close
+        self._subscribed: set[str] = set()
         self._tolerance = float(tolerance)
         self._max_tickers = max(1, int(max_tickers))
         self._clock = clock
@@ -165,12 +172,19 @@ class ShadowSampler:
             return stats
 
         try:
+            await self._sync_subscriptions(tickers)
             quotes = await self._gateway_quote(tickers, list(self._fields))
         except Exception as exc:  # noqa: BLE001 - 网关任何失败都只记一笔，不影响直连
             stats["gw_error"] = f"{type(exc).__name__}: {exc}"
             logger.debug("gateway shadow: 本轮采样失败: %s", stats["gw_error"])
             self._emit_error(tickers, stats["gw_error"])
             return stats
+
+        # 网关重启 / 订阅过期后本地缓存会失真：以服务端 `_meta.subscribed` 为准，
+        # 掉线的标的从本地集合移除，下一轮自动补订。
+        for ticker, quote in quotes.items():
+            if getattr(quote, "subscribed", True) is False:
+                self._subscribed.discard(ticker)
 
         ts = self._clock().isoformat(timespec="milliseconds")
         rows: list[dict] = []
@@ -202,6 +216,45 @@ class ShadowSampler:
                 )
         self._recorder.record(rows)
         return stats
+
+    async def _sync_subscriptions(self, tickers: list[str]) -> None:
+        """让网关订阅面与直连采样集合同步。
+
+        网关 `/quote` 只读订阅缓存、不回源、也不隐式订阅；不先 `subscribe`，
+        影子报表会全是 `gateway_missing`。订阅引用计数由网关维护，因此这里只对
+        「新进入采样集」的标的订阅一次，离开采样集时退订，避免常开运行把计数堆高。
+        """
+        if self._gateway_subscribe is None:
+            return
+        current = set(tickers)
+        # 先退订离开的标的，释放网关配额，避免「订阅上限」把轮换永久卡死
+        dropped = sorted(self._subscribed - current)
+        if dropped and self._gateway_unsubscribe is not None:
+            await self._gateway_unsubscribe(dropped)
+            self._subscribed.difference_update(dropped)
+        added = sorted(current - self._subscribed)
+        if added:
+            result = await self._gateway_subscribe(added, list(self._fields))
+            # 只记网关真正接受的标的：被拒（配额 / 非法 ticker）下轮重试，
+            # 且退订时不会误减从未增加的引用计数
+            accepted = getattr(result, "accepted", None)
+            self._subscribed.update(accepted if accepted is not None else added)
+
+    async def close(self) -> None:
+        """退订本采样器持有的网关订阅并关闭客户端；失败只记日志。"""
+        try:
+            if self._gateway_unsubscribe is not None and self._subscribed:
+                try:
+                    await self._gateway_unsubscribe(sorted(self._subscribed))
+                    self._subscribed.clear()
+                except Exception as exc:  # noqa: BLE001 - 退订失败不能挡住关客户端
+                    logger.debug("gateway shadow: 退订失败: %s", exc)
+        finally:
+            if self._gateway_close is not None:
+                try:
+                    await self._gateway_close()
+                except Exception as exc:  # noqa: BLE001 - 收尾失败不影响退出
+                    logger.debug("gateway shadow: 关闭网关客户端失败: %s", exc)
 
     def _emit_error(self, tickers: list[str], message: str) -> None:
         """网关侧失败也落一行，让报表能区分「网关挂了」与「数据不一致」。"""
@@ -304,12 +357,30 @@ class ShadowRunner:
         return self._last_stats
 
     def _loop(self) -> None:
-        while not self._stop.is_set():
+        try:
+            asyncio.run(self._run())
+        except Exception:  # noqa: BLE001 - 线程入口兜底，避免未处理异常打印
+            logger.exception("gateway shadow: 采样线程异常退出")
+
+    async def _run(self) -> None:
+        """整个线程只建一个事件循环。
+
+        `httpx.AsyncClient` 的连接池绑定在创建它的循环上；若每轮 `asyncio.run`
+        新建循环而客户端跨轮复用，第二轮起会抛 `Event loop is closed`，把一半
+        样本记成 `gw_error`。因此循环常驻，轮间只做可中断等待。
+        """
+        try:
+            while not self._stop.is_set():
+                try:
+                    self._last_stats = await self._sampler.sample_once()
+                except Exception:  # noqa: BLE001 - 影子线程不能因单轮异常退出
+                    logger.exception("gateway shadow: 采样轮次异常")
+                await asyncio.to_thread(self._stop.wait, self._interval)
+        finally:
             try:
-                self._last_stats = asyncio.run(self._sampler.sample_once())
-            except Exception:  # noqa: BLE001 - 影子线程不能因单轮异常退出
-                logger.exception("gateway shadow: 采样轮次异常")
-            self._stop.wait(self._interval)
+                await self._sampler.close()
+            except Exception:  # noqa: BLE001 - 收尾失败不影响线程退出
+                logger.exception("gateway shadow: 采样器收尾异常")
 
 
 # ── CLI：把 JSONL 汇总成一致率报表 ────────────────────────────────────────────

@@ -21,7 +21,12 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services import gateway_shadow as gs  # noqa: E402
-from services.gateway_client import FieldValue, GatewayUnavailable, TickerQuote  # noqa: E402
+from services.gateway_client import (  # noqa: E402
+    FieldValue,
+    GatewayUnavailable,
+    SubscribeResult,
+    TickerQuote,
+)
 
 FIELDS = ("CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP")
 
@@ -186,6 +191,194 @@ def test_summarize_without_samples_reports_none_rate() -> None:
 
 
 # ── 线程 ──────────────────────────────────────────────────────────────────────
+
+
+def test_sampler_mirrors_subscriptions_for_new_and_dropped_tickers(tmp_path) -> None:
+    subscribed: list[tuple[list[str], list[str]]] = []
+    unsubscribed: list[list[str]] = []
+    closed: list[bool] = []
+    snapshot: dict[str, dict[str, float]] = {"AAA US Equity": {"VWAP": 1.0}}
+
+    async def gateway_subscribe(tickers, fields):
+        subscribed.append((tickers, fields))
+
+    async def gateway_unsubscribe(tickers):
+        unsubscribed.append(tickers)
+
+    async def gateway_close():
+        closed.append(True)
+
+    async def gateway_quote(tickers, fields):
+        return {}
+
+    sampler = gs.ShadowSampler(
+        lambda: snapshot,
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+        gateway_unsubscribe=gateway_unsubscribe,
+        gateway_close=gateway_close,
+    )
+
+    asyncio.run(sampler.sample_once())
+    assert subscribed == [(["AAA US Equity"], ["VWAP"])]
+
+    # 重复采同一批标的不重复订阅：网关按引用计数累积，重复订阅会泄漏计数
+    asyncio.run(sampler.sample_once())
+    assert subscribed == [(["AAA US Equity"], ["VWAP"])]
+
+    # 标的轮换：先补订新标的，再退订离开的
+    snapshot.clear()
+    snapshot["BBB US Equity"] = {"VWAP": 2.0}
+    asyncio.run(sampler.sample_once())
+    assert subscribed[-1] == (["BBB US Equity"], ["VWAP"])
+    assert unsubscribed == [["AAA US Equity"]]
+
+    asyncio.run(sampler.close())
+    assert unsubscribed[-1] == ["BBB US Equity"]
+    assert closed == [True]
+
+
+def test_sampler_unsubscribes_before_subscribing_on_rotation(tmp_path) -> None:
+    events: list[tuple[str, list[str]]] = []
+    snapshot: dict[str, dict[str, float]] = {"AAA US Equity": {"VWAP": 1.0}}
+
+    async def gateway_subscribe(tickers, fields):
+        events.append(("subscribe", list(tickers)))
+        return SubscribeResult(accepted=tuple(tickers), rejected=0, total=len(tickers))
+
+    async def gateway_unsubscribe(tickers):
+        events.append(("unsubscribe", list(tickers)))
+
+    async def gateway_quote(tickers, fields):
+        return {}
+
+    sampler = gs.ShadowSampler(
+        lambda: snapshot,
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+        gateway_unsubscribe=gateway_unsubscribe,
+    )
+    asyncio.run(sampler.sample_once())
+
+    snapshot.clear()
+    snapshot["BBB US Equity"] = {"VWAP": 2.0}
+    asyncio.run(sampler.sample_once())
+
+    # 先退订释放配额，再订阅新标的；反序会在配额打满时把轮换卡死
+    assert events == [
+        ("subscribe", ["AAA US Equity"]),
+        ("unsubscribe", ["AAA US Equity"]),
+        ("subscribe", ["BBB US Equity"]),
+    ]
+
+
+def test_sampler_tracks_only_accepted_subscriptions(tmp_path) -> None:
+    subscribed: list[list[str]] = []
+    snapshot = {"AAA US Equity": {"VWAP": 1.0}, "BBB US Equity": {"VWAP": 2.0}}
+
+    async def gateway_subscribe(tickers, fields):
+        subscribed.append(list(tickers))
+        # 配额只放行 AAA；BBB 被拒
+        return SubscribeResult(accepted=("AAA US Equity",), rejected=1, total=2)
+
+    async def gateway_quote(tickers, fields):
+        return {}
+
+    sampler = gs.ShadowSampler(
+        lambda: snapshot,
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+    )
+    asyncio.run(sampler.sample_once())
+    asyncio.run(sampler.sample_once())
+
+    # 被拒的 BBB 不能被记成已订阅，否则永远不再重试
+    assert subscribed == [["AAA US Equity", "BBB US Equity"], ["BBB US Equity"]]
+
+
+def test_sampler_resubscribes_when_gateway_reports_not_subscribed(tmp_path) -> None:
+    subscribed: list[list[str]] = []
+    calls = 0
+
+    async def gateway_subscribe(tickers, fields):
+        subscribed.append(list(tickers))
+
+    async def gateway_quote(tickers, fields):
+        nonlocal calls
+        calls += 1
+        return {
+            ticker: TickerQuote(ticker=ticker, subscribed=(calls == 1))
+            for ticker in tickers
+        }
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 1.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+    )
+    asyncio.run(sampler.sample_once())
+    asyncio.run(sampler.sample_once())  # 网关报 subscribed=False → 本地缓存失效
+    asyncio.run(sampler.sample_once())  # 下一轮重新订阅
+
+    assert subscribed == [["AAPL US Equity"], ["AAPL US Equity"]]
+
+
+def test_subscribe_failure_degrades_to_gw_error(tmp_path) -> None:
+    async def gateway_subscribe(tickers, fields):
+        raise GatewayUnavailable("circuit open")
+
+    async def gateway_quote(tickers, fields):
+        raise AssertionError("订阅失败时不应再请求 quote")
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 1.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=FIELDS,
+        gateway_subscribe=gateway_subscribe,
+    )
+    stats = asyncio.run(sampler.sample_once())
+
+    assert stats["gw_error"].startswith("GatewayUnavailable")
+    assert _read_rows(tmp_path)[0]["reason"] == "gw_error"
+
+
+def test_runner_reuses_one_event_loop_and_closes_sampler() -> None:
+    loop_ids: list[int] = []
+    closed: list[bool] = []
+
+    class _Sampler:
+        async def sample_once(self):
+            loop_ids.append(id(asyncio.get_running_loop()))
+            if len(loop_ids) >= 3:
+                runner._stop.set()
+            return {"matched": 1}
+
+        async def close(self):
+            closed.append(True)
+
+    runner = gs.ShadowRunner(_Sampler(), interval_seconds=1.0)
+    runner._interval = 0.0  # 测试不需要真实等待
+    runner.start()
+    try:
+        for _ in range(200):
+            if closed:
+                break
+            asyncio.run(asyncio.sleep(0.01))
+    finally:
+        runner.stop()
+
+    assert len(loop_ids) == 3
+    assert len(set(loop_ids)) == 1
+    assert closed == [True]
 
 
 def test_runner_stops_promptly_and_records_last_stats(tmp_path) -> None:
