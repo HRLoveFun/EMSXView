@@ -311,6 +311,10 @@ class GatewayClient:
             return payload
         if code in CIRCUIT_OPENING_CODES:
             self._breaker.record_failure()
+        else:
+            # 能返回业务错误码说明网关进程是活的：必须复位熔断状态，
+            # 否则 half_open 探针遇到 2002/2004 会永久卡在 half_open。
+            self._breaker.record_success()
         raise GatewayError(code, str(payload.get("message", "")))
 
     def _record_ok(self, payload: dict) -> None:

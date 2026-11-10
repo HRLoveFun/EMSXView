@@ -21,7 +21,12 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services import gateway_shadow as gs  # noqa: E402
-from services.gateway_client import FieldValue, GatewayUnavailable, TickerQuote  # noqa: E402
+from services.gateway_client import (  # noqa: E402
+    FieldValue,
+    GatewayUnavailable,
+    SubscribeResult,
+    TickerQuote,
+)
 
 FIELDS = ("CHG_PCT_1D", "VOLUME_AVG_5D", "VWAP")
 
@@ -233,6 +238,97 @@ def test_sampler_mirrors_subscriptions_for_new_and_dropped_tickers(tmp_path) -> 
     asyncio.run(sampler.close())
     assert unsubscribed[-1] == ["BBB US Equity"]
     assert closed == [True]
+
+
+def test_sampler_unsubscribes_before_subscribing_on_rotation(tmp_path) -> None:
+    events: list[tuple[str, list[str]]] = []
+    snapshot: dict[str, dict[str, float]] = {"AAA US Equity": {"VWAP": 1.0}}
+
+    async def gateway_subscribe(tickers, fields):
+        events.append(("subscribe", list(tickers)))
+        return SubscribeResult(accepted=tuple(tickers), rejected=0, total=len(tickers))
+
+    async def gateway_unsubscribe(tickers):
+        events.append(("unsubscribe", list(tickers)))
+
+    async def gateway_quote(tickers, fields):
+        return {}
+
+    sampler = gs.ShadowSampler(
+        lambda: snapshot,
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+        gateway_unsubscribe=gateway_unsubscribe,
+    )
+    asyncio.run(sampler.sample_once())
+
+    snapshot.clear()
+    snapshot["BBB US Equity"] = {"VWAP": 2.0}
+    asyncio.run(sampler.sample_once())
+
+    # 先退订释放配额，再订阅新标的；反序会在配额打满时把轮换卡死
+    assert events == [
+        ("subscribe", ["AAA US Equity"]),
+        ("unsubscribe", ["AAA US Equity"]),
+        ("subscribe", ["BBB US Equity"]),
+    ]
+
+
+def test_sampler_tracks_only_accepted_subscriptions(tmp_path) -> None:
+    subscribed: list[list[str]] = []
+    snapshot = {"AAA US Equity": {"VWAP": 1.0}, "BBB US Equity": {"VWAP": 2.0}}
+
+    async def gateway_subscribe(tickers, fields):
+        subscribed.append(list(tickers))
+        # 配额只放行 AAA；BBB 被拒
+        return SubscribeResult(accepted=("AAA US Equity",), rejected=1, total=2)
+
+    async def gateway_quote(tickers, fields):
+        return {}
+
+    sampler = gs.ShadowSampler(
+        lambda: snapshot,
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+    )
+    asyncio.run(sampler.sample_once())
+    asyncio.run(sampler.sample_once())
+
+    # 被拒的 BBB 不能被记成已订阅，否则永远不再重试
+    assert subscribed == [["AAA US Equity", "BBB US Equity"], ["BBB US Equity"]]
+
+
+def test_sampler_resubscribes_when_gateway_reports_not_subscribed(tmp_path) -> None:
+    subscribed: list[list[str]] = []
+    calls = 0
+
+    async def gateway_subscribe(tickers, fields):
+        subscribed.append(list(tickers))
+
+    async def gateway_quote(tickers, fields):
+        nonlocal calls
+        calls += 1
+        return {
+            ticker: TickerQuote(ticker=ticker, subscribed=(calls == 1))
+            for ticker in tickers
+        }
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 1.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+    )
+    asyncio.run(sampler.sample_once())
+    asyncio.run(sampler.sample_once())  # 网关报 subscribed=False → 本地缓存失效
+    asyncio.run(sampler.sample_once())  # 下一轮重新订阅
+
+    assert subscribed == [["AAPL US Equity"], ["AAPL US Equity"]]
 
 
 def test_subscribe_failure_degrades_to_gw_error(tmp_path) -> None:

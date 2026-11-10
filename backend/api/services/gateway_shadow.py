@@ -180,6 +180,12 @@ class ShadowSampler:
             self._emit_error(tickers, stats["gw_error"])
             return stats
 
+        # 网关重启 / 订阅过期后本地缓存会失真：以服务端 `_meta.subscribed` 为准，
+        # 掉线的标的从本地集合移除，下一轮自动补订。
+        for ticker, quote in quotes.items():
+            if getattr(quote, "subscribed", True) is False:
+                self._subscribed.discard(ticker)
+
         ts = self._clock().isoformat(timespec="milliseconds")
         rows: list[dict] = []
         for ticker in tickers:
@@ -221,21 +227,28 @@ class ShadowSampler:
         if self._gateway_subscribe is None:
             return
         current = set(tickers)
-        added = sorted(current - self._subscribed)
-        if added:
-            await self._gateway_subscribe(added, list(self._fields))
-            self._subscribed.update(added)
+        # 先退订离开的标的，释放网关配额，避免「订阅上限」把轮换永久卡死
         dropped = sorted(self._subscribed - current)
         if dropped and self._gateway_unsubscribe is not None:
             await self._gateway_unsubscribe(dropped)
             self._subscribed.difference_update(dropped)
+        added = sorted(current - self._subscribed)
+        if added:
+            result = await self._gateway_subscribe(added, list(self._fields))
+            # 只记网关真正接受的标的：被拒（配额 / 非法 ticker）下轮重试，
+            # 且退订时不会误减从未增加的引用计数
+            accepted = getattr(result, "accepted", None)
+            self._subscribed.update(accepted if accepted is not None else added)
 
     async def close(self) -> None:
         """退订本采样器持有的网关订阅并关闭客户端；失败只记日志。"""
         try:
             if self._gateway_unsubscribe is not None and self._subscribed:
-                await self._gateway_unsubscribe(sorted(self._subscribed))
-                self._subscribed.clear()
+                try:
+                    await self._gateway_unsubscribe(sorted(self._subscribed))
+                    self._subscribed.clear()
+                except Exception as exc:  # noqa: BLE001 - 退订失败不能挡住关客户端
+                    logger.debug("gateway shadow: 退订失败: %s", exc)
         finally:
             if self._gateway_close is not None:
                 try:
