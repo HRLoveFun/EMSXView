@@ -317,9 +317,16 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     的分母 `both_present` 不含它。否则像 `CHG_PCT_1D` 这种本机根本不推送的字段，
     每一轮都记一条「两侧都无 → 一致」，一致率会被抬到 100%，掩盖真实覆盖度
     （2026-11-10 实测踩到：5400 样本里 3700 条是两侧都无值）。
+
+    **「容差内一致」与「精确相等」分开计数**（`near_match`）。`matched` 含两者，
+    但若只报 `matched`，读者会把「落在 1e-6 内」读成「数值一模一样」——实测
+    2026-11-10 有 2 条 VWAP 差在末位（237.5155 vs 237.5153）被判一致，单看
+    一致率看不出这层差别。
     """
     total = 0
     matched = 0
+    exact = 0
+    near = 0
     both_present = 0
     both_missing = 0
     reasons: dict[str, int] = {}
@@ -331,7 +338,10 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             continue
         total += 1
         field = str(row.get("field"))
-        bucket = by_field.setdefault(field, {"total": 0, "both_present": 0, "both_missing": 0, "matched": 0})
+        bucket = by_field.setdefault(
+            field,
+            {"total": 0, "both_present": 0, "both_missing": 0, "matched": 0, "exact": 0, "near_match": 0},
+        )
         bucket["total"] += 1
         reason = row.get("reason")
         if row.get("match"):
@@ -343,6 +353,12 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             both_present += 1
             bucket["matched"] += 1
             bucket["both_present"] += 1
+            if row.get("direct") == row.get("gateway"):
+                exact += 1
+                bucket["exact"] += 1
+            else:
+                near += 1
+                bucket["near_match"] += 1
             continue
         if reason in ("gateway_missing", "direct_missing"):
             reasons[reason] = reasons.get(reason, 0) + 1
@@ -353,15 +369,19 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     return {
         "samples": total,
         "matched": matched,
+        "exact": exact,
+        "near_match": near,
         "both_present": both_present,
         "both_missing": both_missing,
         "match_rate": (matched / both_present) if both_present else None,
+        "exact_rate": (exact / both_present) if both_present else None,
         "reasons": reasons,
         "errors": errors,
         "by_field": {
             name: {
                 **bucket,
                 "match_rate": (bucket["matched"] / bucket["both_present"]) if bucket["both_present"] else None,
+                "exact_rate": (bucket["exact"] / bucket["both_present"]) if bucket["both_present"] else None,
             }
             for name, bucket in sorted(by_field.items())
         },
