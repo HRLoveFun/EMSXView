@@ -225,6 +225,29 @@ def test_field_unavailable_2004_is_not_recorded_as_gateway_error(tmp_path) -> No
     assert [row["reason"] for row in rows] == ["gateway_missing"]
 
 
+def test_2004_on_one_ticker_does_not_discard_other_tickers(tmp_path) -> None:
+    """整批 2004 不得吞掉同批里有值的标的（实测 2026-11-10 6 条 gateway_missing 的成因）。"""
+
+    async def gateway_quote(tickers, fields):
+        assert len(tickers) == 1, "必须逐标的请求，否则整批 2004 会吞掉有值标的"
+        if tickers[0] == "NEW US Equity":
+            raise GatewayError(2004, "请求字段均无推送值")
+        return {tickers[0]: _quote(VWAP=200.0)}
+
+    sampler = gs.ShadowSampler(
+        lambda: {"OLD US Equity": {"VWAP": 200.0}, "NEW US Equity": {"VWAP": 10.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+    )
+    stats = asyncio.run(sampler.sample_once())
+
+    assert stats["gw_error"] is None
+    rows = {row["ticker"]: row for row in _read_rows(tmp_path)}
+    assert rows["OLD US Equity"]["match"] is True
+    assert rows["NEW US Equity"]["reason"] == "gateway_missing"
+
+
 def test_summarize_without_samples_reports_none_rate() -> None:
     report = gs.summarize([])
     assert report["samples"] == 0
