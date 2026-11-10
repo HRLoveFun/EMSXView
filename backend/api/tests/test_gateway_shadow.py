@@ -23,6 +23,7 @@ if str(API_ROOT) not in sys.path:
 from services import gateway_shadow as gs  # noqa: E402
 from services.gateway_client import (  # noqa: E402
     FieldValue,
+    GatewayError,
     GatewayUnavailable,
     SubscribeResult,
     TickerQuote,
@@ -166,10 +167,10 @@ def test_recorder_swallows_write_errors(tmp_path) -> None:
 
 def test_summarize_excludes_missing_from_match_rate() -> None:
     rows = [
-        {"field": "VWAP", "match": True, "reason": None},
-        {"field": "VWAP", "match": False, "reason": "value_diff"},
-        {"field": "VWAP", "match": False, "reason": "gateway_missing"},
-        {"field": "CHG_PCT_1D", "match": True, "reason": None},
+        {"field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None},
+        {"field": "VWAP", "direct": 1.0, "gateway": 2.0, "match": False, "reason": "value_diff"},
+        {"field": "VWAP", "direct": 1.0, "gateway": None, "match": False, "reason": "gateway_missing"},
+        {"field": "CHG_PCT_1D", "direct": 1.5, "gateway": 1.5, "match": True, "reason": None},
         {"field": None, "match": None, "reason": "gw_error"},
     ]
     report = gs.summarize(rows)
@@ -182,6 +183,46 @@ def test_summarize_excludes_missing_from_match_rate() -> None:
     assert report["reasons"] == {"value_diff": 1, "gateway_missing": 1}
     assert report["by_field"]["VWAP"]["total"] == 3
     assert report["by_field"]["CHG_PCT_1D"]["match_rate"] == 1.0
+
+
+def test_summarize_does_not_count_both_missing_as_match() -> None:
+    """两侧都无值不能算一致：否则本机不推送的字段会把一致率抬到 100%。"""
+    rows = [
+        {"field": "CHG_PCT_1D", "direct": None, "gateway": None, "match": True, "reason": None},
+        {"field": "CHG_PCT_1D", "direct": None, "gateway": None, "match": True, "reason": None},
+        {"field": "VWAP", "direct": 200.0, "gateway": 200.0, "match": True, "reason": None},
+        {"field": "VWAP", "direct": 200.0, "gateway": 201.0, "match": False, "reason": "value_diff"},
+    ]
+    report = gs.summarize(rows)
+
+    assert report["samples"] == 4
+    assert report["both_missing"] == 2
+    assert report["both_present"] == 2
+    assert report["matched"] == 1
+    assert report["match_rate"] == 0.5
+    assert report["by_field"]["CHG_PCT_1D"]["both_missing"] == 2
+    assert report["by_field"]["CHG_PCT_1D"]["match_rate"] is None
+
+
+def test_field_unavailable_2004_is_not_recorded_as_gateway_error(tmp_path) -> None:
+    """2004「请求字段均无推送值」是契约内结果，应逐字段记账而非整轮 gw_error。"""
+
+    async def gateway_quote(tickers, fields):
+        raise GatewayError(2004, "请求字段均无推送值")
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 1.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+    )
+    stats = asyncio.run(sampler.sample_once())
+
+    assert stats["gw_error"] is None
+    assert stats["compared"] == 1
+    assert stats["mismatched"] == 1
+    rows = _read_rows(tmp_path)
+    assert [row["reason"] for row in rows] == ["gateway_missing"]
 
 
 def test_summarize_without_samples_reports_none_rate() -> None:
