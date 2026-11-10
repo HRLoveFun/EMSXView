@@ -31,7 +31,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from services.gateway_client import GatewayError
+
 logger = logging.getLogger("main")
+
+#: 契约错误码 2004「请求字段均无推送值」：`client_action=mark_gap`，
+#: 属正常结果而非网关故障（见 `platform_data/contracts/gateway_contracts.py`）。
+FIELD_UNAVAILABLE_CODE = 2004
 
 #: 一致判据的默认相对误差。1e-6 远小于任何报价的最小变动单位，
 #: 又能吸收 float32/float64 往返带来的末位差异。
@@ -174,6 +180,17 @@ class ShadowSampler:
         try:
             await self._sync_subscriptions(tickers)
             quotes = await self._gateway_quote(tickers, list(self._fields))
+        except GatewayError as exc:
+            # 2004「请求字段均无推送值」是契约内的正常结果（client_action=mark_gap），
+            # 不是网关故障：网关确实一个值都没有，按「网关侧无值」逐字段记账。
+            # 整轮记成 gw_error 会把「订阅刚建立、网关慢一拍」和「网关挂了」混成
+            # 同一类（实测 2026-11-10 首轮 50 条全是这种），报表就分不清了。
+            if exc.code != FIELD_UNAVAILABLE_CODE:
+                stats["gw_error"] = f"{type(exc).__name__}: {exc}"
+                logger.debug("gateway shadow: 本轮采样失败: %s", stats["gw_error"])
+                self._emit_error(tickers, stats["gw_error"])
+                return stats
+            quotes = {}
         except Exception as exc:  # noqa: BLE001 - 网关任何失败都只记一笔，不影响直连
             stats["gw_error"] = f"{type(exc).__name__}: {exc}"
             logger.debug("gateway shadow: 本轮采样失败: %s", stats["gw_error"])
@@ -283,10 +300,16 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     一致率只在「双方都有值」的样本上计算：`gateway_missing` / `direct_missing`
     单独计数，不和「值不同」混在一个分母里——否则网关某字段没推送会把一致率
     压到 0，看起来像数据错，实际是覆盖度问题。
+
+    **两侧都无值的样本不算进一致率**。它记在 `both_missing` 里，`match_rate`
+    的分母 `both_present` 不含它。否则像 `CHG_PCT_1D` 这种本机根本不推送的字段，
+    每一轮都记一条「两侧都无 → 一致」，一致率会被抬到 100%，掩盖真实覆盖度
+    （2026-11-10 实测踩到：5400 样本里 3700 条是两侧都无值）。
     """
     total = 0
     matched = 0
     both_present = 0
+    both_missing = 0
     reasons: dict[str, int] = {}
     errors = 0
     by_field: dict[str, dict[str, int]] = {}
@@ -296,30 +319,37 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             continue
         total += 1
         field = str(row.get("field"))
-        bucket = by_field.setdefault(field, {"total": 0, "matched": 0})
+        bucket = by_field.setdefault(field, {"total": 0, "both_present": 0, "both_missing": 0, "matched": 0})
         bucket["total"] += 1
         reason = row.get("reason")
         if row.get("match"):
+            if row.get("direct") is None and row.get("gateway") is None:
+                both_missing += 1
+                bucket["both_missing"] += 1
+                continue
             matched += 1
             both_present += 1
             bucket["matched"] += 1
+            bucket["both_present"] += 1
             continue
         if reason in ("gateway_missing", "direct_missing"):
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         both_present += 1
+        bucket["both_present"] += 1
         reasons[str(reason or "value_diff")] = reasons.get(str(reason or "value_diff"), 0) + 1
     return {
         "samples": total,
         "matched": matched,
         "both_present": both_present,
+        "both_missing": both_missing,
         "match_rate": (matched / both_present) if both_present else None,
         "reasons": reasons,
         "errors": errors,
         "by_field": {
             name: {
                 **bucket,
-                "match_rate": (bucket["matched"] / bucket["total"]) if bucket["total"] else None,
+                "match_rate": (bucket["matched"] / bucket["both_present"]) if bucket["both_present"] else None,
             }
             for name, bucket in sorted(by_field.items())
         },
