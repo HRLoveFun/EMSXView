@@ -14,7 +14,11 @@
 落盘格式（每行一条）：
 
     {"ts": "...", "ticker": "...", "field": "...", "direct": 1.23,
-     "gateway": 1.23, "match": true, "rel_diff": 0.0}
+     "gateway": 1.23, "match": true, "rel_diff": 0.0,
+     "gateway_recv_ts": "2026-11-11T20:23:56.250+08:00"}
+
+`gateway_recv_ts` 是网关收到该值的时刻（网关字段缺失时为 null），用于区分
+「网关值旧（缓存滞后）」与「两侧值本身不同」；`gateway_src_ts` 仍保留原义。
 
 一致判据：双方都是数值时按相对误差 `<= tolerance`（默认 1e-6，即「同一 tick」级别）；
 其余情况按严格相等。网关侧 `None`（未推送 / 未订阅）记为不一致，并在 `reason` 里
@@ -218,6 +222,8 @@ class ShadowSampler:
                         "rel_diff": verdict["rel_diff"],
                         "reason": verdict["reason"],
                         "gateway_src_ts": gateway_field.src_ts if gateway_field else None,
+                        # 网关收到该值的时刻（必有）：排查「网关值旧」还是「两侧值本身不同」
+                        "gateway_recv_ts": gateway_field.recv_ts if gateway_field else None,
                     }
                 )
         self._recorder.record(rows)
@@ -306,6 +312,29 @@ class ShadowSampler:
         )
 
 
+def _lag_seconds(row: dict) -> Optional[float]:
+    """行 `ts` 与 `gateway_recv_ts` 的墙钟差（秒）；任一缺失或解析失败返回 None。
+
+    `gateway_recv_ts` 带时区偏移（如 `+08:00`），行 `ts` 是 naive local ISO；这里
+    直接比较墙钟时间（丢弃偏移），即假定网关与本机处于同一时区。跨时区部署时
+    该值只能当相对参考，不能当绝对延迟。旧格式行没有 `gateway_recv_ts`，返回 None。
+    """
+    recv = row.get("gateway_recv_ts")
+    ts = row.get("ts")
+    if not isinstance(recv, str) or not isinstance(ts, str):
+        return None
+    try:
+        recv_dt = datetime.fromisoformat(recv)
+        ts_dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if recv_dt.tzinfo is not None:
+        recv_dt = recv_dt.replace(tzinfo=None)
+    if ts_dt.tzinfo is not None:
+        ts_dt = ts_dt.replace(tzinfo=None)
+    return (ts_dt - recv_dt).total_seconds()
+
+
 def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     """把 JSONL 行汇总成一致率报表（纯函数，供 CLI 与测试复用）。
 
@@ -331,7 +360,11 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     both_missing = 0
     reasons: dict[str, int] = {}
     errors = 0
-    by_field: dict[str, dict[str, int]] = {}
+    lag_samples = 0
+    max_lag: Optional[float] = None
+    stale_gt_5s = 0
+    stale_gt_30s = 0
+    by_field: dict[str, dict[str, Any]] = {}
     for row in rows:
         if row.get("field") is None:
             errors += 1
@@ -340,9 +373,30 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
         field = str(row.get("field"))
         bucket = by_field.setdefault(
             field,
-            {"total": 0, "both_present": 0, "both_missing": 0, "matched": 0, "exact": 0, "near_match": 0},
+            {
+                "total": 0,
+                "both_present": 0,
+                "both_missing": 0,
+                "matched": 0,
+                "exact": 0,
+                "near_match": 0,
+                "max_lag_seconds": None,
+            },
         )
         bucket["total"] += 1
+        # 网关值陈旧度：recv_ts 距离本轮采样时刻有多久（旧格式行无此字段，跳过）
+        lag = _lag_seconds(row)
+        if lag is not None:
+            lag_samples += 1
+            if max_lag is None or lag > max_lag:
+                max_lag = lag
+            if lag > 5:
+                stale_gt_5s += 1
+            if lag > 30:
+                stale_gt_30s += 1
+            field_max = bucket["max_lag_seconds"]
+            if field_max is None or lag > field_max:
+                bucket["max_lag_seconds"] = lag
         reason = row.get("reason")
         if row.get("match"):
             if row.get("direct") is None and row.get("gateway") is None:
@@ -377,6 +431,12 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
         "exact_rate": (exact / both_present) if both_present else None,
         "reasons": reasons,
         "errors": errors,
+        "gateway_lag": {
+            "samples": lag_samples,
+            "max_seconds": max_lag,
+            "stale_gt_5s": stale_gt_5s,
+            "stale_gt_30s": stale_gt_30s,
+        },
         "by_field": {
             name: {
                 **bucket,
