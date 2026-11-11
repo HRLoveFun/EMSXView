@@ -56,17 +56,39 @@ log_path = Path(LOG_DIR).resolve()
 os.makedirs(log_path, exist_ok=True)
 
 
+# 轮转失败后的重试间隔（秒）。失败后先退避，避免每条日志都重新尝试 rename
+_ROLLOVER_RETRY_SECONDS = 60
+
+
 class _SizeAndAgeRotatingHandler(logging.handlers.RotatingFileHandler):
     """RotatingFileHandler that also purges backup files older than max_age_days."""
 
     def __init__(self, filename, max_bytes=5 * 1024 * 1024, backup_count=3,
                  max_age_days=3, **kwargs):
         self._max_age_days = max_age_days
+        self._rollover_retry_at = 0.0
         super().__init__(filename, maxBytes=max_bytes, backupCount=backup_count, **kwargs)
         self._purge_old_files()
 
+    def shouldRollover(self, record):
+        # 退避期内不再触发轮转：轮转失败（如文件被其他句柄占用）时，
+        # 若每条日志都重试 rename 会持续刷屏
+        if time.monotonic() < self._rollover_retry_at:
+            return False
+        return super().shouldRollover(record)
+
     def doRollover(self):
-        super().doRollover()
+        try:
+            super().doRollover()
+        except OSError:
+            # Windows 下日志文件被其他句柄占用时 rename 抛 PermissionError；
+            # FileNotFoundError 等可恢复 OSError 同理。不向上抛：一旦抛出，
+            # logging 会走 handleError 把完整 traceback 写进 stderr，而
+            # service-manager 又把 stderr 重定向回日志文件，形成自我放大。
+            # 退避 _ROLLOVER_RETRY_SECONDS 后再试，期间日志继续追加。
+            self._rollover_retry_at = time.monotonic() + _ROLLOVER_RETRY_SECONDS
+            return
+        self._rollover_retry_at = 0.0
         self._purge_old_files()
 
     def _purge_old_files(self):
@@ -87,23 +109,75 @@ _log_formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# File handler with rotation
-_file_handler = _SizeAndAgeRotatingHandler(
-    str(log_path / 'emsx_api.log'),
-    max_bytes=LOG_MAX_BYTES,       # 5 MB per file (configurable)
-    backup_count=LOG_BACKUP_COUNT,  # 3 rotated files max
-    max_age_days=LOG_MAX_AGE_DAYS,  # purge files older than 3 days
-    encoding='utf-8',
-)
-_file_handler.setFormatter(_log_formatter)
+_target_log_file = str(log_path / 'emsx_api.log')
 
-# Console handler
-_console_handler = logging.StreamHandler(sys.stdout)
-_console_handler.setFormatter(_log_formatter)
 
-# Set log level from environment
-numeric_level = getattr(logging, LOG_LEVEL, logging.WARNING)
-logging.basicConfig(level=numeric_level, handlers=[_console_handler, _file_handler])
+def _normalized_path(path: str) -> str:
+    """归一化路径——Windows 下大小写/分隔符差异不应被误判为两个文件。"""
+    try:
+        return os.path.normcase(os.path.abspath(path))
+    except (TypeError, ValueError):
+        return path
+
+
+def _find_file_handler(target_file: str, root: logging.Logger | None = None):
+    """在 root logger 上查找已打开 target_file 的 handler，未找到返回 None。"""
+    root = root or logging.getLogger()
+    wanted = _normalized_path(target_file)
+    for handler in root.handlers:
+        base = getattr(handler, 'baseFilename', None)
+        if base and _normalized_path(base) == wanted:
+            return handler
+    return None
+
+
+def _apply_logging_config(target_file: str = _target_log_file):
+    """配置 root logger 的文件/控制台 handler，重复执行幂等。
+
+    返回 (console_handler, file_handler)。`python main.py` 启动时，uvicorn
+    会以字符串 "main:app" 把同一文件二次 import 为模块 ``main``；第二次
+    执行必须复用 root 上已打开目标文件的 handler。若再建一个，同一进程内
+    会有两个句柄指向 emsx_api.log，Windows 下轮转 rename 被占用，文件停在
+    maxBytes 且每条日志都刷一次失败 traceback。
+
+    与 ``logging.basicConfig`` 语义一致：root 已有 handler 时不重复追加。
+    """
+    root = logging.getLogger()
+    numeric_level = getattr(logging, LOG_LEVEL, logging.WARNING)
+
+    existing = _find_file_handler(target_file, root)
+    if existing is not None:
+        # 二次 import：沿用既有文件 handler，不再新开文件句柄
+        logging.basicConfig(level=numeric_level)
+        return None, existing
+
+    if root.handlers:
+        # root 已被宿主（pytest / 上层应用）配置：遵循 basicConfig 的
+        # 「首个配置生效」语义，不重复挂载；也不创建「只开句柄、未挂载」
+        # 的 handler——旧实现正是这样泄漏了第二个文件句柄。
+        logging.basicConfig(level=numeric_level)
+        return None, None
+
+    # File handler with rotation
+    file_handler = _SizeAndAgeRotatingHandler(
+        target_file,
+        max_bytes=LOG_MAX_BYTES,       # 5 MB per file (configurable)
+        backup_count=LOG_BACKUP_COUNT,  # 3 rotated files max
+        max_age_days=LOG_MAX_AGE_DAYS,  # purge files older than 3 days
+        encoding='utf-8',
+    )
+    file_handler.setFormatter(_log_formatter)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(_log_formatter)
+
+    # Set log level from environment
+    logging.basicConfig(level=numeric_level, handlers=[console_handler, file_handler])
+    return console_handler, file_handler
+
+
+_console_handler, _file_handler = _apply_logging_config()
 logger = logging.getLogger(__name__)
 
 logger.info(f"Logging configured: level={LOG_LEVEL}, max_bytes={LOG_MAX_BYTES}, "
