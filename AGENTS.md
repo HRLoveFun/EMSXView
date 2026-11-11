@@ -59,6 +59,7 @@
 | docs/report-marketview-live-fields.md | L3 | 实时字段可用性矩阵与复测 SOP | 换实时字段时 | 复测后追加 |
 | docs/report-029-reliability-hardening-delivery.md | L3 | 029 可靠性加固交付记录 | 追溯 029 时 | 只追加 |
 | docs/report-frontend-filter-ux-audit-2026-11-05.md | L3 | 前端筛选交互盘点：已完成项与后续优先级 | 规划下一批 UI 改造时 | 只追加 |
+| docs/report-gateway-shadow-consistency-2026-11.md | L3 | 网关 shadow 一致率取证：口径、分阶段结果、20 条时点差样本 | 引用 ≥99.9% 结论前、追网关时 | 11-13 收尾补数据 |
 | docs/textbook/ | L3 | TCA 方法论与学术综述 | 需要理论依据时 | 只追加 |
 | docs/archive/ | L3 | 被取代的旧文档与历史快照 | 追历史时 | 文档被取代时移入 |
 <!-- docmap:end -->
