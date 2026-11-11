@@ -375,6 +375,64 @@ def test_summarize_without_samples_reports_none_rate() -> None:
     report = gs.summarize([])
     assert report["samples"] == 0
     assert report["match_rate"] is None
+    assert report["value_diff"]["samples"] == 0
+    assert report["value_diff"]["abs_rel_diff_p50"] is None
+
+
+def test_summarize_stratifies_match_rate_by_lag() -> None:
+    """同一时点级别（≤5s）才说明「网关同一 tick 是否算对」，跨时点差异另计。"""
+    base = {"field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None}
+    rows = [
+        # ≤5s：一致
+        {**base, "ts": "2026-11-11T20:24:00.000", "gateway_recv_ts": "2026-11-11T20:23:58.000+08:00"},
+        # 5–30s：一致
+        {**base, "ts": "2026-11-11T20:24:00.000", "gateway_recv_ts": "2026-11-11T20:23:53.000+08:00"},
+        # >30s：值不同
+        {**base, "ts": "2026-11-11T20:24:00.000", "direct": 1.0, "gateway": 1.01, "match": False,
+         "rel_diff": 0.01, "reason": "value_diff",
+         "gateway_recv_ts": "2026-11-11T20:23:20.000+08:00"},
+        # 旧格式行：归 unknown
+        {**base, "ts": "2026-11-11T20:24:00.000", "direct": 2.0, "gateway": 1.0, "match": False,
+         "rel_diff": 1.0, "reason": "value_diff"},
+    ]
+    report = gs.summarize(rows)
+
+    by_lag = report["by_lag"]
+    assert set(by_lag) == {"le_5s", "5s_to_30s", "gt_30s", "unknown"}
+    assert by_lag["le_5s"]["both_present"] == 1
+    assert by_lag["le_5s"]["match_rate"] == 1.0
+    assert by_lag["5s_to_30s"]["matched"] == 1
+    assert by_lag["5s_to_30s"]["match_rate"] == 1.0
+    assert by_lag["gt_30s"]["both_present"] == 1
+    assert by_lag["gt_30s"]["matched"] == 0
+    assert by_lag["gt_30s"]["match_rate"] == 0.0
+    assert by_lag["unknown"]["both_present"] == 1
+    assert by_lag["unknown"]["match_rate"] == 0.0
+    # 分层不改变总口径
+    assert report["both_present"] == 4
+    assert report["matched"] == 2
+
+
+def test_summarize_reports_value_diff_magnitude() -> None:
+    """分歧只报条数看不出量级；给出 |rel_diff| 分位与「小于 1e-2」的占比。"""
+    rows = [
+        {"ts": "2026-11-11T20:24:00.000", "field": "VWAP", "direct": 1.0, "gateway": 0.99999,
+         "match": False, "rel_diff": 1e-5, "reason": "value_diff"},
+        {"ts": "2026-11-11T20:24:00.000", "field": "VWAP", "direct": 1.0, "gateway": 0.999,
+         "match": False, "rel_diff": 1e-3, "reason": "value_diff"},
+        {"ts": "2026-11-11T20:24:00.000", "field": "VWAP", "direct": 1.0, "gateway": 0.5,
+         "match": False, "rel_diff": 0.5, "reason": "value_diff"},
+        # 缺失类不参与量级统计
+        {"ts": "2026-11-11T20:24:00.000", "field": "VWAP", "direct": 1.0, "gateway": None,
+         "match": False, "rel_diff": None, "reason": "gateway_missing"},
+    ]
+    stats = gs.summarize(rows)["value_diff"]
+
+    assert stats["samples"] == 3
+    assert stats["lt_1e_2"] == 2
+    assert stats["abs_rel_diff_max"] == 0.5
+    assert stats["abs_rel_diff_p50"] == 1e-3
+    assert stats["abs_rel_diff_p99"] is not None
 
 
 # ── 线程 ──────────────────────────────────────────────────────────────────────

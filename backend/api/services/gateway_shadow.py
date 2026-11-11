@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -335,6 +336,34 @@ def _lag_seconds(row: dict) -> Optional[float]:
     return (ts_dt - recv_dt).total_seconds()
 
 
+# 陈旧度分层：同一时点级别（≤5s 足够覆盖 30s 采样周期内的正常投递差异）
+LAG_BUCKETS = ("le_5s", "5s_to_30s", "gt_30s", "unknown")
+
+
+def _lag_bucket_name(lag: Optional[float]) -> str:
+    """把滞后秒数映射到分层名；`None`（旧格式行 / 网关侧无值）归 `unknown`。"""
+    if lag is None:
+        return "unknown"
+    if lag <= 5:
+        return "le_5s"
+    if lag <= 30:
+        return "5s_to_30s"
+    return "gt_30s"
+
+
+def _percentile(sorted_values: list[float], q: float) -> Optional[float]:
+    """线性插值分位数；空列表返回 None。调用方保证入参已升序。"""
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    pos = (len(sorted_values) - 1) * q
+    low = math.floor(pos)
+    high = min(low + 1, len(sorted_values) - 1)
+    frac = pos - low
+    return sorted_values[low] + (sorted_values[high] - sorted_values[low]) * frac
+
+
 def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     """把 JSONL 行汇总成一致率报表（纯函数，供 CLI 与测试复用）。
 
@@ -351,6 +380,17 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     但若只报 `matched`，读者会把「落在 1e-6 内」读成「数值一模一样」——实测
     2026-11-10 有 2 条 VWAP 差在末位（237.5155 vs 237.5153）被判一致，单看
     一致率看不出这层差别。
+
+    **按「网关值陈旧度」分层统计**（`by_lag`）。两侧值不同有两个完全不同的成因：
+    网关算错了，还是网关给的是几十秒前的缓存快照。`gateway_recv_ts` 能区分它们，
+    所以一致率按 `le_5s` / `5s_to_30s` / `gt_30s` / `unknown`（旧格式行或网关无值）
+    分开报：同一时点级别内的样本才说明网关「同一 tick 上是否算对」，跨时点的差异
+    只能说明网关投递滞后。2026-11-11 实测：静态时段两侧精确相等，但 `recv_ts`
+    落后采样时刻最多 116 秒，网关只重复投递缓存快照，未带事件时间戳。
+
+    **不一致样本的误差分布**（`value_diff`）。只报条数，读者无法判断「差一点」还是
+    「差一个量级」；给出 `|rel_diff|` 的 p50/p90/p99/max 与 `lt_1e_2` 占比，就能直接
+    看出分歧的量级。
     """
     total = 0
     matched = 0
@@ -364,6 +404,12 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     max_lag: Optional[float] = None
     stale_gt_5s = 0
     stale_gt_30s = 0
+    by_lag = {
+        name: {"samples": 0, "both_present": 0, "matched": 0, "exact": 0, "near_match": 0}
+        for name in LAG_BUCKETS
+    }
+    diff_abs: list[float] = []
+    diff_lt_1e_2 = 0
     by_field: dict[str, dict[str, Any]] = {}
     for row in rows:
         if row.get("field") is None:
@@ -397,6 +443,8 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             field_max = bucket["max_lag_seconds"]
             if field_max is None or lag > field_max:
                 bucket["max_lag_seconds"] = lag
+        lag_bucket = by_lag[_lag_bucket_name(lag)]
+        lag_bucket["samples"] += 1
         reason = row.get("reason")
         if row.get("match"):
             if row.get("direct") is None and row.get("gateway") is None:
@@ -407,19 +455,31 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             both_present += 1
             bucket["matched"] += 1
             bucket["both_present"] += 1
+            lag_bucket["matched"] += 1
+            lag_bucket["both_present"] += 1
             if row.get("direct") == row.get("gateway"):
                 exact += 1
                 bucket["exact"] += 1
+                lag_bucket["exact"] += 1
             else:
                 near += 1
                 bucket["near_match"] += 1
+                lag_bucket["near_match"] += 1
             continue
         if reason in ("gateway_missing", "direct_missing"):
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         both_present += 1
         bucket["both_present"] += 1
+        lag_bucket["both_present"] += 1
         reasons[str(reason or "value_diff")] = reasons.get(str(reason or "value_diff"), 0) + 1
+        # 分歧量级：只对「两侧都有值但不同」的样本统计（缺失类不进）
+        rel_diff = row.get("rel_diff")
+        if isinstance(rel_diff, (int, float)):
+            value = abs(float(rel_diff))
+            diff_abs.append(value)
+            if value < 1e-2:
+                diff_lt_1e_2 += 1
     return {
         "samples": total,
         "matched": matched,
@@ -436,6 +496,26 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             "max_seconds": max_lag,
             "stale_gt_5s": stale_gt_5s,
             "stale_gt_30s": stale_gt_30s,
+        },
+        "by_lag": {
+            name: {
+                **lag_bucket,
+                "match_rate": (lag_bucket["matched"] / lag_bucket["both_present"])
+                if lag_bucket["both_present"]
+                else None,
+                "exact_rate": (lag_bucket["exact"] / lag_bucket["both_present"])
+                if lag_bucket["both_present"]
+                else None,
+            }
+            for name, lag_bucket in by_lag.items()
+        },
+        "value_diff": {
+            "samples": len(diff_abs),
+            "abs_rel_diff_p50": _percentile(sorted(diff_abs), 0.5) if diff_abs else None,
+            "abs_rel_diff_p90": _percentile(sorted(diff_abs), 0.9) if diff_abs else None,
+            "abs_rel_diff_p99": _percentile(sorted(diff_abs), 0.99) if diff_abs else None,
+            "abs_rel_diff_max": max(diff_abs) if diff_abs else None,
+            "lt_1e_2": diff_lt_1e_2,
         },
         "by_field": {
             name: {
