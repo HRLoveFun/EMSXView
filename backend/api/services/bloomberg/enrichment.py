@@ -44,6 +44,20 @@ def mktdata_fields(intraday_state_enabled: bool) -> list:
     return list(_MKTDATA_BASE_FIELDS)
 
 
+def _wait_or_stop(timeout: float, *events: threading.Event) -> None:
+    """在 timeout 内等待，任一 event 置位立即返回。
+
+    用于线程启动前的就绪等待：``Event.wait`` 只能监听单个事件，而行情线程
+    既要响应订阅引擎的全局 stop_event，也要响应本服务自己的 stop()，否则
+    重连时停旧线程要白等到超时。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if any(event.is_set() for event in events):
+            return
+        events[0].wait(min(0.1, max(0.0, deadline - time.monotonic())))
+
+
 def parse_intraday_quote(msg) -> dict:
     """解析 DL-15 行情字段；缺失/NaN 字段跳过，单字段异常不影响其余字段。"""
     quote: dict = {}
@@ -127,6 +141,9 @@ class MarketDataEnrichmentService:
         self._permfail_last_prices: Dict[str, float] = {}
 
         self._mktdata_thread: Optional[threading.Thread] = None
+        # 本服务自己的停止信号：订阅引擎的 stop_event 由 _sub.stop() 置位，
+        # 但重连路径只 reset 不 stop，仅靠它无法让旧行情线程退出。
+        self._mktdata_stop = threading.Event()
         self._market_data_lock = threading.Lock()
 
     # ── Public properties ──────────────────────────────────────────────
@@ -167,6 +184,16 @@ class MarketDataEnrichmentService:
     # ── Lifecycle ──────────────────────────────────────────────────────
 
     def start(self):
+        """启动行情订阅与影子采样线程（幂等：先停旧的再起新的）。
+
+        历史缺陷：这里每次都无条件新建 `_mktdata_thread` 与新 `ShadowRunner`，
+        而 `reset()` 不停线程、`connect()` 重连路径又是 reset→start。每次
+        Bloomberg 重连都会多留一份采样线程，同一份 JSONL 被多路并发追加
+        （2026-11-11 实测 6 组互不相同的 30s 相位、每分钟 12 轮、流量放大 6 倍）。
+        改为「先 stop 再 start」后，无论调用方怎么重复调用，线程与子组件都只有一份。
+        """
+        self.stop()
+        self._mktdata_stop = threading.Event()
         self._mktdata_thread = threading.Thread(
             target=self._mktdata_subscription_loop,
             daemon=True,
@@ -180,10 +207,13 @@ class MarketDataEnrichmentService:
         if self._shadow_runner is not None:
             self._shadow_runner.stop()
             self._shadow_runner = None
+        self._mktdata_stop.set()
         if self._mktdata_thread and self._mktdata_thread.is_alive():
             self._mktdata_thread.join(timeout=5)
             if self._mktdata_thread.is_alive():
                 logger.warning("Mktdata subscription thread did not stop within timeout")
+        if self._mktdata_thread is not None and not self._mktdata_thread.is_alive():
+            self._mktdata_thread = None
 
     # ── 影子比对（013 P4）──────────────────────────────────────────────
 
@@ -198,6 +228,13 @@ class MarketDataEnrichmentService:
         mode = str(getattr(settings, "EMSXVIEW_GATEWAY_MODE", "off") or "off").strip().lower()
         if mode != "shadow":
             return
+        # 幂等：已有在跑的 runner 就不再新建（否则重连会叠加多份采样线程）
+        if self._shadow_runner is not None:
+            if self._shadow_runner.is_running:
+                logger.debug("Gateway shadow comparison already running — skip duplicate start")
+                return
+            self._shadow_runner.stop()
+            self._shadow_runner = None
         try:
             from services.gateway_client import GatewayClient
             from services.gateway_shadow import (
@@ -286,10 +323,12 @@ class MarketDataEnrichmentService:
         self._fx_rates["USD"] = 1.0
 
         stop_event = self._subscription_engine.stop_event
-        stop_event.wait(3)
+        own_stop = self._mktdata_stop
+        # 首次订阅前留出会话就绪时间；等待可被 stop() 及时打断
+        _wait_or_stop(3.0, own_stop, stop_event)
 
         next_housekeeping = 0.0
-        while not stop_event.is_set():
+        while not stop_event.is_set() and not own_stop.is_set():
             # 附属维护按固定周期执行（而非每轮）：事件泵本身保持不变，
             # 因此行情推送的实时性不受影响。
             now_monotonic = time.monotonic()
