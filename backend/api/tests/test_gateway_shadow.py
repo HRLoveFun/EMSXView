@@ -108,6 +108,59 @@ def test_sample_once_writes_one_row_per_ticker_field(tmp_path) -> None:
     assert {row["field"] for row in rows} == set(FIELDS)
 
 
+def test_sample_once_records_gateway_recv_ts_when_field_present(tmp_path) -> None:
+    """有网关字段值时行里必须带 recv_ts：事后才能判断「网关值旧」还是「值不同」。"""
+
+    async def gateway_quote(tickers, fields):
+        return {
+            ticker: TickerQuote(
+                ticker=ticker,
+                fields={
+                    "VWAP": FieldValue(
+                        value=200.0,
+                        src_ts=None,
+                        recv_ts="2026-11-11T20:23:56.250+08:00",
+                    )
+                },
+                subscribed=True,
+            )
+            for ticker in tickers
+        }
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 200.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+    )
+    asyncio.run(sampler.sample_once())
+
+    row = _read_rows(tmp_path)[0]
+    assert row["gateway_recv_ts"] == "2026-11-11T20:23:56.250+08:00"
+    # 原有字段保持不变
+    assert row["gateway_src_ts"] is None
+    assert row["match"] is True
+
+
+def test_sample_once_records_null_gateway_recv_ts_without_field(tmp_path) -> None:
+    """网关没这个字段时 recv_ts 记 null，不伪造时间戳。"""
+
+    async def gateway_quote(tickers, fields):
+        return {}  # 逐字段都走 gateway_missing
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 200.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+    )
+    asyncio.run(sampler.sample_once())
+
+    row = _read_rows(tmp_path)[0]
+    assert row["gateway_recv_ts"] is None
+    assert row["reason"] == "gateway_missing"
+
+
 def test_gateway_failure_is_recorded_but_never_raised(tmp_path) -> None:
     async def gateway_quote(tickers, fields):
         raise GatewayUnavailable("circuit open")
@@ -230,6 +283,48 @@ def test_summarize_exact_and_near_are_zero_when_no_samples() -> None:
     assert report["exact"] == 0
     assert report["near_match"] == 0
     assert report["exact_rate"] is None
+
+
+def test_summarize_tolerates_old_rows_without_gateway_recv_ts() -> None:
+    """旧 JSONL 没有 gateway_recv_ts，汇总不能因此报错或改变既有口径。"""
+    rows = [
+        {"ts": "2026-11-10T10:00:00.000", "field": "VWAP", "direct": 1.0, "gateway": 1.0,
+         "match": True, "reason": None},
+        {"ts": "2026-11-10T10:00:00.000", "field": "VWAP", "direct": 1.0, "gateway": 2.0,
+         "match": False, "reason": "value_diff"},
+    ]
+    report = gs.summarize(rows)
+
+    assert report["samples"] == 2
+    assert report["matched"] == 1
+    assert report["gateway_lag"]["samples"] == 0
+    assert report["gateway_lag"]["max_seconds"] is None
+    assert report["gateway_lag"]["stale_gt_5s"] == 0
+    assert report["by_field"]["VWAP"]["max_lag_seconds"] is None
+
+
+def test_summarize_reports_gateway_lag_and_stale_counts() -> None:
+    """按 recv_ts 与行 ts 的墙钟差统计网关值陈旧度（+08:00 偏移直接丢弃）。"""
+    base = {"field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None}
+    rows = [
+        # 早 2 秒
+        {**base, "ts": "2026-11-11T20:24:00.000", "gateway_recv_ts": "2026-11-11T20:23:58.000+08:00"},
+        # 早 7 秒 → 超 5 秒
+        {**base, "ts": "2026-11-11T20:24:00.000", "gateway_recv_ts": "2026-11-11T20:23:53.000+08:00"},
+        # 早 40 秒 → 同时超 30 秒
+        {**base, "ts": "2026-11-11T20:24:00.000", "gateway_recv_ts": "2026-11-11T20:23:20.000+08:00"},
+        # 旧格式行：不参与陈旧度统计
+        {**base, "ts": "2026-11-11T20:24:00.000"},
+    ]
+    report = gs.summarize(rows)
+
+    assert report["samples"] == 4
+    lag = report["gateway_lag"]
+    assert lag["samples"] == 3
+    assert lag["max_seconds"] == 40.0
+    assert lag["stale_gt_5s"] == 2
+    assert lag["stale_gt_30s"] == 1
+    assert report["by_field"]["VWAP"]["max_lag_seconds"] == 40.0
 
 
 def test_field_unavailable_2004_is_not_recorded_as_gateway_error(tmp_path) -> None:
