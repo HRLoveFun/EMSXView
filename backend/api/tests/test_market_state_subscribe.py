@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,8 @@ def _svc() -> "mde.MarketDataEnrichmentService":
     svc._extra_mktdata_tickers = set()
     svc._mktdata_permanently_failed = set()
     svc._mktdata_subscribed_tickers = set()
+    svc._mktdata_thread = None
+    svc._mktdata_stop = threading.Event()
     return svc
 
 

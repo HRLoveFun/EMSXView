@@ -418,6 +418,11 @@ class ShadowRunner:
     def last_stats(self) -> Optional[dict[str, Any]]:
         return self._last_stats
 
+    @property
+    def is_running(self) -> bool:
+        """采样线程是否仍在运行（供上层做幂等启动判断）。"""
+        return bool(self._thread and self._thread.is_alive())
+
     def _loop(self) -> None:
         try:
             asyncio.run(self._run())
