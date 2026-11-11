@@ -162,6 +162,20 @@ class EMSXSubscriptionEngine:
     # ── Lifecycle ──────────────────────────────────────────────────────
 
     def start(self):
+        """启动 EMSX 订阅线程（幂等：先停旧的再起新的，线程数恒为 1）。
+
+        历史缺陷：``adapter.connect()`` 的重连路径是 reset→start，只 reset 不清线程，
+        而这里每次调用都无条件新建 ``_sub_thread``。每次重连都会多留一个
+        ``emsx-subscription`` 线程，多个线程争抢同一 session 的事件、重复消费
+        订单/路由推送。与行情富化服务一致，收口为「先 stop 再 start」。
+        """
+        self.stop()
+        if self._sub_thread is not None and self._sub_thread.is_alive():
+            # stop 超时（join 5s）说明旧线程卡住：宁可少起一份也不叠加第二份
+            logger.warning(
+                "EMSX subscription thread still alive after stop — skip duplicate start"
+            )
+            return
         self._stop_event.clear()
         self._sub_thread = threading.Thread(
             target=self._subscription_loop,
@@ -177,6 +191,8 @@ class EMSXSubscriptionEngine:
             self._sub_thread.join(timeout=5)
             if self._sub_thread.is_alive():
                 logger.warning("EMSX subscription thread did not stop within timeout")
+        if self._sub_thread is not None and not self._sub_thread.is_alive():
+            self._sub_thread = None
 
     def reset(self):
         with self._data_lock:
