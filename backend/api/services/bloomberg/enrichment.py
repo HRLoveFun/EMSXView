@@ -11,6 +11,7 @@ Uses _market_data_lock (threading.Lock) for subscription management.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -139,6 +140,11 @@ class MarketDataEnrichmentService:
         self._shadow_runner: Any = None
 
         self._permfail_last_prices: Dict[str, float] = {}
+
+        # S1：会话终止后由事件泵自行重建（退避周期见 `_mktdata_reconnect_interval_s`）。
+        # 测试可置 False 以保留「会话不可用即退出」的旧行为。
+        self._mktdata_reconnect_enabled = True
+        self._mktdata_reconnect_interval_s = 5.0
 
         self._mktdata_thread: Optional[threading.Thread] = None
         # 本服务自己的停止信号：订阅引擎的 stop_event 由 _sub.stop() 置位，
@@ -293,6 +299,13 @@ class MarketDataEnrichmentService:
         return snapshot
 
     def reset(self):
+        """清空重连后必然失效的缓存与订阅态。
+
+        S2（2026-11-12 取证）：`_extra_mktdata_tickers`（`/api/market-state/subscribe`
+        注册的池内标的）**不清**。旧实现把它一起清掉，重连后只剩订单自带标的，
+        影子采样集随订单陆续到达从 7 爬到 50；而这些额外标的是调用方显式注册的，
+        与连接无关，清掉等于要求前端每次重连后重注册。
+        """
         self._price_changes = {}
         self._intraday_quotes = {}
         self._adv5d = {}
@@ -314,11 +327,14 @@ class MarketDataEnrichmentService:
     # ── Mktdata subscription loop ──────────────────────────────────────
 
     def _mktdata_subscription_loop(self):
-        sess = self._connection.mktdata_session
-        if not sess or not self._connection.mktdata_connected:
-            logger.warning("Mktdata session not available — market data enrichment disabled")
-            return
+        """行情订阅事件泵；会话终止后原地重建会话并继续，不退出线程。
 
+        S1（2026-11-12 取证）：旧实现在 `SessionTerminated` 时直接 `return`，
+        线程就此结束且无人重启——06:37 EMSX 断线后直连行情缓存不再更新，
+        影子采样一直空转到 11:11 才因重连被 `start()` 重新拉起，日本开盘
+        4.5 小时无样本。现在改为「会话失效 → 丢弃旧会话 → 退避重连」，线程
+        只在 `stop()` / 全局 `stop_event` 时退出。
+        """
         logger.info("Mktdata subscription loop started")
         self._fx_rates["USD"] = 1.0
 
@@ -329,6 +345,17 @@ class MarketDataEnrichmentService:
 
         next_housekeeping = 0.0
         while not stop_event.is_set() and not own_stop.is_set():
+            sess = self._ensure_mktdata_session(own_stop, stop_event)
+            if sess is None:
+                # 外部 stop() 已置位，或重建被关闭：退出
+                break
+            if not self._mktdata_session_healthy(sess):
+                # 会话已终止：清掉本地订阅态，退避后重建会话并重订。
+                # 重建期间不跑附属维护——旧会话上的订阅/refdata 请求全部无效。
+                self._on_mktdata_session_lost()
+                _wait_or_stop(self._mktdata_reconnect_interval_s, own_stop, stop_event)
+                continue
+
             # 附属维护按固定周期执行（而非每轮）：事件泵本身保持不变，
             # 因此行情推送的实时性不受影响。
             now_monotonic = time.monotonic()
@@ -447,9 +474,9 @@ class MarketDataEnrichmentService:
                     for msg in event:
                         mtype = str(msg.messageType())
                         if "SessionTerminated" in mtype:
+                            # 不退出线程：下一轮循环会重建会话（见方法 docstring）
                             logger.error("Mktdata session terminated")
                             self._connection.mktdata_connected = False
-                            return
 
                 elif etype == blpapi.Event.TIMEOUT:
                     pass
@@ -458,6 +485,83 @@ class MarketDataEnrichmentService:
                 logger.debug(f"Mktdata event loop error: {e}")
 
         logger.info("Mktdata subscription loop stopped")
+
+    def _mktdata_session_healthy(self, sess) -> bool:
+        """会话是否仍可用：连接管理器未标记断线，且底层 session 未停止。
+
+        `Session.start()` 对已启动的会话是幂等的（返回 True），对已停止的会话
+        返回 False，因此可以直接当健康探针用。
+        """
+        if not self._connection.mktdata_connected:
+            return False
+        try:
+            return bool(sess.start())
+        except Exception:  # noqa: BLE001 - 探测失败按不健康处理，走重建
+            return False
+
+    def _on_mktdata_session_lost(self) -> None:
+        """会话丢失后清空本地订阅态，让重建后的会话重新订阅全部标的。
+
+        `_mktdata_subscribed_tickers` 记录的是「旧会话上已订阅」的集合；不清空的话
+        `_update_mktdata_subscriptions` 会认为它们都已订阅，重建后一个都不会补订。
+        """
+        self._connection.mktdata_connected = False
+        if self._mktdata_subscribed_tickers:
+            logger.warning(
+                "Mktdata session lost — 清空 %d 个已订阅标的，等待重连后重订",
+                len(self._mktdata_subscribed_tickers),
+            )
+        self._mktdata_subscribed_tickers = set()
+        self._mktdata_active_tickers = set()
+
+    def _ensure_mktdata_session(self, own_stop, stop_event):
+        """返回可用的 mktdata 会话；会话缺失或已断时尝试重建，失败返回 None。
+
+        重建走 `ConnectionManager.connect()`（与启动时同一条路径），成功后取新会话。
+        外部 `stop()` 置位期间不重连，直接返回 None 让线程退出。
+        """
+        sess = self._connection.mktdata_session
+        if sess is not None and self._connection.mktdata_connected:
+            return sess
+        if own_stop.is_set() or stop_event.is_set():
+            return None
+        if not self._mktdata_reconnect_enabled:
+            logger.warning("Mktdata session not available — market data enrichment disabled")
+            return None
+
+        logger.warning("Mktdata session 不可用，尝试重建 Bloomberg 连接…")
+        try:
+            ok = asyncio.run(self._reconnect_for_mktdata())
+        except Exception as exc:  # noqa: BLE001 - 重连失败只记日志，退避后重试
+            logger.warning("Mktdata session 重建失败: %s", exc)
+            ok = False
+
+        sess = self._connection.mktdata_session
+        if not ok or sess is None or not self._connection.mktdata_connected:
+            logger.warning("Mktdata session 重建失败 — %.0fs 后重试", self._mktdata_reconnect_interval_s)
+            _wait_or_stop(self._mktdata_reconnect_interval_s, own_stop, stop_event)
+            return None
+        logger.info("Mktdata session 已重建，重新订阅行情")
+        return sess
+
+    async def _reconnect_for_mktdata(self) -> bool:
+        """重建 Bloomberg 连接（含 mktdata 会话）。
+
+        EMSX 主会话仍连着、只是 mktdata 会话终止时，`ConnectionManager.connect()`
+        会因「已连接」直接返回 True 而不会重建 mktdata 会话；这里先丢弃旧会话
+        再走一次连接流程，保证拿到新的 mktdata 会话。
+        """
+        conn = self._connection
+        if conn.connected and conn.session:
+            old = getattr(conn, "_mktdata_session", None)
+            if old is not None:
+                try:
+                    old.stop()
+                except Exception:  # noqa: BLE001 - 旧会话已终止，停止失败无妨
+                    pass
+            setattr(conn, "_mktdata_session", None)
+            conn.mktdata_connected = False
+        return await conn.connect()
 
     # ── Subscription management ────────────────────────────────────────
 

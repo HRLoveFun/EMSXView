@@ -169,7 +169,16 @@ class ShadowSampler:
         self._clock = clock
 
     async def sample_once(self) -> dict[str, Any]:
-        """采一轮；返回统计 `{tickers, compared, matched, mismatched, gw_error}`。"""
+        """采一轮；返回统计 `{tickers, compared, matched, mismatched, gw_error}`。
+
+        时点对齐（S3）：直连快照与网关快照各记一个取数时刻。行上的 `ts` 仍是
+        「网关快照取完」的时刻（口径不变），新增 `direct_ts` = 取直连快照的时刻。
+        旧实现只在「取完 50 个 `/quote`」之后打 `ts`，直连值却是在这之前取的，
+        于是每一行都自带一个请求周期（0.25–1s）的时点错配，`recv_lag` 也被系统性抬高；
+        现在 `ts - direct_ts` 就是本轮真实的取数跨度，报表（`sampling_span`）
+        可以据此判断时点差里有多少是采样放大。
+        """
+        direct_ts = self._clock().isoformat(timespec="milliseconds")
         snapshot = self._direct_snapshot() or {}
         tickers = sorted(snapshot)[: self._max_tickers]
         stats: dict[str, Any] = {
@@ -184,12 +193,20 @@ class ShadowSampler:
 
         try:
             await self._sync_subscriptions(tickers)
+        except Exception as exc:  # noqa: BLE001 - 网关任何失败都只记一笔，不影响直连
+            stats["gw_error"] = f"{type(exc).__name__}: {exc}"
+            logger.debug("gateway shadow: 本轮订阅失败: %s", stats["gw_error"])
+            self._emit_error(tickers, stats["gw_error"])
+            return stats
+
+        try:
             quotes = await self._quote_per_ticker(tickers)
         except Exception as exc:  # noqa: BLE001 - 网关任何失败都只记一笔，不影响直连
             stats["gw_error"] = f"{type(exc).__name__}: {exc}"
             logger.debug("gateway shadow: 本轮采样失败: %s", stats["gw_error"])
             self._emit_error(tickers, stats["gw_error"])
             return stats
+        gateway_ts = self._clock().isoformat(timespec="milliseconds")
 
         # 网关重启 / 订阅过期后本地缓存会失真：以服务端 `_meta.subscribed` 为准，
         # 掉线的标的从本地集合移除，下一轮自动补订。
@@ -197,7 +214,6 @@ class ShadowSampler:
             if getattr(quote, "subscribed", True) is False:
                 self._subscribed.discard(ticker)
 
-        ts = self._clock().isoformat(timespec="milliseconds")
         rows: list[dict] = []
         for ticker in tickers:
             direct_fields = snapshot.get(ticker) or {}
@@ -214,7 +230,8 @@ class ShadowSampler:
                     stats["mismatched"] += 1
                 rows.append(
                     {
-                        "ts": ts,
+                        "ts": gateway_ts,
+                        "direct_ts": direct_ts,
                         "ticker": ticker,
                         "field": field,
                         "direct": direct_value,
@@ -299,6 +316,7 @@ class ShadowSampler:
             [
                 {
                     "ts": ts,
+                    "direct_ts": ts,
                     "ticker": ticker,
                     "field": None,
                     "direct": None,
@@ -319,6 +337,10 @@ def _lag_seconds(row: dict) -> Optional[float]:
     `gateway_recv_ts` 带时区偏移（如 `+08:00`），行 `ts` 是 naive local ISO；这里
     直接比较墙钟时间（丢弃偏移），即假定网关与本机处于同一时区。跨时区部署时
     该值只能当相对参考，不能当绝对延迟。旧格式行没有 `gateway_recv_ts`，返回 None。
+
+    S3 之后 `ts` 是「网关快照取完」的时刻，而网关值是在这之前一批批取回的；
+    这条滞后因此含了本轮取数耗时。`sampling_span_seconds` 给出该耗时，两者相减
+    才是「网关值相对取回时刻有多旧」。
     """
     recv = row.get("gateway_recv_ts")
     ts = row.get("ts")
@@ -334,6 +356,27 @@ def _lag_seconds(row: dict) -> Optional[float]:
     if ts_dt.tzinfo is not None:
         ts_dt = ts_dt.replace(tzinfo=None)
     return (ts_dt - recv_dt).total_seconds()
+
+
+def _sampling_span_seconds(row: dict) -> Optional[float]:
+    """行 `ts` 与 `direct_ts` 的差（秒）= 本轮从取直连快照到取完网关快照的耗时。
+
+    旧格式行没有 `direct_ts`，返回 None。
+    """
+    direct = row.get("direct_ts")
+    ts = row.get("ts")
+    if not isinstance(direct, str) or not isinstance(ts, str):
+        return None
+    try:
+        direct_dt = datetime.fromisoformat(direct)
+        ts_dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if direct_dt.tzinfo is not None:
+        direct_dt = direct_dt.replace(tzinfo=None)
+    if ts_dt.tzinfo is not None:
+        ts_dt = ts_dt.replace(tzinfo=None)
+    return (ts_dt - direct_dt).total_seconds()
 
 
 # 陈旧度分层：同一时点级别（≤5s 足够覆盖 30s 采样周期内的正常投递差异）
@@ -388,6 +431,12 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     只能说明网关投递滞后。2026-11-11 实测：静态时段两侧精确相等，但 `recv_ts`
     落后采样时刻最多 116 秒，网关只重复投递缓存快照，未带事件时间戳。
 
+    **取数跨度**（`sampling_span`）：`ts` 是网关快照取完的时刻，`direct_ts` 是本轮
+    开始取直连快照的时刻，两者之差就是这一轮串行取数花了多久。旧实现只在全部
+    `/quote` 返回后才打 `ts`，跨度被整个算进 `gateway_lag`，读者会把采样耗时
+    误读成网关投递延迟；现在单独给出 p50/p90/max，`gateway_lag` 里含多少采样
+    开销一目了然。
+
     **不一致样本的误差分布**（`value_diff`）。只报条数，读者无法判断「差一点」还是
     「差一个量级」；给出 `|rel_diff|` 的 p50/p90/p99/max 与 `lt_1e_2` 占比，就能直接
     看出分歧的量级。
@@ -410,6 +459,7 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     }
     diff_abs: list[float] = []
     diff_lt_1e_2 = 0
+    span_samples: list[float] = []
     by_field: dict[str, dict[str, Any]] = {}
     for row in rows:
         if row.get("field") is None:
@@ -430,6 +480,9 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             },
         )
         bucket["total"] += 1
+        span = _sampling_span_seconds(row)
+        if span is not None:
+            span_samples.append(span)
         # 网关值陈旧度：recv_ts 距离本轮采样时刻有多久（旧格式行无此字段，跳过）
         lag = _lag_seconds(row)
         if lag is not None:
@@ -496,6 +549,13 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             "max_seconds": max_lag,
             "stale_gt_5s": stale_gt_5s,
             "stale_gt_30s": stale_gt_30s,
+        },
+        # 本轮取数跨度（直连快照 → 网关快照取完），用于判断时点差是否被采样放大
+        "sampling_span": {
+            "samples": len(span_samples),
+            "p50_seconds": _percentile(sorted(span_samples), 0.5) if span_samples else None,
+            "p90_seconds": _percentile(sorted(span_samples), 0.9) if span_samples else None,
+            "max_seconds": max(span_samples) if span_samples else None,
         },
         "by_lag": {
             name: {
