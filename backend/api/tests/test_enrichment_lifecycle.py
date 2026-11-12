@@ -26,6 +26,7 @@ if str(API_ROOT) not in sys.path:
 os.environ.setdefault("JWT_SECRET", "testsecret")
 
 from config import settings  # noqa: E402
+from blpapi.exception import InvalidStateException  # noqa: E402
 from services.bloomberg import enrichment  # noqa: E402
 from services.bloomberg.enrichment import MarketDataEnrichmentService  # noqa: E402
 from services.bloomberg.subscriptions import EMSXSubscriptionEngine  # noqa: E402
@@ -177,15 +178,18 @@ def test_reconnect_does_not_stack_sampling_or_mktdata_threads(monkeypatch, tmp_p
 
 
 class _FakeSession:
-    """最小 blpapi session 替身：`start()` 可被置为失效，`nextEvent` 可阻塞。"""
+    """最小 blpapi session 替身：`nextEvent` 可被替换，`start()` 恒为 False。
 
-    def __init__(self, alive: bool = True) -> None:
-        self.alive = alive
+    `start()` 恒 False 是照抄实测行为：blpapi 对**已启动**的会话返回 False
+    （只有未启动时才返回 True），所以它不能当健康探针用。
+    """
+
+    def __init__(self) -> None:
         self.started = 0
 
     def start(self) -> bool:
         self.started += 1
-        return self.alive
+        return False
 
     def nextEvent(self, timeout_ms):  # noqa: N802 - 模拟 blpapi 接口
         raise AssertionError("测试不应真正泵事件")
@@ -193,7 +197,11 @@ class _FakeSession:
 
 def _make_service_with_session(monkeypatch, session) -> MarketDataEnrichmentService:
     monkeypatch.setattr(settings, "EMSXVIEW_GATEWAY_MODE", "off")
-    connection = SimpleNamespace(mktdata_session=session, mktdata_connected=True)
+    # 真实连接管理器把会话存在私有字段 `_mktdata_session` 上，公开属性只读；
+    # 替身照此建模，重建路径摘旧会话时才能同时清掉公开视图。
+    connection = SimpleNamespace(
+        _mktdata_session=session, mktdata_session=session, mktdata_connected=True
+    )
     return MarketDataEnrichmentService(
         connection=connection,
         subscription_engine=SimpleNamespace(stop_event=threading.Event()),
@@ -220,8 +228,8 @@ def test_loop_rebuilds_dead_session_instead_of_exiting(monkeypatch):
     旧实现在终止时 `return`，线程死掉后无人重启——11-12 06:37 起日本开盘
     4.5 小时无样本，直到 11:11 才有别的路径重新 `start()`。
     """
-    dead = _FakeSession(alive=False)
-    fresh = _FakeSession(alive=True)
+    dead = _FakeSession()
+    fresh = _FakeSession()
     service = _make_service_with_session(monkeypatch, dead)
     service._mktdata_reconnect_interval_s = 0.01
     service._mktdata_subscribed_tickers = {"AAPL US Equity"}
@@ -237,8 +245,15 @@ def test_loop_rebuilds_dead_session_instead_of_exiting(monkeypatch):
 
     monkeypatch.setattr(service, "_rebuild_mktdata_session", fake_rebuild)
     monkeypatch.setattr(service, "_run_housekeeping", lambda sess: housekeeping.append(sess))
+    # 首次订阅前的就绪等待（3s）与重连退避都压到 0，测试不必真等
+    monkeypatch.setattr(enrichment, "_wait_or_stop", lambda timeout, *events: None)
 
-    # 第一次 nextEvent 看到「会话已终止」，第二次开始由测试置位停止信号
+    # 旧会话取事件时报「会话已终止」，与 blpapi 实测抛的异常一致
+    def dead_next_event(timeout_ms):
+        raise InvalidStateException("nextEvent cannot be used in the current session state", 0x00010009)
+
+    dead.nextEvent = dead_next_event  # type: ignore[assignment]
+
     def next_event(timeout_ms):
         service._mktdata_stop.set()
         raise AssertionError("会话重建后不应在旧会话上泵事件")
@@ -247,14 +262,79 @@ def test_loop_rebuilds_dead_session_instead_of_exiting(monkeypatch):
 
     service._mktdata_subscription_loop()
 
+    # 旧会话的终止事件已置位断线标记，事件泵不再探活，直接重建
     assert rebuilt == [True]
     assert service._mktdata_subscribed_tickers == set()  # 已清空，等重订
-    assert housekeeping and housekeeping[0] is fresh
+    # 首轮 housekeeping 仍跑在「还被信任」的旧会话上（此时 `mktdata_connected`
+    # 尚为真），随后旧会话取事件抛 `InvalidStateException` 才触发重建；重建成功
+    # 后下一轮直接泵新会话（housekeeping 周期未到，不会重跑）。
+    assert housekeeping == [dead]
+    assert service._connection.mktdata_session is fresh
+
+
+def test_loop_keeps_healthy_session_even_though_start_returns_false(monkeypatch):
+    """健康会话不得被误判为已断：`Session.start()` 对已启动的会话返回 False。
+
+    2026-11-12 20:47 实测：事件泵每轮拿 `sess.start()` 当健康探针，健康会话被
+    判成已断 → 每轮重建会话、`marketDataConnected` 永远 false、影子采样零样本。
+    """
+    session = _FakeSession()
+    service = _make_service_with_session(monkeypatch, session)
+    service._mktdata_reconnect_interval_s = 0.01
+
+    rebuilt: list[bool] = []
+    monkeypatch.setattr(
+        service, "_rebuild_mktdata_session", lambda: rebuilt.append(True) or session
+    )
+    monkeypatch.setattr(service, "_run_housekeeping", lambda sess: None)
+
+    pumped: list[object] = []
+
+    def next_event(timeout_ms):
+        pumped.append(session)
+        service._mktdata_stop.set()
+        raise AssertionError("停止信号已置位，循环应退出")
+
+    session.nextEvent = next_event  # type: ignore[assignment]
+
+    service._mktdata_subscription_loop()
+
+    assert rebuilt == []  # 一次都不该重建
+    assert pumped == [session]  # 原会话直接被泵事件
+    assert service._connection.mktdata_connected is True
+
+
+def test_ensure_session_retries_after_rebuild_failure_instead_of_exiting(monkeypatch):
+    """重建失败必须退避重试，不能返回 None 让事件泵线程退出。
+
+    2026-11-12 20:47 实测：一次重建失败后 `_ensure_mktdata_session` 返回 None，
+    事件泵线程直接结束，之后再无人拉起——行情与会话从此永久缺失。
+    """
+    service = _make_service_with_session(monkeypatch, None)
+    service._connection.mktdata_connected = False
+    service._mktdata_reconnect_interval_s = 0.01
+
+    attempts: list[int] = []
+    fresh = _FakeSession()
+
+    def flaky_rebuild():
+        attempts.append(len(attempts) + 1)
+        if len(attempts) < 3:
+            return None
+        service._connection.mktdata_session = fresh
+        service._connection.mktdata_connected = True
+        return fresh
+
+    monkeypatch.setattr(service, "_rebuild_mktdata_session", flaky_rebuild)
+    stop_event = service._subscription_engine.stop_event
+
+    assert service._ensure_mktdata_session(service._mktdata_stop, stop_event) is fresh
+    assert attempts == [1, 2, 3]
 
 
 def test_loop_exits_when_stop_requested_during_reconnect(monkeypatch):
     """S1：`stop()` 置位后重连路径立即放弃，不得把线程拖在退避里。"""
-    service = _make_service_with_session(monkeypatch, _FakeSession(alive=False))
+    service = _make_service_with_session(monkeypatch, _FakeSession())
     service._mktdata_reconnect_interval_s = 30.0
     service._mktdata_stop.set()
 
@@ -295,7 +375,7 @@ def test_rebuild_mktdata_session_does_not_touch_emsx_session(monkeypatch):
     实测 2026-11-12 20:47 重启后主会话连着、mktdata 会话打不开；若走整条
     `disconnect()` + `connect()`，订单推送会被一起打断。
     """
-    service = _make_service_with_session(monkeypatch, _FakeSession(alive=False))
+    service = _make_service_with_session(monkeypatch, _FakeSession())
     emsx_session = object()
     request_sessions = [object()]
     service._connection.session = emsx_session
@@ -341,7 +421,8 @@ def test_rebuild_mktdata_session_returns_none_when_service_unavailable(monkeypat
             self.stopped = True
 
     broken = _Broken()
-    service = _make_service_with_session(monkeypatch, _FakeSession(alive=False))
+    dead = _FakeSession()
+    service = _make_service_with_session(monkeypatch, dead)
     # 模拟「会话已终止」：对象还在，但连接管理器已标记断线
     service._connection.mktdata_connected = False
     monkeypatch.setattr(enrichment.blpapi, "Session", lambda opts: broken)
@@ -350,8 +431,9 @@ def test_rebuild_mktdata_session_returns_none_when_service_unavailable(monkeypat
     ))
 
     assert service._rebuild_mktdata_session() is None
-    # 测试替身把旧会话放在公开属性上；服务按 `_mktdata_session` 私有字段清理，
-    # 这里断言的是「没有新会话被挂上」
+    # 死会话必须从连接管理器上摘掉：否则 `_ensure_mktdata_session` 下一轮
+    # 仍会拿到它，事件泵立刻再抛 `InvalidStateException`，重建空转。
     assert getattr(service._connection, "_mktdata_session", None) is None
     assert service._connection.mktdata_connected is False
     assert getattr(broken, "stopped", False) is True
+    assert dead.started == 0  # 死会话只被 stop，不再被 start 探活
