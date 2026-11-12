@@ -123,6 +123,16 @@
 | S3 | `ts` 在取数之后才打 | `sample_once` 先 `_direct_snapshot()`、再串行 50 次 `/quote`、最后打 `ts`（`services/gateway_shadow.py:173/187/200`） | 直连值比网关值早约一个请求周期（0.25–1s），并让 `recv_lag` 系统性偏大 |
 | S4 | 直连侧只有 30s 采样分辨率 | `_mkt_vwap` 由 shadow 每轮快照读取 | 无法分辨 30s 以内的真实差异，只能给出 ±30s 量级的时点差 |
 
+**修复状态（2026-11-12）**：S1–S3 已修，S4 保留（设计取舍，不修）。
+
+| # | 修法 | 落点 |
+| --- | --- | --- |
+| S1 | `SessionTerminated` 不再 `return` 退出事件泵：标记断线 → 清空「已订阅」集合 → 退避 5s 重建会话 → 重订全部标的；线程只在 `stop()` 时退出 | `services/bloomberg/enrichment.py` `_mktdata_subscription_loop` / `_ensure_mktdata_session` / `_on_mktdata_session_lost` |
+| S2 | `reset()` 不再清 `_extra_mktdata_tickers`（`/api/market-state/subscribe` 注册的池内标的与连接无关），重连后直接重订 | `services/bloomberg/enrichment.py` `reset()` |
+| S3 | 行上新增 `direct_ts`（取直连快照前打）与 `ts`（网关快照取完后打），差值即本轮取数跨度；`summarize` 新增 `sampling_span`（p50/p90/max），`gateway_lag` 口径不变 | `services/gateway_shadow.py` `sample_once` / `_sampling_span_seconds` / `summarize` |
+
+修复后需重新取证：新行带 `direct_ts`，`sampling_span` 可直接量化「时点差里有多少是采样耗时」；S1/S2 的效果看下一交易日是否再出现采样中断与标的数爬升。
+
 ### 6.2 网关侧核查（读上游代码 + 数据）
 
 | 环节 | 结论 | 证据 |
@@ -154,6 +164,8 @@
 | #241 | 采样行记录 `gateway_recv_ts`，报表给出网关值陈旧度 | 11-11 |
 | #242 | 报表按陈旧度分层（`by_lag`）并给出分歧量级分位 | 11-12 |
 | #243 | 本报表初版（结论「修复后 100% exact」后被 11-12 盘中数据推翻，已在本版更正） | 11-12 |
+| #244 | 如实刷新本报表，定性「28s 滞后」以采样侧为主 | 11-12 |
+| 本 PR | 修 S1–S3：会话终止自重建、额外标的跨重连保留、取数时点分列 | 11-12 |
 
 ## 8. 局限与上游待办
 
@@ -161,7 +173,7 @@
 2. **`gateway_recv_ts` 的语义是「网关最近一次收到该值的时刻」**，静态标的会自然变大（实测 >3 小时），不能直接当「延迟」读；判定延迟要看活跃标的。
 3. **网关 `0.0` 与「无值」**未区分：建议上游用显式缺失码替代 0 占位，否则每次开盘前都会被记成一次不一致。
 4. 修复前数据含 6 倍重复采样，比率只能定性；取证的定量结论只应引用修复后窗口。
-5. **采样侧待修**（S1–S3）：重连后 shadow 未自动恢复、恢复后标的数爬升、`ts` 打点顺序。修完之前，11-12 盘中数字只能作下限参考。
+5. **采样侧 S1–S3 已修**（§6.1 修复状态），但修复前采集的 11-12 数据仍带这三处缺陷，本报表对 11-12 盘中的引用只能作下限参考；修复效果需下一交易日数据验证。
 6. **网关侧待查**：13:02:49–14:31 有 6 个标的网关值冻结 88–97 分钟（§6.2）。需上游确认是否个别订阅被释放或事件泵局部阻塞。
 
 ## 9. 复现
@@ -180,5 +192,5 @@ python -m services.gateway_shadow logs/gateway_shadow/gateway_shadow_*.jsonl
 - [ ] 2026-11-12 美股时段（22:30–05:00）`value_diff` 计数与 `by_lag` 分布
 - [ ] 全窗口 VWAP `exact_rate`（仅 VWAP，分母 `both_present`，按盘中/静态分列）
 - [ ] 与 `consistency_report_20261113.json` 交叉核对后定稿
-- [ ] S1–S3 修复后复测 11-12 盘中时段，确认时点差是否收窄
+- [ ] S1–S3 修复后复测：新行 `sampling_span` 的 p50/p90（旧行无 `direct_ts`，只能从修复上线时刻起算）；确认下一交易日无采样中断、标的数不爬升
 - [ ] 上游回执：印尼标的 13:02 后网关值冻结的原因

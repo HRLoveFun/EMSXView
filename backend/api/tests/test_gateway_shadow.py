@@ -648,3 +648,86 @@ def test_runner_stops_promptly_and_records_last_stats(tmp_path) -> None:
 
     assert runner.last_stats is not None
     assert runner.last_stats["matched"] == 1
+
+
+# ── S3：取数时点对齐 ──────────────────────────────────────────────────────────
+
+
+def test_sample_once_stamps_direct_ts_before_fetch_and_gateway_ts_after(tmp_path) -> None:
+    """S3：`direct_ts` 在取直连快照前打，`ts` 在网关快照取完后打。
+
+    旧实现只在全部 `/quote` 返回后打 `ts`，直连值却更早取，于是每行都自带
+    一个请求周期的时点错配；现在两段时间戳分开落盘，差值 = 本轮取数跨度。
+    """
+    moments = iter(
+        [
+            datetime(2026, 11, 12, 11, 0, 0, 100000),  # direct_ts
+            datetime(2026, 11, 12, 11, 0, 0, 900000),  # gateway_ts
+        ]
+    )
+
+    async def gateway_quote(tickers, fields):
+        # 取网关快照期间时钟不应被推进（第二次取时钟发生在返回之后）
+        return {ticker: _quote(VWAP=200.0) for ticker in tickers}
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 200.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        clock=lambda: next(moments),
+    )
+    asyncio.run(sampler.sample_once())
+
+    row = _read_rows(tmp_path)[0]
+    assert row["direct_ts"] == "2026-11-12T11:00:00.100"
+    assert row["ts"] == "2026-11-12T11:00:00.900"
+
+
+def test_summarize_reports_sampling_span_separately_from_gateway_lag() -> None:
+    """S3：取数跨度单列统计，`gateway_lag` 不再被采样耗时单方面抬高。"""
+    base = {"field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None}
+    rows = [
+        {
+            **base,
+            "direct_ts": "2026-11-12T11:00:00.000",
+            "ts": "2026-11-12T11:00:00.800",
+            "gateway_recv_ts": "2026-11-12T10:59:58.000+08:00",
+        },
+        {
+            **base,
+            "direct_ts": "2026-11-12T11:00:30.000",
+            "ts": "2026-11-12T11:00:31.200",
+            "gateway_recv_ts": "2026-11-12T11:00:29.000+08:00",
+        },
+        # 旧格式行：无 direct_ts，不进跨度统计
+        {**base, "ts": "2026-11-12T11:01:00.000", "gateway_recv_ts": "2026-11-12T11:00:59.000+08:00"},
+    ]
+    report = gs.summarize(rows)
+
+    span = report["sampling_span"]
+    assert span["samples"] == 2
+    assert span["p50_seconds"] == 1.0
+    assert span["max_seconds"] == 1.2
+    # gateway_lag 仍按 ts - recv_ts 计（含采样耗时），口径未变：2.8s > 2.2s > 1.0s
+    assert report["gateway_lag"]["samples"] == 3
+    assert report["gateway_lag"]["max_seconds"] == 2.8
+
+
+def test_gw_error_rows_carry_direct_ts(tmp_path) -> None:
+    """网关失败行也带 `direct_ts`，报表按行统计跨度时不会因缺列报错。"""
+
+    async def gateway_quote(tickers, fields):
+        raise GatewayUnavailable("circuit open")
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 200.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+    )
+    asyncio.run(sampler.sample_once())
+
+    row = _read_rows(tmp_path)[0]
+    assert row["reason"] == "gw_error"
+    assert isinstance(row["direct_ts"], str)
