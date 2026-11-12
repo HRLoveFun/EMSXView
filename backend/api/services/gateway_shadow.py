@@ -442,6 +442,7 @@ DEFAULT_FRESH_WINDOW_SECONDS = 45.0
 
 #: 新鲜度分层：`fresh` = 网关值在本轮采样窗口内更新过；`stale` = 只重复投递旧值；
 #: `unknown` = 网关无值或旧格式行（无 `gateway_recv_ts`）。
+#: 只有 `fresh` 层的一致率能当正确性证据；`stale` 层两侧冻结，相等是平凡相等。
 FRESHNESS_BUCKETS = ("fresh", "stale", "unknown")
 
 #: 「缺数据」类归因：不进一致率分母，也不进 `value_diff` 量级统计。
@@ -511,6 +512,10 @@ def summarize(
     窗口 `fresh_window_seconds` 内）才是有信息量的样本，`stale` 是收市后 / 推送
     停滞的重复投递，`unknown` 是网关无值或旧格式行。与 `by_lag` 的区别：`by_lag`
     按固定秒数分档看滞后量级，`by_freshness` 直接回答「这条样本能不能用来判对错」。
+
+    **读法（勿反读）**：`stale` 层一致率高**不是**好消息——两侧都冻结时相等是平凡
+    相等，不构成正确性证据；`stale` 样本越多，越说明这份数据里可用于判对错的样本
+    越少。对外报一致率只能引用 `fresh` 层，且必须注明 `both_present` 与窗口。
 
     **占位 `0.0` 单列**（`reasons` 里的 `gateway_invalid` / `direct_invalid`）。
     开盘前 Bloomberg 给 `0.0` 占位，旧实现把它当有效值参与数值比较，记成
