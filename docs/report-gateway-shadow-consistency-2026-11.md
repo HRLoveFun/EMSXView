@@ -31,8 +31,9 @@
 | `both_missing` | 两侧都无值 | 不进 `match_rate` 分母；否则「两侧都无 = 一致」会把一致率抬到 100% |
 | `both_present` | 两侧都有值 | 一致率的唯一分母 |
 | `matched` / `exact` / `near_match` | 一致 / 数值完全相同 / 仅落在 1e-6 相对容差内 | 容差内一致不等于同一 tick，必须分开报 |
-| `reasons` | `value_diff` / `gateway_missing` / `direct_missing` | 缺数据与值不同不能混算 |
+| `reasons` | `value_diff` / `gateway_missing` / `direct_missing` / `gateway_invalid` / `direct_invalid` | 缺数据与值不同不能混算；单侧数值 `0.0` 是开盘前占位值，归 `*_invalid`，不进一致率分母 |
 | `by_lag` | 按 `gateway_recv_ts` 与采样时刻之差分层（≤5s / 5–30s / >30s / 未知） | 同一时点级别内的一致率才说明「同一 tick 是否算对」 |
+| `by_freshness` | 按同一滞后分层为 `fresh`（≤45s，可调）/ `stale` / `unknown` | 直接回答「这条样本能否用来判对错」：收市后冻结值落在 `stale`，其一致率不能代表盘中 |
 | `value_diff` | 不一致样本的 `\|rel_diff\|` 分位 | 区分末位误差与量级差异 |
 | 等效时点差 | 在 `gateway_recv_ts` ±30s 内找直连值首次等于网关值的采样时刻，取该时刻 − `recv_ts` | 直接回答「网关值相当于直连哪一刻的值」 |
 | 盘中 / 静态 | 盘中 = 该市场有成交、两侧值在变；静态 = 收盘后两侧值都不再变化 | 静态时段的一致率不能代表盘中 |
@@ -165,7 +166,8 @@
 | #242 | 报表按陈旧度分层（`by_lag`）并给出分歧量级分位 | 11-12 |
 | #243 | 本报表初版（结论「修复后 100% exact」后被 11-12 盘中数据推翻，已在本版更正） | 11-12 |
 | #244 | 如实刷新本报表，定性「28s 滞后」以采样侧为主 | 11-12 |
-| 本 PR | 修 S1–S3：会话终止自重建、额外标的跨重连保留、取数时点分列 | 11-12 |
+| #245 | 修 S1–S3：会话终止自重建、额外标的跨重连保留、取数时点分列 | 11-12 |
+| 本 PR | 占位 `0.0` 归 `*_invalid`（不再记 `value_diff`）；新增 `by_freshness` 按 `recv_ts` 陈旧度单列收市后样本 | 11-12 |
 
 ## 8. 局限与上游待办
 
@@ -180,8 +182,10 @@
 
 ```bash
 cd backend/api
-# 全窗口报表（含 by_lag / value_diff 分位）
+# 全窗口报表（含 by_lag / by_freshness / value_diff 分位）
 python -m services.gateway_shadow logs/gateway_shadow/gateway_shadow_*.jsonl
+# 收紧新鲜度窗口（默认 45s）
+python -m services.gateway_shadow --fresh-window-seconds 30 logs/gateway_shadow/gateway_shadow_*.jsonl
 # 单标的时序（核对时点差）
 # 见本报表 §4 的选样与插值方法：按 ticker 取前后 2 分钟 direct 区间插值
 # 等效时点差（§5）：按 ticker 在 recv_ts ±30s 内找 direct == gateway 的采样时刻

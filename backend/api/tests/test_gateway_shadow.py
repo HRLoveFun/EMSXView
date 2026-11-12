@@ -81,6 +81,39 @@ def test_strings_compare_after_strip_and_never_raise_on_type_mismatch() -> None:
     assert gs.compare_value(1, "1")["reason"] == "type_mismatch"
 
 
+def test_placeholder_zero_is_attributed_as_invalid_not_value_diff() -> None:
+    """开盘前 Bloomberg 给 0.0 占位：不能当成有效值算相对差。
+
+    实测 2026-11-12 韩国盘前有 1,541 条「直连 0.0 vs 网关有值」被记成
+    `value_diff`（rel_diff=1.0），把占位值混进了「两侧算得不一样」的分母。
+    """
+    assert gs.compare_value(0.0, 79040.6662)["reason"] == "direct_invalid"
+    assert gs.compare_value(0.0, 79040.6662)["match"] is False
+    assert gs.compare_value(79040.6662, 0.0)["reason"] == "gateway_invalid"
+    # 单侧占位 + 另一侧 None：按有值那一侧的反面归因，不能被并成「两侧都无值」
+    assert gs.compare_value(0.0, None)["reason"] == "gateway_missing"
+    assert gs.compare_value(None, 0.0)["reason"] == "gateway_invalid"
+
+
+def test_placeholder_zero_on_both_sides_counts_as_both_missing() -> None:
+    """两侧都是占位 0.0：等同两侧无值，不进一致率分母（实测 11-12 有 10,142 条）。"""
+    verdict = gs.compare_value(0.0, 0.0)
+    assert verdict["match"] is True
+    report = gs.summarize(
+        [{"field": "VWAP", "direct": 0.0, "gateway": 0.0, "match": True, "reason": None}]
+    )
+    assert report["both_missing"] == 1
+    assert report["both_present"] == 0
+    assert report["match_rate"] is None
+
+
+def test_placeholder_zero_does_not_swallow_real_zero_string_or_bool() -> None:
+    """只有数值 0.0 是占位值：字符串 "0"、False 走原有分支，不被误判。"""
+    assert gs.compare_value(False, False)["match"] is True
+    assert gs.compare_value("0", "0")["match"] is True
+    assert gs.compare_value(1e-12, 1e-12)["match"] is True
+
+
 # ── 采样与落盘 ────────────────────────────────────────────────────────────────
 
 
@@ -411,6 +444,68 @@ def test_summarize_stratifies_match_rate_by_lag() -> None:
     # 分层不改变总口径
     assert report["both_present"] == 4
     assert report["matched"] == 2
+
+
+def test_summarize_stratifies_by_gateway_freshness() -> None:
+    """收市后网关只重复投递冻结值：这类样本不能用来判「网关算得对不对」。
+
+    `by_lag` 按固定秒数分档看不出「这条样本有没有信息量」；`by_freshness` 直接
+    把「本轮采样窗口内更新过」与「只回旧缓存」分开。
+    """
+    base = {"field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None}
+    rows = [
+        # 2s 前更新 → fresh
+        {**base, "ts": "2026-11-12T15:00:00.000", "gateway_recv_ts": "2026-11-12T14:59:58.000+08:00"},
+        # 40s 前更新 → 仍在 45s 窗口内，fresh
+        {**base, "ts": "2026-11-12T15:00:30.000", "gateway_recv_ts": "2026-11-12T14:59:50.000+08:00"},
+        # 2 小时前更新 → 收市后冻结值，stale
+        {**base, "ts": "2026-11-12T15:01:00.000", "gateway_recv_ts": "2026-11-12T13:00:00.000+08:00"},
+        # 网关无值 → unknown
+        {**base, "ts": "2026-11-12T15:01:30.000", "direct": 1.0, "gateway": None, "match": False,
+         "reason": "gateway_missing"},
+        # 旧格式行 → unknown
+        {**base, "ts": "2026-11-12T15:02:00.000"},
+    ]
+    report = gs.summarize(rows)
+
+    by_freshness = report["by_freshness"]
+    assert set(by_freshness) == {"fresh", "stale", "unknown"}
+    assert report["fresh_window_seconds"] == 45.0
+    assert by_freshness["fresh"]["samples"] == 2
+    assert by_freshness["fresh"]["both_present"] == 2
+    assert by_freshness["fresh"]["match_rate"] == 1.0
+    assert by_freshness["stale"]["samples"] == 1
+    assert by_freshness["stale"]["both_present"] == 1
+    assert by_freshness["unknown"]["samples"] == 2
+    # 分层不改变总口径：旧格式行两侧都有值，也计入 both_present
+    assert report["both_present"] == 4
+    assert report["matched"] == 4
+
+
+def test_summarize_freshness_window_is_configurable() -> None:
+    """窗口可调：同一份数据在不同窗口下分层不同（便于按采样周期校准）。"""
+    row = {
+        "field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None,
+        # 滞后 40s：默认 45s 窗口内算 fresh，窗口收紧到 30s 则算 stale
+        "ts": "2026-11-12T15:00:00.000", "gateway_recv_ts": "2026-11-12T14:59:20.000+08:00",
+    }
+    assert gs.summarize([row])["by_freshness"]["fresh"]["samples"] == 1
+    assert gs.summarize([row], fresh_window_seconds=30)["by_freshness"]["stale"]["samples"] == 1
+
+
+def test_summarize_excludes_invalid_placeholders_from_match_rate() -> None:
+    """占位 0.0 归因 `*_invalid`：单独计数，不进一致率分母，也不进分歧量级统计。"""
+    rows = [
+        {"field": "VWAP", "direct": 0.0, "gateway": 79040.6, "match": False, "reason": "direct_invalid"},
+        {"field": "VWAP", "direct": 79040.6, "gateway": 0.0, "match": False, "reason": "gateway_invalid"},
+        {"field": "VWAP", "direct": 1.0, "gateway": 1.0, "match": True, "reason": None},
+    ]
+    report = gs.summarize(rows)
+
+    assert report["reasons"] == {"direct_invalid": 1, "gateway_invalid": 1}
+    assert report["both_present"] == 1
+    assert report["match_rate"] == 1.0
+    assert report["value_diff"]["samples"] == 0
 
 
 def test_summarize_reports_value_diff_magnitude() -> None:

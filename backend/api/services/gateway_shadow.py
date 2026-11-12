@@ -22,7 +22,8 @@
 
 一致判据：双方都是数值时按相对误差 `<= tolerance`（默认 1e-6，即「同一 tick」级别）；
 其余情况按严格相等。网关侧 `None`（未推送 / 未订阅）记为不一致，并在 `reason` 里
-写明 `gateway_missing`，便于报表拆分「缺数据」与「值不同」。
+写明 `gateway_missing`，便于报表拆分「缺数据」与「值不同」。任一侧的数值 `0.0`
+按占位值处理（见 `_is_placeholder_zero`），归因 `gateway_invalid` / `direct_invalid`。
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import asyncio
 import json
 import logging
 import math
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -55,18 +57,57 @@ DEFAULT_INTERVAL_SECONDS = 30.0
 DEFAULT_MAX_TICKERS = 50
 
 
+def _is_numeric(value: Any) -> bool:
+    """是否为可比较的数值（排除 bool：`True == 1` 会混进数值分支）。"""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_placeholder_zero(value: Any) -> bool:
+    """数值 `0.0` 是否应视为「无值」。
+
+    行情字段（VWAP / CHG_PCT_1D / VOLUME_AVG_5D）的取值域是正数；`0.0` 是
+    Bloomberg 在「当日尚无成交 / 未开盘 / 无数据」时的占位值，不是真实取值。
+    实测 2026-11-12：韩国盘前 04:04–06:37、日本盘前 05:06–06:37 两侧同时给出
+    `0.0`（被记成 `both_missing`），而韩国侧另有 1,541 条「直连 0.0 vs 网关有值」
+    被记成 `value_diff`——同一现象两种归因，都是把占位值当成了数据。
+    """
+    return _is_numeric(value) and float(value) == 0.0
+
+
 def compare_value(direct: Any, gateway: Any, tolerance: float = DEFAULT_TOLERANCE) -> dict:
     """比较两侧取值，返回 `{match, rel_diff, reason}`（纯函数，单测覆盖）。
 
     `reason` 只在不一致时出现：`gateway_missing`（网关没这个字段）、
-    `direct_missing`（直连没这个字段）、`type_mismatch`、`value_diff`。
+    `direct_missing`（直连没这个字段）、`gateway_invalid` / `direct_invalid`
+    （该侧给了 `0.0` 占位值，等同无值）、`type_mismatch`、`value_diff`。
+
+    占位 `0.0` 必须先于数值比较处理：否则「直连 0.0 vs 网关 79040.7」会算成
+    相对差 1.0 的 `value_diff`，把开盘前的占位值混进「两侧算得不一样」的分母。
+    两侧同时是占位值时按「两侧都无值」处理（`match=True` 且两侧值为 0.0），
+    由 `summarize` 归入 `both_missing`，不进一致率分母。
     """
+    # 「无值」= None 或占位 0.0。两侧都无值才算一致；单侧无值按该侧归因。
+    # 注意「直连 0.0 vs 网关 None」两侧都无值但归因不同，不能并成一个分支：
+    # 先判双侧 None（旧口径），再判双侧占位 0.0，最后才走单侧归因。
+    gateway_blank = gateway is None or _is_placeholder_zero(gateway)
+    direct_blank = direct is None or _is_placeholder_zero(direct)
     if gateway is None and direct is None:
         return {"match": True, "rel_diff": 0.0, "reason": None}
-    if gateway is None:
-        return {"match": False, "rel_diff": None, "reason": "gateway_missing"}
-    if direct is None:
-        return {"match": False, "rel_diff": None, "reason": "direct_missing"}
+    if _is_placeholder_zero(gateway) and _is_placeholder_zero(direct):
+        return {"match": True, "rel_diff": 0.0, "reason": None}
+    if gateway_blank:
+        # None 沿用旧归因 gateway_missing；占位 0.0 单独记 gateway_invalid
+        return {
+            "match": False,
+            "rel_diff": None,
+            "reason": "gateway_missing" if gateway is None else "gateway_invalid",
+        }
+    if direct_blank:
+        return {
+            "match": False,
+            "rel_diff": None,
+            "reason": "direct_missing" if direct is None else "direct_invalid",
+        }
 
     both_numeric = (
         isinstance(direct, (int, float))
@@ -394,6 +435,27 @@ def _lag_bucket_name(lag: Optional[float]) -> str:
     return "gt_30s"
 
 
+#: 采样周期内「网关值算新鲜」的判据（秒）。采样间隔默认 30s，取 1.5 倍留出
+#: 投递抖动余量：`recv_ts` 落在本轮采样时刻前 45s 内，说明网关在本轮附近收到过
+#: 更新；超过则只能说明「网关缓存里最近一次更新」发生在更早的时刻。
+DEFAULT_FRESH_WINDOW_SECONDS = 45.0
+
+#: 新鲜度分层：`fresh` = 网关值在本轮采样窗口内更新过；`stale` = 只重复投递旧值；
+#: `unknown` = 网关无值或旧格式行（无 `gateway_recv_ts`）。
+FRESHNESS_BUCKETS = ("fresh", "stale", "unknown")
+
+#: 「缺数据」类归因：不进一致率分母，也不进 `value_diff` 量级统计。
+#: `*_invalid` 是占位 `0.0` 的归因（见 `compare_value`），语义等同无值。
+MISSING_REASONS = ("gateway_missing", "direct_missing", "gateway_invalid", "direct_invalid")
+
+
+def _freshness_bucket_name(lag: Optional[float], window: float) -> str:
+    """按网关值陈旧度（`ts - gateway_recv_ts`）分 `fresh` / `stale` / `unknown`。"""
+    if lag is None:
+        return "unknown"
+    return "fresh" if lag <= window else "stale"
+
+
 def _percentile(sorted_values: list[float], q: float) -> Optional[float]:
     """线性插值分位数；空列表返回 None。调用方保证入参已升序。"""
     if not sorted_values:
@@ -407,7 +469,9 @@ def _percentile(sorted_values: list[float], q: float) -> Optional[float]:
     return sorted_values[low] + (sorted_values[high] - sorted_values[low]) * frac
 
 
-def summarize(rows: Iterable[dict]) -> dict[str, Any]:
+def summarize(
+    rows: Iterable[dict], *, fresh_window_seconds: float = DEFAULT_FRESH_WINDOW_SECONDS
+) -> dict[str, Any]:
     """把 JSONL 行汇总成一致率报表（纯函数，供 CLI 与测试复用）。
 
     一致率只在「双方都有值」的样本上计算：`gateway_missing` / `direct_missing`
@@ -440,6 +504,17 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     **不一致样本的误差分布**（`value_diff`）。只报条数，读者无法判断「差一点」还是
     「差一个量级」；给出 `|rel_diff|` 的 p50/p90/p99/max 与 `lt_1e_2` 占比，就能直接
     看出分歧的量级。
+
+    **按「网关值是否新鲜」分层**（`by_freshness`）。网关 `/quote` 只回缓存，收市后
+    缓存里是最后一次更新的值，`recv_ts` 不再前进；此时两侧值都冻结、一致率必然
+    100%，但样本说明不了「盘中网关算得对不对」。`fresh`（`recv_ts` 落在本轮采样
+    窗口 `fresh_window_seconds` 内）才是有信息量的样本，`stale` 是收市后 / 推送
+    停滞的重复投递，`unknown` 是网关无值或旧格式行。与 `by_lag` 的区别：`by_lag`
+    按固定秒数分档看滞后量级，`by_freshness` 直接回答「这条样本能不能用来判对错」。
+
+    **占位 `0.0` 单列**（`reasons` 里的 `gateway_invalid` / `direct_invalid`）。
+    开盘前 Bloomberg 给 `0.0` 占位，旧实现把它当有效值参与数值比较，记成
+    `value_diff`；现在按无值归因，不污染「两侧算得不一样」的分母。
     """
     total = 0
     matched = 0
@@ -456,6 +531,10 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
     by_lag = {
         name: {"samples": 0, "both_present": 0, "matched": 0, "exact": 0, "near_match": 0}
         for name in LAG_BUCKETS
+    }
+    by_freshness = {
+        name: {"samples": 0, "both_present": 0, "matched": 0, "exact": 0, "near_match": 0}
+        for name in FRESHNESS_BUCKETS
     }
     diff_abs: list[float] = []
     diff_lt_1e_2 = 0
@@ -498,8 +577,15 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
                 bucket["max_lag_seconds"] = lag
         lag_bucket = by_lag[_lag_bucket_name(lag)]
         lag_bucket["samples"] += 1
+        freshness_bucket = by_freshness[_freshness_bucket_name(lag, fresh_window_seconds)]
+        freshness_bucket["samples"] += 1
         reason = row.get("reason")
         if row.get("match"):
+            if _is_placeholder_zero(row.get("direct")) or _is_placeholder_zero(row.get("gateway")):
+                # 两侧都是占位 0.0：等同两侧无值，不进一致率分母
+                both_missing += 1
+                bucket["both_missing"] += 1
+                continue
             if row.get("direct") is None and row.get("gateway") is None:
                 both_missing += 1
                 bucket["both_missing"] += 1
@@ -510,21 +596,26 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
             bucket["both_present"] += 1
             lag_bucket["matched"] += 1
             lag_bucket["both_present"] += 1
+            freshness_bucket["matched"] += 1
+            freshness_bucket["both_present"] += 1
             if row.get("direct") == row.get("gateway"):
                 exact += 1
                 bucket["exact"] += 1
                 lag_bucket["exact"] += 1
+                freshness_bucket["exact"] += 1
             else:
                 near += 1
                 bucket["near_match"] += 1
                 lag_bucket["near_match"] += 1
+                freshness_bucket["near_match"] += 1
             continue
-        if reason in ("gateway_missing", "direct_missing"):
+        if reason in MISSING_REASONS:
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         both_present += 1
         bucket["both_present"] += 1
         lag_bucket["both_present"] += 1
+        freshness_bucket["both_present"] += 1
         reasons[str(reason or "value_diff")] = reasons.get(str(reason or "value_diff"), 0) + 1
         # 分歧量级：只对「两侧都有值但不同」的样本统计（缺失类不进）
         rel_diff = row.get("rel_diff")
@@ -568,6 +659,20 @@ def summarize(rows: Iterable[dict]) -> dict[str, Any]:
                 else None,
             }
             for name, lag_bucket in by_lag.items()
+        },
+        # 网关值是否新鲜：只有 fresh 分层的样本能用来判「网关算得对不对」
+        "fresh_window_seconds": float(fresh_window_seconds),
+        "by_freshness": {
+            name: {
+                **freshness_bucket,
+                "match_rate": (freshness_bucket["matched"] / freshness_bucket["both_present"])
+                if freshness_bucket["both_present"]
+                else None,
+                "exact_rate": (freshness_bucket["exact"] / freshness_bucket["both_present"])
+                if freshness_bucket["both_present"]
+                else None,
+            }
+            for name, freshness_bucket in by_freshness.items()
         },
         "value_diff": {
             "samples": len(diff_abs),
@@ -667,14 +772,25 @@ def _iter_rows(paths: Iterable[Path]) -> Iterable[dict]:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """`python -m services.gateway_shadow <jsonl...>` → 一致率报表（JSON）。"""
-    import sys
+    """`python -m services.gateway_shadow [--fresh-window-seconds N] <jsonl...>` → 一致率报表（JSON）。"""
+    import argparse
 
-    args = list(sys.argv[1:] if argv is None else argv)
-    if not args:
-        print("用法: python -m services.gateway_shadow <gateway_shadow_*.jsonl> ...")
-        return 2
-    report = summarize(_iter_rows(Path(arg) for arg in args))
+    parser = argparse.ArgumentParser(prog="python -m services.gateway_shadow")
+    parser.add_argument(
+        "--fresh-window-seconds",
+        type=float,
+        default=DEFAULT_FRESH_WINDOW_SECONDS,
+        help=f"by_freshness 的 fresh 判定窗口（秒），默认 {DEFAULT_FRESH_WINDOW_SECONDS:g}",
+    )
+    parser.add_argument("files", nargs="+", help="gateway_shadow_*.jsonl")
+    try:
+        ns = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+    except SystemExit as exc:  # 参数错误时 argparse 已打印用法
+        return int(exc.code or 2)
+    report = summarize(
+        _iter_rows(Path(arg) for arg in ns.files),
+        fresh_window_seconds=ns.fresh_window_seconds,
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
