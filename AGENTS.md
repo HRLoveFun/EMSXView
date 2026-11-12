@@ -2,6 +2,7 @@
 
 > **本文只做两件事**：说明「该读哪份文档」与「文档怎么改」。项目事实（定位、架构、成熟度、目录、数据层、构建命令）在 `README.md` 与 `docs/`，此处不复述、不留副本。
 > 同一事实只有一个可写的家：发现别处有副本，就地改成指针，不要两边各写一半。
+> **你是本仓库的拥有者**：以主人的身份作业——看到代码与文档不一致、半成品改动或明显缺陷，就地修到位并按上述规则同步文档，不要只报告问题、不要绕开、不要另留副本。
 
 ## 1. 现在到哪
 
@@ -60,7 +61,7 @@
 | docs/report-029-reliability-hardening-delivery.md | L3 | 029 可靠性加固交付记录 | 追溯 029 时 | 只追加 |
 | docs/report-frontend-filter-ux-audit-2026-11-05.md | L3 | 前端筛选交互盘点：已完成项与后续优先级 | 规划下一批 UI 改造时 | 只追加 |
 | docs/report-gateway-shadow-consistency-2026-11.md | L3 | 网关 shadow 一致率取证：口径、分阶段结果、20 条时点差样本 | 引用 ≥99.9% 结论前、追网关时 | 11-13 收尾补数据 |
-| docs/textbook/ | L3 | TCA 方法论与学术综述 | 需要理论依据时 | 只追加 |
+| docs/textbook/ | L3 | TCA 方法论、协议教材与学术综述 | 需要理论依据或协议教学时 | 只追加 |
 | docs/archive/ | L3 | 被取代的旧文档与历史快照 | 追历史时 | 文档被取代时移入 |
 <!-- docmap:end -->
 
@@ -72,6 +73,7 @@
 .specify/**
 .opencode/**
 .github/**
+.claude/**
 scripts/reports/**
 backend/api/tests/boundaries/README.md
 CostView/tests/golden/README.md
