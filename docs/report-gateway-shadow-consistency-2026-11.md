@@ -127,7 +127,7 @@
 
 | # | 修法 | 落点 |
 | --- | --- | --- |
-| S1 | `SessionTerminated` 不再 `return` 退出事件泵：标记断线 → 清空「已订阅」集合 → 退避 5s 重建会话 → 重订全部标的；线程只在 `stop()` 时退出 | `services/bloomberg/enrichment.py` `_mktdata_subscription_loop` / `_ensure_mktdata_session` / `_on_mktdata_session_lost` |
+| S1 | `SessionTerminated` 不再 `return` 退出事件泵：标记断线 → 清空「已订阅」集合 → 退避 5s 只补建 mktdata 会话（不动 EMSX 主会话与请求池）→ 重订全部标的；线程只在 `stop()` 时退出 | `services/bloomberg/enrichment.py` `_mktdata_subscription_loop` / `_ensure_mktdata_session` / `_rebuild_mktdata_session` / `_on_mktdata_session_lost` |
 | S2 | `reset()` 不再清 `_extra_mktdata_tickers`（`/api/market-state/subscribe` 注册的池内标的与连接无关），重连后直接重订 | `services/bloomberg/enrichment.py` `reset()` |
 | S3 | 行上新增 `direct_ts`（取直连快照前打）与 `ts`（网关快照取完后打），差值即本轮取数跨度；`summarize` 新增 `sampling_span`（p50/p90/max），`gateway_lag` 口径不变 | `services/gateway_shadow.py` `sample_once` / `_sampling_span_seconds` / `summarize` |
 

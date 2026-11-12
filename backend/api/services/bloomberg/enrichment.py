@@ -11,7 +11,6 @@ Uses _market_data_lock (threading.Lock) for subscription management.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time
@@ -517,7 +516,6 @@ class MarketDataEnrichmentService:
     def _ensure_mktdata_session(self, own_stop, stop_event):
         """返回可用的 mktdata 会话；会话缺失或已断时尝试重建，失败返回 None。
 
-        重建走 `ConnectionManager.connect()`（与启动时同一条路径），成功后取新会话。
         外部 `stop()` 置位期间不重连，直接返回 None 让线程退出。
         """
         sess = self._connection.mktdata_session
@@ -530,38 +528,68 @@ class MarketDataEnrichmentService:
             return None
 
         logger.warning("Mktdata session 不可用，尝试重建 Bloomberg 连接…")
-        try:
-            ok = asyncio.run(self._reconnect_for_mktdata())
-        except Exception as exc:  # noqa: BLE001 - 重连失败只记日志，退避后重试
-            logger.warning("Mktdata session 重建失败: %s", exc)
-            ok = False
-
-        sess = self._connection.mktdata_session
-        if not ok or sess is None or not self._connection.mktdata_connected:
-            logger.warning("Mktdata session 重建失败 — %.0fs 后重试", self._mktdata_reconnect_interval_s)
+        sess = self._rebuild_mktdata_session()
+        if sess is None:
+            logger.warning(
+                "Mktdata session 重建失败 — %.0fs 后重试", self._mktdata_reconnect_interval_s
+            )
             _wait_or_stop(self._mktdata_reconnect_interval_s, own_stop, stop_event)
             return None
         logger.info("Mktdata session 已重建，重新订阅行情")
         return sess
 
-    async def _reconnect_for_mktdata(self) -> bool:
-        """重建 Bloomberg 连接（含 mktdata 会话）。
+    def _rebuild_mktdata_session(self):
+        """只重建 mktdata 会话，不动 EMSX 主会话与请求会话池。
 
-        EMSX 主会话仍连着、只是 mktdata 会话终止时，`ConnectionManager.connect()`
-        会因「已连接」直接返回 True 而不会重建 mktdata 会话；这里先丢弃旧会话
-        再走一次连接流程，保证拿到新的 mktdata 会话。
+        上游 `ConnectionManager.connect()` 在 `connected` 为真时直接返回 True，
+        不会补建 mktdata 会话；而先 `disconnect()` 再 `connect()` 会把 EMSX 主
+        会话和请求池一起拆掉——实测 2026-11-12 20:47 重启后主会话连着、
+        mktdata 会话打不开，整条重连会把订单推送一起打断。这里按 `connect()`
+        里同一段逻辑只补建 mktdata 会话；失败返回 None，由调用方退避重试。
         """
         conn = self._connection
-        if conn.connected and conn.session:
-            old = getattr(conn, "_mktdata_session", None)
-            if old is not None:
+        if conn.mktdata_session is not None and conn.mktdata_connected:
+            return conn.mktdata_session
+
+        old = getattr(conn, "_mktdata_session", None)
+        setattr(conn, "_mktdata_session", None)
+        if old is not None:
+            try:
+                old.stop()
+            except Exception:  # noqa: BLE001 - 旧会话已终止，停止失败无妨
+                pass
+        conn.mktdata_connected = False
+
+        session = None
+        try:
+            opts = blpapi.SessionOptions()
+            opts.setServerAddress(
+                self._settings.BLOOMBERG_HOST, self._settings.BLOOMBERG_PORT, 0
+            )
+            session = blpapi.Session(opts)
+            if not (session.start() and session.openService("//blp/mktdata")):
+                logger.warning("重建 mktdata 会话失败：session 未就绪或 //blp/mktdata 打不开")
                 try:
-                    old.stop()
-                except Exception:  # noqa: BLE001 - 旧会话已终止，停止失败无妨
+                    session.stop()
+                except Exception:  # noqa: BLE001 - 清理失败不影响返回
                     pass
-            setattr(conn, "_mktdata_session", None)
-            conn.mktdata_connected = False
-        return await conn.connect()
+                return None
+            setattr(conn, "_mktdata_session", session)
+            conn.mktdata_connected = True
+            try:
+                if session.openService("//blp/refdata"):
+                    conn._refdata_service_available = True
+            except Exception as exc:  # noqa: BLE001 - refdata 只是可选能力
+                logger.warning("重建的 mktdata 会话打不开 //blp/refdata: %s", exc)
+            return session
+        except Exception as exc:  # noqa: BLE001 - 重建失败由调用方退避重试
+            logger.warning("重建 mktdata 会话异常: %s", exc)
+            if session is not None:
+                try:
+                    session.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+            return None
 
     # ── Subscription management ────────────────────────────────────────
 

@@ -26,6 +26,7 @@ if str(API_ROOT) not in sys.path:
 os.environ.setdefault("JWT_SECRET", "testsecret")
 
 from config import settings  # noqa: E402
+from services.bloomberg import enrichment  # noqa: E402
 from services.bloomberg.enrichment import MarketDataEnrichmentService  # noqa: E402
 from services.bloomberg.subscriptions import EMSXSubscriptionEngine  # noqa: E402
 from services.bloomberg_adapter import BloombergEMSXService  # noqa: E402
@@ -228,13 +229,13 @@ def test_loop_rebuilds_dead_session_instead_of_exiting(monkeypatch):
     rebuilt: list[bool] = []
     housekeeping: list[object] = []
 
-    async def fake_reconnect() -> bool:
+    def fake_rebuild():
         rebuilt.append(True)
         service._connection.mktdata_session = fresh
         service._connection.mktdata_connected = True
-        return True
+        return fresh
 
-    monkeypatch.setattr(service, "_reconnect_for_mktdata", fake_reconnect)
+    monkeypatch.setattr(service, "_rebuild_mktdata_session", fake_rebuild)
     monkeypatch.setattr(service, "_run_housekeeping", lambda sess: housekeeping.append(sess))
 
     # 第一次 nextEvent 看到「会话已终止」，第二次开始由测试置位停止信号
@@ -259,11 +260,11 @@ def test_loop_exits_when_stop_requested_during_reconnect(monkeypatch):
 
     called: list[bool] = []
 
-    async def fake_reconnect() -> bool:
+    def fake_rebuild():
         called.append(True)
-        return False
+        return None
 
-    monkeypatch.setattr(service, "_reconnect_for_mktdata", fake_reconnect)
+    monkeypatch.setattr(service, "_rebuild_mktdata_session", fake_rebuild)
     service._mktdata_subscription_loop()
 
     assert called == []
@@ -286,3 +287,71 @@ def test_reset_keeps_extra_mktdata_tickers(monkeypatch):
 
     assert service._extra_mktdata_tickers == {"BBCA IJ", "APA AU"}
     assert service._mktdata_subscribed_tickers == set()
+
+
+def test_rebuild_mktdata_session_does_not_touch_emsx_session(monkeypatch):
+    """S1 补充：只补建 mktdata 会话，不得拆掉 EMSX 主会话与请求池。
+
+    实测 2026-11-12 20:47 重启后主会话连着、mktdata 会话打不开；若走整条
+    `disconnect()` + `connect()`，订单推送会被一起打断。
+    """
+    service = _make_service_with_session(monkeypatch, _FakeSession(alive=False))
+    emsx_session = object()
+    request_sessions = [object()]
+    service._connection.session = emsx_session
+    service._connection.connected = True
+    service._connection._request_sessions = request_sessions
+
+    class _Rebuilt:
+        def start(self):
+            return True
+
+        def openService(self, name):  # noqa: N802 - 模拟 blpapi 接口
+            return True
+
+        def stop(self):
+            raise AssertionError("成功重建的会话不应被停止")
+
+    monkeypatch.setattr(enrichment.blpapi, "Session", lambda opts: _Rebuilt())
+    monkeypatch.setattr(enrichment.blpapi, "SessionOptions", lambda: SimpleNamespace(
+        setServerAddress=lambda host, port, n: None
+    ))
+
+    rebuilt = service._rebuild_mktdata_session()
+
+    assert rebuilt is not None
+    assert service._connection.mktdata_session is rebuilt
+    assert service._connection.mktdata_connected is True
+    assert service._connection.session is emsx_session
+    assert service._connection.connected is True
+    assert service._connection._request_sessions is request_sessions
+
+
+def test_rebuild_mktdata_session_returns_none_when_service_unavailable(monkeypatch):
+    """S1 补充：`//blp/mktdata` 打不开时返回 None 并清理，不留下半开会话。"""
+
+    class _Broken:
+        def start(self):
+            return True
+
+        def openService(self, name):  # noqa: N802
+            return False
+
+        def stop(self):
+            self.stopped = True
+
+    broken = _Broken()
+    service = _make_service_with_session(monkeypatch, _FakeSession(alive=False))
+    # 模拟「会话已终止」：对象还在，但连接管理器已标记断线
+    service._connection.mktdata_connected = False
+    monkeypatch.setattr(enrichment.blpapi, "Session", lambda opts: broken)
+    monkeypatch.setattr(enrichment.blpapi, "SessionOptions", lambda: SimpleNamespace(
+        setServerAddress=lambda host, port, n: None
+    ))
+
+    assert service._rebuild_mktdata_session() is None
+    # 测试替身把旧会话放在公开属性上；服务按 `_mktdata_session` 私有字段清理，
+    # 这里断言的是「没有新会话被挂上」
+    assert getattr(service._connection, "_mktdata_session", None) is None
+    assert service._connection.mktdata_connected is False
+    assert getattr(broken, "stopped", False) is True
