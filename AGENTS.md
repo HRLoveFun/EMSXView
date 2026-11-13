@@ -37,6 +37,7 @@
 | docs/spec/attribution-pitfalls.md | L2 | 归因推理的红线（AT-xx） | 做归因、写结论前 | 新增陷阱时 |
 | docs/spec/pipeline-resilience.md | L2 | 取数降级与管道韧性约定 | 碰降级路径时 | 约定变化时 |
 | docs/spec/memory.md | L2 | 稳定架构约束与 ADR 索引 | 想推翻既有设计前 | 新增 ADR 时 |
+| docs/spec/contract-adoption-log.md | L2 | 跨仓契约在本仓库的采用状态与证据（contract id / commit / 门禁） | 接入或核对上游契约前 | 每次登记 adopted 时只追加 |
 | docs/api-contracts.md | L2 | 后端端点、错误码规范 | 加或改端点前 | 端点变化时 |
 | docs/schema-contract.md | L2 | 跨模块 TS↔Python 类型契约 | 改 handoff 载荷前 | 契约变化时 |
 | docs/api/ | L2 | Bloomberg EMSX 接口与字段语义 | 查字段、查接口时 | 外部文档更新时 |
