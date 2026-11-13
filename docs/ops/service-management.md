@@ -179,6 +179,10 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 | `EMSXVIEW_OPS_DB_DIR` | 运营库目录（仓库外，未设取 `~/.emsxview/ops`，ADR-0022） | 空 |
 | `ALLOWED_ORIGINS` | CORS 允许来源（逗号分隔） | `http://localhost:5173,http://localhost:80` |
 | `EMSXVIEW_RUNNER_URL` | 数据管道 Runner 地址（代理目标） | `http://127.0.0.1:8100` |
+| `EMSXVIEW_GATEWAY_MODE` | 行情/参考数据通道：`off` 纯直连 / `shadow` 双跑比对 / `on` 以网关为准（`on` 故障时手动改回 `off` 重启回滚） | `off` |
+| `EMSXVIEW_GATEWAY_URL` | 上游网关 HTTP 基址（`emsx-gateway`） | `http://127.0.0.1:8101` |
+| `EMSXVIEW_GATEWAY_WS_URL` | 上游网关 WS 基址（跨机/反代时与 HTTP 分开配置） | `ws://127.0.0.1:8101` |
+| `EMSXVIEW_GATEWAY_SHADOW_DIR` | shadow 比对 JSONL 落盘目录 | 空（`<后端工作目录>/logs/gateway_shadow`） |
 
 前端（`frontend/.env`）：
 

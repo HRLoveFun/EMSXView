@@ -12,6 +12,7 @@ Uses _market_data_lock (threading.Lock) for subscription management.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from datetime import datetime
@@ -139,6 +140,15 @@ class MarketDataEnrichmentService:
         # 影子比对线程（`EMSXVIEW_GATEWAY_MODE=shadow` 才启动；off/on 均为 None）
         self._shadow_runner: Any = None
 
+        # `on` 模式的网关行情消费方（`EMSXVIEW_GATEWAY_MODE=on` 才启动）
+        self._gateway_client: Any = None
+        self._gateway_feed: Any = None
+        self._gateway_last_heartbeat: Optional[str] = None
+        self._gateway_refdata_degraded = False
+        # 失败重试时间点（time.monotonic）；避免 1s housekeeping 在网关不可达时打满
+        self._gateway_refdata_retry_at: Dict[str, float] = {}
+        self._mktdata_dropped_tickers: Set[str] = set()
+
         self._permfail_last_prices: Dict[str, float] = {}
 
         # S1：会话终止后由事件泵自行重建（退避周期见 `_mktdata_reconnect_interval_s`）。
@@ -200,6 +210,11 @@ class MarketDataEnrichmentService:
         """
         self.stop()
         self._mktdata_stop = threading.Event()
+        if self._gateway_mode() == "on":
+            # 015 §3.1：on 下不启动直连事件泵（否则会持续占用 Bloomberg
+            # 订阅配额），直连会话保留但不订阅，作为手动回落的载体。
+            self._start_gateway_feed_if_enabled()
+            return
         self._mktdata_thread = threading.Thread(
             target=self._mktdata_subscription_loop,
             daemon=True,
@@ -210,6 +225,13 @@ class MarketDataEnrichmentService:
         self._start_shadow_if_enabled()
 
     def stop(self):
+        # 兼容 `object.__new__` 构造的测试替身：未跑 __init__ 时属性可能不存在
+        gateway_feed = getattr(self, "_gateway_feed", None)
+        if gateway_feed is not None:
+            gateway_feed.stop()
+            self._gateway_feed = None
+        if hasattr(self, "_gateway_client"):
+            self._gateway_client = None
         if self._shadow_runner is not None:
             self._shadow_runner.stop()
             self._shadow_runner = None
@@ -249,7 +271,10 @@ class MarketDataEnrichmentService:
                 ShadowSampler,
             )
 
-            client = GatewayClient(getattr(settings, "EMSXVIEW_GATEWAY_URL", "http://127.0.0.1:8101"))
+            client = GatewayClient(
+                getattr(settings, "EMSXVIEW_GATEWAY_URL", "http://127.0.0.1:8101"),
+                ws_base_url=getattr(settings, "EMSXVIEW_GATEWAY_WS_URL", "") or None,
+            )
             recorder = ShadowRecorder(self._shadow_dir())
             sampler = ShadowSampler(
                 direct_snapshot=self._shadow_direct_snapshot,
@@ -298,6 +323,360 @@ class MarketDataEnrichmentService:
             snapshot.setdefault(ticker, {})["VWAP"] = value
         return snapshot
 
+    # ── `on` 模式：网关行情推送（015 §3.2）─────────────────────────────
+
+    def _gateway_mode(self) -> str:
+        """当前网关模式（off / shadow / on），大小写与空白归一。"""
+        from config import settings
+
+        return str(getattr(settings, "EMSXVIEW_GATEWAY_MODE", "off") or "off").strip().lower()
+
+    def _start_gateway_feed_if_enabled(self) -> None:
+        """启动 `GatewayMktdataFeed`；失败记 ERROR，不自动切回直连。
+
+        015 §7 Q1 裁决：首轮灰度「冻结 + 告警，运维改 mode=off」，因此这里
+        不做直连回落的自动切换。
+        """
+        if self._gateway_feed is not None and self._gateway_feed.is_running:
+            return
+        from config import settings
+        from services.gateway_client import GatewayClient
+        from services.gateway_mktdata import GatewayMktdataFeed
+
+        try:
+            client = GatewayClient(
+                getattr(settings, "EMSXVIEW_GATEWAY_URL", "http://127.0.0.1:8101"),
+                ws_base_url=getattr(settings, "EMSXVIEW_GATEWAY_WS_URL", "") or None,
+            )
+            feed = GatewayMktdataFeed(
+                client,
+                targets=self.gateway_mktdata_targets,
+                fields=self.gateway_mktdata_fields,
+                on_quotes=self.apply_gateway_quotes,
+                on_status=self.handle_gateway_status,
+                on_heartbeat=self.handle_gateway_heartbeat,
+                housekeeping=self._gateway_refdata_housekeeping,
+            )
+            self._fx_rates["USD"] = 1.0
+            self._gateway_client = client
+            feed.start()
+            self._gateway_feed = feed
+            logger.info("Gateway mktdata feed started (mode=on)")
+        except Exception as e:  # noqa: BLE001 - 网关通道起不来时明确告警
+            self._gateway_feed = None
+            self._gateway_client = None
+            logger.error("Gateway mktdata feed 启动失败（mode=on，不自动回落直连）: %s", e)
+
+    def gateway_mktdata_targets(self) -> Set[str]:
+        """订阅集合：订单标的 ∪ 额外标的（与直连 `_update_mktdata_subscriptions` 同源）。"""
+        return self._orders_symbols | self._extra_mktdata_tickers
+
+    def gateway_mktdata_fields(self) -> list:
+        """订阅字段：与直连同一函数，保证 on/off 字段矩阵不漂移。"""
+        return mktdata_fields(self._settings.EMSXVIEW_INTRADAY_STATE_ENABLED)
+
+    def apply_gateway_quotes(self, quotes: dict, ts: str, kind: str) -> None:
+        """把已解码的 `snapshot` / `tick` 写入五张缓存表。
+
+        写规则与 `_process_mktdata_message` 逐条对齐；`updated_at` 取报文
+        `ts`（网关毫秒精度），不能用本地时钟——否则断链期间时间戳会假装新鲜。
+        """
+        for ticker, quote in (quotes or {}).items():
+            try:
+                self._apply_gateway_quote(ticker, quote, ts)
+            except Exception as e:  # noqa: BLE001 - 单票异常不影响其余标的
+                logger.debug(f"Error applying gateway {kind} for {ticker}: {e}")
+
+    def _apply_gateway_quote(self, ticker: str, quote: Any, ts: str) -> None:
+        fields = getattr(quote, "fields", None) or {}
+
+        value = self._gateway_float(fields, "CHG_PCT_1D")
+        if value is not None:
+            self._price_changes[ticker] = value
+        value = self._gateway_float(fields, "VOLUME_AVG_5D")
+        if value is not None:
+            self._adv5d[ticker] = value
+        value = self._gateway_float(fields, "VWAP")
+        if value is not None:
+            self._mkt_vwap[ticker] = value
+        round_lot = self._gateway_int(fields, "PX_ROUND_LOT_SIZE")
+        if round_lot is not None:
+            self._round_lot_sizes[ticker] = round_lot
+
+        if not self._settings.EMSXVIEW_INTRADAY_STATE_ENABLED:
+            return
+        intraday: dict = {}
+        for name in ("BID", "ASK", "LAST_PRICE", "HIGH", "LOW", "PREV_CLOSE_VALUE_REALTIME"):
+            value = self._gateway_float(fields, name)
+            if value is not None:
+                intraday[name] = value
+        volume = self._gateway_int(fields, "VOLUME")
+        if volume is not None:
+            intraday["VOLUME"] = volume
+        if intraday:
+            intraday["updated_at"] = ts or datetime.now().isoformat(timespec="seconds")
+            self._intraday_quotes[ticker] = {
+                **self._intraday_quotes.get(ticker, {}),
+                **intraday,
+            }
+
+    @staticmethod
+    def _gateway_value(fields: dict, name: str) -> Any:
+        field_value = fields.get(name)
+        return getattr(field_value, "value", None)
+
+    @classmethod
+    def _gateway_float(cls, fields: dict, name: str) -> Optional[float]:
+        value = cls._gateway_value(fields, name)
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result if math.isfinite(result) else None
+
+    @classmethod
+    def _gateway_int(cls, fields: dict, name: str) -> Optional[int]:
+        value = cls._gateway_value(fields, name)
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return int(result) if math.isfinite(result) else None
+
+    def handle_gateway_status(self, status: dict) -> None:
+        """`status` 帧：记录网关侧已退订（宽限期到期）的标的。"""
+        dropped = status.get("dropped") if isinstance(status, dict) else None
+        if dropped:
+            self._mktdata_dropped_tickers.update(str(t) for t in dropped)
+            logger.warning(
+                "Gateway dropped %d tickers (宽限期到期退订): %s",
+                len(dropped),
+                list(dropped)[:5],
+            )
+
+    def handle_gateway_heartbeat(self, ts: str) -> None:
+        """`heartbeat` 帧：仅刷新存活时刻，不写业务缓存。"""
+        self._gateway_last_heartbeat = ts
+
+    # ── `on` 模式：refdata 四查询改 HTTP（015 §3.3）────────────────────
+
+    async def _gateway_refdata_housekeeping(self) -> None:
+        """`on` 下的附属维护：订单快照 + FX/CRNCY/整手/permfail 四个 HTTP 查询。"""
+        self._refresh_orders_snapshot()
+        await self._gateway_refresh_fx_rates()
+        await self._gateway_query_ticker_currencies()
+        await self._gateway_query_round_lot_sizes()
+        await self._gateway_refresh_permanently_failed_tickers()
+
+    def _gateway_ready(self, name: str) -> bool:
+        return time.monotonic() >= self._gateway_refdata_retry_at.get(name, 0.0)
+
+    def _gateway_retry_later(self, name: str, seconds: float = 30.0) -> None:
+        self._gateway_refdata_retry_at[name] = time.monotonic() + seconds
+
+    async def _gateway_refdata(self, securities: list, fields: list):
+        """发一次 HTTP refdata，并显式处理 `degraded` / `source=stale`。"""
+        client = self._gateway_client
+        if client is None:
+            return None
+        result = await client.refdata_detailed(securities, fields)
+        if result.degraded or result.source == "stale":
+            self._gateway_refdata_degraded = True
+            logger.warning(
+                "Gateway refdata 返回陈旧值（source=%s, ts=%s）：%d 个证券，"
+                "写缓存前已标记 degraded",
+                result.source,
+                result.ts,
+                len(result.data),
+            )
+        else:
+            self._gateway_refdata_degraded = False
+        return result
+
+    async def _gateway_refresh_fx_rates(self) -> None:
+        if self._gateway_client is None or not self._gateway_ready("fx"):
+            return
+        now = datetime.now()
+        if self._fx_last_refresh is not None and (
+            now - self._fx_last_refresh
+        ).total_seconds() < self._fx_refresh_interval:
+            return
+
+        currencies: set = set()
+        for o in self._subscription_engine.orders.values():
+            if o.currency and o.currency != "USD" and len(o.currency) == 3:
+                currencies.add(o.currency)
+        for ccy in self._ticker_currencies.values():
+            if ccy and ccy != "USD" and len(ccy) == 3:
+                currencies.add(ccy)
+        if not currencies:
+            return
+
+        self._fx_last_refresh = now
+        securities: list[str] = []
+        for ccy in sorted(currencies):
+            securities.append(f"{ccy}USD Curncy")
+            securities.append(f"USD{ccy} Curncy")
+        try:
+            result = await self._gateway_refdata(securities, ["PX_LAST"])
+        except Exception as e:  # noqa: BLE001 - 网关失败不阻断其余维护
+            self._fx_last_refresh = None  # 退避后允许下一轮更早重试
+            self._gateway_retry_later("fx")
+            logger.warning(f"Gateway FX refdata failed: {e}")
+            return
+        if result is not None:
+            self._apply_gateway_fx(result.data)
+
+    def _apply_gateway_fx(self, data: dict) -> None:
+        """`{security: {PX_LAST: rate}}` → `_fx_rates`（换算口径与直连一致）。"""
+        direct_rates: dict[str, float] = {}
+        inverse_rates: dict[str, float] = {}
+        for sec, values in (data or {}).items():
+            try:
+                rate = float((values or {}).get("PX_LAST"))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(rate) or rate <= 0:
+                continue
+            pair = str(sec).replace(" Curncy", "").strip()
+            if pair.endswith("USD") and len(pair) == 6:
+                direct_rates[pair[:3]] = rate
+            elif pair.startswith("USD") and len(pair) == 6:
+                inverse_rates[pair[3:]] = 1.0 / rate
+
+        updated = 0
+        for ccy in set(direct_rates) | set(inverse_rates):
+            if ccy in inverse_rates:
+                self._fx_rates[ccy] = inverse_rates[ccy]
+            elif ccy in direct_rates:
+                self._fx_rates[ccy] = direct_rates[ccy]
+            else:
+                continue
+            updated += 1
+            if ccy in direct_rates and ccy in inverse_rates:
+                self._log_fx_rate_discrepancy(
+                    ccy, direct_rates[ccy], inverse_rates[ccy]
+                )
+        if updated:
+            logger.info(
+                f"FX rates updated via gateway: {updated} currencies — "
+                f"{dict(sorted(self._fx_rates.items()))}"
+            )
+
+    async def _gateway_query_ticker_currencies(self) -> None:
+        if self._gateway_client is None or not self._gateway_ready("crncy"):
+            return
+        new_tickers = self._orders_symbols - self._crncy_queried_tickers
+        if not new_tickers:
+            return
+        try:
+            result = await self._gateway_refdata(sorted(new_tickers), ["CRNCY"])
+        except Exception as e:  # noqa: BLE001
+            self._gateway_retry_later("crncy")
+            logger.warning(f"Gateway CRNCY refdata failed: {e}")
+            return
+        updated = 0
+        for sec, values in ((result.data if result else {}) or {}).items():
+            crncy = str((values or {}).get("CRNCY") or "").strip().upper()
+            if not crncy or len(crncy) != 3:
+                continue
+            self._ticker_currencies[sec] = crncy
+            for o in self._subscription_engine.orders.values():
+                if o.symbol == sec and o.currency != crncy:
+                    logger.info(
+                        f"CRNCY override (gateway): order {o.id} ({sec}) "
+                        f"currency '{o.currency}' → '{crncy}'"
+                    )
+                    o.currency = crncy
+            updated += 1
+        # 与直连一致：securityError / 缺字段的标的也记为已查询，避免每轮重问
+        self._crncy_queried_tickers |= new_tickers
+        if updated:
+            self._fx_last_refresh = None
+            sample = dict(list(sorted(self._ticker_currencies.items()))[:10])
+            logger.info(f"CRNCY updated via gateway: {updated} tickers (sample: {sample})")
+
+    async def _gateway_query_round_lot_sizes(self) -> None:
+        if self._gateway_client is None or not self._gateway_ready("round_lot"):
+            return
+        odd_lot_markets = set(self._settings.ODD_LOT_MARKETS)
+        target_tickers = {
+            symbol
+            for symbol, exchange in self._orders_symbol_exchange
+            if exchange
+            and exchange.upper() in odd_lot_markets
+            and symbol not in self._round_lot_queried_tickers
+        }
+        if not target_tickers:
+            return
+        batch = sorted(target_tickers)[:50]
+        try:
+            result = await self._gateway_refdata(batch, ["PX_ROUND_LOT_SIZE"])
+        except Exception as e:  # noqa: BLE001
+            self._gateway_retry_later("round_lot")
+            logger.warning(f"Gateway PX_ROUND_LOT_SIZE refdata failed: {e}")
+            return
+
+        data = (result.data if result else {}) or {}
+        for ticker in batch:
+            values = data.get(ticker) or {}
+            # 015 §3.3：网关对未返回字段**不写**；直连约定是写 -1（未知）。
+            if "PX_ROUND_LOT_SIZE" not in values:
+                self._round_lot_sizes[ticker] = -1
+                logger.info(
+                    f"[ROUND_LOT_GATEWAY] {ticker}: PX_ROUND_LOT_SIZE not available, "
+                    f"marked as unknown"
+                )
+                continue
+            try:
+                round_lot = int(float(values["PX_ROUND_LOT_SIZE"]))
+            except (TypeError, ValueError):
+                round_lot = -1
+            # 直连对「字段存在但非正值」不写缓存，这里保持同一语义
+            if round_lot > 0:
+                self._round_lot_sizes[ticker] = round_lot
+                logger.info(f"[ROUND_LOT_GATEWAY] {ticker}: PX_ROUND_LOT_SIZE = {round_lot}")
+        self._round_lot_queried_tickers.update(batch)
+
+    async def _gateway_refresh_permanently_failed_tickers(self) -> None:
+        if self._gateway_client is None or not self._gateway_ready("permfail"):
+            return
+        if not self._mktdata_permanently_failed:
+            return
+        now = datetime.now()
+        if not hasattr(self, "_permfail_last_refresh"):
+            self._permfail_last_refresh: Optional[datetime] = None
+        if self._permfail_last_refresh is not None and (
+            now - self._permfail_last_refresh
+        ).total_seconds() < 60:
+            return
+        self._permfail_last_refresh = now
+
+        tickers = sorted(self._mktdata_permanently_failed)
+        try:
+            result = await self._gateway_refdata(tickers, ["PX_LAST"])
+        except Exception as e:  # noqa: BLE001
+            self._gateway_retry_later("permfail")
+            logger.warning(f"Gateway permfail refdata failed: {e}")
+            return
+        updated = 0
+        for sec, values in ((result.data if result else {}) or {}).items():
+            try:
+                px = float((values or {}).get("PX_LAST"))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(px) and px > 0:
+                self._permfail_last_prices[sec] = px
+                updated += 1
+        if updated:
+            logger.warning(
+                "[MKTDATA PERMFAIL GATEWAY] Updated PX_LAST for %d tickers", updated
+            )
+
     def reset(self):
         """清空重连后必然失效的缓存与订阅态。
 
@@ -323,6 +702,10 @@ class MarketDataEnrichmentService:
         self._crncy_refdata_pending = False
         self._crncy_queried_tickers = set()
         self._ticker_currencies = {}
+        self._gateway_last_heartbeat = None
+        self._gateway_refdata_degraded = False
+        self._gateway_refdata_retry_at = {}
+        self._mktdata_dropped_tickers = set()
 
     # ── Mktdata subscription loop ──────────────────────────────────────
 

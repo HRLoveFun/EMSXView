@@ -381,6 +381,69 @@ def test_parse_stream_message_covers_all_four_types() -> None:
         assert msg.type == kind
 
 
+def test_stream_timeout_is_a_gateway_error() -> None:
+    """015 §4.1 缺陷 2：WS 静默超时必须能被 GatewayError / Unavailable 接住。"""
+    assert issubclass(gc.GatewayStreamTimeout, gc.GatewayUnavailable)
+    assert issubclass(gc.GatewayStreamTimeout, gc.GatewayError)
+    exc = gc.GatewayStreamTimeout("silent")
+    assert exc.code == gc.ErrorCode.UPSTREAM_UNAVAILABLE
+    assert exc.should_fallback_direct is True
+
+
+def test_snapshot_and_tick_frames_decode_to_ticker_quotes() -> None:
+    """015 §4.1 缺陷 3：WS 帧必须与 /quote 一样按 TickerQuote 可读。"""
+    frame = (
+        '{"type": "tick", "ts": "2026-11-14T10:00:00.123+08:00", '
+        '"data": {"AAPL US Equity": {'
+        '"VWAP": {"value": 231.5, "src_ts": null},'
+        '"_meta": {"subscribed": true, "last_update": "t", "gaps": []}}}}'
+    )
+    msg = gc.parse_stream_message(frame)
+
+    quote = msg.data["AAPL US Equity"]
+    assert quote.fields["VWAP"].value == 231.5
+    # 帧内缺 recv_ts：用报文顶层 ts 补齐，否则 _decode_field 会整字段丢弃
+    assert quote.fields["VWAP"].recv_ts == "2026-11-14T10:00:00.123+08:00"
+    assert quote.gaps == ()
+
+
+def test_status_frame_keeps_raw_dict() -> None:
+    """`status` / `heartbeat` 不做字段解码，保持网关原始结构。"""
+    msg = gc.parse_stream_message(
+        '{"type": "status", "ts": "t", "data": {"dropped": ["AAPL US Equity"]}}'
+    )
+    assert msg.data == {"dropped": ["AAPL US Equity"]}
+
+
+def test_circuit_open_window_is_not_extended_by_repeated_failures() -> None:
+    """015 §4.2 缺陷 4：open 期间 record_failure 不得重打打开时刻。"""
+    now = [0.0]
+    breaker = gc.CircuitBreaker(threshold=1, reset_seconds=60, clock=lambda: now[0])
+    breaker.record_failure()
+    assert breaker.state == "open"
+
+    now[0] = 30.0
+    breaker.record_failure()
+    now[0] = 61.0
+    assert breaker.state == "half_open", "打开时刻被重打会导致熔断永不复位"
+
+
+def test_half_open_probe_failure_restarts_cooldown() -> None:
+    """half_open 探针失败才允许重新计时。"""
+    now = [0.0]
+    breaker = gc.CircuitBreaker(threshold=1, reset_seconds=60, clock=lambda: now[0])
+    breaker.record_failure()
+
+    now[0] = 61.0
+    assert breaker.allow() is True
+    now[0] = 62.0
+    breaker.record_failure()
+    now[0] = 100.0
+    assert breaker.state == "open"
+    now[0] = 123.0
+    assert breaker.state == "half_open"
+
+
 def test_parse_stream_message_rejects_non_json() -> None:
     """非 JSON 帧不能静默吞掉 —— 上层需要知道链路已坏。"""
     with pytest.raises(ValueError):
@@ -424,6 +487,40 @@ async def test_stream_times_out_when_no_frames() -> None:
         async with stream:
             with pytest.raises(gc.GatewayStreamTimeout):
                 await stream.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_refdata_detailed_exposes_degraded_metadata() -> None:
+    """015 §3.3：`degraded` / `source=stale` 必须透出，不能只返回 data。"""
+    payload = _envelope(
+        {"AAPL US Equity": {"PX_LAST": 231.2}},
+        source="stale",
+        degraded=True,
+    )
+    client, _ = _make_client(lambda request: httpx.Response(200, json=payload))
+    async with client:
+        result = await client.refdata_detailed(["AAPL US Equity"], ["PX_LAST"])
+
+    assert result.data == {"AAPL US Equity": {"PX_LAST": 231.2}}
+    assert result.degraded is True
+    assert result.source == "stale"
+    assert result.ts == payload["ts"]
+
+    # 兼容旧调用方：refdata() 仍只返回 data
+    client, _ = _make_client(lambda request: httpx.Response(200, json=payload))
+    async with client:
+        assert await client.refdata(["AAPL US Equity"], ["PX_LAST"]) == result.data
+
+
+def test_ws_base_url_can_be_configured_separately() -> None:
+    """015 §4.3 缺陷 8：`EMSXVIEW_GATEWAY_WS_URL` 不能被忽略。"""
+    client = gc.GatewayClient(
+        "http://127.0.0.1:8101",
+        ws_base_url="ws://gateway.internal:9000",
+        transport=httpx.MockTransport(lambda r: None),
+    )
+    stream = client.open_stream(["AAPL US Equity"])
+    assert stream._url.startswith("ws://gateway.internal:9000/ws/gw/v1/marketdata?")
 
 
 def test_stream_url_carries_tickers_and_default_fields() -> None:

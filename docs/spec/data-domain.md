@@ -283,14 +283,15 @@ ends at clean, well-structured data delivery.
 
 ### 实时通道（013 网关，默认关闭）
 
-`//blp/mktdata` 与 `//blp/refdata` 计划收编到上游网关（设计见上游 `EMSXDataPipeline/docs/spec/013-bloomberg-gateway.md`）。**客户端与 shadow 比对已就绪，默认仍 `off`（纯直连）**：
+`//blp/mktdata` 与 `//blp/refdata` 计划收编到上游网关（设计见上游 `EMSXDataPipeline/docs/spec/013-bloomberg-gateway.md`，`on` 接线见上游 `015-gateway-on-mode-wiring.md`）。**客户端、shadow 比对与 `on` 消费方均已就绪，默认仍 `off`（纯直连）**：
 
-- 客户端：`backend/api/services/gateway_client.py`——本仓唯一网关出口，只做传输、解包与降级判定，不做业务映射；
+- 客户端：`backend/api/services/gateway_client.py`——本仓唯一网关出口，只做传输、解包与降级判定，不做业务映射；WS `snapshot`/`tick` 帧在 `parse_stream_message()` 内解码为 `TickerQuote`，缺 `recv_ts` 时用帧 `ts` 补齐；`refdata_detailed()` 保留 `source`/`degraded`；
 - 契约镜像：`platform_data/contracts/gateway_schema.json`（上游 schema 逐字节镜像）+ `gateway_contracts.py`（Python 投影），由 `backend/api/tests/test_gateway_contract_mirror.py` 锁定；
 - 影子比对：`EMSXVIEW_GATEWAY_MODE=shadow` 时 `MarketDataEnrichmentService` 启守护线程，每 30s 把直连采样集合镜像订阅到网关（`/quote` 只读订阅缓存，不镜像订阅会全是缺值），逐字段比对后按天写 `<EMSXVIEW_GATEWAY_SHADOW_DIR>/gateway_shadow_YYYYMMDD.jsonl`（默认 `<后端工作目录>/logs/gateway_shadow`）；`python -m services.gateway_shadow <jsonl...>` 出一致率报表；
-- 开关：`EMSXVIEW_GATEWAY_MODE=off|shadow|on`，**当前默认 `off`（纯直连，行为不变）**；shadow 依赖上游 `emsx-gateway` 在 `:8101` 运行；
+- `on` 消费：`EMSXVIEW_GATEWAY_MODE=on` 时**不启动**直连 mktdata 事件泵（直连会话保留但不订阅），由 `services/gateway_mktdata.py::GatewayMktdataFeed` 在守护线程消费 WS——`snapshot`/`tick` 写五张缓存表、`status` 记 `dropped`、`heartbeat` 只刷新存活；断链指数退避 1s→30s，缓存冻结不清空，超过 60s 标记陈旧；订阅集合变化时重开 WS。FX/CRNCY/整手/permfail 四个 refdata 查询改走 `GET /refdata`，`PX_ROUND_LOT_SIZE` 缺席映射 `-1`，`degraded`/`source=stale` 透出；
+- 开关：`EMSXVIEW_GATEWAY_MODE=off|shadow|on`，**当前默认 `off`（纯直连，行为不变）**；shadow / on 依赖上游 `emsx-gateway` 在 `:8101` 运行（`EMSXVIEW_GATEWAY_URL` / `EMSXVIEW_GATEWAY_WS_URL` 可改）；
 - 范围：只覆盖行情与参考数据；交易链路（`//blp/emapisvc` 下单/改单/撤单/订单订阅）**不经网关**，保持直连；
-- 降级：网关不可用或熔断打开时，客户端抛 `GatewayUnavailable`，上层必须回落直连，**不得静默返回空数据**。
+- 降级：网关不可用或熔断打开时，客户端抛 `GatewayUnavailable`，不得静默返回空数据。`on` 首轮**不自动回落**（上游 015 §7 Q1 裁决）：断链只冻结缓存并告警，由运维改 `EMSXVIEW_GATEWAY_MODE=off` 重启后端回滚（≤10s）。
 
 ---
 

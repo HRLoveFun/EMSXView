@@ -37,6 +37,7 @@ from platform_data.contracts.gateway_contracts import (
     HTTP_PREFIX,
     MKTDATA_FIELDS,
     REQUEST_TIMEOUT_SECONDS,
+    SOURCE_NONE,
     SOURCE_STALE,
     WS_MARKETDATA_PATH,
     ErrorCode,
@@ -80,8 +81,16 @@ class GatewayContractMismatch(Exception):
     """契约版本不一致：配置错误，不重试，必须人工对齐后重启。"""
 
 
-class GatewayStreamTimeout(Exception):
-    """WS 连续多个心跳周期无消息，判定断链。"""
+class GatewayStreamTimeout(GatewayUnavailable):
+    """WS 连续多个心跳周期无消息，判定断链。
+
+    继承 `GatewayUnavailable`（015 §4.1 缺陷 2）：WS 静默超时语义上就是
+    「网关通道不可用」，必须能被 `except GatewayError` / `except GatewayUnavailable`
+    接住，否则 `on` 的断链重连会在静默时永久挂住。
+    """
+
+    def __init__(self, message: str = "gateway stream timeout") -> None:
+        super().__init__(message)
 
 
 # ── 熔断 ──────────────────────────────────────────────────────────────────────
@@ -134,10 +143,20 @@ class CircuitBreaker:
         self._half_open_in_flight = False
 
     def record_failure(self) -> None:
-        """失败后累计；达到阈值或 half_open 失败即打开。"""
+        """失败后累计；达到阈值或 half_open 失败即打开。
+
+        015 §4.2 缺陷 4：`open` 期间**不得**重打 `_opened_at`。WS 重连循环若
+        每轮失败都调用本方法，旧实现会把打开时刻不断刷新，熔断永远等不到
+        复位；只有 half_open 探针失败才允许重新计时。
+        """
         self._half_open_in_flight = False
         self._failures += 1
-        if self._opened_at is not None or self._failures >= self._threshold:
+        if self._opened_at is None:
+            if self._failures >= self._threshold:
+                self._opened_at = self._clock()
+            return
+        if self.state == "half_open":
+            # 探针失败：重新进入 open，并重新计时一个冷却窗口
             self._opened_at = self._clock()
 
 
@@ -183,11 +202,29 @@ class UnsubscribeResult:
 
 @dataclass(frozen=True)
 class StreamMessage:
-    """WS 推送消息。type ∈ snapshot / tick / status / heartbeat。"""
+    """WS 推送消息。type ∈ snapshot / tick / status / heartbeat。
+
+    `snapshot` / `tick` 的 `data` 已解码为 `dict[str, TickerQuote]`（015 §4.1
+    缺陷 3）；`status` / `heartbeat` 保持网关原始结构（dict / 空 dict）。
+    """
 
     type: str
     ts: str
     data: dict
+
+
+@dataclass(frozen=True)
+class RefdataResult:
+    """参考数据响应，保留 envelope 的 `source` / `degraded` / `ts`。
+
+    015 §3.3：`on` 下写缓存前必须知道「这是陈旧值」，否则会把 TTL 过期后
+    回源失败的旧价当成新鲜数据。
+    """
+
+    data: dict[str, dict]
+    source: str
+    degraded: bool
+    ts: str
 
 
 # ── 解包（纯函数，单测覆盖） ─────────────────────────────────────────────────
@@ -224,19 +261,49 @@ def decode_quote(data: dict) -> dict[str, TickerQuote]:
     return quotes
 
 
+def decode_stream_data(data: Any, *, ts: str = "") -> dict[str, TickerQuote]:
+    """WS `snapshot` / `tick` 的 `data` → ticker → TickerQuote。
+
+    与 `decode_quote` 的唯一差别：网关早期 `tick` 帧可能不带 `recv_ts`，
+    这里用报文顶层 `ts` 补齐后再解码（015 §4.1 缺陷 3）。不补的话
+    `_decode_field` 会把字段整体丢弃，消费方只能拿到原始 dict。
+    """
+    if not isinstance(data, dict):
+        return {}
+    filled: dict[str, Any] = {}
+    for ticker, payload in data.items():
+        if not isinstance(payload, dict):
+            continue
+        body = dict(payload)
+        for name, raw in body.items():
+            if name == "_meta" or not isinstance(raw, dict):
+                continue
+            if "recv_ts" not in raw:
+                body[name] = {**raw, "recv_ts": ts}
+        filled[ticker] = body
+    return decode_quote(filled)
+
+
 def parse_stream_message(raw: str | bytes) -> StreamMessage:
-    """WS 文本帧 → StreamMessage；结构非法抛 ValueError。"""
+    """WS 文本帧 → StreamMessage；结构非法抛 ValueError。
+
+    `snapshot` / `tick` 的载荷在此统一解码（缺陷 3）；`status` / `heartbeat`
+    保持原始结构，避免下游再自行判断一次。
+    """
     try:
         payload = json.loads(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"WS 帧不是合法 JSON: {exc}") from exc
     if not isinstance(payload, dict) or "type" not in payload:
         raise ValueError("WS 帧缺少 type 字段")
-    return StreamMessage(
-        type=str(payload["type"]),
-        ts=str(payload.get("ts", "")),
-        data=payload.get("data") or {},
-    )
+    kind = str(payload["type"])
+    ts = str(payload.get("ts", ""))
+    raw_data = payload.get("data")
+    if kind in ("snapshot", "tick"):
+        data: Any = decode_stream_data(raw_data, ts=ts)
+    else:
+        data = raw_data if isinstance(raw_data, dict) else {}
+    return StreamMessage(type=kind, ts=ts, data=data)
 
 
 # ── 客户端 ────────────────────────────────────────────────────────────────────
@@ -251,8 +318,12 @@ class GatewayClient:
         timeout: float = REQUEST_TIMEOUT_SECONDS,
         transport: Optional[httpx.AsyncBaseTransport] = None,
         breaker: Optional[CircuitBreaker] = None,
+        ws_base_url: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        # 015 §4.3 缺陷 8：WS 地址独立配置。缺省回落 HTTP base_url（同机部署）；
+        # 跨机/反代时由 `EMSXVIEW_GATEWAY_WS_URL` 显式指定，不再被忽略。
+        self._ws_base_url = (ws_base_url or base_url).rstrip("/")
         self._breaker = breaker or CircuitBreaker()
         self._client = httpx.AsyncClient(
             base_url=self._base_url + HTTP_PREFIX,
@@ -392,14 +463,30 @@ class GatewayClient:
 
     async def refdata(self, securities: Iterable[str], fields: Iterable[str]) -> dict[str, dict]:
         """参考数据（FX / 本币 / 整手 / 短名）。"""
+        result = await self.refdata_detailed(securities, fields)
+        return result.data
+
+    async def refdata_detailed(
+        self, securities: Iterable[str], fields: Iterable[str]
+    ) -> RefdataResult:
+        """参考数据 + envelope 元信息（`source` / `degraded` / `ts`）。
+
+        `on` 模式必须用本方法：`source=stale` / `degraded=true` 表示 TTL
+        过期且回源失败，写缓存前要显式标注（015 §3.3）。
+        """
         security_list = _normalize(securities)
         field_list = _normalize(fields)
         if not security_list or not field_list:
-            return {}
+            return RefdataResult({}, SOURCE_NONE, False, "")
         _validate_refdata_fields(field_list)
         params = {"securities": ",".join(security_list), "fields": ",".join(field_list)}
         payload = await self._call("GET", "/refdata", params=params)
-        return payload.get("data") or {}
+        return RefdataResult(
+            data=payload.get("data") or {},
+            source=str(payload.get("source") or ""),
+            degraded=bool(payload.get("degraded")),
+            ts=str(payload.get("ts") or ""),
+        )
 
     def open_stream(
         self,
@@ -422,7 +509,7 @@ class GatewayClient:
             quote_via=quote,
         )
         return GatewayStream(
-            self._base_url + WS_MARKETDATA_PATH + query,
+            self._ws_base_url + WS_MARKETDATA_PATH + query,
             connect=connect,
             recv_timeout=recv_timeout,
         )

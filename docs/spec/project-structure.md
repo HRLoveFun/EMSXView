@@ -433,6 +433,7 @@ Cross-domain access should follow this order of preference:
 | JWT 认证 | `auth.py`、`routers/auth.py` | `tests/test_auth_policy.py` |
 | 算法调度 | `services/algo_scheduler.py` | `tests/test_algo_scheduler.py` |
 | Bloomberg EMSX 集成（订阅缓存、行情增强） | `services/bloomberg/`（adapter/connection/subscriptions/enrichment/request_handler） | `tests/test_bloomberg_adapter_routing.py` + `tests/test_bloomberg_adapter_refdata.py` |
+| 013 网关客户端与 `on` 模式行情消费 | `services/gateway_client.py`、`services/gateway_mktdata.py` | `tests/test_gateway_client.py` + `tests/test_gateway_mktdata.py` |
 | 基准计算 | `services/benchmark_engine.py` | `tests/test_benchmark_engine.py` |
 | 健康检查 | `GET /api/health`（`routers/connection.py`，检查 Bloomberg + DB 状态） | 启动后 `curl <API_BASE_URL>/api/health` |
 | 交易意图交接消费（MarketView → Execution，**现状仅徽标展示**） | `useHandoffContracts()` + `frontend/src/shared/services/handoff-api.ts` | 前端 handoff 相关测试 |
