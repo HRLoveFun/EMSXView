@@ -2,12 +2,13 @@
 
 ## 为什么需要独立模块
 
-`TcaRouteSummary` 严格匹配 55 字段 schema（`platform_data/contracts/tca_contracts.py:59`），
-**不携带**真实环境字段；而环境分层所需的三项原始数据分散在两张只读表：
+`TcaRouteSummary` 的字段随上游契约演进（**勿硬编码字段数**）。CCP-20261112
+起路由行本身携带 ``adv_20d`` / ``daily_volatility``；旧 schema 无列或值为 NULL
+时回退到 ``bdib_daily_summary``。环境分层所需数据：
 
 - ``fill_bdib.mkt_timestamp`` → 路由的交易时段（取该路由内**最早**的成交时刻）；
-- ``raw_bdib`` 的 ``bdib_daily_summary`` → ``adv_20d`` 与 ``daily_volatility``
-  （已内置，**无需计算**）。
+- 路由行 ``adv_20d`` / ``daily_volatility``（首选）；缺失时回退
+  ``raw_bdib`` 的 ``bdib_daily_summary``（同口径，已内置，**无需计算**）。
 
 本模块收敛这两类派生的**取数与应用层 join**；分桶职责仍归 ``tca_utils.bucket_*``，
 不在本模块重复（口径单点约定见 ``docs/report-tca-known-limitations.md`` §四 维护约定）。
@@ -225,7 +226,15 @@ def build_route_env_context(
             str(getattr(route, "equ_ticker", None) or ""),
             str(getattr(route, "order_as_of_date", None) or ""),
         )
-        adv20, volatility = daily.get(ticker_key, (None, None))
+        # CCP-20261112：路由行自带两列时优先使用（同口径、单点取数）；
+        # 旧 schema 无列或 NULL 时回退到 bdib_daily_summary 的 (ticker, 日期) join。
+        fallback_adv20, fallback_volatility = daily.get(ticker_key, (None, None))
+        adv20 = getattr(route, "adv_20d", None)
+        volatility = getattr(route, "daily_volatility", None)
+        if adv20 is None:
+            adv20 = fallback_adv20
+        if volatility is None:
+            volatility = fallback_volatility
         result[key] = RouteEnvContext(
             start_time=start_times.get(key),
             adv20_ratio=_ratio_or_none(getattr(route, "fill", None), adv20),
