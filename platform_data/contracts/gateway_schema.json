@@ -147,6 +147,10 @@
                   "type": "array",
                   "items": {"type": "string"},
                   "description": "已订阅但 Bloomberg 未推送的字段。"
+                },
+                "stale_since": {
+                  "type": ["string", "null"],
+                  "description": "非必填。退订时刻；非 null 表示这些值是退订前留下的（宽限期到期后保留而非清空）。重订并收到推送后恢复 null。消费方据此判断是否可采用。"
                 }
               }
             }
