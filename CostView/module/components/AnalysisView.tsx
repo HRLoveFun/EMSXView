@@ -4,6 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { averageMetric, countAlertOrders, evaluateThreshold, getSeverityText, getSeverityTone } from '../lib/thresholds';
+import { formatShares } from '../lib/report-format';
 import type { AlertSeverity, CostViewConfig, CostViewFilterFormState, TcaRouteSummary, TcaReport } from '../types';
 import type { TcaOrderReport } from '../services/api';
 import { TcaFilterWorkbench } from './TcaFilterWorkbench';
@@ -240,6 +241,9 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, ord
                     { label: 'Temp Impact 5m', value: selectedRoute.temp_impact_5min_bps != null ? `${selectedRoute.temp_impact_5min_bps > 0 ? '+' : ''}${selectedRoute.temp_impact_5min_bps.toFixed(1)} bps` : '—', hint: selectedRoute.temp_impact_30min_bps != null ? `30m ${selectedRoute.temp_impact_30min_bps.toFixed(1)} bps` : undefined },
                     { label: 'Perm Impact', value: selectedRoute.perm_impact_bps != null ? `${selectedRoute.perm_impact_bps > 0 ? '+' : ''}${selectedRoute.perm_impact_bps.toFixed(1)} bps` : '—', hint: selectedRoute.recovery_truncated ? 'recovery truncated' : undefined },
                     { label: 'Pnl VWAP (Cont)', value: selectedRoute.pnl_vwap_continuous != null ? `${selectedRoute.pnl_vwap_continuous > 0 ? '+' : ''}${selectedRoute.pnl_vwap_continuous.toFixed(1)} bps` : '—' },
+                    // CCP-20261112：两列可空，null 显示「—」（不按 0 展示）
+                    { label: 'ADV 20d', value: formatShares(selectedRoute.adv_20d ?? null), hint: selectedRoute.adv_20d != null ? '20 交易日平均日成交量（shares）' : '行情未就绪' },
+                    { label: 'Daily Volatility', value: selectedRoute.daily_volatility != null ? `${selectedRoute.daily_volatility.toFixed(1)}%` : '—', hint: selectedRoute.daily_volatility != null ? '年化历史波动率（百分比）' : '行情未就绪' },
                   ].map((metric) => (
                     <div key={metric.label} className="rounded-lg border border-border bg-muted/30 p-3">
                       <div className="text-xs text-muted-foreground">{metric.label}</div>

@@ -87,7 +87,7 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1730px] text-sm">
+        <table className="w-full min-w-[1870px] text-sm">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="sticky left-0 z-10 bg-muted/50 px-3 py-3 text-left font-medium">Order · Route</th>
@@ -109,6 +109,8 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                <th className="px-3 py-3 text-right font-medium">RPM</th>
                <th className="px-3 py-3 text-right font-medium">PWP 10</th>
                <th className="px-3 py-3 text-right font-medium">PWP 20</th>
+               <th className="px-3 py-3 text-right font-medium" title="tca_route_summary.adv_20d：20 交易日平均日成交量（shares）；NULL 显示 —">ADV 20d</th>
+               <th className="px-3 py-3 text-right font-medium" title="tca_route_summary.daily_volatility：年化历史波动率（%）；NULL 显示 —">Daily Vol</th>
                <th className="px-3 py-3 text-right font-medium" title="tca_route_summary.Amount：委托股数，不是金额">委托股数</th>
                <th className="px-3 py-3 text-right font-medium" title="fill × p_avg（成交金额，非委托金额）">成交金额(本币)</th>
                <th className="px-3 py-3 text-right font-medium" title="后端按 fill×p_avg×汇率×小计价单位 计算后下发；当前未序列化，显示 —">成交金额(USD)</th>
@@ -156,6 +158,8 @@ export function TcaOrderTable({ config, report, selectedRouteKey, onPageChange, 
                   <td className="px-3 py-3 text-right">{fmtNum(route.rpm)}</td>
                   <td className="px-3 py-3 text-right">{route.pwp_10 ?? '—'}</td>
                   <td className="px-3 py-3 text-right">{route.pwp_20 ?? '—'}</td>
+                  <td className="px-3 py-3 text-right" title={route.adv_20d != null ? `${fmtInt(route.adv_20d)} shares` : '行情未就绪'}>{fmtInt(route.adv_20d)}</td>
+                  <td className="px-3 py-3 text-right" title={route.daily_volatility != null ? '年化历史波动率（百分比）' : '行情未就绪'}>{fmtPercent(route.daily_volatility, 1)}</td>
                   <td className="px-3 py-3 text-right" title="委托股数（Amount）">{fmtInt(route.amount)}</td>
                   <td className="px-3 py-3 text-right">{renderNotional(tradedNotional(route), route.currency)}</td>
                   {/* 后端未下发逐路由 USD 金额（fx_rate 未序列化）；不在前端重算换算，

@@ -908,6 +908,9 @@ def _routes_payload(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "completion": (fill / shares) if (shares and fill is not None) else None,
             "arrival_cost_bps": r.get("arrival_cost_bps"),
             "wagner_is_bps": r.get("wagner_is_bps"),
+            # CCP-20261112：缺失/旧 schema 时 r.get 返回 None，不填 0
+            "adv_20d": r.get("adv_20d"),
+            "daily_volatility": r.get("daily_volatility"),
         })
     return out
 
