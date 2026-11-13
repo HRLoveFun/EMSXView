@@ -316,6 +316,9 @@ payload 为**追加式**变更（`filters.granularity`、`daily_series_meta.gran
    `aggregate_cohorts(..., env_by_route=None)` 增设**可选**参数 —— 不触碰
    `TcaRouteSummary` 的「严格匹配 55 字段」契约，且 `env=None` 与「字段为 `None`」等价，
    **参数默认值天然构成降级路径**，无需额外开关。
+   *（2026-11-13 补记：上述「55 字段」是 026 当时的快照；CCP-20261112 已按上游 A 类
+   契约为 `TcaRouteSummary` 增加 `adv_20d` / `daily_volatility` 两列，字段数随上游
+   契约演进，勿再硬编码。`env_context` 现优先用路由行两列、缺失回退 daily join。）*
 3. **三级降级链**：L1 真实 / L2 自给 / L3 代理；任一维度不可得均为**可见事实** ——
    可得率经 `scorecard.filters.env_coverage` 披露（延续「降级必须可见」的既有原则）。
 4. **仅环境 cohort 取数**：`build_scorecard` 按 cohort 判定，非环境 cohort **零额外查询**。

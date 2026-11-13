@@ -840,6 +840,9 @@ def _serialize_route(route: TcaRouteSummary) -> dict:
         "temp_impact_30min_bps": route.temp_impact_30min_bps,
         "perm_impact_bps": route.perm_impact_bps,
         "recovery_truncated": route.recovery_truncated,
+        # CCP-20261112-sqlite.tca_route_summary：两列可空，缺失保持 None（不填 0）
+        "adv_20d": route.adv_20d,
+        "daily_volatility": route.daily_volatility,
         # 时序数据
         "time_series": route.time_series,
     }

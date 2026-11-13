@@ -270,6 +270,53 @@ class TestBuildRouteEnvContext:
         assert env.daily_volatility is None
 
 
+class TestRouteColumnsPreferred:
+    """CCP-20261112：路由行两列优先，旧 schema / NULL 回退 daily join。"""
+
+    def test_route_columns_override_daily_join(
+        self, env_dbs: ConnectionManager,
+    ) -> None:
+        route = _route(
+            OrderId="O1", RouteId="R1", fill=5000.0,
+            # 故意与 bdib_daily_summary 的 1,000,000 / 30.0 不同
+            adv_20d=2_000_000.0, daily_volatility=12.0,
+        )
+        env = build_route_env_context(
+            env_dbs, [route], "20260418", "20260418",
+        )[("O1", "R1", "20260418")]
+
+        assert env.adv20_ratio == pytest.approx(5000.0 / 2_000_000.0)
+        assert env.daily_volatility == pytest.approx(12.0)
+
+    def test_null_columns_fall_back_to_daily_join(
+        self, env_dbs: ConnectionManager,
+    ) -> None:
+        route = _route(
+            OrderId="O1", RouteId="R1", fill=5000.0,
+            adv_20d=None, daily_volatility=None,
+        )
+        env = build_route_env_context(
+            env_dbs, [route], "20260418", "20260418",
+        )[("O1", "R1", "20260418")]
+
+        assert env.adv20_ratio == pytest.approx(5000.0 / 1_000_000.0)
+        assert env.daily_volatility == pytest.approx(30.0)
+
+    def test_partial_null_falls_back_per_dimension(
+        self, env_dbs: ConnectionManager,
+    ) -> None:
+        route = _route(
+            OrderId="O1", RouteId="R1", fill=5000.0,
+            adv_20d=2_000_000.0, daily_volatility=None,
+        )
+        env = build_route_env_context(
+            env_dbs, [route], "20260418", "20260418",
+        )[("O1", "R1", "20260418")]
+
+        assert env.adv20_ratio == pytest.approx(5000.0 / 2_000_000.0)
+        assert env.daily_volatility == pytest.approx(30.0)
+
+
 class TestAggregateCohortsWithEnv:
     """聚合层接线：真实 env 改变分层结果，可得率可披露。"""
 

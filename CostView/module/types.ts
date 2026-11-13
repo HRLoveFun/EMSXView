@@ -158,6 +158,10 @@ export interface TcaRouteSummary {
   temp_impact_30min_bps?: number | null;
   perm_impact_bps?: number | null;
   recovery_truncated?: number | null;
+  // CCP-20261112-sqlite.tca_route_summary：路由级流动性 / 波动率（可空）
+  // null 表示缺失（行情未就绪 / 旧 schema 无列），展示为「—」，禁止按 0 处理
+  adv_20d?: number | null;
+  daily_volatility?: number | null;
   // 007-costview-report-filters: USD 成交金额换算（fx_rate 缺失则 USD 不换算）
   fx_rate?: number | null;
   // 时序数据
@@ -916,6 +920,9 @@ export interface TraderDetailRoute {
   completion: number | null;
   arrival_cost_bps: number | null;
   wagner_is_bps: number | null;
+  // CCP-20261112：可空；null = 缺失，禁止按 0 展示
+  adv_20d?: number | null;
+  daily_volatility?: number | null;
 }
 
 /** 逐笔成交（processed_fills 为主表，raw_fills 按 (RouteId, FillId) 补 Liquidity） */

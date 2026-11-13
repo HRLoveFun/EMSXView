@@ -128,3 +128,25 @@ describe('TcaOrderTable 成交金额口径', () => {
     expect(usdCell).toHaveTextContent('—');
   });
 });
+
+// ── CCP-20261112：adv_20d / daily_volatility 可空，NULL 显示 —（禁止当 0） ──
+
+describe('TcaOrderTable 流动性 / 波动率列', () => {
+  it('展示 ADV 20d（shares）与年化波动率（百分比）', () => {
+    renderTable([createRoute({ adv_20d: 4_600_000, daily_volatility: 26 })]);
+
+    expect(screen.getByText('4,600,000')).toBeInTheDocument();
+    expect(screen.getByText('26.0%')).toBeInTheDocument();
+  });
+
+  it('两列为 null 时显示 —，不渲染 0 / 0%', () => {
+    renderTable([createRoute({ adv_20d: null, daily_volatility: null })]);
+
+    const missingCells = screen.getAllByTitle('行情未就绪');
+    expect(missingCells).toHaveLength(2);
+    for (const cell of missingCells) {
+      expect(cell).toHaveTextContent('—');
+      expect(cell).not.toHaveTextContent('0');
+    }
+  });
+});

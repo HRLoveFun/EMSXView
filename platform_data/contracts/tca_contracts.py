@@ -56,7 +56,11 @@ class TcaFilters:
 
 @dataclass
 class TcaRouteSummary:
-    """路由级 TCA 汇总，严格匹配新 schema 55 个字段（17 源值 + 38 计算指标）。"""
+    """路由级 TCA 汇总，严格匹配 tca_route_summary 的消费字段。
+
+    CCP-20261112-sqlite.tca_route_summary（A 类增量）新增 ``adv_20d`` /
+    ``daily_volatility`` 两列：均可空，缺失即 ``None``，**禁止用 0 填充**。
+    """
     # ── Group 1: Source values (17) ──
     OrderId: str
     RouteId: str
@@ -117,6 +121,12 @@ class TcaRouteSummary:
     temp_impact_30min_bps: Optional[float] = None
     perm_impact_bps: Optional[float] = None
     recovery_truncated: Optional[int] = None
+    # ── CCP-20261112-sqlite.tca_route_summary: 路由级流动性 / 波动率 (2) ──
+    # adv_20d: 20 交易日平均日成交量（shares）
+    # daily_volatility: 年化历史波动率（百分比，26.0 = 26%）
+    # 两列均可空：当日行情缺失或样本不足即 None（旧 schema 无此列时同样为 None）
+    adv_20d: Optional[float] = None
+    daily_volatility: Optional[float] = None
     # 附加时序数据（非数据库列，供前端图表使用）
     time_series: list[dict] = field(default_factory=list)
 
