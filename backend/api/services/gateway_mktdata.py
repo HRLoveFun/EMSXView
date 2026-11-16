@@ -58,6 +58,11 @@ POLL_INTERVAL_SECONDS = 1.0
 #: 断链后缓存冻结多久标记为陈旧（秒）；与网关退订宽限期对齐。
 STALE_AFTER_SECONDS = 60.0
 
+#: 单条 WS 连接的最大标的数。网关 URL 带 ticker 列表，超过约 8KB 会被
+#: uvicorn 以 HTTP 400 拒绝（2026-11-16 实测：300 标的/6.4KB 可连，
+#: 500 标的/10.5KB 失败）；按 150 个一块，URL 约 2–3KB，留足余量。
+MAX_TICKERS_PER_STREAM = 150
+
 QuotesCallback = Callable[[dict, str, str], None]
 StatusCallback = Callable[[dict], None]
 HeartbeatCallback = Callable[[str], None]
@@ -72,6 +77,13 @@ def _normalize(values: Iterable[str]) -> list[str]:
         if cleaned:
             seen.setdefault(cleaned, None)
     return list(seen)
+
+
+def _chunk(items: list[str], size: int) -> list[list[str]]:
+    """按固定大小切块；`size <= 0` 视为不切。"""
+    if size <= 0 or not items:
+        return [list(items)] if items else []
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 class GatewayMktdataFeed:
@@ -103,6 +115,7 @@ class GatewayMktdataFeed:
         poll_interval: float = POLL_INTERVAL_SECONDS,
         housekeeping_interval: float = POLL_INTERVAL_SECONDS,
         stale_after: float = STALE_AFTER_SECONDS,
+        max_tickers_per_stream: int = MAX_TICKERS_PER_STREAM,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._client = client
@@ -117,13 +130,16 @@ class GatewayMktdataFeed:
         self._poll_interval = max(0.01, float(poll_interval))
         self._housekeeping_interval = max(0.01, float(housekeeping_interval))
         self._stale_after = max(0.0, float(stale_after))
+        self._max_tickers_per_stream = max(1, int(max_tickers_per_stream))
         self._clock = clock
 
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
         # 观测状态（供 enrichment/健康检查读取）
-        self._connected = False
+        #: 已连上的分块下标；全部连上才算整体 connected。
+        self._connected_chunks: set[int] = set()
+        self._chunk_count = 0
         self._last_alive_at: Optional[float] = None
         self._last_disconnect_at: Optional[float] = None
         self._reconnect_attempts = 0
@@ -165,7 +181,7 @@ class GatewayMktdataFeed:
 
     @property
     def connected(self) -> bool:
-        return self._connected
+        return bool(self._connected_chunks)
 
     @property
     def last_alive_at(self) -> Optional[float]:
@@ -182,7 +198,7 @@ class GatewayMktdataFeed:
     @property
     def is_stale(self) -> bool:
         """断链且超过 `stale_after` 未收到任何帧（含心跳）即为陈旧。"""
-        if self._connected:
+        if self.connected:
             return False
         if self._last_alive_at is None:
             return True
@@ -192,7 +208,7 @@ class GatewayMktdataFeed:
         """供 `/health` 或日志使用的只读快照。"""
         return {
             "running": self.is_running,
-            "connected": self._connected,
+            "connected": self.connected,
             "stale": self.is_stale,
             "reconnect_attempts": self._reconnect_attempts,
             "dropped": sorted(self._dropped),
@@ -208,7 +224,7 @@ class GatewayMktdataFeed:
             if not self._stop.is_set():
                 logger.exception("GatewayMktdataFeed exited unexpectedly: %s", exc)
         finally:
-            self._connected = False
+            self._connected_chunks.clear()
             logger.info("GatewayMktdataFeed stopped")
 
     async def _run(self) -> None:
@@ -216,83 +232,120 @@ class GatewayMktdataFeed:
         if self._housekeeping is not None:
             housekeeping_task = asyncio.create_task(self._housekeeping_loop())
         try:
-            await self._stream_loop()
+            await self._supervise()
         finally:
             if housekeeping_task is not None:
                 housekeeping_task.cancel()
                 await asyncio.gather(housekeeping_task, return_exceptions=True)
             await self._client.close()
-            self._connected = False
+            self._connected_chunks.clear()
 
-    async def _stream_loop(self) -> None:
-        """按订阅集合打开 WS；断链后指数退避重连，直到 stop()。"""
+    async def _supervise(self) -> None:
+        """按需分块并监督每条连接；订阅集合变化时整体重开。
+
+        单条 WS 的 ticker 列表写在 URL 里，过大会被 uvicorn 以 HTTP 400
+        拒绝（2026-11-16 实测：300 标的 / 6.4KB 可连，500 标的 / 10.5KB
+        失败）。按 `max_tickers_per_stream` 切块后每条约 2–3KB。
+        """
+        tasks: dict[int, asyncio.Task] = {}
+        current_key: Optional[tuple] = None
+        try:
+            while not self._stop.is_set():
+                tickers = _normalize(self._targets())
+                fields = _normalize(self._fields())
+                chunks = _chunk(tickers, self._max_tickers_per_stream)
+                key = (tuple(tickers), tuple(fields))
+                if key != current_key:
+                    for task in tasks.values():
+                        task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks.values(), return_exceptions=True)
+                    tasks = {}
+                    self._connected_chunks.clear()
+                    self._chunk_count = len(chunks)
+                    current_key = key
+                    if chunks:
+                        logger.info(
+                            "GatewayMktdataFeed opening %d stream(s): %d tickers, %d fields",
+                            len(chunks),
+                            len(tickers),
+                            len(fields),
+                        )
+                        for index, chunk in enumerate(chunks):
+                            tasks[index] = asyncio.create_task(
+                                self._stream_loop(index, chunk, fields)
+                            )
+                await self._sleep(self._poll_interval)
+        finally:
+            for task in tasks.values():
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+    async def _stream_loop(
+        self, index: int, tickers: list[str], fields: list[str]
+    ) -> None:
+        """单条分块的连接循环；断链指数退避重连，直到 stop()。"""
         backoff = self._backoff_initial
         while not self._stop.is_set():
-            tickers = _normalize(self._targets())
-            if not tickers:
-                # 没有标的就不建连接：空订阅会让网关拒绝并放大日志
-                self._connected = False
-                await self._sleep(self._poll_interval)
-                continue
-            fields = _normalize(self._fields())
             try:
                 async with self._client.open_stream(
                     tickers,
                     fields,
                     recv_timeout=max(HEARTBEAT_SECONDS * 3, 1.0),
                 ) as stream:
-                    self._connected = True
+                    self._connected_chunks.add(index)
                     self._last_alive_at = self._clock()
                     self._last_disconnect_at = None
-                    self._reconnect_attempts = 0
+                    if len(self._connected_chunks) == self._chunk_count:
+                        self._reconnect_attempts = 0
                     backoff = self._backoff_initial
                     logger.info(
-                        "GatewayMktdataFeed connected: %d tickers, %d fields",
+                        "GatewayMktdataFeed connected: chunk %d/%d, %d tickers",
+                        index + 1,
+                        self._chunk_count,
                         len(tickers),
-                        len(fields),
                     )
-                    reopen_now = await self._consume(stream, tickers)
-                    if reopen_now:
-                        # 集合变化：立即用新集合重开，不进退避
-                        continue
+                    await self._consume(stream)
             except asyncio.CancelledError:
                 raise
             except (GatewayStreamTimeout, GatewayError, OSError, ValueError) as exc:
                 # 不调用 client/circuit 的 record_failure：WS 断链由本模块退避处理
-                self._connected = False
                 self._last_disconnect_at = self._clock()
                 self._reconnect_attempts += 1
                 if not self._stop.is_set():
                     logger.warning(
-                        "GatewayMktdataFeed disconnected (%s: %s) - reconnect in %.1fs (attempt %d)",
+                        "GatewayMktdataFeed disconnected (chunk %d/%d, %s: %s) - "
+                        "reconnect in %.1fs (attempt %d)",
+                        index + 1,
+                        self._chunk_count,
                         type(exc).__name__,
                         exc,
                         backoff,
                         self._reconnect_attempts,
                     )
             except Exception as exc:  # noqa: BLE001 - 未知异常同样退避重连
-                self._connected = False
                 self._last_disconnect_at = self._clock()
                 self._reconnect_attempts += 1
                 if not self._stop.is_set():
                     logger.exception(
-                        "GatewayMktdataFeed unexpected error (%s) - reconnect in %.1fs",
+                        "GatewayMktdataFeed unexpected error (chunk %d/%d, %s) - "
+                        "reconnect in %.1fs",
+                        index + 1,
+                        self._chunk_count,
                         exc,
                         backoff,
                     )
+            finally:
+                self._connected_chunks.discard(index)
             if self._stop.is_set():
                 break
             await self._sleep(backoff)
             backoff = min(backoff * 2, self._backoff_max)
 
-    async def _consume(self, stream: Any, tickers: list[str]) -> bool:
-        """消费一条连接上的帧；返回 True 表示订阅集合变化、需立即重开。"""
-        expected = set(tickers)
+    async def _consume(self, stream: Any) -> None:
+        """消费一条连接上的帧；订阅集合变化由 supervisor 统一处理。"""
         while not self._stop.is_set():
-            # 网关 WS 的 ticker 集合在连接建立时固定：变化即重开
-            if set(_normalize(self._targets())) != expected:
-                logger.info("GatewayMktdataFeed subscription set changed - reopening WS")
-                return True
             try:
                 message = await asyncio.wait_for(
                     stream.__anext__(), timeout=self._poll_interval
@@ -300,10 +353,9 @@ class GatewayMktdataFeed:
             except asyncio.TimeoutError:
                 continue
             except StopAsyncIteration:
-                return False
+                return
             self._last_alive_at = self._clock()
             self._dispatch(message)
-        return False
 
     def _dispatch(self, message: StreamMessage) -> None:
         """四类帧分派；未知类型只记 debug。"""
