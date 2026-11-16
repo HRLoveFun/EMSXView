@@ -297,8 +297,12 @@ class ShadowSampler:
         丢掉——实测 2026-11-10 20:48–20:49 的 6 条 `gateway_missing` 就是这么来的：
         采样集轮换到新标的时，整批里只有新标的没值，整批被判 2004，老标的的值全丢。
 
-        逐标的请求后，2004 只可能意味着「这个标的确实没值」，与直连缺值同义，
-        记 `gateway_missing` 即可；其余错误码照常上抛，由调用方记 `gw_error`。
+        逐标的请求后，2004 只可能意味着「这个标的确实没值」；此外它也是
+        **订阅账本为空**的信号（网关重启后本地缓存与订阅都清空，见 015 §10
+        附带缺陷）：把该标的从本地 `_subscribed` 移除，下一轮 `_sync_subscriptions`
+        会自动重订，否则本地仍认为已订阅、永久拿不到推送。重订按 client_id
+        幂等，已订阅的标的重复订阅不会堆高引用计数。
+        其余错误码照常上抛，由调用方记 `gw_error`。
         """
         quotes: dict[str, Any] = {}
         for ticker in tickers:
@@ -307,6 +311,9 @@ class ShadowSampler:
             except GatewayError as exc:
                 if exc.code != FIELD_UNAVAILABLE_CODE:
                     raise
+                # 2004 与 `_meta.subscribed=false` 同义：清掉本地订阅记忆，
+                # 下一轮重新 POST /subscriptions（网关账本可能已因重启清空）。
+                self._subscribed.discard(ticker)
                 continue
             quotes.update(batch or {})
         return quotes
