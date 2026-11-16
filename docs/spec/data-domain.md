@@ -287,7 +287,7 @@ ends at clean, well-structured data delivery.
 
 - 客户端：`backend/api/services/gateway_client.py`——本仓唯一网关出口，只做传输、解包与降级判定，不做业务映射；WS `snapshot`/`tick` 帧在 `parse_stream_message()` 内解码为 `TickerQuote`，缺 `recv_ts` 时用帧 `ts` 补齐；`refdata_detailed()` 保留 `source`/`degraded`；
 - 契约镜像：`platform_data/contracts/gateway_schema.json`（上游 schema 逐字节镜像）+ `gateway_contracts.py`（Python 投影），由 `backend/api/tests/test_gateway_contract_mirror.py` 锁定；
-- 影子比对：`EMSXVIEW_GATEWAY_MODE=shadow` 时 `MarketDataEnrichmentService` 启守护线程，每 30s 把直连采样集合镜像订阅到网关（`/quote` 只读订阅缓存，不镜像订阅会全是缺值），逐字段比对后按天写 `<EMSXVIEW_GATEWAY_SHADOW_DIR>/gateway_shadow_YYYYMMDD.jsonl`（默认 `<后端工作目录>/logs/gateway_shadow`）；`python -m services.gateway_shadow <jsonl...>` 出一致率报表；
+- 影子比对：`EMSXVIEW_GATEWAY_MODE=shadow` 时 `MarketDataEnrichmentService` 启守护线程，每 30s 把直连采样集合镜像订阅到网关（`/quote` 只读订阅缓存，不镜像订阅会全是缺值），逐字段比对后按天写 `<EMSXVIEW_GATEWAY_SHADOW_DIR>/gateway_shadow_YYYYMMDD.jsonl`（默认 `<后端工作目录>/logs/gateway_shadow`）；网关重启后 `_meta.subscribed=false` 或 `/quote` 返回 2004 视为订阅账本已空，清空本地订阅记忆并在下一轮重订；`python -m services.gateway_shadow <jsonl...>` 出一致率报表；
 - `on` 消费：`EMSXVIEW_GATEWAY_MODE=on` 时**不启动**直连 mktdata 事件泵（直连会话保留但不订阅），由 `services/gateway_mktdata.py::GatewayMktdataFeed` 在守护线程消费 WS——`snapshot`/`tick` 写五张缓存表、`status` 记 `dropped`、`heartbeat` 只刷新存活；断链指数退避 1s→30s，缓存冻结不清空，超过 60s 标记陈旧；订阅集合变化时重开 WS。FX/CRNCY/整手/permfail 四个 refdata 查询改走 `GET /refdata`，`PX_ROUND_LOT_SIZE` 缺席映射 `-1`，`degraded`/`source=stale` 透出；
 - 开关：`EMSXVIEW_GATEWAY_MODE=off|shadow|on`，**当前默认 `off`（纯直连，行为不变）**；shadow / on 依赖上游 `emsx-gateway` 在 `:8101` 运行（`EMSXVIEW_GATEWAY_URL` / `EMSXVIEW_GATEWAY_WS_URL` 可改）；
 - 范围：只覆盖行情与参考数据；交易链路（`//blp/emapisvc` 下单/改单/撤单/订单订阅）**不经网关**，保持直连；
@@ -346,46 +346,46 @@ logic, with the new Data Platform subsystem providing clean, reliable data.
 
 ## Storage scale & selection（实测 2026-10-20）
 
-### 5.1 数据存储规模（实测 2026-10-20，数据根 `${EMSXVIEW_DATA_DIR}`）
+### 5.1 数据存储规模（实测 2026-10-20，数据根 `${EMSXVIEW_DATA_DIR}`）
 
-
 
-| 数据库 | 大小 | 用途 |
 
-|--------|------|------|
+| 数据库 | 大小 | 用途 |
 
-| `raw_bdib.db` | 101.80 GB | 原始 BDIB 分钟 bars |
+|--------|------|------|
 
-| `raw_fills.db` | 7.15 GB | 原始成交 |
+| `raw_bdib.db` | 101.80 GB | 原始 BDIB 分钟 bars |
 
-| `execution_history.db` | 6.54 GB | 执行历史（orders/routes/route_events） |
+| `raw_fills.db` | 7.15 GB | 原始成交 |
 
-| `processed_fills.db` | 5.98 GB | 清洗后成交 |
+| `execution_history.db` | 6.54 GB | 执行历史（orders/routes/route_events） |
 
-| `regime.db` | 4.57 GB | Regime 分类 + 归因 |
+| `processed_fills.db` | 5.98 GB | 清洗后成交 |
 
-| `fill_bdib.db` | 1.78 GB | 成交+BDIB 整合（含 `tca_route_summary` 预计算表） |
+| `regime.db` | 4.57 GB | Regime 分类 + 归因 |
 
-| `ticker_registry.db` | 0.03 GB | Ticker 注册 |
+| `fill_bdib.db` | 1.78 GB | 成交+BDIB 整合（含 `tca_route_summary` 预计算表） |
 
-| `fill_fetch_history.db` / `bdib_fetch_history.db` | <1 MB | 拉取审计 |
+| `ticker_registry.db` | 0.03 GB | Ticker 注册 |
 
-| `processed_raw_bdib.db` | 0 GB（已退役） | 仅保留空库文件，写入开关在管道侧 |
+| `fill_fetch_history.db` / `bdib_fetch_history.db` | <1 MB | 拉取审计 |
 
-| **合计** | **约 127.8 GB** | 10 个库键定义见 `data_access/config.py` |
+| `processed_raw_bdib.db` | 0 GB（已退役） | 仅保留空库文件，写入开关在管道侧 |
 
-
+| **合计** | **约 127.8 GB** | 10 个库键定义见 `data_access/config.py` |
 
-### 5.2 选型理由与已知瓶颈
 
-
 
-- **选型**：SQLite（`mode=ro` URI + WAL + busy timeout 30s，`Config.SQLITE_BUSY_TIMEOUT_MS=30_000`）。理由：单一写入方（EMSXDataPipeline 串行日更）+ 本仓库纯读的分析负载，SQLite 免运维、零部署成本；TCA 路由级指标从 `tca_route_summary` **预计算表**读取（查询时禁止实时聚合），将热路径压到单表索引查询。
+### 5.2 选型理由与已知瓶颈
 
-- **已知瓶颈（如实标注）**：① SQLite 单写者模型——若未来多写入方并发则不适用；② `raw_bdib.db` 超 100 GB，全量扫描类查询（如报告导出的 BDIB 缺口附录）耗时长，已有超时降级保护（§8）；③ `MAX_PARALLEL_DATES/TICKERS=1`，管道吞吐为串行；④ 无并发用户数上限控制，多用户同时重查询未做排队。
 
-- **写路径归属**：数据刷新/维护由独立仓库 EMSXDataPipeline Runner（`POST /run`、`GET /status`）执行；触发链见 §3.2。本仓库任何代码不得写入上述库。
 
-
+- **选型**：SQLite（`mode=ro` URI + WAL + busy timeout 30s，`Config.SQLITE_BUSY_TIMEOUT_MS=30_000`）。理由：单一写入方（EMSXDataPipeline 串行日更）+ 本仓库纯读的分析负载，SQLite 免运维、零部署成本；TCA 路由级指标从 `tca_route_summary` **预计算表**读取（查询时禁止实时聚合），将热路径压到单表索引查询。
+
+- **已知瓶颈（如实标注）**：① SQLite 单写者模型——若未来多写入方并发则不适用；② `raw_bdib.db` 超 100 GB，全量扫描类查询（如报告导出的 BDIB 缺口附录）耗时长，已有超时降级保护（§8）；③ `MAX_PARALLEL_DATES/TICKERS=1`，管道吞吐为串行；④ 无并发用户数上限控制，多用户同时重查询未做排队。
+
+- **写路径归属**：数据刷新/维护由独立仓库 EMSXDataPipeline Runner（`POST /run`、`GET /status`）执行；触发链见 §3.2。本仓库任何代码不得写入上述库。
+
+
 
 ---

@@ -365,7 +365,10 @@ class MarketDataEnrichmentService:
         except Exception as e:  # noqa: BLE001 - 网关通道起不来时明确告警
             self._gateway_feed = None
             self._gateway_client = None
-            logger.error("Gateway mktdata feed 启动失败（mode=on，不自动回落直连）: %s", e)
+            logger.error(
+                "Gateway mktdata feed failed to start (mode=on, no automatic direct fallback): %s",
+                e,
+            )
 
     def gateway_mktdata_targets(self) -> Set[str]:
         """订阅集合：订单标的 ∪ 额外标的（与直连 `_update_mktdata_subscriptions` 同源）。"""
@@ -453,7 +456,7 @@ class MarketDataEnrichmentService:
         if dropped:
             self._mktdata_dropped_tickers.update(str(t) for t in dropped)
             logger.warning(
-                "Gateway dropped %d tickers (宽限期到期退订): %s",
+                "Gateway dropped %d tickers (grace period expired): %s",
                 len(dropped),
                 list(dropped)[:5],
             )
@@ -487,8 +490,8 @@ class MarketDataEnrichmentService:
         if result.degraded or result.source == "stale":
             self._gateway_refdata_degraded = True
             logger.warning(
-                "Gateway refdata 返回陈旧值（source=%s, ts=%s）：%d 个证券，"
-                "写缓存前已标记 degraded",
+                "Gateway refdata returned stale values (source=%s, ts=%s): %d securities; "
+                "marked degraded before cache write",
                 result.source,
                 result.ts,
                 len(result.data),

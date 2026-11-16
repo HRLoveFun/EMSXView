@@ -671,6 +671,34 @@ def test_sampler_resubscribes_when_gateway_reports_not_subscribed(tmp_path) -> N
     assert subscribed == [["AAPL US Equity"], ["AAPL US Equity"]]
 
 
+def test_sampler_resubscribes_when_quote_returns_2004(tmp_path) -> None:
+    """015 §10 附带缺陷：2004 与 `_meta.subscribed=false` 同为账本已空的信号。
+
+    网关重启后订阅账本清空，`/quote` 逐标的请求会返回 2004；若不清掉本地
+    `_subscribed`，下一轮不会再 POST /subscriptions，shadow 行会永久
+    `gateway_missing`。
+    """
+    subscribed: list[list[str]] = []
+
+    async def gateway_subscribe(tickers, fields):
+        subscribed.append(list(tickers))
+
+    async def gateway_quote(tickers, fields):
+        raise GatewayError(2004, "no data")
+
+    sampler = gs.ShadowSampler(
+        lambda: {"AAPL US Equity": {"VWAP": 1.0}},
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=("VWAP",),
+        gateway_subscribe=gateway_subscribe,
+    )
+    asyncio.run(sampler.sample_once())  # 2004 → 清空本地订阅记忆
+    asyncio.run(sampler.sample_once())  # 下一轮重新订阅
+
+    assert subscribed == [["AAPL US Equity"], ["AAPL US Equity"]]
+
+
 def test_subscribe_failure_degrades_to_gw_error(tmp_path) -> None:
     async def gateway_subscribe(tickers, fields):
         raise GatewayUnavailable("circuit open")

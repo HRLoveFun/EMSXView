@@ -206,7 +206,7 @@ class GatewayMktdataFeed:
             asyncio.run(self._run())
         except Exception as exc:  # noqa: BLE001 - 守护线程异常不能悄悄消失
             if not self._stop.is_set():
-                logger.exception("GatewayMktdataFeed 异常退出: %s", exc)
+                logger.exception("GatewayMktdataFeed exited unexpectedly: %s", exc)
         finally:
             self._connected = False
             logger.info("GatewayMktdataFeed stopped")
@@ -264,7 +264,7 @@ class GatewayMktdataFeed:
                 self._reconnect_attempts += 1
                 if not self._stop.is_set():
                     logger.warning(
-                        "GatewayMktdataFeed 断链（%s: %s）— %.1fs 后重连（第 %d 次）",
+                        "GatewayMktdataFeed disconnected (%s: %s) - reconnect in %.1fs (attempt %d)",
                         type(exc).__name__,
                         exc,
                         backoff,
@@ -276,7 +276,7 @@ class GatewayMktdataFeed:
                 self._reconnect_attempts += 1
                 if not self._stop.is_set():
                     logger.exception(
-                        "GatewayMktdataFeed 未预期异常（%s）— %.1fs 后重连",
+                        "GatewayMktdataFeed unexpected error (%s) - reconnect in %.1fs",
                         exc,
                         backoff,
                     )
@@ -291,7 +291,7 @@ class GatewayMktdataFeed:
         while not self._stop.is_set():
             # 网关 WS 的 ticker 集合在连接建立时固定：变化即重开
             if set(_normalize(self._targets())) != expected:
-                logger.info("GatewayMktdataFeed 订阅集合变化 — 重开 WS")
+                logger.info("GatewayMktdataFeed subscription set changed - reopening WS")
                 return True
             try:
                 message = await asyncio.wait_for(
@@ -324,7 +324,7 @@ class GatewayMktdataFeed:
             if self._on_heartbeat is not None:
                 self._on_heartbeat(message.ts)
             return
-        logger.debug("GatewayMktdataFeed 忽略未知帧类型: %s", message.type)
+        logger.debug("GatewayMktdataFeed ignoring unknown frame type: %s", message.type)
 
     async def _housekeeping_loop(self) -> None:
         """周期执行注入的维护协程；异常只告警，不中断行情消费。"""
@@ -336,7 +336,7 @@ class GatewayMktdataFeed:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - 维护失败不影响行情
-                logger.warning("GatewayMktdataFeed housekeeping 失败: %s", exc)
+                logger.warning("GatewayMktdataFeed housekeeping failed: %s", exc)
             await self._sleep(self._housekeeping_interval)
 
     async def _sleep(self, seconds: float) -> None:
