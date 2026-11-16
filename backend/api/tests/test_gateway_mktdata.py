@@ -15,6 +15,7 @@ import asyncio
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -173,7 +174,7 @@ def test_feed_freezes_and_marks_stale_after_threshold() -> None:
     now[0] = 60.0
     assert feed.is_stale is True
 
-    feed._connected = True
+    feed._connected_chunks.add(0)
     assert feed.is_stale is False, "连接存活时不应标记陈旧"
 
 
@@ -425,3 +426,40 @@ def test_gateway_fx_and_crncy_queries_update_caches(monkeypatch) -> None:
     assert service.ticker_currencies["AAPL US Equity"] == "USD"
     assert order.currency == "USD", "网关注册的本币必须覆盖订单货币"
     assert service._crncy_queried_tickers == {"AAPL US Equity"}
+
+
+# ── 分块连接（2026-11-16：661 标的 URL 超长被网关 400）─────────────────────
+
+
+def test_chunk_splits_targets_by_size() -> None:
+    from services.gateway_mktdata import _chunk
+
+    assert _chunk(["A", "B", "C", "D", "E"], 2) == [["A", "B"], ["C", "D"], ["E"]]
+    assert _chunk([], 150) == []
+    assert _chunk(["A"], 0) == [["A"], ["B"], ["C"]][:1]
+
+
+def test_feed_opens_one_stream_per_chunk() -> None:
+    """150 个一块：5 个标的、块大小 2 → 3 条 WS，各自带自己的 ticker 子集。"""
+    client = _FakeClient([_FakeStream([]) for _ in range(3)])
+    feed = GatewayMktdataFeed(
+        client,
+        targets=lambda: ["A", "B", "C", "D", "E"],
+        fields=lambda: ["VWAP"],
+        on_quotes=lambda *_a: None,
+        poll_interval=0.05,
+        max_tickers_per_stream=2,
+    )
+    try:
+        feed.start()
+        deadline = time.monotonic() + 2.0
+        while len(client.opened) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        feed.stop()
+
+    assert [tickers for tickers, _fields in client.opened[:3]] == [
+        ["A", "B"],
+        ["C", "D"],
+        ["E"],
+    ]
