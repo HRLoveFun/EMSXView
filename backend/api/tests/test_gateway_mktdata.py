@@ -463,3 +463,14 @@ def test_feed_opens_one_stream_per_chunk() -> None:
         ["C", "D"],
         ["E"],
     ]
+
+
+def test_shadow_extra_tickers_seeded_from_settings(monkeypatch) -> None:
+    """订单集没有 IJ/AU 时，用配置预置固定对照标的（2026-11-17）。"""
+    monkeypatch.setattr(
+        settings,
+        "EMSXVIEW_GATEWAY_SHADOW_EXTRA_TICKERS",
+        "BBCA IJ Equity, BHP AU Equity",
+    )
+    svc = _service(monkeypatch, orders={})
+    assert svc._extra_mktdata_tickers == {"BBCA IJ Equity", "BHP AU Equity"}

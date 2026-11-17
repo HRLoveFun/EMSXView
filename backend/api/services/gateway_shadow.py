@@ -57,6 +57,39 @@ DEFAULT_INTERVAL_SECONDS = 30.0
 DEFAULT_MAX_TICKERS = 50
 
 
+def market_of(ticker: str) -> str:
+    """Bloomberg 复合代码的市场码（`8035 JP Equity` → `JP`）。"""
+    parts = str(ticker or "").split()
+    return parts[-2] if len(parts) >= 2 else "?"
+
+
+def select_tickers(snapshot: dict, max_tickers: int) -> list[str]:
+    """按市场轮转选择样本标的。
+
+    旧实现 `sorted(snapshot)[:N]` 会让数字开头的 JP 代码占满前 50，IJ/AU/欧美
+    永远进不了样本（2026-11-17 实测：订单集 174 个全是 JP，IJ/AU 零样本）。
+    轮转保证每个市场都有代表，§8.2 第 1 项才能按 JP/IJ/AU 分别取证。
+    """
+    if max_tickers <= 0:
+        return []
+    groups: dict[str, list[str]] = {}
+    for ticker in snapshot:
+        groups.setdefault(market_of(ticker), []).append(str(ticker))
+    for items in groups.values():
+        items.sort()
+    selected: list[str] = []
+    while len(selected) < max_tickers:
+        progressed = False
+        for market in sorted(groups):
+            items = groups[market]
+            if items and len(selected) < max_tickers:
+                selected.append(items.pop(0))
+                progressed = True
+        if not progressed:
+            break
+    return selected
+
+
 def _is_numeric(value: Any) -> bool:
     """是否为可比较的数值（排除 bool：`True == 1` 会混进数值分支）。"""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -221,7 +254,7 @@ class ShadowSampler:
         """
         direct_ts = self._clock().isoformat(timespec="milliseconds")
         snapshot = self._direct_snapshot() or {}
-        tickers = sorted(snapshot)[: self._max_tickers]
+        tickers = select_tickers(snapshot, self._max_tickers)
         stats: dict[str, Any] = {
             "tickers": len(tickers),
             "compared": 0,

@@ -108,7 +108,13 @@ class MarketDataEnrichmentService:
         self._mktdata_last_retry: Optional[datetime] = None
         self._mktdata_retry_interval = 300
         # 057 DL-29：额外订阅集（池内标的实时价）；订阅仍在 core 发起，MarketView 无 Bloomberg
-        self._extra_mktdata_tickers: Set[str] = set()
+        # 057 DL-29：额外订阅集（池内标的实时价）；订阅仍在 core 发起，MarketView 无 Bloomberg。
+        # 可由 `EMSXVIEW_GATEWAY_SHADOW_EXTRA_TICKERS` 预置固定对照标的：订单集不含 IJ/AU 时，
+        # shadow 仍需按市场取证（2026-11-17 实测订单集 174 个全为 JP）。
+        seeded = str(getattr(self._settings, "EMSXVIEW_GATEWAY_SHADOW_EXTRA_TICKERS", "") or "")
+        self._extra_mktdata_tickers: Set[str] = {
+            item.strip() for item in seeded.split(",") if item.strip()
+        }
 
         self._fx_discrepancy_threshold = 0.02
         self._fx_scaled_quote_logged: set[str] = set()

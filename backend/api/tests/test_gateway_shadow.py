@@ -854,3 +854,25 @@ def test_gw_error_rows_carry_direct_ts(tmp_path) -> None:
     row = _read_rows(tmp_path)[0]
     assert row["reason"] == "gw_error"
     assert isinstance(row["direct_ts"], str)
+
+
+def test_select_tickers_round_robins_markets() -> None:
+    """JP 数字代码不能挤掉 IJ/AU（2026-11-17 实测问题）。"""
+    from services.gateway_shadow import select_tickers
+
+    snapshot = {f"{1000 + i} JP Equity": {} for i in range(100)}
+    snapshot.update(
+        {
+            "BBCA IJ Equity": {},
+            "TLKM IJ Equity": {},
+            "BHP AU Equity": {},
+            "RIO AU Equity": {},
+        }
+    )
+
+    picked = select_tickers(snapshot, 50)
+
+    assert len(picked) == 50
+    assert "BBCA IJ Equity" in picked
+    assert "BHP AU Equity" in picked
+    assert sum(1 for t in picked if t.endswith(" JP Equity")) < 50
