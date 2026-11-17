@@ -97,6 +97,8 @@ class MarketDataEnrichmentService:
         self._intraday_quotes: Dict[str, dict] = {}
         self._adv5d: Dict[str, float] = {}
         self._mkt_vwap: Dict[str, float] = {}
+        #: 直连侧 VWAP 最后一次更新时刻（影子验收按两侧更新时间对齐用）
+        self._mkt_vwap_ts: Dict[str, str] = {}
 
         self._fx_rates: Dict[str, float] = {}
         self._round_lot_sizes: Dict[str, int] = {}
@@ -284,6 +286,7 @@ class MarketDataEnrichmentService:
             recorder = ShadowRecorder(self._shadow_dir())
             sampler = ShadowSampler(
                 direct_snapshot=self._shadow_direct_snapshot,
+                direct_timestamps=self._shadow_direct_timestamps,
                 gateway_quote=client.quote,
                 recorder=recorder,
                 fields=_SHADOW_FIELDS,
@@ -686,6 +689,14 @@ class MarketDataEnrichmentService:
                 "[MKTDATA PERMFAIL GATEWAY] Updated PX_LAST for %d tickers", updated
             )
 
+    def _shadow_direct_timestamps(self) -> Dict[str, Dict[str, str]]:
+        """影子验收：直连侧每个字段最后一次更新的时刻（仅 VWAP）。"""
+        result: Dict[str, Dict[str, str]] = {}
+        for ticker, ts in list(self._mkt_vwap_ts.items()):
+            if ts:
+                result.setdefault(ticker, {})["VWAP"] = ts
+        return result
+
     def reset(self):
         """清空重连后必然失效的缓存与订阅态。
 
@@ -698,6 +709,7 @@ class MarketDataEnrichmentService:
         self._intraday_quotes = {}
         self._adv5d = {}
         self._mkt_vwap = {}
+        self._mkt_vwap_ts = {}
         self._fx_rates = {}
         self._round_lot_sizes = {}
         self._mktdata_subscribed_tickers = set()
@@ -1159,6 +1171,7 @@ class MarketDataEnrichmentService:
             if msg.hasElement("VWAP"):
                 val = msg.getElementAsFloat("VWAP")
                 self._mkt_vwap[ticker] = val
+                self._mkt_vwap_ts[ticker] = datetime.now().isoformat(timespec="milliseconds")
             if msg.hasElement("PX_ROUND_LOT_SIZE"):
                 val = msg.getElementAsInteger("PX_ROUND_LOT_SIZE")
                 self._round_lot_sizes[ticker] = val
