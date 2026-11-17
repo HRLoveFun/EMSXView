@@ -1,4 +1,4 @@
-# EMSXView backend 看门狗：每 5 分钟由任务计划程序调用。
+﻿# EMSXView backend 看门狗：每 5 分钟由任务计划程序调用。
 #
 # 背景（2026-11-17）：Bloomberg 平台在 00:51 / 15:40 两次掉线后，backend 的
 # blpapi 会话停止重连（`Platform failed 3 consecutive times`），进程仍在但行情
