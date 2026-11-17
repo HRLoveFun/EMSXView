@@ -29,6 +29,10 @@ class Settings:
     EMSXVIEW_GATEWAY_WS_URL: str = os.getenv("EMSXVIEW_GATEWAY_WS_URL", "ws://127.0.0.1:8101")
     # shadow 模式比对结果落盘目录；空 = `<后端工作目录>/logs/gateway_shadow`
     EMSXVIEW_GATEWAY_SHADOW_DIR: str = os.getenv("EMSXVIEW_GATEWAY_SHADOW_DIR", "")
+    # shadow 比对的固定对照标的（逗号分隔）：订单集没有 IJ/AU 时仍能按市场取证
+    EMSXVIEW_GATEWAY_SHADOW_EXTRA_TICKERS: str = os.getenv(
+        "EMSXVIEW_GATEWAY_SHADOW_EXTRA_TICKERS", ""
+    )
 
     # API Configuration
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
