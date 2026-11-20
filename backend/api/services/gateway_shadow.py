@@ -228,6 +228,7 @@ class ShadowSampler:
         gateway_close: Optional[Callable[[], Any]] = None,
         tolerance: float = DEFAULT_TOLERANCE,
         max_tickers: int = DEFAULT_MAX_TICKERS,
+        direct_timestamps: Optional[Callable[[], dict[str, dict[str, str]]]] = None,
         clock: Callable[[], datetime] = datetime.now,
     ) -> None:
         self._direct_snapshot = direct_snapshot
@@ -240,6 +241,7 @@ class ShadowSampler:
         self._subscribed: set[str] = set()
         self._tolerance = float(tolerance)
         self._max_tickers = max(1, int(max_tickers))
+        self._direct_timestamps = direct_timestamps
         self._clock = clock
 
     async def sample_once(self) -> dict[str, Any]:
@@ -254,6 +256,7 @@ class ShadowSampler:
         """
         direct_ts = self._clock().isoformat(timespec="milliseconds")
         snapshot = self._direct_snapshot() or {}
+        timestamps = self._direct_timestamps() if self._direct_timestamps else {}
         tickers = select_tickers(snapshot, self._max_tickers)
         stats: dict[str, Any] = {
             "tickers": len(tickers),
@@ -316,6 +319,9 @@ class ShadowSampler:
                         "gateway_src_ts": gateway_field.src_ts if gateway_field else None,
                         # 网关收到该值的时刻（必有）：排查「网关值旧」还是「两侧值本身不同」
                         "gateway_recv_ts": gateway_field.recv_ts if gateway_field else None,
+                        # 直连侧该字段最后一次更新的时刻（2026-11-18）：验收只比对
+                        # 两侧更新时间差 ≤1s 的样本，排除独立订阅的更新周期错位。
+                        "direct_field_ts": (timestamps.get(ticker) or {}).get(field),
                     }
                 )
         self._recorder.record(rows)

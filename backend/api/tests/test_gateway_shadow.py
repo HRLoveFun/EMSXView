@@ -876,3 +876,26 @@ def test_select_tickers_round_robins_markets() -> None:
     assert "BBCA IJ Equity" in picked
     assert "BHP AU Equity" in picked
     assert sum(1 for t in picked if t.endswith(" JP Equity")) < 50
+
+
+def test_sample_once_records_direct_field_ts(tmp_path) -> None:
+    """直连侧字段更新时间随行落盘：验收按两侧更新时间差对齐（2026-11-18）。"""
+    direct = {"AAPL US Equity": {"VWAP": 200.0}}
+
+    async def gateway_quote(tickers, fields):
+        return {"AAPL US Equity": _quote(VWAP=200.0)}
+
+    sampler = gs.ShadowSampler(
+        lambda: direct,
+        gateway_quote,
+        gs.ShadowRecorder(tmp_path),
+        fields=FIELDS,
+        direct_timestamps=lambda: {
+            "AAPL US Equity": {"VWAP": "2026-11-18T00:00:00.000"}
+        },
+    )
+    asyncio.run(sampler.sample_once())
+
+    rows = _read_rows(tmp_path)
+    vwap = [row for row in rows if row["field"] == "VWAP"][0]
+    assert vwap["direct_field_ts"] == "2026-11-18T00:00:00.000"

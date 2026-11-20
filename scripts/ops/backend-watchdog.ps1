@@ -52,8 +52,22 @@ function Get-ExtraTickers {
     return ''
 }
 
-function Set-ShadowEnv {
-    $env:EMSXVIEW_GATEWAY_MODE = 'shadow'
+function Get-DesiredMode {
+    # 尊重当前部署模式：G1 期间 .env 为 on，重启后不能回落成 shadow
+    $envFile = Join-Path $Repo '.env'
+    if (Test-Path $envFile) {
+        $line = Select-String -Path $envFile -Pattern '^EMSXVIEW_GATEWAY_MODE=(.*)$' |
+            Select-Object -First 1
+        if ($line) {
+            $mode = $line.Matches[0].Groups[1].Value.Trim()
+            if ($mode) { return $mode }
+        }
+    }
+    return 'shadow'
+}
+
+function Set-BackendEnv {
+    $env:EMSXVIEW_GATEWAY_MODE = Get-DesiredMode
     $env:EMSXVIEW_GATEWAY_URL = $GatewayUrl
     $extra = Get-ExtraTickers
     if ($extra) { $env:EMSXVIEW_GATEWAY_SHADOW_EXTRA_TICKERS = $extra }
@@ -65,8 +79,8 @@ if (-not $health) {
         Write-WatchLog "[warn] port $Port is listening but /api/health failed; not starting another instance"
         exit 1
     }
-    Write-WatchLog "[start] backend $Port not running; starting in shadow mode"
-    Set-ShadowEnv
+    Write-WatchLog "[start] backend $Port not running; starting in $(Get-DesiredMode) mode"
+    Set-BackendEnv
     & $ServiceManager start
     $code = $LASTEXITCODE
     if ($code -eq 0) { Remove-Item $State -ErrorAction SilentlyContinue }
@@ -106,8 +120,8 @@ if ($ageMinutes -lt $StaleMinutes) {
     exit 0
 }
 
-Write-WatchLog ("[restart] bloomberg=$status for {0:N1}m; restarting backend in shadow mode" -f $ageMinutes)
-Set-ShadowEnv
+Write-WatchLog ("[restart] bloomberg=$status for {0:N1}m; restarting backend in $(Get-DesiredMode) mode" -f $ageMinutes)
+Set-BackendEnv
 & $ServiceManager restart
 $code = $LASTEXITCODE
 if ($code -eq 0) { Remove-Item $State -ErrorAction SilentlyContinue }

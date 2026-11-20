@@ -474,3 +474,14 @@ def test_shadow_extra_tickers_seeded_from_settings(monkeypatch) -> None:
     )
     svc = _service(monkeypatch, orders={})
     assert svc._extra_mktdata_tickers == {"BBCA IJ Equity", "BHP AU Equity"}
+
+
+def test_shadow_direct_timestamps_track_vwap(monkeypatch) -> None:
+    """直连 VWAP 更新时间供影子验收对齐（2026-11-18）。"""
+    svc = _service(monkeypatch)
+    svc._mkt_vwap["AAA US Equity"] = 1.0
+    svc._mkt_vwap_ts["AAA US Equity"] = "2026-11-18T00:00:00.000"
+
+    assert svc._shadow_direct_timestamps() == {
+        "AAA US Equity": {"VWAP": "2026-11-18T00:00:00.000"}
+    }
