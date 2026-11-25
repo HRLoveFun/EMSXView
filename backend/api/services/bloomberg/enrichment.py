@@ -1082,18 +1082,46 @@ class MarketDataEnrichmentService:
             logger.warning(f"Failed to send {label} refdata request: {e}")
             return False
 
-    def add_mktdata_tickers(self, tickers) -> tuple[set, int, int]:
-        """注册额外 mktdata 订阅标的（057 DL-29：池内标的实时价）。
+    def add_mktdata_tickers(
+        self, tickers, *, now=None, priorities=None,
+    ) -> tuple[set, int, int]:
+        """注册额外 mktdata 订阅标的（057 DL-29；DL-31 补会话过滤与截断）。
 
-        返回 (本次新增, 因上限被拒, 额外订阅总数)。上限由
-        `EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS` 控制；订阅仍只在 core 发起，
-        调用方（MarketView/前端）不直连 Bloomberg。
+        返回 (本次新增, 因上限被拒, 额外订阅总数)。会话过滤与优先级截断
+        见 `add_mktdata_tickers_with_stats`；保留三元组签名供既有调用方。
         """
-        from config import settings
+        accepted, rejected, total, _stats = self._add_mktdata_tickers(
+            tickers, now=now, priorities=priorities,
+        )
+        return accepted, rejected, total
 
-        limit = getattr(settings, "EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS", 200)
-        accepted: set = set()
-        rejected = 0
+    def add_mktdata_tickers_with_stats(
+        self, tickers, *, now=None, priorities=None,
+    ) -> dict:
+        """同 `add_mktdata_tickers`，另返回会话过滤与截断统计（DL-31/218）。
+
+        - 会话过滤：池成员 ∩（会话 open 或距开盘 ≤60min）；未注册市场保留；
+        - 截断：超过 `EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS` 时按
+          「严重度 ↓ → 权重 ↓ → ticker ↑」接受，其余计入 rejected；
+        - `subscription_truncated=true` 表明确有截断，不静默丢。
+        """
+        accepted, rejected, total, stats = self._add_mktdata_tickers(
+            tickers, now=now, priorities=priorities,
+        )
+        return {
+            "accepted": sorted(accepted),
+            "rejected": rejected,
+            "total_extra": total,
+            **stats,
+        }
+
+    def _add_mktdata_tickers(self, tickers, *, now=None, priorities=None):
+        from config import settings
+        from services.market_session import is_session_open_or_soon
+
+        limit = int(getattr(settings, "EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS", 200))
+        session_filtered: list[str] = []
+        candidates: list[str] = []
         for ticker in tickers or []:
             symbol = (ticker or "").strip()
             if not symbol:
@@ -1102,12 +1130,39 @@ class MarketDataEnrichmentService:
                 continue
             if symbol in self._mktdata_permanently_failed:
                 continue
+            if not is_session_open_or_soon(symbol, now_utc=now):
+                session_filtered.append(symbol)
+                continue
+            candidates.append(symbol)
+
+        def _priority_key(symbol: str):
+            meta = (priorities or {}).get(symbol) or {}
+            try:
+                severity = float(meta.get("severity") or 0.0)
+            except (TypeError, ValueError):
+                severity = 0.0
+            try:
+                weight = float(meta.get("weight") or 0.0)
+            except (TypeError, ValueError):
+                weight = 0.0
+            return (-severity, -weight, symbol)
+
+        candidates.sort(key=_priority_key)
+        accepted: set = set()
+        rejected = 0
+        for symbol in candidates:
             if len(self._extra_mktdata_tickers) >= limit:
                 rejected += 1
                 continue
             self._extra_mktdata_tickers.add(symbol)
             accepted.add(symbol)
-        return accepted, rejected, len(self._extra_mktdata_tickers)
+        stats = {
+            "session_filtered": len(session_filtered),
+            "session_filtered_tickers": sorted(session_filtered),
+            "subscription_truncated": rejected > 0,
+            "limit": limit,
+        }
+        return accepted, rejected, len(self._extra_mktdata_tickers), stats
 
     def _update_mktdata_subscriptions(self, sess):
         current_tickers = self._orders_symbols | self._extra_mktdata_tickers

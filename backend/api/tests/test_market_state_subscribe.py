@@ -119,3 +119,36 @@ def test_shadow_direct_snapshot_only_carries_known_fields():
         "AAA": {"CHG_PCT_1D": 1.5, "VOLUME_AVG_5D": 1e6},
         "BBB": {"VOLUME_AVG_5D": 2e6, "VWAP": 10.0},
     }
+
+
+def test_session_filter_applies_to_pool_tickers():
+    from datetime import datetime, timezone
+
+    svc = _svc()
+    # 2026-11-25 08:00 UTC：法兰克福 09:00 CET 开盘；纽约 03:00 EST 未开盘
+    now = datetime(2026, 11, 25, 8, 0, tzinfo=timezone.utc)
+    accepted, rejected, total = svc.add_mktdata_tickers(
+        ["AAPL US Equity", "SAP GY Equity"], now=now,
+    )
+    assert accepted == {"SAP GY Equity"}
+    assert rejected == 0
+    assert total == 1
+
+
+def test_truncation_priority_and_flag(monkeypatch):
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(settings, "EMSXVIEW_MKTDATA_MAX_EXTRA_TICKERS", 1)
+    svc = _svc()
+    now = datetime(2026, 11, 25, 15, 0, tzinfo=timezone.utc)  # 美股盘中
+    result = svc.add_mktdata_tickers_with_stats(
+        ["LOW US Equity", "HIGH US Equity"],
+        now=now,
+        priorities={
+            "HIGH US Equity": {"severity": 2.0},
+            "LOW US Equity": {"severity": 1.0},
+        },
+    )
+    assert result["accepted"] == ["HIGH US Equity"]
+    assert result["rejected"] == 1
+    assert result["subscription_truncated"] is True
