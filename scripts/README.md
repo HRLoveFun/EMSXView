@@ -16,6 +16,10 @@ scripts/
 │   ├── service-manager.ps1     Primary service lifecycle manager
 │   └── cleanup-logs.ps1        Log rotation / purge
 │
+├── qa/                     # 回检 CLI（只读运营 / TCA 库，输出归档 JSON）
+│   ├── shadow_weekly_report.py     影子周报（DL-22/215）
+│   └── signal_lift_report.py       信号与规则月度回检（DL-26/221）
+│
 ├── devtools/               # Developer tooling
 │   ├── export-localstorage-cache.js  Browser storage cache export
 │   └── wt-*.ps1                Git worktree 多任务并行工具集（ADR-0700；wt-gc 负责残留自动清理）
@@ -43,3 +47,5 @@ scripts/
 | 文档地图对账（改文档后）           | `python doc_check.py`（`--strict` 让 WARN 也失败） |
 | 清理门禁（冗余 / 性能热点）        | `python cleanup.py --report`                 |
 | 模块边界审计（CI 同款）            | `python audit_cross_imports.py`              |
+| 影子周报（DL-22）                 | `python qa/shadow_weekly_report.py`          |
+| 信号/规则月度回检（DL-26）         | `python qa/signal_lift_report.py --month YYYYMM` |

@@ -39,8 +39,9 @@ CostView/                          # CostView domain
 │   ├── trader_metrics.py          # 交易员复盘台纯函数（徽章 / KPI / 探针，210 PR-1）
 │   ├── trader_models.py           # 交易员复盘台契约模型（210 PR-1）
 │   ├── trader_service.py          # 交易员复盘台编排（列表 / 详情 / peer / CSV 导出，210）
-│   └── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
-│                                  # anomaly_query · tca_report_html · time_range
+│   ├── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
+│   │                              # anomaly_query · tca_report_html · time_range
+│   └── evaluation/                # 综合评估 · 分层 · 配对 · 排名 · 券商分 · 信号 lift（DL-26）
 ├── tests/                          # 规模跑命令看（python -m pytest CostView/tests/ -q）：
 │                                   #   test_report_metrics 133 / test_monitoring 59 /
 │                                   #   test_tca_query_service 27 / test_data_freshness 11 /
@@ -48,7 +49,8 @@ CostView/                          # CostView domain
 │                                   #   test_cli_entrypoint 3（参数化展开 9）/
 │                                   #   test_golden_samples 1 /
 │                                   #   test_trader_metrics 34 / test_trader_query 15 /
-│                                   #   test_trader_service 39 / test_trader_router 20）
+│                                   #   test_trader_service 39 / test_trader_router 20 /
+│                                   #   test_signal_lift 10）
 ├── scripts/                        # golden 基线生成（gen_golden.py / make_golden_snapshot.py）
 # 注：原 data.migrated.202609022339/（2026-09-02 数据迁移留证，约 145GB，从未入版本库）
 #     已于 2026-09-16 确认数据根稳定指向 ${EMSXVIEW_DATA_DIR}（D:\db）后经用户确认删除；
@@ -106,6 +108,14 @@ python main.py
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
 >
 > **报告口径（2026-11-03 起，`SPEC_VERSION 2026.11.03b`）**：①`tca_route_summary.Amount` 是**委托股数**（非金额），异常明细单列「委托股数」；成交金额（本币/美元）与异常金额门槛均为 `fill × p_avg`（USD 列再乘汇率），零成交路由按 `RouteShares × p_avg × 汇率` 计。②订单参与率**不按组内求和判定**：单路由看自身参与率、多路由看组内最大路由参与率（求和不可加总），`>100%` 标 `par_suspect`、`>1000%` 为 critical。
+
+### 信号与规则月度回检（DL-26/221）
+
+`python scripts/qa/signal_lift_report.py --month YYYYMM` 只读 `tca_route_summary`，输出
+`logs/qa/signal_lift/signal_lift_<start>_<end>.json`：每条告警规则的命中/未命中成本差
+（按日 z 标准化、`Exchange × 名义额五分位` 分层、`OrderId` 聚类 95% CI），并归档规则指纹
+与 `SPEC_VERSION`。成本派生规则（`pnl_vwap_bps` / `intraday_volatility`）照常输出但不进入
+`any_actionable_signal`；订单级规则在路由层标 `available=false`（v0 不伪造）。
 
 ## 筛选交互（UI 约定）
 
