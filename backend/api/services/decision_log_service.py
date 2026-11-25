@@ -127,6 +127,8 @@ async def record_decision(decision: RoutingDecision) -> bool:
                     "participation_pct": c.participation_pct,
                     "strategy_params": c.strategy_params,
                     "rationale": c.rationale,
+                    "quote_spread_bps": c.quote_spread_bps,
+                    "estimated_cost_bps": c.estimated_cost_bps,
                 }
                 for c in decision.candidates
             ],

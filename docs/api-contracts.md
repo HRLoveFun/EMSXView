@@ -287,6 +287,7 @@ export function getAuthHeaders(): HeadersInit {
 |------|------|------|
 | GET | `/api/routing-decisions?order_id=&limit=` | 按订单查询不可变影子决策记录（DL-21/075） |
 | GET | `/api/routing-decisions/coverage?start_date=&end_date=` | 影子运行覆盖率（DL-22/214）：决策数 / 来源分布 / `BLOCK` 硬违例 / 实际路由关联率 / 无建议数 |
+| GET | `/api/routing-decisions/weekly?start_date=&end_date=` | 影子周报（DL-22/215）：一致率 / 改写率与原因分布 / 覆盖率 / 硬违例 / 预期成本（缺估计时 `available=false`） |
 
 开关 `EMSXVIEW_SHADOW_RUN_ENABLED` 默认关闭；关闭时无记录、无副作用。
 

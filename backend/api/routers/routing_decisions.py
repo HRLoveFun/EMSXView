@@ -46,3 +46,20 @@ async def routing_decision_coverage(
         logger.warning("routing decision coverage query failed", exc_info=True)
         return ApiResponse(success=False, error="Routing decision store unavailable")
     return ApiResponse(success=True, data=data)
+
+
+@router.get("/api/routing-decisions/weekly", response_model=ApiResponse)
+async def routing_decision_weekly(
+    start_date: str | None = Query(default=None, max_length=8),
+    end_date: str | None = Query(default=None, max_length=8),
+    user: dict = Depends(verify_token),
+) -> ApiResponse:
+    """影子周报（215）：一致率 / 改写率与原因 / 覆盖率 / 硬违例 / 预期成本。"""
+    from services.shadow_weekly_service import weekly_report
+
+    try:
+        data = await weekly_report(start_date=start_date, end_date=end_date)
+    except Exception:
+        logger.warning("shadow weekly report failed", exc_info=True)
+        return ApiResponse(success=False, error="Routing decision store unavailable")
+    return ApiResponse(success=True, data=data)

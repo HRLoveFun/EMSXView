@@ -46,6 +46,7 @@ ExecutionView/                    # 仓库根级独立模块目录（npm workspa
 - 数据获取：订单 / 路由 / broker / 路由计划的 REST 客户端，`/ws/orders` 实时流与断流降级轮询
 - 状态管理：服务端数据、选择态、页签、筛选、Monitor 条件
 - 渲染与事件处理：四个视图、批量操作、下单/改单/改路由/撤路由、快捷键
+- 影子对照（只读）：选中单个订单时并排展示引擎建议与实际路由（`/api/routing-decisions`），不改变执行路径（DL-22/215）
 - 数据域：`execution_state`（订单与路由运行态），见 [`platform_data/contracts/boundary_registry.py`](../platform_data/contracts/boundary_registry.py)
 
 **Not Owner（不拥有）**
