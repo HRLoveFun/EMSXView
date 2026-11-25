@@ -68,35 +68,39 @@ export function ShadowDecisionPanel({ orderId }: ShadowDecisionPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
-    if (!orderId) {
-      setRecord(null);
+    // 在微任务中触发加载（同 SubOrderReviewPanel），避免 effect 同步路径 setState
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (!orderId) {
+        setRecord(null);
+        setError('');
+        setIsLoading(false);
+        return;
+      }
+      setIsLoading(true);
       setError('');
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError('');
-    apiFetch<{ records: ShadowDecisionRecord[] }>(
-      `/api/routing-decisions?order_id=${encodeURIComponent(orderId)}&limit=1`,
-    )
-      .then(result => {
-        if (cancelled) return;
-        if (result.success && result.data) {
-          setRecord(result.data.records?.[0] ?? null);
-        } else {
-          setRecord(null);
-          setError(result.error || 'Failed to load shadow decision');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRecord(null);
-          setError('Failed to load shadow decision');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+      apiFetch<{ records: ShadowDecisionRecord[] }>(
+        `/api/routing-decisions?order_id=${encodeURIComponent(orderId)}&limit=1`,
+      )
+        .then(result => {
+          if (cancelled) return;
+          if (result.success && result.data) {
+            setRecord(result.data.records?.[0] ?? null);
+          } else {
+            setRecord(null);
+            setError(result.error || 'Failed to load shadow decision');
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRecord(null);
+            setError('Failed to load shadow decision');
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
+    });
     return () => { cancelled = true; };
   }, [orderId]);
 
