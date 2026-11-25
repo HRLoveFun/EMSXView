@@ -13,6 +13,7 @@ from schemas import (
 )
 from deps import verify_token, require_permission, audit_log, get_bloomberg_service, get_broker_storage_service
 from platform_data import get_shared_handoff_exchange
+from platform_data.contracts import broker_param_fields_payload
 
 logger = logging.getLogger("main")
 
@@ -78,6 +79,19 @@ async def get_broker_strategy_info(
         success=True,
         data={"broker": broker, "strategy": strategy, "assetClass": assetClass, "fields": fields},
         message=f"Found {len(fields)} parameters for {broker}/{strategy}",
+    )
+
+
+@router.get("/api/broker-param-fields", response_model=ApiResponse)
+async def get_broker_param_fields(
+    user: dict = Depends(verify_token),
+) -> ApiResponse:
+    """券商参数字段注册表（057 DL-16 收尾）——前端时间/volume cap 字段的单一真相源。"""
+    payload = broker_param_fields_payload()
+    return ApiResponse(
+        success=True,
+        data=payload,
+        message=f"Broker param field registry {payload['version']}",
     )
 
 

@@ -26,9 +26,13 @@ import {
   deriveMarketKey,
 } from '@execution/hooks/use-market-broker-mapping';
 import { useStrategyFields } from '@execution/components/broker-strategy-fields';
-import { getVolumeCapField, VOLUME_CAP_MULTIPLIER } from '@execution/data/broker-volume-cap-mapping';
-import { getStartTimeField, getEndTimeField, isValidTimeFormat } from '@execution/data/broker-time-mapping';
-import { hhmmToEmsxInt } from '@execution/data/broker-common-params';
+import {
+  useBrokerParamFields,
+  timeFieldsFor,
+  volumeCapFieldFor,
+  isIntegerCapBroker,
+} from '@execution/hooks/use-broker-param-fields';
+import { hhmmToEmsxInt, isValidTimeFormat } from '@execution/data/broker-common-params';
 
 import {
   PENDING_ROUTE_STATUSES,
@@ -271,6 +275,8 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   // ── Catalog data ────────────────────────────────────────────────────────
   const { configs } = useBrokerAlgorithms();
   const { allowedFor: allowedBrokersFor } = useMarketBrokerMapping();
+  // 字段名注册表（DL-16/220）：未就绪时时间/volume cap 自动填充显式降级。
+  const { registry: paramFields, error: paramFieldsError } = useBrokerParamFields();
 
   const allBrokers = useMemo(
     () => configs.map(c => c.broker).filter((b, i, a) => a.indexOf(b) === i).sort(),
@@ -587,6 +593,10 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       setError('Pick at least one broker first.');
       return;
     }
+    if (!paramFields) {
+      setError(paramFieldsError || 'Broker parameter registry unavailable; time fields cannot be auto-filled.');
+      return;
+    }
     if (startTime && !isValidTimeFormat(startTime)) {
       setError('Start time must be in HH:MM:SS format.');
       return;
@@ -604,14 +614,9 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       const strat = brokerStrategies[b] || '';
       const setter = fieldSettersRef.current.get(b);
       if (!setter) continue;
-      if (startTime) {
-        const fieldName = getStartTimeField(b, strat);
-        if (fieldName) setter(fieldName, startTime);
-      }
-      if (endTime) {
-        const fieldName = getEndTimeField(b, strat);
-        if (fieldName) setter(fieldName, endTime);
-      }
+      const fields = timeFieldsFor(paramFields, b, strat);
+      if (startTime && fields.start) setter(fields.start, startTime);
+      if (endTime && fields.end) setter(fields.end, endTime);
     }
   };
 
@@ -882,28 +887,37 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       return;
     }
     applyResults(res.data.items);
-    // Auto-set volume cap for each broker based on allocation ratio
-    const INTEGER_CAP_BROKERS = new Set(['EQ-CITI', 'EQ-JPM', 'EQ-UBS', 'EQ-SEB']);
-    for (const b of selectedBrokers) {
-      const r = ratios[b] ?? 0;
-      if (r <= 0) continue;
-      const raw = VOLUME_CAP_MULTIPLIER * r / 100;
-      const rounded3 = Math.round(raw * 1000) / 1000;
-      const cap = INTEGER_CAP_BROKERS.has(b)
-        ? Math.max(1, Math.round(rounded3))
-        : Math.max(1, Math.round(rounded3 * 10) / 10);
-      const capStr = INTEGER_CAP_BROKERS.has(b) ? String(cap) : cap.toFixed(1);
-      const strat = brokerStrategies[b] || '';
-      const fieldName = getVolumeCapField(b, strat);
-      if (fieldName) {
-        const setter = fieldSettersRef.current.get(b);
-        if (setter) setter(fieldName, capStr);
+    // Auto-set volume cap for each broker based on allocation ratio.
+    // 注册表未就绪 → 跳过并明确提示（不静默写错字段）。
+    if (paramFields) {
+      const multiplier = paramFields.volumeCapMultiplier;
+      for (const b of selectedBrokers) {
+        const r = ratios[b] ?? 0;
+        if (r <= 0) continue;
+        const raw = multiplier * r / 100;
+        const rounded3 = Math.round(raw * 1000) / 1000;
+        const integerCap = isIntegerCapBroker(paramFields, b);
+        const cap = integerCap
+          ? Math.max(1, Math.round(rounded3))
+          : Math.max(1, Math.round(rounded3 * 10) / 10);
+        const capStr = integerCap ? String(cap) : cap.toFixed(1);
+        const strat = brokerStrategies[b] || '';
+        const fieldName = volumeCapFieldFor(paramFields, b, strat);
+        if (fieldName) {
+          const setter = fieldSettersRef.current.get(b);
+          if (setter) setter(fieldName, capStr);
+        }
       }
     }
     setSummary(res.data);
     setPhase('review');
     if (res.data.blocked > 0) {
       setError('Some destinations failed pre-trade checks. See the banner for which broker on which order; edit qty and Validate again, or proceed to Submit (blocked items will be skipped).');
+    } else if (!paramFields) {
+      setError(
+        (paramFieldsError || 'Broker parameter registry unavailable.')
+        + ' Volume cap was not auto-filled; set it manually before submit.',
+      );
     }
   };
 

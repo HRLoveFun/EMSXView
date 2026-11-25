@@ -153,7 +153,7 @@ export function getAuthHeaders(): HeadersInit {
 | Auth | `/api/auth` | 混合 | 1 | 用户登录认证 |
 | Orders | `/api/orders`, `/api/executions` | 🔒 | 11 | 订单 CRUD、批量路由、父执行管理 |
 | Routes | `/api/routes` | 🔒 | 5 | 路由管理（查询/修改/取消） |
-| Broker | `/api/broker` | 🔒 | 4 | 券商算法配置 |
+| Broker | `/api/broker` | 🔒 | 10 | 券商算法配置、参数字段注册表与推荐 |
 | Route Plans | `/api/route-plans` | 🔒 | 3 | 路由计划管理 |
 | Market Broker Mapping | `/api/market-broker-mapping` | 🔒 | 2 | 市场-券商映射配置 |
 | MarketView | `/api/marketview` | 🔒 | 2 | 市场走势与股票池数据（快照 / 盘中特征） |
@@ -246,10 +246,16 @@ export function getAuthHeaders(): HeadersInit {
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/broker/algorithms` | 获取券商算法列表（JSON 文件缓存） |
-| GET | `/api/broker/algorithms?broker=&asset=` | 按券商/资产过滤算法 |
-| GET | `/api/broker/strategies` | 获取所有算法策略 |
-| GET | `/api/broker/strategies/{strategy_id}` | 获取特定策略详情 |
+| GET | `/api/trader-info` | 终端交易员身份 |
+| GET | `/api/asset-class` | 按 ticker 解析 EMSX 资产类别 |
+| GET | `/api/broker-strategies` | 券商可用策略列表 |
+| GET | `/api/broker-strategy-info` | 券商×策略参数字段详情 |
+| GET | `/api/broker-param-fields` | 参数字段注册表（时间/volume cap 字段名，只读；DL-16/220） |
+| GET | `/api/brokers` | 资产类别下的可用券商 |
+| GET | `/api/broker-algorithms` | 已存储的券商算法配置 |
+| POST | `/api/broker-algorithms/refresh` | 从 Bloomberg 刷新券商算法配置 |
+| GET | `/api/broker-algorithms/status` | 券商算法配置存储状态 |
+| GET | `/api/broker-recommendations` | CostView 券商/策略推荐（只读） |
 
 ### 5.6 Route Plans Router (`🔒`)
 
