@@ -127,6 +127,12 @@ export function BatchRouteOrderDialog({
           onStartTimeChange={s.setStartTime}
           onEndTimeChange={s.setEndTime}
           onApplyTimeToAll={s.applyTimeToAll}
+          prefillUsed={s.prefillUsed}
+          prefillLoading={s.prefillLoading}
+          prefillMessage={s.prefillMessage}
+          rewriteReason={s.rewriteReason}
+          onPrefill={s.prefillFromShadow}
+          onRewriteReasonChange={s.setRewriteReason}
         />
 
         {/* ── Quick-fill toolbar ────────────────────────────────── */}

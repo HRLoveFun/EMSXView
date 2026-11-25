@@ -221,7 +221,7 @@ export function getAuthHeaders(): HeadersInit {
 | 方法 | 路径 | 响应类型 | 说明 |
 |------|------|----------|------|
 | POST | `/api/orders/batch-update` | JSON | 批量更新多订单 |
-| POST | `/api/orders/batch-route` | JSON / NDJSON | 批量路由（dryRun=true 返回 JSON，false 返回 NDJSON 流） |
+| POST | `/api/orders/batch-route` | JSON / NDJSON | 批量路由（dryRun=true 返回 JSON，false 返回 NDJSON 流）；item 可选 `decisionId` / `rewriteReason`（DL-25/219） |
 
 #### 父级执行 (算法交易)
 

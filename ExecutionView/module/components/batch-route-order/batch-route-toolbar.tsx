@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { tifOptions } from './types';
+import { REWRITE_REASON_OPTIONS } from '@execution/types';
 import type { TimeInForce } from '@execution/types';
 import type { BatchRouteToolbarProps } from './types';
 
@@ -26,9 +27,52 @@ export function BatchRouteToolbar({
   onStartTimeChange,
   onEndTimeChange,
   onApplyTimeToAll,
+  prefillUsed,
+  prefillLoading,
+  prefillMessage,
+  rewriteReason,
+  onPrefill,
+  onRewriteReasonChange,
 }: BatchRouteToolbarProps) {
   return (
     <>
+      {/* ── Shadow prefill + rewrite reason (DL-25/219) ─────────── */}
+      <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-secondary/20 border border-border rounded text-xs">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={onPrefill}
+          disabled={!editable || prefillLoading}
+          title="Prefill brokers and ratios from the latest shadow decision"
+        >
+          {prefillLoading ? 'Prefilling…' : 'Prefill from shadow'}
+        </Button>
+        {prefillUsed && (
+          <>
+            <Label className="text-xs">Rewrite reason</Label>
+            <Select
+              value={rewriteReason}
+              onValueChange={onRewriteReasonChange}
+              disabled={!editable}
+            >
+              <SelectTrigger className="h-7 w-[190px] text-xs">
+                <SelectValue placeholder="Select reason" />
+              </SelectTrigger>
+              <SelectContent>
+                {REWRITE_REASON_OPTIONS.map(reason => (
+                  <SelectItem key={reason} value={reason}>{reason}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        )}
+        {prefillMessage && (
+          <span className="text-muted-foreground">{prefillMessage}</span>
+        )}
+      </div>
+
       {/* ── TIF + notes ─────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-3">
         <div>

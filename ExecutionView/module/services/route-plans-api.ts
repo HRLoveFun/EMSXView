@@ -4,7 +4,7 @@ import type {
   RoutePlan, CreateRoutePlanRequest, UpdateRoutePlanRequest,
   SubOrderProposal, BatchConfirmRequest, TestMatchResponse,
   BatchRouteOrderRequest, BatchModifyRouteRequest,
-  BatchOperationItemResult, BatchOperationResult,
+  BatchOperationItemResult, BatchOperationResult, ShadowDecisionRecord,
 } from '@execution/types';
 import type { ApiResponse } from '@shared/types';
 import { apiFetch, streamNdjsonBatch } from './http-client';
@@ -90,6 +90,15 @@ export const routePlansApi = {
 // ============================================================
 
 export const batchApi = {
+  /** DL-25/219：读取某订单最新的影子决策（预填用，只读） */
+  async getRoutingDecisions(
+    orderId: string,
+  ): Promise<ApiResponse<{ records: ShadowDecisionRecord[] }>> {
+    return apiFetch<{ records: ShadowDecisionRecord[] }>(
+      `/api/routing-decisions?order_id=${encodeURIComponent(orderId)}&limit=1`,
+    );
+  },
+
   async dryRunBatchRoute(request: BatchRouteOrderRequest): Promise<ApiResponse<BatchOperationResult>> {
     return apiFetch<BatchOperationResult>('/api/orders/batch-route', {
       method: 'POST',

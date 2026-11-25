@@ -16,7 +16,9 @@ import type {
   Violation,
   Route,
 } from '@execution/types';
+import type { ShadowDecisionRecord } from '@execution/types';
 import { apiService } from '@execution/services/execution-api';
+import { derivePrefill } from './prefill';
 import { useBrokerAlgorithms } from '@execution/hooks/use-broker-algorithms';
 import {
   useMarketBrokerMapping,
@@ -125,6 +127,13 @@ interface UseBatchRouteStateReturn {
 
   // ── Workflow actions ──────────────────────────────────────────────
   buildRequest: (dryRun: boolean) => BatchRouteOrderRequest;
+  prefillFromShadow: () => Promise<void>;
+  prefillLoading: boolean;
+  prefillUsed: boolean;
+  prefillMessage: string;
+  prefillParams: Record<string, Record<string, unknown>>;
+  rewriteReason: string;
+  setRewriteReason: (v: string) => void;
   runValidation: () => Promise<void>;
   runSubmit: () => Promise<void>;
   close: () => void;
@@ -162,6 +171,13 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   const [releaseTime, setReleaseTime] = useState('');
   // Per-broker allocation ratios (%). Keyed by broker code.
   const [ratios, setRatios] = useState<Record<string, number>>({});
+  // DL-25/219: shadow prefill + trader rewrite reason
+  const [prefillUsed, setPrefillUsed] = useState(false);
+  const [prefillLoading, setPrefillLoading] = useState(false);
+  const [prefillMessage, setPrefillMessage] = useState('');
+  const [prefillParams, setPrefillParams] = useState<Record<string, Record<string, unknown>>>({});
+  const [shadowDecisionIds, setShadowDecisionIds] = useState<Record<string, string>>({});
+  const [rewriteReason, setRewriteReason] = useState('');
 
   // ── Broker ratio helpers ───────────────────────────────────────────────
   const ratioSum = useMemo(
@@ -697,6 +713,8 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
           orderId: o.id,
           clientKey: clientKeyOf(o.id, b),
           override,
+          ...(shadowDecisionIds[o.id] ? { decisionId: shadowDecisionIds[o.id] } : {}),
+          ...(prefillUsed && rewriteReason ? { rewriteReason } : {}),
         });
       }
     }
@@ -707,6 +725,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   // ── Validation gate ─────────────────────────────────────────────────────
   const canValidate = useMemo(() => {
     if (selectedOrders.length === 0) return false;
+    if (prefillUsed && !rewriteReason) return false;
     if (selectedBrokers.length === 0) return false;
     if (orderMarkets.length > 1) return false;
     for (const o of selectedOrders) {
@@ -726,7 +745,7 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       if (total > effectiveRemainingOf(o)) return false;
     }
     return true;
-  }, [selectedOrders, selectedBrokers, rows, effectiveRemainingOf, orderMarkets]);
+  }, [selectedOrders, selectedBrokers, rows, effectiveRemainingOf, orderMarkets, prefillUsed, rewriteReason]);
 
   // ── Derived result details ──────────────────────────────────────────────
   const blockedDetails = useMemo(() => {
@@ -819,6 +838,39 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
   };
 
   // ── Workflow actions ────────────────────────────────────────────────────
+  const prefillFromShadow = useCallback(async () => {
+    if (selectedOrders.length === 0) return;
+    setPrefillLoading(true);
+    setPrefillMessage('');
+    try {
+      const records: Record<string, ShadowDecisionRecord | null> = {};
+      for (const order of selectedOrders) {
+        const res = await apiService.getRoutingDecisions(order.id);
+        records[order.id] = res.success && res.data?.records?.length
+          ? res.data.records[0]
+          : null;
+      }
+      const derived = derivePrefill(records);
+      if (derived.brokers.length === 0) {
+        setPrefillMessage('No shadow decision for the selected orders; configuration unchanged.');
+        return;
+      }
+      setSelectedBrokers(derived.brokers);
+      setRatios(derived.ratios);
+      setBrokerStrategies(prev => ({ ...prev, ...derived.strategies }));
+      setShadowDecisionIds(derived.decisionIds);
+      setPrefillParams(derived.paramsByBroker);
+      setPrefillUsed(true);
+      setPrefillMessage(
+        `Prefilled ${derived.brokers.length} broker(s) from ${derived.ordersWithDecision} order(s). Review and confirm.`,
+      );
+    } catch {
+      setPrefillMessage('Prefill failed; existing configuration unchanged.');
+    } finally {
+      setPrefillLoading(false);
+    }
+  }, [selectedOrders]);
+
   const runValidation = async () => {
     setError('');
     setPhase('submitting');
@@ -917,7 +969,9 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
     // Quick-fill / ratio actions
     applyPercentQty, applyPercentToBroker, applyTimeToAll, applyRatios,
     // Workflow actions
-    buildRequest, runValidation, runSubmit, close,
+    buildRequest, prefillFromShadow, prefillLoading, prefillUsed, prefillMessage,
+    prefillParams, rewriteReason, setRewriteReason,
+    runValidation, runSubmit, close,
     // Misc
     editable, registerParamsBuilder, registerFieldSetter, paramsCacheRef, cacheKey,
   };
