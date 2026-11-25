@@ -28,6 +28,8 @@ SCORECARD_COHORTS: tuple[str, ...] = (
     "strategy",
     "broker_strategy",
     "asset_class",
+    # 212（DL-19）：意图 × 算法族；意图可选，缺失记 UNKNOWN，不做反推
+    "intent_family",
     "time_of_day",
     "liquidity_adv20",
     "volatility",
@@ -271,7 +273,7 @@ class TcaReport:
 @dataclass
 class ScorecardFilters:
     """Filter specification for a broker/strategy scorecard query."""
-    cohort: str = "broker_strategy"
+    cohort: str = "intent_family"
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     broker: Optional[str] = None
@@ -302,6 +304,9 @@ class ScorecardCohortMetrics:
     data_quality_ratio: float = 0.0
     sample_size_warning: bool = False
     anomaly_flags: list[str] = field(default_factory=list)
+    # 212（DL-19）：intent_family cohort 的附加披露；其它 cohort 留空
+    intent_source: str = ""
+    algo_family: str = ""
 
 
 @dataclass

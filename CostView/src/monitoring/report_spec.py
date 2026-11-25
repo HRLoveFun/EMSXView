@@ -23,7 +23,9 @@ from . import report_measure as rm
 #: 2026.11.04b：210 §3.6.2 —— KPI 之后新增交易员执行摘要，执行方排行随之前移
 #: 2026.11.25：057 DL-19 / 211 —— 评估控制变量去后验化：规模改用 RouteShares、
 #: 时段改用 route_as_of_time + 会话相对分桶，删除 par_rate / |pnl_vwap| 两条后验兜底
-SPEC_VERSION = "2026.11.25"
+#: 2026.11.25b：057 DL-19 / 212 —— 新增 intent_family cohort（意图可选，缺失记
+#: UNKNOWN，不做算法族反推）；scorecard 默认 cohort 改为 intent_family
+SPEC_VERSION = "2026.11.25b"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
