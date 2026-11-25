@@ -1,10 +1,11 @@
 import { useState, useCallback, useMemo } from 'react';
-import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown } from 'lucide-react';
+import { ListOrdered, GitBranch, Play, X as XIcon, Keyboard, ChevronDown, Scale } from 'lucide-react';
 import { OrderTable } from './OrderTable';
 import { RouteTable } from './RouteTable';
 import { BatchOperationPanel } from './BatchOperationPanel';
 import { AlgoLaunchDialog } from '@execution/components/algo-launch-dialog';
 import { SubOrderReviewPanel } from '@execution/components/sub-order-review-panel';
+import { ShadowDecisionPanel } from '@execution/components/shadow-decision-panel';
 import { useTradeHotkeys, HotkeyCheatsheet } from '@execution/hooks/use-trade-hotkeys';
 import { useBoardNavigation } from '@execution/hooks/use-board-navigation';
 import type {
@@ -53,6 +54,7 @@ export function ExecutionBoard({
   const [algoLaunchOrder] = useState<Order | null>(null);
   const [isAlgoDialogOpen, setIsAlgoDialogOpen] = useState(false);
   const [showSubOrderPanel, setShowSubOrderPanel] = useState(false);
+  const [showShadowPanel, setShowShadowPanel] = useState(false);
   const [pendingProposalCount] = useState(0);
 
   const handleAlgoConfirm = useCallback(async (request: CreateParentExecutionRequest) => {
@@ -71,6 +73,8 @@ export function ExecutionBoard({
 
   const isRouteFiltered = selectedOrders.size > 0;
   const selectedOrderCount = selectedOrders.size;
+  // 影子对照：恰好选中 1 个订单时才展示（215）
+  const shadowOrderId = selectedOrders.size === 1 ? Array.from(selectedOrders)[0] : null;
 
   const {
     activePane, setActivePane,
@@ -158,6 +162,13 @@ export function ExecutionBoard({
           )}
         </button>
         <button
+          onClick={() => setShowShadowPanel(v => !v)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          title="Shadow decision: engine suggestion vs actual routes"
+        >
+          <Scale className="h-3 w-3" /> Shadow
+        </button>
+        <button
           onClick={() => setCheatsheetOpen(true)}
           className={`inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground ${algoOrderCount > 0 ? 'ml-2' : 'ml-auto'}`}
           title="Show keyboard shortcuts (?)"
@@ -223,6 +234,13 @@ export function ExecutionBoard({
             currentTrader={currentTrader}
             onRefresh={onRefresh}
           />
+        </section>
+      )}
+
+      {/* ── Shadow decision side-by-side (215, read-only) ─────────── */}
+      {showShadowPanel && (
+        <section className="flex flex-col min-h-[100px] max-h-[35%] shrink-0 rounded-md border p-3 overflow-y-auto bg-muted/10">
+          <ShadowDecisionPanel orderId={shadowOrderId} />
         </section>
       )}
 
