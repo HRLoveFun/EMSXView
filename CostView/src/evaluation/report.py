@@ -45,6 +45,7 @@ from .comparability import (
 from .governance import evaluation_metadata
 from .pairing import d1_section
 from .power import minimum_detectable_effect
+from .ranking import rank_brokers
 from .stats_tests import METHODS, adjust_pvalues, compare_groups, mean_difference_ci
 from .stratified import MIN_STRATUM_SAMPLE, stratified_difference
 
@@ -386,6 +387,10 @@ def build_evaluation_report(
         "pairing": d1_section(
             list(routes), env_by_route,
             cost_key=BENCHMARK_METRICS[PRIMARY_BENCHMARK],
+        ),
+        # 216（DL-23）：聚类推断与收缩排名（券商排名 v2）
+        "ranking": rank_brokers(
+            list(routes), metric=BENCHMARK_METRICS[PRIMARY_BENCHMARK],
         ),
     }
     return {
