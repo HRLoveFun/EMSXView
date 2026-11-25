@@ -157,6 +157,7 @@ export function getAuthHeaders(): HeadersInit {
 | Route Plans | `/api/route-plans` | 🔒 | 3 | 路由计划管理 |
 | Market Broker Mapping | `/api/market-broker-mapping` | 🔒 | 2 | 市场-券商映射配置 |
 | MarketView | `/api/marketview` | 🔒 | 2 | 市场走势与股票池数据（快照 / 盘中特征） |
+| Routing Decisions | `/api/routing-decisions` | 🔒 | 2 | 影子决策记录查询与覆盖率（DL-21/075、DL-22/214） |
 | Realtime | `/ws` | 🔒 | 1 | WebSocket 实时订单/路由流 |
 | Debug | `/api/debug` | 🔒 | 2 | 调试端点 |
 
@@ -273,10 +274,21 @@ export function getAuthHeaders(): HeadersInit {
 
 ### 5.9 Debug Router (`🔒`)
 
+
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/debug/memory` | 内存诊断信息 |
 | GET | `/api/debug/subscription-state` | EMSX 订阅状态详情 |
+
+### 5.10 Routing Decisions Router (`🔒`)
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/routing-decisions?order_id=&limit=` | 按订单查询不可变影子决策记录（DL-21/075） |
+| GET | `/api/routing-decisions/coverage?start_date=&end_date=` | 影子运行覆盖率（DL-22/214）：决策数 / 来源分布 / `BLOCK` 硬违例 / 实际路由关联率 / 无建议数 |
+
+开关 `EMSXVIEW_SHADOW_RUN_ENABLED` 默认关闭；关闭时无记录、无副作用。
 
 ---
 

@@ -14,6 +14,7 @@ WAL / busy_timeout / foreign_keys，见 _apply_sqlite_pragmas。
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,6 +22,8 @@ from typing import AsyncIterator
 
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DATABASE_URL = "postgresql+asyncpg://emsx:emsx@postgres:5432/emsx"
 
@@ -116,6 +119,41 @@ async def check_database_connection() -> tuple[bool, str]:
         return False, str(exc)
 
 
+async def _ensure_decision_columns(conn) -> None:
+    """214：存量 ``routing_decisions`` 表补 ``source`` / ``updated_at``（幂等）。
+
+    ``create_all`` 不会给已存在的表加列；这里做最小化迁移。失败只告警，
+    影子记录写入会因缺列返回 False，不阻断主服务。
+    """
+    try:
+        if conn.dialect.name == "sqlite":
+            result = await conn.execute(text("PRAGMA table_info(routing_decisions)"))
+            columns = {row[1] for row in result.fetchall()}
+            if "source" not in columns:
+                await conn.execute(
+                    text("ALTER TABLE routing_decisions ADD COLUMN source VARCHAR(24) DEFAULT 'ENGINE'")
+                )
+            if "updated_at" not in columns:
+                await conn.execute(
+                    text("ALTER TABLE routing_decisions ADD COLUMN updated_at DATETIME")
+                )
+        elif conn.dialect.name == "postgresql":
+            await conn.execute(
+                text("ALTER TABLE routing_decisions ADD COLUMN IF NOT EXISTS source VARCHAR(24) DEFAULT 'ENGINE'")
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE routing_decisions ADD COLUMN IF NOT EXISTS "
+                    "updated_at TIMESTAMP WITH TIME ZONE"
+                )
+            )
+    except Exception:
+        logger.warning(
+            "routing_decisions column migration failed (shadow records may degrade)",
+            exc_info=True,
+        )
+
+
 async def initialize_database() -> tuple[bool, str]:
     try:
         from models.execution_state import Base
@@ -131,6 +169,7 @@ async def initialize_database() -> tuple[bool, str]:
         engine = get_engine()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await _ensure_decision_columns(conn)
         return True, "schema initialized"
     except Exception as exc:  # pragma: no cover - runtime environment dependent
         return False, str(exc)

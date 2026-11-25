@@ -79,6 +79,10 @@ class EMSXSubscriptionEngine:
         # 成交反馈回调 (S9/039)：路由带成交量时触发调度驱动回填切片
         self._fill_callbacks: list = []
 
+        # 影子运行回调（214）：订单/路由事件投递到主循环，供 shadow_run_service 旁路采集
+        self._order_callbacks: list = []
+        self._route_callbacks: list = []
+
     def set_main_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
         """注入主事件循环引用（main.py lifespan startup 中调用）。"""
         self._main_loop = loop
@@ -420,6 +424,9 @@ class EMSXSubscriptionEngine:
             final_order = self._orders.get(seq_key)
             if final_order and self._repo_provider and self._repo_provider.is_active:
                 self._schedule_persist_order(final_order)
+            # 214：影子运行器按订单版本去重，这里无需按 event_status 过滤
+            if final_order:
+                self._notify_order_callbacks(final_order)
 
         except Exception as e:
             logger.warning(f"Error processing subscription message: {e}")
@@ -516,6 +523,9 @@ class EMSXSubscriptionEngine:
                 # 成交反馈接线 (S9/039)：路由带成交量时通知调度驱动回填切片
                 if final_route and getattr(final_route, "lastShares", 0):
                     self._notify_fill_callbacks(final_route)
+                # 214：实际路由事件 → 影子运行器关联
+                if final_route:
+                    self._notify_route_callbacks(final_route)
 
         except Exception as e:
             logger.warning(f"Error processing route message: {e}")
@@ -546,6 +556,30 @@ class EMSXSubscriptionEngine:
             return
         for cb in self._fill_callbacks:
             self._dispatch_to_main_loop(cb(route_id, cumulative))
+
+    # ── Shadow-run callbacks (214 / DL-22) ─────────────────────────────
+
+    def register_order_callback(self, callback) -> None:
+        """注册订单事件回调：callback(order) -> coroutine（影子运行触发）。"""
+        self._order_callbacks.append(callback)
+
+    def register_route_callback(self, callback) -> None:
+        """注册路由事件回调：callback(route) -> coroutine（实际路由关联）。"""
+        self._route_callbacks.append(callback)
+
+    def _notify_order_callbacks(self, order) -> None:
+        for callback in self._order_callbacks:
+            try:
+                self._dispatch_to_main_loop(callback(order))
+            except Exception:
+                logger.error("Order shadow callback dispatch failed", exc_info=True)
+
+    def _notify_route_callbacks(self, route) -> None:
+        for callback in self._route_callbacks:
+            try:
+                self._dispatch_to_main_loop(callback(route))
+            except Exception:
+                logger.error("Route shadow callback dispatch failed", exc_info=True)
 
     # ── Order parsing ──────────────────────────────────────────────────
 

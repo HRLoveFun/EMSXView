@@ -110,6 +110,11 @@ class _EngineRepo:
 _engine_repo = _EngineRepo()
 
 
+def get_engine_repo() -> "_EngineRepo":
+    """影子运行器共享的路由计划仓库（057 DL-22/214）。"""
+    return _engine_repo
+
+
 async def _create_proposals(pds: list[dict]) -> list[dict]:
     """注册新建议——持久化优先 (S8/038)。
 
