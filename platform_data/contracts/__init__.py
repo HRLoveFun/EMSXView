@@ -119,6 +119,14 @@ from .routing_decision import (
     RoutingDecision,
 )
 
+# Broker score contracts（057 DL-24/217：分项得分快照）
+from .broker_score import (
+    BROKER_SCORE_VERSION,
+    SCORE_COMPONENTS,
+    BrokerScoreSnapshot,
+    ScoreComponent,
+)
+
 # Param-strategy contracts（057 DL-18/074：意图驱动的参数规则）
 from .param_strategy import (
     DEFAULT_LIMIT_SIGMA,

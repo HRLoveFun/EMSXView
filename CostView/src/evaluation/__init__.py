@@ -36,6 +36,7 @@ from .comparability import (
     total_variation_distance,
     worst_pairwise_tvd,
 )
+from .broker_score import build_broker_scores
 from .cost_model import (
     DEFAULT_MIN_OBSERVATIONS,
     ImpactModel,
@@ -65,6 +66,7 @@ from .report import (
     describe_values,
     evaluate_dimension,
 )
+from .ranking import rank_brokers
 from .stats_tests import (
     CHI2_BUCKETS,
     METHODS,
@@ -113,6 +115,7 @@ __all__ = [
     "achieved_power",
     "adjust_pvalues",
     "assert_governance_complete",
+    "build_broker_scores",
     "build_evaluation_report",
     "clean_values",
     "compare_groups",
@@ -123,6 +126,7 @@ __all__ = [
     "evaluation_metadata",
     "fit_impact_model",
     "mean_difference_ci",
+    "rank_brokers",
     "minimum_detectable_effect",
     "missing_metadata_keys",
     "power_summary",

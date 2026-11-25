@@ -492,6 +492,50 @@ async def evaluation_report(request: EvaluationReportRequest):
     )
 
 
+@router.get("/api/tca/broker-scores", response_model=EvaluationReportResponse)
+async def broker_scores(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    broker: Optional[str] = None,
+    algo: Optional[str] = None,
+):
+    """券商分项得分快照（DL-24/217）；只出分项，不合成（D-5）。"""
+    if not DataAccessConfig.TCA_EVAL_ENABLED:
+        return EvaluationReportResponse(
+            success=True,
+            data={"enabled": False, "snapshots": []},
+            message="评估层未启用 (TCA_EVAL_ENABLED=0)；不提供未校验的分项得分。",
+        )
+
+    filters = ScorecardFilters(
+        start_date=start_date, end_date=end_date, broker=broker, algo=algo,
+    )
+    try:
+        data = await run_bounded(_analytics.build_broker_scores, filters)
+    except QueryTimeoutError as exc:
+        raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "data_source_unavailable",
+                "message": f"CostView database not found: {exc}. Run the data pipeline first.",
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error(f"Broker scores failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Broker score error: {exc}")
+
+    data["enabled"] = True
+    return EvaluationReportResponse(
+        success=True,
+        data=data,
+        message=f"券商分项快照：{len(data.get('snapshots') or [])} 个券商",
+    )
+
+
 # ─── WBS-08 handoff contract: CostView → ExecutionView ───────────────────────
 
 

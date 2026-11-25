@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import statistics
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional, Sequence
 
@@ -57,7 +58,10 @@ from .evaluation import (
     BENCHMARK_METRICS,
     DEFAULT_MIN_GROUP_SAMPLE,
     DEFAULT_REPORT_BOOTSTRAP,
+    PRIMARY_BENCHMARK,
+    build_broker_scores,
     build_evaluation_report,
+    rank_brokers,
 )
 
 logger = logging.getLogger(__name__)
@@ -302,6 +306,26 @@ class TcaQueryService:
             bootstrap=bootstrap,
         )
         payload["filters"] = _scorecard_filters_to_dict(filters)
+        payload["total_routes_considered"] = len(routes)
+        payload["total_routes_capped"] = capped
+        payload["data_source_warning"] = warning
+        return payload
+
+    def build_broker_scores(
+        self, filters: ScorecardFilters, *, max_routes: int = 2000,
+    ) -> dict[str, Any]:
+        """券商分项得分快照（DL-24/217）；与评估报告共用取数口径。"""
+        routes, capped, warning = self._collect_routes(filters, max_routes)
+        ranking = rank_brokers(routes, metric=BENCHMARK_METRICS[PRIMARY_BENCHMARK])
+        payload = build_broker_scores(
+            routes,
+            ranking,
+            as_of=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            window_start=filters.start_date or "",
+            window_end=filters.end_date or "",
+            spec_version=REPORT_SPEC_VERSION,
+            benchmark=PRIMARY_BENCHMARK,
+        )
         payload["total_routes_considered"] = len(routes)
         payload["total_routes_capped"] = capped
         payload["data_source_warning"] = warning
