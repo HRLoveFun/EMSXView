@@ -27,7 +27,8 @@ from . import report_measure as rm
 #: UNKNOWN，不做算法族反推）；scorecard 默认 cohort 改为 intent_family
 #: 2026.11.25c：057 DL-20 / 213 —— 新增订单内配对评估 D1（同单同窗多券商）
 #: 2026.11.25d：057 DL-23 / 216 —— 新增聚类推断与收缩排名（券商排名 v2）
-SPEC_VERSION = "2026.11.25d"
+#: 2026.11.25e：057 DL-24 / 217 —— 新增 BrokerScoreSnapshot 分项得分快照
+SPEC_VERSION = "2026.11.25e"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {

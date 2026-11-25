@@ -42,6 +42,7 @@ from .comparability import (
     dimension_label,
     strata_key_of,
 )
+from .broker_score import build_broker_scores
 from .governance import evaluation_metadata
 from .pairing import d1_section
 from .power import minimum_detectable_effect
@@ -360,6 +361,10 @@ def build_evaluation_report(
 ) -> dict[str, Any]:
     """组装综合评估报告（单一数据源，供 Report 内嵌章节与独立 Tab 共用）。"""
     dims = tuple(dimensions)
+    # 216/217：同一次排名结果同时供 ranking 与 broker_scores，避免重复计算
+    ranking_payload = rank_brokers(
+        list(routes), metric=BENCHMARK_METRICS[PRIMARY_BENCHMARK],
+    )
     sections = {
         "credibility": {
             "total_routes": len(routes),
@@ -389,8 +394,16 @@ def build_evaluation_report(
             cost_key=BENCHMARK_METRICS[PRIMARY_BENCHMARK],
         ),
         # 216（DL-23）：聚类推断与收缩排名（券商排名 v2）
-        "ranking": rank_brokers(
-            list(routes), metric=BENCHMARK_METRICS[PRIMARY_BENCHMARK],
+        "ranking": ranking_payload,
+        # 217（DL-24）：券商分项得分快照（不合成综合评分，D-5）
+        "broker_scores": build_broker_scores(
+            list(routes),
+            ranking_payload,
+            as_of=_dt.datetime.now().isoformat(timespec="seconds"),
+            window_start=start_date,
+            window_end=end_date,
+            spec_version=_spec_version(),
+            benchmark=PRIMARY_BENCHMARK,
         ),
     }
     return {
