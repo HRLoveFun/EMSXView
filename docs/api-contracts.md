@@ -272,6 +272,7 @@ export function getAuthHeaders(): HeadersInit {
 |------|------|------|
 | GET | `/api/marketview/snapshot?pool_id=&limit=&sort_by=` | 市场快照数据 |
 | GET | `/api/marketview/intraday-features?tickers=&bucket_minutes=` | 日内特征数据 |
+| POST | `/api/market-state/subscribe` | 注册池内额外 mktdata 订阅；请求 `tickers`（可选 `priorities`），响应含 `accepted/rejected/total_extra`、`session_filtered`、`subscription_truncated`（DL-31/218） |
 
 ### 5.9 Debug Router (`🔒`)
 

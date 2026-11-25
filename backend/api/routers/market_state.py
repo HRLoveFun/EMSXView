@@ -80,6 +80,8 @@ async def get_market_state_snapshot(
 
 class SubscribeRequest(BaseModel):
     tickers: list[str] = Field(default_factory=list, max_length=500)
+    #: 可选：ticker → {severity, weight}；用于超上限时的优先级截断（DL-31/218）
+    priorities: dict[str, dict] | None = None
 
 
 @router.post("/api/market-state/subscribe", response_model=ApiResponse)
@@ -98,11 +100,19 @@ async def subscribe_market_state(
             data={"accepted": [], "rejected": 0, "total_extra": 0},
             message="intraday market state disabled (EMSXVIEW_INTRADAY_STATE_ENABLED)",
         )
-    accepted, rejected, total = bloomberg.add_mktdata_tickers(request.tickers)
+    stats_method = getattr(bloomberg, "add_mktdata_tickers_with_stats", None)
+    if stats_method is None:  # 兼容旧 facade/测试替身
+        accepted, rejected, total = bloomberg.add_mktdata_tickers(request.tickers)
+        data = {
+            "accepted": sorted(accepted), "rejected": rejected, "total_extra": total,
+            "session_filtered": 0, "subscription_truncated": rejected > 0,
+        }
+    else:
+        data = stats_method(request.tickers, priorities=request.priorities)
     return ApiResponse(
         success=True,
-        data={"accepted": sorted(accepted), "rejected": rejected, "total_extra": total},
-        message=f"subscribed {len(accepted)} extra ticker(s)",
+        data=data,
+        message=f"subscribed {len(data.get('accepted') or [])} extra ticker(s)",
     )
 
 

@@ -201,6 +201,12 @@ class BloombergEMSXService:
         """代理到 MarketDataEnrichmentService（057 DL-29：池内标的实时价订阅）。"""
         return self._enrich.add_mktdata_tickers(tickers)
 
+    def add_mktdata_tickers_with_stats(self, tickers, *, now=None, priorities=None):
+        """代理到 enrichment（DL-31/218：会话过滤 + 优先级截断统计）。"""
+        return self._enrich.add_mktdata_tickers_with_stats(
+            tickers, now=now, priorities=priorities,
+        )
+
     @property
     def connected(self) -> bool:
         return self._conn.connected
