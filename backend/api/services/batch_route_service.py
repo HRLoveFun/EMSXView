@@ -539,6 +539,10 @@ async def _submit_route(
     rkey: str,
     validated_req: RouteOrderRequest,
     violations: Optional[List[Violation]] = None,
+    *,
+    order_id: Optional[str] = None,
+    decision_id: Optional[str] = None,
+    rewrite_reason: Optional[str] = None,
 ) -> BatchOperationItemResult:
     """Submit a single validated route under the semaphore; log RTT."""
     async with sem:
@@ -551,6 +555,19 @@ async def _submit_route(
                 "batch-route item key=%s status=SUCCESS rtt_ms=%.1f routeId=%s",
                 rkey, rtt_ms, route_id,
             )
+            # DL-25/219：提交成功后回写 decision_id / 交易员改写原因（失败不阻断）
+            if order_id or decision_id:
+                try:
+                    from services.decision_log_service import link_submission
+
+                    await link_submission(
+                        order_id or "", decision_id=decision_id,
+                        rewrite_reason=rewrite_reason,
+                    )
+                except Exception:  # noqa: BLE001 - 审计回写失败不影响已提交路由
+                    logger.warning(
+                        "decision link failed for order %s", order_id, exc_info=True,
+                    )
             return BatchOperationItemResult(
                 key=rkey,
                 status="SUCCESS",
@@ -642,7 +659,7 @@ async def stream_batch_route(
     final_results: List[BatchOperationItemResult] = []
     pending: List[asyncio.Task[BatchOperationItemResult]] = []
 
-    for (result, validated_req) in eval_results:
+    for item, (result, validated_req) in zip(request.items, eval_results):
         if validated_req is None or result.status != "SUCCESS":
             final_results.append(result)
             yield _to_ndjson_line(result)
@@ -650,7 +667,12 @@ async def stream_batch_route(
         # Forward any WARN violations from the evaluation result so they
         # appear on the final SUCCESS line returned by _submit_route.
         pending.append(asyncio.create_task(
-            _submit_route(bloomberg, sem, result.key, validated_req, result.violations)
+            _submit_route(
+                bloomberg, sem, result.key, validated_req, result.violations,
+                order_id=item.orderId,
+                decision_id=getattr(item, "decisionId", None),
+                rewrite_reason=getattr(item, "rewriteReason", None),
+            )
         ))
 
     for coro in asyncio.as_completed(pending):

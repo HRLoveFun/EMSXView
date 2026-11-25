@@ -25,6 +25,44 @@ export interface BatchRouteOrderItem {
   orderId: string;
   clientKey?: string;
   override?: Partial<Omit<RouteOrderRequest, 'orderId'>>;
+  /** DL-25/219：预填来源决策与交易员改写原因 */
+  decisionId?: string;
+  rewriteReason?: string;
+}
+
+/** Trader rewrite reason codes (DL-25/219) */
+export const REWRITE_REASON_OPTIONS = [
+  'UNCHANGED',
+  'BROKER_CHANGED',
+  'QUANTITY_CHANGED',
+  'PARAMS_CHANGED',
+  'EXTRA_ROUTE',
+] as const;
+
+export type RewriteReason = (typeof REWRITE_REASON_OPTIONS)[number];
+
+/** Shadow decision record shape returned by GET /api/routing-decisions */
+export interface ShadowDecisionCandidate {
+  broker: string;
+  quantity: number;
+  strategy_params?: Record<string, unknown>;
+  participation_pct?: number | null;
+  rationale?: string;
+}
+
+export interface ShadowDecisionRecord {
+  decision_id: string;
+  order_id: string;
+  as_of?: string;
+  source?: string;
+  schema_version?: string;
+  payload: {
+    candidates?: ShadowDecisionCandidate[];
+    source?: string;
+    rationale?: string;
+    intent?: string;
+    schema_version?: string;
+  };
 }
 
 export interface BatchRouteOrderRequest {

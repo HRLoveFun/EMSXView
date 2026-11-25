@@ -235,6 +235,63 @@ async def update_actual_routes(
         return False
 
 
+async def link_submission(
+    order_id: str,
+    *,
+    decision_id: str | None = None,
+    rewrite_reason: str | None = None,
+) -> bool:
+    """提交成功后把 decision_id 与交易员改写原因回写到决策记录（219）。
+
+    仅更新 `payload.submission_decision_id / trader_rewrite_reason /
+    submitted_at` 与 `updated_at`；失败返回 False，不阻断提交。
+    """
+    from platform_data.contracts import REWRITE_REASONS
+    from db import get_db_session
+    from models.execution_state import RoutingDecisionRecord
+    from sqlalchemy import select
+
+    reason = str(rewrite_reason or "").strip().upper()
+    if reason and reason not in REWRITE_REASONS:
+        reason = ""  # 非法枚举忽略，保留原记录
+    if not order_id and not decision_id:
+        return False
+    now = datetime.now(timezone.utc)
+    try:
+        async with get_db_session() as session:
+            record = None
+            if decision_id:
+                result = await session.execute(
+                    select(RoutingDecisionRecord).where(
+                        RoutingDecisionRecord.decision_id == decision_id
+                    ).limit(1)
+                )
+                record = result.scalars().first()
+            if record is None and order_id:
+                result = await session.execute(
+                    select(RoutingDecisionRecord)
+                    .where(RoutingDecisionRecord.order_id == order_id)
+                    .order_by(RoutingDecisionRecord.id.desc())
+                    .limit(1)
+                )
+                record = result.scalars().first()
+            if record is None:
+                return False
+            payload = dict(record.payload or {})
+            if decision_id:
+                payload["submission_decision_id"] = decision_id
+            if reason:
+                payload["trader_rewrite_reason"] = reason
+            payload["submitted_at"] = now.isoformat(timespec="seconds")
+            record.payload = payload
+            record.updated_at = now
+            await session.commit()
+        return True
+    except Exception:
+        logger.warning("routing decision submission link failed", exc_info=True)
+        return False
+
+
 def _day_bounds(start_date: str | None, end_date: str | None) -> tuple[Any, Any]:
     from datetime import datetime as _dt
 

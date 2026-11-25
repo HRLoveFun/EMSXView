@@ -127,6 +127,13 @@ export interface BatchRouteToolbarProps {
   onStartTimeChange: (v: string) => void;
   onEndTimeChange: (v: string) => void;
   onApplyTimeToAll: () => void;
+  // DL-25/219 prefill + rewrite reason
+  prefillUsed: boolean;
+  prefillLoading: boolean;
+  prefillMessage: string;
+  rewriteReason: string;
+  onPrefill: () => void;
+  onRewriteReasonChange: (v: string) => void;
 }
 
 export interface QuickFillToolbarProps {

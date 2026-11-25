@@ -66,16 +66,19 @@ def _empty_bucket() -> dict[str, Any]:
         "hard_violations": 0,
         "by_source": Counter(),
         "reason_counts": Counter(),
+        "trader_reasons": Counter(),
+        "trader_reason_count": 0,
         "estimated": [],  # [(quantity, bps)]
     }
 
 
 def _merge(target: dict[str, Any], source: dict[str, Any]) -> None:
     for key in ("decisions", "actual_linked", "agreed", "rewritten",
-                "no_suggestion", "hard_violations"):
+                "no_suggestion", "hard_violations", "trader_reason_count"):
         target[key] += source[key]
     target["by_source"].update(source["by_source"])
     target["reason_counts"].update(source["reason_counts"])
+    target["trader_reasons"].update(source["trader_reasons"])
     target["estimated"].extend(source["estimated"])
 
 
@@ -93,6 +96,10 @@ def _finalize(bucket: dict[str, Any]) -> dict[str, Any]:
         "rewritten": bucket["rewritten"],
         "rewrite_rate": round(bucket["rewritten"] / actual, 4) if actual else None,
         "reason_counts": dict(bucket["reason_counts"]),
+        "trader_reason_counts": dict(bucket["trader_reasons"]),
+        "trader_reason_coverage": (
+            round(bucket["trader_reason_count"] / actual, 4) if actual else None
+        ),
         "no_suggestion": bucket["no_suggestion"],
         "hard_violations": bucket["hard_violations"],
         "by_source": dict(bucket["by_source"]),
@@ -148,8 +155,16 @@ async def weekly_report(
             actual_routes = list(payload.get("actual_routes") or [])
             if actual_routes:
                 target["actual_linked"] += 1
-                reason = str(payload.get("rewrite_reason") or "UNCLASSIFIED")
+                trader_reason = str(
+                    payload.get("trader_rewrite_reason") or ""
+                ).strip().upper()
+                reason = trader_reason or str(
+                    payload.get("rewrite_reason") or "UNCLASSIFIED"
+                )
                 target["reason_counts"][reason] += 1
+                if trader_reason:
+                    target["trader_reasons"][trader_reason] += 1
+                    target["trader_reason_count"] += 1
                 if reason not in _NOT_REWRITTEN:
                     target["rewritten"] += 1
                 if _agreed(payload):

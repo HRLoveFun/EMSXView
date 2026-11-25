@@ -95,6 +95,13 @@ class BatchRouteOrderItem(BaseModel):
         None,
         description="Partial RouteOrderRequest fields that override the template for this row",
     )
+    # DL-25/219：预填来源决策与交易员改写原因（提交成功后回写决策记录）
+    decisionId: Optional[str] = Field(
+        None, max_length=64, description="Routing decision id that seeded the prefill",
+    )
+    rewriteReason: Optional[str] = Field(
+        None, max_length=32, description="Trader rewrite reason code (DL-25 enum)",
+    )
 
 
 class BatchRouteOrderRequest(BaseModel):
