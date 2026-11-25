@@ -61,9 +61,11 @@ class RouteEnvContext:
     字段为 ``None`` 表示该维度在本次取数中不可得（调用方据此回退到代理口径）。
     """
 
-    #: 路由内最早成交时刻；兼容 ``HH:MM:SS`` 与 ``YYYYMMDD HH:MM:SS`` 两种形态
+    #: 路由下达时刻 ``route_as_of_time``（决策时点，交易所本地时间）；兼容
+    #: ``HH:MM:SS`` 与 ``YYYYMMDD HH:MM:SS`` 两种形态。211 起不再使用首笔成交时刻。
     start_time: Optional[str] = None
-    #: 订单规模 / 20 日均量（fill ÷ adv_20d，小数非百分比）；adv_20d 缺失或为 0 时为 None
+    #: 订单规模 / 20 日均量（``RouteShares ÷ adv_20d``，决策时点委托量，小数非百分比）；
+    #: adv_20d 缺失或为 0 时为 None。211 起不再使用成交量 ``fill``。
     adv20_ratio: Optional[float] = None
     #: 交易日波动率，年化百分比（`bdib_daily_summary.daily_volatility` **原值**，
     #: 028b 起不再做任何换算）
@@ -94,26 +96,30 @@ def normalize_start_time(raw: Any) -> Optional[str]:
     return text[-8:] if len(text) > 8 else text
 
 
-def load_start_times(
+def load_route_as_of_times(
     mgr: ConnectionManager, start_date: str, end_date: str,
 ) -> dict[tuple[str, str, str], str]:
-    """从 ``fill_bdib`` 派生每条路由的交易时段起点（该路由内最早成交时刻）。
+    """从 ``processed_fills`` 派生每条路由的**下达时刻** ``route_as_of_time``。
 
-    只读；``fill_bdib`` 缺失时返回空映射（该维度整体降级为不可得，不抛错）。
+    211（DL-19）：时段控制变量改为决策时点变量。``route_as_of_time`` 是路由
+    下达的交易所本地时间（与 DL-12 到达价同源），不是首笔成交时刻；后者是执行
+    结果，会把慢启动算法误判成不同时段。
+
+    只读；``processed_fills`` 缺失时返回空映射（该维度整体降级为不可得，不抛错）。
     """
     conn = None
     try:
-        conn = mgr.get_connection("fill_bdib", AccessTier.READ)
+        conn = mgr.get_connection("processed_fills", AccessTier.READ)
         rows = conn.execute(
-            "SELECT OrderId, RouteId, order_as_of_date, MIN(mkt_timestamp) "
-            "FROM fill_bdib "
+            "SELECT OrderId, RouteId, order_as_of_date, MIN(route_as_of_time) "
+            "FROM processed_fills "
             "WHERE order_as_of_date BETWEEN ? AND ? "
-            "AND mkt_timestamp IS NOT NULL AND mkt_timestamp <> '' "
+            "AND route_as_of_time IS NOT NULL AND route_as_of_time <> '' "
             "GROUP BY OrderId, RouteId, order_as_of_date",
             [start_date, end_date],
         ).fetchall()
     except FileNotFoundError:
-        logger.warning("fill_bdib 缺失 — 交易时段环境变量不可得（降级）")
+        logger.warning("processed_fills 缺失 — 路由下达时刻不可得（降级）")
         return {}
     finally:
         if conn is not None:
@@ -212,7 +218,7 @@ def build_route_env_context(
     跨库不采用 SQL ``ATTACH``（引入第二数据文件依赖且破坏连接单点），而是经
     ``ConnectionManager`` 分别只读取数后在应用层按 ``(ticker, 交易日)`` 关联。
     """
-    start_times = load_start_times(mgr, start_date, end_date)
+    start_times = load_route_as_of_times(mgr, start_date, end_date)
     daily = load_daily_env(mgr, start_date, end_date)
 
     result: dict[tuple[str, str, str], RouteEnvContext] = {}
@@ -237,7 +243,8 @@ def build_route_env_context(
             volatility = fallback_volatility
         result[key] = RouteEnvContext(
             start_time=start_times.get(key),
-            adv20_ratio=_ratio_or_none(getattr(route, "fill", None), adv20),
+            # 211（DL-19）：规模用决策时点委托量 RouteShares，不用成交量 fill
+            adv20_ratio=_ratio_or_none(getattr(route, "RouteShares", None), adv20),
             # 028b：原值直传（上游已修复根因；本侧不再做量纲换算）
             daily_volatility=volatility,
             # 疑似小数量纲仅登记不修改，命中数经 env_coverage 随 payload 披露
@@ -258,6 +265,7 @@ def env_coverage(
     total = len(routes)
     usable = {dim: 0 for dim in ENV_DIMENSIONS}
     scale_fixed = 0
+    bucket_source = {"s9": 0, "session-relative": 0, "unknown": 0}
     for route in routes:
         key = env_route_key(
             getattr(route, "OrderId", None),
@@ -266,9 +274,16 @@ def env_coverage(
         )
         env = env_by_route.get(key)
         if env is None:
+            bucket_source["unknown"] += 1
             continue
         if env.start_time:
             usable["time_of_day"] += 1
+            # 211：时段来源（S9 五桶 / session-relative 三段 / unknown）必须可见
+            from ..tca_utils import time_bucket_detail
+
+            bucket_source[time_bucket_detail(route, env)[2]] += 1
+        else:
+            bucket_source["unknown"] += 1
         if env.adv20_ratio is not None:
             usable["liquidity_adv20"] += 1
         if env.daily_volatility is not None:
@@ -280,10 +295,13 @@ def env_coverage(
     return {
         "total_routes": total,
         "usable": usable,
+        # 211：未知数必须与可用数并列披露（known + unknown = total）
+        "unknown": {dim: total - count for dim, count in usable.items()},
         "pct": {
             dim: (round(count / total * 100.0, 2) if total else None)
             for dim, count in usable.items()
         },
+        "time_bucket_source": bucket_source,
         # 028b：疑似小数量纲的登记数（**不含**任何数据修改）
         "volatility_scale_suspect": scale_fixed,
     }

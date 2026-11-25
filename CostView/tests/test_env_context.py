@@ -19,7 +19,11 @@ from CostView.src.monitoring.env_context import (
     build_route_env_context,
     env_coverage,
 )
-from CostView.src.tca_utils import aggregate_cohorts, cohort_key_and_label
+from CostView.src.tca_utils import (
+    aggregate_cohorts,
+    cohort_key_and_label,
+    time_bucket_detail,
+)
 from data_access.storage.connection import ConnectionManager
 
 
@@ -28,6 +32,7 @@ def _route(**overrides: Any) -> SimpleNamespace:
     base: dict[str, Any] = {
         "OrderId": "O1", "RouteId": "R1", "order_as_of_date": "20260418",
         "Broker": "BROKERA", "algo": "VWAP", "equ_ticker": "AAPL US Equity",
+        "Exchange": "US", "RouteShares": None,
         "par_rate": None, "pnl_vwap": None, "fill": None,
         # aggregate_cohorts 的聚合路径还会读取以下列（真实类型上恒存在）
         "par_rate_continuous": None, "pnl_vwap_continuous": None, "RPM": None,
@@ -79,10 +84,29 @@ def env_dbs(tmp_path: Path) -> ConnectionManager:
     conn.commit()
     conn.close()
 
+    # 211（DL-19）：时段控制变量改取 processed_fills.route_as_of_time（决策时点），
+    # 不再取 fill_bdib 的首笔成交时刻。这里两者故意不同，便于断言取的是后者。
+    proc_path = tmp_path / "processed_fills.db"
+    conn = sqlite3.connect(str(proc_path))
+    conn.execute(
+        "CREATE TABLE processed_fills (OrderId TEXT, RouteId TEXT, "
+        "order_as_of_date TEXT, route_as_of_time TEXT)"
+    )
+    conn.executemany(
+        "INSERT INTO processed_fills VALUES (?, ?, ?, ?)",
+        [
+            ("O1", "R1", "20260418", "10:05:00"),
+            ("O1", "R1", "20260418", "10:06:00"),
+            ("O2", "R1", "20260418", "14:40:00"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
     return ConnectionManager(path_overrides={
         "fill_bdib": fill_path,
         "raw_bdib": raw_path,
-        "processed_fills": tmp_path / "processed_fills.db",
+        "processed_fills": proc_path,
     })
 
 
@@ -142,8 +166,8 @@ class TestVolatilityScaleSuspicion:
     ) -> None:
         """登记数可见，且 `daily_volatility` **原值保持不变**（0.8 不会被放大为 80）。"""
         routes = [
-            _route(OrderId="O1", RouteId="R1", fill=5000.0),                     # AAPL 30.0
-            _route(OrderId="O2", RouteId="R1", fill=5000.0,
+            _route(OrderId="O1", RouteId="R1", RouteShares=5000.0),                     # AAPL 30.0
+            _route(OrderId="O2", RouteId="R1", RouteShares=5000.0,
                    equ_ticker="ORCL US Equity"),                                # ORCL 0.8
         ]
         env_by_route = build_route_env_context(env_dbs, routes, "20260418", "20260418")
@@ -163,20 +187,21 @@ class TestVolatilityScaleSuspicion:
 class TestRealEnvCohorts:
     """真实环境字段优先 —— 三级降级链的 L1 与 L3 两侧。"""
 
-    def test_time_of_day_uses_real_start_time(self) -> None:
+    def test_time_of_day_uses_session_relative_bucket(self) -> None:
+        """211：决策时点时刻 → DL-03 会话相对桶（US：open_30m/midday/close_30m）。"""
         route = _route()
         assert cohort_key_and_label(
-            route, "time_of_day", RouteEnvContext(start_time="09:15:00"),
-        ) == ("open", "Open (first hour)")
+            route, "time_of_day", RouteEnvContext(start_time="09:45:00"),
+        )[0] == "open_30m"
         assert cohort_key_and_label(
-            route, "time_of_day", RouteEnvContext(start_time="11:00:00"),
-        )[0] == "mid"
+            route, "time_of_day", RouteEnvContext(start_time="12:30:00"),
+        )[0] == "midday"
         assert cohort_key_and_label(
-            route, "time_of_day", RouteEnvContext(start_time="15:00:00"),
-        )[0] == "close"
+            route, "time_of_day", RouteEnvContext(start_time="15:45:00"),
+        )[0] == "close_30m"
 
     def test_time_of_day_falls_back_to_unknown(self) -> None:
-        """无 start_time 时保持既有 unknown 语义（不臆造桶）。"""
+        """无 start_time 时 unknown（不臆造桶、不回退首笔成交时刻）。"""
         route = _route()
         assert cohort_key_and_label(route, "time_of_day") == ("unknown", "Unknown")
         assert cohort_key_and_label(
@@ -184,32 +209,53 @@ class TestRealEnvCohorts:
         ) == ("unknown", "Unknown")
 
     def test_time_of_day_boundaries(self) -> None:
-        """分桶边界：10:30 起为 mid，14:30 起为 close。"""
+        """US 会话桶边界（S9 口径）：09:59 open_30m / 10:00 morning / 12:00 midday /
+        14:00 afternoon / 15:30 close_30m。"""
         route = _route()
         cases = [
-            ("10:29:59", "open"), ("10:30:00", "mid"),
-            ("14:29:59", "mid"), ("14:30:00", "close"),
+            ("09:59:00", "open_30m"), ("10:00:00", "morning"),
+            ("11:59:00", "morning"), ("12:00:00", "midday"),
+            ("14:29:00", "afternoon"), ("15:29:00", "afternoon"),
+            ("15:30:00", "close_30m"),
         ]
         for start_time, expected in cases:
             assert cohort_key_and_label(
                 route, "time_of_day", RouteEnvContext(start_time=start_time),
             )[0] == expected
 
-    def test_adv20_ratio_preferred_over_par_rate_proxy(self) -> None:
-        """真实 ADV 占比优先；无 env 时回退 par_rate 代理（两口径差异可见）。"""
-        route = _route(par_rate=0.20)                       # 代理口径：20% → high
-        assert cohort_key_and_label(route, "liquidity_adv20")[0] == "high"
+    def test_time_of_day_lunch_break_for_jp(self) -> None:
+        route = _route(Exchange="JP")
+        assert cohort_key_and_label(
+            route, "time_of_day", RouteEnvContext(start_time="11:45:00"),
+        )[0] == "lunch_break"
+
+    def test_missing_adv20_is_unknown_not_par_rate_proxy(self) -> None:
+        """211：par_rate（成交/ADV，后验）兜底已删除；缺失即 unknown。"""
+        route = _route(par_rate=0.20)
+        assert cohort_key_and_label(route, "liquidity_adv20")[0] == "unknown"
         assert cohort_key_and_label(
             route, "liquidity_adv20", RouteEnvContext(adv20_ratio=0.002),
         )[0] == "low"
 
-    def test_volatility_prefers_real_value(self) -> None:
-        """真实日波动率优先于 |pnl_vwap| 代理 —— 真实路径不引用成本量。"""
-        route = _route(pnl_vwap=-50.0)                      # 代理口径：50 → stressed
-        assert cohort_key_and_label(route, "volatility")[0] == "stressed"
+    def test_missing_volatility_is_unknown_not_pnl_proxy(self) -> None:
+        """211：|pnl_vwap|（被解释变量）兜底已删除；缺失即 unknown。"""
+        route = _route(pnl_vwap=-50.0)
+        assert cohort_key_and_label(route, "volatility")[0] == "unknown"
         assert cohort_key_and_label(
             route, "volatility", RouteEnvContext(daily_volatility=0.8),
         )[0] == "calm"
+
+    def test_time_bucket_source_is_explicit(self) -> None:
+        """211：S9 五桶 / session-relative 三段 / unknown 三种来源可辨。"""
+        assert time_bucket_detail(
+            _route(Exchange="US"), RouteEnvContext(start_time="10:00:00"),
+        )[2] == "s9"
+        assert time_bucket_detail(
+            _route(Exchange="KS"), RouteEnvContext(start_time="10:00:00"),
+        )[2] == "session-relative"
+        assert time_bucket_detail(
+            _route(Exchange="ZZ"), RouteEnvContext(start_time="10:00:00"),
+        )[2] == "unknown"
 
     def test_non_env_cohort_ignores_env(self) -> None:
         """非环境 cohort 不受 env 影响。"""
@@ -224,35 +270,36 @@ class TestRealEnvCohorts:
 class TestBuildRouteEnvContext:
     """取数与应用层 join（真值抽验）。"""
 
-    def test_joins_start_time_and_daily_env(self, env_dbs: ConnectionManager) -> None:
+    def test_joins_route_as_of_time_and_daily_env(self, env_dbs: ConnectionManager) -> None:
+        """211：时段取 route_as_of_time（10:05），不取首笔成交时刻（09:35）。"""
         routes = [
-            _route(OrderId="O1", RouteId="R1", fill=5000.0),
-            _route(OrderId="O2", RouteId="R1", fill=None),
+            _route(OrderId="O1", RouteId="R1", RouteShares=5000.0),
+            _route(OrderId="O2", RouteId="R1", RouteShares=None),
         ]
         result = build_route_env_context(env_dbs, routes, "20260418", "20260418")
 
         first = result[("O1", "R1", "20260418")]
-        assert first.start_time == "09:35:00"          # 路由内最早成交时刻
+        assert first.start_time == "10:05:00"          # 决策时点，不是首笔成交
         assert first.adv20_ratio == pytest.approx(0.005)
         assert first.daily_volatility == 30.0
         assert first.volatility_scale_suspect is False     # 正常年化百分比不登记
 
         second = result[("O2", "R1", "20260418")]
-        assert second.start_time == "14:45:10"
-        assert second.adv20_ratio is None               # fill 缺失 → 不可计算，不兜底为 0
+        assert second.start_time == "14:40:00"
+        assert second.adv20_ratio is None               # RouteShares 缺失 → 不可计算，不兜底
 
     def test_unknown_ticker_degrades_per_dimension(
         self, env_dbs: ConnectionManager,
     ) -> None:
         """维度独立降级：缺 daily summary 不影响时段维度。"""
-        routes = [_route(equ_ticker="MSFT US Equity", fill=1000.0)]
+        routes = [_route(equ_ticker="MSFT US Equity", RouteShares=1000.0)]
         env = build_route_env_context(
             env_dbs, routes, "20260418", "20260418",
         )[("O1", "R1", "20260418")]
 
         assert env.adv20_ratio is None
         assert env.daily_volatility is None
-        assert env.start_time == "09:35:00"
+        assert env.start_time == "10:05:00"
 
     def test_missing_sources_return_empty(self, tmp_path: Path) -> None:
         """两来源库缺失 → 空映射（整体降级，不抛错）。"""
@@ -277,7 +324,7 @@ class TestRouteColumnsPreferred:
         self, env_dbs: ConnectionManager,
     ) -> None:
         route = _route(
-            OrderId="O1", RouteId="R1", fill=5000.0,
+            OrderId="O1", RouteId="R1", RouteShares=5000.0,
             # 故意与 bdib_daily_summary 的 1,000,000 / 30.0 不同
             adv_20d=2_000_000.0, daily_volatility=12.0,
         )
@@ -288,11 +335,23 @@ class TestRouteColumnsPreferred:
         assert env.adv20_ratio == pytest.approx(5000.0 / 2_000_000.0)
         assert env.daily_volatility == pytest.approx(12.0)
 
+    def test_adv20_ratio_uses_route_shares_not_fill(
+        self, env_dbs: ConnectionManager,
+    ) -> None:
+        """211：规模用 RouteShares（1% → mid），不能用 fill（10% → high）。"""
+        route = _route(RouteShares=100.0, fill=1000.0, adv_20d=10000.0)
+        env = build_route_env_context(
+            env_dbs, [route], "20260418", "20260418",
+        )[("O1", "R1", "20260418")]
+
+        assert env.adv20_ratio == pytest.approx(0.01)
+        assert cohort_key_and_label(route, "liquidity_adv20", env)[0] == "mid"
+
     def test_null_columns_fall_back_to_daily_join(
         self, env_dbs: ConnectionManager,
     ) -> None:
         route = _route(
-            OrderId="O1", RouteId="R1", fill=5000.0,
+            OrderId="O1", RouteId="R1", RouteShares=5000.0,
             adv_20d=None, daily_volatility=None,
         )
         env = build_route_env_context(
@@ -306,7 +365,7 @@ class TestRouteColumnsPreferred:
         self, env_dbs: ConnectionManager,
     ) -> None:
         route = _route(
-            OrderId="O1", RouteId="R1", fill=5000.0,
+            OrderId="O1", RouteId="R1", RouteShares=5000.0,
             adv_20d=2_000_000.0, daily_volatility=None,
         )
         env = build_route_env_context(
@@ -322,7 +381,7 @@ class TestAggregateCohortsWithEnv:
 
     def test_env_split_changes_cohorts(self, env_dbs: ConnectionManager) -> None:
         routes = [
-            _route(OrderId="O1", RouteId="R1", fill=5000.0,
+            _route(OrderId="O1", RouteId="R1", RouteShares=5000.0,
                    pnl_vwap=-1.0, par_rate=0.01),
         ]
         env_by_route = build_route_env_context(
@@ -332,14 +391,14 @@ class TestAggregateCohortsWithEnv:
         real = aggregate_cohorts(routes, "time_of_day", 1, env_by_route)
         proxy = aggregate_cohorts(routes, "time_of_day", 1)
 
-        assert [c.cohort_label for c in real] == ["Open (first hour)"]
+        assert [c.cohort_label for c in real] == ["Morning"]
         assert [c.cohort_label for c in proxy] == ["Unknown"]
 
     def test_env_coverage_disclosed(self, env_dbs: ConnectionManager) -> None:
         routes = [
-            _route(OrderId="O1", RouteId="R1", fill=5000.0),
+            _route(OrderId="O1", RouteId="R1", RouteShares=5000.0),
             _route(OrderId="O2", RouteId="R1",
-                   equ_ticker="MSFT US Equity", fill=1000.0),
+                   equ_ticker="MSFT US Equity", RouteShares=1000.0),
         ]
         env_by_route = build_route_env_context(
             env_dbs, routes, "20260418", "20260418",
@@ -347,11 +406,13 @@ class TestAggregateCohortsWithEnv:
         coverage = env_coverage(routes, env_by_route)
 
         assert coverage["total_routes"] == 2
-        # 两条路由都有成交时刻（fill_bdib 覆盖）
+        # 两条路由都有 route_as_of_time（processed_fills 覆盖）
         assert coverage["usable"]["time_of_day"] == 2
+        assert coverage["time_bucket_source"]["s9"] == 2
         # 仅 AAPL 有 daily summary，MSFT 无 adv_20d
         assert coverage["usable"]["liquidity_adv20"] == 1
         assert coverage["usable"]["volatility"] == 1
+        assert coverage["unknown"]["liquidity_adv20"] == 1
         assert coverage["pct"]["liquidity_adv20"] == 50.0
 
 
@@ -370,6 +431,7 @@ class TestEnvSpecBinding:
 
         assert fallbacks["time_of_day"] == "unknown"
         assert cohort_key_and_label(route, "time_of_day")[0] == fallbacks["time_of_day"]
-        assert cohort_key_and_label(route, "liquidity_adv20")[0] == "high"
-        assert cohort_key_and_label(route, "volatility")[0] == "stressed"
+        # 211：两条后验兜底已删除 —— 缺失一律 unknown
+        assert cohort_key_and_label(route, "liquidity_adv20")[0] == "unknown"
+        assert cohort_key_and_label(route, "volatility")[0] == "unknown"
         assert "scorecard" in report_spec.REPORT_SPEC["env_coverage_disclosure"]

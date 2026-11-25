@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 import pandas as pd
 
+from platform_data.adapters.session import ExchangeSessionAdapter
 from platform_data.contracts import (
     ScorecardCohortMetrics,
     ScorecardFilters,
@@ -179,6 +180,84 @@ def bucket_time_of_day(start_time: Optional[str]) -> tuple[str, str]:
 # Scorecard cohort aggregation
 # ═══════════════════════════════════════════════════════════════════════════
 
+#: 会话注册表查询单例（DL-03；无状态，可跨模块共享）
+_SESSION_ADAPTER = ExchangeSessionAdapter()
+
+#: 管道 S9 五桶 + JP 午休的中文报告标签
+_TIME_BUCKET_LABELS: dict[str, str] = {
+    "open_30m": "Open (first 30 min)",
+    "morning": "Morning",
+    "midday": "Mid-day",
+    "afternoon": "Afternoon",
+    "close_30m": "Close (last 30 min)",
+    "lunch_break": "Lunch break",
+}
+
+
+def _hhmm_to_minutes(value: Optional[str]) -> Optional[int]:
+    """``HH:MM`` → 当日分钟数；不可解析返回 None。"""
+    if not value:
+        return None
+    try:
+        hh, mm = str(value).strip().split(":")[:2]
+        return int(hh) * 60 + int(mm)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_local_time(value: Any) -> Optional[datetime]:
+    """``HH:MM:SS`` / ``YYYYMMDD HH:MM:SS`` → naive datetime（仅时分秒有意义）。"""
+    if not value:
+        return None
+    text = str(value).strip()
+    if len(text) > 8:
+        text = text[-8:]
+    try:
+        return datetime.strptime(text, "%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def time_bucket_detail(
+    route: Any,
+    env: Optional["RouteEnvContext"],
+) -> tuple[str, str, str]:
+    """决策时点 ``route_as_of_time`` → (key, label, source)。
+
+    211（DL-19）：时段不再取首笔成交时刻，也**不再**用固定挂钟 10:30/14:30。
+    - 优先 DL-03 会话相对桶（与管道 S9 同口径：open_30m/morning/midday/
+      afternoon/close_30m，JP 含 lunch_break）；
+    - 非 S9 市场用 ``session_relative_minutes`` + 会话跨度派生 open/mid/close；
+    - 市场未知或时刻不可解析 → ``unknown``。
+    """
+    dt = _parse_local_time(getattr(env, "start_time", None) if env else None)
+    exchange = str(getattr(route, "Exchange", None) or "").strip().upper()
+    if dt is None or not exchange:
+        return ("unknown", "Unknown", "unknown")
+
+    bucket = _SESSION_ADAPTER.time_bucket_for(exchange, dt)
+    if bucket is not None:
+        return (bucket, _TIME_BUCKET_LABELS.get(bucket, bucket), "s9")
+
+    session = _SESSION_ADAPTER.get_session(exchange)
+    relative = _SESSION_ADAPTER.session_relative_minutes(exchange, dt)
+    if session is None or relative is None:
+        return ("unknown", "Unknown", "unknown")
+    open_min = _hhmm_to_minutes(session.market_open)
+    close_min = _hhmm_to_minutes(session.market_close)
+    if open_min is None or close_min is None:
+        return ("unknown", "Unknown", "unknown")
+    span = close_min - open_min
+    if span <= 0 or relative < 0 or relative >= span:
+        return ("unknown", "Unknown", "unknown")
+    third = span / 3.0
+    if relative < third:
+        return ("open", "Open (first third)", "session-relative")
+    if relative < 2 * third:
+        return ("mid", "Mid-day", "session-relative")
+    return ("close", "Close (last third)", "session-relative")
+
+
 def _env_cohort_key(
     route: TcaRouteSummary,
     cohort: str,
@@ -190,20 +269,20 @@ def _env_cohort_key(
     降级更有害」，但降级必须可见（可得率经 ``env_context.env_coverage`` 随 payload 披露）。
     """
     if cohort == "time_of_day":
-        # 真实 start_time（路由内最早成交时刻；已在 env_context 归一化为 HH:MM:SS）
-        return bucket_time_of_day(env.start_time if env else None)
+        # 211：决策时点 route_as_of_time + DL-03 会话相对分桶（不再用首笔成交时刻）
+        return time_bucket_detail(route, env)[:2]
     if cohort == "liquidity_adv20":
         if env is not None and env.adv20_ratio is not None:
-            # 真实口径：订单规模 ÷ 20 日均量（bucket 需要百分比空间）
+            # 决策时点口径：RouteShares ÷ 20 日均量（bucket 需要百分比空间）
             return bucket_liquidity(env.adv20_ratio * 100)
-        # L3 降级：par_rate（区间参与率）作代理（0-1 小数 → 百分比）
-        return bucket_liquidity(route.par_rate * 100 if route.par_rate is not None else None)
+        # 211：删除 par_rate（成交/ADV，后验）兜底 —— 缺失即 unknown
+        return ("unknown", "Unknown")
     if cohort == "volatility":
         if env is not None and env.daily_volatility is not None:
             # 真实口径：bdib_daily_summary.daily_volatility（百分比空间）
             return bucket_volatility(env.daily_volatility)
-        # L3 降级：|pnl_vwap|（成本）作波动率代理 —— 循环论证，仅作兜底
-        return bucket_volatility(abs(route.pnl_vwap) if route.pnl_vwap is not None else None)
+        # 211：删除 |pnl_vwap|（被解释变量）兜底 —— 缺失即 unknown
+        return ("unknown", "Unknown")
     return None
 
 
@@ -253,8 +332,8 @@ def aggregate_cohorts(
 
     buckets: dict[tuple[str, str], list[TcaRouteSummary]] = defaultdict(list)
     for route in routes:
-        if route.pnl_vwap is None and route.par_rate is None:
-            continue
+        # 211（DL-19）：不再按 pnl_vwap/par_rate 是否可算做样本过滤（后验选择偏差）；
+        # 无基准的路由仍入层，指标按 None 跳过，样本量如实计数。
         env = None
         if env_by_route:
             env = env_by_route.get(

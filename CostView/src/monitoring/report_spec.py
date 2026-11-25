@@ -21,7 +21,9 @@ from . import report_measure as rm
 #: 2026.11.04：210 §4.12 —— 报告头之后新增全局可信度横幅（四类检查始终渲染，
 #: 未检查明示）；数量矛盾改按订单级 ΣAmount 与 ΣRouteShares（股数 vs 股数）判定
 #: 2026.11.04b：210 §3.6.2 —— KPI 之后新增交易员执行摘要，执行方排行随之前移
-SPEC_VERSION = "2026.11.04b"
+#: 2026.11.25：057 DL-19 / 211 —— 评估控制变量去后验化：规模改用 RouteShares、
+#: 时段改用 route_as_of_time + 会话相对分桶，删除 par_rate / |pnl_vwap| 两条后验兜底
+SPEC_VERSION = "2026.11.25"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -133,8 +135,9 @@ REPORT_SPEC: dict[str, Any] = {
     #: 026 阶段二：环境 cohort 的**真实字段来源**（实现单点见 monitoring.env_context，
     #: 分桶分支见 tca_utils.cohort_key_and_label；由测试断言与 ENV_DIMENSIONS 一致）
     "env_cohort_sources": {
-        "time_of_day": "fill_bdib.mkt_timestamp（路由内最早成交时刻）",
-        "liquidity_adv20": "fill / bdib_daily_summary.adv_20d",
+        # 211（DL-19）：决策时点变量，不是首笔成交/成交量等执行结果
+        "time_of_day": "processed_fills.route_as_of_time（路由下达时刻；DL-03 会话相对分桶）",
+        "liquidity_adv20": "RouteShares / bdib_daily_summary.adv_20d",
         # 028：该列实为**年化百分比**（反推公式 = std(日对数收益率) × √252 × 100，
         # 实测中位 26.075）；202603/202604 区间被上游写成**年化小数**，数据入口统一归一化
         "volatility": "bdib_daily_summary.daily_volatility（年化百分比）",
@@ -146,11 +149,15 @@ REPORT_SPEC: dict[str, Any] = {
     "volatility_scale_cut": 3.0,
     "volatility_scale_suspect_disclosure": "env_coverage.volatility_scale_suspect",
     #: 026 阶段二：环境字段不可得时**回退的既有代理口径**（L3 降级；不可得必须是可见事实）
+    #: 211（DL-19）：删除后验兜底（par_rate / |pnl_vwap|）；缺失一律 unknown，
+    #: 且 known/unknown 成对披露（不再是「静默代理」）。
     "env_cohort_fallbacks": {
         "time_of_day": "unknown",
-        "liquidity_adv20": "par_rate",
-        "volatility": "abs(pnl_vwap)",
+        "liquidity_adv20": "unknown",
+        "volatility": "unknown",
     },
+    #: 211：后验控制变量已移除（口径版本 2026.11.25）
+    "posterior_fallbacks": "removed",
     #: 026 阶段二：环境变量可得率随 scorecard payload 披露（filters.env_coverage）
     "env_coverage_disclosure": "scorecard.filters.env_coverage",
     #: 027：综合评估报告口径（实现见 `CostView/src/evaluation/`；本模块不 import 它，
