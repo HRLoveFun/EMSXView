@@ -435,3 +435,42 @@ class TestEnvSpecBinding:
         assert cohort_key_and_label(route, "liquidity_adv20")[0] == "unknown"
         assert cohort_key_and_label(route, "volatility")[0] == "unknown"
         assert "scorecard" in report_spec.REPORT_SPEC["env_coverage_disclosure"]
+
+
+class TestIntentFamilyCohort:
+    """212（DL-19）：意图 × 算法族分组；意图可选，不做反推。"""
+
+    def test_unknown_intent_groups_by_family(self) -> None:
+        route = _route(Broker="EQ-BARCLAY", algo="VWAP")
+        assert cohort_key_and_label(route, "intent_family") == ("UNKNOWN|vwap", "VWAP")
+
+    def test_optional_intent_used_without_inference(self) -> None:
+        route = _route(
+            Broker="EQ-BARCLAY", algo="VWAP",
+            intent="MIX", intent_source="emsx-export",
+        )
+        assert cohort_key_and_label(route, "intent_family") == ("MIX|vwap", "MIX | VWAP")
+
+    def test_mix_splits_by_family(self) -> None:
+        vwap = _route(algo="VWAP", intent="MIX", intent_source="emsx-export")
+        close = _route(algo="MOC", intent="MIX", intent_source="emsx-export")
+        assert cohort_key_and_label(vwap, "intent_family")[0] == "MIX|vwap"
+        assert cohort_key_and_label(close, "intent_family")[0] == "MIX|auction_close"
+
+    def test_special_single(self) -> None:
+        route = _route(algo="VWAP", intent="SPECIAL", intent_source="emsx-export")
+        assert cohort_key_and_label(route, "intent_family")[0] == "SPECIAL|vwap"
+
+    def test_default_scorecard_cohort_and_payload(self) -> None:
+        from platform_data.contracts import ScorecardFilters
+
+        assert ScorecardFilters().cohort == "intent_family"
+        routes = [
+            _route(
+                intent="VWAP", intent_source="emsx-export",
+                RouteShares=100.0, pnl_vwap=-1.0, par_rate=0.01,
+            )
+        ]
+        cohorts = aggregate_cohorts(routes, "intent_family", 1)
+        assert cohorts[0].intent_source == "emsx-export"
+        assert cohorts[0].algo_family == "vwap"

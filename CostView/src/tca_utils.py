@@ -24,6 +24,7 @@ from platform_data.contracts import (
     ScorecardFilters,
     TcaFilters,
     TcaRouteSummary,
+    classify_algo,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - 仅类型检查，避免 monitoring 包级循环 import
@@ -286,6 +287,25 @@ def _env_cohort_key(
     return None
 
 
+def intent_family_key(route: Any) -> tuple[str, str, str, str]:
+    """意图 × 算法族分组键（212）。
+
+    - 意图**可选**：路由自带 ``intent`` 时使用（大写）；缺失记 ``UNKNOWN``，
+      **不按算法族反推**（用户裁定：意图只是订单到达时的指令，不要求关联到路由）。
+    - 算法族取 DL-04 ``classify_algo``；MIX 的两段因族不同自然拆开。
+    - 返回 ``(key, label, intent_source, algo_family)``。
+    """
+    family = classify_algo(
+        str(getattr(route, "Broker", None) or ""),
+        getattr(route, "algo", None),
+    )
+    intent = str(getattr(route, "intent", None) or "UNKNOWN").strip().upper() or "UNKNOWN"
+    source = str(getattr(route, "intent_source", None) or "unknown")
+    key = f"{intent}|{family}"
+    label = family.upper() if intent == "UNKNOWN" else f"{intent} | {family.upper()}"
+    return (key, label, source, family)
+
+
 def cohort_key_and_label(
     route: TcaRouteSummary,
     cohort: str,
@@ -309,6 +329,9 @@ def cohort_key_and_label(
         return (f"{broker}|{algo}", f"{broker} | {algo}")
     if cohort == "asset_class":
         return asset_class_from_ticker(equ_ticker)
+    if cohort == "intent_family":
+        key, label, _, _ = intent_family_key(route)
+        return (key, label)
 
     env_key = _env_cohort_key(route, cohort, env)
     if env_key is not None:
@@ -366,13 +389,20 @@ def aggregate_cohorts(
         avg_pnl_continuous = mean_numeric(
             [abs(r.pnl_vwap_continuous) for r in group if r.pnl_vwap_continuous is not None]
         )
-        # P3-3：dq_ratio 接线为真实代理——cohort 内 BDIB 依赖指标（pnl_vwap）
-        # 缺失路由的占比（pnl_vwap/par_rate 双缺失的路由已在入桶前剔除，
-        # 故该占比反映的是"有数据但 BDIB 依赖指标计算缺失"的数据质量缺口，
-        # 与 metric_coverage 的 bdib_cutoff 原因分类口径一致）。
+        # P3-3 / 211：cohort 内 BDIB 依赖指标（pnl_vwap）缺失路由的占比。
+        # 211 起不再按 pnl_vwap/par_rate 预过滤，故该占比如实反映数据质量缺口，
+        # 与 metric_coverage 的 bdib_cutoff 原因分类口径一致。
         bdib_gap_count = sum(1 for r in group if r.pnl_vwap is None)
         dq_ratio = bdib_gap_count / sample if sample else 0.0
         sample_warn = sample < min_sample_size
+
+        # 212（DL-19）：intent_family cohort 的附加披露；组内来源不一致记 mixed
+        intent_source = ""
+        algo_family = ""
+        if cohort == "intent_family":
+            _, _, intent_source, algo_family = intent_family_key(group[0])
+            if len({intent_family_key(r)[2] for r in group}) > 1:
+                intent_source = "mixed"
 
         flags: list[str] = []
         if sample_warn:
@@ -409,6 +439,8 @@ def aggregate_cohorts(
                 data_quality_ratio=round(dq_ratio, 4),
                 sample_size_warning=sample_warn,
                 anomaly_flags=flags,
+                intent_source=intent_source,
+                algo_family=algo_family,
             )
         )
 
