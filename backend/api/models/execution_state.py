@@ -89,5 +89,9 @@ class RoutingDecisionRecord(Base):
     as_of: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     mode: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     schema_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    # 214（DL-22）：决策来源 MANUAL/PLAN/ENGINE/ENGINE_DEFAULT（覆盖率按来源披露）
+    source: Mapped[str] = mapped_column(String(24), nullable=False, default="ENGINE", index=True)
     payload: Mapped[dict] = mapped_column(JSONPayload, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    # 214：实际路由回填时间（仅 actual_routes/rewrite_reason 允许后更新）
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

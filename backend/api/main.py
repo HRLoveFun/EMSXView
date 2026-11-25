@@ -306,6 +306,21 @@ async def lifespan(app: FastAPI):
     # run_coroutine_threadsafe 回主循环执行；此前逐次 get_event_loop()
     # 在回调线程抛 RuntimeError 被静默吞掉，持久化与推送整体丢失。
     bloomberg_service.set_main_loop(asyncio.get_running_loop())
+    # 057 DL-22/214：影子运行（默认关闭；开启后订单/路由事件旁路记录）
+    try:
+        from services.decision_log_service import shadow_run_enabled
+
+        if shadow_run_enabled():
+            from routers.route_plans import get_engine_repo
+            from services.route_engine import RouteEngine
+            from services.shadow_run_service import configure_shadow_runner
+
+            runner = configure_shadow_runner(RouteEngine(get_engine_repo()), bloomberg_service)
+            bloomberg_service.register_order_callback(runner.on_order)
+            bloomberg_service.register_route_callback(runner.on_route)
+            logger.info("Shadow run enabled: order/route callbacks registered")
+    except Exception as exc:  # 影子运行装配失败不影响主服务
+        logger.warning("Shadow run setup failed: %s", exc)
     # S16/056: 交易请求序号持久化 + 启动恢复（跨重启防重放，watermark 表）
     if repo_provider.is_active:
         async def _persist_seq(seq: int) -> bool:

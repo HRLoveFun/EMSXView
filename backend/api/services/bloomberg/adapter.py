@@ -91,6 +91,14 @@ class BloombergEMSXService:
         """
         self._sub.register_resync_callback(callback)
 
+    def register_order_callback(self, callback) -> None:
+        """注册订单事件回调 (057 DL-22/214)：代理到订阅引擎。"""
+        self._sub.register_order_callback(callback)
+
+    def register_route_callback(self, callback) -> None:
+        """注册路由事件回调 (057 DL-22/214)：代理到订阅引擎。"""
+        self._sub.register_route_callback(callback)
+
     # ── Backward-compatible proxy properties (for tests) ──────────────
     # These attributes previously lived on BloombergEMSXService directly.
     # Now delegated to MarketDataEnrichmentService.

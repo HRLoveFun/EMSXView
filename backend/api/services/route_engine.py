@@ -124,11 +124,13 @@ class RouteEngine:
     # ------------------------------------------------------------------
 
     async def generate_proposals(
-        self, order: Order, plan: RoutePlan
+        self, order: Order, plan: RoutePlan, *, record_shadow: bool = True
     ) -> list[dict]:
         """Generate sub-order proposal dicts from an order and plan.
 
         Delegates to the appropriate strategy based on plan.split_type.
+        ``record_shadow=False``（214）供影子运行器只读生成建议，由调用方
+        自行组装增强决策，避免重复记录。
         """
         # Load allocations if needed
         allocations: list[RoutePlanAllocation] = []
@@ -146,7 +148,8 @@ class RouteEngine:
             proposals = []
 
         # 057 DL-21/075：影子决策记录（开关默认关闭；失败绝不阻断提案）
-        await self._record_shadow_decision(order, plan, proposals)
+        if record_shadow:
+            await self._record_shadow_decision(order, plan, proposals)
         return proposals
 
     async def _record_shadow_decision(

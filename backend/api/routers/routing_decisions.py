@@ -29,3 +29,20 @@ async def list_routing_decisions(
         logger.warning("routing decisions query failed", exc_info=True)
         return ApiResponse(success=False, error="Routing decision store unavailable")
     return ApiResponse(success=True, data={"records": records, "count": len(records)})
+
+
+@router.get("/api/routing-decisions/coverage", response_model=ApiResponse)
+async def routing_decision_coverage(
+    start_date: str | None = Query(default=None, max_length=8),
+    end_date: str | None = Query(default=None, max_length=8),
+    user: dict = Depends(verify_token),
+) -> ApiResponse:
+    """影子运行覆盖率（214）：决策数/来源/硬违例/实际关联/无建议。"""
+    from services.decision_log_service import coverage
+
+    try:
+        data = await coverage(start_date=start_date, end_date=end_date)
+    except Exception:
+        logger.warning("routing decision coverage query failed", exc_info=True)
+        return ApiResponse(success=False, error="Routing decision store unavailable")
+    return ApiResponse(success=True, data=data)
