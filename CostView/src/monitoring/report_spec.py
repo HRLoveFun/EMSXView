@@ -25,7 +25,8 @@ from . import report_measure as rm
 #: 时段改用 route_as_of_time + 会话相对分桶，删除 par_rate / |pnl_vwap| 两条后验兜底
 #: 2026.11.25b：057 DL-19 / 212 —— 新增 intent_family cohort（意图可选，缺失记
 #: UNKNOWN，不做算法族反推）；scorecard 默认 cohort 改为 intent_family
-SPEC_VERSION = "2026.11.25b"
+#: 2026.11.25c：057 DL-20 / 213 —— 新增订单内配对评估 D1（同单同窗多券商）
+SPEC_VERSION = "2026.11.25c"
 
 #: 报告口径声明
 REPORT_SPEC: dict[str, Any] = {
@@ -162,6 +163,14 @@ REPORT_SPEC: dict[str, Any] = {
     "posterior_fallbacks": "removed",
     #: 026 阶段二：环境变量可得率随 scorecard payload 披露（filters.env_coverage）
     "env_coverage_disclosure": "scorecard.filters.env_coverage",
+    #: 213（DL-20）：订单内配对评估 D1 —— 与 DL-05 的候选口径一致
+    "pairing": {
+        "min_brokers": 2,
+        "max_spread_minutes": 5.0,
+        "cost_key": "arrival_cost_bps",
+        "weight_expression": "fill * p_avg",
+        "min_pairs_for_test": 10,
+    },
     #: 027：综合评估报告口径（实现见 `CostView/src/evaluation/`；本模块不 import 它，
     #: 避免 `evaluation → monitoring.env_context → monitoring/__init__ → report_spec` 的包级
     #: 循环，故此处写字面量并由 `tests/test_evaluation.py` 断言与实现常量一致）

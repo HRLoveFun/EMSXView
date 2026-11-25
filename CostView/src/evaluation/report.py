@@ -43,6 +43,7 @@ from .comparability import (
     strata_key_of,
 )
 from .governance import evaluation_metadata
+from .pairing import d1_section
 from .power import minimum_detectable_effect
 from .stats_tests import METHODS, adjust_pvalues, compare_groups, mean_difference_ci
 from .stratified import MIN_STRATUM_SAMPLE, stratified_difference
@@ -381,6 +382,11 @@ def build_evaluation_report(
         "trend": _trend_section(routes, granularity),
         "risk": _risk_section(routes),
         "market": _market_section(routes, env_by_route),
+        # 213（DL-20）：订单内配对评估 D1（同单同窗多券商）
+        "pairing": d1_section(
+            list(routes), env_by_route,
+            cost_key=BENCHMARK_METRICS[PRIMARY_BENCHMARK],
+        ),
     }
     return {
         "period": {"start_date": start_date, "end_date": end_date, "granularity": granularity},
