@@ -7,10 +7,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  BROKER_VOLUME_CAP_FIELD,
-} from '@execution/data/broker-volume-cap-mapping';
+  useBrokerParamFields,
+  VOLUME_CAP_OVERRIDES_STORAGE_KEY,
+} from '@execution/hooks/use-broker-param-fields';
 
-const STORAGE_KEY = 'emsx_volume_cap_mapping_overrides';
+const STORAGE_KEY = VOLUME_CAP_OVERRIDES_STORAGE_KEY;
 
 interface MappingEntry {
   broker: string;
@@ -74,8 +75,11 @@ export function VolumeCapMappingEditor({ open, onOpenChange }: VolumeCapMappingE
   const [newBroker, setNewBroker] = useState('');
   const [newStrategy, setNewStrategy] = useState('');
   const [newField, setNewField] = useState('');
+  // 基础表来自后端注册表（DL-16/220）；未就绪时只显示本地覆盖项。
+  const { registry, error: registryError } = useBrokerParamFields();
+  const baseFields = registry?.volumeCapFields ?? {};
 
-  const entries = buildEntries(BROKER_VOLUME_CAP_FIELD, overrides);
+  const entries = buildEntries(baseFields, overrides);
 
   const handleFieldChange = useCallback((broker: string, strategy: string, value: string) => {
     setOverrides(prev => {
@@ -129,6 +133,11 @@ export function VolumeCapMappingEditor({ open, onOpenChange }: VolumeCapMappingE
         <div className="space-y-3 py-4">
           <div className="text-xs text-muted-foreground">
             {entries.length} entries across {new Set(entries.map(e => e.broker)).size} brokers
+            {!registry && (
+              <span className="ml-2 text-amber-600 dark:text-amber-400">
+                {registryError || 'Loading registry…'}
+              </span>
+            )}
           </div>
 
           <div className="border border-border rounded overflow-hidden">
@@ -141,7 +150,7 @@ export function VolumeCapMappingEditor({ open, onOpenChange }: VolumeCapMappingE
             <div className="max-h-64 overflow-y-auto divide-y divide-border">
               {entries.map(({ broker, strategy, field }) => {
                 const isOverridden = overrides[broker]?.[strategy] !== undefined;
-                const isDefault = !isOverridden && BROKER_VOLUME_CAP_FIELD[broker]?.[strategy] !== undefined;
+                const isDefault = !isOverridden && baseFields[broker]?.[strategy] !== undefined;
                 return (
                   <div
                     key={`${broker}#${strategy}`}

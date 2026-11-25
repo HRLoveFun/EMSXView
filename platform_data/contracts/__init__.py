@@ -217,6 +217,22 @@ from .strategy_registry import (
     validate_strategy_params,
 )
 
+# Broker parameter field registry（057 DL-16 收尾：规范字段 → 券商字段名）
+from .broker_param_fields import (
+    BROKER_PARAM_FIELDS_VERSION,
+    BROKER_TIME_FIELDS,
+    BROKER_TIME_FIELD_OVERRIDES,
+    BROKER_VOLUME_CAP_FIELDS,
+    INTEGER_CAP_BROKERS,
+    VOLUME_CAP_MULTIPLIER,
+    broker_param_fields_payload,
+    hhmm_to_emsx_int,
+    is_integer_cap_broker,
+    is_valid_hhmmss,
+    time_fields_for,
+    volume_cap_field_for,
+)
+
 # Intraday store contracts（057 DL-06：盘中库契约，勿与 intraday_contracts 日内特征混淆）
 from .intraday_store_contracts import (
     CONSERVATION_AUDIT_RULE,

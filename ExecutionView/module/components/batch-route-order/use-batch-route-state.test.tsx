@@ -29,6 +29,29 @@ vi.mock('@execution/hooks/use-market-broker-mapping', async (importOriginal) => 
     useMarketBrokerMapping: () => ({ allowedFor: () => null }),   // null = 未配置 ⇒ 全部允许
   };
 });
+// 参数字段注册表来自后端（DL-16/220）；测试提供确定性快照，避免触发真实请求
+vi.mock('@execution/hooks/use-broker-param-fields', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@execution/hooks/use-broker-param-fields')>();
+  return {
+    ...actual,
+    useBrokerParamFields: () => ({
+      registry: {
+        version: 'test',
+        timeFields: {
+          B1: { start: 'StartTime', end: 'EndTime' },
+          B2: { start: 'Start Time', end: 'End Time' },
+        },
+        timeFieldOverrides: {},
+        volumeCapFields: { B1: { S1: 'Max % Vol' }, B2: { S2: 'VolumeLimit%' } },
+        volumeCapMultiplier: 18,
+        integerCapBrokers: [],
+        timeFormat: 'HH:MM:SS',
+        hhmmIntRule: 'HH*100+MM',
+      },
+      error: '',
+    }),
+  };
+});
 
 import type { Order } from '@execution/types';
 import { useBatchRouteState } from './use-batch-route-state';

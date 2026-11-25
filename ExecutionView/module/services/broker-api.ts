@@ -2,6 +2,7 @@
 
 import type {
   TraderInfo, BrokerStrategiesResponse, BrokerStrategyInfoResponse, BrokerAlgorithmConfig,
+  BrokerParamFields,
 } from '@execution/types';
 import type { ApiResponse } from '@shared/types';
 import { createCache, CACHE_CONFIGS, getOrFetch } from '@execution/lib';
@@ -42,6 +43,11 @@ export const brokerApi = {
     hasData: boolean;
   }>> {
     return apiFetch('/api/broker-algorithms/status');
+  },
+
+  /** 券商参数字段注册表（时间字段 / volume cap 字段 / 整数上限券商）。 */
+  async getBrokerParamFields(): Promise<ApiResponse<BrokerParamFields>> {
+    return apiFetch<BrokerParamFields>('/api/broker-param-fields');
   },
 
   async getTraderInfo(): Promise<ApiResponse<TraderInfo>> {

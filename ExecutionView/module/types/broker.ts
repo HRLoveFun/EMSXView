@@ -42,3 +42,21 @@ export interface BrokerAlgorithmConfig {
   assetClass?: string;
   strategies: StrategyConfig[];
 }
+
+/** 起止时间字段名（券商默认或券商×策略覆盖）。 */
+export interface TimeFieldNames {
+  start: string;
+  end: string;
+}
+
+/** 券商参数字段注册表（GET /api/broker-param-fields，057 DL-16 收尾）。 */
+export interface BrokerParamFields {
+  version: string;
+  timeFields: Record<string, TimeFieldNames>;
+  timeFieldOverrides: Record<string, Record<string, TimeFieldNames>>;
+  volumeCapFields: Record<string, Record<string, string>>;
+  volumeCapMultiplier: number;
+  integerCapBrokers: string[];
+  timeFormat: string;
+  hhmmIntRule: string;
+}
