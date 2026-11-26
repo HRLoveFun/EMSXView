@@ -121,6 +121,9 @@ emsxview.bat start        :: 启动（默认即 status；另有 stop / restart�
 relaunch_service.bat      :: 双击重启：等待前端就绪并打开页面
 ```
 
+桌面快捷方式启动时若检测到前端依赖缺失，会自动在仓库根执行 `npm install`，日志写入
+`logs/vite-startup.log`。
+
 完整交互说明见 [`QUICKSTART.md`](./QUICKSTART.md)；服务启停与排障见
 [`docs/ops/service-management.md`](./docs/ops/service-management.md)。
 

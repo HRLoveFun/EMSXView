@@ -345,6 +345,72 @@ $causesHtml
     Start-Process "file:///$($errorPath -replace '\\','/')"
 }
 
+function Test-FrontendDependencies {
+    <#
+    .SYNOPSIS
+        检查前端依赖是否完整（npm workspaces 依赖提升到仓库根）。
+        只做低成本文件探针，不调用 npm，避免每次启动都增加延迟。
+    #>
+    param([string]$Root)
+
+    $markers = @(
+        'node_modules\.package-lock.json',
+        'node_modules\.bin\vite.cmd',
+        'node_modules\vite\package.json',
+        'node_modules\react\package.json',
+        'node_modules\react-dom\package.json',
+        'node_modules\@vitejs\plugin-react\package.json'
+    )
+    foreach ($rel in $markers) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $rel))) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Install-FrontendDependencies {
+    <#
+    .SYNOPSIS
+        在仓库根执行 npm install 补齐缺失的前端依赖。
+        输出写入日志，供依赖安装失败时的诊断页展示。
+    #>
+    param(
+        [string]$Root,
+        [string]$LogFile
+    )
+
+    $header = @(
+        '=== EMSXView frontend dependency bootstrap ===',
+        "Time   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
+        "Root   : $Root",
+        'Command: npm install --no-audit --no-fund --include=dev',
+        ''
+    ) -join "`r`n"
+    # PowerShell 5.1 的 *>> 默认写 UTF-16LE；日志头也用同一编码，避免混合编码乱码。
+    Set-Content -LiteralPath $LogFile -Value $header -Encoding Unicode
+
+    $exitCode = 1
+    $previousErrorActionPreference = $ErrorActionPreference
+    # npm 的 warn/notice 走 stderr；主流程 EAP=Stop 时会抛 NativeCommandError，
+    # 这里临时放宽，改用进程退出码判断安装结果。
+    $ErrorActionPreference = 'Continue'
+    Push-Location $Root
+    try {
+        npm.cmd install --no-audit --no-fund --include=dev *>> $LogFile
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        "npm install failed to start: $($_.Exception.Message)" | Add-Content -LiteralPath $LogFile -Encoding Unicode
+    }
+    finally {
+        Pop-Location
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    return ($exitCode -eq 0 -and (Test-FrontendDependencies -Root $Root))
+}
+
 # ---- 主流程 ----
 # 标准 PowerShell 守卫：被 dot-source（用于函数测试）时跳过主流程；
 # 直接 `powershell -File` 执行时正常运行。
@@ -386,6 +452,35 @@ Write-Host '[launch] Starting backend / frontend in parallel (hidden window)...'
 if (-not $backendAlreadyRunning) {
     Start-HiddenScript -ScriptPath (Join-Path $ProjectRoot 'scripts\deploy\start-backend.ps1')
 }
+
+# 前端依赖预检：缺失时先自动 npm install，避免 120s 后才发现 'vite' 不可用。
+# 安装日志写入 vite-startup.log；成功启动后 start-frontend.ps1 会覆盖为本次 Vite 日志。
+$logRoot = Join-Path $ProjectRoot 'logs'
+if (-not (Test-Path -LiteralPath $logRoot)) {
+    New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+}
+$viteLog = Join-Path $logRoot 'vite-startup.log'
+if (-not (Test-FrontendDependencies -Root $ProjectRoot)) {
+    Write-Host '[launch] Frontend dependencies missing; running npm install (first run may take a few minutes)...' -ForegroundColor Yellow
+    if (-not (Install-FrontendDependencies -Root $ProjectRoot -LogFile $viteLog)) {
+        $causes = @(
+            'npm install failed at the repository root (see log below)',
+            'Node.js / npm not installed or not in PATH',
+            'npm SSL certificate issue (run npm config set strict-ssl false)'
+        )
+        Write-StartupErrorPage `
+            -ProjectRoot $ProjectRoot `
+            -ServiceName 'Frontend' `
+            -Port $Script:Config.FrontendPort `
+            -TimeoutSec $Script:Config.FrontendTimeoutSec `
+            -PossibleCauses $causes `
+            -FrontendOpened $false
+        Write-Host '[launch] Frontend dependency installation failed; diagnostic page generated' -ForegroundColor Red
+        exit 1
+    }
+    Write-Host '[launch] npm install completed; continuing frontend startup' -ForegroundColor Green
+}
+
 Start-HiddenScript -ScriptPath (Join-Path $ProjectRoot 'scripts\deploy\start-frontend.ps1')
 
 # 前端优先：等待 5173 就绪并打开浏览器

@@ -285,6 +285,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" logs
    ```bash
    npm install
    ```
+   桌面快捷方式启动器会在前端依赖缺失时自动执行上述命令（日志见 `logs/vite-startup.log`）；自动安装失败时再按本节手动排查。
 
 2. Check for port conflicts:
    ```powershell
