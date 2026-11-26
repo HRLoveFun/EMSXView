@@ -527,6 +527,36 @@ class RepositoryProvider:
             logger.warning("load_orders from DB failed, falling back to empty: %s", exc)
             return []
 
+    async def load_order_payloads_by_ids(
+        self, order_ids: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Load only the requested parent order payloads (A08).
+
+        Authorization checks only need the parents returned by
+        ``list_active_parents``; scanning ``limit=5000`` newest projections
+        wastes work and can miss older parents.
+        """
+        ids = [str(order_id) for order_id in order_ids if order_id]
+        if not self.is_active or not ids:
+            return {}
+        try:
+            async with get_db_session() as session:
+                from sqlalchemy import select
+                from models.execution_state import OrderProjection
+
+                stmt = select(OrderProjection).where(OrderProjection.order_id.in_(ids))
+                rows = await session.execute(stmt)
+                return {
+                    str(row.order_id): row.payload
+                    for row in rows.scalars().all()
+                    if row.payload
+                }
+        except Exception as exc:
+            logger.warning(
+                "load_order_payloads_by_ids failed, falling back to empty: %s", exc,
+            )
+            return {}
+
     async def load_routes(self, limit: int = 10000) -> List[Dict[str, Any]]:
         """Return route payloads from DB (newest first)."""
         if not self.is_active:

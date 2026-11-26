@@ -21,7 +21,11 @@ from schemas import (
 )
 from deps import verify_token, require_permission, audit_log, audit_result, get_bloomberg_service, get_repo_provider
 from models.route_plan import RoutePlan, RoutePlanAllocation
-from services.authorization_service import enforce_for_order
+from services.authorization_service import (
+    check_authorization,
+    enforce_for_order,
+    load_authorization_context,
+)
 from services.pre_trade_checks import pre_trade_checks
 from services.route_engine import RouteEngine
 from services.submission_service import submit_proposal_core
@@ -609,13 +613,16 @@ async def confirm_proposal(
         )
 
         async def _authorization_check(p: dict):
-            """PM 授权闭包 (S13/043 口径)：缓存缺失跳过、not_covered 放行。"""
+            """PM 授权闭包 (S13/043 口径)：缓存缺失拒绝（A07）、not_covered 放行。"""
             parent_order = None
             if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
                 with bloomberg._data_lock:
                     parent_order = bloomberg._orders.get(p["parent_order_id"])
             if parent_order is None:
-                return None
+                return {
+                    "outcome": "parent_missing",
+                    "order_id": p.get("parent_order_id"),
+                }
             return await enforce_for_order(
                 get_repo_provider(),
                 symbol=parent_order.symbol,
@@ -686,17 +693,28 @@ async def batch_confirm_proposals(
         proposals[pid] = proposal
 
     # PM 授权预检 (S13/050 模式)：任一 exceeded → 整体 403（保守整体拒绝）
+    # A07：父单缓存缺失不再跳过，收集后整体 409（要求刷新订单簿再提交）
     blocked_items: list[dict] = []
+    missing_items: list[dict] = []
     if not request.dryRun:
+        # A08：批量预检只加载一次授权/父单/投影，N 条建议复用同一快照。
+        authorization_context = await load_authorization_context(get_repo_provider())
         for pid, proposal in proposals.items():
             parent_order = None
             if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
                 with bloomberg._data_lock:
                     parent_order = bloomberg._orders.get(proposal["parent_order_id"])
             if parent_order is None:
+                missing_items.append({
+                    "proposalId": pid,
+                    "orderId": proposal.get("parent_order_id"),
+                })
                 continue
-            authz = await enforce_for_order(
-                get_repo_provider(),
+            if authorization_context is None:
+                continue
+            intents, parents, payloads = authorization_context
+            authz = check_authorization(
+                intents, parents, payloads,
                 symbol=parent_order.symbol,
                 side=parent_order.side,
                 portfolio=parent_order.portfolio,
@@ -709,6 +727,15 @@ async def batch_confirm_proposals(
                     "Batch proposal %d has no matching PM authorization — proceeding",
                     pid,
                 )
+    if missing_items:
+        audit_result(correlation_id, "fail")
+        raise HTTPException(
+            409,
+            detail={
+                "message": "Parent order not in subscription cache",
+                "missing": missing_items,
+            },
+        )
     if blocked_items:
         audit_result(correlation_id, "fail")
         raise HTTPException(
@@ -735,7 +762,10 @@ async def batch_confirm_proposals(
                         with bloomberg._data_lock:
                             parent_order = bloomberg._orders.get(p["parent_order_id"])
                     if parent_order is None:
-                        return None
+                        return {
+                            "outcome": "parent_missing",
+                            "order_id": p.get("parent_order_id"),
+                        }
                     return await enforce_for_order(
                         get_repo_provider(),
                         symbol=parent_order.symbol,

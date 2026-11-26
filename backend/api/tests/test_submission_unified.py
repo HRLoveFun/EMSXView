@@ -70,7 +70,8 @@ def _proposal(pid: int = 1) -> dict:
 
 def _bloomberg(route_side_effect=None) -> MagicMock:
     bloomberg = MagicMock()
-    bloomberg._orders = {}  # 无缓存 → compliance/授权闭包跳过
+    # A07：父单必须在缓存中，否则确认/路由会 409
+    bloomberg._orders = {"1001": SimpleNamespaceParent()}
     bloomberg._data_lock = threading.Lock()
     if route_side_effect is not None:
         bloomberg.route_order = AsyncMock(side_effect=route_side_effect)
@@ -201,6 +202,8 @@ async def test_batch_confirm_exceeded_blocks_all(sqlite_provider, monkeypatch):
         await rp.batch_confirm_proposals(req, {"sub": "t1"}, bloomberg)
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["message"].startswith("PM authorization limit exceeded")
+    # A08：批量预检只加载一次授权上下文
+    provider.load_authorizations.assert_awaited_once()
     # audit_log 是 fire-and-forget（ensure_future）——403 同步抛出后需让出
     # 控制权使任务执行，再断言（产品中事件循环持续运行，无此问题）
     await asyncio.sleep(0.05)
@@ -218,3 +221,28 @@ class SimpleNamespaceParent:
         self.side = "BUY"
         self.portfolio = None
         self.remainingQuantity = 100
+
+
+@pytest.mark.asyncio
+async def test_batch_confirm_missing_parent_409(sqlite_provider, monkeypatch):
+    """A07：批量确认中父单不在缓存 → 整体 409，不再静默跳过授权。"""
+    monkeypatch.setenv("BYPASS_AUTH", "true")
+    monkeypatch.setenv("JWT_SECRET", "testsecret")
+    rp = _reload_router()
+    rp._proposals[1] = _proposal(1)
+    rp._proposals[2] = _proposal(2)
+
+    provider = sqlite_provider
+    provider.load_authorizations = AsyncMock(return_value=[])
+    provider.run_parent_child_op = AsyncMock(return_value=[])
+    provider.load_order_payloads_by_ids = AsyncMock(return_value={})
+
+    bloomberg = _bloomberg()
+    bloomberg._orders = {}  # 缓存缺失
+
+    from schemas import BatchConfirmRequest
+    req = BatchConfirmRequest(proposalIds=[1, 2], dryRun=False)
+    with pytest.raises(HTTPException) as exc_info:
+        await rp.batch_confirm_proposals(req, {"sub": "t1"}, bloomberg)
+    assert exc_info.value.status_code == 409
+    assert len(exc_info.value.detail["missing"]) == 2

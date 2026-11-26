@@ -12,6 +12,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -58,6 +59,16 @@ class FakeProposalDB:
     async def load_proposals(self, limit=2000):
         return [dict(r) for r in self.rows.values()]
 
+    # A07/A08：授权闭包在父单已缓存时会访问这些方法
+    async def load_authorizations(self, active_only=True):
+        return []
+
+    async def run_parent_child_op(self, op_name, *args, **kwargs):
+        return []
+
+    async def load_order_payloads_by_ids(self, order_ids):
+        return {}
+
 
 def _reload_router():
     import importlib
@@ -80,7 +91,10 @@ def _proposal_dict() -> dict:
 
 def _bloomberg() -> MagicMock:
     bloomberg = MagicMock()
-    bloomberg._orders = {}
+    # A07：父单必须在缓存中，否则确认会 409
+    bloomberg._orders = {
+        "1001": SimpleNamespace(symbol="TEST SZ Equity", side="BUY", portfolio=None),
+    }
     bloomberg._data_lock = threading.Lock()
     bloomberg.route_order = AsyncMock(return_value={"success": True, "routeId": 9001})
     return bloomberg

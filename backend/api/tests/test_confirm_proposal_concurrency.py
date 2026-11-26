@@ -52,7 +52,8 @@ def _proposal(proposal_id: int = 1) -> dict:
 
 def _bloomberg(route_side_effect=None) -> MagicMock:
     bloomberg = MagicMock()
-    bloomberg._orders = {}
+    # A07：父单必须在缓存中，否则确认/路由会 409
+    bloomberg._orders = {"1001": SimpleNamespaceOrder(price=490_000.01, lastPrice=490_000.01)}
     bloomberg._data_lock = threading.Lock()
     if route_side_effect is not None:
         bloomberg.route_order = AsyncMock(side_effect=route_side_effect)
@@ -157,6 +158,10 @@ class SimpleNamespaceOrder:
     def __init__(self, price: float, lastPrice: float):
         self.price = price
         self.lastPrice = lastPrice
+        # A07：授权闭包会读取父单维度
+        self.symbol = "TEST SZ Equity"
+        self.side = "BUY"
+        self.portfolio = None
         self.currency = "USD"
         self.exchange = "US"
         self.fxRate = 1.0
