@@ -3,35 +3,28 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  MinusCircle,
   AlertCircle,
   Layers,
   ChevronDown,
   ChevronRight,
   RotateCcw,
-  Loader2,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { formatNumber, formatInt, getSideClass } from '@shared/lib/format-utils';
 import { ROUTE_GROUP_BY_OPTIONS, ROUTE_GROUP_BY_LABELS, type RouteGroupByValue } from '@execution/lib';
 import { TextFilterPopover } from '@execution/components/filters/TextFilterPopover';
 import { MultiSelectFilterPopover } from '@execution/components/filters/MultiSelectFilterPopover';
-import { RouteActionMenu } from '@execution/components/route-action-menu';
 import { CancelRouteDialog } from '@execution/components/cancel-route-dialog';
 import { UnifiedModifyRouteDialog } from '@execution/components/unified-modify-route-dialog';
 import { RateDiagnosticDialog } from '@execution/components/rate-diagnostic-dialog';
 import { BatchCancelDialog, BatchModifyDialog } from '@execution/components/batch-operation-dialogs';
 import type { Route, CancelRouteRequest, ModifyRouteRequest } from '@execution/types'
+import { TOTAL_COLS, STABLE_ROUTE_STATUSES, filterRoutes, sortRoutes, groupRoutes,
+  type GroupConfig, type GroupLevel, type SortConfig, type SortField } from './route-table/helpers';
+import { RouteTableRow } from './route-table/route-row';
+import { SubGroupHeader } from './route-table/group-header';
 
-type SortField = keyof Route | null;
-type SortDirection = 'asc' | 'desc';
-type GroupLevel = 'primary' | 'secondary';
 
 interface RouteTableProps {
   routes: Route[];
@@ -42,22 +35,6 @@ interface RouteTableProps {
   onRefresh?: () => Promise<void>;
 }
 
-interface SortConfig {
-  field: SortField;
-  direction: SortDirection;
-}
-
-interface GroupConfig {
-  primary: RouteGroupByValue;
-  secondary: RouteGroupByValue;
-}
-
-const TOTAL_COLS = 26; // 1 selection + 22 data columns + Slice + Slice Status + Schedule columns
-
-// 路由「已收敛」状态集合：乐观替换标记在此类状态下视为可清除（读侧派生 + 定时器清理共用）
-const STABLE_ROUTE_STATUSES = new Set([
-  'WORKING', 'PARTFILL', 'PARTFILLED', 'FILLED', 'DONE', 'CANCEL', 'REJECTED', 'CXLREJ', 'CXLRPRJ',
-]);
 
 export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, onModifyRoute, onRefresh }: RouteTableProps) {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'sequence', direction: 'desc' });
@@ -202,99 +179,23 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
   }, []);
 
   // Filtered routes with include/exclude mode for status
-  const filteredRoutes = useMemo(() => {
-    let result = routes;
-    if (statusFilter.length > 0) {
-      if (statusFilterMode === 'include') {
-        result = result.filter(r => statusFilter.includes(r.status));
-      } else {
-        // exclude mode
-        result = result.filter(r => !statusFilter.includes(r.status));
-      }
-    }
-    if (brokerFilter.length > 0) {
-      if (brokerFilterMode === 'include') {
-        result = result.filter(r => brokerFilter.includes(r.broker));
-      } else {
-        result = result.filter(r => !brokerFilter.includes(r.broker));
-      }
-    }
-    if (traderFilter.length > 0) {
-      if (traderFilterMode === 'include') {
-        result = result.filter(r => traderFilter.includes(r.trader));
-      } else {
-        result = result.filter(r => !traderFilter.includes(r.trader));
-      }
-    }
-    if (tickerFilter) {
-      const t = tickerFilter.toUpperCase();
-      result = result.filter(r => (r.ticker || '').toUpperCase().includes(t));
-    }
-    return result;
-  }, [routes, statusFilter, statusFilterMode, brokerFilter, brokerFilterMode, traderFilter, traderFilterMode, tickerFilter]);
+  const filteredRoutes = useMemo(
+    () => filterRoutes(routes, {
+      status: statusFilter,
+      statusMode: statusFilterMode,
+      broker: brokerFilter,
+      brokerMode: brokerFilterMode,
+      trader: traderFilter,
+      traderMode: traderFilterMode,
+      ticker: tickerFilter,
+    }),
+    [routes, statusFilter, statusFilterMode, brokerFilter, brokerFilterMode, traderFilter, traderFilterMode, tickerFilter],
+  );
 
-  const sortedRoutes = useMemo(() => {
-    if (!sortConfig.field) return filteredRoutes;
-    return [...filteredRoutes].sort((a, b) => {
-      const field = sortConfig.field as keyof Route;
-      const aValue = a[field];
-      const bValue = b[field];
-      const aNull = aValue === undefined || aValue === null || aValue === '';
-      const bNull = bValue === undefined || bValue === null || bValue === '';
-      if (aNull && bNull) return 0;
-      if (aNull) return 1;
-      if (bNull) return -1;
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortConfig.direction === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-      }
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
-      }
-      return 0;
-    });
-  }, [filteredRoutes, sortConfig]);
+  const sortedRoutes = useMemo(() => sortRoutes(filteredRoutes, sortConfig), [filteredRoutes, sortConfig]);
 
   // Two-level grouping
-  const groupedRoutes = useMemo(() => {
-    const { primary, secondary } = groupConfig;
-    if (primary === 'none' && secondary === 'none') {
-      return [{ key: '_all', routes: sortedRoutes, subGroups: null }];
-    }
-    
-    const groups: Record<string, { routes: Route[]; subGroups: Record<string, Route[]> | null }> = {};
-    
-    for (const route of sortedRoutes) {
-      const primaryKey = primary !== 'none'
-        ? String(route[primary as keyof Route] || '(empty)')
-        : '_all';
-      
-      if (!groups[primaryKey]) {
-        groups[primaryKey] = { routes: [], subGroups: secondary !== 'none' ? {} : null };
-      }
-      
-      if (secondary !== 'none' && primary !== 'none') {
-        const secondaryKey = String(route[secondary as keyof Route] || '(empty)');
-        if (!groups[primaryKey].subGroups![secondaryKey]) {
-          groups[primaryKey].subGroups![secondaryKey] = [];
-        }
-        groups[primaryKey].subGroups![secondaryKey].push(route);
-      } else {
-        groups[primaryKey].routes.push(route);
-      }
-    }
-    
-    return Object.entries(groups)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, data]) => ({ 
-        key, 
-        routes: data.routes,
-        subGroups: data.subGroups 
-          ? Object.entries(data.subGroups)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([subKey, routes]) => ({ key: subKey, routes }))
-          : null
-      }));
-  }, [sortedRoutes, groupConfig]);
+  const groupedRoutes = useMemo(() => groupRoutes(sortedRoutes, groupConfig), [sortedRoutes, groupConfig]);
 
   const getSortIcon = (field: SortField) => {
     if (sortConfig.field !== field) {
@@ -305,48 +206,7 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
       : <ArrowDown className="h-3.5 w-3.5 text-primary" />;
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'SENT':       return <Badge variant="outline" className="status-badge status-new gap-1"><AlertCircle className="h-3 w-3" />Sent</Badge>;
-      case 'WORKING':    return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />Working</Badge>;
-      case 'PARTFILLED':
-      case 'PARTFILL':   return <Badge variant="outline" className="status-badge status-partial gap-1"><MinusCircle className="h-3 w-3" />PartFill</Badge>;
-      case 'FILLED':     return <Badge variant="outline" className="status-badge status-filled gap-1"><CheckCircle2 className="h-3 w-3" />Filled</Badge>;
-      case 'CANCEL':     return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Cancel</Badge>;
-      case 'CXLREQ':     return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />CxlReq</Badge>;
-      case 'CXLREJ':     return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />CxlRej</Badge>;
-      case 'CXLREP':     return <Badge variant="outline" className="status-badge status-working gap-1"><Loader2 className="h-3 w-3 animate-spin" />Replacing</Badge>;
-      case 'CXLRPRQ':    return <Badge variant="outline" className="status-badge status-working gap-1"><Loader2 className="h-3 w-3 animate-spin" />Replacing</Badge>;
-      case 'CXLRPRJ':    return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />CxlRprJ</Badge>;
-      case 'REJECTED':   return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Rejected</Badge>;
-      case 'DONE':       return <Badge variant="outline" className="status-badge status-filled gap-1"><CheckCircle2 className="h-3 w-3" />Done</Badge>;
-      case 'QUEUED':     return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />Queued</Badge>;
-      case 'HOLD':       return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />Hold</Badge>;
-      case 'BUST':       return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Bust</Badge>;
-      case 'CORRECTED':  return <Badge variant="outline" className="status-badge status-filled gap-1"><CheckCircle2 className="h-3 w-3" />Corrected</Badge>;
-      case 'REPPEN':     return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />RepPen</Badge>;
-      case 'ROUTE-ERR':  return <Badge variant="outline" className="status-badge status-cancelled gap-1"><XCircle className="h-3 w-3" />Error</Badge>;
-      case 'OMS-PEND':   return <Badge variant="outline" className="status-badge status-working gap-1"><Clock className="h-3 w-3" />OmsPend</Badge>;
-      case 'A-SENT':     return <Badge variant="outline" className="status-badge status-new gap-1"><AlertCircle className="h-3 w-3" />A-Sent</Badge>;
-      case 'ALLOCATED':  return <Badge variant="outline" className="status-badge status-filled gap-1"><CheckCircle2 className="h-3 w-3" />Allocated</Badge>;
-      case 'OA-SENT':    return <Badge variant="outline" className="status-badge status-new gap-1"><AlertCircle className="h-3 w-3" />OA-Sent</Badge>;
-      default:           return <Badge variant="outline" className="status-badge gap-1">{status}</Badge>;
-    }
-  };
-
-
   const hasActiveFilters = statusFilter.length > 0 || brokerFilter.length > 0 || traderFilter.length > 0 || !!tickerFilter;
-
-  const getRouteStrategyDetail = (route: Route) => {
-    if (!route.strategyType) return '';
-    const parts: string[] = [];
-    if (route.strategyPartRate1 != null) parts.push(`Rate: ${route.strategyPartRate1}%`);
-    if (route.strategyPartRate2 != null) parts.push(`Rate2: ${route.strategyPartRate2}%`);
-    if (route.strategyStyle) parts.push(`Style: ${route.strategyStyle}`);
-    if (route.strategyStartTime) parts.push(`Start: ${route.strategyStartTime}`);
-    if (route.strategyEndTime) parts.push(`End: ${route.strategyEndTime}`);
-    return parts.join(' | ');
-  };
 
   // Get unique values from current routes for filters
   const availableStatuses = useMemo(() => {
@@ -365,11 +225,6 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
   }, [routes]);
 
   // Shared filter components in components/filters/
-
-  const getPercentFilled = (route: Route) => {
-    if (route.amount <= 0) return '';
-    return ((route.filled / route.amount) * 100).toFixed(0) + '%';
-  };
 
   // Action handlers
   // Per-route in-flight guard: a user double-clicking "Cancel Route" while
@@ -400,100 +255,18 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
       ? { ...route, status: 'CXLRPRQ' as const }
       : route;
     return (
-      <tr key={route.id} className={`border-b border-border/50 hover:bg-muted/50 transition-colors text-xs h-8 ${selectedRouteIds.has(route.id) ? 'bg-primary/5' : ''}`}>
-        {/* Selection checkbox */}
-        <td className="px-2 text-center">
-          <input
-            type="checkbox"
-            aria-label={`Select route ${route.sequence}.${route.routeId}`}
-            checked={selectedRouteIds.has(route.id)}
-            onChange={() => toggleRouteSelection(route.id)}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </td>
-        {/* Actions */}
-        <td className="px-2">
-          <RouteActionMenu
-            route={effectiveRoute}
-            currentTrader={currentTrader}
-            onCancel={(r) => { setSelectedRoute(r); setIsCancelDialogOpen(true); }}
-            onModify={(r) => { setSelectedRoute(r); setIsModifyDialogOpen(true); }}
-          />
-        </td>
-        {/* Order# */}
-        <td className="px-2 font-mono text-muted-foreground">{route.sequence}</td>
-        {/* Route# */}
-        <td className="px-2 font-mono text-xs">{route.routeId}</td>
-        {/* Ticker */}
-        <td className="px-2 font-semibold">{route.ticker || '-'}</td>
-        {/* Exchange */}
-        <td className="px-2 text-xs">{route.exchange || '-'}</td>
-        {/* Side */}
-        <td className={`px-2 font-semibold ${getSideClass(route.side)}`}>{route.side}</td>
-        {/* Status */}
-        <td className="px-2">{getStatusBadge(effectiveRoute.status)}</td>
-        {/* Type */}
-        <td className="px-2 text-muted-foreground">{route.orderType}</td>
-        {/* Qty */}
-        <td className="px-2 text-right font-mono-numbers">{formatInt(route.amount)}</td>
-        {/* %Filled */}
-        <td className="px-2 text-right font-mono-numbers text-xs">{getPercentFilled(route)}</td>
-        {/* Filled */}
-        <td className="px-2 text-right font-mono-numbers">{formatInt(route.filled)}</td>
-        {/* Working */}
-        <td className="px-2 text-right font-mono-numbers">{formatInt(route.working)}</td>
-        {/* Avg Px */}
-        <td className="px-2 text-right font-mono-numbers text-xs">{formatNumber(route.avgPrice)}</td>
-        {/* Limit Px */}
-        <td className="px-2 text-right font-mono-numbers">{formatNumber(route.limitPrice)}</td>
-        {/* Last Px */}
-        <td className="px-2 text-right font-mono-numbers text-xs text-muted-foreground">{formatNumber(route.lastPrice)}</td>
-        {/* Last Shr */}
-        <td className="px-2 text-right font-mono-numbers text-xs">{formatInt(route.lastShares)}</td>
-        {/* Broker */}
-        <td className="px-2 font-medium">{route.broker}</td>
-        {/* Trader */}
-        <td className="px-2 text-xs">{route.trader}</td>
-        {/* Strategy */}
-        <td className="px-2 text-xs" title={getRouteStrategyDetail(route)}>{route.strategyType}</td>
-        {/* Strat Params */}
-        <td className="px-2 text-xs text-muted-foreground truncate max-w-[120px]" title={getRouteStrategyDetail(route)}>{getRouteStrategyDetail(route)}</td>
-        {/* Slice */}
-        <td className="px-2 text-center text-xs font-mono-numbers">{route.sliceIndex != null ? `#${route.sliceIndex}` : ''}</td>
-        {/* Slice Status */}
-        <td className="px-2 text-xs">{route.sliceStatus || ''}</td>
-        {/* Schedule */}
-        <td className="px-2 text-xs text-muted-foreground font-mono-numbers">
-          {route.scheduledStart ? new Date(route.scheduledStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-          {route.scheduledStart && route.scheduledEnd ? '–' : ''}
-          {route.scheduledEnd ? new Date(route.scheduledEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-        </td>
-        {/* Notes */}
-        <td className="px-2 text-xs text-muted-foreground truncate max-w-[120px]" title={route.notes}>{route.notes}</td>
-        {/* Reason */}
-        <td className="px-2 text-xs text-muted-foreground">{route.reasonDesc || route.reasonCode}</td>
-      </tr>
+      <RouteTableRow
+        key={route.id}
+        route={route}
+        effectiveRoute={effectiveRoute}
+        currentTrader={currentTrader}
+        selected={selectedRouteIds.has(route.id)}
+        onToggleSelection={toggleRouteSelection}
+        onCancel={(r) => { setSelectedRoute(r); setIsCancelDialogOpen(true); }}
+        onModify={(r) => { setSelectedRoute(r); setIsModifyDialogOpen(true); }}
+      />
     );
   };
-
-  const renderSubGroupHeader = (primaryKey: string, subKey: string, subRoutes: Route[], isExpanded: boolean) => (
-    <tr
-      key={`${primaryKey}-${subKey}`}
-      className="bg-secondary/20 border-y border-border/40 cursor-pointer select-none"
-      onClick={() => toggleGroup(`${primaryKey}-${subKey}`)}
-    >
-      <td colSpan={TOTAL_COLS} className="px-8 py-1 text-xs">
-        <div className="flex items-center gap-1.5">
-          {isExpanded
-            ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
-          <span className="text-muted-foreground">{ROUTE_GROUP_BY_LABELS[groupConfig.secondary]}:</span>
-          <span className="font-medium">{subKey}</span>
-          <span className="text-muted-foreground/60">({subRoutes.length})</span>
-        </div>
-      </td>
-    </tr>
-  );
 
   // Check if any modification functionality is available
   const hasModifyCapability = !!onCancelRoute && !!onModifyRoute;
@@ -766,7 +539,14 @@ export function RouteTable({ routes, isLoading, currentTrader, onCancelRoute, on
                       group.subGroups ? (
                         group.subGroups.map(subGroup => (
                           <Fragment key={`${group.key}-${subGroup.key}`}>
-                            {renderSubGroupHeader(group.key, subGroup.key, subGroup.routes, expandedGroups.has(`${group.key}-${subGroup.key}`))}
+                            <SubGroupHeader
+                              primaryKey={group.key}
+                              subKey={subGroup.key}
+                              subRoutes={subGroup.routes}
+                              isExpanded={expandedGroups.has(`${group.key}-${subGroup.key}`)}
+                              secondary={groupConfig.secondary}
+                              onToggle={toggleGroup}
+                            />
                             {(expandedGroups.has(`${group.key}-${subGroup.key}`)) && subGroup.routes.map(renderRow)}
                           </Fragment>
                         ))
