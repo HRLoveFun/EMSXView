@@ -19,15 +19,19 @@ from platform_data.adapters.handoff import HandoffExchangeAdapter
 from platform_data.contracts import (
     MATURITY_GA,
     MATURITY_SCAFFOLD,
+    CostToExecutionHandoffRequest,
+    ExecutionToCostHandoffRequest,
     MarketCandidatePayload,
 )
 
 
 def _publish(ex: HandoffExchangeAdapter, order_id: str):
     return ex.publish_execution_to_cost(
-        order_id=order_id, parent_execution_id=None, broker=None,
-        strategy=None, asset_class=None, urgency=None,
-        route_ids=[], strategy_params=None,
+        ExecutionToCostHandoffRequest(
+            order_id=order_id, parent_execution_id=None, broker=None,
+            strategy=None, asset_class=None, urgency=None,
+            route_ids=(), strategy_params=None,
+        )
     )
 
 
@@ -36,10 +40,12 @@ def test_metadata_carries_source_maturity():
     ex = HandoffExchangeAdapter()
 
     rec = ex.publish_cost_to_execution(
-        cohort="broker_strategy", asset_class=None, broker="BrokerA",
-        strategy="VWAP", urgency=None, sample_size=42,
-        arrival_bps=None, implementation_bps=None,
-        severity="normal", rationale="",
+        CostToExecutionHandoffRequest(
+            cohort="broker_strategy", asset_class=None, broker="BrokerA",
+            strategy="VWAP", urgency=None, sample_size=42,
+            arrival_bps=None, implementation_bps=None,
+            severity="normal", rationale="",
+        )
     )
     assert rec.metadata.source_maturity == MATURITY_GA
 

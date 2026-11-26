@@ -18,13 +18,16 @@ from platform_data.adapters.handoff import (
     _HANDOFF_TTL,
     _MAX_EXECUTION_TO_COST,
 )
+from platform_data.contracts import ExecutionToCostHandoffRequest
 
 
 def _publish(ex: HandoffExchangeAdapter, order_id: str) -> None:
     ex.publish_execution_to_cost(
-        order_id=order_id, parent_execution_id=None, broker=None,
-        strategy=None, asset_class=None, urgency=None,
-        route_ids=[], strategy_params=None,
+        ExecutionToCostHandoffRequest(
+            order_id=order_id, parent_execution_id=None, broker=None,
+            strategy=None, asset_class=None, urgency=None,
+            route_ids=(), strategy_params=None,
+        )
     )
 
 

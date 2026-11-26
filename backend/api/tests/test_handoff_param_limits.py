@@ -27,7 +27,10 @@ from platform_data.adapters.handoff import (
     HandoffExchangeAdapter,
     _bounded_strategy_params,
 )
-from platform_data.contracts import HANDOFF_MAX_STRATEGY_PARAMS_BYTES
+from platform_data.contracts import (
+    HANDOFF_MAX_STRATEGY_PARAMS_BYTES,
+    ExecutionToCostHandoffRequest,
+)
 from schemas.handoff import PostTradeHandoffRequest
 
 
@@ -80,9 +83,11 @@ def test_publish_via_adapter_oversized_rejected():
     big = _payload_of_bytes(HANDOFF_MAX_STRATEGY_PARAMS_BYTES + 1024)
     with pytest.raises(ValueError):
         ex.publish_execution_to_cost(
-            order_id="O-big", parent_execution_id=None, broker=None,
-            strategy=None, asset_class=None, urgency=None,
-            route_ids=[], strategy_params=big,
+            ExecutionToCostHandoffRequest(
+                order_id="O-big", parent_execution_id=None, broker=None,
+                strategy=None, asset_class=None, urgency=None,
+                route_ids=(), strategy_params=big,
+            )
         )
     assert ex.get_execution_to_cost("O-big") is None
 

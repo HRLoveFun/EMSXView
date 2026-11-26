@@ -13,13 +13,15 @@ Keys:
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from typing import Any
 
 from platform_data.contracts.handoff_contracts import (
     SOURCE_MODULE_MATURITY,
     BrokerStrategyRecommendation,
+    CostToExecutionHandoffRequest,
     ExecutionCandidateHandoff,
     ExecutionPostTradeHandoff,
+    ExecutionToCostHandoffRequest,
     HandoffMetadata,
     _new_trace_id,
     _now_iso,
@@ -241,38 +243,29 @@ class RedisHandoffExchangeAdapter:
     # — Execution → Cost —
 
     def publish_execution_to_cost(
-        self,
-        *,
-        order_id: str,
-        parent_execution_id: str | None,
-        broker: str | None,
-        strategy: str | None,
-        asset_class: str | None,
-        urgency: str | None,
-        route_ids: Iterable[str],
-        strategy_params: dict[str, Any] | None,
-        candidate_trace_id: str | None = None,
-        origin_trace_id: str | None = None,
+        self, request: ExecutionToCostHandoffRequest,
     ) -> ExecutionPostTradeHandoff:
+        order_id = request.order_id
         metadata = HandoffMetadata(
             contract_version=self._EXECUTION_CONTRACT_VERSION,
             source="ExecutionView",
             handoff_target="CostView",
             generated_at=_now_iso(),
             trace_id=_new_trace_id("ev-cv"),
-            origin_trace_id=origin_trace_id,
+            origin_trace_id=request.origin_trace_id,
             source_maturity=SOURCE_MODULE_MATURITY.get("ExecutionView"),
         )
         handoff = ExecutionPostTradeHandoff(
             metadata=metadata,
-            order_id=order_id,
-            parent_execution_id=parent_execution_id,
-            broker=broker,
-            strategy=strategy,
-            asset_class=asset_class,
-            urgency=urgency,
-            route_ids=list(route_ids),
-            strategy_params=strategy_params,
+            order_id=str(request.order_id),
+            parent_execution_id=request.parent_execution_id,
+            broker=request.broker,
+            strategy=request.strategy,
+            asset_class=request.asset_class,
+            urgency=request.urgency,
+            route_ids=list(request.route_ids),
+            strategy_params=request.strategy_params,
+            candidate_trace_id=request.candidate_trace_id,
         )
         # newest-wins 守卫：同一订单的乱序发布保留较新条目（尽力防护，非原子）
         existing = self.get_execution_to_cost(order_id)
@@ -302,20 +295,7 @@ class RedisHandoffExchangeAdapter:
     # — Cost → Execution —
 
     def publish_cost_to_execution(
-        self,
-        *,
-        cohort: str,
-        asset_class: str | None,
-        broker: str | None,
-        strategy: str | None,
-        urgency: str | None,
-        sample_size: int,
-        arrival_bps: float | None,
-        implementation_bps: float | None,
-        severity: str,
-        rationale: str,
-        source_report_trace_id: str | None = None,
-        origin_trace_id: str | None = None,
+        self, request: CostToExecutionHandoffRequest,
     ) -> BrokerStrategyRecommendation:
         metadata = HandoffMetadata(
             contract_version=self._COST_CONTRACT_VERSION,
@@ -323,22 +303,22 @@ class RedisHandoffExchangeAdapter:
             handoff_target="ExecutionView",
             generated_at=_now_iso(),
             trace_id=_new_trace_id("cv-ev"),
-            origin_trace_id=origin_trace_id,
+            origin_trace_id=request.origin_trace_id,
             source_maturity=SOURCE_MODULE_MATURITY.get("CostView"),
         )
         rec = BrokerStrategyRecommendation(
             metadata=metadata,
-            cohort=cohort,
-            asset_class=asset_class,
-            broker=broker,
-            strategy=strategy,
-            urgency=urgency,
-            sample_size=sample_size,
-            arrival_bps=arrival_bps,
-            implementation_bps=implementation_bps,
-            severity=severity,
-            rationale=rationale,
-            source_report_trace_id=source_report_trace_id,
+            cohort=request.cohort,
+            asset_class=request.asset_class,
+            broker=request.broker,
+            strategy=request.strategy,
+            urgency=request.urgency,
+            sample_size=request.sample_size,
+            arrival_bps=request.arrival_bps,
+            implementation_bps=request.implementation_bps,
+            severity=request.severity,
+            rationale=request.rationale,
+            source_report_trace_id=request.source_report_trace_id,
         )
         # pipeline 原子写入 + 容量裁剪 + TTL，防止崩溃窗口留下无 TTL 条目
         pipe = self._redis.pipeline()

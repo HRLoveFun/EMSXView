@@ -36,6 +36,41 @@ SOURCE_MODULE_MATURITY: dict[str, str] = {
     "CostView": MATURITY_GA,
 }
 
+
+# ── Handoff publish requests（A14/228：把 10/12 参数收拢为请求对象）──────────
+@dataclass(frozen=True)
+class ExecutionToCostHandoffRequest:
+    """ExecutionView → CostView post-trade publish request."""
+
+    order_id: str
+    parent_execution_id: str | None = None
+    broker: str | None = None
+    strategy: str | None = None
+    asset_class: str | None = None
+    urgency: str | None = None
+    route_ids: tuple[str, ...] = ()
+    strategy_params: dict[str, Any] | None = None
+    candidate_trace_id: str | None = None
+    origin_trace_id: str | None = None
+
+
+@dataclass(frozen=True)
+class CostToExecutionHandoffRequest:
+    """CostView → ExecutionView recommendation publish request."""
+
+    cohort: str
+    asset_class: str | None = None
+    broker: str | None = None
+    strategy: str | None = None
+    urgency: str | None = None
+    sample_size: int = 0
+    arrival_bps: float | None = None
+    implementation_bps: float | None = None
+    severity: str = "info"
+    rationale: str = ""
+    source_report_trace_id: str | None = None
+    origin_trace_id: str | None = None
+
 # ── handoff 载荷大小契约（P3 整改 A4）────────────────────────────────────────
 # strategy_params 序列化后的 UTF-8 字节上限。跨模块契约常量：前端预检、
 # API schema 校验、adapter 双保险三层共用同一数值，由契约测试锁定，
