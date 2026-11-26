@@ -135,6 +135,52 @@ def check_authorization(
     }
 
 
+async def _load_parent_payloads(
+    provider, parents: List[Any],
+) -> Dict[str, Dict[str, Any]]:
+    """Only load the parent order payloads needed for the commit calculation (A08).
+
+    Falls back to ``load_orders(limit=5000)`` for older providers / test doubles
+    that do not implement ``load_order_payloads_by_ids``.
+    """
+    parent_ids = [
+        str(getattr(parent, "order_id", ""))
+        for parent in parents
+        if getattr(parent, "order_id", "")
+    ]
+    if not parent_ids:
+        return {}
+    loader = getattr(provider, "load_order_payloads_by_ids", None)
+    if loader is not None:
+        try:
+            payloads = await loader(parent_ids)
+            if isinstance(payloads, dict):
+                return payloads
+        except (TypeError, AttributeError):
+            pass  # test double / legacy provider — fall back below
+    payloads: Dict[str, Dict[str, Any]] = {}
+    for p in await provider.load_orders(limit=5000):
+        oid = str(p.get("id") or p.get("orderId") or "")
+        if oid:
+            payloads[oid] = p
+    return payloads
+
+
+async def load_authorization_context(provider):
+    """Load (intents, parents, parent payloads) once for batch reuse (A08).
+
+    Returns None when persistence is unavailable (pure in-memory mode).
+    """
+    if not (provider and provider.is_active):
+        return None
+    intents = await provider.load_authorizations(active_only=True)
+    if not intents:
+        return (intents, [], {})
+    parents = await provider.run_parent_child_op("list_active_parents") or []
+    payloads = await _load_parent_payloads(provider, parents)
+    return (intents, parents, payloads)
+
+
 async def enforce_for_order(
     provider,
     *,
@@ -152,17 +198,12 @@ async def enforce_for_order(
     - exceeded：剩余授权不足——调用方硬拒绝（403）；
     - ok：放行。
     """
-    if not (provider and provider.is_active):
+    context = await load_authorization_context(provider)
+    if context is None:
         return None
-    intents = await provider.load_authorizations(active_only=True)
+    intents, parents, payloads = context
     if not intents:
         return {"outcome": "not_covered", "symbol": symbol, "side": side}
-    parents = await provider.run_parent_child_op("list_active_parents") or []
-    payloads: Dict[str, Dict[str, Any]] = {}
-    for p in await provider.load_orders(limit=5000):
-        oid = str(p.get("id") or p.get("orderId") or "")
-        if oid:
-            payloads[oid] = p
     return check_authorization(
         intents, parents, payloads,
         symbol=symbol, side=side, portfolio=portfolio,

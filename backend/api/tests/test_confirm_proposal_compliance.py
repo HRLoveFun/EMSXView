@@ -120,8 +120,8 @@ def test_confirm_allowed_at_notional_max(confirm_app):
     bloomberg.route_order.assert_awaited_once()
 
 
-def test_confirm_skips_check_when_order_not_cached(confirm_app):
-    """订单不在订阅缓存：与 orders_crud.route_order 同口径跳过检查直接路由。"""
+def test_confirm_rejects_when_order_not_cached(confirm_app):
+    """A07：父单不在订阅缓存时拒绝（409），不再跳过检查直接路由。"""
     client, bloomberg, route_plans_router = confirm_app(None)
     # 白盒注入一条待确认建议（apply 依赖订单在缓存，无法走端点生成）
     route_plans_router._proposals[1] = {
@@ -138,6 +138,6 @@ def test_confirm_skips_check_when_order_not_cached(confirm_app):
     }
 
     resp = client.post("/api/sub-order-proposals/1/confirm")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["success"] is True
-    bloomberg.route_order.assert_awaited_once()
+    assert resp.status_code == 409, resp.text
+    assert "not in subscription cache" in resp.text
+    bloomberg.route_order.assert_not_awaited()

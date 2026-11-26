@@ -32,6 +32,11 @@ def _fake_provider() -> MagicMock:
     provider.is_active = True
     provider.persist_audit_event = AsyncMock(return_value=True)
     provider.update_audit_result = AsyncMock(return_value=True)
+    # A07/A08：父单已在缓存，授权闭包会真正走到 provider
+    provider.load_authorizations = AsyncMock(return_value=[])
+    provider.run_parent_child_op = AsyncMock(return_value=[])
+    provider.load_order_payloads_by_ids = AsyncMock(return_value={})
+    provider.load_orders = AsyncMock(return_value=[])
     return provider
 
 
@@ -96,7 +101,7 @@ async def test_confirm_proposal_records_pending_then_ok(provider):
         "updated_at": "2026-10-07T09:30:00+00:00",
     }
     bloomberg = MagicMock()
-    bloomberg._orders = {}
+    bloomberg._orders = {"1001": SimpleNamespace(symbol="TEST SZ Equity", side="BUY", portfolio=None)}
     bloomberg._data_lock = threading.Lock()
     bloomberg.route_order = AsyncMock(return_value={"success": True, "routeId": 9001})
 
@@ -117,14 +122,15 @@ async def test_route_order_timeout_records_unknown(provider):
     orders_crud = _reload("routers.orders_crud")
 
     bloomberg = MagicMock()
-    bloomberg._orders = {}
+    bloomberg._orders = {"1001": SimpleNamespace(symbol="TEST SZ Equity", side="BUY", portfolio=None)}
     import threading as _threading
     bloomberg._data_lock = _threading.Lock()
     bloomberg.route_order = AsyncMock(side_effect=HTTPException(504, "Bloomberg request timed out"))
 
     req = RouteOrderRequest(
         orderId="1001", broker="CSFB", quantity=100,
-        orderType="LIMIT", price=490_000.01, timeInForce="DAY",
+        # A07 起父单在缓存会真正执行合规检查；价格取上限内，专测审计路径
+        orderType="LIMIT", price=490_000.00, timeInForce="DAY",
     )
     with pytest.raises(HTTPException) as exc_info:
         await orders_crud.route_order(req, {"sub": "t1"}, bloomberg)
@@ -157,6 +163,30 @@ async def test_route_order_compliance_fail(provider):
     with pytest.raises(HTTPException) as exc_info:
         await orders_crud.route_order(req, {"sub": "t1"}, bloomberg)
     assert exc_info.value.status_code == 400
+    await asyncio.sleep(0)
+
+    cid = provider.persist_audit_event.await_args.kwargs["correlation_id"]
+    provider.update_audit_result.assert_awaited_once_with(correlation_id=cid, result="fail")
+
+
+@pytest.mark.asyncio
+async def test_route_order_missing_parent_409(provider):
+    """A07：父单不在订阅缓存时拒绝（409）并记审计 fail。"""
+    orders_crud = _reload("routers.orders_crud")
+
+    bloomberg = MagicMock()
+    bloomberg._orders = {}
+    import threading as _threading
+    bloomberg._data_lock = _threading.Lock()
+
+    req = RouteOrderRequest(
+        orderId="9999", broker="CSFB", quantity=100,
+        orderType="LIMIT", price=100.0, timeInForce="DAY",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await orders_crud.route_order(req, {"sub": "t1"}, bloomberg)
+    assert exc_info.value.status_code == 409
+    assert "subscription cache" in str(exc_info.value.detail)
     await asyncio.sleep(0)
 
     cid = provider.persist_audit_event.await_args.kwargs["correlation_id"]
