@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -195,4 +195,18 @@ class TestDailyConfirmation:
     def test_missing_last_date_counts_as_unconfirmed(self):
         assert access_policy_service.needs_daily_confirmation(
             datetime(2026, 10, 23, 9, 0), last_confirmed_date=None
+        ) is True
+
+    def test_aware_utc_before_hk_8am(self):
+        # 2026-10-23 23:59 UTC = 2026-10-24 07:59 HKT → 未到 08:00
+        assert access_policy_service.needs_daily_confirmation(
+            datetime(2026, 10, 23, 23, 59, tzinfo=timezone.utc),
+            last_confirmed_date=None,
+        ) is False
+
+    def test_aware_utc_at_hk_8am(self):
+        # 2026-10-24 00:00 UTC = 2026-10-24 08:00 HKT → 需要确认
+        assert access_policy_service.needs_daily_confirmation(
+            datetime(2026, 10, 24, 0, 0, tzinfo=timezone.utc),
+            last_confirmed_date="2026-10-23",
         ) is True
