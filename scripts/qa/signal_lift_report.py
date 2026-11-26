@@ -1,17 +1,21 @@
-"""信号与规则月度回检 CLI（057 DL-26/221）。
+"""信号与规则回检 CLI（057 DL-26/221）。
 
 只读聚合 `tca_route_summary`，按规则输出：
 每个告警信号的命中 vs 未命中标准化成本差（按日 z、按规模分层、OrderId 聚类 CI）。
 
 用法：
     python scripts/qa/signal_lift_report.py
+    python scripts/qa/signal_lift_report.py --week
     python scripts/qa/signal_lift_report.py --month 202611
     python scripts/qa/signal_lift_report.py --start 20261101 --end 20261130 \
         --rules rules.json --cost-field pnl_vwap
 
 输出：`logs/qa/signal_lift/signal_lift_<start>_<end>.json`，并打印可执行信号摘要。
 
-默认区间为**上一个完整自然月**；`--db` 缺省读 `Config.FILL_BDIB_DB`。
+默认区间为**上一个完整自然月**；`--week` 取上一个完整自然周（周一至周日）；
+`--db` 缺省读 `Config.FILL_BDIB_DB`。
+
+退出码：0=有样本；2=参数/库错误；3=区间内无 `tca_route_summary` 行（数据未更新）。
 """
 
 from __future__ import annotations
@@ -34,6 +38,14 @@ def _previous_month(today: date) -> tuple[str, str]:
     return last_prev.replace(day=1).strftime("%Y%m%d"), last_prev.strftime("%Y%m%d")
 
 
+def _previous_week(today: date) -> tuple[str, str]:
+    """上一个完整自然周（周一至周日）。"""
+    this_monday = today - timedelta(days=today.weekday())
+    start = this_monday - timedelta(days=7)
+    end = this_monday - timedelta(days=1)
+    return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
+
 def _month_bounds(month: str) -> tuple[str, str]:
     year, mon = int(month[:4]), int(month[4:6])
     last_day = calendar.monthrange(year, mon)[1]
@@ -41,6 +53,10 @@ def _month_bounds(month: str) -> tuple[str, str]:
 
 
 def _resolve_period(args: argparse.Namespace) -> tuple[str, str]:
+    if args.week:
+        if args.month or args.start or args.end:
+            raise ValueError("--week 与 --month/--start/--end 不能同时使用")
+        return _previous_week(date.today())
     if args.month:
         if args.start or args.end:
             raise ValueError("--month 与 --start/--end 不能同时使用")
@@ -48,8 +64,23 @@ def _resolve_period(args: argparse.Namespace) -> tuple[str, str]:
     if args.start and args.end:
         return args.start, args.end
     if args.start or args.end:
-        raise ValueError("--start 与 --end 必须同时提供（或改用 --month）")
+        raise ValueError("--start 与 --end 必须同时提供（或改用 --month/--week）")
     return _previous_month(date.today())
+
+
+def _latest_summary_date(db_path: str) -> str:
+    """tca_route_summary 的最新交易日（空库/缺表 → 空串）。"""
+    try:
+        connection = sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
+        try:
+            row = connection.execute(
+                "SELECT MAX(order_as_of_date) FROM tca_route_summary"
+            ).fetchone()
+            return str(row[0]) if row and row[0] else ""
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return ""
 
 
 def _load_rows(db_path: str, start: str, end: str) -> list[dict]:
@@ -76,7 +107,11 @@ def _load_rows(db_path: str, start: str, end: str) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Signal/rule monthly lift (057 DL-26/221)")
+    parser = argparse.ArgumentParser(description="Signal/rule lift (057 DL-26/221)")
+    parser.add_argument(
+        "--week", action="store_true",
+        help="上一个完整自然周（周一至周日）",
+    )
     parser.add_argument("--month", default="", help="YYYYMM（上一个完整月之外的显式区间）")
     parser.add_argument("--start", default="", help="YYYYMMDD")
     parser.add_argument("--end", default="", help="YYYYMMDD")
@@ -163,6 +198,14 @@ def main(argv: list[str] | None = None) -> int:
     summary = render_summary(report)
     if summary:
         print(summary)
+    if not sample.get("routes"):
+        latest = _latest_summary_date(db_path)
+        print(
+            f"signal lift: no tca_route_summary rows for {start}-{end}; "
+            f"latest summary date={latest or 'none'} - check pipeline S5.5",
+            file=sys.stderr,
+        )
+        return 3
     return 0
 
 

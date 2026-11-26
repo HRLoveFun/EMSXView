@@ -48,4 +48,4 @@ scripts/
 | 清理门禁（冗余 / 性能热点）        | `python cleanup.py --report`                 |
 | 模块边界审计（CI 同款）            | `python audit_cross_imports.py`              |
 | 影子周报（DL-22）                 | `python qa/shadow_weekly_report.py`          |
-| 信号/规则月度回检（DL-26）         | `python qa/signal_lift_report.py --month YYYYMM` |
+| 信号/规则回检（DL-26，默认月度）   | `python qa/signal_lift_report.py [--week\|--month YYYYMM]` |

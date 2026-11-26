@@ -109,13 +109,14 @@ python main.py
 >
 > **报告口径（2026-11-03 起，`SPEC_VERSION 2026.11.03b`）**：①`tca_route_summary.Amount` 是**委托股数**（非金额），异常明细单列「委托股数」；成交金额（本币/美元）与异常金额门槛均为 `fill × p_avg`（USD 列再乘汇率），零成交路由按 `RouteShares × p_avg × 汇率` 计。②订单参与率**不按组内求和判定**：单路由看自身参与率、多路由看组内最大路由参与率（求和不可加总），`>100%` 标 `par_suspect`、`>1000%` 为 critical。
 
-### 信号与规则月度回检（DL-26/221）
+### 信号与规则回检（DL-26/221，月度/周度）
 
-`python scripts/qa/signal_lift_report.py --month YYYYMM` 只读 `tca_route_summary`，输出
+`python scripts/qa/signal_lift_report.py --month YYYYMM`（或 `--week` 取上一个完整自然周）只读 `tca_route_summary`，输出
 `logs/qa/signal_lift/signal_lift_<start>_<end>.json`：每条告警规则的命中/未命中成本差
 （按日 z 标准化、`Exchange × 名义额五分位` 分层、`OrderId` 聚类 95% CI），并归档规则指纹
 与 `SPEC_VERSION`。成本派生规则（`pnl_vwap_bps` / `intraday_volatility`）照常输出但不进入
-`any_actionable_signal`；订单级规则在路由层标 `available=false`（v0 不伪造）。
+`any_actionable_signal`；订单级规则在路由层标 `available=false`（v0 不伪造）。区间内无
+`tca_route_summary` 行时退出码 **3** 并打印最新汇总日期，避免把管道滞后误当成「0 样本」。
 
 ## 筛选交互（UI 约定）
 
