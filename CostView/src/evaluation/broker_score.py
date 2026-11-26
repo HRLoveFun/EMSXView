@@ -187,7 +187,7 @@ def build_broker_scores(
             ),
             ScoreComponent(
                 name="tail_risk",
-                value=_cvar(z_values),
+                value=_cvar(z_values) if len(z_values) >= 2 else None,
                 unit="z",
                 sample_size=len(z_values),
                 available=len(z_values) >= 2,

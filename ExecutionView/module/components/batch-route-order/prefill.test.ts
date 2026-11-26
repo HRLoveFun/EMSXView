@@ -61,4 +61,37 @@ describe('derivePrefill', () => {
     const sum = Object.values(result.ratios).reduce((acc, value) => acc + value, 0);
     expect(sum).toBe(100);
   });
+
+  it('attaches cost score notes without changing order or ratios', () => {
+    const result = derivePrefill(
+      {
+        O1: _record('O1', 'D1', [
+          { broker: 'A', quantity: 600 },
+          { broker: 'B', quantity: 400 },
+        ]),
+      },
+      {
+        A: {
+          costValue: 4.2,
+          costSampleSize: 120,
+          asOf: '2026-11-26T00:00:00+00:00',
+          windowStart: '20260828',
+          windowEnd: '20261126',
+        },
+        B: {
+          costValue: null,
+          costSampleSize: 0,
+          asOf: '2026-11-26T00:00:00+00:00',
+          windowStart: '20260828',
+          windowEnd: '20261126',
+        },
+      },
+    );
+
+    expect(result.brokers).toEqual(['A', 'B']);
+    expect(result.ratios).toEqual({ A: 60, B: 40 });
+    expect(result.scoreNotes).toEqual({ A: 'cost 4.20 bps (n=120)' });
+    expect(result.scoresUsed).toBe(1);
+    expect(result.scoreWindow).toEqual({ start: '20260828', end: '20261126' });
+  });
 });

@@ -2,7 +2,7 @@
 
 import type {
   TraderInfo, BrokerStrategiesResponse, BrokerStrategyInfoResponse, BrokerAlgorithmConfig,
-  BrokerParamFields,
+  BrokerParamFields, BrokerScoresResponse,
 } from '@execution/types';
 import type { ApiResponse } from '@shared/types';
 import { createCache, CACHE_CONFIGS, getOrFetch } from '@execution/lib';
@@ -48,6 +48,22 @@ export const brokerApi = {
   /** 券商参数字段注册表（时间字段 / volume cap 字段 / 整数上限券商）。 */
   async getBrokerParamFields(): Promise<ApiResponse<BrokerParamFields>> {
     return apiFetch<BrokerParamFields>('/api/broker-param-fields');
+  },
+
+  /** 券商分项得分快照（DL-24/217；只出分项，不合成）。 */
+  async getBrokerScores(params: {
+    startDate?: string;
+    endDate?: string;
+    broker?: string;
+    algo?: string;
+  } = {}): Promise<ApiResponse<BrokerScoresResponse>> {
+    const query = new URLSearchParams();
+    if (params.startDate) query.set('start_date', params.startDate);
+    if (params.endDate) query.set('end_date', params.endDate);
+    if (params.broker) query.set('broker', params.broker);
+    if (params.algo) query.set('algo', params.algo);
+    const suffix = query.toString();
+    return apiFetch<BrokerScoresResponse>(`/api/tca/broker-scores${suffix ? `?${suffix}` : ''}`);
   },
 
   async getTraderInfo(): Promise<ApiResponse<TraderInfo>> {
