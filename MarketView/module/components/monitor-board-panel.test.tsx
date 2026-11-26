@@ -184,25 +184,26 @@ describe('MonitorBoardPanel', () => {
     expect(within(table).getAllByText('EU').length).toBeGreaterThan(0);
   });
 
-  it('shares market chips across all modules and reveals tickers on click', async () => {
+  it('shares market chips across all modules and toggles tickers on click', async () => {
     stubFetch({ success: true, data: payload });
     renderPanel();
 
     const notes = await screen.findByRole('group', { name: 'Risk notes' });
     const volatility = screen.getByRole('group', { name: 'Volatility' });
-    // 默认不展开任何市场的股票
-    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
-    expect(within(volatility).getByText('Select a market above to list signals')).toBeInTheDocument();
-
-    // 共享市场标签：点一次，三个模块同时生效
-    fireEvent.click(marketChip('US'));
+    // 默认全选所有市场：两个市场的股票都展开
     expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
     expect(within(volatility).getByText('SEC_A US Equity')).toBeInTheDocument();
-    expect(within(notes).queryByText('SEC_B EU Equity')).not.toBeInTheDocument();
 
-    // 再次点击反选取消
+    // 共享市场标签：取消 US，三个模块同时隐藏 US
     fireEvent.click(marketChip('US'));
     expect(within(notes).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
+    expect(within(volatility).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
+    expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
+
+    // 再次点击恢复 US
+    fireEvent.click(marketChip('US'));
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
   });
 
   it('supports multi-select, select-all and invert for market chips', async () => {
@@ -210,19 +211,23 @@ describe('MonitorBoardPanel', () => {
     renderPanel();
 
     const notes = await screen.findByRole('group', { name: 'Risk notes' });
+    // 默认全选：两个市场都展开
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
+    expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
+
+    // 逐个取消 → 全不选
     fireEvent.click(marketChip('US'));
     fireEvent.click(marketChip('EU'));
+    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
+
+    // 一键全选：恢复两个市场
+    fireEvent.click(screen.getByRole('button', { name: 'Select all markets' }));
     expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
     expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
 
     // 一键反选：两个都选 → 全不选
     fireEvent.click(screen.getByRole('button', { name: 'Invert markets' }));
     expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
-
-    // 一键全选：两个市场的股票都展开
-    fireEvent.click(screen.getByRole('button', { name: 'Select all markets' }));
-    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
-    expect(within(notes).getByText('SEC_B EU Equity')).toBeInTheDocument();
   });
 
   it('keeps highlight panel and table on the same severity', async () => {
@@ -230,7 +235,6 @@ describe('MonitorBoardPanel', () => {
     renderPanel();
 
     expect((await screen.findAllByText('1 alert(s)')).length).toBeGreaterThan(0);
-    fireEvent.click(marketChip('US'));
     const volatility = screen.getByRole('group', { name: 'Volatility' });
     expect(within(volatility).getByText('Warning')).toBeInTheDocument();
     expect(within(volatility).getByText('daily 28.9% / intraday 0.23%')).toBeInTheDocument();
@@ -308,17 +312,18 @@ describe('MonitorBoardPanel', () => {
     renderPanel();
 
     const notes = await screen.findByRole('group', { name: 'Risk notes' });
-    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
+    // 默认全选：列表可见
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse modules' }));
     for (const title of ['Liquidity', 'Volatility', 'Risk notes']) {
       const module = screen.getByRole('group', { name: title });
-      expect(within(module).queryByText('Select a market above to list signals')).not.toBeInTheDocument();
+      expect(within(module).queryByText('SEC_A US Equity')).not.toBeInTheDocument();
     }
     expect(screen.getByRole('button', { name: 'Expand modules' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand modules' }));
-    expect(within(notes).getByText('Select a market above to list signals')).toBeInTheDocument();
+    expect(within(notes).getByText('SEC_A US Equity')).toBeInTheDocument();
   });
 
   it('reports the pool universe for live subscription', async () => {
