@@ -403,7 +403,7 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
         ) : error ? (
           <div className="p-6 text-sm text-red-700">{error.message}</div>
         ) : data ? (
-          <div className="mt-4 space-y-4">
+          <div className="mx-auto mt-4 w-full max-w-[960px] space-y-4">
             <div className="rounded-xl border border-border/70 bg-background/60 p-3">
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>

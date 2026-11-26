@@ -296,7 +296,7 @@ export const MonitorBoardPanel = ({
             <div className="grid gap-3 xl:grid-cols-3">
               <HighlightModule
                 title="Liquidity"
-                metricHint="Volume vs ADV20 beyond 2×/5× or 0.5×/0.25×"
+                metricHint="Vol/ADV20 ≥2×/5× or ≤0.5×/0.25×"
                 items={highlights?.liquidity ?? []}
                 emptyText={EMPTY_TEXT.liquidity}
                 selectedTicker={selectedTicker}
@@ -306,7 +306,7 @@ export const MonitorBoardPanel = ({
               />
               <HighlightModule
                 title="Volatility"
-                metricHint="Daily vol ≥25/40 or intraday vol ≥2/3"
+                metricHint="Daily vol ≥25/40 or intraday ≥2/3"
                 items={highlights?.volatility ?? []}
                 emptyText={EMPTY_TEXT.volatility}
                 selectedTicker={selectedTicker}
@@ -316,7 +316,7 @@ export const MonitorBoardPanel = ({
               />
               <HighlightModule
                 title="Risk notes"
-                metricHint="Data gaps / stale baseline / large move"
+                metricHint="Gaps / stale baseline / large move"
                 items={highlights?.risk_notes ?? []}
                 emptyText={EMPTY_TEXT.risk_notes}
                 selectedTicker={selectedTicker}
