@@ -70,8 +70,8 @@ export const MonitorBoardPanel = ({
   );
   // 三个高亮模块统一折叠 / 展开
   const [modulesCollapsed, setModulesCollapsed] = useState(false);
-  // 市场标签所有模块共享（多选，空 = 未选）
-  const [selectedMarkets, setSelectedMarkets] = useState<ReadonlySet<string>>(new Set());
+  // 市场标签所有模块共享（多选）；null = 默认全选所有市场
+  const [selectedMarkets, setSelectedMarkets] = useState<ReadonlySet<string> | null>(null);
   const [filters, setFilters] = useState<FilterState>({});
   const [openFilter, setOpenFilter] = useState<FilterKey | null>(null);
 
@@ -102,9 +102,16 @@ export const MonitorBoardPanel = ({
       .sort((a, b) => a.market.localeCompare(b.market));
   }, [highlights]);
 
+  const allMarkets = useMemo(
+    () => new Set(marketBuckets.map((bucket) => bucket.market)),
+    [marketBuckets],
+  );
+  // null 表示「默认全选」，用户一旦操作即转为显式集合
+  const effectiveSelectedMarkets = selectedMarkets ?? allMarkets;
+
   const toggleMarket = (market: string): void => {
     setSelectedMarkets((current) => {
-      const next = new Set(current);
+      const next = new Set(current ?? allMarkets);
       if (next.has(market)) {
         next.delete(market);
       } else {
@@ -113,12 +120,11 @@ export const MonitorBoardPanel = ({
       return next;
     });
   };
-  const selectAllMarkets = (): void =>
-    setSelectedMarkets(new Set(marketBuckets.map((bucket) => bucket.market)));
+  const selectAllMarkets = (): void => setSelectedMarkets(null);
   const invertMarkets = (): void =>
     setSelectedMarkets((current) => {
-      const all = marketBuckets.map((bucket) => bucket.market);
-      return new Set(all.filter((market) => !current.has(market)));
+      const base = current ?? allMarkets;
+      return new Set([...allMarkets].filter((market) => !base.has(market)));
     });
 
   // 列筛选：选项来自当前行集合；选择为空表示不筛选
@@ -256,7 +262,7 @@ export const MonitorBoardPanel = ({
               <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Markets</span>
               {marketBuckets.length ? (
                 marketBuckets.map(({ market, count }) => {
-                  const active = selectedMarkets.has(market);
+                  const active = effectiveSelectedMarkets.has(market);
                   return (
                     <button
                       key={market}
@@ -302,7 +308,7 @@ export const MonitorBoardPanel = ({
                 selectedTicker={selectedTicker}
                 onSelectTicker={onSelectTicker}
                 collapsed={modulesCollapsed}
-                selectedMarkets={selectedMarkets}
+                selectedMarkets={effectiveSelectedMarkets}
               />
               <HighlightModule
                 title="Volatility"
@@ -312,7 +318,7 @@ export const MonitorBoardPanel = ({
                 selectedTicker={selectedTicker}
                 onSelectTicker={onSelectTicker}
                 collapsed={modulesCollapsed}
-                selectedMarkets={selectedMarkets}
+                selectedMarkets={effectiveSelectedMarkets}
               />
               <HighlightModule
                 title="Risk notes"
@@ -322,7 +328,7 @@ export const MonitorBoardPanel = ({
                 selectedTicker={selectedTicker}
                 onSelectTicker={onSelectTicker}
                 collapsed={modulesCollapsed}
-                selectedMarkets={selectedMarkets}
+                selectedMarkets={effectiveSelectedMarkets}
               />
             </div>
           </div>
