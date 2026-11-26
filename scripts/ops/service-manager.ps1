@@ -484,9 +484,21 @@ function Start-BackendService {
     # 用 cmd.exe 把 stdout/stderr 直接写日志文件：既避开无人读取的 .NET 管道
     # 缓冲（写满后子进程阻塞、接口假死），又通过 Start-DetachedProcess 让子进程
     # 不继承本进程的 stdout（否则 `| tail` 之类的外层管道永不返回）。
-    $process = Start-DetachedProcess `
-        -Arguments "/c python `"$backendScript`" >> `"$logFile`" 2>&1" `
-        -WorkingDirectory (Split-Path $backendScript -Parent)
+    #
+    # PYTHONPATH 显式指向本脚本解析出的项目根：本仓库可能以 editable 安装把
+    # `CostView` 指向另一个 checkout；worktree 直接跑启动器时，子进程若不带上
+    # 当前根，会优先导入那个 checkout（表现为新端点 404，但代码明明存在）。
+    # 与 scripts/deploy/start-backend.ps1 的 `$env:PYTHONPATH = $ProjectRoot` 同义。
+    $previousPythonPath = $env:PYTHONPATH
+    $env:PYTHONPATH = [string]$Config.ProjectRoot
+    try {
+        $process = Start-DetachedProcess `
+            -Arguments "/c python `"$backendScript`" >> `"$logFile`" 2>&1" `
+            -WorkingDirectory (Split-Path $backendScript -Parent)
+    }
+    finally {
+        $env:PYTHONPATH = $previousPythonPath
+    }
 
     if ($null -eq $process) {
         Write-Status "Failed to launch backend process (see $logFile)." "Error"
