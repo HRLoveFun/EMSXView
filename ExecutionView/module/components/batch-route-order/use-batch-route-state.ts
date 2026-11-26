@@ -18,7 +18,7 @@ import type {
 } from '@execution/types';
 import type { ShadowDecisionRecord } from '@execution/types';
 import { apiService } from '@execution/services/execution-api';
-import { derivePrefill } from './prefill';
+import { derivePrefill, type BrokerScoreHint } from './prefill';
 import { useBrokerAlgorithms } from '@execution/hooks/use-broker-algorithms';
 import {
   useMarketBrokerMapping,
@@ -48,6 +48,52 @@ import {
   clientKeyOf,
   remainingOf,
 } from './utils';
+
+// ── DL-24 → DL-25: broker score hints (components only, no composite) ───────
+
+function toDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+}
+
+async function loadBrokerScoreHints(): Promise<{
+  hints: Record<string, BrokerScoreHint>;
+  note: string;
+}> {
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const res = await apiService.getBrokerScores({
+      startDate: toDateKey(start),
+      endDate: toDateKey(end),
+    });
+    if (!res.success || !res.data) {
+      return { hints: {}, note: 'Broker score snapshot request failed.' };
+    }
+    if (res.data.enabled === false) {
+      return { hints: {}, note: 'Broker scores disabled (TCA_EVAL_ENABLED=0).' };
+    }
+    const hints: Record<string, BrokerScoreHint> = {};
+    for (const snapshot of res.data.snapshots ?? []) {
+      const cost = (snapshot.components ?? []).find(component => component.name === 'cost');
+      if (!cost || !cost.available || cost.value === null || !Number.isFinite(cost.value)) {
+        continue;
+      }
+      hints[snapshot.broker] = {
+        costValue: cost.value,
+        costSampleSize: cost.sample_size,
+        asOf: snapshot.as_of,
+        windowStart: snapshot.window_start,
+        windowEnd: snapshot.window_end,
+      };
+    }
+    return { hints, note: '' };
+  } catch {
+    return { hints: {}, note: 'Broker score snapshot unavailable.' };
+  }
+}
 
 // ── Internal types ──────────────────────────────────────────────────────────
 
@@ -855,7 +901,8 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
           ? res.data.records[0]
           : null;
       }
-      const derived = derivePrefill(records);
+      const { hints: scoreHints, note: scoreNote } = await loadBrokerScoreHints();
+      const derived = derivePrefill(records, scoreHints);
       if (derived.brokers.length === 0) {
         setPrefillMessage('No shadow decision for the selected orders; configuration unchanged.');
         return;
@@ -866,8 +913,17 @@ export function useBatchRouteState(input: UseBatchRouteStateInput): UseBatchRout
       setShadowDecisionIds(derived.decisionIds);
       setPrefillParams(derived.paramsByBroker);
       setPrefillUsed(true);
+      const scoreSummary = derived.scoresUsed > 0
+        ? ` Cost scores: ${derived.brokers
+            .filter(broker => derived.scoreNotes[broker])
+            .slice(0, 4)
+            .map(broker => `${broker} ${derived.scoreNotes[broker]}`)
+            .join('; ')}${derived.scoreWindow
+            ? ` (${derived.scoreWindow.start}–${derived.scoreWindow.end})`
+            : ''}.`
+        : (scoreNote ? ` ${scoreNote}` : '');
       setPrefillMessage(
-        `Prefilled ${derived.brokers.length} broker(s) from ${derived.ordersWithDecision} order(s). Review and confirm.`,
+        `Prefilled ${derived.brokers.length} broker(s) from ${derived.ordersWithDecision} order(s). Review and confirm.${scoreSummary}`,
       );
     } catch {
       setPrefillMessage('Prefill failed; existing configuration unchanged.');

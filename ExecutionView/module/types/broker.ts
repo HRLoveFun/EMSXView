@@ -49,6 +49,38 @@ export interface TimeFieldNames {
   end: string;
 }
 
+/** 券商分项得分（DL-24/217；只出分项，不合成）。 */
+export interface BrokerScoreComponent {
+  name: string;
+  value: number | null;
+  unit: string;
+  sample_size: number;
+  available: boolean;
+  note?: string;
+}
+
+export interface BrokerScoreSnapshot {
+  broker: string;
+  as_of: string;
+  window_start: string;
+  window_end: string;
+  spec_version: string;
+  components: BrokerScoreComponent[];
+  weights?: Record<string, number>;
+  composite?: number | null;
+  cusum?: Record<string, unknown>;
+  misaligned_samples?: number;
+  low_sample?: boolean;
+}
+
+export interface BrokerScoresResponse {
+  enabled?: boolean;
+  snapshots: BrokerScoreSnapshot[];
+  total_routes_considered?: number;
+  total_routes_capped?: number;
+  data_source_warning?: string | null;
+}
+
 /** 券商参数字段注册表（GET /api/broker-param-fields，057 DL-16 收尾）。 */
 export interface BrokerParamFields {
   version: string;

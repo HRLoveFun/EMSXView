@@ -11,6 +11,20 @@
 
 import type { ShadowDecisionRecord } from '@execution/types';
 
+/** 单个券商的分项得分提示（DL-24/217；只暴露分项，不合成、不改比例）。 */
+export interface BrokerScoreHint {
+  costValue: number | null;
+  costSampleSize: number;
+  asOf: string;
+  windowStart: string;
+  windowEnd: string;
+}
+
+export interface PrefillScoreWindow {
+  start: string;
+  end: string;
+}
+
 export interface PrefillResult {
   brokers: string[];
   ratios: Record<string, number>;
@@ -18,6 +32,10 @@ export interface PrefillResult {
   paramsByBroker: Record<string, Record<string, unknown>>;
   decisionIds: Record<string, string>;
   rationales: string[];
+  /** broker → 可读的成本分项提示（如 "cost 4.21 bps (n=120)"）。 */
+  scoreNotes: Record<string, string>;
+  scoreWindow: PrefillScoreWindow | null;
+  scoresUsed: number;
   ordersWithDecision: number;
   ordersWithoutDecision: number;
 }
@@ -33,6 +51,7 @@ function strategyFromParams(params?: Record<string, unknown>): string {
 
 export function derivePrefill(
   recordsByOrder: Record<string, ShadowDecisionRecord | null>,
+  scoresByBroker: Record<string, BrokerScoreHint> = {},
 ): PrefillResult {
   const quantities = new Map<string, number>();
   const strategyVotes = new Map<string, Map<string, number>>();
@@ -112,6 +131,23 @@ export function derivePrefill(
     strategies[broker] = strategy;
   }
 
+  // DL-24 → DL-25：分项得分直接暴露给交易员（不合成、不改比例）。
+  const scoreNotes: Record<string, string> = {};
+  let scoresUsed = 0;
+  for (const broker of brokers) {
+    const hint = scoresByBroker[broker];
+    if (!hint || hint.costValue === null || !Number.isFinite(hint.costValue)) continue;
+    const sample = hint.costSampleSize > 0 ? ` (n=${hint.costSampleSize})` : '';
+    scoreNotes[broker] = `cost ${hint.costValue.toFixed(2)} bps${sample}`;
+    scoresUsed += 1;
+  }
+  const windowHint = Object.values(scoresByBroker).find(
+    hint => hint.windowStart || hint.windowEnd,
+  );
+  const scoreWindow = windowHint
+    ? { start: windowHint.windowStart, end: windowHint.windowEnd }
+    : null;
+
   return {
     brokers,
     ratios,
@@ -119,6 +155,9 @@ export function derivePrefill(
     paramsByBroker,
     decisionIds,
     rationales,
+    scoreNotes,
+    scoreWindow,
+    scoresUsed,
     ordersWithDecision,
     ordersWithoutDecision,
   };

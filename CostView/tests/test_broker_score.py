@@ -110,6 +110,17 @@ def test_build_broker_scores_components_and_governance() -> None:
     assert snapshots["A"]["weights"] == {}
 
 
+def test_unavailable_component_value_is_null() -> None:
+    """契约：available=False 时 value 必须为 None，不得填 0。"""
+    routes = [_route("C", "20261101", 5.0)]
+    ranking = rank_brokers(routes, n_boot=10, simulations=20, seed=7)
+    payload = _score(routes, ranking)
+    snapshots = {snapshot["broker"]: snapshot for snapshot in payload["snapshots"]}
+    components = {c["name"]: c for c in snapshots["C"]["components"]}
+    assert components["tail_risk"]["available"] is False
+    assert components["tail_risk"]["value"] is None
+
+
 def test_cusum_alerts_on_step_shift_and_not_on_stable() -> None:
     routes = []
     for day in range(20):
