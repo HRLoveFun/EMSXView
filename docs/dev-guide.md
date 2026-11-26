@@ -131,5 +131,6 @@ npm run dev
 
 - 项目根定位**唯一信息源**是仓库根的 `.emsxview-root` marker 文件；新增/修改 `scripts/deploy/` 下启动脚本时**必须**用 `Find-EmsxviewRoot`（向上查找 marker），**禁止**硬编码「向上 N 层」。
 - 启动器算出项目根后**必须** `Assert-ProjectRootValid` 自检，错路径立即 throw，**禁止**进入 120s 超时黑盒。
+- 桌面快捷方式启动前端前**必须**做依赖预检：根 `node_modules` 缺少 `vite` 等关键探针时，先在仓库根自动执行 `npm install`（日志写 `logs/vite-startup.log`）；安装失败立即生成诊断页，**禁止**让 Vite 空等 120s 后报 `'vite' is not recognized`。
 - VBS 启动器只做 thin wrapper（隐藏窗口 + 调起 PS1），**禁止**在 VBS 内做路径深度计算或业务逻辑。
 - 详见 [AP-16 启动器路径硬编码 + 跨宿主语义错位](spec/anti-patterns.md#ap-16-启动器路径硬编码--跨宿主语义错位)。
