@@ -23,7 +23,7 @@ const ExportMetaBar = ({ payload }: { payload: PreTradeOrdersPayload }) => (
       {payload.export_file_name || 'No export file'}
     </div>
     <div className="rounded-full border border-border px-3 py-1">
-      Exported {payload.exported_at ? new Date(payload.exported_at).toLocaleString() : 'N/A'}
+      Exported {payload.exported_at ? new Date(payload.exported_at).toLocaleString('en-US') : 'N/A'}
     </div>
     <div className="rounded-full border border-border px-3 py-1">{payload.order_count} orders</div>
     <div className="rounded-full border border-border px-3 py-1">

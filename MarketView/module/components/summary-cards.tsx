@@ -69,7 +69,7 @@ export const SummaryCards = ({
       {lastHandoff && (
         <p className="mt-1 text-[11px] text-muted-foreground">
           Last handoff: {lastHandoff.rowCount} candidates,
-          {new Date(lastHandoff.generatedAt).toLocaleString()}
+          {new Date(lastHandoff.generatedAt).toLocaleString('en-US')}
         </p>
       )}
     </article>

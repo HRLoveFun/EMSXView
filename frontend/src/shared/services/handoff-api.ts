@@ -16,13 +16,13 @@ import {
   marketToExecutionHandoffSchema,
   brokerRecommendationSchema,
 } from '@shared/lib/api-schema';
+import { getToken } from './token-service';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
-const TOKEN_KEY = 'emsx_token';
 
 function authHeaders(): HeadersInit {
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = getToken();
   if (token) {
     (headers as Record<string, string>).Authorization = `Bearer ${token}`;
   }

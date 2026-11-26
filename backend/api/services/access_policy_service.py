@@ -15,6 +15,7 @@ import json
 import logging
 import os
 from datetime import datetime, time as dtime
+from zoneinfo import ZoneInfo
 
 from platform_data.contracts import (
     ACCESS_POLICY_VERSION,
@@ -32,6 +33,10 @@ ACCESS_POLICY_FILE_ENV = "EMSXVIEW_ACCESS_POLICY_FILE"
 
 # 每日确认时点（当地 08:00；当天首次打开触发弹窗）
 DAILY_CONFIRM_HOUR = 8
+
+#: 每日确认时区（A09 决策）：交易机/后端部署在香港，按 Asia/Hong_Kong 界定「当日」。
+#: 若未来部署迁移到其他时区，改此常量并同步 test_access_policy 的四象限用例。
+DAILY_CONFIRM_TIMEZONE = ZoneInfo("Asia/Hong_Kong")
 
 
 def load_policy_bundle(path: str | None = None) -> PolicyBundle:
@@ -97,8 +102,16 @@ def with_broker_policy(bundle: PolicyBundle, markets: dict[str, frozenset[str]])
 
 
 def needs_daily_confirmation(now: datetime | None = None, last_confirmed_date: str | None = None) -> bool:
-    """当日 08:00 后且当日未确认 → True（触发弹窗）。"""
-    current = now or datetime.now()
+    """当日 08:00 后且当日未确认 → True（触发弹窗）。
+
+    时区口径（A09）：一律换算到 ``DAILY_CONFIRM_TIMEZONE``（Asia/Hong_Kong）。
+    传入 naive datetime 视为该时区的本地时间（测试与既有调用兼容）。
+    """
+    current = now or datetime.now(DAILY_CONFIRM_TIMEZONE)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=DAILY_CONFIRM_TIMEZONE)
+    else:
+        current = current.astimezone(DAILY_CONFIRM_TIMEZONE)
     if current.time() < dtime(hour=DAILY_CONFIRM_HOUR):
         return False
     return last_confirmed_date != current.strftime("%Y-%m-%d")

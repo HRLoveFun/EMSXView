@@ -53,7 +53,7 @@ export function buildLiveQuotes(
 export function fmtSignedPercent(value: number | null | undefined, digits = 2): string {
   if (value == null) return '—';
   const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toLocaleString(undefined, {
+  return `${sign}${value.toLocaleString('en-US', {
     maximumFractionDigits: digits,
     minimumFractionDigits: digits,
   })}%`;

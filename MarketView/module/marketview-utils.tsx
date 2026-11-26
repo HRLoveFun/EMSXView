@@ -50,7 +50,7 @@ export function renderMarketStatusBadge(status: MarketTradingStatus, time?: stri
 
 export function fmtNumber(value: number | null | undefined, digits = 2): string {
   if (value == null) return '—';
-  return value.toLocaleString(undefined, {
+  return value.toLocaleString('en-US', {
     maximumFractionDigits: digits,
     minimumFractionDigits: digits,
   });
@@ -58,7 +58,7 @@ export function fmtNumber(value: number | null | undefined, digits = 2): string 
 
 export function fmtCompact(value: number | null | undefined): string {
   if (value == null) return '—';
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat('en-US', {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value);
@@ -66,7 +66,7 @@ export function fmtCompact(value: number | null | undefined): string {
 
 export function fmtPercent(value: number | null | undefined, digits = 1): string {
   if (value == null) return '—';
-  return `${value.toLocaleString(undefined, {
+  return `${value.toLocaleString('en-US', {
     maximumFractionDigits: digits,
     minimumFractionDigits: digits,
   })}%`;
