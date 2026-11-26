@@ -120,3 +120,19 @@ async def test_route_order_blocked_on_exceeded(monkeypatch):
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["outcome"] == "exceeded"
     bloomberg.route_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enforce_uses_targeted_parent_payload_loader():
+    """A08：只按父单 id 加载投影，不再 load_orders(limit=5000) 全量扫描。"""
+    provider = _fake_provider(_INTENT, _PARENTS, _PAYLOADS)
+    provider.load_order_payloads_by_ids = AsyncMock(return_value=_PAYLOADS)
+
+    result = await enforce_for_order(
+        provider, symbol="AAPL US Equity", side="BUY", portfolio="TECH",
+        additional_qty=10_000,
+    )
+
+    assert result["outcome"] == "ok"
+    provider.load_order_payloads_by_ids.assert_awaited_once_with(["1001"])
+    provider.load_orders.assert_not_awaited()

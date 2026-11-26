@@ -131,10 +131,16 @@ async def submit_proposal_core(
         # PM 授权（由调用方注入闭包）
         if authorization_check is not None:
             authz = await authorization_check(proposal)
-            if authz and authz.get("outcome") == "exceeded":
+            if authz and authz.get("outcome") in ("exceeded", "parent_missing"):
                 proposal["status"] = ProposalStatus.PENDING_CONFIRM.value
                 if audit_result:
                     audit_result(correlation_id, "fail")
+                if authz.get("outcome") == "parent_missing":
+                    # A07：缓存缺失不再跳过检查，明确拒绝并要求刷新订单簿
+                    raise HTTPException(
+                        409,
+                        detail={"message": "Parent order not in subscription cache", **authz},
+                    )
                 raise HTTPException(
                     403,
                     detail={"message": "PM authorization limit exceeded", **authz},

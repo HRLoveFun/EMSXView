@@ -123,6 +123,14 @@ async def route_order(
     if hasattr(bloomberg, "_orders") and hasattr(bloomberg, "_data_lock"):
         with bloomberg._data_lock:
             parent_order = bloomberg._orders.get(request.orderId)
+    # A07：父单不在订阅缓存时不再跳过检查，拒绝并要求刷新订单簿
+    if parent_order is None:
+        audit_result(correlation_id, "fail")
+        raise HTTPException(
+            409,
+            f"Order {request.orderId} not found in subscription cache; "
+            "refresh orders and retry",
+        )
     # A02：四入口统一走 pre_trade_checks（准入 → 订单合规 → 策略 → 碎股白名单）
     violations = await pre_trade_checks(
         parent_order,
