@@ -744,6 +744,42 @@ class TestTcaReportAggregator:
         assert ranking[0]["notional"] == pytest.approx(2 * 900.0 * 150.0)
         assert ranking[0]["notional_usd"] is None  # 无 fx_rate 列 → USD 不换算
 
+    def test_market_notional_ranking_with_fx_backfill_cte(self, tmp_path: Path):
+        """fill_bdib 汇率回填 CTE 启用时排名查询不得因子句同名列歧义报错（回归）。
+
+        主表与 ``_fbfx`` CTE 都有 ``OrderId``；SELECT 若用裸列名，SQLite 会抛
+        ``ambiguous column name: OrderId``。真实库同时具备 ``fx_rate`` 列与
+        ``fill_bdib`` 表时必现，故需覆盖该分支。
+        """
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        conn.execute(
+            "CREATE TABLE fill_bdib (OrderId TEXT, RouteId TEXT, "
+            "order_as_of_date TEXT, fill_volume REAL, fx_rate REAL)"
+        )
+        conn.execute("ALTER TABLE tca_route_summary ADD COLUMN fx_rate REAL")
+        _insert_route(conn, "O1", "20260803", fx_rate=1.0)
+        _insert_route(conn, "O2", "20260803", Broker="BROKERB", algo="TWAP",
+                      equ_ticker="0700 HK Equity", Exchange="HK", fx_rate=0.128)
+        conn.execute(
+            "INSERT INTO fill_bdib (OrderId, RouteId, order_as_of_date, "
+            "fill_volume, fx_rate) VALUES (?, ?, ?, ?, ?)",
+            ("O1", "R1", "20260803", 900.0, 1.0),
+        )
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report("20260803", "20260803")
+        ranking = report["market_notional_ranking"]
+        assert {r["exchange"] for r in ranking} == {"US", "HK"}
+        assert all(r["order_count"] == 1 for r in ranking)
+
     def test_market_notional_trend(self, mgr: ConnectionManager):
         """按市场成交金额每日趋势：date × exchange。"""
         report = TcaReportAggregator(mgr).build_report("20260803", "20260804")

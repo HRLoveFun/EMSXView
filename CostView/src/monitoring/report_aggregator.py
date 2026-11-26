@@ -515,7 +515,7 @@ class TcaReportAggregator:
         sql = f"""
             SELECT COALESCE(Exchange, '(unknown)') AS exchange,
                     COUNT(*) AS route_count,
-                    COUNT(DISTINCT COALESCE(OrderId, '') || '|' || order_as_of_date) AS order_count,
+                    COUNT(DISTINCT COALESCE(tca_route_summary.OrderId, '') || '|' || order_as_of_date) AS order_count,
                     COALESCE(SUM(fill * p_avg), 0) AS notional,
                     SUM(fill * p_avg * ({fx_sum})) AS notional_usd
             FROM {Config.TCA_ROUTE_SUMMARY_TABLE}{join}
