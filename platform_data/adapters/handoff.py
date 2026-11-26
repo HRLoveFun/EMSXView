@@ -10,15 +10,17 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import Any
 
 from platform_data.config import HANDOFF_BACKEND, REDIS_URL
 from platform_data.contracts.handoff_contracts import (
     HANDOFF_MAX_STRATEGY_PARAMS_BYTES,
     SOURCE_MODULE_MATURITY,
     BrokerStrategyRecommendation,
+    CostToExecutionHandoffRequest,
     ExecutionCandidateHandoff,
     ExecutionPostTradeHandoff,
+    ExecutionToCostHandoffRequest,
     HandoffMetadata,
     _new_trace_id,
     _now_iso,
@@ -164,39 +166,29 @@ class HandoffExchangeAdapter:
     # — Execution → Cost —
 
     def publish_execution_to_cost(
-        self,
-        *,
-        order_id: str,
-        parent_execution_id: str | None,
-        broker: str | None,
-        strategy: str | None,
-        asset_class: str | None,
-        urgency: str | None,
-        route_ids: Iterable[str],
-        strategy_params: dict[str, Any] | None,
-        candidate_trace_id: str | None = None,
-        origin_trace_id: str | None = None,
+        self, request: ExecutionToCostHandoffRequest,
     ) -> ExecutionPostTradeHandoff:
+        order_id = request.order_id
         metadata = HandoffMetadata(
             contract_version=self._EXECUTION_CONTRACT_VERSION,
             source="ExecutionView",
             handoff_target="CostView",
             generated_at=_now_iso(),
             trace_id=_new_trace_id("ev-cv"),
-            origin_trace_id=origin_trace_id,
+            origin_trace_id=request.origin_trace_id,
             source_maturity=SOURCE_MODULE_MATURITY.get("ExecutionView"),
         )
         handoff = ExecutionPostTradeHandoff(
             metadata=metadata,
-            order_id=str(order_id),
-            parent_execution_id=parent_execution_id,
-            broker=broker,
-            strategy=strategy,
-            asset_class=asset_class,
-            urgency=urgency,
-            route_ids=[str(rid) for rid in route_ids],
-            strategy_params=_bounded_strategy_params(strategy_params),
-            candidate_trace_id=candidate_trace_id,
+            order_id=str(request.order_id),
+            parent_execution_id=request.parent_execution_id,
+            broker=request.broker,
+            strategy=request.strategy,
+            asset_class=request.asset_class,
+            urgency=request.urgency,
+            route_ids=[str(rid) for rid in request.route_ids],
+            strategy_params=_bounded_strategy_params(request.strategy_params),
+            candidate_trace_id=request.candidate_trace_id,
         )
         with self._lock:
             self._prune_execution_to_cost()
@@ -242,20 +234,7 @@ class HandoffExchangeAdapter:
     # — Cost → Execution —
 
     def publish_cost_to_execution(
-        self,
-        *,
-        cohort: str,
-        asset_class: str | None,
-        broker: str | None,
-        strategy: str | None,
-        urgency: str | None,
-        sample_size: int,
-        arrival_bps: float | None,
-        implementation_bps: float | None,
-        severity: str,
-        rationale: str,
-        source_report_trace_id: str | None = None,
-        origin_trace_id: str | None = None,
+        self, request: CostToExecutionHandoffRequest,
     ) -> BrokerStrategyRecommendation:
         metadata = HandoffMetadata(
             contract_version=self._COST_CONTRACT_VERSION,
@@ -263,22 +242,22 @@ class HandoffExchangeAdapter:
             handoff_target="ExecutionView",
             generated_at=_now_iso(),
             trace_id=_new_trace_id("cv-ev"),
-            origin_trace_id=origin_trace_id,
+            origin_trace_id=request.origin_trace_id,
             source_maturity=SOURCE_MODULE_MATURITY.get("CostView"),
         )
         rec = BrokerStrategyRecommendation(
             metadata=metadata,
-            cohort=cohort,
-            asset_class=asset_class,
-            broker=broker,
-            strategy=strategy,
-            urgency=urgency,
-            sample_size=sample_size,
-            arrival_bps=arrival_bps,
-            implementation_bps=implementation_bps,
-            severity=severity,
-            rationale=rationale,
-            source_report_trace_id=source_report_trace_id,
+            cohort=request.cohort,
+            asset_class=request.asset_class,
+            broker=request.broker,
+            strategy=request.strategy,
+            urgency=request.urgency,
+            sample_size=request.sample_size,
+            arrival_bps=request.arrival_bps,
+            implementation_bps=request.implementation_bps,
+            severity=request.severity,
+            rationale=request.rationale,
+            source_report_trace_id=request.source_report_trace_id,
         )
         with self._lock:
             self._cost_to_execution.append(rec)

@@ -23,6 +23,7 @@ from schemas.handoff import (
 )
 # Phase 5: Use canonical import path (not compatibility re-export)
 from platform_data.adapters.handoff import get_shared_handoff_exchange
+from platform_data.contracts import ExecutionToCostHandoffRequest
 
 router = APIRouter(tags=["Handoff"])
 
@@ -101,15 +102,17 @@ async def publish_post_trade_handoff(
     """Publish an ExecutionView → CostView post-trade context handoff."""
     try:
         handoff = get_shared_handoff_exchange().publish_execution_to_cost(
-            order_id=request.order_id,
-            parent_execution_id=request.parent_execution_id,
-            broker=request.broker,
-            strategy=request.strategy,
-            asset_class=request.asset_class,
-            urgency=request.urgency,
-            route_ids=request.route_ids,
-            strategy_params=request.strategy_params,
-            candidate_trace_id=request.candidate_trace_id,
+            ExecutionToCostHandoffRequest(
+                order_id=request.order_id,
+                parent_execution_id=request.parent_execution_id,
+                broker=request.broker,
+                strategy=request.strategy,
+                asset_class=request.asset_class,
+                urgency=request.urgency,
+                route_ids=tuple(request.route_ids or ()),
+                strategy_params=request.strategy_params,
+                candidate_trace_id=request.candidate_trace_id,
+            )
         )
     except ValueError as exc:
         # P3 整改（A1/A2）：超限不再是 500 裸异常串 — 结构化 422，

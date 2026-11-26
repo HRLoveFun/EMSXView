@@ -571,19 +571,22 @@ async def pin_broker_strategy_recommendation(request: PinRecommendationRequest):
     write-ownership with the analytics domain.
     """
     from platform_data import get_shared_handoff_exchange
+    from platform_data.contracts import CostToExecutionHandoffRequest
 
     rec = get_shared_handoff_exchange().publish_cost_to_execution(
-        cohort=request.cohort,
-        asset_class=request.asset_class,
-        broker=request.broker,
-        strategy=request.strategy,
-        urgency=request.urgency,
-        sample_size=request.sample_size,
-        arrival_bps=request.arrival_bps,
-        implementation_bps=request.implementation_bps,
-        severity=request.severity,
-        rationale=request.rationale,
-        source_report_trace_id=request.source_report_trace_id,
+        CostToExecutionHandoffRequest(
+            cohort=request.cohort,
+            asset_class=request.asset_class,
+            broker=request.broker,
+            strategy=request.strategy,
+            urgency=request.urgency,
+            sample_size=request.sample_size,
+            arrival_bps=request.arrival_bps,
+            implementation_bps=request.implementation_bps,
+            severity=request.severity,
+            rationale=request.rationale,
+            source_report_trace_id=request.source_report_trace_id,
+        )
     )
     return PinRecommendationResponse(
         success=True,
