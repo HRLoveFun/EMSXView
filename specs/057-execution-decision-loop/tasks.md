@@ -93,4 +93,4 @@
 | A07 | L1 | 订单不在缓存时拒单 + 准入默认行为注释与实现统一 | R3 | A02 | 已完成（225：单笔/批量/route_order 父单缺失 409 + 审计 fail） | 225 |
 | A08 | L2 | PM 授权按条件查询（去 `limit=5000` 全量 + 批量复用） | R3 | — | 已完成（225：按父单 id 精准取投影；批量预检一次加载） | 225 |
 | A09 | L3 | locale 显式化 + 每日确认时区决策 + token-service 合并 | R4 | A13 | 已完成（226：en-US + Asia/Hong_Kong + token-service 单一来源） | 226 |
-| A14 | E5 | 复杂度热点拆分（`get_intraday_features` 等 Top 3 优先，前端三件套排债） | R4+ | — | 待开始 | — |
+| A14 | E5 | 复杂度热点拆分（`get_intraday_features` 等 Top 3 优先，前端三件套排债） | R4+ | — | 进行中（227 首批：`get_intraday_features` 拆分 + 特征化测试；余 Top 2 与前端三件套） | 227 |
