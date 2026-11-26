@@ -99,8 +99,8 @@ export const HighlightModule = ({
                   }`}
                   title={item.note || item.threshold}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-[42%] shrink-0 truncate font-mono text-[11px] text-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className="max-w-[45%] shrink-0 truncate font-mono text-[11px] text-foreground">
                       {item.equ_ticker}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">

@@ -357,7 +357,7 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/30"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       role="dialog"
       aria-modal="true"
       // 点击抽屉外空白处关闭（面板内部点击不触发）
@@ -365,7 +365,7 @@ export function TickerDetailDrawer({ ticker, tradeDate, onClose }: TickerDetailD
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="h-full w-full max-w-[1180px] overflow-y-auto bg-card p-5 shadow-2xl">
+      <div className="h-[calc(100vh-2rem)] w-full max-w-[1180px] overflow-y-auto rounded-2xl bg-card p-5 shadow-2xl">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-3">
           <div>
             <p className="text-lg font-semibold text-foreground">{ticker}</p>
