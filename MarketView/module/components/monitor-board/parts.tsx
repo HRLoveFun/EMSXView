@@ -87,34 +87,36 @@ export const HighlightModule = ({
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground">{metricHint}</p>
       {collapsed ? null : (
-        <ul className="mt-2 flex-1 space-y-1.5 overflow-y-auto">
+        <ul className="mt-2 flex-1 space-y-1 overflow-y-auto">
           {visibleItems.length ? (
             visibleItems.map((item) => (
               <li key={`${item.metric}-${item.equ_ticker}`}>
                 <button
                   type="button"
                   onClick={() => onSelectTicker(item.equ_ticker)}
-                  className={`w-full rounded-lg border px-2 py-1.5 text-left transition hover:bg-muted/40 ${
+                  className={`w-full rounded-lg border px-2 py-1 text-left transition hover:bg-muted/40 ${
                     selectedTicker === item.equ_ticker ? 'border-sky-500/60' : 'border-border/60'
                   }`}
                   title={item.note || item.threshold}
                 >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate font-mono text-xs text-foreground">{item.equ_ticker}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-[42%] shrink-0 truncate font-mono text-[11px] text-foreground">
+                      {item.equ_ticker}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                      {item.note || item.metric}
+                    </span>
                     <span
-                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${getSeverityTone(item.severity)}`}
+                      className={`shrink-0 rounded-full border px-1.5 text-[9px] ${getSeverityTone(item.severity)}`}
                     >
                       {getSeverityText(item.severity)}
                     </span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                    {item.note || item.metric}
                   </span>
                 </button>
               </li>
             ))
           ) : (
-            <li className="rounded-lg border border-dashed border-border/60 px-2 py-2 text-[11px] text-muted-foreground">
+            <li className="rounded-lg border border-dashed border-border/60 px-2 py-1.5 text-[11px] text-muted-foreground">
               {items.length
                 ? selectedMarkets.size
                   ? 'No signals in the selected market'
