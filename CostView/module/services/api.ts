@@ -1,7 +1,9 @@
 import type {
   BdibHealthReport,
+  BriefPeriodPreset,
   EvaluationReport,
   EvaluationReportRequest,
+  ExecutionBriefPayload,
   Granularity,
   LastPreset,
   MetricCoverageReport,
@@ -517,6 +519,52 @@ export async function fetchTraderFilterOptions(params?: {
       endDate: params?.endDate,
       tickerPrefix: params?.tickerPrefix,
     }),
+  );
+}
+
+// -- Execution brief（230）-----------------------------------------------------
+
+/** 执行简报查询参数（期间预设或自定义区间；维度多值逗号拼接）。 */
+export interface ExecutionBriefQuery {
+  preset: BriefPeriodPreset;
+  /** custom 模式必填（YYYY-MM-DD 或 YYYYMMDD） */
+  startDate?: string;
+  endDate?: string;
+  trader?: string[];
+  ticker?: string[];
+  exchange?: string[];
+  side?: string[];
+  strategyType?: string[];
+  algo?: string[];
+  broker?: string[];
+  topN?: number;
+}
+
+/** GET /api/tca/brief：订单级执行摘要（概览 / 买卖 / 完成分桶 / 成本 / 异常）。 */
+export async function fetchExecutionBrief(
+  query: ExecutionBriefQuery,
+): Promise<ExecutionBriefPayload> {
+  const extra: Record<string, string> = {};
+  for (const [key, value] of Object.entries({
+    trader: joinFilter(query.trader),
+    ticker: joinFilter(query.ticker),
+    exchange: joinFilter(query.exchange),
+    side: joinFilter(query.side),
+    strategy_type: joinFilter(query.strategyType),
+    algo: joinFilter(query.algo),
+    broker: joinFilter(query.broker),
+  })) {
+    if (value) extra[key] = value;
+  }
+  if (query.topN != null) extra.top_n = String(query.topN);
+  const period = query.preset === 'custom'
+    ? {
+        startDate: query.startDate?.replace(/-/g, ''),
+        endDate: query.endDate?.replace(/-/g, ''),
+      }
+    : { last: query.preset as LastPreset };
+  return fetchMonitoringJson<ExecutionBriefPayload>(
+    buildMonitoringUrl('/api/tca/brief', period, extra),
   );
 }
 
