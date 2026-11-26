@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "description": "EMSXView workspace root —— npm workspaces 统一依赖树（frontend + ExecutionView）",
+  "engines": {
+    "node": ">=20.19 <23"
+  },
   "workspaces": [
     "frontend",
     "ExecutionView"
