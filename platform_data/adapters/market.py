@@ -371,210 +371,31 @@ class MarketReferenceDataAdapter:
         trade_date: str | None = None,
         bucket_minutes: int = INTRADAY_DEFAULT_BUCKET_MINUTES,
     ) -> IntradayFeatureSnapshot:
-        if bucket_minutes not in INTRADAY_BUCKET_OPTIONS:
-            raise ValueError(
-                f"Unsupported bucket_minutes={bucket_minutes}; allowed: {list(INTRADAY_BUCKET_OPTIONS)}"
-            )
-        if not equ_tickers:
-            raise ValueError("equ_tickers must include at least one value")
-        if len(equ_tickers) > INTRADAY_MAX_TICKERS:
-            raise ValueError(
-                f"Too many tickers requested ({len(equ_tickers)}); max {INTRADAY_MAX_TICKERS}"
-            )
+        _validate_intraday_request(equ_tickers, bucket_minutes)
 
         if trade_date is None or self.connection_manager is None:
-            return IntradayFeatureSnapshot(
-                trade_date=trade_date,
-                bucket_minutes=bucket_minutes,
-                ticker_count=0,
-                missing_tickers=list(equ_tickers),
-                tickers=[],
-            )
+            return _empty_intraday_snapshot(equ_tickers, trade_date, bucket_minutes)
 
-        import pandas as pd
-
-        mgr = self.connection_manager
+        manager = self.connection_manager
         bucket_seconds = bucket_minutes * 60
+        bars_df = _query_raw_bdib_bars(manager, equ_tickers, trade_date)
+        summary_df = _query_daily_summary(manager, trade_date)
 
-        # ── Query raw BDIB bars ──────────────────────────────────────
-        conn = mgr.get_connection("raw_bdib")
-        try:
-            placeholders = ",".join(["?"] * len(equ_tickers))
-            bars_df = pd.read_sql_query(
-                f"SELECT equ_ticker, mkt_timestamp, open, high, low, close, volume, num_trds, value "
-                f"FROM {RAW_BDIB_TABLE} "
-                f"WHERE equ_ticker IN ({placeholders}) AND order_as_of_date = ? "
-                f"ORDER BY equ_ticker, mkt_timestamp",
-                conn.raw_connection,
-                params=[*equ_tickers, trade_date],
-            )
-        finally:
-            conn.close()
-
-        # ── Query daily summary ──────────────────────────────────────
-        summary_conn = mgr.get_connection("raw_bdib")
-        try:
-            summary_df = pd.read_sql_query(
-                f"SELECT equ_ticker, total_volume, daily_vwap, daily_close, "
-                f"daily_volatility, intraday_volatility, adv_5d, adv_20d "
-                f"FROM {BDIB_DAILY_SUMMARY_TABLE} "
-                f"WHERE trade_date = ?",
-                summary_conn.raw_connection,
-                params=[trade_date],
-            )
-        finally:
-            summary_conn.close()
-
-        # ── Build ticker features ────────────────────────────────────
         ticker_features: list[IntradayTickerFeatures] = []
         tickers_with_data: set[str] = set()
-
         for ticker in equ_tickers:
             ticker_bars = bars_df[bars_df["equ_ticker"] == ticker].copy()
             if ticker_bars.empty:
                 continue
             tickers_with_data.add(ticker)
-
             ticker_summary = summary_df[summary_df["equ_ticker"] == ticker]
-            total_volume = float(ticker_bars["volume"].sum()) if "volume" in ticker_bars.columns else None
-            bar_count = len(ticker_bars)
-
-            first_bar_time: str | None = None
-            last_bar_time: str | None = None
-            if bar_count > 0:
-                fb = str(ticker_bars["mkt_timestamp"].iloc[0])
-                lb = str(ticker_bars["mkt_timestamp"].iloc[-1])
-                first_bar_time = fb[:5] if len(fb) >= 5 else fb
-                last_bar_time = lb[:5] if len(lb) >= 5 else lb
-
-            # Daily VWAP from bars
-            daily_vwap: float | None = None
-            if total_volume and total_volume > 0 and "close" in ticker_bars.columns:
-                daily_vwap = float((ticker_bars["close"] * ticker_bars["volume"]).sum() / total_volume)
-
-            daily_close = _to_optional_float(ticker_summary["daily_close"].iloc[0]) if not ticker_summary.empty else None
-            daily_volatility = _to_optional_float(ticker_summary["daily_volatility"].iloc[0]) if not ticker_summary.empty else None
-            intraday_vol = _to_optional_float(ticker_summary["intraday_volatility"].iloc[0]) if not ticker_summary.empty else None
-            adv_20d = _to_optional_float(ticker_summary["adv_20d"].iloc[0]) if not ticker_summary.empty else None
-
-            # ── Bucketing ────────────────────────────────────────────
-            buckets: list[IntradayFeatureBucket] = []
-            if bar_count > 0 and "mkt_timestamp" in ticker_bars.columns:
-                ticker_bars["_ts_seconds"] = ticker_bars["mkt_timestamp"].apply(
-                    lambda t: sum(int(x) * 60 ** i for i, x in enumerate(reversed(str(t).split(":"))))
+            ticker_features.append(
+                _build_ticker_features(
+                    ticker, ticker_bars, ticker_summary, trade_date, bucket_seconds,
                 )
-                ticker_bars["_bucket"] = ticker_bars["_ts_seconds"] // bucket_seconds
+            )
 
-                running_volume = 0.0
-                for bucket_idx, (_, bdf) in enumerate(ticker_bars.groupby("_bucket", sort=True)):
-                    running_volume += float(bdf["volume"].sum()) if "volume" in bdf.columns else 0.0
-
-                    bucket_bar_count = len(bdf)
-                    bucket_volume = float(bdf["volume"].sum()) if "volume" in bdf.columns else 0.0
-                    cum_vol = running_volume if running_volume > 0 else None
-                    cum_pct = (running_volume / total_volume * 100.0) if total_volume and total_volume > 0 else None
-
-                    # Bucket VWAP
-                    b_vwap: float | None = None
-                    if bucket_volume > 0 and "close" in bdf.columns:
-                        b_vwap = float((bdf["close"] * bdf["volume"]).sum() / bucket_volume)
-
-                    b_close = _to_optional_float(bdf["close"].iloc[-1]) if "close" in bdf.columns and not bdf.empty else None
-                    b_high = float(bdf["high"].max()) if "high" in bdf.columns and not bdf.empty else None
-                    b_low = float(bdf["low"].min()) if "low" in bdf.columns and not bdf.empty else None
-
-                    # Realized vol within bucket
-                    closes = bdf["close"].dropna() if "close" in bdf.columns else pd.Series(dtype=float)
-                    realized_vol: float | None = None
-                    if len(closes) >= 2:
-                        import numpy as np
-                        log_returns = np.log(closes / closes.shift(1)).dropna()
-                        if len(log_returns) >= 2:
-                            realized_vol = float(log_returns.std() * math.sqrt(BARS_PER_YEAR))
-
-                    # Bucket time boundaries
-                    min_ts = int(bdf["_ts_seconds"].min())
-                    wall_bucket_start = (min_ts // bucket_seconds) * bucket_seconds
-                    wall_bucket_end = wall_bucket_start + bucket_seconds
-                    b_start = f"{wall_bucket_start // 3600:02d}:{(wall_bucket_start % 3600) // 60:02d}"
-                    b_end = f"{wall_bucket_end // 3600:02d}:{(wall_bucket_end % 3600) // 60:02d}"
-
-                    vol_vs_adv20 = (running_volume / adv_20d * 100.0) if adv_20d and adv_20d > 0 else None
-
-                    buckets.append(IntradayFeatureBucket(
-                        bucket_start=b_start,
-                        bucket_end=b_end,
-                        bar_count=bucket_bar_count,
-                        volume=bucket_volume if bucket_volume > 0 else None,
-                        cumulative_volume=cum_vol,
-                        cumulative_volume_pct=round(cum_pct, 4) if cum_pct is not None else None,
-                        vwap=_round_or_none(b_vwap, 6),
-                        close=b_close,
-                        high=b_high,
-                        low=b_low,
-                        realized_vol_annualized=realized_vol,
-                        volume_vs_adv20_pct=vol_vs_adv20,
-                    ))
-
-            # ── Open / close window shares ──────────────────────────
-            open_window_volume: float | None = None
-            open_window_vwap: float | None = None
-            open_window_share_pct: float | None = None
-            close_window_volume: float | None = None
-            close_window_vwap: float | None = None
-            close_window_share_pct: float | None = None
-
-            if bar_count > 0 and "_ts_seconds" in ticker_bars.columns:
-                min_ts = ticker_bars["_ts_seconds"].min()
-                max_ts = ticker_bars["_ts_seconds"].max()
-                window_seconds = 10 * 60  # 10-minute window
-
-                # Open window
-                open_cutoff = min_ts + window_seconds
-                open_bars = ticker_bars[ticker_bars["_ts_seconds"] <= open_cutoff]
-                open_vol = float(open_bars["volume"].sum()) if not open_bars.empty and "volume" in open_bars.columns else 0.0
-                open_window_volume = open_vol if open_vol > 0 else None
-                if open_vol > 0 and "close" in open_bars.columns:
-                    open_window_vwap = float((open_bars["close"] * open_bars["volume"]).sum() / open_vol)
-                if total_volume and total_volume > 0:
-                    open_window_share_pct = open_vol / total_volume * 100.0 if open_vol > 0 else 0.0
-
-                # Close window
-                close_cutoff = max_ts - window_seconds
-                close_bars = ticker_bars[ticker_bars["_ts_seconds"] > close_cutoff]
-                close_vol = float(close_bars["volume"].sum()) if not close_bars.empty and "volume" in close_bars.columns else 0.0
-                close_window_volume = close_vol if close_vol > 0 else None
-                if close_vol > 0 and "close" in close_bars.columns:
-                    close_window_vwap = float((close_bars["close"] * close_bars["volume"]).sum() / close_vol)
-                if total_volume and total_volume > 0:
-                    close_window_share_pct = close_vol / total_volume * 100.0 if close_vol > 0 else 0.0
-
-            volume_vs_adv20_pct = (total_volume / adv_20d * 100.0) if total_volume and adv_20d and adv_20d > 0 else None
-
-            ticker_features.append(IntradayTickerFeatures(
-                equ_ticker=ticker,
-                trade_date=trade_date,
-                bar_count=bar_count,
-                first_bar_time=first_bar_time,
-                last_bar_time=last_bar_time,
-                total_volume=total_volume,
-                daily_vwap=daily_vwap,
-                daily_close=daily_close,
-                daily_volatility=daily_volatility,
-                intraday_volatility=intraday_vol,
-                adv_20d=adv_20d,
-                open_window_volume=open_window_volume,
-                open_window_vwap=open_window_vwap,
-                open_window_share_pct=open_window_share_pct,
-                close_window_volume=close_window_volume,
-                close_window_vwap=close_window_vwap,
-                close_window_share_pct=close_window_share_pct,
-                volume_vs_adv20_pct=volume_vs_adv20_pct,
-                buckets=buckets,
-            ))
-
-        missing = [t for t in equ_tickers if t not in tickers_with_data]
-
+        missing = [ticker for ticker in equ_tickers if ticker not in tickers_with_data]
         return IntradayFeatureSnapshot(
             trade_date=trade_date,
             bucket_minutes=bucket_minutes,
@@ -582,3 +403,316 @@ class MarketReferenceDataAdapter:
             missing_tickers=missing,
             tickers=ticker_features,
         )
+
+
+# A14/227: helpers extracted from get_intraday_features (behavior unchanged).
+def _validate_intraday_request(equ_tickers: list[str], bucket_minutes: int) -> None:
+    if bucket_minutes not in INTRADAY_BUCKET_OPTIONS:
+        raise ValueError(
+            f"Unsupported bucket_minutes={bucket_minutes}; allowed: {list(INTRADAY_BUCKET_OPTIONS)}"
+        )
+    if not equ_tickers:
+        raise ValueError("equ_tickers must include at least one value")
+    if len(equ_tickers) > INTRADAY_MAX_TICKERS:
+        raise ValueError(
+            f"Too many tickers requested ({len(equ_tickers)}); max {INTRADAY_MAX_TICKERS}"
+        )
+
+
+def _empty_intraday_snapshot(
+    equ_tickers: list[str], trade_date: str | None, bucket_minutes: int,
+) -> IntradayFeatureSnapshot:
+    return IntradayFeatureSnapshot(
+        trade_date=trade_date,
+        bucket_minutes=bucket_minutes,
+        ticker_count=0,
+        missing_tickers=list(equ_tickers),
+        tickers=[],
+    )
+
+
+def _query_raw_bdib_bars(manager: Any, equ_tickers: list[str], trade_date: str):
+    import pandas as pd
+
+    conn = manager.get_connection("raw_bdib")
+    try:
+        placeholders = ",".join(["?"] * len(equ_tickers))
+        return pd.read_sql_query(
+            f"SELECT equ_ticker, mkt_timestamp, open, high, low, close, volume, num_trds, value "
+            f"FROM {RAW_BDIB_TABLE} "
+            f"WHERE equ_ticker IN ({placeholders}) AND order_as_of_date = ? "
+            f"ORDER BY equ_ticker, mkt_timestamp",
+            conn.raw_connection,
+            params=[*equ_tickers, trade_date],
+        )
+    finally:
+        conn.close()
+
+
+def _query_daily_summary(manager: Any, trade_date: str):
+    import pandas as pd
+
+    conn = manager.get_connection("raw_bdib")
+    try:
+        return pd.read_sql_query(
+            f"SELECT equ_ticker, total_volume, daily_vwap, daily_close, "
+            f"daily_volatility, intraday_volatility, adv_5d, adv_20d "
+            f"FROM {BDIB_DAILY_SUMMARY_TABLE} "
+            f"WHERE trade_date = ?",
+            conn.raw_connection,
+            params=[trade_date],
+        )
+    finally:
+        conn.close()
+
+
+def _time_to_seconds(value: Any) -> int:
+    return sum(
+        int(part) * 60 ** index
+        for index, part in enumerate(reversed(str(value).split(":")))
+    )
+
+
+def _bar_time_range(ticker_bars) -> tuple[str | None, str | None]:
+    if len(ticker_bars) == 0:
+        return None, None
+    first = str(ticker_bars["mkt_timestamp"].iloc[0])
+    last = str(ticker_bars["mkt_timestamp"].iloc[-1])
+    return (
+        first[:5] if len(first) >= 5 else first,
+        last[:5] if len(last) >= 5 else last,
+    )
+
+
+def _daily_vwap(ticker_bars, total_volume: float | None) -> float | None:
+    if not total_volume or total_volume <= 0 or "close" not in ticker_bars.columns:
+        return None
+    return float((ticker_bars["close"] * ticker_bars["volume"]).sum() / total_volume)
+
+
+def _summary_values(ticker_summary) -> dict[str, float | None]:
+    if ticker_summary.empty:
+        return {
+            "daily_close": None,
+            "daily_volatility": None,
+            "intraday_volatility": None,
+            "adv_20d": None,
+        }
+    return {
+        "daily_close": _to_optional_float(ticker_summary["daily_close"].iloc[0]),
+        "daily_volatility": _to_optional_float(ticker_summary["daily_volatility"].iloc[0]),
+        "intraday_volatility": _to_optional_float(ticker_summary["intraday_volatility"].iloc[0]),
+        "adv_20d": _to_optional_float(ticker_summary["adv_20d"].iloc[0]),
+    }
+
+
+def _realized_vol(closes) -> float | None:
+    if closes is None or len(closes) < 2:
+        return None
+    import numpy as np
+
+    log_returns = np.log(closes / closes.shift(1)).dropna()
+    if len(log_returns) < 2:
+        return None
+    return float(log_returns.std() * math.sqrt(BARS_PER_YEAR))
+
+
+def _bucket_vwap(bucket_bars, bucket_volume: float) -> float | None:
+    if bucket_volume <= 0 or "close" not in bucket_bars.columns:
+        return None
+    return float((bucket_bars["close"] * bucket_bars["volume"]).sum() / bucket_volume)
+
+
+def _bucket_extremes(
+    bucket_bars,
+) -> tuple[float | None, float | None, float | None]:
+    if bucket_bars.empty:
+        return None, None, None
+    close = (
+        _to_optional_float(bucket_bars["close"].iloc[-1])
+        if "close" in bucket_bars.columns else None
+    )
+    high = (
+        float(bucket_bars["high"].max())
+        if "high" in bucket_bars.columns else None
+    )
+    low = (
+        float(bucket_bars["low"].min())
+        if "low" in bucket_bars.columns else None
+    )
+    return close, high, low
+
+
+def _bucket_realized_vol(bucket_bars) -> float | None:
+    if "close" not in bucket_bars.columns:
+        return None
+    return _realized_vol(bucket_bars["close"].dropna())
+
+
+def _make_bucket(
+    bucket_bars,
+    *,
+    bucket_volume: float,
+    running_volume: float,
+    total_volume: float | None,
+    adv_20d: float | None,
+    bucket_seconds: int,
+) -> IntradayFeatureBucket:
+    cum_vol = running_volume if running_volume > 0 else None
+    cum_pct = (
+        (running_volume / total_volume * 100.0)
+        if total_volume and total_volume > 0 else None
+    )
+    bucket_vwap = _bucket_vwap(bucket_bars, bucket_volume)
+    close, high, low = _bucket_extremes(bucket_bars)
+    realized_vol = _bucket_realized_vol(bucket_bars)
+
+    min_ts = int(bucket_bars["_ts_seconds"].min())
+    wall_start = (min_ts // bucket_seconds) * bucket_seconds
+    wall_end = wall_start + bucket_seconds
+    start = f"{wall_start // 3600:02d}:{(wall_start % 3600) // 60:02d}"
+    end = f"{wall_end // 3600:02d}:{(wall_end % 3600) // 60:02d}"
+    vol_vs_adv20 = (
+        (running_volume / adv_20d * 100.0) if adv_20d and adv_20d > 0 else None
+    )
+    return IntradayFeatureBucket(
+        bucket_start=start,
+        bucket_end=end,
+        bar_count=len(bucket_bars),
+        volume=bucket_volume if bucket_volume > 0 else None,
+        cumulative_volume=cum_vol,
+        cumulative_volume_pct=round(cum_pct, 4) if cum_pct is not None else None,
+        vwap=_round_or_none(bucket_vwap, 6),
+        close=close,
+        high=high,
+        low=low,
+        realized_vol_annualized=realized_vol,
+        volume_vs_adv20_pct=vol_vs_adv20,
+    )
+
+
+def _build_buckets(
+    ticker_bars, total_volume: float | None, bucket_seconds: int,
+    adv_20d: float | None,
+) -> list[IntradayFeatureBucket]:
+    if len(ticker_bars) == 0 or "_ts_seconds" not in ticker_bars.columns:
+        return []
+    working = ticker_bars.copy()
+    working["_bucket"] = working["_ts_seconds"] // bucket_seconds
+    buckets: list[IntradayFeatureBucket] = []
+    running_volume = 0.0
+    for _, bucket_bars in working.groupby("_bucket", sort=True):
+        bucket_volume = (
+            float(bucket_bars["volume"].sum())
+            if "volume" in bucket_bars.columns else 0.0
+        )
+        running_volume += bucket_volume
+        buckets.append(
+            _make_bucket(
+                bucket_bars,
+                bucket_volume=bucket_volume,
+                running_volume=running_volume,
+                total_volume=total_volume,
+                adv_20d=adv_20d,
+                bucket_seconds=bucket_seconds,
+            )
+        )
+    return buckets
+
+
+def _window_volume_vwap(window_bars) -> tuple[float, float | None]:
+    volume = (
+        float(window_bars["volume"].sum())
+        if not window_bars.empty and "volume" in window_bars.columns else 0.0
+    )
+    if volume <= 0 or "close" not in window_bars.columns:
+        return volume, None
+    return volume, float(
+        (window_bars["close"] * window_bars["volume"]).sum() / volume
+    )
+
+
+def _window_share(volume: float, total_volume: float | None) -> float | None:
+    if not total_volume or total_volume <= 0:
+        return None
+    return volume / total_volume * 100.0 if volume > 0 else 0.0
+
+
+def _window_stats(ticker_bars, total_volume: float | None) -> dict[str, float | None]:
+    stats: dict[str, float | None] = {
+        "open_window_volume": None,
+        "open_window_vwap": None,
+        "open_window_share_pct": None,
+        "close_window_volume": None,
+        "close_window_vwap": None,
+        "close_window_share_pct": None,
+    }
+    if len(ticker_bars) == 0 or "_ts_seconds" not in ticker_bars.columns:
+        return stats
+
+    min_ts = ticker_bars["_ts_seconds"].min()
+    max_ts = ticker_bars["_ts_seconds"].max()
+    window_seconds = 10 * 60
+
+    open_bars = ticker_bars[ticker_bars["_ts_seconds"] <= min_ts + window_seconds]
+    open_volume, open_vwap = _window_volume_vwap(open_bars)
+    stats["open_window_volume"] = open_volume if open_volume > 0 else None
+    stats["open_window_vwap"] = open_vwap
+    stats["open_window_share_pct"] = _window_share(open_volume, total_volume)
+
+    close_bars = ticker_bars[ticker_bars["_ts_seconds"] > max_ts - window_seconds]
+    close_volume, close_vwap = _window_volume_vwap(close_bars)
+    stats["close_window_volume"] = close_volume if close_volume > 0 else None
+    stats["close_window_vwap"] = close_vwap
+    stats["close_window_share_pct"] = _window_share(close_volume, total_volume)
+    return stats
+
+
+def _build_ticker_features(
+    ticker: str,
+    ticker_bars,
+    ticker_summary,
+    trade_date: str,
+    bucket_seconds: int,
+) -> IntradayTickerFeatures:
+    total_volume = (
+        float(ticker_bars["volume"].sum())
+        if "volume" in ticker_bars.columns else None
+    )
+    first_bar_time, last_bar_time = _bar_time_range(ticker_bars)
+    daily_vwap = _daily_vwap(ticker_bars, total_volume)
+    summary = _summary_values(ticker_summary)
+    adv_20d = summary["adv_20d"]
+
+    if "mkt_timestamp" in ticker_bars.columns:
+        ticker_bars = ticker_bars.copy()
+        ticker_bars["_ts_seconds"] = ticker_bars["mkt_timestamp"].apply(_time_to_seconds)
+
+    buckets = _build_buckets(ticker_bars, total_volume, bucket_seconds, adv_20d)
+    windows = _window_stats(ticker_bars, total_volume)
+    volume_vs_adv20_pct = (
+        total_volume / adv_20d * 100.0
+        if total_volume and adv_20d and adv_20d > 0 else None
+    )
+
+    return IntradayTickerFeatures(
+        equ_ticker=ticker,
+        trade_date=trade_date,
+        bar_count=len(ticker_bars),
+        first_bar_time=first_bar_time,
+        last_bar_time=last_bar_time,
+        total_volume=total_volume,
+        daily_vwap=daily_vwap,
+        daily_close=summary["daily_close"],
+        daily_volatility=summary["daily_volatility"],
+        intraday_volatility=summary["intraday_volatility"],
+        adv_20d=adv_20d,
+        open_window_volume=windows["open_window_volume"],
+        open_window_vwap=windows["open_window_vwap"],
+        open_window_share_pct=windows["open_window_share_pct"],
+        close_window_volume=windows["close_window_volume"],
+        close_window_vwap=windows["close_window_vwap"],
+        close_window_share_pct=windows["close_window_share_pct"],
+        volume_vs_adv20_pct=volume_vs_adv20_pct,
+        buckets=buckets,
+    )
