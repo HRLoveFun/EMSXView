@@ -128,7 +128,7 @@ relaunch_service.bat      :: 双击重启：等待前端就绪并打开页面
 
 - **Bloomberg Terminal** 且已启用 API（MarketView / CostView 无此依赖）
 - **Python 3.11+**（后端与 CostView）
-- **Node.js 20+**（前端；本机实测 22）
+- **Node.js 22**（`engines: ">=20.19 <23"`；`.nvmrc` 固定 22）
 - **Docker Desktop 4.x**（容器化部署）
 
 ### 前端
