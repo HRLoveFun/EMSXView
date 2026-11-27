@@ -251,6 +251,11 @@ class Config:
     TCA_EVAL_ENABLED: bool = (
         os.getenv("TCA_EVAL_ENABLED", "1") == "1"
     )
+    # 评估报告 / 券商分项得分单次最多路由数。默认 2000（与既有端点一致）；
+    # 长窗口可用 env TCA_EVAL_MAX_ROUTES 提高，避免「已截断」影响 D1/排名样本。
+    TCA_EVAL_MAX_ROUTES: int = max(
+        1, int(os.getenv("TCA_EVAL_MAX_ROUTES", "2000"))
+    )
 
     EXECUTION_HISTORY_SOURCE_POLICY: dict[str, tuple[str, ...]] = {
         "fills": ("emsx.history:GetFills",),

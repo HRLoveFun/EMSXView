@@ -10,8 +10,12 @@ import { SegmentedField } from './SegmentedField';
 import { analysisFiltersToPayload } from '../lib/filters';
 import type {
   CostViewFilterFormState,
+  EvaluationBrokerScoreSnapshot,
+  EvaluationBrokerScoresSection,
   EvaluationDimensionBlock,
   EvaluationGroupRow,
+  EvaluationPairingSection,
+  EvaluationRankingSection,
   EvaluationReport,
   EvaluationReportRequest,
   Granularity,
@@ -155,6 +159,9 @@ export function EvaluationView({ analysisFilters }: EvaluationViewProps) {
           ))}
           <TrendPanel report={report} />
           <RiskAndMarketPanel report={report} />
+          <PairingPanel report={report} />
+          <RankingPanel report={report} />
+          <BrokerScoresPanel report={report} />
         </>
       ) : null}
     </div>
@@ -409,5 +416,225 @@ function RiskAndMarketPanel({ report }: { report: EvaluationReport }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function PairingPanel({ report }: { report: EvaluationReport }) {
+  const pairing: EvaluationPairingSection | undefined = report.sections?.pairing;
+  if (!pairing) return null;
+  const coverage = pairing.coverage;
+  const tests = pairing.broker_pair_tests ?? [];
+  const fe = pairing.fixed_effects;
+  const rel = pairing.relative_cost;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          D1 订单内配对
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            同单 × 同窗 ≥2 券商；相对成本 = 路由成本 − 组内成交额加权均值
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {coverage ? (
+          <div className="grid gap-2 text-sm md:grid-cols-4">
+            <div>
+              <span className="text-muted-foreground">可配对订单：</span>
+              {coverage.candidate_orders} / {coverage.total_orders}
+              （{fmt(coverage.candidate_pct, 2, '%')}）
+            </div>
+            <div>
+              <span className="text-muted-foreground">配对组：</span>
+              {coverage.groups}
+            </div>
+            <div>
+              <span className="text-muted-foreground">组内路由：</span>
+              {coverage.grouped_routes}（相对成本 {coverage.relative_cost_routes}）
+            </div>
+            <div>
+              <span className="text-muted-foreground">券商：</span>
+              {coverage.brokers}
+            </div>
+          </div>
+        ) : null}
+        <div className="text-xs text-muted-foreground">
+          规则：≥{String(pairing.rule?.min_brokers ?? '—')} 券商，窗口差 ≤
+          {String(pairing.rule?.max_spread_minutes ?? '—')} 分钟；每组至少{' '}
+          {String(pairing.rule?.min_pairs_for_test ?? '—')} 对才做检验。
+          {rel?.mean != null
+            ? ` 相对成本均值 ${signed(rel.mean)} bps、中位 ${signed(rel.median)} bps（n=${rel.n ?? '—'}）。`
+            : ''}
+          {fe
+            ? ` 固定效应：${fe.available ? '可用' : '样本不足'}${fe.reference_broker ? `（参照 ${fe.reference_broker}）` : ''}。`
+            : ''}
+        </div>
+        {tests.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="px-2 py-1">券商 A</th>
+                  <th className="px-2 py-1">券商 B</th>
+                  <th className="px-2 py-1 text-right">对数</th>
+                  <th className="px-2 py-1 text-right">中位差 bps</th>
+                  <th className="px-2 py-1 text-right">Wilcoxon p</th>
+                  <th className="px-2 py-1 text-right">符号检验 p</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tests.slice(0, 10).map((item) => (
+                  <tr key={`${item.broker_a}-${item.broker_b}`} className="border-b border-border/60">
+                    <td className="px-2 py-1">{item.broker_a}</td>
+                    <td className="px-2 py-1">{item.broker_b}</td>
+                    <td className="px-2 py-1 text-right font-mono">{item.pairs}</td>
+                    <td className="px-2 py-1 text-right font-mono">{signed(item.median_diff_bps)}</td>
+                    <td className="px-2 py-1 text-right font-mono">{fmt(item.wilcoxon?.p_value, 4)}</td>
+                    <td className="px-2 py-1 text-right font-mono">{fmt(item.sign?.p_value, 4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            配对组不足，未形成券商对检验（覆盖率仍按上方披露）。
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RankingPanel({ report }: { report: EvaluationReport }) {
+  const ranking: EvaluationRankingSection | undefined = report.sections?.ranking;
+  if (!ranking?.available) return null;
+  const units = [...(ranking.units ?? [])]
+    .sort((a, b) => (a.posterior_mean ?? 0) - (b.posterior_mean ?? 0))
+    .slice(0, 10);
+  const indist = ranking.indistinguishable ?? [];
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          券商排名 v2（聚类稳健 + 收缩）
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            后验均值越负越好；区间读 posterior_ci，不使用 iid ci
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="text-xs text-muted-foreground">
+          方法：{ranking.method ?? '—'} · 指标：{ranking.metric ?? '—'} · top-k：
+          {ranking.top_k ?? '—'} · 不可区分集合：{indist.length} 家
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="px-2 py-1">券商</th>
+                <th className="px-2 py-1 text-right">样本</th>
+                <th className="px-2 py-1 text-right">后验均值 bps</th>
+                <th className="px-2 py-1 text-right">95% 区间</th>
+                <th className="px-2 py-1 text-right">P(top-k)</th>
+                <th className="px-2 py-1">标记</th>
+              </tr>
+            </thead>
+            <tbody>
+              {units.map((unit) => (
+                <tr key={unit.broker} className="border-b border-border/60">
+                  <td className="px-2 py-1">{unit.broker}</td>
+                  <td className="px-2 py-1 text-right font-mono">{unit.n}</td>
+                  <td className="px-2 py-1 text-right font-mono">{signed(unit.posterior_mean)}</td>
+                  <td className="px-2 py-1 text-right font-mono">
+                    [{signed(unit.posterior_ci_low)}, {signed(unit.posterior_ci_high)}]
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono">
+                    {fmt(unit.p_top_k == null ? null : unit.p_top_k * 100, 1, '%')}
+                  </td>
+                  <td className="px-2 py-1 text-xs text-amber-600">
+                    {unit.low_sample ? '样本不足' : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {indist.length ? (
+          <div className="text-xs text-muted-foreground">
+            不可区分集合：{indist.slice(0, 12).join(' / ')}
+            {indist.length > 12 ? ' …' : ''}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BrokerScoresPanel({ report }: { report: EvaluationReport }) {
+  const scores: EvaluationBrokerScoresSection | undefined = report.sections?.broker_scores;
+  if (!scores?.available) return null;
+  const component = (snapshot: EvaluationBrokerScoreSnapshot, name: string) =>
+    snapshot.components.find((item) => item.name === name);
+  const snapshots = [...(scores.snapshots ?? [])].sort(
+    (a, b) => (component(a, 'cost')?.value ?? Number.POSITIVE_INFINITY)
+      - (component(b, 'cost')?.value ?? Number.POSITIVE_INFINITY),
+  );
+  const cell = (snapshot: EvaluationBrokerScoreSnapshot, name: string, kind: 'bps' | 'pct' | 'raw') => {
+    const item = component(snapshot, name);
+    if (!item || !item.available || item.value == null) return '—';
+    if (kind === 'pct') return fmt(item.value * 100, 1, '%');
+    if (kind === 'bps') return signed(item.value);
+    return fmt(item.value, 2);
+  };
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          券商分项得分
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            只出分项、不合成（D-5）；信息泄露分项当前不可得
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="text-xs text-muted-foreground">
+          窗口 {scores.window_start ?? '—'} ~ {scores.window_end ?? '—'} · 覆盖路由
+          {scores.coverage?.routes ?? '—'} · 券商 {scores.coverage?.brokers ?? '—'} · 错位样本
+          {scores.coverage?.misaligned_samples ?? '—'}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="px-2 py-1">券商</th>
+                <th className="px-2 py-1 text-right">成本 bps</th>
+                <th className="px-2 py-1 text-right">尾部风险 z</th>
+                <th className="px-2 py-1 text-right">完成率</th>
+                <th className="px-2 py-1 text-right">机会成本</th>
+                <th className="px-2 py-1 text-right">运营质量</th>
+                <th className="px-2 py-1">标记</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshots.slice(0, 10).map((snapshot) => (
+                <tr key={snapshot.broker} className="border-b border-border/60">
+                  <td className="px-2 py-1">{snapshot.broker}</td>
+                  <td className="px-2 py-1 text-right font-mono">{cell(snapshot, 'cost', 'bps')}</td>
+                  <td className="px-2 py-1 text-right font-mono">{cell(snapshot, 'tail_risk', 'raw')}</td>
+                  <td className="px-2 py-1 text-right font-mono">{cell(snapshot, 'completion', 'pct')}</td>
+                  <td className="px-2 py-1 text-right font-mono">{cell(snapshot, 'opportunity_cost', 'raw')}</td>
+                  <td className="px-2 py-1 text-right font-mono">{cell(snapshot, 'operational', 'pct')}</td>
+                  <td className="px-2 py-1 text-xs text-amber-600">
+                    {snapshot.low_sample ? '样本不足' : ''}
+                    {snapshot.misaligned_samples ? ` 错位 ${snapshot.misaligned_samples}` : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

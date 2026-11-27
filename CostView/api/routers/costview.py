@@ -462,6 +462,7 @@ async def evaluation_report(request: EvaluationReportRequest):
             _analytics.build_evaluation_report,
             filters,
             granularity=request.granularity,
+            max_routes=DataAccessConfig.TCA_EVAL_MAX_ROUTES,
         )
     except QueryTimeoutError as exc:
         raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
@@ -511,7 +512,11 @@ async def broker_scores(
         start_date=start_date, end_date=end_date, broker=broker, algo=algo,
     )
     try:
-        data = await run_bounded(_analytics.build_broker_scores, filters)
+        data = await run_bounded(
+            _analytics.build_broker_scores,
+            filters,
+            max_routes=DataAccessConfig.TCA_EVAL_MAX_ROUTES,
+        )
     except QueryTimeoutError as exc:
         raise HTTPException(status_code=503, detail={"code": "query_timeout", "message": str(exc)})
     except FileNotFoundError as exc:

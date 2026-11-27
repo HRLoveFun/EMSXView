@@ -1237,6 +1237,7 @@ def _render_evaluation_section(evaluation: Optional[dict[str, Any]]) -> str:
     alerts_html = "".join(
         f"<li>{_escape(item)}</li>" for item in alerts[:_MAX_EVALUATION_ALERTS]
     )
+    extra_html = _render_evaluation_extra(evaluation.get("sections") or {})
     return f"""<div class="section">
 <h2>算法执行质量综合评估</h2>
 <p>主基准 {_escape(str(primary))}；组间比较在控制维度（Exchange / 时段 / 流动性 / 波动率）
@@ -1247,8 +1248,120 @@ def _render_evaluation_section(evaluation: Optional[dict[str, Any]]) -> str:
 <th>相对其余最差（差异 bps）</th><th>置信度</th><th>可检测效应</th></tr></thead>
 <tbody>{''.join(rows_html)}</tbody>
 </table>
+{extra_html}
 <ul>{alerts_html}</ul>
 </div>"""
+
+
+def _render_evaluation_extra(sections: dict[str, Any]) -> str:
+    """D1 配对 / 排名 v2 / 券商分项得分的归档摘要（2026-11-27 节点三披露）。
+
+    报告是归档物，仅保留可审计摘要（Top 5）；完整明细仍由评估 API 提供。
+    """
+    from html import escape as _escape
+
+    parts: list[str] = []
+    pairing = sections.get("pairing") or {}
+    coverage = pairing.get("coverage") or {}
+    if coverage:
+        parts.append("<h3>D1 订单内配对</h3>")
+        parts.append(
+            "<p>可配对订单 {c}/{t}（{p}%）；配对组 {g}；组内路由 {r}；券商 {b}。</p>".format(
+                c=coverage.get("candidate_orders", 0),
+                t=coverage.get("total_orders", 0),
+                p=_fmt_num(coverage.get("candidate_pct"), 2),
+                g=coverage.get("groups", 0),
+                r=coverage.get("grouped_routes", 0),
+                b=coverage.get("brokers", 0),
+            )
+        )
+        tests = pairing.get("broker_pair_tests") or []
+        if tests:
+            rows = "".join(
+                f"<tr><td>{_escape(str(t.get('broker_a', '')))} vs "
+                f"{_escape(str(t.get('broker_b', '')))}</td>"
+                f"<td>{t.get('pairs', 0)}</td>"
+                f"<td>{_fmt_num(t.get('median_diff_bps'), 2)}</td>"
+                f"<td>{_fmt_num((t.get('wilcoxon') or {}).get('p_value'), 4)}</td></tr>"
+                for t in tests[:5]
+            )
+            parts.append(
+                "<table><thead><tr><th>券商对</th><th>对数</th>"
+                "<th>中位差 bps</th><th>Wilcoxon p</th></tr></thead><tbody>"
+                + rows + "</tbody></table>"
+            )
+        else:
+            parts.append("<p>配对组不足，未形成券商对检验。</p>")
+
+    ranking = sections.get("ranking") or {}
+    units = sorted(
+        (ranking.get("units") or []),
+        key=lambda u: u.get("posterior_mean") if u.get("posterior_mean") is not None else 0,
+    )[:5]
+    if ranking.get("available") and units:
+        parts.append("<h3>券商排名 v2（后验均值 + 区间）</h3>")
+        rows = "".join(
+            f"<tr><td>{_escape(str(u.get('broker', '')))}</td>"
+            f"<td>{u.get('n', 0)}</td>"
+            f"<td>{_fmt_num(u.get('posterior_mean'), 2)}</td>"
+            f"<td>[{_fmt_num(u.get('posterior_ci_low'), 2)}, "
+            f"{_fmt_num(u.get('posterior_ci_high'), 2)}]</td>"
+            f"<td>{_fmt_num((u.get('p_top_k') or 0) * 100, 1)}%</td></tr>"
+            for u in units
+        )
+        parts.append(
+            "<table><thead><tr><th>券商</th><th>样本</th><th>后验均值 bps</th>"
+            "<th>95% 区间</th><th>P(top-k)</th></tr></thead><tbody>"
+            + rows + "</tbody></table>"
+        )
+        indist = ranking.get("indistinguishable") or []
+        if indist:
+            parts.append(
+                f"<p>不可区分集合 {len(indist)} 家："
+                f"{_escape(' / '.join(indist[:12]))}"
+                f"{' …' if len(indist) > 12 else ''}</p>"
+            )
+
+    scores = sections.get("broker_scores") or {}
+    snaps = sorted(
+        (scores.get("snapshots") or []),
+        key=lambda s: next(
+            (
+                c.get("value")
+                for c in (s.get("components") or [])
+                if c.get("name") == "cost" and c.get("value") is not None
+            ),
+            0,
+        ),
+    )[:5]
+    if scores.get("available") and snaps:
+        parts.append("<h3>券商分项得分（只出分项，不合成）</h3>")
+
+        def comp(snapshot: dict[str, Any], name: str) -> dict[str, Any]:
+            return next(
+                (c for c in (snapshot.get("components") or []) if c.get("name") == name),
+                {},
+            )
+
+        rows = "".join(
+            f"<tr><td>{_escape(str(s.get('broker', '')))}</td>"
+            f"<td>{_fmt_num(comp(s, 'cost').get('value'), 2)}</td>"
+            f"<td>{_fmt_num(comp(s, 'tail_risk').get('value'), 2)}</td>"
+            f"<td>{_fmt_num(comp(s, 'completion').get('value'), 2)}</td>"
+            f"<td>{_fmt_num(comp(s, 'opportunity_cost').get('value'), 2)}</td>"
+            f"<td>{_fmt_num(comp(s, 'operational').get('value'), 2)}</td></tr>"
+            for s in snaps
+        )
+        parts.append(
+            "<table><thead><tr><th>券商</th><th>成本 bps</th><th>尾部 z</th>"
+            "<th>完成率</th><th>机会成本</th><th>运营</th></tr></thead><tbody>"
+            + rows + "</tbody></table>"
+        )
+        parts.append(
+            "<p>信息泄露分项当前不可得（S10 未进 CostView 作用域），以 — 披露。</p>"
+        )
+    return "\n".join(parts)
+
 
 
 def _render_coverage_table(
