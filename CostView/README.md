@@ -13,7 +13,9 @@ and broker recommendation services. It runs as an independent FastAPI service,
 is a **read-only consumer** of the analytical SQLite stores (via `data_access/`,
 all connections `mode=ro`), and never writes to any database.
 
-> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：`python -m pytest CostView/tests/ -q` 全绿（含 CLI 入口与黄金样本回归）；已知限制清单公开发布；**19 个** API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
+> 成熟度分级定义见主 [README.md §0](../README.md#0-模块成熟度分级契约定义)。定级 **Beta** 的证据：`python -m pytest CostView/tests/ -q` 全绿（含 CLI 入口与黄金样本回归）；已知限制清单公开发布；**20 个** API 端点全部可追溯到代码。欠缺（诚实列出）：测试覆盖率未量化（`pyproject.toml` 已配 pytest + coverage 但未设 `--cov-fail-under` 门槛）、无 CostView 专项运维手册（`docs/ops/service-management.md` 未覆盖本模块，故不进 GA）、黄金样本回归依赖冻结快照与 golden 基线（缺失时自动 skip）。
+
+> **执行简报（230）**：前端 `CostView → Brief`，端点 `GET /api/tca/brief`，期间可选每日 / 每周 / 每月 / 每季 / 每年 / 自定义区间；以订单为主粒度输出概览、买卖拆分、完成分桶、成本、待处理订单、异常与数据缺口。口径与数据边界见 [`specs/230-execution-brief/plan.md`](../specs/230-execution-brief/plan.md)。
 
 ## Architecture
 
@@ -27,7 +29,8 @@ CostView/                          # CostView domain
 │   └── routers/
 │       ├── costview.py            # TCA analysis endpoints (/api/tca/*)
 │       ├── monitoring.py          # Monitoring endpoints (/api/tca/monitoring/*)
-│       └── trader.py              # 交易员复盘台 (/api/tca/trader/*，210 PR-1)
+│       ├── trader.py              # 交易员复盘台 (/api/tca/trader/*，210 PR-1)
+│       └── brief.py               # 执行简报 (/api/tca/brief，230：日/周/月/季/年/自定义)
 ├── src/
 │   ├── tca_query_service.py       # TCA query orchestrator (reads tca_route_summary precomputed table)
 │   ├── tca_query_builder.py       # SQL query builders (库/表缺失 → 降级空结果, 009)
@@ -39,6 +42,7 @@ CostView/                          # CostView domain
 │   ├── trader_metrics.py          # 交易员复盘台纯函数（徽章 / KPI / 探针，210 PR-1）
 │   ├── trader_models.py           # 交易员复盘台契约模型（210 PR-1）
 │   ├── trader_service.py          # 交易员复盘台编排（列表 / 详情 / peer / CSV 导出，210）
+│   ├── execution_brief.py         # 执行简报聚合（订单级概览/完成分桶/成本/未成交，230）
 │   ├── monitoring/                # bdib_health · metric_coverage · report_aggregator · report_dims ·
 │   │                              # anomaly_query · tca_report_html · time_range
 │   └── evaluation/                # 综合评估 · 分层 · 配对 · 排名 · 券商分 · 信号 lift（DL-26）
@@ -81,7 +85,7 @@ python main.py
 
 ## Endpoints
 
-共 19 个端点（9 个 costview 路由 + 5 个 monitoring 路由 + 5 个交易员路由），行号取自 `api/routers/` 源码（2026-11-04 复核）：
+共 20 个端点（9 个 costview 路由 + 5 个 monitoring 路由 + 5 个交易员路由 + 1 个执行简报路由），行号取自 `api/routers/` 源码（2026-11-27 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
@@ -104,6 +108,7 @@ python main.py
 | `GET /api/tca/trader/orders/{order_id}/peer` | 同类 peer 分位（8 维指纹 + 两级口径 + 延迟 p90；样本不足不给分位） | `api/routers/trader.py:131` |
 | `GET /api/tca/trader/export` | CSV 导出（订单汇总 / 成交明细；服务端流式输出，UTF-8-SIG + 3 行 `#` 注释 + 公式注入防护；orders 50k / fills 500k 上限在首块前判定 → 422） | `api/routers/trader.py:164` |
 | `GET /api/tca/trader/filter-options` | 交易员筛选下拉（traders/strategy_types + 维度表；含市场 `exchanges`，维度表缺失时回退 `Exchange` DISTINCT） | `api/routers/trader.py:240` |
+| `GET /api/tca/brief` | 执行简报（订单级概览 / 买卖拆分 / 完成分桶 / 成本 / 待处理订单 / 异常 / 数据缺口；期间 `day/week/month/quarter/year` 或显式 `start_date/end_date`） | `api/routers/brief.py:35` |
 
 > 报告口径缺陷清单见 [`docs/report-tca-known-limitations.md`](../docs/report-tca-known-limitations.md)（§一 硬缺口 / §三 口径脚注）。
 >

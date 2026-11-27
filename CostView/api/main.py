@@ -62,6 +62,7 @@ def _setup_dependencies() -> None:
 # Must run BEFORE importing routers that consume platform_data
 _setup_dependencies()
 
+from routers.brief import router as brief_router
 from routers.costview import router as costview_router
 from routers.monitoring import router as monitoring_router
 from routers.trader import router as trader_router
@@ -88,6 +89,7 @@ app.add_middleware(
 app.include_router(costview_router)
 app.include_router(monitoring_router)
 app.include_router(trader_router)
+app.include_router(brief_router)
 
 logger.info("CostView service ready — listening on port %s", config.PORT)
 

@@ -1,6 +1,6 @@
 """A04（M2）— CostView 桥接鉴权测试。
 
-锁死：19 个端点无 token → 401；写方法（pin）viewer → 403；GET viewer 可读；
+锁死：21 个端点无 token → 401；写方法（pin）viewer → 403；GET viewer 可读；
 Runner 触发端点要求 admin。
 """
 
@@ -52,9 +52,11 @@ def _bridge_routes() -> list[tuple[str, str]]:
 
 
 def test_bridge_requires_token_on_all_endpoints():
-    """全部桥接端点缺 token 一律 401（A04 验收）；计数随端点增删同步（现 20 个）。"""
+    """全部桥接端点缺 token 一律 401（A04 验收）；计数随端点增删同步（现 21 个）。"""
     routes = _bridge_routes()
-    assert len(routes) == 20, routes
+    # 显式锁定执行简报端点，避免只靠计数、端点替换后仍通过。
+    assert ("GET", "/api/tca/brief") in routes
+    assert len(routes) == 21, routes
     client = _client(unauthorized=True)
     for method, path in routes:
         url = path.replace("{order_id}", "1")

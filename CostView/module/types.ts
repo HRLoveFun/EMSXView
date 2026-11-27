@@ -1,4 +1,4 @@
-export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'evaluation' | 'report' | 'monitoring' | 'trader' | 'configure';
+export type CostViewModuleTab = 'overview' | 'analysis' | 'scorecard' | 'evaluation' | 'report' | 'monitoring' | 'trader' | 'brief' | 'configure';
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 export type ExportScope = 'current-page' | 'all-filtered' | 'selected-order';
@@ -1237,4 +1237,145 @@ export interface TraderOrderDetail {
   latency: TraderLatency;
   daily: null;
   quality: TraderDetailQuality;
+}
+
+// ── 230：执行简报（GET /api/tca/brief；与 CostView/src/execution_brief.py 对齐）──
+
+/** 执行简报期间预设：相对区间 + 自定义显式区间 */
+export type BriefPeriodPreset = LastPreset | 'custom';
+
+export interface ExecutionBriefPeriod {
+  start_date: string;
+  end_date: string;
+  preset: BriefPeriodPreset;
+  label: string;
+  as_of_date: string | null;
+}
+
+/** 一组订单的汇总块（概览 / 买卖 / 分组共用；null = 不可得，显示「—」） */
+export interface ExecutionBriefBlock {
+  orders: number;
+  route_count: number;
+  order_shares: number | null;
+  fill_shares: number | null;
+  order_notional_usd: number | null;
+  fill_notional_usd: number | null;
+  unfilled_notional_usd: number | null;
+  completion: number | null;
+  arrival_cost_bps: number | null;
+  wagner_is_bps: number | null;
+  pnl_vwap: number | null;
+  opportunity_cost_usd: number | null;
+  delay_cost_usd: number | null;
+  trading_cost_usd: number | null;
+}
+
+export interface ExecutionBriefCoverage {
+  orders: number;
+  symbols: number;
+  traders: number;
+  exchanges: string[];
+  route_count: number;
+  fill_notional_usd: number | null;
+  order_notional_usd: number | null;
+  fx_missing_orders: number;
+  order_notional_unpriced_orders: number;
+  unpriced_routes: number;
+}
+
+export interface ExecutionBriefOverview extends ExecutionBriefBlock {
+  zero_fill_orders: number;
+}
+
+export interface ExecutionBriefSides {
+  buy: ExecutionBriefBlock;
+  sell: ExecutionBriefBlock;
+  other: ExecutionBriefBlock;
+  mixed_orders: number;
+}
+
+export interface ExecutionBriefCompletionBucket {
+  key: 'complete' | 'overfill' | 'partial' | 'zero';
+  label: string;
+  orders: number;
+  order_shares: number | null;
+  fill_shares: number | null;
+  order_notional_usd: number | null;
+  completion: number | null;
+  share_of_orders: number | null;
+  share_of_notional: number | null;
+}
+
+/** 维度分布行（策略 / 算法 / 券商 / 交易员共用） */
+export interface ExecutionBriefDimensionRow {
+  key: string;
+  label: string;
+  orders: number;
+  route_count: number;
+  order_notional_usd: number | null;
+  fill_notional_usd: number | null;
+  completion: number | null;
+  arrival_cost_bps: number | null;
+  wagner_is_bps: number | null;
+  opportunity_cost_usd: number | null;
+  share_of_orders: number | null;
+}
+
+export interface ExecutionBriefOrderRow {
+  order_id: string;
+  order_as_of_date: string;
+  ticker: string | null;
+  exchange: string | null;
+  side: string | null;
+  strategy_type: string | null;
+  algo: string | null;
+  broker: string | null;
+  trader_name: string | null;
+  route_count: number | null;
+  order_shares: number | null;
+  fill_shares: number | null;
+  completion: number | null;
+  vwap: number | null;
+  arrival_cost_bps: number | null;
+  wagner_is_bps: number | null;
+  pnl_vwap: number | null;
+  order_notional_usd: number | null;
+  fill_notional_usd: number | null;
+  unfilled_shares: number | null;
+  unfilled_notional_usd: number | null;
+  opportunity_cost_usd: number | null;
+}
+
+export interface ExecutionBriefTopOrders {
+  by_arrival: ExecutionBriefOrderRow[];
+  by_unfilled: ExecutionBriefOrderRow[];
+  by_opportunity: ExecutionBriefOrderRow[];
+}
+
+export interface ExecutionBriefDataAvailability {
+  key: string;
+  label: string;
+  status: 'available' | 'partial' | 'unavailable';
+  reason: string;
+}
+
+export interface ExecutionBriefPayload {
+  spec_version: string;
+  generated_at: string;
+  period: ExecutionBriefPeriod;
+  filters: Record<string, string[]>;
+  coverage: ExecutionBriefCoverage;
+  overview: ExecutionBriefOverview;
+  sides: ExecutionBriefSides;
+  completion_buckets: ExecutionBriefCompletionBucket[];
+  strategy_mix: ExecutionBriefDimensionRow[];
+  algo_mix: ExecutionBriefDimensionRow[];
+  broker_mix: ExecutionBriefDimensionRow[];
+  top_traders: ExecutionBriefDimensionRow[];
+  top_orders: ExecutionBriefTopOrders;
+  anomaly: TraderAnomalySummary;
+  data_availability: ExecutionBriefDataAvailability[];
+  notes: string[];
+  /** 表/视图缺失等数据源提示（缺省 = 无） */
+  data_source_warning?: string;
 }
