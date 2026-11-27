@@ -143,6 +143,12 @@ python main.py
 - 最近使用值按 scope 记录（`lib/recent-values.ts`），同一作用域最多 6 个，列表顶部置顶。
 - 筛选变更立即生效；页码统一由 `lib/trader-filters.ts` 的 `traderFiltersToQuery` 换算，非翻页变更回到第 1 页。
 
+## 指标口径（2026-11-27 起）
+
+- **Pnl VWAP 必须带口径展示**：Overview/Analysis 为路由未加权均值（当前页），Scorecard 为 `|pnl_vwap|` 未加权均值，Report/Brief 为成交额加权，Trader 为订单内股数加权；不得都叫 `Avg Pnl VWAP`。统一文案见 `module/lib/metric-labels.ts`。
+- **Scorecard**：`avg_fill_pct = Σfill / ΣRouteShares × 100`；`avg_volume_pct_adv20 = mean(fill / adv_20d × 100)`（逐路由比值再平均）；`avg_daily_volatility = mean(daily_volatility)`；真实日内波动率列不可得时 `avg_intraday_volatility = null`，代理量见 `avg_abs_pnl_vwap_continuous_bps`；`avg_price_movement_pct = mean(|p_close/p_arrival − 1| × 100)`；每个指标随 `metric_coverage` 披露 `n_used / n_total / pct`。
+- `low_fill_rate` 标志改用 cohort 完成率 `<80%`；不再用平均成交股数判定。
+
 ## 不做什么（职责边界）
 
 - **不触发 ETL**：数据更新唯一写入方是独立仓库 EMSXDataPipeline；触发链路（含失败与幂等语义）见 [schema-contract §3.2](../docs/schema-contract.md#32-etl-触发链跨仓库costview-是只读消费者)。
@@ -203,5 +209,5 @@ location /api/tca/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
-*Last updated: 2026-11-27（口径一致性：订单级新增 `fill_pct`、`par_rate` 改为组内最大参与率；Trader/Brief 异常阈值随 Configure 下发；新增 `report-filter-options` 端点避免首屏二次聚合；评估结果按筛选+DB 签名缓存；Report/Monitoring 覆盖率改用后端微平均；补齐异常清单的连续参与率/连续盈亏/RPM 判定。此前：2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
+*Last updated: 2026-11-27（口径一致性：订单级新增 `fill_pct`、`par_rate` 改为组内最大参与率；Trader/Brief 异常阈值随 Configure 下发；新增 `report-filter-options` 端点避免首屏二次聚合；评估结果按筛选+DB 签名缓存；Report/Monitoring 覆盖率改用后端微平均；补齐异常清单的连续参与率/连续盈亏/RPM 判定；Scorecard 修正 fill/ADV20/daily vol/price move 公式并披露逐指标覆盖率；Pnl VWAP 按页面统一命名与 tooltip，Overview/Analysis 同时展示未加权与成交额加权值。此前：2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
 *Last verified: 2026-09-15（端点清单与行号提取自 `api/routers/` 源码；测试计数经 grep `def test_` 统计并与 pytest 实际收集数比对；`python -m pytest CostView/tests/` 实测 217 passed。**未做运行时验证**——服务启动响应、端口连通性与查询延迟未在本轮测量）*

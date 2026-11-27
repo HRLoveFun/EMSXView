@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 
 # ── Scorecard cohort dimension registry ────────────────────────────────────────
@@ -303,8 +303,13 @@ class ScorecardCohortMetrics:
     avg_volume_pct_interval: Optional[float]
     avg_volume_pct_adv20: Optional[float]
     avg_daily_volatility: Optional[float]
+    # 真实日内波动率列当前不在 tca_route_summary；保留字段并显式置 None
     avg_intraday_volatility: Optional[float]
-    avg_price_movement_pct: Optional[float]
+    # 代理量：cohort 内 |pnl_vwap_continuous| 均值（bps），不再冒充波动率
+    avg_abs_pnl_vwap_continuous_bps: Optional[float] = None
+    avg_price_movement_pct: Optional[float] = None
+    # 每指标样本覆盖：{metric: {n_used, n_total, pct}}
+    metric_coverage: dict[str, dict[str, Any]] = field(default_factory=dict)
     data_quality_ratio: float = 0.0
     sample_size_warning: bool = False
     anomaly_flags: list[str] = field(default_factory=list)

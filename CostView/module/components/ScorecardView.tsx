@@ -341,16 +341,18 @@ function ScorecardTable({
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-3 text-left font-medium">Cohort</th>
-              <th className="px-3 py-3 text-right font-medium">N</th>
+              <th className="px-3 py-3 text-right font-medium" title="cohort 内路由数（不是订单数）">N</th>
               <th className="px-3 py-3 text-left font-medium">Severity</th>
-              <th className="px-3 py-3 text-right font-medium">Avg TE (bps)</th>
-              <th className="px-3 py-3 text-right font-medium">Median TE</th>
-              <th className="px-3 py-3 text-right font-medium">P95 TE</th>
-              <th className="px-3 py-3 text-right font-medium">Std Dev</th>
-              <th className="px-3 py-3 text-right font-medium">Fill %</th>
-              <th className="px-3 py-3 text-right font-medium">Vol % ADV20</th>
-              <th className="px-3 py-3 text-right font-medium">Vol % Interval</th>
-              <th className="px-3 py-3 text-right font-medium">Daily Vol %</th>
+              <th className="px-3 py-3 text-right font-medium" title="cohort 内 |pnl_vwap| 的简单平均（路由未加权）；衡量成本绝对幅度，不含方向">Avg |Pnl VWAP| (bps)</th>
+              <th className="px-3 py-3 text-right font-medium" title="|pnl_vwap| 中位数">Median |Pnl VWAP|</th>
+              <th className="px-3 py-3 text-right font-medium" title="|pnl_vwap| P95（尾部成本）">P95 |Pnl VWAP|</th>
+              <th className="px-3 py-3 text-right font-medium" title="|pnl_vwap| 样本标准差（分母 m−1）">Std Dev</th>
+              <th className="px-3 py-3 text-right font-medium" title="cohort 级完成率 Σfill / ΣRouteShares × 100">Fill %</th>
+              <th className="px-3 py-3 text-right font-medium" title="逐路由 fill / adv_20d × 100 的简单平均；缺失 ADV 的路由不参与">Vol % ADV20</th>
+              <th className="px-3 py-3 text-right font-medium" title="逐路由 par_rate_continuous × 100 的简单平均">Vol % Interval</th>
+              <th className="px-3 py-3 text-right font-medium" title="逐路由 daily_volatility（年化百分比）的简单平均">Daily Vol %</th>
+              <th className="px-3 py-3 text-right font-medium" title="逐路由 |p_close/p_arrival − 1| × 100 的简单平均">Price Move %</th>
+              <th className="px-3 py-3 text-right font-medium" title="各指标最差样本覆盖率；悬停查看 n_used/n_total">Coverage</th>
               <th className="px-3 py-3 text-left font-medium">Flags</th>
               <th className="px-3 py-3 text-left font-medium">Handoff</th>
             </tr>
@@ -376,6 +378,23 @@ function CohortRow({
   cohortDimension: ScorecardCohort;
 }) {
   const severity = evaluateCohortSeverity(cohort, config);
+  // 最差指标覆盖率与逐项明细（title）：避免把子样本均值读成全量水位
+  const coverageEntries = Object.entries(cohort.metric_coverage ?? {});
+  const worstCoverage = coverageEntries.reduce<{ key: string; pct: number | null; n_used: number; n_total: number } | null>(
+    (worst, [key, value]) => {
+      if (value.pct == null) return worst;
+      if (!worst || (worst.pct != null && value.pct < worst.pct)) {
+        return { key, pct: value.pct, n_used: value.n_used, n_total: value.n_total };
+      }
+      return worst;
+    },
+    null,
+  );
+  const coverageTitle = coverageEntries.length
+    ? coverageEntries
+      .map(([key, value]) => `${key}: ${value.n_used}/${value.n_total}${value.pct == null ? '' : ` (${value.pct.toFixed(1)}%)`}`)
+      .join('\n')
+    : '无覆盖率数据';
   const { pinRecommendationAction } = useHandoffContracts();
   const [isPinning, setIsPinning] = useState(false);
   const [pinnedTraceId, setPinnedTraceId] = useState<string | null>(null);
@@ -442,6 +461,10 @@ function CohortRow({
       <td className="px-3 py-3 text-right">{formatNumber(cohort.avg_volume_pct_adv20, 2, '%')}</td>
       <td className="px-3 py-3 text-right">{formatNumber(cohort.avg_volume_pct_interval, 2, '%')}</td>
       <td className="px-3 py-3 text-right">{formatNumber(cohort.avg_daily_volatility, 2, '%')}</td>
+      <td className="px-3 py-3 text-right">{formatNumber(cohort.avg_price_movement_pct, 2, '%')}</td>
+      <td className="px-3 py-3 text-right" title={coverageTitle}>
+        {worstCoverage?.pct == null ? '—' : `${worstCoverage.pct.toFixed(1)}%`}
+      </td>
       <td className="px-3 py-3">
         <div className="flex flex-wrap gap-1">
           {cohort.anomaly_flags.length ? (

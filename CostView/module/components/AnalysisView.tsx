@@ -3,7 +3,8 @@ import { Download, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { averageMetric, countAlertOrders, evaluateThreshold, getSeverityText, getSeverityTone } from '../lib/thresholds';
+import { averageMetric, countAlertOrders, evaluateThreshold, getSeverityText, getSeverityTone, weightedPnlVwap } from '../lib/thresholds';
+import { PNL_VWAP_LABELS, PNL_VWAP_SIGN_NOTE, PNL_VWAP_TOOLTIPS } from '../lib/metric-labels';
 import { formatShares } from '../lib/report-format';
 import type { AlertSeverity, CostViewConfig, CostViewFilterFormState, TcaRouteSummary, TcaReport } from '../types';
 import type { TcaOrderReport } from '../services/api';
@@ -44,6 +45,8 @@ interface SummaryCard {
   label: string;
   value: string;
   severity: AlertSeverity;
+  hint?: string;
+  sub?: string;
 }
 
 function ChartFallback({ title }: { title: string }) {
@@ -58,7 +61,7 @@ function createSummaryCards(report: TcaReport | null, config: CostViewConfig) {
   if (!report) {
     return [
       { label: 'Matched Routes', value: '—', severity: 'none' as const },
-      { label: 'Avg Pnl VWAP', value: '—', severity: 'none' as const },
+      { label: PNL_VWAP_LABELS.routeMeanPage, value: '—', severity: 'none' as const },
       { label: 'Alert Routes', value: '—', severity: 'none' as const },
       { label: 'Avg Fill %', value: '—', severity: 'none' as const },
       { label: 'Avg Par Rate (Cont)', value: '—', severity: 'none' as const },
@@ -77,9 +80,14 @@ function createSummaryCards(report: TcaReport | null, config: CostViewConfig) {
       severity: 'normal' as const,
     },
     {
-      label: 'Avg Pnl VWAP',
+      label: PNL_VWAP_LABELS.routeMeanPage,
       value: avgPnlVwap != null ? `${avgPnlVwap.toFixed(1)} bps` : '—',
       severity: evaluateThreshold(config.rules.pnl_vwap_bps, avgPnlVwap),
+      hint: PNL_VWAP_TOOLTIPS.routeMeanPage,
+      sub: (() => {
+        const weighted = weightedPnlVwap(report.orders);
+        return weighted != null ? `参考：成交额加权 ${weighted.toFixed(1)} bps` : PNL_VWAP_SIGN_NOTE;
+      })(),
     },
     {
       label: 'Alert Routes',
@@ -173,10 +181,11 @@ export function AnalysisView({ config, error, filterForm, isLoading, report, ord
         {summaryCards.map((card) => (
           <Card key={card.label}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">{card.label}</CardTitle>
+              <CardTitle className="text-sm" title={card.hint}>{card.label}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-semibold">{card.value}</div>
+              {card.sub ? <p className="mt-1 text-xs text-muted-foreground">{card.sub}</p> : null}
               <div className={`mt-2 inline-flex rounded border px-2 py-0.5 text-xs ${getSeverityTone(card.severity)}`}>
                 {getSeverityText(card.severity)}
               </div>
