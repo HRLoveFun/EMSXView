@@ -251,8 +251,13 @@ export interface ScorecardCohortMetrics {
   avg_volume_pct_interval: number | null;
   avg_volume_pct_adv20: number | null;
   avg_daily_volatility: number | null;
+  /** 真实日内波动率列不可得，显式 null；代理量见 avg_abs_pnl_vwap_continuous_bps */
   avg_intraday_volatility: number | null;
+  /** cohort 内 |pnl_vwap_continuous| 均值（bps，代理量，不是波动率） */
+  avg_abs_pnl_vwap_continuous_bps?: number | null;
   avg_price_movement_pct: number | null;
+  /** 每指标样本覆盖：{metric: {n_used, n_total, pct}} */
+  metric_coverage?: Record<string, { n_used: number; n_total: number; pct: number | null }>;
   data_quality_ratio: number;
   sample_size_warning: boolean;
   anomaly_flags: string[];

@@ -14,6 +14,7 @@ import {
   formatZeroFillSub,
 } from '../../lib/report-format';
 import type { TcaReportSummary } from '../../types';
+import { PNL_VWAP_LABELS, PNL_VWAP_TOOLTIPS } from '../../lib/metric-labels';
 
 /** 总成交金额卡片副标题：USD 换算成功率与被排除金额（与后端换算成功率口径一致） */
 const fxCoverageSub = (kpi: NonNullable<TcaReportSummary['kpi']>): string => {
@@ -45,7 +46,7 @@ export const KpiCards = ({
     { label: '总委托股数', value: formatShares(kpi.total_route_shares), sub: 'RouteShares 合计（委托股数，非成交股数）' },
     { label: '总成交金额（美元）', value: formatMoney(kpi.notional_usd), sub: fxCoverageSub(kpi) },
     {
-      label: '加权 pnl_vwap',
+      label: PNL_VWAP_LABELS.turnoverWeighted,
       value: formatNum(kpi.weighted_pnl_vwap),
       sub: appendNote('成交额加权 · VWAP 基准', note('pnl_vwap')),
     },
@@ -101,7 +102,12 @@ export const KpiCards = ({
       {cards.map((card) => (
         <Card key={card.label}>
           <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{card.label}</div>
+            <div
+              className="text-xs text-muted-foreground"
+              title={card.label === PNL_VWAP_LABELS.turnoverWeighted ? PNL_VWAP_TOOLTIPS.turnoverWeighted : undefined}
+            >
+              {card.label}
+            </div>
             <div className="mt-1 text-2xl font-semibold">{card.value}</div>
             {card.sub && <div className="mt-0.5 text-[10px] text-muted-foreground">{card.sub}</div>}
           </CardContent>

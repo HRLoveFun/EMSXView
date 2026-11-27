@@ -255,6 +255,31 @@ export function averageMetric(
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/** 路由字段的简单平均（非空值参与；用于展示未加权口径的原始指标）。 */
+export function averageRouteValue(
+  routes: TcaRouteSummary[],
+  selector: (route: TcaRouteSummary) => number | null | undefined,
+): number | null {
+  const values = routes
+    .map(selector)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+/** Pnl VWAP 的成交额加权均值（权重 fill × p_avg），用于与未加权均值并列披露。 */
+export function weightedPnlVwap(routes: TcaRouteSummary[]): number | null {
+  let numerator = 0;
+  let denominator = 0;
+  for (const route of routes) {
+    if (route.pnl_vwap == null || route.fill == null || route.p_avg == null) continue;
+    const weight = route.fill * route.p_avg;
+    if (weight <= 0) continue;
+    numerator += route.pnl_vwap * weight;
+    denominator += weight;
+  }
+  return denominator > 0 ? numerator / denominator : null;
+}
+
 /**
  * Evaluate a cohort against the same threshold rules applied to individual
  * orders. The scorecard uses average metrics per cohort, so we reuse the
