@@ -38,7 +38,20 @@ async def health_check(bloomberg=Depends(get_bloomberg_service)) -> ApiResponse:
     """Health check endpoint."""
     bb_status = bloomberg.get_status()
     if settings.ENABLE_DB_PERSISTENCE:
-        db_connected, db_message = await check_database_connection()
+        # 池忙时快速降级：外部告警探针只有 5s 预算，健康端点不得跟着
+        # 等到 pool_timeout（2026-11-27：写突发占满池 → 探针超时 → 误报
+        # BACKEND_UNREACHABLE）。探测本身仍交给 check_database_connection。
+        try:
+            db_connected, db_message = await asyncio.wait_for(
+                check_database_connection(),
+                timeout=settings.HEALTH_DB_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            db_connected = False
+            db_message = (
+                f"health probe timed out after {settings.HEALTH_DB_TIMEOUT_SECONDS:g}s "
+                "(database connection pool busy)"
+            )
         db_status = "connected" if db_connected else "disconnected"
         # DL-02/060：熔断状态与写入失败计数可见——连接正常 ≠ 写入健康，
         # 熔断打开时数据已回退内存，必须可观测（healthy 判定不变：熔断是
@@ -50,6 +63,8 @@ async def health_check(bloomberg=Depends(get_bloomberg_service)) -> ApiResponse:
             "write_errors": provider.write_error_count if provider else 0,
             "max_write_errors": provider.max_write_errors if provider else 0,
             "circuit_open": provider.circuit_open if provider else False,
+            # 三态可见：half_open 表示冷却结束、正在探针复位
+            "circuit_state": provider.circuit_state if provider else "closed",
         }
     else:
         db_connected = True

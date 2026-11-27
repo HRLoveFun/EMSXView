@@ -65,6 +65,22 @@ def _apply_sqlite_pragmas(engine: AsyncEngine) -> None:
             cursor.close()
 
 
+def _pool_options() -> dict:
+    """连接池容量与取连接超时（env 可覆盖）。
+
+    2026-11-27 事故：EMSX 订单/路由事件成批到达（单批 25+ 次写）与分析型
+    只读查询并发时，默认 QueuePool(5+10) 被瞬时打满；写请求在池上排队 30s
+    后超时，5s 健康探针也拿不到连接 → 误报 BACKEND_UNREACHABLE，并把写熔断
+    推到阈值。SQLite(WAL) 连接成本低，放宽到 10+20 吸收突发；取连接超时
+    缩短到 10s，使真正的池饥饿尽快失败而不是长时间挂住探针。
+    """
+    return {
+        "pool_size": max(1, int(os.getenv("DB_POOL_SIZE", "10"))),
+        "max_overflow": max(0, int(os.getenv("DB_MAX_OVERFLOW", "20"))),
+        "pool_timeout": max(1.0, float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "10"))),
+    }
+
+
 def create_engine(database_url: str | None = None) -> AsyncEngine:
     url = database_url or get_database_url()
     connect_args: dict = {}
@@ -82,6 +98,7 @@ def create_engine(database_url: str | None = None) -> AsyncEngine:
         pool_pre_ping=True,
         future=True,
         connect_args=connect_args,
+        **_pool_options(),
     )
     if url.startswith("sqlite"):
         _apply_sqlite_pragmas(engine)

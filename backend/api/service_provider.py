@@ -14,6 +14,8 @@ execution history remains a CostView-owned contract exposed through
 from __future__ import annotations
 
 import logging
+import os
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -61,7 +63,18 @@ class RepositoryProvider:
         self.enabled: bool = enabled and _DB_AVAILABLE
         self.db_ready: bool = False  # set True after lifespan health check
         self._write_errors: int = 0
-        self._max_write_errors: int = 10  # circuit breaker
+        # 连续写失败阈值与冷却窗口（env 可覆盖）。改为「连续失败」语义：
+        # 任一次写入成功即复位——原实现只在进程启动时清零，一次池耗尽
+        # 就把 provider 永久锁在内存回退态，必须重启才能恢复落盘。
+        self._max_write_errors: int = max(
+            1, int(os.getenv("DB_WRITE_ERROR_THRESHOLD", "10"))
+        )
+        self._circuit_cooldown: float = max(
+            1.0, float(os.getenv("DB_CIRCUIT_COOLDOWN_SECONDS", "30"))
+        )
+        self._circuit_opened_at: Optional[float] = None
+        self._half_open_in_flight: bool = False
+        self._clock = time.monotonic
 
     # ------------------------------------------------------------------
     #  Lifecycle helpers
@@ -70,19 +83,77 @@ class RepositoryProvider:
     def mark_db_ready(self, ready: bool = True) -> None:
         self.db_ready = ready
         if ready:
-            self._write_errors = 0
+            self._reset_circuit()
+
+    def _reset_circuit(self) -> None:
+        """回到 CLOSED：清零连续失败计数并释放 half-open 探针占用。"""
+        self._write_errors = 0
+        self._circuit_opened_at = None
+        self._half_open_in_flight = False
+
+    @property
+    def circuit_state(self) -> str:
+        """熔断三态：closed / open / half_open（与网关 CircuitBreaker 同构）。
+
+        冷却窗口到期后进入 half_open，只放行一个写探针；探针成功回 closed，
+        失败重新计时。原实现（累计失败、无自动复位）不再保留。
+        """
+        if self._circuit_opened_at is None:
+            # 兼容直接改写 _write_errors 的旧调用/测试路径
+            return "open" if self._write_errors >= self._max_write_errors else "closed"
+        if self._clock() - self._circuit_opened_at >= self._circuit_cooldown:
+            return "half_open"
+        return "open"
+
+    def _allow_write(self) -> bool:
+        """是否放行本次写：CLOSED 全放行，OPEN 全拒，HALF_OPEN 只放行一个探针。"""
+        if not (self.enabled and self.db_ready):
+            return False
+        state = self.circuit_state
+        if state == "closed":
+            return True
+        if state == "open":
+            return False
+        if self._half_open_in_flight:
+            return False
+        self._half_open_in_flight = True
+        return True
+
+    def _record_success(self) -> None:
+        """任一写入成功即复位熔断（连续失败语义）。"""
+        self._reset_circuit()
+
+    def _record_failure(self, op: str, exc: Exception) -> None:
+        """累计连续失败；达阈值打开熔断，half-open 探针失败则重新计时。
+
+        OPEN 期间的失败（已放行的写陆续超时）不得刷新打开时刻，否则持续
+        失败会让熔断永远等不到复位——与网关 CircuitBreaker 同款约束。
+        """
+        self._half_open_in_flight = False
+        self._write_errors += 1
+        if self._circuit_opened_at is None:
+            if self._write_errors >= self._max_write_errors:
+                self._circuit_opened_at = self._clock()
+        elif self.circuit_state == "half_open":
+            self._circuit_opened_at = self._clock()
+        logger.warning("%s failed (err#%d): %s", op, self._write_errors, exc)
 
     @property
     def is_active(self) -> bool:
-        """Return True when DB persistence is both enabled and healthy."""
-        return self.enabled and self.db_ready and self._write_errors < self._max_write_errors
+        """DB 持久化是否可用：enabled + ready + 非 OPEN。
+
+        HALF_OPEN 视为可用，写方法内部再用 _allow_write 限制为单探针；
+        否则调用方（subscriptions / routers）在 is_active 处的预检会把
+        探针一并挡掉，熔断永不复位。
+        """
+        return self.enabled and self.db_ready and self.circuit_state != "open"
 
     # DL-02/060：熔断状态公开只读——/api/health 增报，写入失败不再静默
     # （数据不落盘但界面显示正常是 053 审计发现的风险面）
 
     @property
     def write_error_count(self) -> int:
-        """自进程启动（或上次 mark_db_ready）累计的写入失败次数。"""
+        """连续写入失败次数（任一次成功或 mark_db_ready 即清零）。"""
         return self._write_errors
 
     @property
@@ -92,8 +163,8 @@ class RepositoryProvider:
 
     @property
     def circuit_open(self) -> bool:
-        """写入熔断是否已打开（打开后 is_active 为 False，回退内存）。"""
-        return self._write_errors >= self._max_write_errors
+        """写入熔断是否未闭合（OPEN 或 HALF_OPEN 待探针复位）。"""
+        return self.circuit_state != "closed"
 
     # ------------------------------------------------------------------
     #  Write-through: orders
@@ -108,7 +179,7 @@ class RepositoryProvider:
         trader: str,
         payload: dict,
     ) -> bool:
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
@@ -121,10 +192,10 @@ class RepositoryProvider:
                     payload=payload,
                 )
                 await session.commit()
+            self._record_success()
             return True
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("persist_order failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("persist_order", exc)
             return False
 
     # ------------------------------------------------------------------
@@ -140,7 +211,7 @@ class RepositoryProvider:
         broker: str,
         payload: dict,
     ) -> bool:
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
@@ -153,10 +224,10 @@ class RepositoryProvider:
                     payload=payload,
                 )
                 await session.commit()
+            self._record_success()
             return True
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("persist_route failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("persist_route", exc)
             return False
 
     # ------------------------------------------------------------------
@@ -173,7 +244,7 @@ class RepositoryProvider:
         correlation_id: str | None = None,
         payload_summary: str | None = None,
     ) -> bool:
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
@@ -187,10 +258,10 @@ class RepositoryProvider:
                     payload_summary=payload_summary,
                 )
                 await session.commit()
+            self._record_success()
             return True
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("persist_audit_event failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("persist_audit_event", exc)
             return False
 
     async def update_audit_result(
@@ -203,17 +274,17 @@ class RepositoryProvider:
 
         两阶段审计的后半段：ok / fail / unknown（如请求超时）。
         """
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
                 repo = AuditEventRepository(session)
                 updated = await repo.update_result_by_correlation_id(correlation_id, result)
                 await session.commit()
+            self._record_success()
             return updated
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("update_audit_result failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("update_audit_result", exc)
             return False
 
     # ------------------------------------------------------------------
@@ -226,17 +297,17 @@ class RepositoryProvider:
         失败返回空列表——调用方回退内存 id（此时该建议重启后不可恢复，
         由调用方记录告警）。
         """
-        if not self.is_active:
+        if not self._allow_write():
             return []
         try:
             async with get_db_session() as session:
                 repo = SubOrderProposalRepository(session)
                 ids = await repo.create_many(proposals)
                 await session.commit()
+            self._record_success()
             return ids
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("persist_proposals_bulk failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("persist_proposals_bulk", exc)
             return []
 
     async def update_proposal_result(
@@ -250,7 +321,7 @@ class RepositoryProvider:
         updated_at: Any = None,
     ) -> bool:
         """按主键回写建议状态迁移（确认/拒绝）。"""
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
@@ -264,10 +335,10 @@ class RepositoryProvider:
                     updated_at=updated_at,
                 )
                 await session.commit()
+            self._record_success()
             return updated
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("update_proposal_result failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("update_proposal_result", exc)
             return False
 
     def parent_child_available(self) -> bool:
@@ -280,17 +351,17 @@ class RepositoryProvider:
 
     async def upsert_watermark(self, stream_name: str, last_sequence: int) -> bool:
         """持久化序号水位（只升不降）；失败返回 False（调用方告警）。"""
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
                 repo = WatermarkRepository(session)
                 await repo.upsert(stream_name, last_sequence)
                 await session.commit()
+            self._record_success()
             return True
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("upsert_watermark failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("upsert_watermark", exc)
             return False
 
     async def load_watermark(self, stream_name: str) -> int:
@@ -311,46 +382,46 @@ class RepositoryProvider:
 
     async def persist_route_plan(self, plan) -> Optional[int]:
         """写入路由计划，返回数据库主键；失败返回 None（调用方回退内存 id）。"""
-        if not self.is_active:
+        if not self._allow_write():
             return None
         try:
             async with get_db_session() as session:
                 repo = RoutePlanRepository(session)
                 created = await repo.create_from_dict(dict(plan))
                 await session.commit()
+            self._record_success()
             return created.id
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("persist_route_plan failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("persist_route_plan", exc)
             return None
 
     async def update_route_plan_row(self, plan_id: int, values: Dict[str, Any]) -> bool:
         """按主键回写路由计划字段（write-through）。"""
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
                 repo = RoutePlanRepository(session)
                 updated = await repo.update(plan_id, values)
                 await session.commit()
+            self._record_success()
             return updated
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("update_route_plan_row failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("update_route_plan_row", exc)
             return False
 
     async def delete_route_plan_row(self, plan_id: int) -> bool:
-        if not self.is_active:
+        if not self._allow_write():
             return False
         try:
             async with get_db_session() as session:
                 repo = RoutePlanRepository(session)
                 deleted = await repo.delete(plan_id)
                 await session.commit()
+            self._record_success()
             return deleted
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("delete_route_plan_row failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("delete_route_plan_row", exc)
             return False
 
     async def load_route_plans(self, limit: int = 500) -> List[Dict[str, Any]]:
@@ -402,17 +473,17 @@ class RepositoryProvider:
 
     async def create_authorization(self, intent) -> Optional[int]:
         """写入 PM 授权意图，返回数据库主键；失败返回 None。"""
-        if not self.is_active:
+        if not self._allow_write():
             return None
         try:
             async with get_db_session() as session:
                 repo = AuthorizationRepository(session)
                 created = await repo.create(intent)
                 await session.commit()
+            self._record_success()
             return created.id
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("create_authorization failed (err#%d): %s", self._write_errors, exc)
+            self._record_failure("create_authorization", exc)
             return None
 
     async def load_authorizations(self, active_only: bool = True) -> List[Dict[str, Any]]:
@@ -447,17 +518,17 @@ class RepositoryProvider:
 
         每次调用一个事务；DB 不可用时返回 None（调用方回退内存模式）。
         """
-        if not self.is_active:
+        if not self._allow_write():
             return None
         try:
             async with get_db_session() as session:
                 repo = ParentChildRepository(session)
                 result = await getattr(repo, op_name)(*args, **kwargs)
                 await session.commit()
+            self._record_success()
             return result
         except Exception as exc:
-            self._write_errors += 1
-            logger.warning("parent_child op %s failed (err#%d): %s", op_name, self._write_errors, exc)
+            self._record_failure(f"parent_child op {op_name}", exc)
             return None
 
     async def load_proposals(self, limit: int = 2000) -> List[Dict[str, Any]]:

@@ -123,6 +123,11 @@ class Settings:
     # Persistence
     ENABLE_DB_PERSISTENCE: bool = os.getenv("ENABLE_DB_PERSISTENCE", "false").lower() == "true"
 
+    # /api/health 的 DB 探测等待上限（秒）。写突发占满连接池时，健康端点
+    # 不能跟着挂到 pool_timeout——外部告警探针只有 5s 预算，会把「池忙」
+    # 误报成 BACKEND_UNREACHABLE（2026-11-27 事故）。
+    HEALTH_DB_TIMEOUT_SECONDS: float = float(os.getenv("HEALTH_DB_TIMEOUT_SECONDS", "2"))
+
     # 数据管道 Runner（EMSXDataPipeline 独立进程，默认 :8100）——
     # P2-4 整改：前端不再直连 Runner，统一经 :3000 鉴权代理转发
     RUNNER_URL: str = os.getenv("EMSXVIEW_RUNNER_URL", "http://127.0.0.1:8100")
