@@ -1,6 +1,8 @@
 """Tests for connection health endpoint behavior."""
 
+import asyncio
 import os
+import time
 
 import pytest
 
@@ -87,6 +89,27 @@ def test_health_check_reports_database_failure_when_enabled(monkeypatch, client)
     assert body["success"] is False
     assert body["data"]["database"]["status"] == "disconnected"
     assert body["data"]["database"]["message"] == "dns failure"
+
+
+def test_health_check_times_out_db_probe_instead_of_hanging(monkeypatch, client):
+    """/api/health 不得等满 pool_timeout：池忙时快速降级（2026-11-27 事故）。"""
+    async def _hang():
+        await asyncio.sleep(5)
+        return True, "connected"
+
+    monkeypatch.setattr(connection.settings, "ENABLE_DB_PERSISTENCE", True)
+    monkeypatch.setattr(connection.settings, "HEALTH_DB_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(connection, "check_database_connection", _hang)
+
+    started = time.perf_counter()
+    response = client.get("/api/health")
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["database"]["status"] == "disconnected"
+    assert "timed out" in body["data"]["database"]["message"]
+    assert elapsed < 2.0, f"health probe blocked for {elapsed:.2f}s"
 
 
 def test_startup_status_reports_subscription_warmup(monkeypatch, client):
