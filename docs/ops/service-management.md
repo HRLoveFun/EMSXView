@@ -185,6 +185,7 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 | `EMSXVIEW_GATEWAY_URL` | 上游网关 HTTP 基址（`emsx-gateway`） | `http://127.0.0.1:8101` |
 | `EMSXVIEW_GATEWAY_WS_URL` | 上游网关 WS 基址（跨机/反代时与 HTTP 分开配置） | `ws://127.0.0.1:8101` |
 | `EMSXVIEW_GATEWAY_SHADOW_DIR` | shadow 比对 JSONL 落盘目录 | 空（`<后端工作目录>/logs/gateway_shadow`） |
+| `TCA_EVAL_MAX_ROUTES` | 评估报告 / 券商分项得分单次最多路由数（默认 2000；长窗口可提高，避免「已截断」影响 D1/排名样本） | `2000` |
 
 > **2026-11-27 节点二落地**：生产 `.env` 已设 `ENABLE_DB_PERSISTENCE=true`、`EMSXVIEW_DECISION_LOG_ENABLED=true`、`EMSXVIEW_SHADOW_RUN_ENABLED=true`；回滚为改回 `false` 并重启 backend（`.env` 已备份为 `.env.bak-20261127-node2`）。
 

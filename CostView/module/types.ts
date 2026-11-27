@@ -385,6 +385,109 @@ export interface EvaluationTrendPoint extends EvaluationValueStats {
   period: string;
 }
 
+export interface EvaluationPairingCoverage {
+  total_orders: number;
+  candidate_orders: number;
+  candidate_pct: number | null;
+  groups: number;
+  grouped_routes: number;
+  relative_cost_routes: number;
+  brokers: number;
+}
+
+export interface EvaluationPairTest {
+  broker_a: string;
+  broker_b: string;
+  pairs: number;
+  median_diff_bps: number;
+  wilcoxon?: { n?: number; statistic?: number | null; p_value?: number | null; note?: string };
+  sign?: { n?: number; positive?: number; negative?: number; p_value?: number | null };
+}
+
+export interface EvaluationFixedEffects {
+  available?: boolean;
+  reference_broker?: string;
+  share_coefficient_bps_per_share?: number | null;
+  effects?: Array<{ broker: string; coefficient_bps: number | null; std_error: number | null }>;
+}
+
+export interface EvaluationPairingSection {
+  rule?: Record<string, unknown>;
+  coverage?: EvaluationPairingCoverage;
+  excluded?: Record<string, number>;
+  relative_cost?: Record<string, number | null>;
+  broker_pair_tests?: EvaluationPairTest[];
+  fixed_effects?: EvaluationFixedEffects | null;
+  sample_rows?: unknown[];
+}
+
+export interface EvaluationRankingUnit {
+  broker: string;
+  n: number;
+  days?: number;
+  mean?: number | null;
+  se?: number | null;
+  ci_low?: number | null;
+  ci_high?: number | null;
+  low_sample?: boolean;
+  cluster_robust?: boolean;
+  posterior_mean?: number | null;
+  posterior_sd?: number | null;
+  posterior_ci_low?: number | null;
+  posterior_ci_high?: number | null;
+  p_top_k?: number | null;
+}
+
+export interface EvaluationRankingSection {
+  available?: boolean;
+  method?: string;
+  metric?: string;
+  top_k?: number;
+  simulations?: number;
+  alpha?: number;
+  seed?: number;
+  coverage?: { routes?: number; excluded_non_formal?: number; brokers?: number; days?: number };
+  pooled?: { mean?: number | null; tau2?: number | null; k?: number };
+  units?: EvaluationRankingUnit[];
+  indistinguishable?: string[];
+}
+
+export interface EvaluationScoreComponent {
+  name: string;
+  value: number | null;
+  unit: string;
+  sample_size: number;
+  available: boolean;
+  note?: string;
+}
+
+export interface EvaluationBrokerScoreSnapshot {
+  broker: string;
+  as_of: string;
+  window_start: string;
+  window_end: string;
+  spec_version: string;
+  components: EvaluationScoreComponent[];
+  weights?: Record<string, number>;
+  composite?: number | null;
+  cusum?: Record<string, unknown>;
+  misaligned_samples?: number;
+  low_sample?: boolean;
+}
+
+export interface EvaluationBrokerScoresSection {
+  available?: boolean;
+  as_of?: string;
+  window_start?: string;
+  window_end?: string;
+  benchmark?: string;
+  schema_version?: string;
+  spec_version?: string;
+  coverage?: { routes?: number; brokers?: number; misaligned_samples?: number };
+  components?: string[];
+  snapshots?: EvaluationBrokerScoreSnapshot[];
+}
+
 export interface EvaluationReport {
   /** 门控位：false 表示未启用（sections 为空**不代表**无数据） */
   enabled: boolean;
@@ -406,6 +509,12 @@ export interface EvaluationReport {
       primary_benchmark: string;
       rows: Array<{ exchange: string; sample_size: number } & EvaluationValueStats>;
     };
+    /** DL-20/213：订单内配对 D1（覆盖率必须随结论披露） */
+    pairing?: EvaluationPairingSection;
+    /** DL-23/216：聚类稳健 + 收缩排名 v2（读 posterior_ci_*，不是 ci_*） */
+    ranking?: EvaluationRankingSection;
+    /** DL-24/217：券商分项得分快照（不合成综合评分） */
+    broker_scores?: EvaluationBrokerScoresSection;
   } | null;
   governance?: Record<string, unknown>;
   filters?: Record<string, unknown>;
