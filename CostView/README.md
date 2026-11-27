@@ -85,7 +85,7 @@ python main.py
 
 ## Endpoints
 
-共 21 个端点（9 个 costview 路由 + 6 个 monitoring 路由 + 5 个交易员路由 + 1 个执行简报路由），行号取自 `api/routers/` 源码（2026-11-27 复核）：
+共 22 个端点（10 个 costview 路由 + 6 个 monitoring 路由 + 5 个交易员路由 + 1 个执行简报路由），行号取自 `api/routers/` 源码（2026-11-27 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
@@ -93,6 +93,7 @@ python main.py
 | `POST /api/tca/analyze-orders` | TCA order-aggregate query（`TCA_ORDER_AGG_ENABLED` 默认开启，`env=0` 可关闭并降级提示） | `api/routers/costview.py:238` |
 | `POST /api/tca/scorecard` | Broker/strategy cohort scorecard | `api/routers/costview.py:337` |
 | `POST /api/tca/evaluation/report` | 027 综合评估报告（与报告内嵌 `evaluation` 章节同一编排） | `api/routers/costview.py:419` |
+| `GET /api/tca/broker-scores` | 券商分项得分快照（DL-24/217；不合成综合评分） | `api/routers/costview.py:496` |
 | `POST /api/tca/recommendations/pin` | Pin a broker recommendation handoff（ExecutionView 经 `GET /api/broker-recommendations` 读取） | `api/routers/costview.py:518` |
 | `GET /api/tca/handoff/post-trade/{order_id}` | Peek ExecutionView → CostView handoff | `api/routers/costview.py:564` |
 | `GET /api/tca/data-freshness` | TCA 数据新鲜度（最新交易日 / 滞后工作日数） | `api/routers/costview.py:613` |
