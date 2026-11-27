@@ -176,6 +176,8 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 | `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory` / `redis`） | `memory` |
 | `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 缓存） | `redis://localhost:6379/0` |
 | `ENABLE_DB_PERSISTENCE` | 运营库订单/路由持久化开关（关闭时内存 fallback；默认 SQLite，路径见 `EMSXVIEW_OPS_DB_DIR`，显式设 `DATABASE_URL` 可走 PostgreSQL，见 [ADR-0022](../spec/adr/0022-operational-db-sqlite.md)） | `false` |
+| `EMSXVIEW_DECISION_LOG_ENABLED` | 影子决策日志写入 `routing_decisions`（DL-21）；生产节点二落地为 `true` | `false` |
+| `EMSXVIEW_SHADOW_RUN_ENABLED` | 订单到达/启动恢复时运行影子引擎并落决策（DL-22）；生产节点二落地为 `true` | `false` |
 | `EMSXVIEW_OPS_DB_DIR` | 运营库目录（仓库外，未设取 `~/.emsxview/ops`，ADR-0022） | 空 |
 | `ALLOWED_ORIGINS` | CORS 允许来源（逗号分隔） | `http://localhost:5173,http://localhost:80` |
 | `EMSXVIEW_RUNNER_URL` | 数据管道 Runner 地址（代理目标） | `http://127.0.0.1:8100` |
@@ -183,6 +185,8 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 | `EMSXVIEW_GATEWAY_URL` | 上游网关 HTTP 基址（`emsx-gateway`） | `http://127.0.0.1:8101` |
 | `EMSXVIEW_GATEWAY_WS_URL` | 上游网关 WS 基址（跨机/反代时与 HTTP 分开配置） | `ws://127.0.0.1:8101` |
 | `EMSXVIEW_GATEWAY_SHADOW_DIR` | shadow 比对 JSONL 落盘目录 | 空（`<后端工作目录>/logs/gateway_shadow`） |
+
+> **2026-11-27 节点二落地**：生产 `.env` 已设 `ENABLE_DB_PERSISTENCE=true`、`EMSXVIEW_DECISION_LOG_ENABLED=true`、`EMSXVIEW_SHADOW_RUN_ENABLED=true`；回滚为改回 `false` 并重启 backend（`.env` 已备份为 `.env.bak-20261127-node2`）。
 
 前端（`frontend/.env`）：
 
