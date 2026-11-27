@@ -405,6 +405,18 @@ class TestFillBdibEmpty:
         assert report.data_source_warning is not None
         assert "tca_route_summary" in report.data_source_warning.lower()
 
+    def test_zero_match_warning_is_not_empty_table_message(self, tmp_dbs):
+        """筛选零命中 ≠ 整表为空：不得误报 pipeline stage 5.5 未运行。"""
+        svc = _make_service(tmp_dbs)
+        report = svc.build_tca_report(
+            TcaFilters(broker="NO_SUCH_BROKER", aggregation="per_order"),
+            include_time_series=False,
+        )
+        assert report.total_orders == 0
+        warning = report.data_source_warning or ""
+        assert "no routes matched" in warning
+        assert "pipeline stage 5.5" not in warning
+
 
 class TestBuildTcaReport:
     def test_report_structure(self, tmp_dbs):

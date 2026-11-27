@@ -159,13 +159,35 @@ class TcaQueryService:
             if conn is not None:
                 conn.close()
 
+    def _empty_result_warning(self) -> str:
+        """空结果成因文案：区分「整表为空」与「本次筛选零命中」。
+
+        两者都走 ``rows == []`` 分支，但对用户的含义完全不同：
+        - 表内已有其他日期数据 → 只是本次条件没命中，提示放宽筛选；
+        - 表确实为空 → 才是 pipeline S5.5 未产出。
+        此前一律报「tca_route_summary is empty」，Scorecard / Evaluation 在
+        显式筛选零命中时会误导用户去重跑整条管道。
+        """
+        if self.get_latest_tca_date() is not None:
+            return (
+                "no routes matched the current filters — tca_route_summary has data "
+                "for other dates, but none fall inside this query's scope. "
+                "Widen the date range or clear filters and retry."
+            )
+        return (
+            "tca_route_summary is empty — pipeline stage 5.5 has not yet run. "
+            "Data updates are maintained by the independent EMSXDataPipeline "
+            "repository; trigger via its Runner (POST /run)."
+        )
+
     def build_tca_report(
         self, filters: TcaFilters, *, include_time_series: bool = True,
     ) -> TcaReport:
         """Assemble a complete TcaReport for the given filters.
 
         主路径：从 tca_route_summary 表直读 34 字段 per-route 数据。
-        如果该表不存在或为空，返回 data_source_warning 提示运行 pipeline S5.5。
+        零结果时返回 data_source_warning：区分「整表为空（提示运行 pipeline S5.5）」
+        与「本次筛选零命中（提示放宽筛选）」。
 
         P1-2 整改：include_time_series=False 时跳过 fill_bdib 全量时序拉取
         （每订单数千行的重负载），供不消费时序数据的调用方（如 scorecard
@@ -179,11 +201,7 @@ class TcaQueryService:
                 filters=_filters_to_dict(filters),
                 total_orders=0, offset=filters.offset, limit=filters.limit,
                 orders=[],
-                data_source_warning=(
-                    "tca_route_summary is empty — pipeline stage 5.5 has not yet run. "
-                    "Data updates are maintained by the independent EMSXDataPipeline "
-                    "repository; trigger via its Runner (POST /run)."
-                ),
+                data_source_warning=self._empty_result_warning(),
             )
 
         # 为图表保留 fallback 时序数据（include_time_series=False 时置空跳过）
