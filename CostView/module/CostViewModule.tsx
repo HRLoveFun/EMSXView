@@ -300,13 +300,13 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CostViewModuleTab)}>
         <TabsList className="grid h-auto w-full grid-cols-4 gap-2 rounded-xl bg-muted/60 p-1 lg:w-fit lg:grid-cols-9">
           <TabsTrigger value="overview"><Activity className="h-4 w-4" />Overview</TabsTrigger>
+          <TabsTrigger value="brief"><FileText className="h-4 w-4" />Brief</TabsTrigger>
           <TabsTrigger value="analysis"><BarChart3 className="h-4 w-4" />Analysis</TabsTrigger>
+          <TabsTrigger value="trader"><ClipboardList className="h-4 w-4" />Trader</TabsTrigger>
           <TabsTrigger value="scorecard"><Trophy className="h-4 w-4" />Scorecard</TabsTrigger>
           <TabsTrigger value="evaluation"><Scale className="h-4 w-4" />Evaluation</TabsTrigger>
           <TabsTrigger value="report"><FileBarChart className="h-4 w-4" />Report</TabsTrigger>
           <TabsTrigger value="monitoring"><HeartPulse className="h-4 w-4" />Monitoring</TabsTrigger>
-          <TabsTrigger value="trader"><ClipboardList className="h-4 w-4" />Trader</TabsTrigger>
-          <TabsTrigger value="brief"><FileText className="h-4 w-4" />Brief</TabsTrigger>
           <TabsTrigger value="configure"><Settings2 className="h-4 w-4" />Configure</TabsTrigger>
         </TabsList>
 
@@ -322,6 +322,12 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
             onRefresh={() => void fetchReport(filterForm, 0)}
             onNavigateToDatabase={onNavigateToDatabase}
           />
+        </TabsContent>
+
+        <TabsContent value="brief" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading execution brief…</div>}>
+            <LazyExecutionBriefView />
+          </Suspense>
         </TabsContent>
 
         <TabsContent value="analysis" className="mt-4">
@@ -352,6 +358,12 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
           </Suspense>
         </TabsContent>
 
+        <TabsContent value="trader" className="mt-4">
+          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading trader review workspace…</div>}>
+            <LazyTraderReviewView onNavigateTab={setActiveTab} />
+          </Suspense>
+        </TabsContent>
+
         <TabsContent value="scorecard" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading scorecard workspace…</div>}>
             <LazyScorecardView config={config} analysisFilters={filterForm} />
@@ -373,18 +385,6 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
         <TabsContent value="monitoring" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading monitoring workspace…</div>}>
             <LazyMonitoringView />
-          </Suspense>
-        </TabsContent>
-
-        <TabsContent value="trader" className="mt-4">
-          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading trader review workspace…</div>}>
-            <LazyTraderReviewView onNavigateTab={setActiveTab} />
-          </Suspense>
-        </TabsContent>
-
-        <TabsContent value="brief" className="mt-4">
-          <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading execution brief…</div>}>
-            <LazyExecutionBriefView />
           </Suspense>
         </TabsContent>
 
