@@ -58,17 +58,20 @@ const STATUS_LABELS: Record<BdibHealthStatus, string> = {
 /** 概览统计卡片 */
 const SummaryCards = ({ health, coverage }: { health: BdibHealthReport; coverage: MetricCoverageReport | null }) => {
   const { summary } = health;
-  const avgCoverage = coverage?.rows.length
-    ? coverage.rows.reduce((acc, row) => {
-        const values = Object.values(row.coverage).filter((v): v is number => v != null);
-        return acc + values.reduce((a, b) => a + b, 0) / (values.length || 1);
-      }, 0) / coverage.rows.length
-    : null;
+  // 与后端 overall.coverage 同源（Σ非空路由 / Σ总路由 的微平均）；
+  // 旧后端无 overall 时才回退按行简单平均，避免把两种口径混读。
+  const avgCoverage = coverage?.overall?.coverage
+    ?? (coverage?.rows.length
+      ? coverage.rows.reduce((acc, row) => {
+          const values = Object.values(row.coverage).filter((v): v is number => v != null);
+          return acc + values.reduce((a, b) => a + b, 0) / (values.length || 1);
+        }, 0) / coverage.rows.length
+      : null);
   const cards = [
     { label: '监控交易日', value: String(summary.total_dates) },
     { label: '缺口日（可回补）', value: String(summary.recoverable_gap_dates) },
     { label: '缺口日（不可回补）', value: String(summary.unrecoverable_dates) },
-    { label: '整体覆盖率均值', value: avgCoverage == null ? '—' : `${avgCoverage.toFixed(1)}%` },
+    { label: '整体覆盖率（微平均）', value: avgCoverage == null ? '—' : `${avgCoverage.toFixed(1)}%` },
     { label: '最近缺口日期', value: summary.latest_gap_date ?? '无' },
   ];
   return (

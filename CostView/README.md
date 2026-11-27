@@ -85,7 +85,7 @@ python main.py
 
 ## Endpoints
 
-共 20 个端点（9 个 costview 路由 + 5 个 monitoring 路由 + 5 个交易员路由 + 1 个执行简报路由），行号取自 `api/routers/` 源码（2026-11-27 复核）：
+共 22 个端点（10 个 costview 路由 + 6 个 monitoring 路由 + 5 个交易员路由 + 1 个执行简报路由），行号取自 `api/routers/` 源码（2026-11-27 复核）：
 
 | Endpoint | Description | Source |
 |----------|-------------|--------|
@@ -93,16 +93,18 @@ python main.py
 | `POST /api/tca/analyze-orders` | TCA order-aggregate query（`TCA_ORDER_AGG_ENABLED` 默认开启，`env=0` 可关闭并降级提示） | `api/routers/costview.py:238` |
 | `POST /api/tca/scorecard` | Broker/strategy cohort scorecard | `api/routers/costview.py:337` |
 | `POST /api/tca/evaluation/report` | 027 综合评估报告（与报告内嵌 `evaluation` 章节同一编排） | `api/routers/costview.py:419` |
+| `GET /api/tca/broker-scores` | 券商分项得分快照（DL-24/217；不合成综合评分） | `api/routers/costview.py:496` |
 | `POST /api/tca/recommendations/pin` | Pin a broker recommendation handoff（ExecutionView 经 `GET /api/broker-recommendations` 读取） | `api/routers/costview.py:518` |
 | `GET /api/tca/handoff/post-trade/{order_id}` | Peek ExecutionView → CostView handoff | `api/routers/costview.py:564` |
 | `GET /api/tca/data-freshness` | TCA 数据新鲜度（最新交易日 / 滞后工作日数） | `api/routers/costview.py:613` |
 | `GET /api/tca/capabilities` | 当前可见的能力开关（订单级 / 核心基准 / 风险冲击 / 评估） | `api/routers/costview.py:667` |
 | `GET /api/costview/regime-distribution` | Per-day regime label counts | `api/routers/costview.py:708` |
-| `GET /api/tca/monitoring/bdib-health` | BDIB data health scan | `api/routers/monitoring.py:169` |
-| `GET /api/tca/monitoring/metric-coverage` | Computed-metric non-NULL coverage | `api/routers/monitoring.py:220` |
-| `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) | `api/routers/monitoring.py:262` |
-| `GET /api/tca/monitoring/anomaly-thresholds` | Anomaly route-filter thresholds | `api/routers/monitoring.py:312` |
-| `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:331` |
+| `GET /api/tca/monitoring/bdib-health` | BDIB data health scan | `api/routers/monitoring.py:171` |
+| `GET /api/tca/monitoring/metric-coverage` | Computed-metric non-NULL coverage | `api/routers/monitoring.py:222` |
+| `GET /api/tca/monitoring/report-summary` | TCA report aggregation (KPI/charts/rankings) | `api/routers/monitoring.py:264` |
+| `GET /api/tca/monitoring/report-filter-options` | Report filter dropdowns (time-independent; avoids a second full aggregation) | `api/routers/monitoring.py:314` |
+| `GET /api/tca/monitoring/anomaly-thresholds` | Anomaly route-filter thresholds | `api/routers/monitoring.py:343` |
+| `GET /api/tca/monitoring/export-html` | One-click self-contained HTML report download | `api/routers/monitoring.py:362` |
 | `GET /api/tca/trader/orders` | 交易员订单复盘列表（服务端分页/排序 + KPI + 质量探针 + 当前页逐笔补列；筛选维度含市场 `exchange`） | `api/routers/trader.py:38` |
 | `GET /api/tca/trader/orders/{order_id}` | 订单详情（routes/fills/时间线逐桶参与率/成本分解/主动被动/延迟） | `api/routers/trader.py:98` |
 | `GET /api/tca/trader/orders/{order_id}/peer` | 同类 peer 分位（8 维指纹 + 两级口径 + 延迟 p90；样本不足不给分位） | `api/routers/trader.py:131` |
@@ -201,5 +203,5 @@ location /api/tca/ {
 ---
 
 *Status: Independent microservice with Redis handoff to main EMSXView service.*
-*Last updated: 2026-11-05（筛选交互改版：新增 SearchableSelect / SegmentedField / FilterSummaryBar / SavedViewBar，替换 MultiSelectFilter 与 SymbolSearchInput；交易员栏长尾条件折叠、已选 chip 常驻、命名视图；Analysis / Report / Monitoring / Configure / Evaluation / Export 的短枚举改为一次点击切换。此前：2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
+*Last updated: 2026-11-27（口径一致性：订单级新增 `fill_pct`、`par_rate` 改为组内最大参与率；Trader/Brief 异常阈值随 Configure 下发；新增 `report-filter-options` 端点避免首屏二次聚合；评估结果按筛选+DB 签名缓存；Report/Monitoring 覆盖率改用后端微平均；补齐异常清单的连续参与率/连续盈亏/RPM 判定。此前：2026-11-04（210 PR-10 CSV 导出：订单汇总 / 成交明细，服务端流式输出 + UTF-8-SIG + 版本注释 + 注入防护 + 首块前判定行数上限；F1 前端补充：Analysis 订单表成交金额改 `fill×p_avg`、`Amount` 单列「委托股数」；2026-11-03：210 PR-0a/0b F1 `Amount` 语义纠正 + F2 参与率拆分；210 PR-1 订单列表 / 筛选项；210 PR-2 订单详情端点，桶和=总成交、参与率比值 0.99–1.01、残差 <0.5bps 实测达标）*
 *Last verified: 2026-09-15（端点清单与行号提取自 `api/routers/` 源码；测试计数经 grep `def test_` 统计并与 pytest 实际收集数比对；`python -m pytest CostView/tests/` 实测 217 passed。**未做运行时验证**——服务启动响应、端口连通性与查询延迟未在本轮测量）*

@@ -326,7 +326,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
 
         <TabsContent value="brief" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading execution brief…</div>}>
-            <LazyExecutionBriefView />
+            <LazyExecutionBriefView config={config} />
           </Suspense>
         </TabsContent>
 
@@ -360,7 +360,7 @@ export default function CostViewModule({ onNavigateToDatabase }: { onNavigateToD
 
         <TabsContent value="trader" className="mt-4">
           <Suspense fallback={<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Loading trader review workspace…</div>}>
-            <LazyTraderReviewView onNavigateTab={setActiveTab} />
+            <LazyTraderReviewView config={config} onNavigateTab={setActiveTab} />
           </Suspense>
         </TabsContent>
 

@@ -13,6 +13,7 @@ and are re-exported here for caller convenience.
 
 from __future__ import annotations
 
+import copy
 import logging
 import statistics
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ from .monitoring.env_context import (
     env_coverage,
 )
 from .monitoring.report_spec import SPEC_VERSION as REPORT_SPEC_VERSION
+from .tca_cache import LRUCache, TcaCacheManager
 
 # 027：评估层（依赖方向 tca_query_service → evaluation，无环）。
 # 评估形态为「按时间范围自动产出的综合评估报告」—— 不再有 dimension / benchmark /
@@ -71,6 +73,10 @@ _ROUTE_PAGE_SIZE = 500
 # order 聚合的订单数防御上限（与 scorecard max_orders 默认值同量级）；
 # 达到上限时在订单边界截断，绝不产生半截订单指标
 _ORDER_AGG_MAX_ORDERS = 10_000
+# 评估报告进程内缓存：Report 内嵌章节与独立 Evaluation 端点共用同一 key，
+# 避免同一筛选被重复计算；DB 签名（路径 + mtime/size）保证数据更新后自动失效。
+_EVALUATION_CACHE = LRUCache(32)
+_EVALUATION_CACHE_TTL = 300
 
 
 class TcaQueryService:
@@ -292,6 +298,30 @@ class TcaQueryService:
         ``coverage`` 显式披露（原因见 ``evaluation.comparability`` 模块说明）。
         """
         resolved_granularity = rm.validate_granularity(granularity)
+        # 仅对「真实取数」启用缓存：测试或调用方替换 _collect_routes 时，
+        # 同一筛选可能对应不同内存数据，必须跳过缓存避免串结果。
+        real_collector = TcaQueryService._collect_routes
+        collector = getattr(self._collect_routes, "__func__", None)
+        cache_key: Optional[str] = None
+        db_signature = self._db_cache_signature() if collector is real_collector else "disabled"
+        if collector is real_collector and db_signature != "unavailable":
+            cache_key = TcaCacheManager.make_key(
+                "evaluation:report",
+                {
+                    "filters": _scorecard_filters_to_dict(filters),
+                    "granularity": resolved_granularity,
+                    "correction": correction,
+                    "alpha": alpha,
+                    "min_group_sample": min_group_sample,
+                    "max_routes": max_routes,
+                    "bootstrap": bootstrap,
+                    "db": db_signature,
+                },
+            )
+            cached = _EVALUATION_CACHE.get(cache_key)
+            if cached is not None:
+                return copy.deepcopy(cached)
+
         routes, capped, warning = self._collect_routes(filters, max_routes)
         env_by_route = self._build_env_context(routes)
 
@@ -309,7 +339,28 @@ class TcaQueryService:
         payload["total_routes_considered"] = len(routes)
         payload["total_routes_capped"] = capped
         payload["data_source_warning"] = warning
+        if cache_key is not None:
+            _EVALUATION_CACHE.set(
+                cache_key, copy.deepcopy(payload), ttl=_EVALUATION_CACHE_TTL,
+            )
         return payload
+
+    def _db_cache_signature(self) -> str:
+        """TCA 库签名（真实路径 + mtime/size）：数据更新或测试换库时缓存自动失效。"""
+        conn = None
+        try:
+            conn = self._mgr.get_connection("fill_bdib", AccessTier.READ)
+            rows = conn.execute("PRAGMA database_list").fetchall()
+            path = next((str(r[2]) for r in rows if r[1] == "main" and r[2]), "")
+            if not path:
+                return str(Config.DATA_DIR)
+            stat = Path(path).stat()
+            return f"{path}:{stat.st_mtime_ns}:{stat.st_size}"
+        except Exception:
+            return "unavailable"
+        finally:
+            if conn is not None:
+                conn.close()
 
     def build_broker_scores(
         self, filters: ScorecardFilters, *, max_routes: int = 2000,
@@ -470,21 +521,16 @@ class TcaQueryService:
             vals = [v for v in vals if v is not None]
             return sum(vals) if vals else None
 
-        # 成交额加权 bps
+        # 成交额加权 bps（Python 侧唯一实现，与 SQL / Brief 同口径）
         def _weighted_bps(attr: str) -> Optional[float]:
-            num_w = 0.0
-            den_w = 0.0
+            values: list[Optional[float]] = []
+            weights: list[Optional[float]] = []
             for r in routes:
-                bps = _num(r.get(attr))
                 fill = _num(r.get("fill"))
                 pavg = _num(r.get("p_avg"))
-                if bps is None or fill is None or pavg is None:
-                    continue
-                w = fill * pavg
-                if w > 0:
-                    num_w += bps * w
-                    den_w += w
-            return (num_w / den_w) if den_w > 0 else None
+                values.append(_num(r.get(attr)))
+                weights.append(fill * pavg if fill is not None and pavg is not None else None)
+            return rm.weighted_mean(values, weights)
 
         route_shares = sum(
             (_num(r.get("RouteShares")) or 0) for r in routes
@@ -524,7 +570,10 @@ class TcaQueryService:
             perm_impact_bps=_weighted_bps("perm_impact_bps"),
             fill=fill if fill > 0 else None,
             route_shares=route_shares if route_shares > 0 else None,
-            par_rate=(fill / route_shares) if route_shares > 0 else None,
+            # 完成率：订单级唯一口径 Σfill/ΣRouteShares×100（不再复用 par_rate 字段）
+            fill_pct=rm.completion_pct(fill, route_shares),
+            # 参与率：多路由不可求和，取组内最大路由参与率（与订单参与率探针同口径）
+            par_rate=_max("par_rate"),
             cost_stddev=_max("cost_stddev"),
             cost_p95=_max("cost_p95"),
             cost_cvar=_max("cost_cvar"),

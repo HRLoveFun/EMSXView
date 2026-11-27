@@ -11,13 +11,15 @@ vi.mock('../services/api', () => ({
   fetchBdibHealth: vi.fn(),
   fetchMetricCoverage: vi.fn(),
   fetchTcaReportSummary: vi.fn(),
+  fetchReportFilterOptions: vi.fn(),
   fetchExportHtml: vi.fn(),
 }));
 
-import { fetchBdibHealth, fetchExportHtml, fetchMetricCoverage, fetchTcaReportSummary } from '../services/api';
+import { fetchBdibHealth, fetchExportHtml, fetchMetricCoverage, fetchReportFilterOptions, fetchTcaReportSummary } from '../services/api';
 
 const mockFetchBdibHealth = vi.mocked(fetchBdibHealth);
 const mockFetchMetricCoverage = vi.mocked(fetchMetricCoverage);
+const mockFetchReportFilterOptions = vi.mocked(fetchReportFilterOptions);
 const mockFetchReportSummary = vi.mocked(fetchTcaReportSummary);
 const mockFetchExportHtml = vi.mocked(fetchExportHtml);
 
@@ -238,6 +240,10 @@ describe('ReportView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetchReportSummary.mockResolvedValue(reportSummary);
+    // 首屏筛选选项改走轻量端点（不再二次聚合 report-summary）
+    mockFetchReportFilterOptions.mockResolvedValue(
+      reportSummary.filter_options ?? { brokers: [], algos: [], symbols: [], exchanges: [] },
+    );
   });
 
   it('加载后渲染 KPI 卡片', async () => {

@@ -27,6 +27,7 @@ def _make_route(**overrides) -> dict:
         "equ_ticker": "AAPL US Equity", "Exchange": "US", "Side": "Buy",
         "Broker": "BRK", "algo": "VWAP", "TraderName": "TRADER",
         "fill_count": 1, "fill": 1000.0, "RouteShares": 1000.0,
+        "par_rate": 0.3,
         "p_avg": 10.0,
         "p_arrival": 9.9, "p_decision": 9.9, "p_close": 10.1,
         "arrival_cost_bps": 10.0, "close_cost_bps": -20.0, "wagner_is_bps": -10.0,
@@ -55,7 +56,8 @@ class TestOrderAggregation:
         assert agg.trading_cost == pytest.approx(100.0)
         assert agg.wagner_is == pytest.approx(100.0)
         assert agg.fill == pytest.approx(1000.0)
-        assert agg.par_rate == pytest.approx(1.0)
+        assert agg.fill_pct == pytest.approx(100.0)
+        assert agg.par_rate == pytest.approx(0.3)
 
     def test_currency_cost_sum(self) -> None:
         """货币成本跨 route SUM。"""
@@ -82,13 +84,15 @@ class TestOrderAggregation:
 
     def test_fill_rate_sum_ratio(self) -> None:
         """完成率 = Σfill / Σroute_shares。"""
-        r1 = _make_route(RouteId="R1", fill=500.0, RouteShares=1000.0)
-        r2 = _make_route(RouteId="R2", fill=1500.0, RouteShares=2000.0)
+        r1 = _make_route(RouteId="R1", fill=500.0, RouteShares=1000.0, par_rate=0.2)
+        r2 = _make_route(RouteId="R2", fill=1500.0, RouteShares=2000.0, par_rate=0.8)
         agg = TcaQueryService._aggregate_order("O1", "20260421", [r1, r2])
 
         assert agg.fill == pytest.approx(2000.0)
         assert agg.route_shares == pytest.approx(3000.0)
-        assert agg.par_rate == pytest.approx(2000.0 / 3000.0)
+        assert agg.fill_pct == pytest.approx(2000.0 / 3000.0 * 100.0)
+        # 参与率不可求和：取组内最大路由参与率
+        assert agg.par_rate == pytest.approx(0.8)
 
     def test_risk_takes_max(self) -> None:
         """风险指标 order 取 max（保守）。"""
@@ -183,4 +187,4 @@ class TestBuildOrderReportPagination:
         agg = aggregates[0]
         assert agg.route_count == 3
         assert agg.fill == pytest.approx(300.0)
-        assert agg.par_rate == pytest.approx(300.0 / 3000.0)
+        assert agg.fill_pct == pytest.approx(300.0 / 3000.0 * 100.0)

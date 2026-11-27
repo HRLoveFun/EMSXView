@@ -330,7 +330,7 @@ def _kpi_card_specs(
 
     cards = [
         ("Route 总数", f"{kpi['route_count']:,}", ""),
-        ("总成交股数", _fmt_big(kpi["total_route_shares"]), "RouteShares 合计"),
+        ("总委托股数", _fmt_big(kpi["total_route_shares"]), "RouteShares 合计"),
         # 007: 总成交金额（USD 换算，标注 fx_rate 覆盖率）
         ("总成交金额（美元）", _fmt_big(kpi.get("notional_usd")), _fx_coverage_sub(kpi)),
         ("加权 pnl_vwap", _fmt_num(kpi.get("weighted_pnl_vwap")),

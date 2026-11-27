@@ -10,8 +10,9 @@ token（backend 侧 _bridge_guard 统一施加）。只读：不写任何数据�
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -25,6 +26,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView Trader"])
 
 _DATE_PATTERN = r"^\d{8}$"
+
+
+def _parse_thresholds(raw: Optional[str]) -> Optional[dict[str, Any]]:
+    """解析前端 Configure 下发的阈值 JSON；None/空 → 后端默认阈值。"""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="thresholds 必须是 JSON 对象")
+    return parsed
 
 
 class TraderResponse(BaseModel):
@@ -56,14 +70,20 @@ async def list_trader_orders(
     sort_dir: str = Query("desc", description="asc/desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    thresholds: Optional[str] = Query(
+        None, description="JSON 阈值规则覆盖（与 Report 同契约；缺省用后端默认）",
+    ),
 ):
     """订单复盘列表：订单级聚合在 SQL 完成；多路由「任一路由命中」过滤。
 
     默认日期 = 最近 5 个交易日；空结果返回 200 + total_orders=0；
     默认窗口内无任何 TCA 汇总时返回 503 data_not_ready（沿用既有约定）。
     """
+    # 在通用异常兜底之前完成解析，确保非法 JSON 仍返回 422（而非被转成 500）
+    rules = _parse_thresholds(thresholds)
     try:
         data = trader_service.build_order_page_from_query(
+            thresholds=rules,
             start_date=start_date, end_date=end_date,
             trader=trader, ticker=ticker, exchange=exchange, side=side,
             strategy_type=strategy_type, algo=algo, broker=broker,

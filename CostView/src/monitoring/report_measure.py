@@ -149,6 +149,64 @@ WEIGHTED_METRICS: tuple[str, ...] = (
 WEIGHT_EXPRESSION = "fill * p_avg"
 
 
+def completion_sql(
+    fill_col: str = "fill", shares_col: str = "RouteShares",
+) -> str:
+    """完成率 SQL 片段（0-1 小数；订单/组合层唯一实现）。
+
+    列名仅接受内部白名单常量，调用方不得拼接用户输入。
+    """
+    return f"CASE WHEN {shares_col} > 0 THEN {fill_col} * 1.0 / {shares_col} END"
+
+
+#: 完成率 SQL 片段（route 明细层列名）
+COMPLETION_SQL = completion_sql()
+
+
+def completion_ratio(fill: Any, route_shares: Any) -> Optional[float]:
+    """完成率（0-1 小数）：fill / RouteShares；委托股数缺失或 ≤0 时返回 None。
+
+    Python 聚合与 SQL 片段（``COMPLETION_SQL``）同口径；调用方不得再各写一份。
+    """
+    try:
+        f = float(fill) if fill is not None else 0.0
+        s = float(route_shares) if route_shares is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    return (f / s) if s > 0 else None
+
+
+def completion_pct(fill: Any, route_shares: Any) -> Optional[float]:
+    """完成率百分比（0-100），供订单级 ``fill_pct`` 字段使用。"""
+    ratio = completion_ratio(fill, route_shares)
+    return ratio * 100.0 if ratio is not None else None
+
+
+def weighted_mean(
+    values: Sequence[Optional[float]],
+    weights: Sequence[Optional[float]],
+) -> Optional[float]:
+    """加权均值（Python 侧唯一实现）：跳过空值与 ≤0 权重；分母为 0 返回 None。
+
+    与 SQL 的 ``weighted_avg_sql`` 同口径（权重由调用方传入，通常为 fill×p_avg）。
+    """
+    numerator = 0.0
+    denominator = 0.0
+    for value, weight in zip(values, weights):
+        if value is None or weight is None:
+            continue
+        try:
+            v = float(value)
+            w = float(weight)
+        except (TypeError, ValueError):
+            continue
+        if w <= 0:
+            continue
+        numerator += v * w
+        denominator += w
+    return (numerator / denominator) if denominator > 0 else None
+
+
 def weight_cond(metric: str) -> str:
     """加权均值中单条路由的纳入条件（指标 / fill / p_avg 三者齐备）。"""
     return f"{metric} IS NOT NULL AND fill IS NOT NULL AND p_avg IS NOT NULL"

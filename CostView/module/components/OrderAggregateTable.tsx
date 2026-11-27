@@ -94,7 +94,7 @@ export function OrderAggregateTable({ report, error, isLoading }: OrderAggregate
           </thead>
           <tbody>
             {orders.map((order) => {
-              const fillPct = order.fill != null && order.route_shares ? (order.fill / order.route_shares) * 100 : null;
+              const fillPct = order.fill_pct ?? null;
               return (
                 <tr key={`${order.order_id}/${order.order_as_of_date}`} className="border-t border-border/60 transition-colors hover:bg-muted/30">
                   <td className="sticky left-0 z-10 bg-card px-3 py-3 font-mono text-xs">{order.order_id}</td>

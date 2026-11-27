@@ -204,7 +204,8 @@ class TcaOrderAggregate:
     - 货币成本 (delay/trading/opportunity/wagner_is): SUM
     - 价格基准 (p_arrival/p_decision/p_close): 最早 route 取值
     - bps 绩效 (arrival/close/temp/perm_impact): 成交额加权平均
-    - 完成率 (fill): Σfill / Σroute_shares
+    - 完成率 (fill_pct): Σfill / Σroute_shares × 100
+    - 参与率 (par_rate): 组内各 route 的最大 par_rate（不可求和）
     - 风险 (cost_stddev/p95/cvar): 各 route 独立，order 取 max（保守）
     - 时点 (order_duration_sec): min(route_as_of) → max(last_fill)
     - 执行速率: Σfill / (duration/60)
@@ -239,6 +240,9 @@ class TcaOrderAggregate:
     # 完成率 / 参与率
     fill: Optional[float] = None
     route_shares: Optional[float] = None
+    # 完成率百分比（0-100）：Σfill / ΣRouteShares × 100（订单级唯一完成率口径）
+    fill_pct: Optional[float] = None
+    # 参与率（0-1 小数）：组内各 route 的最大 par_rate；多路由不可求和
     par_rate: Optional[float] = None
     # 风险（order 取 max，保守）
     cost_stddev: Optional[float] = None

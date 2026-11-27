@@ -52,11 +52,13 @@ def _bridge_routes() -> list[tuple[str, str]]:
 
 
 def test_bridge_requires_token_on_all_endpoints():
-    """全部桥接端点缺 token 一律 401（A04 验收）；计数随端点增删同步（现 21 个）。"""
+    """全部桥接端点缺 token 一律 401（A04 验收）；计数随端点增删同步（现 22 个）。"""
     routes = _bridge_routes()
     # 显式锁定执行简报端点，避免只靠计数、端点替换后仍通过。
     assert ("GET", "/api/tca/brief") in routes
-    assert len(routes) == 21, routes
+    # 锁定报告筛选选项端点（2026-11-27 新增，避免 Report 首屏二次聚合）
+    assert ("GET", "/api/tca/monitoring/report-filter-options") in routes
+    assert len(routes) == 22, routes
     client = _client(unauthorized=True)
     for method, path in routes:
         url = path.replace("{order_id}", "1")

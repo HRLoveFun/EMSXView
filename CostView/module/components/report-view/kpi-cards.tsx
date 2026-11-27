@@ -42,7 +42,7 @@ export const KpiCards = ({
     formatWeightCoverage(weightCoverage?.metrics?.[metric]);
   const cards = [
     { label: 'Route 总数', value: kpi.route_count.toLocaleString(), sub: '' },
-    { label: '总成交股数', value: formatShares(kpi.total_route_shares), sub: 'RouteShares 合计' },
+    { label: '总委托股数', value: formatShares(kpi.total_route_shares), sub: 'RouteShares 合计（委托股数，非成交股数）' },
     { label: '总成交金额（美元）', value: formatMoney(kpi.notional_usd), sub: fxCoverageSub(kpi) },
     {
       label: '加权 pnl_vwap',

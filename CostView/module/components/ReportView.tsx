@@ -5,8 +5,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { fetchBdibHealth, fetchExportHtml, fetchTcaReportSummary, type ExportHtmlThresholdPayload } from '../services/api';
+import { fetchBdibHealth, fetchExportHtml, fetchReportFilterOptions, fetchTcaReportSummary } from '../services/api';
 import { loadCostViewConfig } from '../lib/storage';
+import { thresholdsToPayload } from '../lib/thresholds';
 import {
   formatScopeLabel,
   formatScopeWarning,
@@ -31,7 +32,6 @@ import { ImpactBreakdownTable } from './report/ImpactBreakdownTable';
 import { MarketOverviewTable } from './report/MarketOverviewTable';
 import type {
   BdibHealthReport,
-  CostViewConfig,
   Granularity,
   LastPreset,
   TcaReportSummary,
@@ -88,22 +88,6 @@ const formatReportDate = (value: string): string => {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : value || '—';
 };
 
-/** 本地阈值规则 → thresholds 请求参数（与后端 ThresholdRules 契约对齐，页面明细与导出 HTML 同源判定） */
-const buildThresholdsPayload = (
-  rules: CostViewConfig['rules'],
-): Record<string, ExportHtmlThresholdPayload> => {
-  const thresholds: Record<string, ExportHtmlThresholdPayload> = {};
-  for (const rule of Object.values(rules)) {
-    thresholds[rule.key] = {
-      mode: rule.mode,
-      warning: rule.warning,
-      critical: rule.critical,
-      enabled: rule.enabled,
-    };
-  }
-  return thresholds;
-};
-
 export function ReportView() {
   // 初始表单在挂载时构建一次（读取 Configure 中的默认交易所范围）；用 state 固定，
   // 既作 useState 初值、又供「重置」复用（原先用 ref 承载，会在渲染期读 ref）
@@ -125,7 +109,7 @@ export function ReportView() {
       minFillCount: config.minFillCount,
       minNotionalUsd: config.minNotionalUsd,
       // 异常路由判定阈值随查询下发（后端默认阈值仅作兜底）
-      thresholds: buildThresholdsPayload(config.rules),
+      thresholds: thresholdsToPayload(config.rules),
       // 026: 聚合粒度（走势与分市场金额趋势的横轴；day 与既有按日口径一致）
       granularity: current.granularity,
     };
@@ -143,12 +127,11 @@ export function ReportView() {
   // 供首屏（useAsyncData）与「生成报告」按钮（事件回调）复用。
   const fetchReportPayload = useCallback(async (current: ReportFormState) => {
     const query = buildQuery(current);
-    const metaQuery: Parameters<typeof fetchTcaReportSummary>[0] = { ...query };
-    delete (metaQuery as { exchange?: string | string[] }).exchange;
 
     const [reportData, metaData, healthData] = await Promise.all([
       fetchTcaReportSummary(query),                        // 主报告：失败即整体失败
-      fetchTcaReportSummary(metaQuery).catch(() => null),  // 选项：失败不阻断，保持上次清单
+      // 选项：独立轻量端点（时间无关），不再二次聚合整份报告
+      fetchReportFilterOptions().catch(() => null),
       (query.startDate && query.endDate)
         ? fetchBdibHealth({ startDate: query.startDate, endDate: query.endDate }).catch(() => null)
         : Promise.resolve(null),                           // 健康度：同时间范围，失败不阻断主报告
@@ -159,13 +142,18 @@ export function ReportView() {
   // 落到 state（首屏在 hook 的数据回调内、按钮路径在 .then 内，均为规则允许的形态）
   const applyReportPayload = useCallback((payload: Awaited<ReturnType<typeof fetchReportPayload>>) => {
     setReport(payload.reportData);
-    if (payload.metaData) {
-      const next = payload.metaData.filter_options
-        ?? { brokers: [], algos: [], symbols: [], exchanges: [] };
-      setOptions({
-        ...next,
-        exchanges: next.exchanges ?? (payload.metaData.markets ?? []).map((m) => m.exchange),
-      });
+    // 轻量选项端点不可用（维度表未初始化）时，回退主报告按时间范围推导的选项
+    const fromEndpoint = payload.metaData;
+    const hasEndpointOptions = Boolean(
+      fromEndpoint
+      && (fromEndpoint.brokers.length || fromEndpoint.algos.length
+        || fromEndpoint.symbols.length || (fromEndpoint.exchanges?.length ?? 0)),
+    );
+    const next = hasEndpointOptions
+      ? fromEndpoint
+      : payload.reportData.filter_options;
+    if (next) {
+      setOptions({ ...next, exchanges: next.exchanges ?? [] });
     }
     setHealth(payload.healthData ?? null);
     // 预设模式下回填解析后的实际日期区间（如"上周"→ 周一~周日），

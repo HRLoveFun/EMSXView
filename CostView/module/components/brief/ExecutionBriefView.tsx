@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAsyncData } from '@shared/hooks/use-async-data';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,8 @@ import {
   fetchTraderFilterOptions,
   type ExecutionBriefQuery,
 } from '../../services/api';
-import type { BriefPeriodPreset } from '../../types';
+import { createDefaultCostViewConfig, thresholdsToPayload } from '../../lib/thresholds';
+import type { BriefPeriodPreset, CostViewConfig } from '../../types';
 import { DateField } from '../DateField';
 import { SearchableSelect } from '../SearchableSelect';
 import { SegmentedField } from '../SegmentedField';
@@ -54,13 +55,19 @@ const EMPTY_FILTERS: BriefFilterForm = {
 };
 
 /** 执行简报主视图（230）：期间选择 + 订单级摘要 + 待处理订单 + 数据缺口。 */
-export function ExecutionBriefView() {
+export function ExecutionBriefView({ config }: { config?: CostViewConfig } = {}) {
+  const rules = useMemo(
+    () => config?.rules ?? createDefaultCostViewConfig().rules,
+    [config?.rules],
+  );
   const [preset, setPreset] = useState<BriefPeriodPreset>('day');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filters, setFilters] = useState<BriefFilterForm>(EMPTY_FILTERS);
   const [topN, setTopN] = useState(10);
-  const [applied, setApplied] = useState<ExecutionBriefQuery>({ preset: 'day', topN: 10 });
+  const [applied, setApplied] = useState<ExecutionBriefQuery>({
+    preset: 'day', topN: 10, thresholds: thresholdsToPayload(rules),
+  });
   const [metric, setMetric] = useState<OrderMetric>('by_arrival');
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -102,6 +109,7 @@ export function ExecutionBriefView() {
       startDate: preset === 'custom' ? startDate : undefined,
       endDate: preset === 'custom' ? endDate : undefined,
       topN,
+      thresholds: thresholdsToPayload(rules),
       ...filters,
     });
   };

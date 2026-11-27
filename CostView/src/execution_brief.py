@@ -388,9 +388,8 @@ def _derive_row(row: dict[str, Any]) -> None:
     fill = _float(row.get("fill")) or 0.0
     row["order_id"] = str(row.get("OrderId") or "")
     row["side"] = _normalize_side(row.get("side"))
-    row["completion"] = (
-        fill / route_shares if route_shares and route_shares > 0 else None
-    )
+    # 完成率唯一实现（与 trader_query / analyze-orders 共用，避免三套口径）
+    row["completion"] = rm.completion_ratio(fill, route_shares)
     # 成交均价（本币）：成交金额 / 成交股数；零成交为 None。
     fill_notional_local = _float(row.get("fill_notional_local"))
     row["vwap"] = (
@@ -434,16 +433,10 @@ def _sum(values: list[Optional[float]]) -> Optional[float]:
 
 def _weighted(rows: list[dict[str, Any]], field: str) -> Optional[float]:
     """成交额加权均值（权重 fill_notional_local；缺权重的行不参与）。"""
-    numerator = 0.0
-    denominator = 0.0
-    for row in rows:
-        value = _float(row.get(field))
-        weight = _float(row.get("fill_notional_local"))
-        if value is None or weight is None or weight <= 0:
-            continue
-        numerator += value * weight
-        denominator += weight
-    return numerator / denominator if denominator else None
+    return rm.weighted_mean(
+        [_float(r.get(field)) for r in rows],
+        [_float(r.get("fill_notional_local")) for r in rows],
+    )
 
 
 def _completion(rows: list[dict[str, Any]]) -> Optional[float]:
@@ -627,9 +620,12 @@ def _top_orders(rows: list[dict[str, Any]], top_n: int) -> dict[str, list[dict[s
     }
 
 
-def _anomaly(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _anomaly(
+    rows: list[dict[str, Any]],
+    thresholds: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """订单级异常摘要（复用交易员视图同一套阈值引擎，不复制常量）。"""
-    rules = ThresholdRules.from_payload(None)
+    rules = ThresholdRules.from_payload(thresholds)
     return tm.compute_anomaly_summary(
         rows, lambda row: evaluate_metrics(order_rule_values(row), rules),
     )
@@ -697,6 +693,7 @@ def build_brief(
     broker: Optional[str] = None,
     top_n: int = 10,
     today: Optional[date] = None,
+    thresholds: Optional[dict[str, Any]] = None,
     mgr: Optional[ConnectionManager] = None,
 ) -> dict[str, Any]:
     """组装执行简报 payload（单次只读连接内完成）。"""
@@ -738,7 +735,7 @@ def build_brief(
         "broker_mix": _dimension_rows(rows, "broker", 20),
         "top_traders": _dimension_rows(rows, "trader_name", 20),
         "top_orders": _top_orders(rows, max(1, top_n)),
-        "anomaly": _anomaly(rows),
+        "anomaly": _anomaly(rows, thresholds),
         "data_availability": [dict(item) for item in DATA_AVAILABILITY],
         "notes": list(BRIEF_NOTES),
     }

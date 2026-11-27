@@ -46,7 +46,8 @@ _METRIC_MAP: dict[str, tuple[str, float]] = {
     "volume_pct_adv20": ("par_rate", 100.0),
     "volume_pct_interval": ("par_rate_continuous", 100.0),
     "intraday_volatility": ("pnl_vwap_continuous", 0.01),
-    "price_movement_pct": ("rpm", 1.0),
+    # 上游列名为大写 RPM（与 KPI 的 weighted_avg_sql("RPM") 同源）
+    "price_movement_pct": ("RPM", 1.0),
     # 数据质量探针（013）：完成率超过 100% / 路由参与率超过 100% 均属数据矛盾，
     # 此前被展示层封顶掩盖，现作为独立规则纳入异常判定，不再静默放过。
     # overfill_pct 走 above-strict（严格大于）：完成率恰为 100.0% 属正常「成交满」，
@@ -606,9 +607,17 @@ def query_anomaly_routes_page_ex(
         local_expr, usd_expr, gate_expr = _anomaly_notional_exprs(
             fbfx_ready, has_fx,
         )
+        # 阈值规则需要的连续参与率 / 连续盈亏 / RPM 列：旧 schema 缺失时以 NULL 占位，
+        # 使 evaluate_metrics 的「缺失键不评估」语义保持显式（而不是 SQL 报错）。
+        metric_selects = ", ".join(
+            col if _has_column(conn, Config.TCA_ROUTE_SUMMARY_TABLE, col)
+            else f"NULL AS {col}"
+            for col in ("par_rate_continuous", "pnl_vwap_continuous", "RPM")
+        )
         sql = f"""
             SELECT OrderId, RouteId, order_as_of_date, equ_ticker, Exchange,
                    Side, Broker, algo, TraderName, fill, p_avg, par_rate, pnl_vwap,
+                   {metric_selects},
                    arrival_cost_bps, wagner_is_bps, opportunity_cost,
                    RouteShares, cost_cvar, order_duration_sec, recovery_truncated,
                    Amount, Currency, {fill_count_select}, {fx_select},

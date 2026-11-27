@@ -160,6 +160,7 @@ def _manager(mgr: Optional[ConnectionManager]) -> ConnectionManager:
 def _page_payload(
     filters: tmod.TraderFilters, rows: list[dict[str, Any]],
     manager: Optional[ConnectionManager] = None,
+    thresholds: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """组装列表 payload：kpi/probes 基于全筛选范围；当前页逐笔补列后再出页行。"""
     models = [_row_to_model(r) for r in rows]
@@ -169,7 +170,7 @@ def _page_payload(
     ) if manager else {}
     for model in page:
         _apply_fill_context(model, ctx.get(model.order_id))
-    anomaly = _anomaly_summary(rows)
+    anomaly = _anomaly_summary(rows, thresholds)
     kpi = tm.compute_kpi(rows, anomaly)
     kpi["passive_ratio"] = _passive_kpi(ctx)
     kpi["release_delay_p90"] = _delay_kpi(ctx, len(page))
@@ -189,13 +190,15 @@ def _page_payload(
     }
 
 
-def _anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """订单级异常摘要（§4.11）：默认阈值 + 订单级取值 → 聚合。
+def _anomaly_summary(
+    rows: list[dict[str, Any]],
+    thresholds: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """订单级异常摘要（§4.11）：阈值 + 订单级取值 → 聚合。
 
-    阈值取 ``ThresholdRules.from_payload(None)``（与 Report 默认一致）；自定义阈值
-    的联动属 v1（Report 表单已可改，交易员页暂不暴露），差异在 UI 注明。
+    阈值由前端 Configure 配置下发（与 Report 同源）；未传时回退后端默认阈值。
     """
-    rules = ThresholdRules.from_payload(None)
+    rules = ThresholdRules.from_payload(thresholds)
     return tm.compute_anomaly_summary(
         rows, lambda row: evaluate_metrics(order_rule_values(row), rules),
     )
@@ -203,6 +206,7 @@ def _anomaly_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_order_page(
     filters: tmod.TraderFilters, mgr: Optional[ConnectionManager] = None,
+    thresholds: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """已构造筛选 → 订单列表 payload（测试与对账入口）。"""
     manager = _manager(mgr)
@@ -211,7 +215,7 @@ def build_order_page(
         rows = tq.query_order_rows(conn, filters)
     finally:
         conn.close()
-    return _page_payload(filters, rows, manager)
+    return _page_payload(filters, rows, manager, thresholds)
 
 
 def build_filter_options(
@@ -231,7 +235,9 @@ def build_filter_options(
 
 
 def build_order_page_from_query(
-    mgr: Optional[ConnectionManager] = None, **raw: Any,
+    mgr: Optional[ConnectionManager] = None,
+    thresholds: Optional[dict[str, Any]] = None,
+    **raw: Any,
 ) -> dict[str, Any]:
     """路由入口：原始查询参数 → 校验 → 订单列表 payload（单次连接内完成）。"""
     manager = _manager(mgr)
@@ -241,7 +247,7 @@ def build_order_page_from_query(
         rows = tq.query_order_rows(conn, filters)
     finally:
         conn.close()
-    return _page_payload(filters, rows, manager)
+    return _page_payload(filters, rows, manager, thresholds)
 
 
 # ── 210 §3.4.4 / §4.14：CSV 导出（订单汇总 / 成交明细）──────────────────────
