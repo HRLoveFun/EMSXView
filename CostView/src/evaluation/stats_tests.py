@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import bisect
 import math
-import random
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
+import numpy as np
 from scipy import stats as _stats
 
 #: 支持的检验方法：t = Welch 不等方差；ks = 分布差异；chi2 = 分桶分布差异
@@ -94,17 +94,21 @@ def mean_difference_ci(
     """均值差（left − right）的 bootstrap 百分位可信区间。样本过少时返回 (None, None)。"""
     if len(left) < 2 or len(right) < 2 or bootstrap <= 0:
         return None, None
-    rng = random.Random(seed)
-    diffs: list[float] = []
-    for _ in range(bootstrap):
-        sample_l = [left[rng.randrange(len(left))] for _ in range(len(left))]
-        sample_r = [right[rng.randrange(len(right))] for _ in range(len(right))]
-        diffs.append(
-            sum(sample_l) / len(sample_l) - sum(sample_r) / len(sample_r)
-        )
-    diffs.sort()
-    low = diffs[max(0, int(alpha / 2 * bootstrap))]
-    high = diffs[min(bootstrap - 1, int((1 - alpha / 2) * bootstrap))]
+    # 向量化重采样：逐样本 Python 循环在 2000×2000 规模下会产生数千万次
+    # randrange 调用（实测单次评估报告 40s+）。改用 numpy 一次性生成索引矩阵，
+    # 统计口径（百分位取整、均值差 left−right）与原先逐次重采样一致。
+    rng = np.random.default_rng(seed)
+    left_arr = np.asarray(left, dtype=float)
+    right_arr = np.asarray(right, dtype=float)
+    left_idx = rng.integers(0, left_arr.size, size=(bootstrap, left_arr.size))
+    mean_l = left_arr[left_idx].mean(axis=1)
+    del left_idx
+    right_idx = rng.integers(0, right_arr.size, size=(bootstrap, right_arr.size))
+    mean_r = right_arr[right_idx].mean(axis=1)
+    del right_idx
+    diffs = np.sort(mean_l - mean_r)
+    low = float(diffs[max(0, int(alpha / 2 * bootstrap))])
+    high = float(diffs[min(bootstrap - 1, int((1 - alpha / 2) * bootstrap))])
     return round(low, 6), round(high, 6)
 
 

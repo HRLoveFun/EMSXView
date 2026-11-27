@@ -17,7 +17,10 @@ const COSTVIEW_FILTERS_KEY = 'emsx_costview_filters_v1';
 const COSTVIEW_VIEW_KEY = 'emsx_costview_view_v1';
 const COSTVIEW_EXPORT_KEY = 'emsx_costview_export_v1';
 const COSTVIEW_SCORECARD_KEY = 'emsx_costview_scorecard_v1';
-const COSTVIEW_MONITORING_KEY = 'emsx_costview_monitoring_v1';
+// v2：默认监控范围由 month 改为 day。旧 key 里持久化的 month 会绕过新默认值，
+// 而 month 规模的 BDIB 健康扫描必然撞上后端 25s 超时护栏（见 bdib_health），
+// 因此换 key 让历史配置一次性失效，避免老浏览器继续落在超时路径上。
+const COSTVIEW_MONITORING_KEY = 'emsx_costview_monitoring_v2';
 
 export const DEFAULT_FILTER_FORM_STATE: CostViewFilterFormState = {
   orderIds: '',
@@ -232,7 +235,9 @@ export function saveCostViewScorecardForm(state: ScorecardFormState): void {
 // ── 监控页状态（时间范围预设 + 指标勾选）────────────────────────────────────
 
 const DEFAULT_MONITORING_STATE: MonitoringViewState = {
-  lastPreset: 'month',
+  // 默认「最近交易日」：month 范围的 BDIB 健康扫描在后端有 25s 护栏，
+  // 首次进入会稳定超时；day 范围约 1.5s，用户仍可手动切到更长区间。
+  lastPreset: 'day',
   selectedMetrics: [...ALL_TCA_METRICS],
   granularity: 'day',
 };

@@ -73,9 +73,40 @@ def test_empty_table_still_503_data_not_ready(monkeypatch: pytest.MonkeyPatch) -
     assert excinfo.value.detail["message"] == _EMPTY_WARNING
 
 
-def test_default_date_without_data_503(monkeypatch: pytest.MonkeyPatch) -> None:
-    """未显式过滤且默认日期（上一工作日）无数据 → 503 提示未生成。"""
-    _patch_analytics(monkeypatch, report=None, latest="20260918", has_data=False)
+def test_default_date_without_data_falls_back_to_latest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未显式过滤且默认日无数据 → 回退到库内最新数据日并正常查询（不再 503）。
+
+    背景：每天凌晨到管道产出前，名义默认日（上一工作日）没有数据；
+    若直接 503，四个默认落地页会集体不可用。此处锁定回退语义。
+    """
+    captured: dict[str, Optional[str]] = {}
+
+    def _fake_build(filters, **_kwargs):
+        captured["start"] = filters.start_date
+        captured["end"] = filters.end_date
+        return TcaReport(
+            filters={"start_date": "20260918", "end_date": "20260918"},
+            total_orders=1, offset=0, limit=50, orders=[],
+        )
+
+    monkeypatch.setattr(r._analytics, "build_tca_report", _fake_build)
+    monkeypatch.setattr(r._analytics, "get_latest_tca_date", lambda: "20260918")
+    monkeypatch.setattr(r._analytics, "has_data_for_date", lambda _d: False)
+
+    response = asyncio.run(r.analyze_tca(_request(), None))
+
+    assert response.success is True
+    assert response.data is not None
+    assert response.data["total_orders"] == 1
+    # 回退日期被写回请求筛选，build 与响应口径一致
+    assert captured == {"start": "20260918", "end": "20260918"}
+
+
+def test_default_date_without_any_data_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    """未显式过滤、名义默认日无数据且库内完全无数据 → 503 提示未生成。"""
+    _patch_analytics(monkeypatch, report=None, latest=None, has_data=False)
 
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(r.analyze_tca(_request(), None))

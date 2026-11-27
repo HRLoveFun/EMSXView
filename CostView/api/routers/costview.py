@@ -31,7 +31,10 @@ from platform_data.contracts import (
     TcaReport,
     TcaRouteSummary,
 )
-from platform_data.regime_query import get_regime_distribution
+from platform_data.regime_query import (
+    get_latest_regime_date,
+    get_regime_distribution,
+)
 from CostView.api.concurrency import QueryTimeoutError, run_bounded
 from CostView.src.tca_query_service import TcaQueryService
 from CostView.src.tca_utils import business_days_lag
@@ -142,6 +145,42 @@ def _default_query_date(f: TcaFilterPayload) -> Optional[str]:
     return resolved.start_date
 
 
+def _apply_default_query_date(f: TcaFilterPayload) -> Optional[str]:
+    """把「默认查询日」落到库内当前可用的最新交易日。
+
+    未显式指定日期/订单时，名义默认日（上一工作日）在每天管道产出前还没有
+    数据；若因此直接 503，Overview / Analysis / Scorecard / Evaluation 四个
+    默认落地页会在数据产出前集体不可用（且 Scorecard/Evaluation 会把
+    「当日无数据」误报成「整表为空、pipeline stage 5.5 未运行」）。
+    这里回退到库内最新数据日，并**改写请求筛选**，使 build_* 用同一日查询；
+    库内完全无数据时才抛 503，message 使用与 analyze 一致的准确文案。
+
+    返回 ``None``：显式筛选或名义默认日已有数据，无需处理；
+    返回 ``YYYYMMDD``：已回退到该最新数据日。
+    """
+    nominal = _default_query_date(f)
+    if nominal is None or _analytics.has_data_for_date(nominal):
+        return None
+    latest = _analytics.get_latest_tca_date()
+    if latest:
+        f.start_date = latest
+        f.end_date = latest
+        logger.info(
+            "默认查询日 %s 无数据，回退到库内最新数据日 %s", nominal, latest,
+        )
+        return latest
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "data_not_ready",
+            "message": (
+                f"{nominal} 数据尚未生成。数据更新维护已迁独立项目 "
+                "EMSXDataPipeline；请通过其 Runner（POST /run）触发后再查询。"
+            ),
+        },
+    )
+
+
 @router.post("/api/tca/analyze", response_model=TcaAnalyzeResponse)
 async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     """Run TCA analysis over the filtered order set.
@@ -153,8 +192,9 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
 
     两种「空结果」语义严格区分（2026-09-21 整改）：
 
-    - **数据未就绪** —— 未显式指定日期且默认日期（上一工作日）无数据，或库内
-      完全无数据（表缺失 / 整表为空）：返回 503 ``data_not_ready``；
+    - **数据未就绪** —— 未显式指定日期且名义默认日（上一工作日）无数据时，
+      先回退到库内最新数据日；库内完全无数据（表缺失 / 整表为空）：返回
+      503 ``data_not_ready``；
     - **筛选零匹配** —— 库内有数据、但本次过滤条件命中 0 行：返回 200 且
       ``total_orders=0``，并随 payload 下发 ``data_source_warning`` 供前端提示。
       此前两者共用 503，用户按自己的条件筛不出数据时会看到"数据未生成"，
@@ -162,18 +202,7 @@ async def analyze_tca(request: TcaAnalyzeRequest, raw_request: Request):
     """
 
     f = request.filters
-    default_date = _default_query_date(f)
-    if default_date and not _analytics.has_data_for_date(default_date):
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "data_not_ready",
-                "message": (
-                    f"{default_date} 数据尚未生成。数据更新维护已迁独立项目 "
-                    "EMSXDataPipeline；请通过其 Runner（POST /run）触发后再查询。"
-                ),
-            },
-        )
+    _apply_default_query_date(f)
     filters = TcaFilters(
         order_ids=f.order_ids,
         algo=f.algo,
@@ -346,6 +375,9 @@ async def analyze_scorecard(request: ScorecardRequest):
     """
 
     f = request.filters
+    # 与 analyze 同口径：名义默认日无数据时回退到库内最新数据日，
+    # 避免午夜后把「当日未产出」误判成「整表为空、stage 5.5 未运行」。
+    _apply_default_query_date(f)
     filters = ScorecardFilters(
         cohort=request.cohort,
         order_ids=f.order_ids,
@@ -449,6 +481,8 @@ async def evaluation_report(request: EvaluationReportRequest):
         )
 
     f = request.filters
+    # 与 analyze / scorecard 同口径：默认日无数据时回退到库内最新数据日。
+    _apply_default_query_date(f)
     filters = ScorecardFilters(
         order_ids=f.order_ids,
         algo=f.algo,
@@ -755,6 +789,9 @@ class RegimeDistributionResponse(BaseModel):
     config_version: Optional[str] = None
     start_date: str
     end_date: str
+    #: 当前 active 配置下 regime 标签的最新交易日；请求区间无数据时用于说明
+    #: 「数据截至哪一天」，避免把上游停更误读成页面故障。
+    latest_date: Optional[str] = None
 
 
 @router.get("/api/costview/regime-distribution", response_model=RegimeDistributionResponse)
@@ -777,12 +814,14 @@ async def regime_distribution(
 
     try:
         from data_access import ConnectionManager
+        manager = ConnectionManager()
         rows_data = get_regime_distribution(
             start_date=start_date,
             end_date=end_date,
             regime_dim=regime_dim,
-            connection_manager=ConnectionManager(),
+            connection_manager=manager,
         )
+        latest_date = get_latest_regime_date(connection_manager=manager)
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail="regime.db not built yet")
 
@@ -790,6 +829,7 @@ async def regime_distribution(
         return RegimeDistributionResponse(
             success=True, rows=[], regime_dim=regime_dim,
             config_version=None, start_date=start_date, end_date=end_date,
+            latest_date=latest_date,
         )
 
     config_version = rows_data[0].get("config_version")
@@ -808,6 +848,7 @@ async def regime_distribution(
     return RegimeDistributionResponse(
         success=True, rows=out, regime_dim=regime_dim,
         config_version=config_version, start_date=start_date, end_date=end_date,
+        latest_date=latest_date,
     )
 
 

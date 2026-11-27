@@ -45,11 +45,12 @@ interface FetchState {
   loading: boolean;
   error: string | null;
   configVersion: string | null;
+  latestDate: string | null;
 }
 
 type FetchAction =
   | { type: 'start' }
-  | { type: 'success'; rows: RegimeDistributionRow[]; configVersion: string | null }
+  | { type: 'success'; rows: RegimeDistributionRow[]; configVersion: string | null; latestDate: string | null }
   | { type: 'error'; message: string };
 
 const initialFetchState: FetchState = {
@@ -57,6 +58,7 @@ const initialFetchState: FetchState = {
   loading: true,
   error: null,
   configVersion: null,
+  latestDate: null,
 };
 
 function fetchReducer(state: FetchState, action: FetchAction): FetchState {
@@ -64,7 +66,10 @@ function fetchReducer(state: FetchState, action: FetchAction): FetchState {
     case 'start':
       return { ...state, loading: true, error: null };
     case 'success':
-      return { rows: action.rows, loading: false, error: null, configVersion: action.configVersion };
+      return {
+        rows: action.rows, loading: false, error: null,
+        configVersion: action.configVersion, latestDate: action.latestDate,
+      };
     case 'error':
       return { ...state, loading: false, error: action.message, rows: [] };
     default:
@@ -82,7 +87,12 @@ export function RegimeDistributionPanel({ startDate, endDate, marketCode }: Prop
     fetchRegimeDistribution({ startDate, endDate, regimeDim })
       .then((res) => {
         if (cancelled) return;
-        dispatch({ type: 'success', rows: res.rows, configVersion: res.config_version });
+        dispatch({
+          type: 'success',
+          rows: res.rows,
+          configVersion: res.config_version,
+          latestDate: res.latest_date ?? null,
+        });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -136,7 +146,10 @@ export function RegimeDistributionPanel({ startDate, endDate, marketCode }: Prop
       {state.loading && <div className="text-xs text-gray-500">Loading…</div>}
       {state.error && <div className="text-xs text-red-600">Error: {state.error}</div>}
       {!state.loading && !state.error && chartData.length === 0 && (
-        <div className="text-xs text-gray-500">No data in range.</div>
+        <div className="text-xs text-gray-500">
+          No data in range.
+          {state.latestDate ? ` Regime labels are available up to ${state.latestDate}; newer dates have not been classified yet.` : ''}
+        </div>
       )}
       {!state.loading && !state.error && chartData.length > 0 && (
         <ResponsiveContainer width="100%" height={260}>

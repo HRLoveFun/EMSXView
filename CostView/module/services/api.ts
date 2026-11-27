@@ -612,6 +612,8 @@ interface RegimeDistributionResponse {
   config_version: string | null;
   start_date: string;
   end_date: string;
+  /** regime 标签的最新交易日（YYYY-MM-DD）；区间无数据时用于披露真实数据边界 */
+  latest_date?: string | null;
 }
 
 export async function fetchRegimeDistribution(params: {

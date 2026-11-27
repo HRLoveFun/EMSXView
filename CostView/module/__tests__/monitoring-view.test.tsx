@@ -181,8 +181,8 @@ describe('MonitoringView', () => {
     render(<MonitoringView />);
     await waitFor(() => expect(screen.getByText('监控交易日')).toBeInTheDocument());
     expect(screen.getByText('缺口日（可回补）')).toBeInTheDocument();
-    // 两个 API 均被调用
-    expect(mockFetchBdibHealth).toHaveBeenCalledWith({ last: 'month' });
+    // 两个 API 均被调用（默认监控范围为「最近交易日」，避免 month 扫描撞 25s 超时护栏）
+    expect(mockFetchBdibHealth).toHaveBeenCalledWith({ last: 'day' });
     expect(mockFetchMetricCoverage).toHaveBeenCalled();
 
     // 点击健康表行下钻缺口明细（日期文本在概览卡片/热力图/健康表三处出现，取健康表行）
@@ -197,7 +197,7 @@ describe('MonitoringView', () => {
     await waitFor(() => expect(screen.getByText('监控交易日')).toBeInTheDocument());
     // 默认按日（与引入粒度前的覆盖率口径一致）
     expect(mockFetchMetricCoverage).toHaveBeenLastCalledWith(
-      { last: 'month' }, expect.anything(), false, 'day',
+      { last: 'day' }, expect.anything(), false, 'day',
     );
 
     // 聚合粒度是分段控件：一次点击直接切换
@@ -205,7 +205,7 @@ describe('MonitoringView', () => {
 
     await waitFor(() => {
       expect(mockFetchMetricCoverage).toHaveBeenLastCalledWith(
-        { last: 'month' }, expect.anything(), false, 'week',
+        { last: 'day' }, expect.anything(), false, 'week',
       );
     });
   });

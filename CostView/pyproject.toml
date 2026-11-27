@@ -19,6 +19,9 @@ dependencies = [
     # src/evaluation/power.py 以正态近似闭式公式自实现（仅复用 scipy 分位数）。
     # numpy 由 scipy / pandas 传递带入（既有代码 data_access/config.py 已在用）。
     "scipy>=1.11",
+    # numpy 原先只作为 scipy / pandas 的传递依赖出现；评估层 bootstrap 现直接
+    # import numpy（向量化重采样），按「直接使用即直接声明」补齐。
+    "numpy>=1.24",
     "emsxview-platform-data",
     # 注：emsxview-datapipeline 已于 2026-09-16 移除——010-extract-pipeline 后管道
     # 迁至独立仓库 EMSXDataPipeline，CostView 为只读消费者且禁止 import

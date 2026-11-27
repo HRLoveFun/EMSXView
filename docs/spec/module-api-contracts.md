@@ -116,7 +116,7 @@
 | `/api/tca/scorecard` | POST | 评分卡查询 |
 | `/api/tca/recommendations/pin` | POST | 券商推荐 pin（写入 handoff，ExecutionView 经 `GET /api/broker-recommendations` 读取） |
 | `/api/tca/handoff/post-trade/{order_id}` | GET | 查看 ExecutionView → CostView post-trade handoff |
-| `/api/costview/regime-distribution` | GET | Regime 分布查询（`regime_dim` ∈ {vol_regime, liq_regime, trend_regime}；regime.db 未就绪返回 503） |
+| `/api/costview/regime-distribution` | GET | Regime 分布查询（`regime_dim` ∈ {vol_regime, liq_regime, trend_regime}；regime.db 未就绪返回 503；响应含 `latest_date` 披露当前配置下标签最新交易日） |
 
 ### 监控与报告
 
@@ -230,11 +230,18 @@
 | `pwp_5` ... `pwp_25` | `string \| float \| null` | 5/10/15/20/25 分钟 PWP |
 | `time_series` | `list[dict]` | 时序数据，供前端图表使用 |
 
-> **空结果语义（2026-09-21 整改）**：`total_orders=0` 有两种成因，端点严格区分——
+> **空结果语义（2026-09-21 整改，2026-11-28 补默认日回退）**：`total_orders=0`
+> 有两种成因，端点严格区分——
 > **筛选零匹配**（库内有数据、本次条件未命中）返回 **200** + 空 `orders`；
 > **数据未就绪**（库内完全无数据 / 默认日期未生成）返回 **503**，`error` 为
 > 业务降级文案 `[data_not_ready] ...`（见 `backend/api/errors.py` 白名单）。
 > 调用方须据状态码区分，不得把 200 空结果读作"数据缺失"，反之亦然。
+>
+> **默认日回退**：`/api/tca/analyze`、`/api/tca/scorecard`、
+> `/api/tca/evaluation/report` 在未显式指定日期/订单时，若名义默认日（上一工作日）
+> 尚无数据而库内存在更早的数据日，会**回退到库内最新数据日**并在响应 `filters`
+> 中回写该日期；仅当库内完全无数据时才返回 503。避免每天凌晨管道产出前
+> Overview / Analysis / Scorecard / Evaluation 四个默认落地页集体不可用。
 
 > **Schema 变更说明**：2026-07-15 重构后，`/api/tca/analyze` 从嵌套订单结构
 > (`TcaOrderSummary` → `TcaRouteDetail`) 迁移为扁平路由结构 (`TcaRouteSummary`)，
