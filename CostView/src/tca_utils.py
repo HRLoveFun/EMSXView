@@ -376,19 +376,73 @@ def aggregate_cohorts(
         p95_pnl = safe_percentile(abs_pnl, 95)
         stddev_pnl = std(abs_pnl)
 
-        avg_fill = mean_numeric([r.fill for r in group if r.fill is not None])
+        # 完成率（cohort 级）：Σfill / ΣRouteShares × 100（0-100 百分数）。
+        # 只纳入 fill 与 RouteShares 同时可用的路由，避免把缺失当 0。
+        fill_pairs = [
+            (r.fill, r.RouteShares) for r in group
+            if r.fill is not None and r.RouteShares is not None
+        ]
+        fill_sum = sum(float(f) for f, _ in fill_pairs)
+        shares_sum = sum(float(s) for _, s in fill_pairs)
+        avg_fill_pct = (fill_sum / shares_sum * 100.0) if shares_sum > 0 else None
+
+        # 参与率（区间）：par_rate_continuous 为 0-1 小数，×100 转百分数。
+        interval_values = [
+            r.par_rate_continuous * 100.0 for r in group
+            if r.par_rate_continuous is not None
+        ]
         avg_par_rate = mean_numeric(
             [r.par_rate for r in group if r.par_rate is not None]
         )
-        avg_par_rate_continuous = mean_numeric(
-            [r.par_rate_continuous for r in group if r.par_rate_continuous is not None]
-        )
-        avg_rpm = mean_numeric(
-            [r.RPM for r in group if r.RPM is not None]
-        )
-        avg_pnl_continuous = mean_numeric(
-            [abs(r.pnl_vwap_continuous) for r in group if r.pnl_vwap_continuous is not None]
-        )
+        avg_par_rate_continuous = mean_numeric(interval_values)
+
+        # ADV20 参与率：fill / adv_20d × 100（逐路由比值再平均；不可求和）。
+        adv_values = [
+            float(r.fill) / float(adv) * 100.0 for r in group
+            if r.fill is not None
+            and (adv := getattr(r, "adv_20d", None)) not in (None, 0)
+        ]
+        avg_adv_pct = mean_numeric(adv_values)
+
+        # 日波动率：直取 daily_volatility（年化百分数），不再用 RPM 代理。
+        vol_values = [
+            vol for r in group
+            if (vol := getattr(r, "daily_volatility", None)) is not None
+        ]
+        avg_daily_vol = mean_numeric(vol_values)
+
+        # 连续 PnL VWAP 绝对均值（bps）：保留原代理量，但不再冒充「日内波动率」。
+        cont_values = [
+            abs(cont) for r in group
+            if (cont := getattr(r, "pnl_vwap_continuous", None)) is not None
+        ]
+        avg_abs_pnl_continuous = mean_numeric(cont_values)
+
+        # 区间价格变动：|p_close / p_arrival − 1| × 100（逐路由再平均）。
+        move_values = [
+            abs(float(p_close) / float(p_arrival) - 1.0) * 100.0
+            for r in group
+            if (p_close := getattr(r, "p_close", None)) is not None
+            and (p_arrival := getattr(r, "p_arrival", None)) not in (None, 0)
+        ]
+        avg_price_move = mean_numeric(move_values)
+
+        def _coverage(n_used: int) -> dict[str, float | int | None]:
+            return {
+                "n_used": n_used,
+                "n_total": sample,
+                "pct": round(n_used / sample * 100.0, 2) if sample else None,
+            }
+
+        metric_coverage = {
+            "pnl_vwap": _coverage(len(abs_pnl)),
+            "fill_pct": _coverage(len(fill_pairs)),
+            "volume_pct_adv20": _coverage(len(adv_values)),
+            "volume_pct_interval": _coverage(len(interval_values)),
+            "daily_volatility": _coverage(len(vol_values)),
+            "abs_pnl_vwap_continuous": _coverage(len(cont_values)),
+            "price_movement_pct": _coverage(len(move_values)),
+        }
         # P3-3 / 211：cohort 内 BDIB 依赖指标（pnl_vwap）缺失路由的占比。
         # 211 起不再按 pnl_vwap/par_rate 预过滤，故该占比如实反映数据质量缺口，
         # 与 metric_coverage 的 bdib_cutoff 原因分类口径一致。
@@ -413,7 +467,7 @@ def aggregate_cohorts(
             flags.append("elevated_tracking_error")
         if p95_pnl is not None and p95_pnl >= 50:
             flags.append("tail_tracking_error")
-        if avg_fill is not None and avg_fill < 80:
+        if avg_fill_pct is not None and avg_fill_pct < 80:
             flags.append("low_fill_rate")
         if avg_par_rate is not None and avg_par_rate >= 0.10:
             flags.append("high_participation")
@@ -430,12 +484,17 @@ def aggregate_cohorts(
                 median_tracking_error_bps=median_pnl,
                 p95_tracking_error_bps=p95_pnl,
                 stddev_tracking_error_bps=stddev_pnl,
-                avg_fill_pct=avg_fill,
-                avg_volume_pct_interval=avg_par_rate_continuous * 100 if avg_par_rate_continuous is not None else None,
-                avg_volume_pct_adv20=avg_par_rate * 100 if avg_par_rate is not None else None,
-                avg_daily_volatility=avg_rpm * 100 if avg_rpm is not None else None,
-                avg_intraday_volatility=avg_pnl_continuous,
-                avg_price_movement_pct=None,
+                avg_fill_pct=avg_fill_pct,
+                avg_volume_pct_interval=avg_par_rate_continuous,
+                # 真 ADV20 参与率（fill/adv_20d）；区间参与率保留在上一字段
+                avg_volume_pct_adv20=avg_adv_pct,
+                avg_daily_volatility=avg_daily_vol,
+                # 真实日内波动率列当前不在 tca_route_summary，显式置空；
+                # 代理量改由 avg_abs_pnl_vwap_continuous_bps 承载。
+                avg_intraday_volatility=None,
+                avg_abs_pnl_vwap_continuous_bps=avg_abs_pnl_continuous,
+                avg_price_movement_pct=avg_price_move,
+                metric_coverage=metric_coverage,
                 data_quality_ratio=round(dq_ratio, 4),
                 sample_size_warning=sample_warn,
                 anomaly_flags=flags,

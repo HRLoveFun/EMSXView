@@ -3,7 +3,16 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { averageMetric, countAlertOrders, getHighestOrderSeverity, getSeverityText, getSeverityTone } from '../lib/thresholds';
+import {
+  averageMetric,
+  averageRouteValue,
+  countAlertOrders,
+  getHighestOrderSeverity,
+  getSeverityText,
+  getSeverityTone,
+  weightedPnlVwap,
+} from '../lib/thresholds';
+import { PNL_VWAP_LABELS, PNL_VWAP_SIGN_NOTE, PNL_VWAP_TOOLTIPS } from '../lib/metric-labels';
 import type { CostViewConfig, CostViewExportState, TcaReport } from '../types';
 import { RegimeDistributionPanel } from './RegimeDistributionPanel';
 
@@ -37,9 +46,12 @@ function formatRelativeTime(value: string | null): string | null {
 
 export function OverviewView({ config, error, exportState, isLoading, report, onGoToAnalysis, onOpenExport, onRefresh, onNavigateToDatabase }: OverviewViewProps) {
   const avgPnlVwap = report ? averageMetric(report.orders, 'pnl_vwap_bps') : null;
+  const weightedPnl = report ? weightedPnlVwap(report.orders) : null;
   const avgFill = report ? averageMetric(report.orders, 'fill_pct') : null;
   const avgParRate = report ? averageMetric(report.orders, 'volume_pct_adv20') : null;
-  const avgPnlVwapContinuous = report ? averageMetric(report.orders, 'intraday_volatility') : null;
+  const avgPnlVwapContinuous = report
+    ? averageRouteValue(report.orders, (route) => route.pnl_vwap_continuous)
+    : null;
   const alertCount = report ? countAlertOrders(report.orders, config) : 0;
   const recentRoutes = report?.orders.slice(0, 5) ?? [];
   const latestOrderDate = report?.orders.reduce<string | null>((acc, route) => {
@@ -138,13 +150,30 @@ export function OverviewView({ config, error, exportState, isLoading, report, on
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[{ label: 'Avg Pnl VWAP', value: avgPnlVwap != null ? `${avgPnlVwap.toFixed(1)} bps` : '—' }, { label: 'Avg Fill %', value: avgFill != null ? `${avgFill.toFixed(1)}%` : '—' }, { label: 'Avg Par Rate', value: avgParRate != null ? `${avgParRate.toFixed(2)}%` : '—' }, { label: 'Avg Pnl VWAP (Cont)', value: avgPnlVwapContinuous != null ? `${avgPnlVwapContinuous.toFixed(2)}%` : '—' }].map((metric) => (
+        {([
+          {
+            label: PNL_VWAP_LABELS.routeMean,
+            value: avgPnlVwap != null ? `${avgPnlVwap.toFixed(1)} bps` : '—',
+            hint: PNL_VWAP_TOOLTIPS.routeMean,
+            sub: weightedPnl != null
+              ? `参考：成交额加权 ${weightedPnl.toFixed(1)} bps`
+              : PNL_VWAP_SIGN_NOTE,
+          },
+          { label: 'Avg Fill %', value: avgFill != null ? `${avgFill.toFixed(1)}%` : '—' },
+          { label: 'Avg Par Rate', value: avgParRate != null ? `${avgParRate.toFixed(2)}%` : '—' },
+          {
+            label: PNL_VWAP_LABELS.continuousBps,
+            value: avgPnlVwapContinuous != null ? `${avgPnlVwapContinuous.toFixed(1)} bps` : '—',
+            hint: PNL_VWAP_TOOLTIPS.continuousBps,
+          },
+        ] as Array<{ label: string; value: string; hint?: string; sub?: string }>).map((metric) => (
           <Card key={metric.label}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">{metric.label}</CardTitle>
+              <CardTitle className="text-sm" title={metric.hint}>{metric.label}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-semibold">{metric.value}</div>
+              {metric.sub ? <p className="mt-1 text-xs text-muted-foreground">{metric.sub}</p> : null}
             </CardContent>
           </Card>
         ))}
