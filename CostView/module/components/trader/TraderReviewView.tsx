@@ -13,7 +13,8 @@ import {
 } from '../../services/api';
 import { traderRowKey } from '../../lib/trader-rows';
 import { INITIAL_TRADER_FILTERS, traderFiltersToQuery } from '../../lib/trader-filters';
-import type { CostViewModuleTab, TraderFilterState, TraderOrderRow } from '../../types';
+import { createDefaultCostViewConfig, thresholdsToPayload } from '../../lib/thresholds';
+import type { CostViewConfig, CostViewModuleTab, TraderFilterState, TraderOrderRow } from '../../types';
 import { AnomalySummary } from './AnomalySummary';
 import { CredibilityBanner } from './CredibilityBanner';
 import { OrderReviewCard } from './OrderReviewCard';
@@ -25,12 +26,19 @@ import { TraderEmptyState, TraderOrderList } from './TraderOrderList';
 type SelectedOrder = Pick<TraderOrderRow, 'order_id' | 'order_as_of_date'>;
 
 interface TraderReviewViewProps {
+  /** Configure 阈值（异常摘要与报表同源）；缺省时用前端默认规则 */
+  config?: CostViewConfig;
   /** 宿主 tab 切换（「查看全部」跳 Report）；缺省时该按钮禁用 */
   onNavigateTab?: (tab: CostViewModuleTab) => void;
 }
 
 /** 交易员复盘台（210 PR-3/4/5）：筛选 + KPI + 可信度横幅 + 异常摘要 + 列表 + 详情卡 */
-export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) {
+export function TraderReviewView({ config, onNavigateTab }: TraderReviewViewProps) {
+  // 默认规则只创建一次，避免无 config 时每次渲染生成新对象导致查询 key 抖动
+  const rules = useMemo(
+    () => config?.rules ?? createDefaultCostViewConfig().rules,
+    [config?.rules],
+  );
   const [filters, setFilters] = useState<TraderFilterState>(INITIAL_TRADER_FILTERS);
   const [selected, setSelected] = useState<SelectedOrder | null>(null);
   const [bucketMin, setBucketMin] = useState(5);
@@ -40,10 +48,18 @@ export function TraderReviewView({ onNavigateTab }: TraderReviewViewProps = {}) 
     'trader-filter-options',
     () => fetchTraderFilterOptions(),
   );
-  const queryKey = useMemo(() => JSON.stringify(traderFiltersToQuery(filters)), [filters]);
+  // 阈值随查询下发：Configure 修改后异常摘要与 Report 同步（不再固定用后端默认）
+  const query = useMemo(
+    () => ({
+      ...traderFiltersToQuery(filters),
+      thresholds: thresholdsToPayload(rules),
+    }),
+    [filters, rules],
+  );
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
   const orders = useAsyncData(
     queryKey,
-    () => fetchTraderOrders(traderFiltersToQuery(filters)),
+    () => fetchTraderOrders(query),
   );
   // 详情按「订单 + 日期 + 桶宽」取数；未选中时 key=null → 不请求
   const detailKey = selected

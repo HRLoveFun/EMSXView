@@ -15,6 +15,13 @@ from data_access.config import Config
 
 logger = logging.getLogger(__name__)
 
+
+def _rm():
+    """延迟导入 report_measure：monitoring 包会 import trader_query（report_aggregator），
+    顶层导入会形成循环；SQL 构建发生在运行期，此时模块已加载完成。"""
+    from .monitoring import report_measure as rm_module
+    return rm_module
+
 #: 排序白名单：sort 枚举 → SQL 列（用户输入只允许命中键名，不进 SQL 文本）
 SORT_COLUMNS: dict[str, str] = {
     "date": "order_as_of_date",
@@ -94,7 +101,8 @@ def _agg_select() -> str:
     该 max 行」的语义（MAX(r.fill) 与裸列同查），免去窗口函数与二次 JOIN；
     route_count / 多值计数为 GROUP BY 聚合（SQLite 不支持 COUNT(DISTINCT) OVER）。
     """
-    return """
+    rm = _rm()
+    return f"""
         SELECT r.OrderId, r.order_as_of_date,
                r.equ_ticker, r.Exchange AS exchange, r.Side AS side,
                r.StrategyType AS strategy_type, r.algo, r.Broker AS broker,
@@ -124,18 +132,8 @@ def _agg_select() -> str:
                SUM(CASE WHEN r.p_avg IS NOT NULL THEN r.fill * r.p_avg END)
                  / NULLIF(SUM(CASE WHEN r.p_avg IS NOT NULL THEN r.fill END), 0) AS vwap,
                SUM(CASE WHEN r.p_avg IS NOT NULL THEN r.fill * r.p_avg END) AS notional,
-               SUM(CASE WHEN r.arrival_cost_bps IS NOT NULL
-                         AND r.fill IS NOT NULL AND r.p_avg IS NOT NULL
-                        THEN r.arrival_cost_bps * r.fill * r.p_avg END)
-                 / NULLIF(SUM(CASE WHEN r.arrival_cost_bps IS NOT NULL
-                         AND r.fill IS NOT NULL AND r.p_avg IS NOT NULL
-                        THEN r.fill * r.p_avg END), 0) AS arrival_cost_bps,
-               SUM(CASE WHEN r.wagner_is_bps IS NOT NULL
-                         AND r.fill IS NOT NULL AND r.p_avg IS NOT NULL
-                        THEN r.wagner_is_bps * r.fill * r.p_avg END)
-                 / NULLIF(SUM(CASE WHEN r.wagner_is_bps IS NOT NULL
-                         AND r.fill IS NOT NULL AND r.p_avg IS NOT NULL
-                        THEN r.fill * r.p_avg END), 0) AS wagner_is_bps,
+               {rm.weighted_avg_sql("arrival_cost_bps")} AS arrival_cost_bps,
+               {rm.weighted_avg_sql("wagner_is_bps")} AS wagner_is_bps,
                -- 210 §4.11：订单级 pnl_vwap（按成交股数加权）供订单级阈值评估；
                -- pnl_vwap 是每股价差，权重用 fill 而非成交额（与路由级口径一致）
                SUM(CASE WHEN r.pnl_vwap IS NOT NULL AND r.fill IS NOT NULL
@@ -147,10 +145,11 @@ def _agg_select() -> str:
 
 def _outer_select() -> str:
     """外层：派生 completion 与质量旗标（与 trader_metrics.quality_flags 同界）。"""
-    return """
+    rm = _rm()
+    return f"""
         SELECT *,
                (n_strategy > 1 OR n_algo > 1 OR n_broker > 1 OR n_trader > 1) AS mixed,
-               CASE WHEN route_shares > 0 THEN fill * 1.0 / route_shares END AS completion,
+               {rm.completion_sql("fill", "route_shares")} AS completion,
                CASE WHEN fill > route_shares THEN 1 ELSE 0 END AS flag_overfill,
                CASE WHEN amount_shares IS NOT NULL
                      AND ABS(amount_shares - route_shares)

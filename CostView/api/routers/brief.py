@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -22,6 +23,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView Brief"])
 
 _DATE_PATTERN = r"^\d{8}$"
+
+
+def _parse_thresholds(raw: Optional[str]) -> Optional[dict[str, Any]]:
+    """解析前端 Configure 下发的阈值 JSON；None/空 → 后端默认阈值。"""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"thresholds 非法: {exc}")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="thresholds 必须是 JSON 对象")
+    return parsed
 
 
 class BriefResponse(BaseModel):
@@ -48,8 +62,13 @@ async def get_execution_brief(
     algo: Optional[str] = Query(None, max_length=200, description="algo，逗号分隔"),
     broker: Optional[str] = Query(None, max_length=200, description="Broker，逗号分隔"),
     top_n: int = Query(10, ge=1, le=50, description="Top 订单条数"),
+    thresholds: Optional[str] = Query(
+        None, description="JSON 阈值规则覆盖（与 Report 同契约；缺省用后端默认）",
+    ),
 ):
     """执行简报：订单级概览 / 买卖拆分 / 完成分桶 / 成本桥 / 异常 / 数据缺口。"""
+    # 在通用异常兜底之前完成解析，确保非法 JSON 仍返回 422（而非被转成 500）
+    rules = _parse_thresholds(thresholds)
     try:
         # 大区间（季度/年度）订单级聚合为同步重查询：卸载到线程池并受并发/超时护栏，
         # 避免阻塞事件循环（与 analyze / 交易员导出同一约定）。
@@ -58,7 +77,7 @@ async def get_execution_brief(
             start_date=start_date, end_date=end_date, last=last,
             trader=trader, ticker=ticker, exchange=exchange, side=side,
             strategy_type=strategy_type, algo=algo, broker=broker,
-            top_n=top_n,
+            top_n=top_n, thresholds=rules,
         )
     except QueryTimeoutError as exc:
         raise HTTPException(

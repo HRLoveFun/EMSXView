@@ -953,6 +953,35 @@ class TestTcaReportAggregator:
         )
         assert report["anomaly"]["count"] == 0
 
+    def test_anomaly_interval_intraday_and_price_move_rules(self, tmp_path: Path):
+        """连续参与率 / 连续盈亏 / RPM 三条规则必须能命中（此前 SELECT 未取列而永不触发）。"""
+        import sqlite3
+
+        db_path = tmp_path / "fill_bdib.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(_TCA_DDL)
+        _insert_route(
+            conn, "R1", "20260803",
+            par_rate=0.01, par_rate_continuous=0.40,
+            pnl_vwap=-1.0, pnl_vwap_continuous=500.0, RPM=2.0,
+            fill=900.0, RouteShares=1000.0, fill_count=3,
+        )
+        conn.commit()
+        conn.close()
+
+        cm = ConnectionManager(path_overrides={
+            "fill_bdib": db_path,
+            "processed_fills": tmp_path / "processed_fills.db",
+            "raw_bdib": tmp_path / "raw_bdib.db",
+        })
+        report = TcaReportAggregator(cm).build_report(
+            "20260803", "20260804", min_fill_count=0, min_notional_usd=0,
+        )
+        row = next((r for r in report["anomaly"]["rows"] if r["order_id"] == "R1"), None)
+        assert row is not None
+        keys = {h["key"] for h in row["hits"]}
+        assert {"volume_pct_interval", "intraday_volatility", "price_movement_pct"} <= keys
+
     def test_anomaly_empty_on_missing_table(self, tmp_path: Path):
         empty_mgr = ConnectionManager(path_overrides={
             "fill_bdib": tmp_path / "fill_bdib.db",  # 空库无表

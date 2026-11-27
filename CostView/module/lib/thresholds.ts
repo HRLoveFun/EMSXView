@@ -304,6 +304,22 @@ export function formatAnomalyFlag(flag: string): string {
   }
 }
 
+/** 阈值规则 → 后端 / Trader / Brief 共用的请求 payload（唯一序列化实现）。 */
+export function thresholdsToPayload(
+  rules: CostViewConfig['rules'],
+): Record<string, { mode: ThresholdRule['mode']; warning: number; critical: number; enabled: boolean }> {
+  const payload: Record<string, { mode: ThresholdRule['mode']; warning: number; critical: number; enabled: boolean }> = {};
+  for (const rule of Object.values(rules)) {
+    payload[rule.key] = {
+      mode: rule.mode,
+      warning: rule.warning,
+      critical: rule.critical,
+      enabled: rule.enabled,
+    };
+  }
+  return payload;
+}
+
 /** 后端阈值 payload（ADR-0018 双档；threshold 为 ADR-0015 单档遗留写法，兼容读取） */
 interface BackendThresholdRule {
   mode: ThresholdRule['mode'];

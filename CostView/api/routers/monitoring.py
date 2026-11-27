@@ -40,11 +40,13 @@ from CostView.src.monitoring import (
     export_anomaly_rows_csv,
     fetch_latest_tca_date,
     get_default_thresholds,
+    get_filter_options,
     get_health_safe,
     render_report_html,
     resolve_scope,
     resolve_time_range,
 )
+from CostView.src.monitoring import report_measure as rm
 from CostView.src.tca_cache import TcaCacheManager
 # 027：报告内嵌评估章节的编排入口（与 /api/tca/evaluation/report 同一实现）
 from CostView.src.tca_query_service import TcaFilters, TcaQueryService
@@ -307,6 +309,35 @@ async def get_report_summary(
         else f"报告聚合完成：{kpi.get('route_count', 0)} 条路由"
     )
     return MonitoringResponse(success=True, data=data, message=message)
+
+
+@router.get("/api/tca/monitoring/report-filter-options", response_model=MonitoringResponse)
+async def get_report_filter_options():
+    """报告筛选下拉（时间无关的全量目录）。
+
+    Report 页首屏需要「不受 exchange 过滤」的完整选项；此前通过再发一次
+    report-summary（删除 exchange）获取，导致 KPI / 覆盖率 / 异常全量重算。
+    本端点只读维度表（不可用时返回空清单，由前端保持上次选项）。
+    """
+    try:
+        options = get_filter_options()
+    except Exception as exc:  # noqa: BLE001 - 下拉不可得不应阻断报告主体
+        logger.warning("报告筛选选项读取失败: %s", exc)
+        options = None
+    if options is None:
+        return MonitoringResponse(
+            success=True,
+            data={"brokers": [], "algos": [], "symbols": [], "exchanges": []},
+            message="筛选维度表不可用",
+        )
+    # 与报告统计范围一致：市场下拉裁剪到 BDIB 白名单
+    whitelist = set(rm.bdib_whitelist())
+    options = dict(options)
+    options["exchanges"] = [
+        str(ex) for ex in options.get("exchanges") or []
+        if str(ex).strip().upper() in whitelist
+    ]
+    return MonitoringResponse(success=True, data=options, message="报告筛选选项")
 
 
 @router.get("/api/tca/monitoring/anomaly-thresholds", response_model=MonitoringResponse)

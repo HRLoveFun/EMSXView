@@ -43,6 +43,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   strategy: '算法',
   broker_strategy: '券商 × 算法',
   asset_class: '资产类别',
+  intent_family: '意图 × 算法族',
   time_of_day: '交易时段',
   liquidity_adv20: '流动性（ADV20）',
   volatility: '波动率',

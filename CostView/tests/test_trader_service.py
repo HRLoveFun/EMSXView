@@ -418,6 +418,26 @@ class TestAnomalySummaryPayload:
         assert payload["kpi"]["anomaly_orders"]["value"] == summary["orders_total"]
         assert payload["probes"]["spec_version"] == "2026.11.04"
 
+    def test_configured_thresholds_override_defaults(self, tmp_path) -> None:
+        """Configure 下发的阈值必须作用于 Trader 异常摘要（不再固定用后端默认）。"""
+        mgr = make_manager(tmp_path, [
+            {"OrderId": "LOW", "fill": 500.0, "par_rate": 0.01},
+            {"OrderId": "FULL", "fill": 1000.0, "par_rate": 0.01},
+        ])
+        filters = TraderFilters(start_date="20261022", end_date="20261022")
+        relaxed = {
+            "fill_pct": {"mode": "below", "warning": 10, "critical": 5, "enabled": True},
+            "volume_pct_adv20": {"mode": "above", "warning": 50, "critical": 80, "enabled": True},
+            "pnl_vwap_bps": {"mode": "absolute-above", "warning": 50, "critical": 80, "enabled": True},
+            "overfill_pct": {"mode": "above-strict", "warning": 200, "critical": 300, "enabled": True},
+        }
+        summary = trader_service.build_order_page(
+            filters, mgr=mgr, thresholds=relaxed,
+        )["anomaly_summary"]
+
+        assert summary["orders_total"] == 0
+        assert summary["by_rule"] == []
+
     def test_order_level_skips_route_only_metrics(self, tmp_path) -> None:
         """区间/逐笔类规则在订单层不评估：不会因缺字段而误报或崩溃。"""
         mgr = make_manager(tmp_path, [
@@ -485,7 +505,8 @@ class TestReconcileWithAnalyzeOrders:
             assert row["route_count"] == agg.route_count
             assert row["fill"] == pytest.approx(agg.fill)
             assert row["route_shares"] == pytest.approx(agg.route_shares)
-            assert row["completion"] == pytest.approx(agg.par_rate)
+            # 订单级完成率统一由 fill_pct（0-100）承载；par_rate 仅表示参与率
+            assert row["completion"] == pytest.approx(agg.fill_pct / 100.0)
             assert row["arrival_cost_bps"] == pytest.approx(agg.arrival_cost_bps)
             assert row["wagner_is_bps"] == pytest.approx(agg.wagner_is_bps)
             assert row["opportunity_cost"] == pytest.approx(agg.opportunity_cost)

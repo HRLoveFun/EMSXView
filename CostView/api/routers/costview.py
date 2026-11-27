@@ -932,6 +932,7 @@ def _serialize_order_aggregate(order: TcaOrderAggregate) -> dict:
         "perm_impact_bps": order.perm_impact_bps,
         "fill": order.fill,
         "route_shares": order.route_shares,
+        "fill_pct": order.fill_pct,
         "par_rate": order.par_rate,
         "cost_stddev": order.cost_stddev,
         "cost_p95": order.cost_p95,

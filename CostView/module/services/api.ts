@@ -268,6 +268,20 @@ function joinFilter(value: string | string[] | undefined): string | undefined {
   return value;
 }
 
+/** 报告筛选选项（时间无关、不受当前 exchange 过滤）；替代首屏二次 report-summary。 */
+export interface ReportFilterOptions {
+  brokers: string[];
+  algos: string[];
+  symbols: string[];
+  exchanges?: string[];
+}
+
+export async function fetchReportFilterOptions(): Promise<ReportFilterOptions> {
+  return fetchMonitoringJson<ReportFilterOptions>(
+    `${API_BASE_URL}/api/tca/monitoring/report-filter-options`,
+  );
+}
+
 export async function fetchTcaReportSummary(query: ReportSummaryQuery): Promise<TcaReportSummary> {
   const extra: Record<string, string> = {};
   const broker = joinFilter(query.broker);
@@ -398,6 +412,8 @@ export interface TraderListQuery {
   sortDir?: string;
   limit?: number;
   offset?: number;
+  /** Configure 阈值覆盖（与 Report 同契约；缺省用后端默认） */
+  thresholds?: Record<string, ExportHtmlThresholdPayload>;
 }
 
 /** 组装 /api/tca/trader/* 查询串（多值维度逗号拼接，与后端 parse_multi 对齐）。
@@ -428,6 +444,9 @@ function buildTraderUrl(
   if (query.limit != null) params.set('limit', String(query.limit));
   if (query.offset != null) params.set('offset', String(query.offset));
   if (query.tickerPrefix) params.set('ticker_prefix', query.tickerPrefix);
+  if (query.thresholds && Object.keys(query.thresholds).length) {
+    params.set('thresholds', JSON.stringify(query.thresholds));
+  }
   for (const [key, value] of Object.entries(extra ?? {})) {
     if (value) params.set(key, value);
   }
@@ -538,6 +557,8 @@ export interface ExecutionBriefQuery {
   algo?: string[];
   broker?: string[];
   topN?: number;
+  /** Configure 阈值覆盖（与 Report 同契约；缺省用后端默认） */
+  thresholds?: Record<string, ExportHtmlThresholdPayload>;
 }
 
 /** GET /api/tca/brief：订单级执行摘要（概览 / 买卖 / 完成分桶 / 成本 / 异常）。 */
@@ -557,6 +578,9 @@ export async function fetchExecutionBrief(
     if (value) extra[key] = value;
   }
   if (query.topN != null) extra.top_n = String(query.topN);
+  if (query.thresholds && Object.keys(query.thresholds).length) {
+    extra.thresholds = JSON.stringify(query.thresholds);
+  }
   const period = query.preset === 'custom'
     ? {
         startDate: query.startDate?.replace(/-/g, ''),

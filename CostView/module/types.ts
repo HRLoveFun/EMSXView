@@ -196,6 +196,9 @@ export interface TcaOrderAggregate {
   perm_impact_bps: number | null;
   fill: number | null;
   route_shares: number | null;
+  /** 订单级完成率百分比（0-100）：Σfill / ΣRouteShares × 100 */
+  fill_pct?: number | null;
+  /** 订单级参与率（0-1）：组内最大路由 par_rate；多路由不可求和 */
   par_rate: number | null;
   cost_stddev: number | null;
   cost_p95: number | null;
@@ -221,6 +224,9 @@ export type ScorecardCohort =
   | 'strategy'
   | 'broker_strategy'
   | 'asset_class'
+  /** 后端 SCORECARD_COHORTS 含该维度；因 TcaRouteSummary 暂无 intent 字段，
+   *  当前实际恒为 UNKNOWN|family，Scorecard 选择器暂不暴露，Evaluation 仍会返回。 */
+  | 'intent_family'
   | 'time_of_day'
   | 'liquidity_adv20'
   | 'volatility';

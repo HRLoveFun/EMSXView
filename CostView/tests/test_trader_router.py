@@ -67,6 +67,14 @@ class TestOrdersEndpoint:
         assert {o["order_id"] for o in data["orders"]} == {"LN1", "HK1"}
         assert data["filters"]["exchange"] == ["LN", "HK"]
 
+    def test_invalid_thresholds_json_is_422(self, client):
+        """阈值 JSON 非法时返回 422，不被通用异常兜底转成 500。"""
+        response = client.get(
+            "/api/tca/trader/orders",
+            params={"thresholds": "{not-json"},
+        )
+        assert response.status_code == 422
+
     def test_invalid_enum_is_422(self, client):
         for params in (
             {"quality": "bad"},
