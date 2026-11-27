@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -47,7 +48,7 @@ from CostView.src.monitoring import (
     resolve_time_range,
 )
 from CostView.src.monitoring import report_measure as rm
-from CostView.src.tca_cache import TcaCacheManager
+from CostView.src.tca_cache import SingleFlight, TcaCacheManager
 # 027：报告内嵌评估章节的编排入口（与 /api/tca/evaluation/report 同一实现）
 from CostView.src.tca_query_service import TcaFilters, TcaQueryService
 
@@ -55,6 +56,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["CostView Monitoring"])
 
 _cache = TcaCacheManager()
+# 同 key 并发请求合并：避免缓存未命中时多个浏览器请求各自全量重算
+_single_flight = SingleFlight()
 _analytics = TcaQueryService()
 
 _DATE_PATTERN = r"^\d{8}$"
@@ -129,16 +132,8 @@ def _report_cache_params(
     }
 
 
-async def _build_report_cached(params: dict) -> tuple[dict, bool]:
-    """带缓存的报告聚合构建（P3-5）。
-
-    export-html 与 report-summary 复用同一缓存 key：导出内容与页面视图
-    口径一致，重复导出不再重复全量计算。返回 (data, from_cache)。
-    """
-    cache_key = TcaCacheManager.make_key("monitoring:report-summary", params)
-    cached = await _cache.get(cache_key)
-    if cached is not None:
-        return cached, True
+def _build_report_sync(params: dict) -> dict:
+    """同步构建报告聚合 + 评估章节（供工作线程调用，禁止在事件循环直跑）。"""
     data = TcaReportAggregator().build_report(
         params["start"], params["end"],
         broker=params["broker"], algo=params["algo"], symbol=params["symbol"],
@@ -161,8 +156,31 @@ async def _build_report_cached(params: dict) -> tuple[dict, bool]:
             broker=params["broker"], algo=params["algo"], symbol=params["symbol"],
         ),
     )
-    await _cache.set(cache_key, data)
-    return data, False
+    return data
+
+
+async def _build_report_cached(params: dict) -> tuple[dict, bool]:
+    """带缓存 + 并发合并的报告聚合构建（P3-5）。
+
+    export-html 与 report-summary 复用同一缓存 key：导出内容与页面视图
+    口径一致，重复导出不再重复全量计算。返回 (data, from_cache)。
+
+    聚合是同步 SQLite 全量扫描：放工作线程执行，事件循环不被占用——
+    否则重查询期间 /api/health 等存活探针整体停摆（2026-11-27 事故）。
+    同 key 并发未命中由 _single_flight 合并为一次计算。
+    """
+    cache_key = TcaCacheManager.make_key("monitoring:report-summary", params)
+    cached = await _cache.get(cache_key)
+    if cached is not None:
+        return cached, True
+
+    async def _compute() -> dict:
+        data = await asyncio.to_thread(_build_report_sync, params)
+        await _cache.set(cache_key, data)
+        return data
+
+    data, executed = await _single_flight.run(cache_key, _compute)
+    return data, not executed
 
 
 # ── 端点 ──────────────────────────────────────────────────────────────────
@@ -183,8 +201,18 @@ async def get_bdib_health(
     if cached is not None:
         return MonitoringResponse(success=True, data=cached, message="BDIB 健康（缓存）")
 
+    async def _scan() -> dict:
+        # get_health_safe 内部 join 最长 25s，必须放工作线程；同 key 并发合并
+        data = await asyncio.to_thread(
+            get_health_safe, tr.start_date, tr.end_date,
+            health_service=BdibHealthService,
+        )
+        if data.get("status") != "skipped":
+            await _cache.set(cache_key, data)
+        return data
+
     try:
-        data = get_health_safe(tr.start_date, tr.end_date, health_service=BdibHealthService)
+        data, _ = await _single_flight.run(cache_key, _scan)
     except Exception as exc:
         logger.error("BDIB 健康扫描失败: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"BDIB 健康扫描错误: {exc}")
@@ -208,7 +236,6 @@ async def get_bdib_health(
             },
         )
 
-    await _cache.set(cache_key, data)
     summary = data["summary"]
     return MonitoringResponse(
         success=True,
@@ -243,18 +270,23 @@ async def get_metric_coverage(
     if cached is not None:
         return MonitoringResponse(success=True, data=cached, message="指标覆盖率（缓存）")
 
-    try:
-        data = MetricCoverageService().get_coverage(
+    async def _compute() -> dict:
+        data = await asyncio.to_thread(
+            MetricCoverageService().get_coverage,
             tr.start_date, tr.end_date, selected, group_by_exchange,
             granularity=granularity,
         )
+        await _cache.set(cache_key, data)
+        return data
+
+    try:
+        data, _ = await _single_flight.run(cache_key, _compute)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         logger.error("指标覆盖率统计失败: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"指标覆盖率统计错误: {exc}")
 
-    await _cache.set(cache_key, data)
     return MonitoringResponse(
         success=True, data=data,
         message=f"{len(data['rows'])} 个分组 × {len(data['metrics'])} 个指标",
@@ -401,9 +433,12 @@ async def export_tca_html(
             )
         )
         # D16 交付闭环：全量异常明细落盘为 CSV，与 HTML 打包（脚注承诺兑现）
-        csv_path = _export_anomaly_csv_for_html(report)
-        health = _load_health_appendix(
-            tr.start_date, tr.end_date, today=_parse_as_of(tr.as_of_date),
+        # 落盘与健康扫描（join 最长 12s）均为同步 IO，放工作线程避免阻塞事件循环
+        csv_path = await asyncio.to_thread(_export_anomaly_csv_for_html, report)
+        health = await asyncio.to_thread(
+            _load_health_appendix,
+            tr.start_date, tr.end_date,
+            today=_parse_as_of(tr.as_of_date),
             scope=resolve_scope(exchange),
         )
     except ValueError as exc:
@@ -421,7 +456,9 @@ async def export_tca_html(
             **report,
             "anomaly": {**report["anomaly"], "export_ref": csv_path.name},
         }
-        html = render_report_html(render_report, health, generated_at)
+        html = await asyncio.to_thread(
+            render_report_html, render_report, health, generated_at,
+        )
         bundle = io.BytesIO()
         with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(filename, html)
@@ -434,7 +471,7 @@ async def export_tca_html(
                 "Content-Disposition": f'attachment; filename="{zip_name}"',
             },
         )
-    html = render_report_html(report, health, generated_at)
+    html = await asyncio.to_thread(render_report_html, report, health, generated_at)
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",

@@ -108,3 +108,110 @@ def test_inmemory_fallback_remains_available():
     routes = asyncio.run(prov.load_routes())
     assert orders == []
     assert routes == []
+
+
+# ------------------------------------------------------------------
+#  Circuit breaker 三态（CLOSED → OPEN → HALF_OPEN）
+#  2026-11-27 事故回归：原实现只在进程启动清零，一次连接池耗尽即永久
+#  锁在内存回退态，必须重启才恢复落盘。
+# ------------------------------------------------------------------
+
+class _FakeClock:
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _tripped_provider(threshold: int = 3, cooldown: float = 30.0):
+    """构造一个已熔断的 provider（假时钟，便于推进冷却窗口）。"""
+    prov = RepositoryProvider(enabled=True)
+    prov.mark_db_ready(True)
+    clock = _FakeClock()
+    prov._clock = clock
+    prov._max_write_errors = threshold
+    prov._circuit_cooldown = cooldown
+    for _ in range(threshold):
+        prov._record_failure("persist_order", RuntimeError("pool exhausted"))
+    return prov, clock
+
+
+def test_success_resets_consecutive_failure_count():
+    prov = RepositoryProvider(enabled=True)
+    prov.mark_db_ready(True)
+    prov._max_write_errors = 3
+
+    prov._record_failure("persist_order", RuntimeError("once"))
+    prov._record_failure("persist_route", RuntimeError("twice"))
+    assert prov.write_error_count == 2
+    assert prov.is_active, "未达阈值不应熔断"
+
+    prov._record_success()
+    assert prov.write_error_count == 0
+    assert prov.circuit_state == "closed"
+
+
+def test_circuit_opens_after_threshold():
+    prov, _ = _tripped_provider(threshold=3)
+    assert prov.circuit_state == "open"
+    assert prov.circuit_open is True
+    assert not prov.is_active
+    assert not prov._allow_write()
+
+
+def test_half_open_after_cooldown_allows_exactly_one_probe():
+    prov, clock = _tripped_provider(threshold=3, cooldown=30.0)
+    clock.now += 30.0
+
+    assert prov.circuit_state == "half_open"
+    # 调用方在 is_active 处的预检必须放行，否则探针永远到不了 provider
+    assert prov.is_active
+    assert prov._allow_write() is True
+    assert prov._allow_write() is False, "half_open 只允许一个在途探针"
+
+
+def test_half_open_probe_success_closes_circuit():
+    prov, clock = _tripped_provider(threshold=3, cooldown=30.0)
+    clock.now += 30.0
+    assert prov._allow_write() is True
+
+    prov._record_success()
+
+    assert prov.circuit_state == "closed"
+    assert prov.write_error_count == 0
+    assert prov.is_active
+
+
+def test_half_open_probe_failure_reopens_and_restarts_cooldown():
+    prov, clock = _tripped_provider(threshold=3, cooldown=30.0)
+    clock.now += 30.0
+    assert prov._allow_write() is True
+
+    prov._record_failure("persist_order", RuntimeError("still down"))
+
+    assert prov.circuit_state == "open"
+    assert prov._circuit_opened_at == clock.now, "探针失败应重新计时冷却窗口"
+
+
+def test_open_window_is_not_extended_by_late_failures():
+    """OPEN 期间（如已发放的写请求陆续超时）不得刷新打开时刻。"""
+    prov, clock = _tripped_provider(threshold=3, cooldown=30.0)
+    opened_at = prov._circuit_opened_at
+    clock.now += 10.0
+
+    prov._record_failure("persist_route", RuntimeError("late timeout"))
+
+    assert prov._circuit_opened_at == opened_at
+    assert prov.circuit_state == "open"
+
+
+def test_mark_db_ready_resets_open_circuit():
+    prov, _ = _tripped_provider(threshold=3)
+    assert prov.circuit_state == "open"
+
+    prov.mark_db_ready(True)
+
+    assert prov.circuit_state == "closed"
+    assert prov.write_error_count == 0
+    assert prov.is_active

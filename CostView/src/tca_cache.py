@@ -32,7 +32,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,61 @@ class LRUCache:
     def stats(self) -> dict:
         with self._lock:
             return {"size": len(self._cache), "max_size": self._max_size}
+
+
+class SingleFlight:
+    """同 key 的并发计算合并（cache-miss 风暴护栏）。
+
+    多个请求在同一缓存 key 上同时未命中时，旧实现各自全量重算；重查询
+    叠加会把运营库连接池打满（2026-11-27 事故）。此处只让第一个调用真正
+    执行 factory，其余等待并复用同一结果。
+
+    只在单事件循环内使用：检查与登记之间没有 await，天然原子。
+    """
+
+    def __init__(self) -> None:
+        self._inflight: dict[str, "_Flight"] = {}
+
+    async def run(
+        self,
+        key: str,
+        factory: Callable[[], Awaitable[Any]],
+    ) -> tuple[Any, bool]:
+        """返回 (结果, 是否由本协程执行)；factory 为无参异步可调用。"""
+        flight = self._inflight.get(key)
+        if flight is not None:
+            await flight.event.wait()
+            if flight.error is not None:
+                if isinstance(flight.error, asyncio.CancelledError):
+                    # 发起方被取消不应连坐等待者：重新成为 owner 再算一次
+                    return await self.run(key, factory)
+                raise flight.error
+            return flight.result, False
+
+        flight = _Flight()
+        self._inflight[key] = flight
+        try:
+            result = await factory()
+        except BaseException as exc:  # noqa: BLE001 - 失败结果需广播给等待者
+            flight.error = exc
+            raise
+        else:
+            flight.result = result
+            return result, True
+        finally:
+            flight.event.set()
+            self._inflight.pop(key, None)
+
+
+class _Flight:
+    """一次在途计算：结果/异常 + 完成信号。"""
+
+    __slots__ = ("event", "result", "error")
+
+    def __init__(self) -> None:
+        self.event = asyncio.Event()
+        self.result: Any = None
+        self.error: Optional[BaseException] = None
 
 
 class TcaCacheManager:

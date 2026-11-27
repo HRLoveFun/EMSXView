@@ -176,6 +176,11 @@ powershell -ExecutionPolicy Bypass -File "service-manager.ps1" start -Environmen
 | `EMSXVIEW_HANDOFF_BACKEND` | handoff 后端（`memory` / `redis`） | `memory` |
 | `EMSXVIEW_REDIS_URL` | Redis 连接串（handoff / 缓存） | `redis://localhost:6379/0` |
 | `ENABLE_DB_PERSISTENCE` | 运营库订单/路由持久化开关（关闭时内存 fallback；默认 SQLite，路径见 `EMSXVIEW_OPS_DB_DIR`，显式设 `DATABASE_URL` 可走 PostgreSQL，见 [ADR-0022](../spec/adr/0022-operational-db-sqlite.md)） | `false` |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | SQLAlchemy 连接池常驻 / 溢出台数；写突发（EMSX 批量订单/路由）与重查询并发时防池饥饿（2026-11-27 事故） | `10` / `20` |
+| `DB_POOL_TIMEOUT_SECONDS` | 取连接等待上限；超时快速失败而非挂满 30s | `10` |
+| `DB_WRITE_ERROR_THRESHOLD` | 写熔断阈值（**连续**失败；任一次写成功即清零） | `10` |
+| `DB_CIRCUIT_COOLDOWN_SECONDS` | 写熔断打开后的冷却窗口；到期进入 half-open 放行单个探针，成功即闭合 | `30` |
+| `HEALTH_DB_TIMEOUT_SECONDS` | `/api/health` 的 DB 探测等待上限；池忙时快速报 `disconnected`，避免外部 5s 告警探针误报 `BACKEND_UNREACHABLE` | `2` |
 | `EMSXVIEW_DECISION_LOG_ENABLED` | 影子决策日志写入 `routing_decisions`（DL-21）；生产节点二落地为 `true` | `false` |
 | `EMSXVIEW_SHADOW_RUN_ENABLED` | 订单到达/启动恢复时运行影子引擎并落决策（DL-22）；生产节点二落地为 `true` | `false` |
 | `EMSXVIEW_OPS_DB_DIR` | 运营库目录（仓库外，未设取 `~/.emsxview/ops`，ADR-0022） | 空 |
@@ -225,7 +230,11 @@ curl <API_BASE_URL>/api/health
       },
       "database": {
          "status": "disabled|connected|disconnected",
-         "message": "DB persistence disabled|connected|<error>"
+         "message": "DB persistence disabled|connected|<error>",
+         "write_errors": 0,
+         "max_write_errors": 10,
+         "circuit_open": false,
+         "circuit_state": "closed|open|half_open"
       }
   }
 }
@@ -235,6 +244,11 @@ curl <API_BASE_URL>/api/health
 
 - 当 ENABLE_DB_PERSISTENCE=false 时，database.status 为 disabled，这是正常状态。
 - 当前健康检查的核心含义是“服务可用 + Bloomberg 连接状态可见”，不是“本地必须连上 PostgreSQL”。
+- `write_errors` 为**连续**写失败计数；`circuit_state=open` 表示写回退内存（不落盘），
+  `half_open` 表示冷却结束、正在用单个探针复位（无需重启）。打开后每
+  `DB_CIRCUIT_COOLDOWN_SECONDS` 自动尝试恢复。
+- DB 探测受 `HEALTH_DB_TIMEOUT_SECONDS` 约束：连接池被写突发占满时快速返回
+  `disconnected`，不会拖垮健康端点（外部告警探针预算 5s）。
 
 ### Frontend Health
 ```bash
@@ -469,6 +483,7 @@ For issues or questions:
 | 报告导出时 BDIB 健康扫描超时/异常 | 附录降级为**跳过**，报告主体照常生成（`monitoring/bdib_health.py`，守护线程 + 超时控制） | 导出的 HTML 缺 BDIB 缺口附录 + WARNING 日志 |
 | CostView 查询缓存 Redis 连接失败 | 降级为**直连查询**（`tca_cache.py` get/set 处 try/except） | 响应变慢，无数据差异 |
 | Bloomberg 会话未连接 / DB 断开 | `GET /api/health` 返回 `success=false` + 组件状态串 | 健康检查响应 + `bloomberg=..., database=...` 消息 |
+| 运营库连接池瞬时耗尽（写突发 + 重查询并发） | 写熔断：连续失败达阈值 → 暂停落盘（内存继续）；冷却后 half-open 单探针自动复位，无需重启。`/api/health` 的 DB 探测 2s 超时降级，不拖垮存活探针 | `/api/health` 的 `database.write_errors` / `circuit_state`；WARNING `persist_* failed (err#N)` |
 | `ENABLE_DB_PERSISTENCE=false` | RepositoryProvider 回退**内存存储**（重启即失） | 无持久化，重启数据丢失 |
 | 数据管道 Runner 不可达 / 已在运行 | 代理返回失败 / `pipeline already running`（§3.2） | `ApiResponse.error` 字段 |
 | `TCA_ORDER_AGG_ENABLED=0` | `/api/tca/analyze-orders` 返回**空列表** | 订单聚合页无数据 + `capabilities` 端点可见开关状态 |
